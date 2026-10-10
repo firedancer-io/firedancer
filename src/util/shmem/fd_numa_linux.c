@@ -4,24 +4,23 @@
 #include "../sanitize/fd_msan.h"
 #include <errno.h>
 #include <dirent.h>
-#include <sys/sysinfo.h>
 
 /* The below uses the sysfs API added ~2009-Dec.  See
    https://github.com/torvalds/linux/commit/1830794ae6392ce12d36dbcc5ff52f11298ddab6 */
 
-/* fd_numa_private_parse_node_idx parses a cstr of the form
-   `node[0-9]+` into a node idx.  The value will strictly interpreted as
+/* fd_numa_private_parse_idx parses a cstr of the form
+   `prefix[0-9]+` into an index.  The value is strictly interpreted as
    a non-negative base 10 value.  Returns -1 if the value could not be
-   parsed (e.g. s is NULL, s does not have a node prefix, s does not
-   have a base 10 suffix, the value overflows an int representation).
-   FIXME: consider having the user pass the prefix to scan for to allow
-   extracting more general indices from sysfs paths. */
+   parsed (e.g. s is NULL, s does not have the prefix, s does not
+   have a base 10 suffix, the value overflows an int representation). */
 
 FD_FN_PURE static int
-fd_numa_private_parse_node_idx( char const * s ) {
+fd_numa_private_parse_idx( char const * s,
+                           char const * prefix,
+                           ulong        prefix_len ) {
   if( FD_UNLIKELY( !s ) ) return -1;
-  if( FD_UNLIKELY( strncmp( s, "node", 4UL ) ) ) return -1;
-  s += 4;
+  if( FD_UNLIKELY( strncmp( s, prefix, prefix_len ) ) ) return -1;
+  s += prefix_len;
 
   long val = 0L;
 
@@ -59,7 +58,7 @@ fd_numa_node_cnt( void ) {
   for(;;) {
     struct dirent * dirent = readdir( dir );
     if( !dirent ) break;
-    node_idx_max = fd_int_max( fd_numa_private_parse_node_idx( dirent->d_name ), node_idx_max );
+    node_idx_max = fd_int_max( fd_numa_private_parse_idx( dirent->d_name, "node", 4UL ), node_idx_max );
   }
 
   /* Close dir and return what was found */
@@ -78,16 +77,34 @@ fd_numa_node_cnt( void ) {
 ulong
 fd_numa_cpu_cnt( void ) {
 
-  /* FIXME: Consider using get_nprocs_conf, syscall or sysfs director
-     scan. */
+  /* CPU IDs remain present in sysfs when taken offline.  The shared
+     memory topology is indexed by CPU ID, so its bound must include
+     these CPUs rather than count only the online CPUs.  Scanning cpuN
+     directories also excludes merely possible, not present CPUs. */
 
-  int cpu_cnt = get_nprocs();
-  if( FD_UNLIKELY( cpu_cnt<=0 ) ) {
-    FD_LOG_WARNING(( "Unexpected return (%i) from get_nprocs", cpu_cnt ));
+  char const * path = "/sys/devices/system/cpu";
+  DIR *        dir  = opendir( path );
+  if( FD_UNLIKELY( !dir ) ) {
+    FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return 0UL;
   }
 
-  return (ulong)cpu_cnt;
+  int cpu_idx_max = -1;
+  for(;;) {
+    struct dirent * dirent = readdir( dir );
+    if( !dirent ) break;
+    cpu_idx_max = fd_int_max( fd_numa_private_parse_idx( dirent->d_name, "cpu", 3UL ), cpu_idx_max );
+  }
+
+  if( FD_UNLIKELY( closedir( dir ) ) )
+    FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( cpu_idx_max<0 ) ) {
+    FD_LOG_WARNING(( "No CPUs found in \"%s\"", path ));
+    return 0UL;
+  }
+
+  return ((ulong)cpu_idx_max) + 1UL;
 }
 
 ulong
@@ -108,7 +125,7 @@ fd_numa_node_idx( ulong cpu_idx ) {
   for(;;) {
     struct dirent * dirent = readdir( dir );
     if( !dirent ) break;
-    node_idx = fd_numa_private_parse_node_idx( dirent->d_name );
+    node_idx = fd_numa_private_parse_idx( dirent->d_name, "node", 4UL );
     if( node_idx!=-1 ) break;
   }
 

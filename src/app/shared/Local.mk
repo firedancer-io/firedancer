@@ -3,6 +3,10 @@ ifdef FD_HAS_LINUX
 
 $(call make-lib,fdctl_shared)
 
+# Drop unused configure functions from this isolated topology regression.
+$(OBJDIR)/obj/app/shared/test_cpu_topology.o: CFLAGS+=-ffunction-sections -fvisibility=hidden
+$(call make-unit-test,test_cpu_topology,test_cpu_topology commands/configure/fd_ethtool_ioctl,fd_util,-Wl$(comma)--gc-sections -Wl$(comma)--wrap=ioctl -Wl$(comma)--wrap=get_nprocs)
+
 $(call add-objs,fd_bootinfo,fdctl_shared)
 $(call add-objs,fd_config fd_config_parse fd_auto_net fd_config_json,fdctl_shared)
 $(call add-objs,fd_obj_callbacks,fdctl_shared)

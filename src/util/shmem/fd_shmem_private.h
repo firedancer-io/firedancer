@@ -26,9 +26,9 @@ FD_PROTOTYPES_BEGIN
 
 /* NUMA backend ******************************************************/
 
-/* fd_numa_node_cnt / fd_numa_cpu_cnt determines the current number of
-   configured numa nodes / cpus (roughly equivalent to libnuma's
-   numa_num_configured_nodes / numa_num_configured_cpus).  Returns 0 if
+/* fd_numa_node_cnt / fd_numa_cpu_cnt determine one greater than the
+   highest present NUMA node / CPU ID.  Present CPUs include offline
+   CPUs; this is an ID-space bound, not an online CPU count.  Returns 0 if
    this could not be determined (logs details on failure).  These
    function are only used during shmem initialization as part of
    topology discovery so should not do any fancy caching under the hood. */

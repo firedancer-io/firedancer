@@ -23,9 +23,9 @@ fd_cpu_isolation_tile_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt 
 
 fd_cpuset_t *
 fd_cpu_isolation_host_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
-  fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX );
-  for( ulong cpu_idx=0UL; cpu_idx<cpu_cnt; cpu_idx++ ) fd_cpuset_insert( cpuset, cpu_idx );
+  if( FD_UNLIKELY( !fd_cpu_isolation_read_list( "/sys/devices/system/cpu/online", cpuset ) ||
+                   !fd_cpuset_cnt( cpuset ) ) )
+    FD_LOG_ERR(( "could not determine online host CPUs" ));
   return cpuset;
 }
 
