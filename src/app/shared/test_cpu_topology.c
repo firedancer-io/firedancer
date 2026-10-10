@@ -23,6 +23,9 @@ static int online_cnt;
 static int mock_numa;
 static struct ethtool_channels channels;
 static struct ethtool_channels channels_set;
+static DIR * scan_dir;
+static int scan_error;
+static int scan_step;
 
 static char const *
 sysfs_path( char const * path, char buf[256] ) {
@@ -32,7 +35,31 @@ sysfs_path( char const * path, char buf[256] ) {
   return buf;
 }
 
-static DIR * test_opendir( char const * path ) { char buf[256]; return opendir( sysfs_path( path, buf ) ); }
+static DIR *
+test_opendir( char const * path ) {
+  char buf[256];
+  DIR * dir = opendir( sysfs_path( path, buf ) );
+  if( scan_error && !strcmp( path, "/sys/devices/system/cpu" ) ) { scan_dir=dir; scan_step=0; }
+  return dir;
+}
+
+static struct dirent *
+test_readdir( DIR * dir ) {
+  if( dir==scan_dir ) {
+    /* Fail after one low CPU ID, before the real directory entries. */
+    static struct dirent first = { .d_name="cpu0" };
+    if( scan_step++==0 ) return &first;
+    if( scan_step==2 ) { errno=scan_error; return NULL; }
+  }
+  return readdir( dir );
+}
+
+static int
+test_closedir( DIR * dir ) {
+  if( dir==scan_dir ) scan_dir=NULL;
+  return closedir( dir );
+}
+
 static int test_open( char const * path, int flags, ... ) { char buf[256]; FD_TEST( !(flags&O_CREAT) ); return open( sysfs_path( path, buf ), flags ); }
 int __wrap_get_nprocs( void ) { return online_cnt; }
 
@@ -49,6 +76,8 @@ __wrap_ioctl( int fd FD_PARAM_UNUSED, ulong request FD_PARAM_UNUSED, ... ) {
 }
 
 #define opendir test_opendir
+#define readdir test_readdir
+#define closedir test_closedir
 #define get_nprocs __wrap_get_nprocs
 #define fd_numa_get_mempolicy real_get_mempolicy
 #define fd_numa_set_mempolicy real_set_mempolicy
@@ -60,6 +89,8 @@ __wrap_ioctl( int fd FD_PARAM_UNUSED, ulong request FD_PARAM_UNUSED, ... ) {
 #undef fd_numa_mbind
 #undef fd_numa_move_pages
 #undef opendir
+#undef readdir
+#undef closedir
 #define open test_open
 #include "commands/configure/fd_cpu_isolation.c"
 #undef open
@@ -185,6 +216,16 @@ main( int argc, char ** argv ) {
   set_online( "0-12,14-47\n" );
   FD_TEST( !setenv( "FD_SHMEM_PATH", sysfs, 1 ) );
   fd_boot( &argc, &argv );
+
+  scan_error=EIO;
+  FD_TEST( fd_numa_cpu_cnt()==0UL );
+  FD_TEST( !scan_dir );
+  scan_error=EINTR;
+  FD_TEST( fd_numa_cpu_cnt()==48UL );
+  FD_TEST( !scan_dir );
+  scan_error=0;
+  errno=EIO; /* A successful scan must not use a stale errno. */
+  FD_TEST( fd_numa_cpu_cnt()==48UL );
 
   check_memory( 47UL ); /* failed with the old online-count CPU bound */
   FD_TEST( fd_shmem_numa_idx( 13UL )==0UL && fd_shmem_numa_idx( 47UL )==0UL );

@@ -90,14 +90,25 @@ fd_numa_cpu_cnt( void ) {
   }
 
   int cpu_idx_max = -1;
+  int read_error  = 0;
   for(;;) {
+    errno = 0;
     struct dirent * dirent = readdir( dir );
-    if( !dirent ) break;
+    if( !dirent ) {
+      if( FD_UNLIKELY( errno==EINTR ) ) continue;
+      read_error = errno;
+      break;
+    }
     cpu_idx_max = fd_int_max( fd_numa_private_parse_idx( dirent->d_name, "cpu", 3UL ), cpu_idx_max );
   }
 
   if( FD_UNLIKELY( closedir( dir ) ) )
     FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( read_error ) ) {
+    FD_LOG_WARNING(( "readdir( \"%s\" ) failed (%i-%s)", path, read_error, fd_io_strerror( read_error ) ));
+    return 0UL;
+  }
 
   if( FD_UNLIKELY( cpu_idx_max<0 ) ) {
     FD_LOG_WARNING(( "No CPUs found in \"%s\"", path ));
