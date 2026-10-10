@@ -367,7 +367,7 @@ backtest_topo( config_t * config ) {
     FOR(snapin_tile_cnt) fd_topob_tile_out( topo, "snapin", i, "snapin_gui", i );
 
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "tower_out",     0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_slot",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_epoch",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "genesi_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "execrp_replay", i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );

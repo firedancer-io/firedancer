@@ -68,7 +68,9 @@ struct fd_gui_shred_event_iter {
   fd_gui_shred_batch_t const * _batch;
   ulong _batch_idx;
   ulong _data_off;
-  int _phase; /* 0 shred batches, 1 active events, 2 done */
+  int   _event_time;
+  int   _builder_pending;
+  int   _hist_active;
 };
 typedef struct fd_gui_shred_event_iter fd_gui_shred_event_iter_t;
 
@@ -81,6 +83,15 @@ fd_gui_shred_event_iter_begin( fd_gui_t *                  gui,
                                fd_gui_shred_event_iter_t * iter,
                                long                        after_ns,
                                long                        before_ns );
+
+/* fd_gui_shred_event_hist_iter_begin selects event time in
+   [after_ns,before_ns).  Event times are only approximately ordered
+   with insertion, so the scan is widened by one second on each side. */
+fd_gui_shred_event_iter_t *
+fd_gui_shred_event_hist_iter_begin( fd_gui_t *                  gui,
+                                    fd_gui_shred_event_iter_t * iter,
+                                    long                        after_ns,
+                                    long                        before_ns );
 
 int
 fd_gui_shred_event_iter_next( fd_gui_shred_event_iter_t * iter );
@@ -108,6 +119,15 @@ int
 fd_gui_shred_window_is_empty( fd_gui_t * gui,
                               long       after_ns,
                               long       before_ns );
+
+/* fd_gui_event_bounds returns whether dbi has lookup bounds, writing
+   half-open [lo,hi) bounds that include the active shred batch. */
+
+int
+fd_gui_event_bounds( fd_gui_t * gui,
+                     int        dbi,
+                     long *     lo,
+                     long *     hi );
 
 FD_PROTOTYPES_END
 
