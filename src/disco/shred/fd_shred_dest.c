@@ -323,8 +323,8 @@ prepare_unstaked_sampling( fd_shred_dest_t  * sdest,
      all. */
   ulong direct_index_up_to = fd_ulong_if( remove_in_interval, remove_idx - sdest->staked_cnt, unstaked_cnt );
   ulong i=0UL;
-  for( ; i<direct_index_up_to; i++ ) sdest->unstaked[i] = i+sdest->staked_cnt;
-  for( ; i<unstaked_cnt;       i++ ) sdest->unstaked[i] = i+sdest->staked_cnt + 1UL;
+  for( ; i<direct_index_up_to; i++ ) sdest->unstaked[i] = (uint)( i+sdest->staked_cnt       );
+  for( ; i<unstaked_cnt;       i++ ) sdest->unstaked[i] = (uint)( i+sdest->staked_cnt + 1UL );
 }
 
 static inline ulong
@@ -332,7 +332,7 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
   if( FD_UNLIKELY( sdest->unstaked_unremoved_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
   ulong sample = fd_chacha_rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
-  ulong to_return = sdest->unstaked[sample];
+  ulong to_return = (ulong)sdest->unstaked[sample];
   sdest->unstaked[sample] = sdest->unstaked[--sdest->unstaked_unremoved_cnt];
   return to_return;
 }
@@ -767,6 +767,31 @@ static inline ulong flat_sample1              ( fd_shred_dest_t * sdest         
 
 #endif
 
+/* unstaked_last_hit returns the largest t<t0 with H[t]==p, or -1. */
+static inline long
+unstaked_last_hit( uint const * H,
+                   long         t0,
+                   uint         p ) {
+  long t = t0;
+# if FD_HAS_AVX512
+  wwu_t vp = wwu_bcast( p );
+  while( t>=16L ) {
+    t -= 16L;
+    uint m = (uint)wwu_eq( wwu_ldu( H+t ), vp );
+    if( m ) return t + (long)fd_uint_find_msb( m );
+  }
+# elif FD_HAS_AVX
+  wu_t vp = wu_bcast( p );
+  while( t>=8L ) {
+    t -= 8L;
+    int m = wc_pack( wu_eq( wu_ldu( H+t ), vp ) );
+    if( m ) return t + (long)fd_uint_find_msb( (uint)m );
+  }
+# endif
+  for( t--; t>=0L; t-- ) if( H[ t ]==p ) return t;
+  return -1L;
+}
+
 /* Returns 0 on success
    https://github.com/anza-xyz/agave/blob/v2.2.1/ledger/src/shred.rs#L293 */
 static inline int
@@ -1002,17 +1027,25 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     for( ; emit<cend; emit+=stride ) out[ (stored_cnt++)*out_stride + i ] = (fd_shred_dest_idx_t)staked_shuffle[ emit ];
     cursor = cend;
 
-    /* Next set of samples (if any) come from the unstaked portion. If I
-       am not staked, then prepare_unstaked_sampling was already called
-       earlier. */
-    if( FD_LIKELY( (cursor<=last_dest_idx) & !!i_am_staked ) ) prepare_unstaked_sampling( sdest, leader_idx );
+    /* Next set of samples (if any) come from the unstaked portion (if
+       I am not staked, prepare_unstaked_sampling was already called).
+       Sparse emits (staked, stride>1): log accepts in the unstaked
+       array instead of swapping and trace each emit back through it. */
+    int   bwd  = i_am_staked & (stride>1UL) & (last_dest_idx-my_idx<=32UL*stride);
+    int   l_in = (sdest->staked_cnt<=leader_idx) & (leader_idx<sdest->cnt);
+    ulong loff = fd_ulong_if( l_in, leader_idx-sdest->staked_cnt, ULONG_MAX );
+    if( FD_LIKELY( bwd ) ) sdest->unstaked_unremoved_cnt = sdest->unstaked_cnt - (ulong)l_in;
+    else if( (cursor<=last_dest_idx) & !!i_am_staked ) prepare_unstaked_sampling( sdest, leader_idx );
 
     /* sample_unstaked over buffered rng runs: resolve accepts (bounds
        n,n-1,...) first, then swap */
     fd_chacha_rng_t * rng  = sdest->rng;
-    ulong *           u    = sdest->unstaked;
+    uint *            u    = sdest->unstaked;
     ulong             n    = sdest->unstaked_unremoved_cnt;
     ulong             end  = fd_ulong_min( last_dest_idx+1UL, cursor+n );
+    ulong             n0   = n;
+    ulong             c0   = cursor;
+    uint *            H    = u;
     while( cursor<end ) {
       if( FD_UNLIKELY( rng->buf_off==rng->buf_fill ) ) {
         if( rng->algo==FD_CHACHA_RNG_ALGO_CHACHA8 ) fd_chacha8_rng_private_refill ( rng );
@@ -1023,7 +1056,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       uchar const * wbuf = rng->buf + boff;
       ulong         wcnt = fd_ulong_min( rng->buf_fill-off, FD_CHACHA_RNG_BUFSZ-boff )/8UL;
       ulong         need = end-cursor;
-      uint          h[ FD_CHACHA_RNG_BUFSZ/8UL ];
+      uint          hl[ FD_CHACHA_RNG_BUFSZ/8UL ];
+      uint *        h    = fd_ptr_if( bwd, H+(cursor-c0), hl );
       ulong         nj   = n; /* n-accepts */
       ulong         nend = n-need;
       ulong         k    = 0UL;
@@ -1077,10 +1111,11 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       }
 #     undef UNSTAKED_WORD
 #     undef UNSTAKED_MUL
-      ulong j = n-nj;
+      ulong j  = n-nj;
+      ulong js = fd_ulong_if( bwd, 0UL, j ); /* swaps */
 
 #     define UNSTAKED_SWAP( q ) do {                                      \
-        ulong sample = u[ h[ q ] ];                                        \
+        uint  sample = u[ h[ q ] ];                                        \
         u[ h[ q ] ] = u[ n-1UL-(q) ];                                      \
         if( FD_UNLIKELY( cursor+(q)==emit ) ) {                            \
           out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;  \
@@ -1093,7 +1128,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       if( FD_LIKELY( (rng->buf_off==rng->buf_fill) & (j<need) ) ) {
         /* Ring drained: refill inside the swap run to hide its latency */
         ulong rnd2_cnt = fd_ulong_if( rng->algo==FD_CHACHA_RNG_ALGO_CHACHA8, 4UL, 10UL );
-        ulong gsz      = (j+rnd2_cnt-1UL)/rnd2_cnt;
+        ulong gsz      = (js+rnd2_cnt-1UL)/rnd2_cnt;
         wwu_t iv0 = wwu_bcast( 0x61707865U ); wwu_t iv1 = wwu_bcast( 0x3320646eU );
         wwu_t iv2 = wwu_bcast( 0x79622d32U ); wwu_t iv3 = wwu_bcast( 0x6b206574U );
         wwu_t klo = _mm512_broadcast_i32x4( _mm_load_si128( (__m128i const *)rng->key   ) );
@@ -1118,7 +1153,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
           c = wwu_add( c, d ); b = wwu_xor( b, c ); b = wwu_rol( b,  7 );                          \
         } while(0)
         for( ulong s=0UL; s<rnd2_cnt; s++ ) {
-          for( ulong qe=fd_ulong_min( q+gsz, j ); q<qe; q++ ) UNSTAKED_SWAP( q );
+          for( ulong qe=fd_ulong_min( q+gsz, js ); q<qe; q++ ) UNSTAKED_SWAP( q );
           QR( c0, c4, c8, cC ); QR( c1, c5, c9, cD ); QR( c2, c6, cA, cE ); QR( c3, c7, cB, cF );
           QR( c0, c5, cA, cF ); QR( c1, c6, cB, cC ); QR( c2, c7, c8, cD ); QR( c3, c4, c9, cE );
         }
@@ -1137,10 +1172,23 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
         rng->buf_fill += FD_CHACHA_RNG_BUFSZ;
       }
 #     endif
-      for( ; q<j; q++ ) UNSTAKED_SWAP( q );
+      for( ; q<js; q++ ) UNSTAKED_SWAP( q );
 #     undef UNSTAKED_SWAP
       n      -= j;
       cursor += j;
+    }
+    if( FD_LIKELY( bwd ) ) {
+      for( ; emit<cursor; emit+=stride ) {
+        long t = (long)(emit-c0);
+        uint p = H[ t ];
+        for(;;) {
+          t = unstaked_last_hit( H, t, p );
+          if( t<0L ) break;
+          p = (uint)(n0-1UL-(ulong)t);
+        }
+        out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)( sdest->staked_cnt + p + (ulong)(p>=loff) );
+        stored_cnt++;
+      }
     }
     sdest->unstaked_unremoved_cnt = n;
     max_dest_cnt = fd_ulong_max( max_dest_cnt, stored_cnt );
