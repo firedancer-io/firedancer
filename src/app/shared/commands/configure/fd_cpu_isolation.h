@@ -20,8 +20,9 @@ fd_cpuset_t *
 fd_cpu_isolation_tile_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
                             fd_topo_t const * topo );
 
-/* fd_cpu_isolation_host_cpus fills cpuset with all host CPUs
-   [0,fd_shmem_cpu_cnt()).  Returns cpuset. */
+/* fd_cpu_isolation_host_cpus fills cpuset with the currently online
+   host CPUs.  Offline CPUs cannot serve as housekeeping or IRQ targets.
+   Returns cpuset; fails if the online CPU list cannot be read. */
 
 fd_cpuset_t *
 fd_cpu_isolation_host_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] );

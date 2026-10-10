@@ -275,8 +275,10 @@ fd_shmem_leave_anonymous( void *                 join,
 
 /* Numa topology API */
 
-/* fd_shmem_{numa,cpu}_cnt returns the number of numa nodes / logical
-   cpus configured in system.  numa nodes are indexed in
+/* fd_shmem_{numa,cpu}_cnt returns one greater than the highest present
+   NUMA node / logical CPU ID.  Present CPUs include offline CPUs, so
+   cpu_cnt is an ID-space bound, not the number of online CPUs.  Present
+   CPU IDs must be contiguous from zero.  NUMA nodes are indexed in
    [0,fd_shmem_numa_cnt()) where fd_shmem_numa_cnt() is in
    [1,FD_SHMEM_NUMA_MAX] and similarly for logical cpus.  This value is
    determined at thread group boot.  cpu_cnt>=numa_cnt. */
