@@ -363,6 +363,15 @@ void *
 fd_blake3_fini_2048( fd_blake3_t * sha,
                      void *        hash );
 
+/* fd_blake3_fini_2048_x2 is fd_blake3_fini_2048 on two distinct
+   states, sharing SIMD batches to fill idle lanes for short inputs. */
+
+void
+fd_blake3_fini_2048_x2( fd_blake3_t * sha0,
+                        fd_blake3_t * sha1,
+                        void *        hash0,
+                        void *        hash1 );
+
 void *
 fd_blake3_hash( void const * data,
                 ulong        sz,

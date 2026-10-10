@@ -49,6 +49,25 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
                                  ulong               data_len,
                                  fd_lthash_value_t * lthash_out );
 
+/* fd_hashes_account_lthash_pair is two fd_hashes_account_lthash_simple
+   calls sharing SIMD batches.  Outputs must not overlap. */
+
+void
+fd_hashes_account_lthash_pair( uchar const         pubkey0[ static FD_HASH_FOOTPRINT ],
+                               uchar const         owner0[ static FD_HASH_FOOTPRINT ],
+                               ulong               lamports0,
+                               int                 executable0,
+                               uchar const *       data0,
+                               ulong               data_len0,
+                               fd_lthash_value_t * lthash0_out,
+                               uchar const         pubkey1[ static FD_HASH_FOOTPRINT ],
+                               uchar const         owner1[ static FD_HASH_FOOTPRINT ],
+                               ulong               lamports1,
+                               int                 executable1,
+                               uchar const *       data1,
+                               ulong               data_len1,
+                               fd_lthash_value_t * lthash1_out );
+
 /* fd_hashes_update_lthash updates the bank's incremental lthash when an
    account is modified during transaction execution.  The bank lthash is
    maintained incrementally by subtracting the old account hash and
@@ -86,6 +105,25 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          ulong                     data_len,
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx );
+
+/* fd_hashes_update_pair is fd_hashes_update_simple taking the
+   account's previous state instead of its lthash, hashing both as a
+   pair. */
+
+void
+fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
+                       uchar const        prev_owner[ static FD_HASH_FOOTPRINT ],
+                       ulong              prev_lamports,
+                       int                prev_executable,
+                       uchar const *      prev_data,
+                       ulong              prev_data_len,
+                       uchar const        owner[ static FD_HASH_FOOTPRINT ],
+                       ulong              lamports,
+                       int                executable,
+                       uchar const *      data,
+                       ulong              data_len,
+                       fd_bank_t *        bank,
+                       fd_capture_ctx_t * capture_ctx );
 
 /* fd_hashes_capture_account records the state of a modified account to
    the solcap capture.  It does nothing unless capture_ctx is non-NULL,
