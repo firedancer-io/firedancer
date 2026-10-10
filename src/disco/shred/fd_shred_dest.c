@@ -49,6 +49,7 @@ typedef struct shred_dest_input shred_dest_input_t;
 #define flat_v_ld( p )           wwv_ld( (p) )
 #define flat_v_st( p, v )        wwv_st( (p), (v) )
 #define flat_v_bcast( x )        wwv_bcast( (x) )
+#define flat_v_sub( a, b )       wwv_sub( (a), (b) )
 #define flat_v_cnt_le( a, x )    ((ulong)fd_uint_popcnt( (uint)wwv_le( (a), (x) ) ))
 #define flat_v_sub_gt( a, x, w ) wwv_sub_if( wwv_gt( (a), (x) ), (a), (w), (a) )
 #elif FD_HAS_AVX
@@ -57,6 +58,7 @@ typedef struct shred_dest_input shred_dest_input_t;
 #define flat_v_ld( p )           wl_ld( (long const *)(p) )
 #define flat_v_st( p, v )        wl_st( (long *)(p), (v) )
 #define flat_v_bcast( x )        wl_bcast( (long)(x) )
+#define flat_v_sub( a, b )       wl_sub( (a), (b) )
 #define flat_v_cnt_le( a, x )    (4UL-((ulong)fd_uint_popcnt( (uint)wc_pack( wl_gt( (a), (x) ) ) )>>1)) /* 2 pack bits per lane */
 #define flat_v_sub_gt( a, x, w ) wl_sub( (a), wl_and( wl_gt( (a), (x) ), (w) ) )
 #endif
@@ -577,11 +579,12 @@ flat_sample2( fd_shred_dest_t * sdest,
 
     ulong    r  = flat_roll( rng, W, &off, &fill );
     flat_v_t vr = flat_v_bcast( r );
+    __asm__( "" : "+v"(vr) ); /* keep level subs in vector regs */
     ulong    g  = 0UL;
 #   pragma GCC unroll 32
     for( ulong j=0UL; j<32UL/FLAT_VL; j++ ) g += flat_v_cnt_le( p0[ j ], vr );
 
-    flat_v_t vrr = flat_v_bcast( r - p0m[ (long)g-1L ] );
+    flat_v_t vrr = flat_v_sub( vr, flat_v_bcast( p0m[ (long)g-1L ] ) );
     ulong *  q   = row + g*gsz;
     flat_v_t rr[ 32UL/FLAT_VL ];
     ulong    k   = 0UL;
@@ -643,12 +646,13 @@ flat_sample3( fd_shred_dest_t * sdest,
 
     ulong    r  = flat_roll( rng, W, &off, &fill );
     flat_v_t vr = flat_v_bcast( r );
+    __asm__( "" : "+v"(vr) );
     ulong    g  = 0UL;
 #   pragma GCC unroll 16
     for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) g += flat_v_cnt_le( p0[ k ], vr );
 
-    ulong    r1 = r - p0m[ (long)g-1L ];
-    flat_v_t v1 = flat_v_bcast( r1 );
+    flat_v_t v1 = flat_v_sub( vr, flat_v_bcast( p0m[ (long)g-1L ] ) );
+    __asm__( "" : "+v"(v1) );
     ulong *  m  = mid + g*16UL;
     flat_v_t mm[ 16UL/FLAT_VL ];
     ulong    s  = 0UL;
@@ -656,7 +660,7 @@ flat_sample3( fd_shred_dest_t * sdest,
     for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) { mm[ k ] = flat_v_ld( m+FLAT_VL*k ); s += flat_v_cnt_le( mm[ k ], v1 ); }
 
     ulong    j  = g*16UL + s;
-    flat_v_t v2 = flat_v_bcast( r1 - (m[ (s-1UL)&15UL ] & (-(ulong)(s!=0UL))) );
+    flat_v_t v2 = flat_v_sub( v1, flat_v_bcast( *fd_ptr_if( s!=0UL, m+s-1UL, p0m-1L ) ) ); /* p0m[-1]==0 */
     ulong *  q  = row + j*16UL;
     flat_v_t qq[ 16UL/FLAT_VL ];
     ulong    t  = 0UL;
@@ -735,17 +739,19 @@ flat_sample1( fd_shred_dest_t * sdest ) {
 /* flat_restore_all undoes all removals by copying back dirty rows. */
 static inline void
 flat_restore_all( fd_shred_dest_t * sdest ) {
-  ulong gsz = flat_gsz( sdest->flat_cls );
+  ulong   gsz  = flat_gsz( sdest->flat_cls );
+  ulong * row  = sdest->flat_row;
+  ulong * rowb = sdest->flat_rowb;
   for( ulong h=0UL; h<4UL; h++ ) {
     for( ulong d=sdest->flat_dirty[ h ]; d; d=fd_ulong_pop_lsb( d ) ) {
-      ulong j = h*64UL + (ulong)fd_ulong_find_lsb( d );
-      fd_memcpy( sdest->flat_row+j*gsz, sdest->flat_rowb+j*gsz, gsz*sizeof(ulong) );
+      ulong o = ( h*64UL + (ulong)fd_ulong_find_lsb( d ) )*gsz;
+      for( ulong v=0UL; v<gsz; v+=FLAT_VL ) flat_v_st( row+o+v, flat_v_ld( rowb+o+v ) );
     }
     sdest->flat_dirty[ h ] = 0UL;
   }
   for( ulong d=sdest->flat_dirty_mid; d; d=fd_ulong_pop_lsb( d ) ) {
-    ulong g = (ulong)fd_ulong_find_lsb( d );
-    fd_memcpy( sdest->flat_mid+g*16UL, sdest->flat_midb+g*16UL, 16UL*sizeof(ulong) );
+    ulong o = (ulong)fd_ulong_find_lsb( d )*16UL;
+    for( ulong v=0UL; v<16UL; v+=FLAT_VL ) flat_v_st( sdest->flat_mid+o+v, flat_v_ld( sdest->flat_midb+o+v ) );
   }
   sdest->flat_dirty_mid = 0UL;
   sdest->flat_W         = sdest->flat_total;
