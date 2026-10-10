@@ -2,6 +2,8 @@
 #include "../../util/fd_hash32.h"
 #if FD_HAS_AVX512
 #include "../../util/simd/fd_avx512.h"
+#elif FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
 #endif
 
 static const fd_pubkey_t null_pubkey = {{ 0 }};
@@ -34,15 +36,34 @@ struct __attribute__((packed)) shred_dest_input {
 };
 typedef struct shred_dest_input shred_dest_input_t;
 
-/* Flat staked sampler (AVX-512, staked_cnt<=FLAT_MAX): group prefixes
-   in registers over rows of 16 or 32 leaf prefixes, with 16 subgroup
-   prefixes in between for class 3. */
+/* Flat staked sampler (AVX-512 or AVX2, staked_cnt<=FLAT_MAX): group
+   prefixes in registers over rows of 16 or 32 leaf prefixes, with 16
+   subgroup prefixes in between for class 3.  Prefixes are < 2^63 so
+   the signed AVX2 compares work. */
 #define FLAT_MAX  (4096UL)
 #define FLAT_CLS3 (3UL)
 
+#if FD_HAS_AVX512
+#define FLAT_VL                  (8UL)
+#define flat_v_t                 wwv_t
+#define flat_v_ld( p )           wwv_ld( (p) )
+#define flat_v_st( p, v )        wwv_st( (p), (v) )
+#define flat_v_bcast( x )        wwv_bcast( (x) )
+#define flat_v_cnt_le( a, x )    ((ulong)fd_uint_popcnt( (uint)wwv_le( (a), (x) ) ))
+#define flat_v_sub_gt( a, x, w ) wwv_sub_if( wwv_gt( (a), (x) ), (a), (w), (a) )
+#elif FD_HAS_AVX
+#define FLAT_VL                  (4UL)
+#define flat_v_t                 wl_t
+#define flat_v_ld( p )           wl_ld( (long const *)(p) )
+#define flat_v_st( p, v )        wl_st( (long *)(p), (v) )
+#define flat_v_bcast( x )        wl_bcast( (long)(x) )
+#define flat_v_cnt_le( a, x )    (4UL-((ulong)fd_uint_popcnt( (uint)wc_pack( wl_gt( (a), (x) ) ) )>>1)) /* 2 pack bits per lane */
+#define flat_v_sub_gt( a, x, w ) wl_sub( (a), wl_and( wl_gt( (a), (x) ), (w) ) )
+#endif
+
 static inline ulong
 flat_cls( ulong staked_cnt ) {
-# if FD_HAS_AVX512
+# if FD_HAS_AVX
   if( FD_UNLIKELY( (staked_cnt==0UL) | (staked_cnt>FLAT_MAX) ) ) return 0UL;
   return 1UL + (ulong)(staked_cnt>512UL) + (ulong)(staked_cnt>1024UL);
 # else
@@ -151,7 +172,7 @@ fd_shred_dest_new( void                           * mem,
 
   void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
 
-  /* Pad lanes hold the row (mid row) total, pad groups ULONG_MAX: never
+  /* Pad lanes hold the row (mid row) total, pad groups LONG_MAX: never
      selected. */
   ulong   cls   = flat_cls( staked_cnt );
   ulong   lg    = (ulong)fd_ulong_find_msb( flat_gsz( cls ) );
@@ -163,7 +184,7 @@ fd_shred_dest_new( void                           * mem,
   ulong   acc   = 0UL;
   ulong   grp   = 0UL;
   ulong   row   = 0UL;
-  for( ulong g=0UL; g<32UL; g++ ) sdest->flat_p0b[ g ] = ULONG_MAX;
+  for( ulong g=0UL; g<32UL; g++ ) sdest->flat_p0b[ g ] = (ulong)LONG_MAX;
   memset( sdest->flat_p0m,   0, sizeof(sdest->flat_p0m)   );
   memset( sdest->flat_dirty, 0, sizeof(sdest->flat_dirty) );
   if( cls ) {
@@ -314,7 +335,7 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
 }
 
 
-#if FD_HAS_AVX512
+#if FD_HAS_AVX
 
 /* flat_roll is fd_chacha_rng_ulong_roll( rng, W ) (MODE_SHIFT) with
    the buffer cursor in registers. */
@@ -361,20 +382,19 @@ flat_remove_idx( fd_shred_dest_t * sdest,
 }
 
 /* flat_sample2 is fd_wsample_sample_and_remove_many for the two level
-   classes, rows of rv vectors. */
+   classes, rows of gsz leaves. */
 static inline __attribute__((always_inline)) void
 flat_sample2( fd_shred_dest_t * sdest,
               ulong           * out,
               ulong             cnt,
-              ulong const       rv ) {
+              ulong const       gsz ) {
   fd_chacha_rng_t * rng = sdest->rng;
-  ulong const       gsz = 8UL*rv;
   ulong *           p0m = sdest->flat_p0m+8UL;
   ulong *           row = sdest->flat_row;
 
-  wwv_t p0[ 4 ];
-# pragma GCC unroll 4
-  for( ulong j=0UL; j<4UL; j++ ) p0[ j ] = wwv_ld( p0m+8UL*j );
+  flat_v_t p0[ 32UL/FLAT_VL ];
+# pragma GCC unroll 32
+  for( ulong j=0UL; j<32UL/FLAT_VL; j++ ) p0[ j ] = flat_v_ld( p0m+FLAT_VL*j );
 
   ulong W     = sdest->flat_W;
   ulong dirty = sdest->flat_dirty[ 0 ];
@@ -384,26 +404,26 @@ flat_sample2( fd_shred_dest_t * sdest,
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
 
-    ulong r  = flat_roll( rng, W, &off, &fill );
-    wwv_t vr = wwv_bcast( r );
-    ulong g  = 0UL;
-#   pragma GCC unroll 4
-    for( ulong j=0UL; j<4UL; j++ ) g += (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( p0[ j ], vr ) );
+    ulong    r  = flat_roll( rng, W, &off, &fill );
+    flat_v_t vr = flat_v_bcast( r );
+    ulong    g  = 0UL;
+#   pragma GCC unroll 32
+    for( ulong j=0UL; j<32UL/FLAT_VL; j++ ) g += flat_v_cnt_le( p0[ j ], vr );
 
-    wwv_t   vrr = wwv_bcast( r - p0m[ (long)g-1L ] );
-    ulong * q   = row + g*gsz;
-    wwv_t   rr[ 4 ];
-    ulong   k   = 0UL;
-#   pragma GCC unroll 4
-    for( ulong j=0UL; j<rv; j++ ) { rr[ j ] = wwv_ld( q+8UL*j ); k += (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( rr[ j ], vrr ) ); }
+    flat_v_t vrr = flat_v_bcast( r - p0m[ (long)g-1L ] );
+    ulong *  q   = row + g*gsz;
+    flat_v_t rr[ 32UL/FLAT_VL ];
+    ulong    k   = 0UL;
+#   pragma GCC unroll 32
+    for( ulong j=0UL; j<gsz/FLAT_VL; j++ ) { rr[ j ] = flat_v_ld( q+FLAT_VL*j ); k += flat_v_cnt_le( rr[ j ], vrr ); }
 
-    ulong idx = g*gsz + k;
-    ulong wt  = q[ k ] - (q[ (k-1UL)&(gsz-1UL) ] & (-(ulong)(k!=0UL)));
-    wwv_t vw  = wwv_bcast( wt );
-#   pragma GCC unroll 4
-    for( ulong j=0UL; j<4UL; j++ ) { p0[ j ] = wwv_sub_if( wwv_gt( p0[ j ], vr ), p0[ j ], vw, p0[ j ] ); wwv_st( p0m+8UL*j, p0[ j ] ); }
-#   pragma GCC unroll 4
-    for( ulong j=0UL; j<rv; j++ ) wwv_st( q+8UL*j, wwv_sub_if( wwv_gt( rr[ j ], vrr ), rr[ j ], vw, rr[ j ] ) );
+    ulong    idx = g*gsz + k;
+    ulong    wt  = q[ k ] - (q[ (k-1UL)&(gsz-1UL) ] & (-(ulong)(k!=0UL)));
+    flat_v_t vw  = flat_v_bcast( wt );
+#   pragma GCC unroll 32
+    for( ulong j=0UL; j<32UL/FLAT_VL; j++ ) { p0[ j ] = flat_v_sub_gt( p0[ j ], vr, vw ); flat_v_st( p0m+FLAT_VL*j, p0[ j ] ); }
+#   pragma GCC unroll 32
+    for( ulong j=0UL; j<gsz/FLAT_VL; j++ ) flat_v_st( q+FLAT_VL*j, flat_v_sub_gt( rr[ j ], vrr, vw ) );
 
     dirty   |= 1UL<<g;
     W       -= wt;
@@ -425,8 +445,9 @@ flat_sample3( fd_shred_dest_t * sdest,
   ulong *           mid = sdest->flat_mid;
   ulong *           row = sdest->flat_row;
 
-  wwv_t p0a = wwv_ld( p0m     );
-  wwv_t p0b = wwv_ld( p0m+8UL );
+  flat_v_t p0[ 16UL/FLAT_VL ];
+# pragma GCC unroll 16
+  for( ulong j=0UL; j<16UL/FLAT_VL; j++ ) p0[ j ] = flat_v_ld( p0m+FLAT_VL*j );
 
   ulong W    = sdest->flat_W;
   ulong dmid = sdest->flat_dirty_mid;
@@ -436,31 +457,36 @@ flat_sample3( fd_shred_dest_t * sdest,
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
 
-    ulong r  = flat_roll( rng, W, &off, &fill );
-    wwv_t vr = wwv_bcast( r );
-    ulong g  = (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( p0a, vr ) ) + (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( p0b, vr ) );
+    ulong    r  = flat_roll( rng, W, &off, &fill );
+    flat_v_t vr = flat_v_bcast( r );
+    ulong    g  = 0UL;
+#   pragma GCC unroll 16
+    for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) g += flat_v_cnt_le( p0[ k ], vr );
 
-    wwv_t   v1 = wwv_bcast( r - p0m[ (long)g-1L ] );
-    ulong * m  = mid + g*16UL;
-    wwv_t   ma = wwv_ld( m     );
-    wwv_t   mb = wwv_ld( m+8UL );
-    ulong   s  = (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( ma, v1 ) ) + (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( mb, v1 ) );
+    ulong    r1 = r - p0m[ (long)g-1L ];
+    flat_v_t v1 = flat_v_bcast( r1 );
+    ulong *  m  = mid + g*16UL;
+    flat_v_t mm[ 16UL/FLAT_VL ];
+    ulong    s  = 0UL;
+#   pragma GCC unroll 16
+    for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) { mm[ k ] = flat_v_ld( m+FLAT_VL*k ); s += flat_v_cnt_le( mm[ k ], v1 ); }
 
-    ulong   j  = g*16UL + s;
-    wwv_t   v2 = wwv_sub( v1, wwv_bcast( m[ (s-1UL)&15UL ] & (-(ulong)(s!=0UL)) ) );
-    ulong * q  = row + j*16UL;
-    wwv_t   qa = wwv_ld( q     );
-    wwv_t   qb = wwv_ld( q+8UL );
-    ulong   t  = (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( qa, v2 ) ) + (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( qb, v2 ) );
+    ulong    j  = g*16UL + s;
+    flat_v_t v2 = flat_v_bcast( r1 - (m[ (s-1UL)&15UL ] & (-(ulong)(s!=0UL))) );
+    ulong *  q  = row + j*16UL;
+    flat_v_t qq[ 16UL/FLAT_VL ];
+    ulong    t  = 0UL;
+#   pragma GCC unroll 16
+    for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) { qq[ k ] = flat_v_ld( q+FLAT_VL*k ); t += flat_v_cnt_le( qq[ k ], v2 ); }
 
-    ulong wt = q[ t ] - (q[ (t-1UL)&15UL ] & (-(ulong)(t!=0UL)));
-    wwv_t vw = wwv_bcast( wt );
-    p0a = wwv_sub_if( wwv_gt( p0a, vr ), p0a, vw, p0a ); wwv_st( p0m,     p0a );
-    p0b = wwv_sub_if( wwv_gt( p0b, vr ), p0b, vw, p0b ); wwv_st( p0m+8UL, p0b );
-    wwv_st( m,     wwv_sub_if( wwv_gt( ma, v1 ), ma, vw, ma ) );
-    wwv_st( m+8UL, wwv_sub_if( wwv_gt( mb, v1 ), mb, vw, mb ) );
-    wwv_st( q,     wwv_sub_if( wwv_gt( qa, v2 ), qa, vw, qa ) );
-    wwv_st( q+8UL, wwv_sub_if( wwv_gt( qb, v2 ), qb, vw, qb ) );
+    ulong    wt = q[ t ] - (q[ (t-1UL)&15UL ] & (-(ulong)(t!=0UL)));
+    flat_v_t vw = flat_v_bcast( wt );
+#   pragma GCC unroll 16
+    for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) {
+      p0[ k ] = flat_v_sub_gt( p0[ k ], vr, vw ); flat_v_st( p0m+FLAT_VL*k, p0[ k ] );
+      flat_v_st( m+FLAT_VL*k, flat_v_sub_gt( mm[ k ], v1, vw ) );
+      flat_v_st( q+FLAT_VL*k, flat_v_sub_gt( qq[ k ], v2, vw ) );
+    }
 
     dmid                      |= 1UL<<g;
     sdest->flat_dirty[ j>>6 ] |= 1UL<<(j&63UL);
@@ -478,8 +504,8 @@ flat_sample_and_remove_many( fd_shred_dest_t * sdest,
                              ulong           * out,
                              ulong             cnt ) {
   switch( sdest->flat_cls ) {
-  case 1UL: flat_sample2( sdest, out, cnt, 2UL ); break;
-  case 2UL: flat_sample2( sdest, out, cnt, 4UL ); break;
+  case 1UL: flat_sample2( sdest, out, cnt, 16UL ); break;
+  case 2UL: flat_sample2( sdest, out, cnt, 32UL ); break;
   default:  flat_sample3( sdest, out, cnt      ); break;
   }
 }
