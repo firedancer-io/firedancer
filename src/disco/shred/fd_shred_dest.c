@@ -734,6 +734,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
   ulong staked_shuffle[ sdest->staked_cnt+1UL ];
   ulong staked_shuffle_populated_cnt = 0UL;
   int   flat = !!sdest->flat_cls;
+  ulong shuffle_last = sdest->cnt - 1UL - (ulong)(query!=FD_SHRED_DEST_NO_DEST); /* leader is not in shuffle */
 
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     /* Remove the leader. */
@@ -800,7 +801,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     ulong last_dest_idx = fd_ulong_if( my_idx==0UL, fanout, my_idx+fanout*fanout ); /* inclusive */
     ulong stride        = fd_ulong_if( my_idx==0UL, 1UL,    fanout               );
 
-    last_dest_idx = fd_ulong_min( last_dest_idx, my_idx + stride*dest_cnt );
+    /* Stop at the last stride hit inside the shuffle */
+    last_dest_idx = fd_ulong_min( last_dest_idx, my_idx + stride*fd_ulong_min( dest_cnt, (shuffle_last-my_idx)/stride ) );
 
     ulong cursor     = my_idx+1UL;
     ulong stored_cnt = 0UL;
