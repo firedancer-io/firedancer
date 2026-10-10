@@ -609,6 +609,18 @@ fd_tower_reconcile( fd_tower_t      * tower,
                     fd_tower_vote_t * onchain_votes,
                     ulong             onchain_root );
 
+/* fd_tower_adopt_check checks a received tower before it is installed
+   with fd_tower_reconcile.  It returns -1 when local replay is not
+   initialized or the received root is ahead, -2 when the received slots
+   do not form one descendant chain of our root, -3 when a received vote
+   sits on a slot local replay has not completed, and zero when the
+   tower can be installed.  It does not modify tower. */
+
+int
+fd_tower_adopt_check( fd_tower_t *            tower,
+                      fd_tower_vote_t const * adopt_votes,
+                      ulong                   adopt_root );
+
 /* fd_tower_blocks_{query,insert,remove} provide convenient wrappers for
    {querying,inserting,removing} blocks into the tower's block map. */
 

@@ -1293,6 +1293,42 @@ fd_tower_reconcile( fd_tower_t      * tower,
   }
 }
 
+int
+fd_tower_adopt_check( fd_tower_t *            tower,
+                      fd_tower_vote_t const * adopt_votes,
+                      ulong                   adopt_root ) {
+
+  ulong local_root = tower->root;
+  if( FD_UNLIKELY( local_root==ULONG_MAX ) ) return -1; /* replay has not produced a root yet */
+
+  /* As in fd_tower_reconcile, a root behind ours is replaced by ours. */
+
+  if( FD_LIKELY( adopt_root==ULONG_MAX || local_root>adopt_root ) ) adopt_root = local_root;
+
+  /* Unlike the on-chain tower, a received tower is not taken on trust.
+     Its root has to be a replayed descendant of our root and its votes
+     one chain above that root, every one of them on a block local replay
+     has completed, or the caller installs nothing and asks again later. */
+
+  if( FD_UNLIKELY( adopt_root>local_root ) ) {
+    fd_tower_blk_t const * root_blk = fd_tower_blocks_query( tower, adopt_root );
+    if( FD_UNLIKELY( !root_blk || !root_blk->replayed ) ) return -1;
+    if( FD_UNLIKELY( !fd_tower_blocks_is_slot_ancestor( tower, adopt_root, local_root ) ) ) return -2;
+  }
+  ulong parent_slot = adopt_root;
+  for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( adopt_votes );
+                                  !fd_tower_vote_iter_done( adopt_votes, iter );
+                            iter = fd_tower_vote_iter_next( adopt_votes, iter ) ) {
+    fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( adopt_votes, iter );
+    if( FD_UNLIKELY( vote->slot<=adopt_root ) ) continue;
+    fd_tower_blk_t const * tower_blk = fd_tower_blocks_query( tower, vote->slot );
+    if( FD_UNLIKELY( !tower_blk || !tower_blk->replayed ) ) return -3;
+    if( FD_UNLIKELY( !fd_tower_blocks_is_slot_ancestor( tower, vote->slot, parent_slot ) ) ) return -2;
+    parent_slot = vote->slot;
+  }
+  return 0;
+}
+
 void
 fd_tower_from_vote_acc( fd_tower_vote_t * votes,
                         ulong *           root,

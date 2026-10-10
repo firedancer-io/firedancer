@@ -20,6 +20,12 @@
 
 /* Application-specific param values should be defined below. */
 
+/* Sign tile identity switches.  KEYPAIR passes a new keypair in
+   bytes[0..64), PUBKEY selects a failover key loaded at boot by its
+   public key in bytes[0..32). */
+#define FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR (0UL)
+#define FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY  (1UL)
+
 #define FD_KEYSWITCH_PARAM_AV_ADD   (0UL)
 #define FD_KEYSWITCH_PARAM_AV_CLEAR (1UL)
 
@@ -29,6 +35,7 @@ struct __attribute__((aligned(FD_KEYSWITCH_ALIGN))) fd_keyswitch_private {
   ulong result;
   ulong param;
   uchar bytes[ 32768UL ];
+  ulong operator; /* set-identity under failover, the tower or votor votes with the new key the upstream way */
   /* Padding to FD_KEYSWITCH_ALIGN here */
 };
 

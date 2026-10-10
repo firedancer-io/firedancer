@@ -222,6 +222,11 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
 FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
+  if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) && tile->sign.failover_enabled ) ) {
+    /* The read only junk and staked key pages, the set-identity key
+       page, and their guards, next to the identity key. */
+    key_pages += 15UL;
+  }
   if( FD_UNLIKELY( tile->id_keyswitch_obj_id!=ULONG_MAX ) ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold
        key material. */
@@ -231,6 +236,11 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold
        key material. */
     key_pages += 5UL;
+  }
+  if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
+    /* Two public key loads at boot are held at once, each a page and its
+       guards.  The sign tile signs the pair TLS, so no key page stays. */
+    key_pages += 10UL;
   }
 
   if( !strcmp( tile->name, "net" ) ) {
