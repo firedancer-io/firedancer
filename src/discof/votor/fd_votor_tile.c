@@ -1761,7 +1761,10 @@ after_credit( fd_votor_tile_t *   ctx,
   uchar reason;
   if( FD_UNLIKELY( ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) ) ) { /* our own vote */
     ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote );
-    if( FD_LIKELY( reason!=UCHAR_MAX && ctx->vote_history_dir_fd!=-1 ) ) ctx->vote_history_pending = fd_ulong_max( ctx->vote_history_pending, vote_slot );
+    if( FD_LIKELY( reason!=UCHAR_MAX && ctx->vote_history_dir_fd!=-1 ) ) {
+      ctx->vote_history_pending = fd_ulong_max( ctx->vote_history_pending, vote_slot );
+      vote_history_write( ctx );
+    }
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
     if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
