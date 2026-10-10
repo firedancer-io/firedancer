@@ -2531,7 +2531,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
 
         jsonp_open_object( gui->http, "limits" );
           jsonp_ulong( gui->http, "used_total_block_cost",        scheduler_stats->limits_usage->block_cost          );
-          jsonp_ulong( gui->http, "used_total_vote_cost",         fd_ulong_if( gui->summary.is_alpenglow, 0UL, scheduler_stats->limits_usage->vote_cost ) );
+          jsonp_ulong( gui->http, "used_total_vote_cost",         0UL ); /* deprecated */
           jsonp_ulong( gui->http, "used_total_bytes",             scheduler_stats->limits_usage->block_data_bytes    );
           jsonp_ulong( gui->http, "used_total_microblocks",       scheduler_stats->limits_usage->microblocks         );
           jsonp_open_array( gui->http, "used_account_write_costs" );
@@ -2548,7 +2548,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
           jsonp_close_array( gui->http );
 
           jsonp_ulong( gui->http, "max_total_block_cost",        scheduler_stats->limits->max_cost_per_block        );
-          jsonp_ulong( gui->http, "max_total_vote_cost",         fd_ulong_if( gui->summary.is_alpenglow, 0UL, scheduler_stats->limits->max_vote_cost_per_block ) );
+          jsonp_ulong( gui->http, "max_total_vote_cost",         0UL ); /* deprecated */
           jsonp_ulong( gui->http, "max_account_write_cost",      scheduler_stats->limits->max_write_cost_per_acct   );
           jsonp_ulong( gui->http, "max_total_bytes",             scheduler_stats->limits->max_data_bytes_per_block  );
           jsonp_ulong( gui->http, "max_total_microblocks",       lmeta->max_microblocks                                    );
@@ -2585,23 +2585,14 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
             for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, scheduler_stats->end_block_results[ i ] );
           jsonp_close_array( gui->http );
 
-          fd_pack_smallest_t pending_smallest       = *scheduler_stats->pending_smallest;
-          fd_pack_smallest_t pending_votes_smallest = *scheduler_stats->pending_votes_smallest;
-          if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) {
-            pending_smallest.cus         = fd_ulong_min( pending_smallest.cus,   pending_votes_smallest.cus   );
-            pending_smallest.bytes       = fd_ulong_min( pending_smallest.bytes, pending_votes_smallest.bytes );
-            pending_votes_smallest.cus   = ULONG_MAX;
-            pending_votes_smallest.bytes = ULONG_MAX;
-          }
+          fd_pack_smallest_t pending_smallest = *scheduler_stats->pending_smallest;
 
           if( FD_LIKELY( pending_smallest.cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_cost", pending_smallest.cus );
           else                                                jsonp_null( gui->http, "pending_smallest_cost" );
           if( FD_LIKELY( pending_smallest.bytes!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_bytes", pending_smallest.bytes );
           else                                                  jsonp_null( gui->http, "pending_smallest_bytes" );
-          if( FD_LIKELY( pending_votes_smallest.cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_vote_smallest_cost", pending_votes_smallest.cus );
-          else                                                      jsonp_null( gui->http, "pending_vote_smallest_cost" );
-          if( FD_LIKELY( pending_votes_smallest.bytes!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_vote_smallest_bytes", pending_votes_smallest.bytes );
-          else                                                        jsonp_null( gui->http, "pending_vote_smallest_bytes" );
+          jsonp_null( gui->http, "pending_vote_smallest_cost"  ); /* deprecated */
+          jsonp_null( gui->http, "pending_vote_smallest_bytes" ); /* deprecated */
         jsonp_close_object( gui->http );
 
       } else {
