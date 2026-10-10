@@ -938,6 +938,11 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       staked_shuffle_populated_cnt = fd_ulong_min( fanout+1UL, sdest->staked_cnt+1UL );
       if( flat ) flat_sample_and_remove_many( sdest, staked_shuffle, staked_shuffle_populated_cnt );
       else       fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle, staked_shuffle_populated_cnt );
+      /* My leaf still has weight: I was not sampled */
+      if( flat ) {
+        ulong k0 = my_orig_idx % flat_gsz( sdest->flat_cls );
+        if( sdest->flat_row[ my_orig_idx ]!=fd_ulong_if( !!k0, sdest->flat_row[ my_orig_idx-1UL ], 0UL ) ) my_idx = fanout+1UL;
+      }
       while( my_idx <= fanout ) {
         /* my_idx < fanout+1UL because of the while loop condition.
            my_idx < staked_cnt+1UL because my_idx==staked_cnt will
@@ -953,7 +958,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     if( FD_LIKELY( my_idx > fanout ) ) {
       /* I'm at the bottom of Turbine tree for this shred.  Fill in all
          the destinations with NO_DEST. */
-      for( ulong j=0UL; j<dest_cnt; j++ ) out[ j*out_stride + i ] = FD_SHRED_DEST_NO_DEST;
+      if( FD_LIKELY( out_stride==1UL ) ) fd_memset( out+i, 0xFF, dest_cnt*sizeof(fd_shred_dest_idx_t) );
+      else for( ulong j=0UL; j<dest_cnt; j++ ) out[ j*out_stride + i ] = FD_SHRED_DEST_NO_DEST;
 
       if( flat ) flat_restore_all( sdest );
       else       fd_wsample_restore_all( sdest->staked );
@@ -984,18 +990,11 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       staked_shuffle_populated_cnt += adtl;
     }
 
+    /* Staked samples are never EMPTY before staked_cnt-leader_is_staked */
     ulong emit = my_idx + stride;
-    while( cursor<=fd_ulong_min( last_dest_idx, sdest->staked_cnt ) ) {
-      ulong sample = staked_shuffle[ cursor ];
-      if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY         ) ) break;
-
-      if( FD_UNLIKELY( cursor==emit ) ) {
-        out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
-        stored_cnt++;
-        emit += stride;
-      }
-      cursor++;
-    }
+    ulong cend = fd_ulong_max( cursor, fd_ulong_min( last_dest_idx+1UL, sdest->staked_cnt-(ulong)leader_is_staked ) );
+    for( ; emit<cend; emit+=stride ) out[ (stored_cnt++)*out_stride + i ] = (fd_shred_dest_idx_t)staked_shuffle[ emit ];
+    cursor = cend;
 
     /* Next set of samples (if any) come from the unstaked portion. If I
        am not staked, then prepare_unstaked_sampling was already called
@@ -1141,7 +1140,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     max_dest_cnt = fd_ulong_max( max_dest_cnt, stored_cnt );
 
     /* The rest of my destinations are past the end of the tree */
-    for( ulong j=stored_cnt; j<dest_cnt; j++ ) out[ j*out_stride + i ] = FD_SHRED_DEST_NO_DEST;
+    if( FD_LIKELY( out_stride==1UL ) ) fd_memset( out+i+stored_cnt, 0xFF, (dest_cnt-stored_cnt)*sizeof(fd_shred_dest_idx_t) );
+    else for( ulong j=stored_cnt; j<dest_cnt; j++ ) out[ j*out_stride + i ] = FD_SHRED_DEST_NO_DEST;
 
     if( flat ) flat_restore_all( sdest );
     else       fd_wsample_restore_all( sdest->staked );
