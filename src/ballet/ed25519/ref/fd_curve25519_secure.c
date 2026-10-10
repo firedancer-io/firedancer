@@ -6,6 +6,9 @@
    - Small and auditable code base, incl. simple types
    - No local variables = no need to clear them before exit
    - Clear registers via FD_FN_SENSITIVE
+
+   Keep these secret-bearing operations on the scalar field helpers.
+   The public AVX2 batch helpers use stack scratch that is not cleared.
  */
 
 /* fd_ed25519_point_add_secure computes r = a + b.
@@ -35,15 +38,15 @@ fd_ed25519_point_add_secure( fd_ed25519_point_t *       restrict r,
   fd_f25519_add_nr( r3, a->Y, a->X );
 
 #if CURVE25519_PRECOMP_XY
-  fd_f25519_mul3(   r5, r1,   b->X,
-                    r6, r3,   b->Y,
-                    r7, a->T, b->T );
+  fd_f25519_mul( r5, r1,   b->X );
+  fd_f25519_mul( r6, r3,   b->Y );
+  fd_f25519_mul( r7, a->T, b->T );
 #else
   fd_f25519_sub_nr( r2, b->Y, b->X );
   fd_f25519_add_nr( r4, b->Y, b->X );
-  fd_f25519_mul3(   r5, r1,   r2,
-                    r6, r3,   r4,
-                    r7, a->T, b->T );
+  fd_f25519_mul( r5, r1,   r2   );
+  fd_f25519_mul( r6, r3,   r4   );
+  fd_f25519_mul( r7, a->T, b->T );
 #endif
   fd_f25519_add(    r8, a->Z, a->Z );
 
@@ -51,10 +54,10 @@ fd_ed25519_point_add_secure( fd_ed25519_point_t *       restrict r,
   fd_f25519_sub_nr( r2, r8, r7 );
   fd_f25519_add_nr( r3, r8, r7 );
   fd_f25519_add_nr( r4, r6, r5 );
-  fd_f25519_mul4( r->X, r1, r2,
-                  r->Y, r3, r4,
-                  r->Z, r2, r3,
-                  r->T, r1, r4 );
+  fd_f25519_mul( r->X, r1, r2 );
+  fd_f25519_mul( r->Y, r3, r4 );
+  fd_f25519_mul( r->Z, r2, r3 );
+  fd_f25519_mul( r->T, r1, r4 );
   return r;
 }
 
@@ -76,10 +79,10 @@ fd_ed25519_partial_dbl_secure( fd_ed25519_point_t * restrict       r,
 
   fd_f25519_add_nr( r1, a->X, a->Y );
 
-  fd_f25519_sqr4( r2, a->X,
-                  r3, a->Y,
-                  r4, a->Z,
-                  r1, r1 );
+  fd_f25519_sqr( r2, a->X );
+  fd_f25519_sqr( r3, a->Y );
+  fd_f25519_sqr( r4, a->Z );
+  fd_f25519_sqr( r1, r1   );
 
   /* important: reduce mod p (these values are used in add/sub) */
   fd_f25519_add( r4, r4, r4 );
@@ -106,17 +109,17 @@ fd_ed25519_point_dbln_secure( fd_ed25519_point_t *          r,
   fd_ed25519_partial_dbl_secure( t, a, tmp );
   for( uchar i=1; i<n; i++ ) {
     // fd_ed25519_point_add_final_mul_projective( r, t );
-    fd_f25519_mul3( r->X, t->X, t->Y,
-                    r->Y, t->Z, t->T,
-                    r->Z, t->Y, t->Z );
+    fd_f25519_mul( r->X, t->X, t->Y );
+    fd_f25519_mul( r->Y, t->Z, t->T );
+    fd_f25519_mul( r->Z, t->Y, t->Z );
 
     fd_ed25519_partial_dbl_secure( t, r, tmp );
   }
   // fd_ed25519_point_add_final_mul( r, t );
-  fd_f25519_mul4( r->X, t->X, t->Y,
-                  r->Y, t->Z, t->T,
-                  r->Z, t->Y, t->Z,
-                  r->T, t->X, t->T );
+  fd_f25519_mul( r->X, t->X, t->Y );
+  fd_f25519_mul( r->Y, t->Z, t->T );
+  fd_f25519_mul( r->Z, t->Y, t->Z );
+  fd_f25519_mul( r->T, t->X, t->T );
 }
 
 /* fd_ed25519_point_if sets r = a0 if secret_cond, else r = a1.

@@ -11,6 +11,16 @@ $(call run-unit-test,test_ed25519_signature_malleability)
 $(call run-unit-test,test_x25519)
 $(call run-unit-test,test_ristretto255)
 
+ifdef FD_HAS_AVX
+ifndef FD_HAS_AVX512
+ifdef FD_HAS_INT128
+$(call make-unit-test,test_f25519_avx2,test_f25519_avx2,fd_ballet fd_util)
+$(call run-unit-test,test_f25519_avx2)
+$(call make-unit-test,bench_ed25519_avx2,bench_ed25519_avx2,fd_ballet fd_util)
+endif
+endif
+endif
+
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_ed25519_verify,fuzz_ed25519_verify,fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_ed25519_sigverify,fuzz_ed25519_sigverify,fd_ballet fd_util)
