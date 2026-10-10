@@ -67,7 +67,7 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
 
   ulong source_validator_orig_idx; /* in [0, staked_cnt+unstaked_cnt) */
 
-  /* Flat staked sampler for compute_children if flat_cls!=0.  Inclusive
+  /* Flat staked sampler used instead of staked if flat_cls!=0.  Inclusive
      prefixes of group totals (p0), subgroup totals in a group (mid,
      class 3 only) and in-row weights (row); b=base. */
   ulong   flat_cls;

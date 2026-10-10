@@ -170,8 +170,6 @@ fd_shred_dest_new( void                           * mem,
 
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( sdest->rng, FD_CHACHA_RNG_MODE_SHIFT ) );
 
-  void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
-
   /* Pad lanes hold the row (mid row) total, pad groups LONG_MAX: never
      selected. */
   ulong   cls   = flat_cls( staked_cnt );
@@ -184,13 +182,15 @@ fd_shred_dest_new( void                           * mem,
   ulong   acc   = 0UL;
   ulong   grp   = 0UL;
   ulong   row   = 0UL;
+  ulong   tot   = 0UL;
+  int     ovf   = 0;
   for( ulong g=0UL; g<32UL; g++ ) sdest->flat_p0b[ g ] = (ulong)LONG_MAX;
   memset( sdest->flat_p0m,   0, sizeof(sdest->flat_p0m)   );
   memset( sdest->flat_dirty, 0, sizeof(sdest->flat_dirty) );
   if( cls ) {
     for( ulong i=0UL; i<flat_cnt; i++ ) {
       ulong wt = 0UL;
-      if( FD_LIKELY( i<staked_cnt ) ) { wt = info[i].stake_lamports; _staked = fd_wsample_new_add( _staked, wt ); }
+      if( FD_LIKELY( i<staked_cnt ) ) { wt = info[i].stake_lamports; ovf |= __builtin_uaddl_overflow( tot, wt, &tot ); }
       row       += wt;
       frowb[ i ] = row;
       if( (i&gmask)==gmask ) {
@@ -209,12 +209,13 @@ fd_shred_dest_new( void                           * mem,
     }
     fd_memcpy( _flat+flat_cnt, frowb, sizeof(ulong)*flat_cnt );
     if( cls==FLAT_CLS3 ) fd_memcpy( fmidb+256UL, fmidb, sizeof(ulong)*256UL );
-    if( FD_UNLIKELY( (acc>=(1UL<<63)) | !_staked ) ) cls = 0UL; /* fd_wsample fallback */
+    if( FD_UNLIKELY( ovf | (tot>=(1UL<<63)) ) ) cls = 0UL; /* fd_wsample fallback */
     else fd_memcpy( sdest->flat_p0m+8UL, sdest->flat_p0b, sizeof(sdest->flat_p0b) );
-  } else {
-    for( ulong i=0UL; i<staked_cnt; i++ ) _staked = fd_wsample_new_add( _staked, info[i].stake_lamports );
   }
-  _staked   = fd_wsample_new_fini( _staked, 0UL );
+  /* If flat, the empty fd_wsample only holds the shared rng */
+  void * _staked = fd_wsample_new_init( _wsample, rng, fd_ulong_if( !!cls, 0UL, staked_cnt ), 1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
+  if( !cls ) for( ulong i=0UL; i<staked_cnt; i++ ) _staked = fd_wsample_new_add( _staked, info[i].stake_lamports );
+  _staked = fd_wsample_new_fini( _staked, 0UL );
 
   memset( sdest->null_dest, 0, sizeof(fd_shred_dest_weighted_t) );
   sdest->lsched                     = lsched;
@@ -362,7 +363,7 @@ flat_roll( fd_chacha_rng_t * rng,
 }
 
 /* flat_remove_idx removes staked leaf idx. */
-static void
+static inline __attribute__((always_inline)) void
 flat_remove_idx( fd_shred_dest_t * sdest,
                  ulong             idx ) {
   ulong gsz = flat_gsz( sdest->flat_cls );
@@ -510,6 +511,41 @@ flat_sample_and_remove_many( fd_shred_dest_t * sdest,
   }
 }
 
+/* flat_sample1 is fd_wsample_sample (no removal). */
+static ulong
+flat_sample1( fd_shred_dest_t * sdest ) {
+  fd_chacha_rng_t * rng = sdest->rng;
+  ulong const *     p0m = sdest->flat_p0m+8UL;
+  ulong             W   = sdest->flat_W;
+  if( FD_UNLIKELY( !W ) ) return FD_WSAMPLE_EMPTY;
+
+  ulong off  = rng->buf_off;
+  ulong fill = rng->buf_fill;
+  ulong r    = flat_roll( rng, W, &off, &fill );
+  rng->buf_off = off;
+
+  flat_v_t vr = flat_v_bcast( r );
+  ulong    g  = 0UL;
+  for( ulong j=0UL; j<32UL/FLAT_VL; j++ ) g += flat_v_cnt_le( flat_v_ld( p0m+FLAT_VL*j ), vr );
+  ulong r1 = r - p0m[ (long)g-1L ];
+
+  ulong j = g;
+  if( sdest->flat_cls==FLAT_CLS3 ) {
+    ulong const * m  = sdest->flat_mid + g*16UL;
+    flat_v_t      v1 = flat_v_bcast( r1 );
+    ulong         s  = 0UL;
+    for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) s += flat_v_cnt_le( flat_v_ld( m+FLAT_VL*k ), v1 );
+    j   = g*16UL + s;
+    r1 -= m[ (s-1UL)&15UL ] & (-(ulong)(s!=0UL));
+  }
+  ulong         gsz = flat_gsz( sdest->flat_cls );
+  ulong const * q   = sdest->flat_row + j*gsz;
+  flat_v_t      v2  = flat_v_bcast( r1 );
+  ulong         t   = 0UL;
+  for( ulong k=0UL; k<gsz/FLAT_VL; k++ ) t += flat_v_cnt_le( flat_v_ld( q+FLAT_VL*k ), v2 );
+  return j*gsz + t;
+}
+
 /* flat_restore_all undoes all removals by copying back dirty rows. */
 static inline void
 flat_restore_all( fd_shred_dest_t * sdest ) {
@@ -535,6 +571,7 @@ flat_restore_all( fd_shred_dest_t * sdest ) {
 static inline void flat_remove_idx            ( fd_shred_dest_t * sdest, ulong idx                ) { (void)sdest; (void)idx;            }
 static inline void flat_sample_and_remove_many( fd_shred_dest_t * sdest, ulong * out, ulong cnt ) { (void)sdest; (void)out; (void)cnt; }
 static inline void flat_restore_all           ( fd_shred_dest_t * sdest                           ) { (void)sdest;                       }
+static inline ulong flat_sample1              ( fd_shred_dest_t * sdest                           ) { (void)sdest; return FD_WSAMPLE_EMPTY; }
 
 #endif
 
@@ -597,8 +634,11 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
      anymore?  This version of the code is safe either way, but I should
      probably confirm this can happen. */
   int source_validator_is_staked = sdest->source_validator_orig_idx<sdest->staked_cnt;
-  if( FD_LIKELY( source_validator_is_staked ) )
-    fd_wsample_remove_idx( sdest->staked, sdest->source_validator_orig_idx );
+  int flat                       = !!sdest->flat_cls;
+  if( FD_LIKELY( source_validator_is_staked ) ) {
+    if( flat ) flat_remove_idx( sdest, sdest->source_validator_orig_idx );
+    else       fd_wsample_remove_idx( sdest->staked, sdest->source_validator_orig_idx );
+  }
 
   int any_staked_candidates = sdest->staked_cnt > (ulong)source_validator_is_staked;
   for( ulong i=0UL; i<shred_cnt; i++ ) {
@@ -608,10 +648,15 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
        [0, INT_MAX], it will remain non-negative when cast to an int. */
     FD_STATIC_ASSERT( (int)FD_WSAMPLE_EMPTY                     <=-1, wsample_val );
     FD_STATIC_ASSERT( FD_SHRED_DEST_NO_DEST==(fd_shred_dest_idx_t)-1, wsample_val );
-    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_int_max( (int)fd_wsample_sample( sdest->staked ), -1 );
-    else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
+    if( FD_LIKELY( any_staked_candidates ) ) {
+      ulong sample = flat ? flat_sample1( sdest ) : fd_wsample_sample( sdest->staked );
+      out[i] = (fd_shred_dest_idx_t)fd_int_max( (int)sample, -1 );
+    } else {
+      out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
+    }
   }
-  fd_wsample_restore_all( sdest->staked );
+  if( flat ) flat_restore_all( sdest );
+  else       fd_wsample_restore_all( sdest->staked );
 
   return out;
 }
