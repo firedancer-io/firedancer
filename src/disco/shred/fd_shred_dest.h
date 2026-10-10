@@ -66,11 +66,23 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   ulong  pubkey_map_seed;
 
   ulong source_validator_orig_idx; /* in [0, staked_cnt+unstaked_cnt) */
+
+  /* Flat staked sampler for compute_children if flat_cls!=0.  Inclusive
+     prefixes of group totals (p0) and in-row weights (row); b=base. */
+  ulong   flat_cls;
+  ulong   flat_total;
+  ulong   flat_W;       /* unremoved weight */
+  ulong   flat_dirty;   /* bit g set if row g was modified */
+  ulong * flat_rowb;
+  ulong * flat_row;
+  ulong   flat_p0b[ 64 ] __attribute__((aligned(64)));
+  ulong   flat_p0m[ 72 ] __attribute__((aligned(64))); /* flat_p0m[7]==0 */
   /* Struct followed by:
      * pubkey_map
      * all_destinations
      * staked
      * unstaked
+     * flat_rowb, flat_row
    */
 };
 typedef struct fd_shred_dest_private fd_shred_dest_t;

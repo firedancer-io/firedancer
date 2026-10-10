@@ -1,5 +1,8 @@
 #include "fd_shred_dest.h"
 #include "../../util/fd_hash32.h"
+#if FD_HAS_AVX512
+#include "../../util/simd/fd_avx512.h"
+#endif
 
 static const fd_pubkey_t null_pubkey = {{ 0 }};
 
@@ -31,17 +34,46 @@ struct __attribute__((packed)) shred_dest_input {
 };
 typedef struct shred_dest_input shred_dest_input_t;
 
+/* Flat staked sampler (AVX-512, staked_cnt<=FLAT_MAX): group prefixes
+   in registers over rows of 16, 32 or 64 leaf prefixes. */
+#define FLAT_MAX  (4096UL)
+
+static inline ulong
+flat_cls( ulong staked_cnt ) {
+# if FD_HAS_AVX512
+  if( FD_UNLIKELY( (staked_cnt==0UL) | (staked_cnt>FLAT_MAX) ) ) return 0UL;
+  return 1UL + (ulong)(staked_cnt>512UL) + (ulong)(staked_cnt>1024UL) + (ulong)(staked_cnt>2048UL);
+# else
+  (void)staked_cnt;
+  return 0UL;
+# endif
+}
+
+/* flat_gsz returns the number of leaves per row. */
+static inline ulong flat_gsz( ulong cls ) { return fd_ulong_if( cls==1UL, 16UL, fd_ulong_if( cls==4UL, 64UL, 32UL ) ); }
+
+/* flat_row_cnt returns the number of ulongs in each of flat_rowb and
+   flat_row. */
+static inline ulong
+flat_row_cnt( ulong staked_cnt ) {
+  ulong cls = flat_cls( staked_cnt );
+  return fd_ulong_if( !!cls, fd_ulong_align_up( staked_cnt, flat_gsz( cls ) ), 0UL );
+}
+
+static inline ulong flat_footprint( ulong staked_cnt ) { return sizeof(ulong)*2UL*flat_row_cnt( staked_cnt ); }
+
 ulong
 fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt ) {
   ulong cnt = staked_cnt+unstaked_cnt;
   ulong map_cnt = fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) );
-  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
+  return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
                 FD_LAYOUT_INIT,
                 fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              ),
                 64UL,                              sizeof(uint)*map_cnt                 ),
                 alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt ),
                 fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 )),
                 alignof(ulong),                    sizeof(ulong)*unstaked_cnt           ),
+                64UL,                              flat_footprint( staked_cnt )         ),
       FD_SHRED_DEST_ALIGN );
 }
 
@@ -105,13 +137,38 @@ fd_shred_dest_new( void                           * mem,
 
   void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(), fd_wsample_footprint( staked_cnt, 1 ));
   void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),     sizeof(ulong)*unstaked_cnt           );
+  ulong   flat_cnt  = flat_row_cnt( staked_cnt );
+  ulong * _flat     = FD_SCRATCH_ALLOC_APPEND( footprint, 64UL,               flat_footprint( staked_cnt )         );
 
 
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( sdest->rng, FD_CHACHA_RNG_MODE_SHIFT ) );
 
   void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
 
-  for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
+  /* Pad lanes hold the row total, pad groups ULONG_MAX: never selected. */
+  ulong   cls   = flat_cls( staked_cnt );
+  ulong   gmask = flat_gsz( cls )-1UL;
+  ulong * frowb = _flat;
+  ulong   acc   = 0UL;
+  ulong   row   = 0UL;
+  for( ulong g=0UL; g<64UL; g++ ) sdest->flat_p0b[ g ] = ULONG_MAX;
+  memset( sdest->flat_p0m, 0, sizeof(sdest->flat_p0m) );
+  if( cls ) {
+    for( ulong i=0UL; i<staked_cnt; i++ ) {
+      ulong wt = info[i].stake_lamports;
+      _staked    = fd_wsample_new_add( _staked, wt );
+      row       += wt;
+      frowb[ i ] = row;
+      if( (i&gmask)==gmask ) { acc += row; sdest->flat_p0b[ i>>fd_ulong_find_msb( gmask+1UL ) ] = acc; row = 0UL; }
+    }
+    for( ulong i=staked_cnt; i<flat_cnt; i++ ) frowb[ i ] = row;
+    if( staked_cnt&gmask ) { acc += row; sdest->flat_p0b[ staked_cnt>>fd_ulong_find_msb( gmask+1UL ) ] = acc; }
+    fd_memcpy( _flat+flat_cnt, frowb, sizeof(ulong)*flat_cnt );
+    if( FD_UNLIKELY( (acc>=(1UL<<63)) | !_staked ) ) cls = 0UL; /* fd_wsample fallback */
+    else fd_memcpy( sdest->flat_p0m+8UL, sdest->flat_p0b, sizeof(sdest->flat_p0b) );
+  } else {
+    for( ulong i=0UL; i<staked_cnt; i++ ) _staked = fd_wsample_new_add( _staked, info[i].stake_lamports );
+  }
   _staked   = fd_wsample_new_fini( _staked, 0UL );
 
   memset( sdest->null_dest, 0, sizeof(fd_shred_dest_weighted_t) );
@@ -133,6 +190,13 @@ fd_shred_dest_new( void                           * mem,
     return NULL;
   }
   sdest->source_validator_orig_idx  = source_idx;
+
+  sdest->flat_cls   = cls;
+  sdest->flat_total = acc;
+  sdest->flat_W     = acc;
+  sdest->flat_dirty = 0UL;
+  sdest->flat_rowb  = _flat;
+  sdest->flat_row   = _flat + flat_cnt;
 
   return (void *)sdest;
 }
@@ -223,6 +287,135 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
   return to_return;
 }
 
+
+#if FD_HAS_AVX512
+
+/* flat_roll is fd_chacha_rng_ulong_roll( rng, W ) (MODE_SHIFT) with
+   the buffer cursor in registers. */
+static inline __attribute__((always_inline)) ulong
+flat_roll( fd_chacha_rng_t * rng,
+           ulong             W,
+           ulong           * _off,
+           ulong           * _fill ) {
+  ulong off  = *_off;
+  ulong fill = *_fill;
+  ulong zone = (W << (63 - fd_ulong_find_msb( W ))) - 1UL;
+  ulong r;
+  for(;;) {
+    if( FD_UNLIKELY( off==fill ) ) { rng->buf_off = off; fd_chacha8_rng_private_refill( rng ); fill = rng->buf_fill; }
+    ulong v = FD_LOAD( ulong, rng->buf + (off % FD_CHACHA_RNG_BUFSZ) );
+    off += 8UL;
+    ulong lo;
+    fd_uwide_mul( &r, &lo, v, W );
+    if( FD_LIKELY( lo<=zone ) ) break;
+  }
+  *_off  = off;
+  *_fill = fill;
+  return r;
+}
+
+/* flat_remove_idx removes staked leaf idx. */
+static void
+flat_remove_idx( fd_shred_dest_t * sdest,
+                 ulong             idx ) {
+  ulong gsz = flat_gsz( sdest->flat_cls );
+  ulong g   = idx / gsz;
+  ulong k0  = idx % gsz;
+  ulong wt  = sdest->flat_row[ idx ] - fd_ulong_if( !!k0, sdest->flat_row[ idx-1UL ], 0UL );
+  for( ulong k=k0;      k<gsz;  k++ ) sdest->flat_row[ g*gsz+k ] -= wt;
+  for( ulong t=g;       t<64UL; t++ ) sdest->flat_p0m[ 8UL+t ]   -= wt;
+  sdest->flat_dirty |= 1UL<<g;
+  sdest->flat_W     -= wt;
+}
+
+/* flat_sample is fd_wsample_sample_and_remove_many over nr0 group
+   prefix registers and rows of rv vectors. */
+static inline __attribute__((always_inline)) void
+flat_sample( fd_shred_dest_t * sdest,
+             ulong           * out,
+             ulong             cnt,
+             ulong const       nr0,
+             ulong const       rv ) {
+  fd_chacha_rng_t * rng = sdest->rng;
+  ulong const       gsz = 8UL*rv;
+  ulong *           p0m = sdest->flat_p0m+8UL;
+  ulong *           row = sdest->flat_row;
+
+  wwv_t p0[ 8 ];
+# pragma GCC unroll 8
+  for( ulong j=0UL; j<nr0; j++ ) p0[ j ] = wwv_ld( p0m+8UL*j );
+
+  ulong W     = sdest->flat_W;
+  ulong dirty = sdest->flat_dirty;
+  ulong off   = rng->buf_off;
+  ulong fill  = rng->buf_fill;
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
+
+    ulong r  = flat_roll( rng, W, &off, &fill );
+    wwv_t vr = wwv_bcast( r );
+    ulong g  = 0UL;
+#   pragma GCC unroll 8
+    for( ulong j=0UL; j<nr0; j++ ) g += (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( p0[ j ], vr ) );
+
+    wwv_t   vrr = wwv_bcast( r - p0m[ (long)g-1L ] );
+    ulong * q   = row + g*gsz;
+    wwv_t   rr[ 8 ];
+    ulong   k   = 0UL;
+#   pragma GCC unroll 8
+    for( ulong j=0UL; j<rv; j++ ) { rr[ j ] = wwv_ld( q+8UL*j ); k += (ulong)fd_ulong_popcnt( (ulong)(uint)wwv_le( rr[ j ], vrr ) ); }
+
+    ulong idx = g*gsz + k;
+    ulong wt  = q[ k ] - (q[ (k-1UL)&(gsz-1UL) ] & (-(ulong)(k!=0UL)));
+    wwv_t vw  = wwv_bcast( wt );
+#   pragma GCC unroll 8
+    for( ulong j=0UL; j<nr0; j++ ) { p0[ j ] = wwv_sub_if( wwv_gt( p0[ j ], vr ), p0[ j ], vw, p0[ j ] ); wwv_st( p0m+8UL*j, p0[ j ] ); }
+#   pragma GCC unroll 8
+    for( ulong j=0UL; j<rv;  j++ ) wwv_st( q+8UL*j, wwv_sub_if( wwv_gt( rr[ j ], vrr ), rr[ j ], vw, rr[ j ] ) );
+
+    dirty   |= 1UL<<g;
+    W       -= wt;
+    out[ i ] = idx;
+  }
+
+  rng->buf_off      = off;
+  sdest->flat_W     = W;
+  sdest->flat_dirty = dirty;
+}
+
+static void
+flat_sample_and_remove_many( fd_shred_dest_t * sdest,
+                             ulong           * out,
+                             ulong             cnt ) {
+  switch( sdest->flat_cls ) {
+  case 1UL: flat_sample( sdest, out, cnt, 4UL, 2UL ); break;
+  case 2UL: flat_sample( sdest, out, cnt, 4UL, 4UL ); break;
+  case 3UL: flat_sample( sdest, out, cnt, 8UL, 4UL ); break;
+  default:  flat_sample( sdest, out, cnt, 8UL, 8UL ); break;
+  }
+}
+
+/* flat_restore_all undoes all removals by copying back dirty rows. */
+static inline void
+flat_restore_all( fd_shred_dest_t * sdest ) {
+  ulong gsz = flat_gsz( sdest->flat_cls );
+  for( ulong d=sdest->flat_dirty; d; d=fd_ulong_pop_lsb( d ) ) {
+    ulong g = (ulong)fd_ulong_find_lsb( d );
+    fd_memcpy( sdest->flat_row+g*gsz, sdest->flat_rowb+g*gsz, gsz*sizeof(ulong) );
+  }
+  sdest->flat_dirty = 0UL;
+  sdest->flat_W     = sdest->flat_total;
+  fd_memcpy( sdest->flat_p0m+8UL, sdest->flat_p0b, sizeof(sdest->flat_p0b) );
+}
+
+#else /* the flat sampler is never enabled */
+
+static inline void flat_remove_idx            ( fd_shred_dest_t * sdest, ulong idx                ) { (void)sdest; (void)idx;            }
+static inline void flat_sample_and_remove_many( fd_shred_dest_t * sdest, ulong * out, ulong cnt ) { (void)sdest; (void)out; (void)cnt; }
+static inline void flat_restore_all           ( fd_shred_dest_t * sdest                           ) { (void)sdest;                       }
+
+#endif
 
 /* Returns 0 on success
    https://github.com/anza-xyz/agave/blob/v2.2.1/ledger/src/shred.rs#L293 */
@@ -357,10 +550,14 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
   ulong staked_shuffle[ sdest->staked_cnt+1UL ];
   ulong staked_shuffle_populated_cnt = 0UL;
+  int   flat = !!sdest->flat_cls;
 
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     /* Remove the leader. */
-    if( FD_LIKELY( leader_is_staked ) ) fd_wsample_remove_idx( sdest->staked, leader_idx );
+    if( FD_LIKELY( leader_is_staked ) ) {
+      if( flat ) flat_remove_idx( sdest, leader_idx );
+      else       fd_wsample_remove_idx( sdest->staked, leader_idx );
+    }
 
     ulong my_idx         = 0UL;
     fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] ); /* Seeds both samplers since the rng is shared */
@@ -373,7 +570,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
          them since otherwise we would have taken the quick exit at the
          start of the function. */
       staked_shuffle_populated_cnt = sdest->staked_cnt + 1UL;
-      fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle, staked_shuffle_populated_cnt );
+      if( flat ) flat_sample_and_remove_many( sdest, staked_shuffle, staked_shuffle_populated_cnt );
+      else       fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle, staked_shuffle_populated_cnt );
       my_idx += sdest->staked_cnt - (ulong)leader_is_staked;
 
       prepare_unstaked_sampling( sdest, leader_idx );
@@ -385,7 +583,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       }
     } else {
       staked_shuffle_populated_cnt = fd_ulong_min( fanout+1UL, sdest->staked_cnt+1UL );
-      fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle, staked_shuffle_populated_cnt );
+      if( flat ) flat_sample_and_remove_many( sdest, staked_shuffle, staked_shuffle_populated_cnt );
+      else       fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle, staked_shuffle_populated_cnt );
       while( my_idx <= fanout ) {
         /* my_idx < fanout+1UL because of the while loop condition.
            my_idx < staked_cnt+1UL because my_idx==staked_cnt will
@@ -403,7 +602,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
          the destinations with NO_DEST. */
       for( ulong j=0UL; j<dest_cnt; j++ ) out[ j*out_stride + i ] = FD_SHRED_DEST_NO_DEST;
 
-      fd_wsample_restore_all( sdest->staked   );
+      if( flat ) flat_restore_all( sdest );
+      else       fd_wsample_restore_all( sdest->staked );
       continue; /* Next shred */
     }
     /* If my index is    |  Send to indices
@@ -425,7 +625,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     if( FD_LIKELY( (last_dest_idx>=staked_shuffle_populated_cnt) & (staked_shuffle_populated_cnt<sdest->staked_cnt+1UL ) ) ) {
       ulong adtl = fd_ulong_min( last_dest_idx+1UL, sdest->staked_cnt+1UL ) - staked_shuffle_populated_cnt;
 
-      fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle+staked_shuffle_populated_cnt, adtl );
+      if( flat ) flat_sample_and_remove_many( sdest, staked_shuffle+staked_shuffle_populated_cnt, adtl );
+      else       fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle+staked_shuffle_populated_cnt, adtl );
       staked_shuffle_populated_cnt += adtl;
     }
 
@@ -459,7 +660,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     /* The rest of my destinations are past the end of the tree */
     for( ulong j=stored_cnt; j<dest_cnt; j++ ) out[ j*out_stride + i ] = FD_SHRED_DEST_NO_DEST;
 
-    fd_wsample_restore_all( sdest->staked );
+    if( flat ) flat_restore_all( sdest );
+    else       fd_wsample_restore_all( sdest->staked );
 
   }
   fd_ulong_store_if( !!opt_max_dest_cnt, opt_max_dest_cnt, max_dest_cnt );
