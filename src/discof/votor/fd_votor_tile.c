@@ -1866,10 +1866,14 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* never will be leader */
 
-  /* Check if it's time to become leader. */
+  /* Check if it's time to become leader.  Skip windows that are
+     finalized or missed: a later slot already has a ready parent, e.g.
+     we were too slow or are catching up after a restart (Agave
+     BlockProductionParent::MissedWindow). */
 
-  ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
-  while( FD_UNLIKELY( ctx->next_leader_slot<=finalized_slot ) ) {
+  ulong finalized_slot       = ag_pool_finalized_slot( ctx->pool );
+  ulong highest_parent_ready = ag_pool_highest_parent_ready( ctx->pool );
+  while( FD_UNLIKELY( ctx->next_leader_slot<=finalized_slot || ctx->next_leader_slot<highest_parent_ready ) ) {
     ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
     if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* schedule exhausted */
   }

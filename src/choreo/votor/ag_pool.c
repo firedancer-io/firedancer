@@ -280,7 +280,8 @@ void
 ag_pool_init( ag_pool_t *           self,
               ag_block_id_t const * root ) {
   ag_finality_tracker_init( self->finality_tracker, root->slot );
-  self->parent_ready_tracker->root = fd_ulong_sat_sub( root->slot, AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW );
+  self->parent_ready_tracker->root                 = fd_ulong_sat_sub( root->slot, AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW );
+  self->parent_ready_tracker->highest_parent_ready = 0UL;
 
   ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
   for( ulong i=0UL; i<self->scratch.parent_ready_cnt; i++ ) {
@@ -712,6 +713,11 @@ ag_block_id_t
 ag_pool_wait_for_parent_ready( ag_pool_t * self,
                                ulong       slot ) {
   return ag_parent_ready_tracker_wait_for_parent_ready( self->parent_ready_tracker, slot );
+}
+
+FD_FN_PURE ulong
+ag_pool_highest_parent_ready( ag_pool_t const * self ) {
+  return ag_parent_ready_tracker_highest_parent_ready( self->parent_ready_tracker );
 }
 
 int

@@ -414,6 +414,52 @@ test_wait_for_parent_ready( void ) {
   teardown_tracker( tracker );
 }
 
+/* Agave votor/src/consensus_pool/parent_ready_tracker.rs::missed_window */
+
+static void
+test_missed_window( void ) {
+  ulong window2 = 1UL*SLOTS_PER_WINDOW;
+  ulong window3 = 2UL*SLOTS_PER_WINDOW;
+  ulong window9 = 8UL*SLOTS_PER_WINDOW;
+  ag_parent_ready_tracker_t * tracker = setup_tracker( 256 );
+
+  ag_parent_ready_t out[ TEST_SLOT_MAX ];
+  ulong             out_cnt;
+
+  /* Nothing past window2 is ready: window2 is not missed. */
+
+  FD_TEST( ag_parent_ready_tracker_wait_for_parent_ready( tracker, window2 ).slot==ULONG_MAX );
+  FD_TEST( !( window2<ag_parent_ready_tracker_highest_parent_ready( tracker ) ) );
+
+  /* A notar fallback of window2's own first slot makes window2+1 ready:
+     window2 was certified without us, so it is missed. */
+
+  ag_block_id_t block = random_block_id( window2 );
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
+  FD_TEST( ag_parent_ready_tracker_highest_parent_ready( tracker )==window2+1UL );
+  FD_TEST( window2<ag_parent_ready_tracker_highest_parent_ready( tracker ) );
+
+  FD_TEST( ag_parent_ready_tracker_wait_for_parent_ready( tracker, window3 ).slot==ULONG_MAX );
+  FD_TEST( !( window3<ag_parent_ready_tracker_highest_parent_ready( tracker ) ) );
+
+  block = random_block_id( window9 );
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &block, out, &out_cnt );
+  FD_TEST( ag_parent_ready_tracker_highest_parent_ready( tracker )==window9+1UL );
+  FD_TEST( window3<ag_parent_ready_tracker_highest_parent_ready( tracker ) );
+
+  /* A skip extends the ready parents past it. */
+
+  ag_parent_ready_tracker_mark_skipped( tracker, window9+1UL, out, &out_cnt );
+  FD_TEST( ag_parent_ready_tracker_highest_parent_ready( tracker )==window9+2UL );
+
+  /* A skip with no ready parent below it makes nothing ready. */
+
+  ag_parent_ready_tracker_mark_skipped( tracker, window9+SLOTS_PER_WINDOW+1UL, out, &out_cnt );
+  FD_TEST( ag_parent_ready_tracker_highest_parent_ready( tracker )==window9+2UL );
+
+  teardown_tracker( tracker );
+}
+
 /* src/consensus/pool/parent_ready_tracker.rs::prune */
 
 static void
@@ -651,6 +697,7 @@ main( int     argc,
   test_no_double_counting_notar_and_skip();
   test_undelivered_coalesces();
   test_wait_for_parent_ready();
+  test_missed_window();
   test_wait_tie_break();
   test_wait_does_not_allocate();
   test_prune();
