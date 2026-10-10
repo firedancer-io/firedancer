@@ -35,11 +35,6 @@ struct fd_shred_dest_weighted {
 }; /* be careful ip and host are in different byte order */
 typedef struct fd_shred_dest_weighted fd_shred_dest_weighted_t;
 
-/* Internal type, forward declared to be able to declare the struct
-   here. */
-struct pubkey_to_idx;
-typedef struct pubkey_to_idx pubkey_to_idx_t;
-
 #define FD_SHRED_DEST_ALIGN (128UL)
 FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN>=FD_SHA256_BATCH_ALIGN, fd_shred_dest_private_align );
 
@@ -66,11 +61,13 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   ulong staked_cnt;
   ulong unstaked_cnt;
 
-  pubkey_to_idx_t * pubkey_to_idx_map; /* maps pubkey -> [0, staked_cnt+unstaked_cnt) */
+  uint * pubkey_map;      /* maps pubkey -> [0, staked_cnt+unstaked_cnt), UINT_MAX if empty */
+  ulong  pubkey_map_mask;
+  ulong  pubkey_map_seed;
 
   ulong source_validator_orig_idx; /* in [0, staked_cnt+unstaked_cnt) */
   /* Struct followed by:
-     * pubkey_to_idx map
+     * pubkey_map
      * all_destinations
      * staked
      * unstaked
