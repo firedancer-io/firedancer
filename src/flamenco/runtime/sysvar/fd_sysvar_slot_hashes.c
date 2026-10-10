@@ -58,6 +58,10 @@ fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
     FD_STORE( ulong, data, keep + 1UL );
   }
 
+  ulong used_sz = sizeof(ulong) + FD_LOAD( ulong, data )*sizeof(fd_slot_hash_t);
+  fd_memset( data+used_sz, 0, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ-used_sz );
+  acc.data_len = FD_SYSVAR_SLOT_HASHES_BINCODE_SZ;
+
   fd_sysvar_adjust_balance_for_rent( bank, &acc );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 }
