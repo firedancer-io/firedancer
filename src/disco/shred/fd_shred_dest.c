@@ -343,8 +343,8 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
 /* fd_chacha8_rng_refill_avx512 split into steps (fini transposes) */
 
 static inline __attribute__((always_inline)) void
-unstaked_chacha8_init( wwu_t *                 c,
-                       fd_chacha_rng_t const * rng ) {
+chacha8_init( wwu_t *                 c,
+              fd_chacha_rng_t const * rng ) {
   uint const * key = (uint const *)rng->key;
   ulong        idx = rng->buf_fill / FD_CHACHA_BLOCK_SZ;
   wwu_t        ofs = wwu( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
@@ -356,7 +356,7 @@ unstaked_chacha8_init( wwu_t *                 c,
   c[ 14 ] = wwu_zero(); c[ 15 ] = wwu_zero();
 }
 
-#define UNSTAKED_CHACHA_QR( a, b, c, d ) do {                                                  \
+#define CHACHA8_QR( a, b, c, d ) do {                                                         \
     wwb_t const _rol8  = wwb_bcast_hex( 3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14 );           \
     a = wwu_add( a, b ); d = wwu_xor( d, a ); d = wwb_exch_adj_pair( d );                     \
     c = wwu_add( c, d ); b = wwu_xor( b, c ); b = wwu_rol( b, 12 );                            \
@@ -365,24 +365,24 @@ unstaked_chacha8_init( wwu_t *                 c,
   } while(0)
 
 static inline __attribute__((always_inline)) void
-unstaked_chacha8_dround( wwu_t * c ) {
-  UNSTAKED_CHACHA_QR( c[ 0 ], c[ 4 ], c[  8 ], c[ 12 ] );
-  UNSTAKED_CHACHA_QR( c[ 1 ], c[ 5 ], c[  9 ], c[ 13 ] );
-  UNSTAKED_CHACHA_QR( c[ 2 ], c[ 6 ], c[ 10 ], c[ 14 ] );
-  UNSTAKED_CHACHA_QR( c[ 3 ], c[ 7 ], c[ 11 ], c[ 15 ] );
-  UNSTAKED_CHACHA_QR( c[ 0 ], c[ 5 ], c[ 10 ], c[ 15 ] );
-  UNSTAKED_CHACHA_QR( c[ 1 ], c[ 6 ], c[ 11 ], c[ 12 ] );
-  UNSTAKED_CHACHA_QR( c[ 2 ], c[ 7 ], c[  8 ], c[ 13 ] );
-  UNSTAKED_CHACHA_QR( c[ 3 ], c[ 4 ], c[  9 ], c[ 14 ] );
+chacha8_dround( wwu_t * c ) {
+  CHACHA8_QR( c[ 0 ], c[ 4 ], c[  8 ], c[ 12 ] );
+  CHACHA8_QR( c[ 1 ], c[ 5 ], c[  9 ], c[ 13 ] );
+  CHACHA8_QR( c[ 2 ], c[ 6 ], c[ 10 ], c[ 14 ] );
+  CHACHA8_QR( c[ 3 ], c[ 7 ], c[ 11 ], c[ 15 ] );
+  CHACHA8_QR( c[ 0 ], c[ 5 ], c[ 10 ], c[ 15 ] );
+  CHACHA8_QR( c[ 1 ], c[ 6 ], c[ 11 ], c[ 12 ] );
+  CHACHA8_QR( c[ 2 ], c[ 7 ], c[  8 ], c[ 13 ] );
+  CHACHA8_QR( c[ 3 ], c[ 4 ], c[  9 ], c[ 14 ] );
 }
 
-#undef UNSTAKED_CHACHA_QR
+#undef CHACHA8_QR
 
 static inline __attribute__((always_inline)) void
-unstaked_chacha8_fini( wwu_t *           c,
-                       fd_chacha_rng_t * rng ) {
+chacha8_fini( wwu_t *           c,
+              fd_chacha_rng_t * rng ) {
   wwu_t i[ 16 ];
-  unstaked_chacha8_init( i, rng );
+  chacha8_init( i, rng );
   for( ulong j=0UL; j<14UL; j++ ) c[ j ] = wwu_add( c[ j ], i[ j ] );
   wwu_transpose_16x16( c[ 0 ], c[ 1 ], c[  2 ], c[  3 ], c[  4 ], c[  5 ], c[  6 ], c[  7 ],
                        c[ 8 ], c[ 9 ], c[ 10 ], c[ 11 ], c[ 12 ], c[ 13 ], c[ 14 ], c[ 15 ],
@@ -453,6 +453,33 @@ flat_remove_idx( fd_shred_dest_t * sdest,
   sdest->flat_W               -= wt;
 }
 
+#if FD_HAS_AVX512
+/* FLAT_PRE_STEP builds the next ring one step per sample, swapped in once drained */
+#define FLAT_PRE_DECL wwu_t pc[ 16 ]; ulong pst = 0UL; ulong pfill = 0UL
+#define FLAT_PRE_STEP do {                                                                         \
+    if( FD_UNLIKELY( pst && pfill!=fill ) ) pst = 0UL;                                             \
+    if( pst==0UL ) {                                                                               \
+      if( FD_UNLIKELY( fill-off<=128UL ) ) { pfill = fill; chacha8_init( pc, rng ); pst = 1UL; }   \
+    } else if( pst<=4UL ) { chacha8_dround( pc ); pst++; }                                         \
+    else if( pst==5UL ) { chacha8_fini( pc, rng ); pst = 6UL; }                                    \
+    if( FD_UNLIKELY( (pst==6UL) & (fill-off<=16UL) ) ) {                                           \
+      ulong zone = (W << (63 - fd_ulong_find_msb( W ))) - 1UL;                                     \
+      for( ; off<fill; off+=8UL ) {                                                                \
+        ulong hi, lo;                                                                              \
+        fd_uwide_mul( &hi, &lo, FD_LOAD( ulong, rng->buf + (off % FD_CHACHA_RNG_BUFSZ) ), W );     \
+        if( lo<=zone ) break;                                                                      \
+      }                                                                                            \
+      if( off==fill ) {                                                                            \
+        for( ulong b=0UL; b<16UL; b++ ) wwu_st( (uint *)rng->buf + 16UL*b, pc[ b ] );              \
+        fill += FD_CHACHA_RNG_BUFSZ; rng->buf_fill = fill; pst = 0UL;                              \
+      }                                                                                            \
+    }                                                                                              \
+  } while(0)
+#else
+#define FLAT_PRE_DECL
+#define FLAT_PRE_STEP
+#endif
+
 /* flat_sample2 is fd_wsample_sample_and_remove_many for the two level
    classes, rows of gsz leaves. */
 static inline __attribute__((always_inline)) void
@@ -473,8 +500,11 @@ flat_sample2( fd_shred_dest_t * sdest,
   ulong off   = rng->buf_off;
   ulong fill  = rng->buf_fill;
 
+  FLAT_PRE_DECL;
+
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
+    FLAT_PRE_STEP;
 
     ulong    r  = flat_roll( rng, W, &off, &fill );
     flat_v_t vr = flat_v_bcast( r );
@@ -526,8 +556,11 @@ flat_sample3( fd_shred_dest_t * sdest,
   ulong off  = rng->buf_off;
   ulong fill = rng->buf_fill;
 
+  FLAT_PRE_DECL;
+
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
+    FLAT_PRE_STEP;
 
     ulong    r  = flat_roll( rng, W, &off, &fill );
     flat_v_t vr = flat_v_bcast( r );
@@ -570,6 +603,9 @@ flat_sample3( fd_shred_dest_t * sdest,
   sdest->flat_W         = W;
   sdest->flat_dirty_mid = dmid;
 }
+
+#undef FLAT_PRE_DECL
+#undef FLAT_PRE_STEP
 
 static void
 flat_sample_and_remove_many( fd_shred_dest_t * sdest,
@@ -930,17 +966,17 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
            between 16 word groups */
         wwu_t c[ 16 ];
         ulong r = 5UL; /* 4 double rounds + fini */
-        unstaked_chacha8_init( c, rng );
+        chacha8_init( c, rng );
         for( ; k<wcnt%16UL; k++ ) UNSTAKED_WORD( k );
         for( ; k<wcnt; k+=16UL ) {
 #         pragma GCC unroll 16
           for( ulong e=0UL; e<16UL; e++ ) UNSTAKED_WORD( k+e );
-          if     ( r>1UL ) unstaked_chacha8_dround( c );
-          else if( r     ) unstaked_chacha8_fini( c, rng );
+          if     ( r>1UL ) chacha8_dround( c );
+          else if( r     ) chacha8_fini( c, rng );
           r -= !!r;
         }
-        for( ; r>1UL; r-- ) unstaked_chacha8_dround( c );
-        if( r ) unstaked_chacha8_fini( c, rng );
+        for( ; r>1UL; r-- ) chacha8_dround( c );
+        if( r ) chacha8_fini( c, rng );
         for( ulong b=0UL; b<16UL; b++ ) wwu_st( (uint *)rng->buf + 16UL*b, c[ b ] );
         rng->buf_off   = off + 8UL*k;
         rng->buf_fill += FD_CHACHA_RNG_BUFSZ;
