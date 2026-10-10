@@ -815,13 +815,15 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       staked_shuffle_populated_cnt += adtl;
     }
 
+    ulong emit = my_idx + stride;
     while( cursor<=fd_ulong_min( last_dest_idx, sdest->staked_cnt ) ) {
       ulong sample = staked_shuffle[ cursor ];
       if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY         ) ) break;
 
-      if( FD_UNLIKELY( cursor == my_idx + stride*(stored_cnt+1UL) ) ) {
+      if( FD_UNLIKELY( cursor==emit ) ) {
         out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
         stored_cnt++;
+        emit += stride;
       }
       cursor++;
     }
@@ -836,7 +838,6 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     fd_chacha_rng_t * rng  = sdest->rng;
     ulong *           u    = sdest->unstaked;
     ulong             n    = sdest->unstaked_unremoved_cnt;
-    ulong             emit = my_idx + stride*(stored_cnt+1UL);
     ulong             end  = fd_ulong_min( last_dest_idx+1UL, cursor+n );
     while( cursor<end ) {
       if( FD_UNLIKELY( rng->buf_off==rng->buf_fill ) ) {
@@ -871,15 +872,66 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       ulong j = n-nj;
       rng->buf_off = off + 8UL*k;
 
-      for( ulong q=0UL; q<j; q++ ) {
-        ulong sample = u[ h[ q ] ];
-        u[ h[ q ] ] = u[ n-1UL-q ];
-        if( FD_UNLIKELY( cursor+q==emit ) ) {
-          out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
-          stored_cnt++;
-          emit += stride;
+#     define UNSTAKED_SWAP( q ) do {                                      \
+        ulong sample = u[ h[ q ] ];                                        \
+        u[ h[ q ] ] = u[ n-1UL-(q) ];                                      \
+        if( FD_UNLIKELY( cursor+(q)==emit ) ) {                            \
+          out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;  \
+          stored_cnt++;                                                    \
+          emit += stride;                                                  \
+        }                                                                  \
+      } while(0)
+      ulong q = 0UL;
+#     if FD_HAS_AVX512
+      if( FD_LIKELY( (rng->buf_off==rng->buf_fill) & (j<need) ) ) {
+        /* Ring drained: refill inside the swap run to hide its latency */
+        ulong rnd2_cnt = fd_ulong_if( rng->algo==FD_CHACHA_RNG_ALGO_CHACHA8, 4UL, 10UL );
+        ulong gsz      = (j+rnd2_cnt-1UL)/rnd2_cnt;
+        wwu_t iv0 = wwu_bcast( 0x61707865U ); wwu_t iv1 = wwu_bcast( 0x3320646eU );
+        wwu_t iv2 = wwu_bcast( 0x79622d32U ); wwu_t iv3 = wwu_bcast( 0x6b206574U );
+        wwu_t klo = _mm512_broadcast_i32x4( _mm_load_si128( (__m128i const *)rng->key   ) );
+        wwu_t khi = _mm512_broadcast_i32x4( _mm_load_si128( (__m128i const *)rng->key+1 ) );
+        wwu_t k0  = _mm512_shuffle_epi32( klo, 0x00 ); wwu_t k1 = _mm512_shuffle_epi32( klo, 0x55 );
+        wwu_t k2  = _mm512_shuffle_epi32( klo, 0xaa ); wwu_t k3 = _mm512_shuffle_epi32( klo, 0xff );
+        wwu_t k4  = _mm512_shuffle_epi32( khi, 0x00 ); wwu_t k5 = _mm512_shuffle_epi32( khi, 0x55 );
+        wwu_t k6  = _mm512_shuffle_epi32( khi, 0xaa ); wwu_t k7 = _mm512_shuffle_epi32( khi, 0xff );
+        ulong bidx = rng->buf_fill / FD_CHACHA_BLOCK_SZ;
+        wwu_t boff = wwu( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
+        wwu_t idlo = wwu_add( wwu_bcast( (uint)bidx ), boff );
+        wwu_t idhi = wwu_add_if( wwu_lt( idlo, boff ), wwu_bcast( (uint)(bidx>>32) ), wwu_bcast( 1U ), wwu_bcast( (uint)(bidx>>32) ) );
+        wwb_t r8  = wwb_bcast_hex( 3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14 );
+        wwu_t c0 = iv0;  wwu_t c1 = iv1;  wwu_t c2 = iv2;        wwu_t c3 = iv3;
+        wwu_t c4 = k0;   wwu_t c5 = k1;   wwu_t c6 = k2;         wwu_t c7 = k3;
+        wwu_t c8 = k4;   wwu_t c9 = k5;   wwu_t cA = k6;         wwu_t cB = k7;
+        wwu_t cC = idlo; wwu_t cD = idhi; wwu_t cE = wwu_zero(); wwu_t cF = wwu_zero();
+#       define QR( a, b, c, d ) do {                                                               \
+          a = wwu_add( a, b ); d = wwu_xor( d, a ); d = wwb_exch_adj_pair( d );                    \
+          c = wwu_add( c, d ); b = wwu_xor( b, c ); b = wwu_rol( b, 12 );                          \
+          a = wwu_add( a, b ); d = wwu_xor( d, a ); d = _mm512_shuffle_epi8( d, r8  );             \
+          c = wwu_add( c, d ); b = wwu_xor( b, c ); b = wwu_rol( b,  7 );                          \
+        } while(0)
+        for( ulong s=0UL; s<rnd2_cnt; s++ ) {
+          for( ulong qe=fd_ulong_min( q+gsz, j ); q<qe; q++ ) UNSTAKED_SWAP( q );
+          QR( c0, c4, c8, cC ); QR( c1, c5, c9, cD ); QR( c2, c6, cA, cE ); QR( c3, c7, cB, cF );
+          QR( c0, c5, cA, cF ); QR( c1, c6, cB, cC ); QR( c2, c7, c8, cD ); QR( c3, c4, c9, cE );
         }
+#       undef QR
+        c0 = wwu_add( c0, iv0  ); c1 = wwu_add( c1, iv1  ); c2 = wwu_add( c2, iv2 ); c3 = wwu_add( c3, iv3 );
+        c4 = wwu_add( c4, k0   ); c5 = wwu_add( c5, k1   ); c6 = wwu_add( c6, k2  ); c7 = wwu_add( c7, k3  );
+        c8 = wwu_add( c8, k4   ); c9 = wwu_add( c9, k5   ); cA = wwu_add( cA, k6  ); cB = wwu_add( cB, k7  );
+        cC = wwu_add( cC, idlo ); cD = wwu_add( cD, idhi );
+        wwu_transpose_16x16( c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, cA, cB, cC, cD, cE, cF,
+                             c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, cA, cB, cC, cD, cE, cF );
+        uint * kbuf = (uint *)rng->buf;
+        wwu_st( kbuf+0x00, c0 ); wwu_st( kbuf+0x10, c1 ); wwu_st( kbuf+0x20, c2 ); wwu_st( kbuf+0x30, c3 );
+        wwu_st( kbuf+0x40, c4 ); wwu_st( kbuf+0x50, c5 ); wwu_st( kbuf+0x60, c6 ); wwu_st( kbuf+0x70, c7 );
+        wwu_st( kbuf+0x80, c8 ); wwu_st( kbuf+0x90, c9 ); wwu_st( kbuf+0xa0, cA ); wwu_st( kbuf+0xb0, cB );
+        wwu_st( kbuf+0xc0, cC ); wwu_st( kbuf+0xd0, cD ); wwu_st( kbuf+0xe0, cE ); wwu_st( kbuf+0xf0, cF );
+        rng->buf_fill += FD_CHACHA_RNG_BUFSZ;
       }
+#     endif
+      for( ; q<j; q++ ) UNSTAKED_SWAP( q );
+#     undef UNSTAKED_SWAP
       n      -= j;
       cursor += j;
     }
