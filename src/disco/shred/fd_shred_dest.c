@@ -338,6 +338,60 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
 
 #if FD_HAS_AVX
 
+#if FD_HAS_AVX512
+
+/* fd_chacha8_rng_refill_avx512 split into steps (fini transposes) */
+
+static inline __attribute__((always_inline)) void
+unstaked_chacha8_init( wwu_t *                 c,
+                       fd_chacha_rng_t const * rng ) {
+  uint const * key = (uint const *)rng->key;
+  ulong        idx = rng->buf_fill / FD_CHACHA_BLOCK_SZ;
+  wwu_t        ofs = wwu( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
+  c[ 0 ] = wwu_bcast( 0x61707865U ); c[ 1 ] = wwu_bcast( 0x3320646eU );
+  c[ 2 ] = wwu_bcast( 0x79622d32U ); c[ 3 ] = wwu_bcast( 0x6b206574U );
+  for( ulong i=0UL; i<8UL; i++ ) c[ 4UL+i ] = wwu_bcast( key[ i ] );
+  c[ 12 ] = wwu_add( wwu_bcast( (uint)idx ), ofs );
+  c[ 13 ] = wwu_add_if( wwu_lt( c[ 12 ], ofs ), wwu_bcast( (uint)(idx>>32) ), wwu_one(), wwu_bcast( (uint)(idx>>32) ) );
+  c[ 14 ] = wwu_zero(); c[ 15 ] = wwu_zero();
+}
+
+#define UNSTAKED_CHACHA_QR( a, b, c, d ) do {                                                  \
+    wwb_t const _rol8  = wwb_bcast_hex( 3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14 );           \
+    a = wwu_add( a, b ); d = wwu_xor( d, a ); d = wwb_exch_adj_pair( d );                     \
+    c = wwu_add( c, d ); b = wwu_xor( b, c ); b = wwu_rol( b, 12 );                            \
+    a = wwu_add( a, b ); d = wwu_xor( d, a ); d = _mm512_shuffle_epi8( d, _rol8 );             \
+    c = wwu_add( c, d ); b = wwu_xor( b, c ); b = wwu_rol( b,  7 );                            \
+  } while(0)
+
+static inline __attribute__((always_inline)) void
+unstaked_chacha8_dround( wwu_t * c ) {
+  UNSTAKED_CHACHA_QR( c[ 0 ], c[ 4 ], c[  8 ], c[ 12 ] );
+  UNSTAKED_CHACHA_QR( c[ 1 ], c[ 5 ], c[  9 ], c[ 13 ] );
+  UNSTAKED_CHACHA_QR( c[ 2 ], c[ 6 ], c[ 10 ], c[ 14 ] );
+  UNSTAKED_CHACHA_QR( c[ 3 ], c[ 7 ], c[ 11 ], c[ 15 ] );
+  UNSTAKED_CHACHA_QR( c[ 0 ], c[ 5 ], c[ 10 ], c[ 15 ] );
+  UNSTAKED_CHACHA_QR( c[ 1 ], c[ 6 ], c[ 11 ], c[ 12 ] );
+  UNSTAKED_CHACHA_QR( c[ 2 ], c[ 7 ], c[  8 ], c[ 13 ] );
+  UNSTAKED_CHACHA_QR( c[ 3 ], c[ 4 ], c[  9 ], c[ 14 ] );
+}
+
+#undef UNSTAKED_CHACHA_QR
+
+static inline __attribute__((always_inline)) void
+unstaked_chacha8_fini( wwu_t *           c,
+                       fd_chacha_rng_t * rng ) {
+  wwu_t i[ 16 ];
+  unstaked_chacha8_init( i, rng );
+  for( ulong j=0UL; j<14UL; j++ ) c[ j ] = wwu_add( c[ j ], i[ j ] );
+  wwu_transpose_16x16( c[ 0 ], c[ 1 ], c[  2 ], c[  3 ], c[  4 ], c[  5 ], c[  6 ], c[  7 ],
+                       c[ 8 ], c[ 9 ], c[ 10 ], c[ 11 ], c[ 12 ], c[ 13 ], c[ 14 ], c[ 15 ],
+                       c[ 0 ], c[ 1 ], c[  2 ], c[  3 ], c[  4 ], c[  5 ], c[  6 ], c[  7 ],
+                       c[ 8 ], c[ 9 ], c[ 10 ], c[ 11 ], c[ 12 ], c[ 13 ], c[ 14 ], c[ 15 ] );
+}
+
+#endif
+
 /* flat_roll is fd_chacha_rng_ulong_roll( rng, W ) (MODE_SHIFT) with
    the buffer cursor in registers.  The first two words are tried
    branchlessly, the first accepted one wins. */
@@ -853,24 +907,56 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       ulong         nj   = n; /* n-accepts */
       ulong         nend = n-need;
       ulong         k    = 0UL;
-      while( k<wcnt ) {
-        ulong zone = nj << (63-fd_ulong_find_msb( nj )); /* MODE_SHIFT zone */
-        ulong q    = n-nj;
-        ulong lo, hi;
-#       if FD_HAS_X86 && defined(__BMI2__)
-        /* nj -= lo<zone; asm keeps lo out of memory */
-        __asm__( "mulx %3, %0, %1; cmpq %4, %0; sbbq $0, %2"
-                 : "=&r"(lo), "=&r"(hi), "+d"(nj) : "m"(*(ulong const *)(wbuf+8UL*k)), "r"(zone) : "cc" );
-#       else
-        fd_uwide_mul( &hi, &lo, FD_LOAD( ulong, wbuf+8UL*k ), nj );
-        nj -= (ulong)( lo<zone );
-#       endif
-        h[ q ] = (uint)hi;
-        k++;
-        if( FD_UNLIKELY( nj==nend ) ) break;
+#     if FD_HAS_X86 && defined(__BMI2__)
+      /* nj -= lo<zone; asm keeps lo out of memory */
+#     define UNSTAKED_MUL( w ) __asm__( "mulx %3, %0, %1; cmpq %4, %0; sbbq $0, %2" \
+          : "=&r"(lo), "=&r"(hi), "+d"(nj) : "m"(*(ulong const *)(wbuf+8UL*(w))), "r"(zone) : "cc" )
+#     else
+#     define UNSTAKED_MUL( w ) do {                                    \
+        fd_uwide_mul( &hi, &lo, FD_LOAD( ulong, wbuf+8UL*(w) ), nj ); \
+        nj -= (ulong)( lo<zone );                                     \
+      } while(0)
+#     endif
+#     define UNSTAKED_WORD( w ) do {                                         \
+        ulong zone = nj << (63-fd_ulong_find_msb( nj )); /* MODE_SHIFT zone */ \
+        ulong q    = n-nj;                                                   \
+        ulong lo, hi;                                                        \
+        UNSTAKED_MUL( w );                                                   \
+        h[ q ] = (uint)hi;                                                   \
+      } while(0)
+#     if FD_HAS_AVX512
+      if( FD_LIKELY( (need>wcnt) & (rng->algo==FD_CHACHA_RNG_ALGO_CHACHA8) ) ) {
+        /* All wcnt words get consumed: run the certain next refill
+           between 16 word groups */
+        wwu_t c[ 16 ];
+        ulong r = 5UL; /* 4 double rounds + fini */
+        unstaked_chacha8_init( c, rng );
+        for( ; k<wcnt%16UL; k++ ) UNSTAKED_WORD( k );
+        for( ; k<wcnt; k+=16UL ) {
+#         pragma GCC unroll 16
+          for( ulong e=0UL; e<16UL; e++ ) UNSTAKED_WORD( k+e );
+          if     ( r>1UL ) unstaked_chacha8_dround( c );
+          else if( r     ) unstaked_chacha8_fini( c, rng );
+          r -= !!r;
+        }
+        for( ; r>1UL; r-- ) unstaked_chacha8_dround( c );
+        if( r ) unstaked_chacha8_fini( c, rng );
+        for( ulong b=0UL; b<16UL; b++ ) wwu_st( (uint *)rng->buf + 16UL*b, c[ b ] );
+        rng->buf_off   = off + 8UL*k;
+        rng->buf_fill += FD_CHACHA_RNG_BUFSZ;
+      } else
+#     endif
+      {
+        while( k<wcnt ) {
+          UNSTAKED_WORD( k );
+          k++;
+          if( FD_UNLIKELY( nj==nend ) ) break;
+        }
+        rng->buf_off = off + 8UL*k;
       }
+#     undef UNSTAKED_WORD
+#     undef UNSTAKED_MUL
       ulong j = n-nj;
-      rng->buf_off = off + 8UL*k;
 
 #     define UNSTAKED_SWAP( q ) do {                                      \
         ulong sample = u[ h[ q ] ];                                        \
