@@ -847,17 +847,26 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       ulong         wcnt = fd_ulong_min( rng->buf_fill-off, FD_CHACHA_RNG_BUFSZ-boff )/8UL;
       ulong         need = end-cursor;
       uint          h[ FD_CHACHA_RNG_BUFSZ/8UL ];
-      ulong         j    = 0UL;
+      ulong         nj   = n; /* n-accepts */
+      ulong         nend = n-need;
       ulong         k    = 0UL;
       while( k<wcnt ) {
-        ulong nj = n-j;
-        ulong hi, lo;
+        ulong zone = nj << (63-fd_ulong_find_msb( nj )); /* MODE_SHIFT zone */
+        ulong q    = n-nj;
+        ulong lo, hi;
+#       if FD_HAS_X86 && defined(__BMI2__)
+        /* nj -= lo<zone; asm keeps lo out of memory */
+        __asm__( "mulx %3, %0, %1; cmpq %4, %0; sbbq $0, %2"
+                 : "=&r"(lo), "=&r"(hi), "+d"(nj) : "m"(*(ulong const *)(wbuf+8UL*k)), "r"(zone) : "cc" );
+#       else
         fd_uwide_mul( &hi, &lo, FD_LOAD( ulong, wbuf+8UL*k ), nj );
-        h[ j ] = (uint)hi;
-        j += (ulong)( lo < (nj << (63-fd_ulong_find_msb( nj ))) ); /* MODE_SHIFT zone */
+        nj -= (ulong)( lo<zone );
+#       endif
+        h[ q ] = (uint)hi;
         k++;
-        if( FD_UNLIKELY( j==need ) ) break;
+        if( FD_UNLIKELY( nj==nend ) ) break;
       }
+      ulong j = n-nj;
       rng->buf_off = off + 8UL*k;
 
       for( ulong q=0UL; q<j; q++ ) {
