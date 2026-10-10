@@ -490,6 +490,206 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=final_slot );
 }
 
+/* A reward+final footer must store the same vote accounts and lthash
+   as the two certs in separate footers, reward first.  Random signers,
+   vote states, cert kinds and epochs; one unreadable, one missing. */
+
+#define FUSED_VAL_CNT (10UL)
+#define FUSED_KEY_CNT (FUSED_VAL_CNT+2UL)
+
+static void
+fused_randomize_vote( fd_svm_mini_t *     mini,
+                      fd_rng_t *          rng,
+                      fd_pubkey_t const * vote_key ) {
+  fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
+  uchar data[ FD_VOTE_STATE_V4_SZ ];
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote_key->uc );
+  FD_TEST( acc.lamports && acc.data_len==FD_VOTE_STATE_V4_SZ );
+  fd_memcpy( data, acc.data, FD_VOTE_STATE_V4_SZ );
+  ulong lamports = acc.lamports;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+
+  static fd_vote_state_versioned_t v4[1], v3[1];
+  FD_TEST( fd_vote_state_versioned_deserialize( v4, data, FD_VOTE_STATE_V4_SZ ) );
+  fd_vote_state_versioned_t * vs = v4;
+  if( !fd_rng_uint_roll( rng, 3U ) ) {
+    FD_TEST( fd_vote_state_versioned_new( v3, fd_vote_state_versioned_enum_v3 ) );
+    v3->v3.node_pubkey           = v4->v4.node_pubkey;
+    v3->v3.authorized_withdrawer = v4->v4.authorized_withdrawer;
+    v3->v3.commission            = 7;
+    fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( v3->v3.authorized_voters.pool );
+    *ele = (fd_vote_authorized_voter_t){ .epoch = 0UL, .pubkey = v4->v4.node_pubkey, .prio = v4->v4.node_pubkey.uc[0] };
+    fd_vote_authorized_voters_treap_ele_insert( v3->v3.authorized_voters.treap, ele, v3->v3.authorized_voters.pool );
+    vs = v3;
+  }
+
+  fd_vote_epoch_credits_t * ec = fd_vsv_get_epoch_credits_mutable( vs );
+  deq_fd_vote_epoch_credits_t_remove_all( ec );
+  ulong nec = fd_rng_ulong_roll( rng, 3UL ), credits = 0UL;
+  for( ulong k=0UL; k<nec; k++ ) {
+    ulong add = fd_rng_ulong_roll( rng, 1000UL );
+    deq_fd_vote_epoch_credits_t_push_tail( ec, (fd_vote_epoch_credits_t){ .epoch=k, .credits=credits+add, .prev_credits=credits } );
+    credits += add;
+  }
+  if( !fd_rng_uint_roll( rng, 4U ) ) deq_fd_vote_epoch_credits_t_push_tail( ec, (fd_vote_epoch_credits_t){ .epoch=ULONG_MAX, .credits=ULONG_MAX, .prev_credits=ULONG_MAX } );
+
+  if( fd_rng_uint_roll( rng, 2U ) ) { ulong root = fd_rng_ulong_roll( rng, 32UL ); fd_vsv_set_root_slot( vs, &root ); }
+  fd_landed_vote_t * votes = fd_vsv_get_votes_mutable( vs );
+  deq_fd_landed_vote_t_remove_all( votes );
+  ulong nv = fd_rng_ulong_roll( rng, 8UL ), slot = fd_rng_ulong_roll( rng, 16UL );
+  for( ulong k=0UL; k<nv; k++ ) {
+    slot += 1UL+fd_rng_ulong_roll( rng, 3UL );
+    deq_fd_landed_vote_t_push_tail( votes, (fd_landed_vote_t){ .latency=1, .lockout={ .slot=slot, .confirmation_count=(uint)(nv-k) } } );
+  }
+  fd_vsv_set_last_timestamp( vs, &(fd_vote_block_timestamp_t){ .slot=slot, .timestamp=995L+fd_rng_long_roll( rng, 10L ) } );
+
+  fd_memset( data, 0, sizeof(data) );
+  FD_TEST( !fd_vote_state_versioned_serialize( vs, data, sizeof(data) ) );
+  fd_acc_t out = {0};
+  fd_memcpy( out.pubkey, vote_key->uc, 32UL );
+  fd_memcpy( out.owner, fd_solana_vote_program_id.uc, 32UL );
+  out.lamports = lamports;
+  out.data_len = FD_VOTE_STATE_V4_SZ;
+  out.data     = data;
+  fd_svm_mini_put_account_rooted( mini, &out );
+}
+
+static int
+fused_accounts_eq( fd_svm_mini_t *     mini,
+                   fd_bank_t *         a,
+                   fd_bank_t *         b,
+                   fd_pubkey_t const * key ) {
+  static uchar data[ FD_VOTE_STATE_V4_SZ ];
+  fd_acc_t x = fd_accdb_read_one( mini->runtime->accdb, a->accdb_fork_id, key->uc );
+  ulong lamports = x.lamports, data_len = x.data_len;
+  FD_TEST( data_len<=sizeof(data) );
+  if( data_len ) fd_memcpy( data, x.data, data_len );
+  fd_accdb_unread_one( mini->runtime->accdb, &x );
+  fd_acc_t y = fd_accdb_read_one( mini->runtime->accdb, b->accdb_fork_id, key->uc );
+  int eq = lamports==y.lamports && data_len==y.data_len && ( !data_len || !memcmp( data, y.data, data_len ) );
+  fd_accdb_unread_one( mini->runtime->accdb, &y );
+  return eq;
+}
+
+static void
+test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 4242U, 0UL ) );
+
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_AG_ROOT_SLOT;
+  params->clock              = &test_ag_clock;
+  params->mock_validator_cnt = FUSED_VAL_CNT;
+
+  static fd_pubkey_t vote[ FUSED_KEY_CNT ], identity[ FUSED_KEY_CNT ];
+  static uchar       bls [ FUSED_KEY_CNT ][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) {
+    if( i<FUSED_VAL_CNT ) {
+      fd_pubkey_t stake;
+      mock_validator_keys_idx( params->hash_seed, i, identity+i, vote+i, &stake );
+    } else {
+      fd_memset( vote+i,     (int)(0x50+i), sizeof(fd_pubkey_t) );
+      fd_memset( identity+i, (int)(0x70+i), sizeof(fd_pubkey_t) );
+    }
+    uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
+    fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
+    fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
+    blst_p1_affine aff[1]; blst_p1_to_affine( aff, pub ); blst_p1_affine_compress( bls[i], aff );
+  }
+
+  ulong fused_cnt = 0UL, split_cnt = 0UL, rev_diff_cnt = 0UL;
+  for( ulong it=0UL; it<200UL; it++ ) {
+    ulong root_idx = fd_svm_mini_reset( mini, params );
+    activate_alpenglow( mini );
+    init_epoch_inflation_account( mini, 1UL );
+    for( ulong i=0UL; i<FUSED_VAL_CNT; i++ ) if( fd_rng_uint_roll( rng, 4U ) ) fused_randomize_vote( mini, rng, vote+i );
+    { uchar d[16]; fd_memset( d, 0x11, sizeof(d) );
+      fd_acc_t acc = {0};
+      fd_memcpy( acc.pubkey, vote[ FUSED_VAL_CNT ].uc, 32UL );
+      fd_memcpy( acc.owner, fd_solana_system_program_id.uc, 32UL );
+      acc.lamports = 1000000UL; acc.data_len = sizeof(d); acc.data = d;
+      fd_svm_mini_put_account_rooted( mini, &acc ); }
+
+    /* bank slot 20..31: reward slot 12..15 (epoch 0, t-3) or 16..23
+       (epoch 1, t-2); final slot near the reward slot or anywhere in
+       epochs 0-1 */
+    ulong bank_slot   = 20UL+fd_rng_ulong_roll( rng, 12UL );
+    ulong reward_slot = bank_slot-8UL;
+    ulong final_slot  = fd_rng_uint_roll( rng, 2U ) ? reward_slot+fd_rng_ulong_roll( rng, 8UL ) : 2UL+fd_rng_ulong_roll( rng, bank_slot-2UL );
+    set_alpenglow_migration( mini, ( reward_slot>17UL && fd_rng_uint_roll( rng, 2U ) ) ? 17UL : TEST_ROOT_SLOT );
+
+    fd_bank_t * bank[3];
+    for( ulong b=0UL; b<3UL; b++ ) bank[b] = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, bank_slot ) );
+
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank[0] );
+    fd_vote_stakes_reset( vote_stakes );
+    ulong vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+    for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) {
+      double u = fd_rng_double_o( rng );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i] );
+      if( !fd_rng_uint_roll( rng, 8U ) ) continue;
+      u = fd_rng_double_o( rng );
+      fd_vote_stakes_snap_insert_t_n( vote_stakes, vs_fork, 3UL, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i] );
+    }
+    fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
+    fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_3 );
+    for( ulong b=0UL; b<3UL; b++ ) {
+      FD_FEATURE_SET_ACTIVE( &bank[b]->f.features, alpenglow, 0UL );
+      bank[b]->vote_stakes_fork_id = vs_fork;
+    }
+
+    fd_block_footer_t reward[1], final[1], both[1];
+    fd_memset( reward, 0, sizeof(fd_block_footer_t) );
+    fd_memset( final,  0, sizeof(fd_block_footer_t) );
+    reward->block_producer_time_nanos = 1000000000000UL+fd_rng_ulong_roll( rng, 1000000000UL );
+    final ->block_producer_time_nanos = reward->block_producer_time_nanos;
+    uint  rk = fd_rng_uint_roll( rng, 8U ); /* 0: no reward cert */
+    uint  fk = fd_rng_uint_roll( rng, 8U ); /* 0: no final cert, 1: final+notar */
+    uint  rp = 4U+fd_rng_uint_roll( rng, 5U ), fp = 4U+fd_rng_uint_roll( rng, 5U );
+    reward->has_skip_reward_cert  = rk && rk<=3U;
+    reward->has_notar_reward_cert = rk>=3U;
+    reward->skip_reward_cert.slot = reward->notar_reward_cert.slot = reward_slot;
+    final->has_fast_final_cert    = fk>=2U;
+    final->has_final_cert         = fk==1U;
+    final->fast_final_cert.slot   = final->final_cert.slot = final->notar_cert.slot = final_slot;
+    for( ulong r=0UL; r<FUSED_KEY_CNT; r++ ) {
+      if( fd_rng_uint_roll( rng, 8U )<rp ) fd_bls_set_insert( fd_rng_uint_roll( rng, 2U ) ? reward->skip_reward_cert.signer_set : reward->notar_reward_cert.signer_set, r );
+      if( fd_rng_uint_roll( rng, 8U )<fp ) fd_bls_set_insert( fd_rng_uint_roll( rng, 2U ) ? final->fast_final_cert.signer_set    : final->notar_cert.signer_set,        r );
+      if( fd_rng_uint_roll( rng, 8U )<fp ) fd_bls_set_insert( final->final_cert.signer_set, r );
+    }
+    *both = *reward;
+    both->has_fast_final_cert = final->has_fast_final_cert;
+    both->has_final_cert      = final->has_final_cert;
+    both->fast_final_cert     = final->fast_final_cert;
+    both->final_cert          = final->final_cert;
+    both->notar_cert          = final->notar_cert;
+
+    int has_reward = reward->has_skip_reward_cert || reward->has_notar_reward_cert;
+    int has_final  = final->has_fast_final_cert || final->has_final_cert;
+    if( has_reward && has_final ) {
+      if( reward_slot/TEST_SLOTS_PER_EPOCH==final_slot/TEST_SLOTS_PER_EPOCH ) fused_cnt++;
+      else                                                                    split_cnt++;
+    }
+
+    fd_accdb_t * accdb = mini->runtime->accdb;
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[0], accdb, NULL, both   ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[1], accdb, NULL, reward ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[1], accdb, NULL, final  ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[2], accdb, NULL, final  ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[2], accdb, NULL, reward ) );
+
+    fd_lthash_value_t lthash[3];
+    for( ulong b=0UL; b<3UL; b++ ) { lthash[b] = *fd_bank_lthash_locking_query( bank[b] ); fd_bank_lthash_end_locking_query( bank[b] ); }
+    FD_TEST( fd_lthash_eq( lthash+0, lthash+1 ) );
+    for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) FD_TEST( fused_accounts_eq( mini, bank[0], bank[1], vote+i ) );
+    rev_diff_cnt += !fd_lthash_eq( lthash+0, lthash+2 );
+  }
+  FD_TEST( fused_cnt && split_cnt && rev_diff_cnt );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  FD_LOG_NOTICE(( "test_footer_fused_matches_sequential: PASSED (fused %lu, split %lu, reverse order differs %lu)", fused_cnt, split_cnt, rev_diff_cnt ));
+}
+
 /* Writes a VoteStateV4-serialized vote account with the given
    commission (percent), epoch credits, and SIMD-0232 collectors. */
 static void
@@ -3906,6 +4106,7 @@ main( int     argc,
   test_commission_split();
   test_footer_uses_vote_stakes_rank( mini, 0 );
   test_footer_uses_vote_stakes_rank( mini, 1 );
+  test_footer_fused_matches_sequential( mini );
   test_alpenglow_reward_uses_vote_credits( mini );
   test_alpenglow_preserves_commission_remainder( mini );
   test_migration_epoch_prorates_tower_and_alpenglow( mini );
