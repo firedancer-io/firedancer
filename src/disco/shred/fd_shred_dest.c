@@ -339,7 +339,8 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
 #if FD_HAS_AVX
 
 /* flat_roll is fd_chacha_rng_ulong_roll( rng, W ) (MODE_SHIFT) with
-   the buffer cursor in registers. */
+   the buffer cursor in registers.  The first two words are tried
+   branchlessly, the first accepted one wins. */
 static inline __attribute__((always_inline)) ulong
 flat_roll( fd_chacha_rng_t * rng,
            ulong             W,
@@ -349,13 +350,29 @@ flat_roll( fd_chacha_rng_t * rng,
   ulong fill = *_fill;
   ulong zone = (W << (63 - fd_ulong_find_msb( W ))) - 1UL;
   ulong r;
-  for(;;) {
-    if( FD_UNLIKELY( off==fill ) ) { rng->buf_off = off; fd_chacha8_rng_private_refill( rng ); fill = rng->buf_fill; }
-    ulong v = FD_LOAD( ulong, rng->buf + (off % FD_CHACHA_RNG_BUFSZ) );
-    off += 8UL;
-    ulong lo;
-    fd_uwide_mul( &r, &lo, v, W );
-    if( FD_LIKELY( lo<=zone ) ) break;
+  int   done = 0;
+  if( FD_LIKELY( fill-off>=16UL ) ) {
+    ulong v0 = FD_LOAD( ulong, rng->buf + ( off     % FD_CHACHA_RNG_BUFSZ) );
+    ulong v1 = FD_LOAD( ulong, rng->buf + ((off+8UL) % FD_CHACHA_RNG_BUFSZ) );
+    ulong h0, l0, h1, l1;
+    fd_uwide_mul( &h0, &l0, v0, W );
+    fd_uwide_mul( &h1, &l1, v1, W );
+    /* r = l0<=zone ? h0 : h1, step = l0<=zone ? 8 : 16 (asm: a C select spills) */
+    ulong step = 8UL;
+    r = h0;
+    __asm__( "cmpq %3, %2; cmova %4, %0; cmova %5, %1" : "+&r"(r), "+&r"(step) : "r"(l0), "r"(zone), "r"(h1), "r"(16UL) : "cc" );
+    off += step;
+    done = (l0<=zone) | (l1<=zone);
+  }
+  if( FD_UNLIKELY( !done ) ) {
+    for(;;) {
+      if( FD_UNLIKELY( off==fill ) ) { rng->buf_off = off; fd_chacha8_rng_private_refill( rng ); fill = rng->buf_fill; }
+      ulong v = FD_LOAD( ulong, rng->buf + (off % FD_CHACHA_RNG_BUFSZ) );
+      off += 8UL;
+      ulong lo;
+      fd_uwide_mul( &r, &lo, v, W );
+      if( FD_LIKELY( lo<=zone ) ) break;
+    }
   }
   *_off  = off;
   *_fill = fill;
