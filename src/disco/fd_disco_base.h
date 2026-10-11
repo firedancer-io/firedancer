@@ -113,7 +113,7 @@ FD_FN_CONST static inline ulong fd_disco_poh_sig_execle_tile( ulong sig ) { retu
 FD_FN_CONST static inline ulong
 fd_disco_execle_sig( ulong slot,
                      ulong pack_idx ) {
-  return (slot << 32) | pack_idx;
+  return (slot << 32) | (pack_idx & 0xFFFFFFFFUL);
 }
 
 FD_FN_CONST static inline ulong fd_disco_execle_sig_slot( ulong sig ) { return (sig >> 32); }
