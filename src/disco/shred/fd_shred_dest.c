@@ -630,6 +630,11 @@ flat_sample3( fd_shred_dest_t * sdest,
   for( ulong j=0UL; j<16UL/FLAT_VL; j++ ) p0[ j ] = flat_v_ld( p0m+FLAT_VL*j );
 
   ulong W    = sdest->flat_W;
+  /* guessed next group and p0m[group-1], per roll word */
+  ulong gs0  = 0UL;
+  ulong gs1  = 0UL;
+  ulong xs0  = 0UL;
+  ulong xs1  = 0UL;
   ulong dmid = sdest->flat_dirty_mid;
   ulong off  = rng->buf_off;
   ulong fill = rng->buf_fill;
@@ -644,20 +649,47 @@ flat_sample3( fd_shred_dest_t * sdest,
     FLAT_PRE_STEP;
 #   endif
 
-    ulong    r  = flat_roll( rng, W, &off, &fill );
+    ulong off0 = off;
+    ulong r    = flat_roll( rng, W, &off, &fill );
+    int   w1   = off-off0!=8UL; /* a wrong guess is only slower */
+    ulong gq   = fd_ulong_if( w1, gs1, gs0 );
+    ulong xq   = fd_ulong_if( w1, xs1, xs0 );
+    ulong ns0, ns1, nx0, nx1;
+    {
+      ulong v0 = FD_LOAD( ulong, rng->buf + ( off     % FD_CHACHA_RNG_BUFSZ) );
+      ulong v1 = FD_LOAD( ulong, rng->buf + ((off+8UL) % FD_CHACHA_RNG_BUFSZ) );
+      ulong h0, l0, h1, l1;
+      fd_uwide_mul( &h0, &l0, v0, W );
+      fd_uwide_mul( &h1, &l1, v1, W );
+      flat_v_t vs0 = flat_v_bcast( h0 );
+      flat_v_t vs1 = flat_v_bcast( h1 );
+      ns0 = 0UL; ns1 = 0UL;
+#     pragma GCC unroll 16
+      for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) {
+        ns0 += flat_v_cnt_le( p0[ k ], vs0 );
+        ns1 += flat_v_cnt_le( p0[ k ], vs1 );
+      }
+      nx0 = p0m[ (long)ns0-1L ];
+      nx1 = p0m[ (long)ns1-1L ];
+    }
     flat_v_t vr = flat_v_bcast( r );
-    __asm__( "" : "+v"(vr) );
     ulong    g  = 0UL;
 #   pragma GCC unroll 16
     for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) g += flat_v_cnt_le( p0[ k ], vr );
 
-    flat_v_t v1 = flat_v_sub( vr, flat_v_bcast( p0m[ (long)g-1L ] ) );
-    __asm__( "" : "+v"(v1) );
-    ulong *  m  = mid + g*16UL;
+    flat_v_t v1 = flat_v_bcast( r - xq );
+    ulong *  m  = mid + gq*16UL;
     flat_v_t mm[ 16UL/FLAT_VL ];
     ulong    s  = 0UL;
 #   pragma GCC unroll 16
     for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) { mm[ k ] = flat_v_ld( m+FLAT_VL*k ); s += flat_v_cnt_le( mm[ k ], v1 ); }
+    if( FD_UNLIKELY( g!=gq ) ) { /* redo with the exact group */
+      v1 = flat_v_sub( vr, flat_v_bcast( p0m[ (long)g-1L ] ) );
+      m  = mid + g*16UL;
+      s  = 0UL;
+#     pragma GCC unroll 16
+      for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) { mm[ k ] = flat_v_ld( m+FLAT_VL*k ); s += flat_v_cnt_le( mm[ k ], v1 ); }
+    }
 
     ulong    j  = g*16UL + s;
     flat_v_t v2 = flat_v_sub( v1, flat_v_bcast( *fd_ptr_if( s!=0UL, m+s-1UL, p0m-1L ) ) ); /* p0m[-1]==0 */
@@ -676,6 +708,8 @@ flat_sample3( fd_shred_dest_t * sdest,
       flat_v_st( q+FLAT_VL*k, flat_v_sub_gt( qq[ k ], v2, vw ) );
     }
 
+    gs0 = ns0; xs0 = nx0 - (wt & (-(ulong)(ns0>g)));
+    gs1 = ns1; xs1 = nx1 - (wt & (-(ulong)(ns1>g)));
     dmid                      |= 1UL<<g;
     sdest->flat_dirty[ j>>6 ] |= 1UL<<(j&63UL);
     W                         -= wt;
