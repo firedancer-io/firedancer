@@ -1,7 +1,7 @@
 #include "fd_alpenglow.h"
 #include "../rewards/fd_epoch_inflation_account.h"
 
-#include "../runtime/fd_accdb_svm.h"
+#include "../runtime/fd_hashes.h"
 #include "../runtime/fd_pubkey_utils.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
@@ -309,24 +309,19 @@ struct vote_update {
 typedef struct vote_update vote_update_t;
 
 static int
-vote_account_read( fd_bank_t *                 bank,
+vote_account_open( fd_bank_t *                 bank,
                    fd_accdb_t *                accdb,
                    fd_pubkey_t const *         pk,
                    fd_vote_state_versioned_t * vs,
-                   ulong *                     out_data_len,
-                   fd_pubkey_t *               out_owner ) {
-  fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pk->uc );
-  if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
-    fd_accdb_unread_one( accdb, &acc );
+                   fd_acc_t *                  acc ) {
+  *acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pk->uc );
+  if( FD_UNLIKELY( !acc->prior_lamports ||
+                   !fd_vsv_is_correct_size_owner_and_init( acc->prior_owner, acc->prior_data, acc->prior_data_len ) ||
+                   !fd_vote_state_versioned_deserialize( vs, acc->prior_data, acc->prior_data_len ) ||
+                   vs->kind==fd_vote_state_versioned_enum_uninitialized ) ) {
+    fd_accdb_unwrite_one( accdb, acc );
     return 0;
   }
-  if( FD_UNLIKELY( fd_vsv_deserialize( &acc, vs ) ) ) {
-    fd_accdb_unread_one( accdb, &acc );
-    return 0;
-  }
-  *out_data_len = acc.data_len;
-  fd_memcpy( out_owner->uc, acc.owner, sizeof(fd_pubkey_t) );
-  fd_accdb_unread_one( accdb, &acc );
   return 1;
 }
 
@@ -343,22 +338,23 @@ vote_update_apply( fd_vote_state_versioned_t * vs,
 }
 
 static void
-vote_account_write( fd_bank_t *                       bank,
+vote_account_store( fd_bank_t *                       bank,
                     fd_accdb_t *                      accdb,
                     fd_capture_ctx_t *                capture_ctx,
-                    fd_pubkey_t const *               pk,
-                    fd_pubkey_t const *               owner,
-                    ulong                             data_len,
+                    fd_acc_t *                        acc,
                     fd_vote_state_versioned_t const * vs ) {
-  static FD_TL uchar buf[ 8192UL ];
-
-  fd_memset( buf, 0, data_len );
-  if( FD_UNLIKELY( fd_vote_state_versioned_serialize( vs, buf, data_len ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( pk->uc, pk_b58 );
+  fd_memset( acc->data, 0, acc->data_len );
+  if( FD_UNLIKELY( fd_vote_state_versioned_serialize( vs, acc->data, acc->data_len ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( acc->pubkey, pk_b58 );
     FD_LOG_WARNING(( "slot %lu: vote account %s failed to serialize; skipping", bank->f.slot, pk_b58 ));
+    fd_accdb_unwrite_one( accdb, acc );
     return;
   }
-  fd_accdb_svm_write( bank, accdb, capture_ctx, pk, owner, buf, data_len, 0UL, 0, 1 );
+  acc->executable = 0;
+  fd_hashes_update_pair( acc->pubkey, acc->prior_owner, acc->prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len,
+                                      acc->owner,       acc->lamports,       acc->executable,       acc->data,       acc->data_len,       bank, capture_ctx );
+  acc->commit = 1;
+  fd_accdb_unwrite_one( accdb, acc );
 }
 
 static void
@@ -368,11 +364,10 @@ vote_account_modify( fd_bank_t *           bank,
                      fd_pubkey_t const *   pk,
                      vote_update_t const * upd ) {
   static FD_TL fd_vote_state_versioned_t vs[1];
-  ulong       data_len;
-  fd_pubkey_t owner;
-  if( FD_UNLIKELY( !vote_account_read( bank, accdb, pk, vs, &data_len, &owner ) ) ) return;
+  fd_acc_t acc;
+  if( FD_UNLIKELY( !vote_account_open( bank, accdb, pk, vs, &acc ) ) ) return;
   vote_update_apply( vs, upd );
-  vote_account_write( bank, accdb, capture_ctx, pk, &owner, data_len, vs );
+  vote_account_store( bank, accdb, capture_ctx, &acc, vs );
 }
 
 void
@@ -554,12 +549,11 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       if( !in_rwd && !in_fin ) continue;
 
       static FD_TL fd_vote_state_versioned_t vs[1];
-      ulong       data_len;
-      fd_pubkey_t owner;
+      fd_acc_t acc;
 
       /* Skip this node if the vote account cannot be deserialized
          https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L378-L380 */
-      if( FD_UNLIKELY( !vote_account_read( bank, accdb, &vote_key, vs, &data_len, &owner ) ) ) continue;
+      if( FD_UNLIKELY( !vote_account_open( bank, accdb, &vote_key, vs, &acc ) ) ) continue;
 
       if( in_rwd ) {
         /* per-slot, stake-fractional reward; split half validator, half
@@ -587,7 +581,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
           .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = final_ts_ns,
         } );
       }
-      vote_account_write( bank, accdb, capture_ctx, &vote_key, &owner, data_len, vs );
+      vote_account_store( bank, accdb, capture_ctx, &acc, vs );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       if( rwd ) FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu",    bank_slot, reward_slot ));
