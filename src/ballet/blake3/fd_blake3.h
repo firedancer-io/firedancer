@@ -363,6 +363,17 @@ void *
 fd_blake3_fini_2048( fd_blake3_t * sha,
                      void *        hash );
 
+/* fd_blake3_fini_2048_xn is equivalent to fd_blake3_fini_2048( sha[i],
+   hash[i] ) for i in [0,n),  n<=FD_BLAKE3_XN_MAX, the states must be
+   distinct and no hash[i] may overlap another or a state. */
+
+#define FD_BLAKE3_XN_MAX (4UL)
+
+void
+fd_blake3_fini_2048_xn( ulong          n,
+                        fd_blake3_t ** sha,
+                        void **        hash );
+
 void *
 fd_blake3_hash( void const * data,
                 ulong        sz,
