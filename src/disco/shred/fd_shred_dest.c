@@ -568,6 +568,12 @@ flat_sample2( fd_shred_dest_t * sdest,
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
     FLAT_PRE_STEP;
+#   if !FD_HAS_AVX512 /* AVX2: reload rather than spill p0 */
+    if( gsz==16UL ) {
+#     pragma GCC unroll 32
+      for( ulong j=0UL; j<32UL/FLAT_VL; j++ ) p0[ j ] = flat_v_ld( p0m+FLAT_VL*j );
+    }
+#   endif
 
     ulong    r  = flat_roll( rng, W, &off, &fill );
     flat_v_t vr = flat_v_bcast( r );
@@ -587,6 +593,12 @@ flat_sample2( fd_shred_dest_t * sdest,
     flat_v_t vw  = flat_v_bcast( wt );
 #   pragma GCC unroll 32
     for( ulong j=0UL; j<32UL/FLAT_VL; j++ ) { p0[ j ] = flat_v_sub_gt( p0[ j ], vr, vw ); flat_v_st( p0m+FLAT_VL*j, p0[ j ] ); }
+#   if !FD_HAS_AVX512 /* AVX2: reload rather than spill the 32 leaf row */
+    if( gsz==32UL ) {
+#     pragma GCC unroll 32
+      for( ulong j=0UL; j<gsz/FLAT_VL; j++ ) rr[ j ] = flat_v_ld( q+FLAT_VL*j );
+    }
+#   endif
 #   pragma GCC unroll 32
     for( ulong j=0UL; j<gsz/FLAT_VL; j++ ) flat_v_st( q+FLAT_VL*j, flat_v_sub_gt( rr[ j ], vrr, vw ) );
 
