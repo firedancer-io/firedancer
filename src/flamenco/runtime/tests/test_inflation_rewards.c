@@ -11,6 +11,7 @@
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../fd_system_ids.h"
+#include "../fd_hashes.h"
 #include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../../../ballet/hex/fd_hex.h"
@@ -688,6 +689,148 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
   FD_TEST( fused_cnt && split_cnt && rev_diff_cnt );
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "test_footer_fused_matches_sequential: PASSED (fused %lu, split %lu, reverse order differs %lu)", fused_cnt, split_cnt, rev_diff_cnt ));
+}
+
+/* Footer vote accounts are acquired writable once.  An executable
+   vote account is stored with the bit cleared.  Accounts that are not
+   readable vote accounts (wrong owner, uninitialized, undecodable,
+   zero lamports, missing) are released uncommitted.  The bank lthash
+   moves by exactly lthash(post)-lthash(pre) of the touched accounts. */
+
+#define ACQ_KEY_CNT (7UL)
+
+static void
+acq_account_lthash( fd_svm_mini_t *     mini,
+                    fd_accdb_fork_id_t  fork_id,
+                    fd_pubkey_t const * key,
+                    fd_lthash_value_t * out ) {
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, key->uc );
+  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, out );
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+}
+
+static void
+acq_put( fd_svm_mini_t *     mini,
+         fd_pubkey_t const * key,
+         uchar const *       owner,
+         ulong               lamports,
+         int                 executable,
+         uchar const *       data,
+         ulong               data_len ) {
+  fd_acc_t acc = {0};
+  fd_memcpy( acc.pubkey, key->uc, 32UL );
+  fd_memcpy( acc.owner,  owner,   32UL );
+  acc.lamports   = lamports;
+  acc.executable = executable;
+  acc.data_len   = data_len;
+  acc.data       = (uchar *)data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
+}
+
+static void
+test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_AG_ROOT_SLOT;
+  params->clock              = &test_ag_clock;
+  params->mock_validator_cnt = 2UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  activate_alpenglow( mini );
+  set_alpenglow_migration( mini, TEST_ROOT_SLOT );
+  init_epoch_inflation_account( mini, 1UL );
+
+  /* 0: executable vote account, 1: vote account, 2: system owned,
+     3: uninitialized, 4: undecodable, 5: zero lamports, 6: missing */
+  fd_pubkey_t vote[ ACQ_KEY_CNT ], identity[ ACQ_KEY_CNT ];
+  uchar       bls [ ACQ_KEY_CNT ][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) {
+    if( i<2UL ) {
+      fd_pubkey_t stake;
+      mock_validator_keys_idx( params->hash_seed, i, identity+i, vote+i, &stake );
+    } else {
+      fd_memset( vote+i,     (int)(0x50+i), sizeof(fd_pubkey_t) );
+      fd_memset( identity+i, (int)(0x70+i), sizeof(fd_pubkey_t) );
+    }
+    uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
+    fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
+    fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
+    blst_p1_affine aff[1]; blst_p1_to_affine( aff, pub ); blst_p1_affine_compress( bls[i], aff );
+  }
+
+  fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
+  static uchar data[ FD_VOTE_STATE_V4_SZ ];
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote[0].uc );
+  FD_TEST( acc.lamports && acc.data_len==FD_VOTE_STATE_V4_SZ && !acc.executable );
+  fd_memcpy( data, acc.data, FD_VOTE_STATE_V4_SZ );
+  ulong lamports0 = acc.lamports;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+  acq_put( mini, vote+0, fd_solana_vote_program_id.uc, lamports0, 1, data, FD_VOTE_STATE_V4_SZ );
+
+  uchar sys_data[ 16 ]; fd_memset( sys_data, 0x11, sizeof(sys_data) );
+  acq_put( mini, vote+2, fd_solana_system_program_id.uc, 1000000UL, 0, sys_data, sizeof(sys_data) );
+  fd_memset( data, 0, FD_VOTE_STATE_V4_SZ ); data[ 40 ] = 1; /* kind 0, passes the size check */
+  acq_put( mini, vote+3, fd_solana_vote_program_id.uc, 1000000UL, 0, data, FD_VOTE_STATE_V4_SZ );
+  fd_memset( data, 0xff, FD_VOTE_STATE_V4_SZ ); FD_STORE( uint, data, fd_vote_state_versioned_enum_v4 );
+  acq_put( mini, vote+4, fd_solana_vote_program_id.uc, 1000000UL, 0, data, FD_VOTE_STATE_V4_SZ );
+  acq_put( mini, vote+5, fd_solana_vote_program_id.uc, 0UL,       0, NULL, 0UL );
+
+  ulong bank_slot   = 24UL;
+  ulong reward_slot = bank_slot-8UL;
+  ulong final_slot  = reward_slot+1UL;
+  ulong bank_idx    = fd_svm_mini_attach_child( mini, root_idx, bank_slot );
+  fd_bank_t *        bank    = fd_svm_mini_bank( mini, bank_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_reset( vote_stakes );
+  ulong vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL*(i+1UL), 0U, bls[i] );
+  fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, alpenglow, 0UL );
+  bank->vote_stakes_fork_id = vs_fork;
+
+  fd_lthash_value_t pre[ ACQ_KEY_CNT ], bank_pre;
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) acq_account_lthash( mini, fork_id, vote+i, pre+i );
+  bank_pre = *fd_bank_lthash_locking_query( bank ); fd_bank_lthash_end_locking_query( bank );
+
+  fd_block_footer_t footer[1];
+  fd_memset( footer, 0, sizeof(fd_block_footer_t) );
+  footer->block_producer_time_nanos = 1000000000000UL;
+  footer->has_skip_reward_cert      = 1;
+  footer->skip_reward_cert.slot     = reward_slot;
+  footer->has_fast_final_cert       = 1;
+  footer->fast_final_cert.slot      = final_slot;
+  for( ulong r=0UL; r<ACQ_KEY_CNT; r++ ) {
+    fd_bls_set_insert( footer->skip_reward_cert.signer_set, r );
+    fd_bls_set_insert( footer->fast_final_cert.signer_set,  r );
+  }
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, vote[i].uc );
+    FD_TEST( !acc.executable && acc.data_len==FD_VOTE_STATE_V4_SZ );
+    FD_TEST( !memcmp( acc.owner, fd_solana_vote_program_id.uc, 32UL ) );
+    fd_accdb_unread_one( mini->runtime->accdb, &acc );
+    FD_TEST( vote_last_voted_slot( mini, fork_id, vote+i )==final_slot );
+  }
+  for( ulong i=2UL; i<ACQ_KEY_CNT; i++ ) {
+    int   pd_write;
+    ulong data_len = 0UL, lamports = 0UL;
+    FD_TEST( !fd_accdb_probe_pd_this_fork( mini->runtime->accdb, fork_id, vote[i].uc, &pd_write, &data_len, &lamports ) );
+  }
+
+  fd_lthash_value_t expect = bank_pre, bank_post;
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) {
+    fd_lthash_value_t post[1];
+    acq_account_lthash( mini, fork_id, vote+i, post );
+    FD_TEST( (i<2UL) ^ fd_lthash_eq( post, pre+i ) );
+    fd_lthash_sub( &expect, pre+i );
+    fd_lthash_add( &expect, post );
+  }
+  bank_post = *fd_bank_lthash_locking_query( bank ); fd_bank_lthash_end_locking_query( bank );
+  FD_TEST( fd_lthash_eq( &expect, &bank_post ) );
+  FD_LOG_NOTICE(( "test_footer_vote_account_acquire: PASSED" ));
 }
 
 /* Writes a VoteStateV4-serialized vote account with the given
@@ -4107,6 +4250,7 @@ main( int     argc,
   test_footer_uses_vote_stakes_rank( mini, 0 );
   test_footer_uses_vote_stakes_rank( mini, 1 );
   test_footer_fused_matches_sequential( mini );
+  test_footer_vote_account_acquire( mini );
   test_alpenglow_reward_uses_vote_credits( mini );
   test_alpenglow_preserves_commission_remainder( mini );
   test_migration_epoch_prorates_tower_and_alpenglow( mini );
