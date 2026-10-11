@@ -1016,6 +1016,13 @@ fdctl_check_configure( config_t const * config ) {
                   "on the loopback device.", check.message, FD_BINARY_NAME ));
   }
 
+  if( FD_LIKELY( 0==strcmp( config->net.provider, "mlx5" ) ) ) {
+    check = fd_cfg_stage_uverbs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init uverbs` to load the ib_uverbs kernel module.",
+                   check.message, FD_BINARY_NAME ));
+  }
+
   check = fd_cfg_stage_sysctl.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `%s configure init sysctl` "
