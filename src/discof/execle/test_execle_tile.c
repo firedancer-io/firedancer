@@ -920,16 +920,33 @@ FD_UNIT_TEST( execle_rebate_batch_counts_bundle_microblocks ) {
   fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
   fd_pubkey_t writable_acct = { .ul = { 0xaaaaUL } };
 
+  /* Leave room for four microblocks so the five-txn bundle crosses the
+     batch limit. */
+  ulong microblock_cnt = REBATE_BATCH_MAX_MICROBLOCKS-4UL;
+  for( ulong i=0UL; i<microblock_cnt; i++ ) {
+    fd_pubkey_t missing_fee_payer = { .ul = { 0x1000UL+i } };
+    fd_txn_p_t txn[1];
+    test_build_empty_txn( txn, bank, missing_fee_payer, writable_acct, 10UL+i, 0 );
+    test_execle_run( env, txn, 1UL, (uint)i, i, 0 );
+  }
+  FD_TEST( env->execle->rebate_microblock_cnt==microblock_cnt );
+
+  fd_stem_context_t stem[1];
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
+  FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==ULONG_MAX );
+  FD_TEST( opt_poll_in );
+  FD_TEST( !charge_busy );
+
   fd_txn_p_t bundle[5];
   for( ulong i=0UL; i<5UL; i++ ) {
     fd_pubkey_t missing_fee_payer = { .ul = { 0x2000UL+i } };
     test_build_empty_txn( bundle+i, bank, missing_fee_payer, writable_acct, 30UL+i, 0 );
   }
-  test_execle_run( env, bundle, 5UL, 0U, 0UL, 1 );
+  test_execle_run( env, bundle, 5UL, (uint)microblock_cnt, microblock_cnt, 1 );
+  FD_TEST( env->execle->rebate_microblock_cnt==microblock_cnt+5UL );
 
-  fd_stem_context_t stem[1];
-  int opt_poll_in = 1;
-  int charge_busy = 0;
   after_credit( env->execle, test_stem( env->execle, stem ), &opt_poll_in, &charge_busy );
   FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==0UL );
   FD_TEST( !opt_poll_in );
