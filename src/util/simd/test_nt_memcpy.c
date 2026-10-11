@@ -21,7 +21,7 @@ main( int     argc,
           fd_memset( _dst, '\xcc', 1024UL+64UL );
           uchar * dst = _dst+misalign;
           uchar * src = _src+(64UL-misalign);
-          src[sz-1] = (uchar)sz;
+          if( sz ) src[sz-1] = (uchar)sz;
           switch( fn ) {
             case 0UL: FD_TEST( dst==fd_memcpy_nn( dst, src, sz ) ); break;
             case 1UL: FD_TEST( dst==fd_memcpy_nt( dst, src, sz ) ); break;
