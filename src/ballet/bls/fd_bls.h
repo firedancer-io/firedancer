@@ -67,6 +67,13 @@ fd_bls_agg_construct( fd_bls_agg_t *       agg,
                       fd_bls_sig_t const * sig,
                       fd_bls_set_t const * set );
 
+fd_bls_pub_t *
+fd_bls_pub_sum( fd_bls_pub_t *         pub,
+                blst_p1_affine const * key,
+                ulong                  key_cnt,
+                fd_bls_set_t const *   set,
+                fd_bls_pub_t const *   full );
+
 int
 fd_bls_agg_verify( uchar const *        msg,
                    ulong                msg_sz,

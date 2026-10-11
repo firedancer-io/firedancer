@@ -95,6 +95,30 @@ fd_bls_agg_construct( fd_bls_agg_t *       agg,
   return agg;
 }
 
+fd_bls_pub_t *
+fd_bls_pub_sum( fd_bls_pub_t *         pub,
+                blst_p1_affine const * key,
+                ulong                  key_cnt,
+                fd_bls_set_t const *   set,
+                fd_bls_pub_t const *   full ) {
+  fd_memset( pub, 0, sizeof(fd_bls_pub_t) ); /* point at infinity */
+
+  if( FD_LIKELY( !full || 2UL*fd_bls_set_cnt( set )<=key_cnt ) ) {
+    for( ulong rank=0UL; rank<key_cnt; rank++ ) {
+      if( fd_bls_set_test( set, rank ) ) blst_p1_add_or_double_affine( pub, pub, key+rank );
+    }
+    return pub;
+  }
+
+  /* full minus the keys not in set */
+  for( ulong rank=0UL; rank<key_cnt; rank++ ) {
+    if( !fd_bls_set_test( set, rank ) ) blst_p1_add_or_double_affine( pub, pub, key+rank );
+  }
+  blst_p1_cneg( pub, 1 );
+  blst_p1_add_or_double( pub, full, pub );
+  return pub;
+}
+
 static void
 hash_msg( uchar const *    msg,
           ulong            msg_sz,

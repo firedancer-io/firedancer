@@ -272,6 +272,40 @@ test_ref_api( void ) {
   FD_LOG_NOTICE(( "reference api pass" ));
 }
 
+static void
+test_pub_sum( void ) {
+  ulong const    N = 64UL;
+  blst_p1_affine key[ 64 ];
+  fd_bls_sec_t   sk;
+  for( ulong i=0UL; i<N; i++ ) {
+    fd_memset( &sk, 0, FD_BLS_SEC_SZ );
+    sk.b[0] = (uchar)( i+1UL ); sk.b[1] = (uchar)( i*7UL );
+    fd_bls_pub_t pk; fd_bls_sec_to_pub( &sk, &pk );
+    blst_p1_to_affine( key+i, &pk );
+  }
+  fd_bls_set_t set[ fd_bls_set_word_cnt ];
+  fd_bls_pub_t full[1], bad[1];
+  fd_bls_pub_sum( full, key, N, fd_bls_set_range( set, 0UL, N ), NULL );
+  fd_bls_pub_sum( bad,  key, N, fd_bls_set_range( set, 1UL, N ), NULL );
+
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 1234U, 0UL ) );
+  for( ulong cnt=0UL; cnt<=N; cnt++ ) {
+    fd_bls_set_null( set );
+    while( fd_bls_set_cnt( set )<cnt ) fd_bls_set_insert( set, fd_rng_ulong_roll( rng, N ) );
+    fd_bls_pub_t exp[1], got[1], neg[1];
+    fd_memset( exp, 0, sizeof(fd_bls_pub_t) );
+    for( ulong i=0UL; i<N; i++ ) if( fd_bls_set_test( set, i ) ) blst_p1_add_or_double_affine( exp, exp, key+i );
+    fd_bls_pub_sum( got, key, N, set, full );
+    FD_TEST( blst_p1_is_equal( got, exp ) );
+    FD_TEST( !!blst_p1_is_inf( got )==!cnt );
+    fd_bls_pub_sum( neg, key, N, set, bad );
+    FD_TEST( blst_p1_is_equal( neg, exp )==( 2UL*cnt<=N ) ); /* only the subtract path reads full */
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+
+  FD_LOG_NOTICE(( "pub sum pass" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -282,6 +316,7 @@ main( int     argc,
   test_roundtrip();
   test_derive();
   test_ref_api();
+  test_pub_sum();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

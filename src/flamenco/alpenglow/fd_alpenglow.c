@@ -46,6 +46,7 @@ struct validator_set {
   ulong          epoch;
   ulong          validator_cnt;          /* 0 if not built */
   ulong          total_stake;
+  fd_bls_pub_t   key_sum;                /* sum of all keys, infinity for a t-1 set */
   blst_p1_affine bls_keys[ AG_VAT_MAX ]; /* indexed by rank */
   ulong          stakes  [ AG_VAT_MAX ]; /* indexed by rank */
 };
@@ -53,10 +54,10 @@ typedef struct validator_set validator_set_t;
 
 /* validator_set_for_slot makes set hold the validators of slot's epoch,
    rebuilding it only when the epoch differs from the one it holds.  A
-   set built from the t-1 tier is never reused: t-1 is fork specific,
-   so two banks in the same epoch can hold different t-1 sets.  Returns
-   1 on success, 0 if the fork cannot address the epoch or the bank
-   holds no ranked validators for it. */
+   set built from the t-1 tier is never reused and gets no key sum: t-1
+   is fork specific, so two banks in the same epoch can hold different
+   t-1 sets.  Returns 1 on success, 0 if the fork cannot address the
+   epoch or the bank holds no ranked validators for it. */
 
 static int
 validator_set_for_slot( validator_set_t * set,
@@ -101,6 +102,10 @@ validator_set_for_slot( validator_set_t * set,
     FD_LOG_WARNING(( "slot %lu: epoch %lu has %lu ranked validators, highest rank %lu", bank->f.slot, epoch, cnt, max_rank ));
     return 0;
   }
+  memset( &set->key_sum, 0, sizeof(fd_bls_pub_t) ); /* point at infinity */
+  if( FD_LIKELY( iter_kind!=FD_VOTE_STAKES_ITER_T_1 ) ) {
+    for( ulong rank=0UL; rank<cnt; rank++ ) blst_p1_add_or_double_affine( &set->key_sum, &set->key_sum, set->bls_keys+rank );
+  }
   set->epoch         = iter_kind==FD_VOTE_STAKES_ITER_T_1 ? ULONG_MAX : epoch;
   set->validator_cnt = cnt;
   set->total_stake   = total;
@@ -134,13 +139,12 @@ cert_verify( validator_set_t *              set,
     return 0;
   }
 
-  fd_bls_pub_t pub[1]; memset( pub, 0, sizeof(fd_bls_pub_t) );
-  ulong        stake = 0UL;
-  for( ulong rank=0UL; rank<=last_rank; rank++ ) {
-    if( !fd_bls_set_test( cert->signer_set, rank ) ) continue;
-    blst_p1_add_or_double_affine( pub, pub, set->bls_keys+rank );
+  ulong stake = 0UL;
+  for( ulong rank=fd_bls_set_const_iter_init( cert->signer_set ); !fd_bls_set_const_iter_done( rank ); rank=fd_bls_set_const_iter_next( cert->signer_set, rank ) ) {
     stake += set->stakes[ rank ];
   }
+  fd_bls_pub_t pub[1];
+  fd_bls_pub_sum( pub, set->bls_keys, set->validator_cnt, cert->signer_set, set->epoch!=ULONG_MAX ? &set->key_sum : NULL );
   if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)AG_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has %lu of %lu stake, below %lu/%lu",
                      bank_slot, cert_slot, stake, set->total_stake, quorum_numer, AG_QUORUM_THRESHOLD_DENOM ));
