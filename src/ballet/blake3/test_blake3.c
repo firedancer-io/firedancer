@@ -627,6 +627,49 @@ bench_streamlined( void ) {
   }
 }
 
+#define XN2(s0,s1,h0,h1) do { fd_blake3_t * _s[2] = { (s0), (s1) }; void * _h[2] = { (h0), (h1) }; fd_blake3_fini_2048_xn( 2UL, _s, _h ); } while(0)
+
+static void
+bench_fini_2048_xn( void ) {
+  static fd_blake3_t sha[4];
+  uchar out0[ 2048 ] __attribute__((aligned(64)));
+  uchar out1[ 2048 ] __attribute__((aligned(64)));
+  static uchar out[ 4 ][ 2048 ] __attribute__((aligned(64)));
+
+  FD_LOG_NOTICE(( "Benchmarking XOF(2048) pairs: 2x fini_2048 vs fini_2048_xn" ));
+
+  static ulong const sz_tbl[] = { 1024, 1536, 2048, 3835, 4096, 6144, 8192, 16384 };
+  for( ulong j=0UL; j<sizeof(sz_tbl)/sizeof(sz_tbl[0]); j++ ) {
+    ulong sz   = sz_tbl[j];
+    ulong iter = 200000UL;
+    long dt1 = 0L; long dt2 = 0L; long dt4 = 0L;
+    for( ulong pass=0UL; pass<2UL; pass++ ) { /* first pass warms up */
+      dt1 = -fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha+0 ), rand_buf,    sz ), out0 );
+        fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha+1 ), rand_buf+sz, sz ), out1 );
+      }
+      dt1 += fd_log_wallclock();
+      dt2 = -fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        fd_blake3_append( fd_blake3_init( sha+0 ), rand_buf,    sz );
+        fd_blake3_append( fd_blake3_init( sha+1 ), rand_buf+sz, sz );
+        XN2( sha+0, sha+1, out0, out1 );
+      }
+      dt2 += fd_log_wallclock();
+      dt4 = -fd_log_wallclock();
+      for( ulong rem=iter/2UL; rem; rem-- ) {
+        fd_blake3_t * s[4]; void * h[4];
+        for( ulong i=0UL; i<4UL; i++ ) { s[ i ] = fd_blake3_append( fd_blake3_init( sha+i ), rand_buf+i*sz, sz ); h[ i ] = out[ i ]; }
+        fd_blake3_fini_2048_xn( 4UL, s, h );
+      }
+      dt4 += fd_log_wallclock();
+    }
+    FD_LOG_NOTICE(( "  sz %6lu: 2x fini_2048 %7.1f ns/pair, x2 %7.1f ns/pair (%.2fx), x4 %7.1f ns/pair (%.2fx)",
+                    sz, (double)dt1/(double)iter, (double)dt2/(double)iter, (double)dt1/(double)dt2, (double)dt4/(double)iter, (double)dt1/(double)dt4 ));
+  }
+}
+
 #if FD_HAS_AVX512
 
 static void
@@ -813,6 +856,94 @@ bench_ref_compress1( void ) {
   } while(0);
 }
 
+/* xn_append appends sz bytes of msg to sha in random pieces */
+
+static void
+xn_append( fd_blake3_t * sha,
+           uchar const * msg,
+           ulong         sz ) {
+  fd_blake3_init( sha );
+  while( sz ) {
+    ulong piece = 1UL+fd_rng_ulong_roll( rng, fd_ulong_min( sz, 4096UL ) );
+    fd_blake3_append( sha, msg, piece );
+    msg += piece;
+    sz  -= piece;
+  }
+}
+
+static ulong
+xn_rand_sz( void ) {
+  switch( fd_rng_uint_roll( rng, 4U ) ) {
+  case 0U:  return fd_rng_ulong_roll( rng, 1025UL );          /* single chunk */
+  case 1U:  return 1024UL*fd_rng_ulong_roll( rng, 11UL ) + fd_rng_ulong_roll( rng, 3UL ); /* chunk edges */
+  case 2U:  return fd_rng_ulong_roll( rng, 40961UL );         /* past a SIMD row */
+  default:  return fd_rng_ulong_roll( rng, 10241UL );         /* 0..10 KiB */
+  }
+}
+
+static void
+test_fini_2048_xn_pair( void ) {
+  static fd_blake3_t sha[3];
+  static uchar ref0[ 2048 ] __attribute__((aligned(64)));
+  static uchar ref1[ 2048 ] __attribute__((aligned(64)));
+  static uchar out0[ 2048 ] __attribute__((aligned(64)));
+  static uchar out1[ 2048 ] __attribute__((aligned(64)));
+  static uchar msg0[ 40960 ];
+
+  for( ulong iter=0UL; iter<20000UL; iter++ ) {
+    ulong sz0 = xn_rand_sz();
+    ulong sz1 = fd_rng_uint_roll( rng, 2U ) ? sz0 : xn_rand_sz();
+    uchar const * msg1 = rand_buf + fd_rng_ulong_roll( rng, 1UL<<20 );
+    fd_memcpy( msg0, rand_buf + fd_rng_ulong_roll( rng, 1UL<<20 ), sz0 );
+
+    fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha+2 ), msg0, sz0 ), ref0 );
+    fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha+2 ), msg1, sz1 ), ref1 );
+
+    xn_append( sha+0, msg0, sz0 );
+    xn_append( sha+1, msg1, sz1 );
+    if( fd_rng_uint_roll( rng, 2U ) ) XN2( sha+0, sha+1, out0, out1 );
+    else                              XN2( sha+1, sha+0, out1, out0 );
+    if( FD_UNLIKELY( !fd_memeq( out0, ref0, 2048UL ) || !fd_memeq( out1, ref1, 2048UL ) ) ) {
+      FD_LOG_ERR(( "fd_blake3_fini_2048_xn mismatch (sz0 %lu sz1 %lu)", sz0, sz1 ));
+    }
+
+    /* Negative control: changing one input byte must change only that
+       input's output (no lane crosstalk, and the check can fail) */
+    if( FD_UNLIKELY( !sz0 ) ) continue;
+    msg0[ fd_rng_ulong_roll( rng, sz0 ) ] ^= (uchar)( 1U+fd_rng_uint_roll( rng, 255U ) );
+    xn_append( sha+0, msg0, sz0 );
+    xn_append( sha+1, msg1, sz1 );
+    XN2( sha+0, sha+1, out0, out1 );
+    FD_TEST( !fd_memeq( out0, ref0, 2048UL ) );
+    FD_TEST(  fd_memeq( out1, ref1, 2048UL ) );
+  }
+}
+
+static void
+test_fini_2048_xn( void ) {
+  static fd_blake3_t sha[ FD_BLAKE3_XN_MAX+1UL ];
+  static uchar ref[ FD_BLAKE3_XN_MAX ][ 2048 ] __attribute__((aligned(64)));
+  static uchar out[ FD_BLAKE3_XN_MAX ][ 2048 ] __attribute__((aligned(64)));
+  for( ulong iter=0UL; iter<10000UL; iter++ ) {
+    ulong         n = 1UL+fd_rng_ulong_roll( rng, FD_BLAKE3_XN_MAX );
+    uchar const * msg[ FD_BLAKE3_XN_MAX ];
+    ulong         sz [ FD_BLAKE3_XN_MAX ];
+    fd_blake3_t * s  [ FD_BLAKE3_XN_MAX ];
+    void *        h  [ FD_BLAKE3_XN_MAX ];
+    for( ulong i=0UL; i<n; i++ ) {
+      sz [ i ] = fd_rng_uint_roll( rng, 3U ) ? 3835UL+fd_rng_ulong_roll( rng, 3UL ) : xn_rand_sz();
+      msg[ i ] = rand_buf + fd_rng_ulong_roll( rng, 1UL<<20 );
+      fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha+FD_BLAKE3_XN_MAX ), msg[ i ], sz[ i ] ), ref[ i ] );
+      xn_append( sha+i, msg[ i ], sz[ i ] );
+      s[ i ] = sha+i; h[ i ] = out[ i ];
+    }
+    fd_blake3_fini_2048_xn( n, s, h );
+    for( ulong i=0UL; i<n; i++ ) {
+      if( FD_UNLIKELY( !fd_memeq( out[ i ], ref[ i ], 2048UL ) ) ) FD_LOG_ERR(( "fd_blake3_fini_2048_xn mismatch (n %lu i %lu sz %lu)", n, i, sz[ i ] ));
+    }
+  }
+}
+
 struct test_fn {
   char const * name;
   void (* fn)( void );
@@ -852,6 +983,8 @@ static struct test_fn const tests[] = {
   { "reduced",          test_reduced },
   { "reduced xof2048",  test_reduced_xof2048 },
   { "hash_para_tail",   test_blake3_hash_para_tail },
+  { "fini_2048_xn pair", test_fini_2048_xn_pair },
+  { "fini_2048_xn",     test_fini_2048_xn },
 
 #if FD_HAS_AVX512
   { "test avx512_compress16_fast",         test_avx512_compress16_fast },
@@ -869,6 +1002,7 @@ static struct test_fn const tests[] = {
   { "bench incremental",            bench_incremental },
   { "bench streamlined",            bench_streamlined },
   { "bench incremental xof 2048",   bench_incremental_xof_2048 },
+  { "bench fini_2048_xn",           bench_fini_2048_xn },
 #if FD_HAS_AVX512
   { "bench avx512_compress16_fast", bench_avx512_compress16_fast },
   { "bench avx512_compress16",      bench_avx512_compress16 },
