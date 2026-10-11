@@ -892,6 +892,21 @@ fd_uverbs_query_device( fd_uverbs_ctx_t * ctx,
     return -1;
   }
 
+  ulong const rss_caps_sz = offsetof( struct ib_uverbs_ex_query_device_resp, rss_caps )+
+                            sizeof(resp->core.rss_caps);
+  if( FD_UNLIKELY( resp->core.response_length<rss_caps_sz ) ) {
+    FD_LOG_WARNING(( "mlx5 device query did not return RSS capabilities (response length %u, required %lu)",
+                     resp->core.response_length, rss_caps_sz ));
+    errno = EPROTONOSUPPORT;
+    return -1;
+  }
+  if( FD_UNLIKELY( resp->core.rss_caps.max_rwq_indirection_table_size<FD_MLX5_INDIRECTION_COUNT ) ) {
+    FD_LOG_WARNING(( "mlx5 RSS indirection table requires %lu entries, device supports only %u",
+                     FD_MLX5_INDIRECTION_COUNT, resp->core.rss_caps.max_rwq_indirection_table_size ));
+    errno = EPROTONOSUPPORT;
+    return -1;
+  }
+
   ulong const tunnel_caps_sz = offsetof( struct mlx5_ib_query_device_resp, tunnel_offloads_caps )+
                                sizeof(resp->mlx5.tunnel_offloads_caps);
   ulong const required_hash_fields = FD_MLX5_RX_HASH_IPV4_UDP | FD_MLX5_RX_HASH_INNER;
