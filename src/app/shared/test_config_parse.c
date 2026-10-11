@@ -176,6 +176,7 @@ main( int     argc,
   config->firedancer.accounts.max_accounts                     = 1UL;
   config->firedancer.accounts.cache_size_gib                   = 1UL;
   config->firedancer.runtime.program_cache_size_mib            = 32UL;
+  config->firedancer.runtime.transaction_cache_size_mib        = 640UL;
   config->tiles.repair.slot_max                                   = 1UL;
   strcpy( config->firedancer.layout.mode, "performance" );
 

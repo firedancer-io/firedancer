@@ -145,6 +145,13 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.cost_tracker, sizeof(config->paths.cost_tracker), NULL, "%s/costtracker.db", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.txncache, "" ) ) ) {
+    replace( config->paths.txncache, "{user}", config->user );
+    replace( config->paths.txncache, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.txncache, sizeof(config->paths.txncache), NULL, "%s/txncache.db", config->paths.base ) );
+  }
+
   if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
     replace( config->paths.shredb, "{user}", config->user );
     replace( config->paths.shredb, "{name}", config->name );
@@ -574,6 +581,10 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
 
   CFG_HAS_NON_ZERO( runtime.program_cache_size_mib );
+  CFG_HAS_NON_ZERO( runtime.transaction_cache_size_mib );
+  if( FD_UNLIKELY( config->runtime.transaction_cache_size_mib>(ULONG_MAX>>20) ) ) {
+    FD_LOG_ERR(( "runtime.transaction_cache_size_mib is too large: %lu", config->runtime.transaction_cache_size_mib ));
+  }
 }
 
 static void

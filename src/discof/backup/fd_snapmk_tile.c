@@ -322,6 +322,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->snap_dir_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
   for( uint i=0U; i<ctx->snap_max; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_FD( i ); /* snapshot pool */
   return out_cnt;
@@ -338,7 +339,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->snap_dir_fd,
       (uint)FD_SNAP_FD( 0 ), (uint)FD_SNAP_FD( ctx->snap_max-1U ),
-      (uint)FD_ACCDB_FD_RO );
+      (uint)FD_ACCDB_FD_RO, (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_snapmk_tile_instr_cnt;
 }
 
@@ -390,7 +391,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_txncache_shmem_t * tc_shmem = fd_txncache_shmem_join( fd_topo_obj_laddr( topo, tile->snapmk.txncache_obj_id ) );
   FD_TEST( tc_shmem );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( _txnc_lj, tc_shmem ) );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txnc_lj, tc_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( ctx->txncache );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.zp_fseq_id ) ); FD_TEST( zp_fseq );

@@ -5,7 +5,7 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd
+uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint txncache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -41,18 +41,22 @@ fallocate: (and (eq (arg 0) accounts_fd)
 
 # stake delegations: full root and fork-delta records spilled beyond
 # the in-memory delegation pools.
-pread64: (eq (arg 0) stake_spill_fd)
+# transaction cache: read spilled pages
+pread64: (or (eq (arg 0) stake_spill_fd)
+             (eq (arg 0) txncache_fd))
 
 # accounts database: write account records at explicit offsets
 #
 # Parallel snapshot loader tiles write the packed account records
 # directly into their own partitions of the accounts file.
 #
-# Stake delegations may also spill full records to disk.
+# Stake delegations may also spill full records to disk, and the
+# transaction cache may spill pages to disk.
 #
 # arg 0 is the file descriptor to write to.
 pwrite64: (or (eq (arg 0) accounts_direct_fd)
-              (eq (arg 0) stake_spill_fd))
+              (eq (arg 0) stake_spill_fd)
+              (eq (arg 0) txncache_fd))
 
 # power saving: sleep when there is no work to do
 #

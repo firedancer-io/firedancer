@@ -2,8 +2,11 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#define _GNU_SOURCE
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../../util/fd_util.h"
 #include "fd_txncache.h"
@@ -105,12 +108,14 @@ fuzz_bounded( fuzz_cursor_t * cur,
   return x % bound;
 }
 
+static int fuzz_spill_fd = -1;
+
 static fd_txncache_t *
 setup( ulong max_live_slots, ulong max_txn_per_slot ) {
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 2UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
   FD_TEST( shtc );
 
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc, fuzz_spill_fd ) );
   FD_TEST( tc );
   return tc;
 }
@@ -361,11 +366,15 @@ blockcache_txn_cnt( model_t const * m,
   blockcache_t const * bc = &tc->blockcache_pool[ block_fork ];
 
   ulong cnt = 0UL;
+  fd_rwlock_write( tc->shmem->lock );
   for( ulong i=0UL; i<bc->shmem->pages_cnt; i++ ) {
     ulong page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, i );
     FD_TEST( page<tc->shmem->max_txnpages );
-    cnt += FD_TXNCACHE_TXNS_PER_PAGE - tc->txnpages[ page ].free;
+    fd_txncache_txnpage_t const * txnpage = page_io( tc, page, 1 );
+    FD_TEST( txnpage->free<=FD_TXNCACHE_TXNS_PER_PAGE );
+    cnt += FD_TXNCACHE_TXNS_PER_PAGE-txnpage->free;
   }
+  fd_rwlock_unwrite( tc->shmem->lock );
   return cnt;
 }
 
@@ -380,7 +389,10 @@ blockcache_needs_purge_for_insert( model_t const * m,
 
   ulong tail_page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, bc->shmem->pages_cnt-1UL );
   FD_TEST( tail_page<tc->shmem->max_txnpages );
-  return !tc->txnpages[ tail_page ].free;
+  fd_rwlock_write( tc->shmem->lock );
+  ushort txnpage_free = page_io( tc, tail_page, 1 )->free;
+  fd_rwlock_unwrite( tc->shmem->lock );
+  return !txnpage_free;
 }
 
 static int
@@ -389,20 +401,27 @@ blockcache_has_stale_txn( model_t const * m,
   fd_txncache_t * tc = m->tc;
   blockcache_t const * bc = &tc->blockcache_pool[ block_fork ];
 
+  fd_rwlock_write( tc->shmem->lock );
   for( ulong i=0UL; i<bc->shmem->pages_cnt; i++ ) {
     ulong page = fd_txncache_txnpage_idx_ld( tc->shmem->txnpage_idx_sz, bc->pages, i );
     FD_TEST( page<tc->shmem->max_txnpages );
 
-    ulong txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE - tc->txnpages[ page ].free;
+    fd_txncache_txnpage_t const * txnpage = page_io( tc, page, 1 );
+    FD_TEST( txnpage->free<=FD_TXNCACHE_TXNS_PER_PAGE );
+    ulong txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE-txnpage->free;
     for( ulong j=0UL; j<txn_cnt; j++ ) {
-      fd_txncache_single_txn_t const * txn = tc->txnpages[ page ].txns[ j ];
+      fd_txncache_single_txn_t const * txn = txnpage->txns[ j ];
       ushort txn_fork = txn->fork_id.val;
       FD_TEST( txn_fork<tc->shmem->active_slots_max );
 
       blockcache_t const * fork = &tc->blockcache_pool[ txn_fork ];
-      if( FD_UNLIKELY( fork->shmem->frozen<0 || fork->shmem->generation!=txn->generation ) ) return 1;
+      if( FD_UNLIKELY( fork->shmem->frozen<0 || fork->shmem->generation!=txn->generation ) ) {
+        fd_rwlock_unwrite( tc->shmem->lock );
+        return 1;
+      }
     }
   }
+  fd_rwlock_unwrite( tc->shmem->lock );
 
   return 0;
 }
@@ -556,7 +575,11 @@ model_pick_stale_txn_query( model_t const * m,
 static void
 check_invariants( model_t const * m ) {
   fd_txncache_t * tc = m->tc;
+  fd_rwlock_write( tc->shmem->lock );
   FD_TEST( tc->shmem->txnpages_free_cnt<=tc->shmem->max_txnpages );
+  FD_TEST( tc->shmem->resident_pages<tc->shmem->max_txnpages );
+  FD_TEST( tc->shmem->frames_free_cnt<=tc->shmem->resident_pages );
+  FD_TEST( tc->shmem->eviction_hand<tc->shmem->resident_pages );
   FD_TEST( tc->shmem->max_txnpages<=512U );
 
   ulong pool_free = blockcache_pool_free( tc->blockcache_shmem_pool );
@@ -582,6 +605,7 @@ check_invariants( model_t const * m ) {
       ulong page = fd_txncache_txnpage_idx_ld( idx_sz, bc->pages, j );
       FD_TEST( page<tc->shmem->max_txnpages );
       FD_TEST( !page_seen[ page ] );
+      FD_TEST( tc->page_meta[ page ].frame!=UINT_MAX || tc->page_meta[ page ].disk_valid );
       page_seen[ page ] = 1U;
       used_pages++;
     }
@@ -595,9 +619,40 @@ check_invariants( model_t const * m ) {
     FD_TEST( page<tc->shmem->max_txnpages );
     FD_TEST( !page_seen[ page ] );
     page_seen[ page ] = 1U;
+    FD_TEST( tc->page_meta[ page ].frame==UINT_MAX );
+    FD_TEST( !tc->page_meta[ page ].dirty );
+    FD_TEST( !tc->page_meta[ page ].disk_valid );
   }
 
   FD_TEST( used_pages + tc->shmem->txnpages_free_cnt == tc->shmem->max_txnpages );
+
+  /* Resident frames are mapped to one logical page or on the free
+     stack.  Evicted pages must be clean and retain their disk copy. */
+  uchar frame_seen[ 512 ];
+  memset( frame_seen, 0, sizeof(frame_seen) );
+  ulong resident_pages = 0UL;
+  for( ulong page=0UL; page<tc->shmem->max_txnpages; page++ ) {
+    FD_TEST( page_seen[ page ] );
+    fd_txncache_page_meta_t const * meta = &tc->page_meta[ page ];
+    if( meta->frame==UINT_MAX ) {
+      FD_TEST( !meta->dirty );
+      continue;
+    }
+    FD_TEST( meta->frame<tc->shmem->resident_pages );
+    FD_TEST( !frame_seen[ meta->frame ] );
+    FD_TEST( tc->frame_owner[ meta->frame ]==page );
+    frame_seen[ meta->frame ] = 1U;
+    resident_pages++;
+  }
+  for( ulong i=0UL; i<tc->shmem->frames_free_cnt; i++ ) {
+    uint frame = tc->frames_free[ i ];
+    FD_TEST( frame<tc->shmem->resident_pages );
+    FD_TEST( !frame_seen[ frame ] );
+    FD_TEST( tc->frame_owner[ frame ]==UINT_MAX );
+    frame_seen[ frame ] = 1U;
+  }
+  FD_TEST( resident_pages + tc->shmem->frames_free_cnt == tc->shmem->resident_pages );
+  fd_rwlock_unwrite( tc->shmem->lock );
 
   /* Root history: the real root slist must match the model's live root
      window exactly.  The list length is root_cnt+1: the original root
@@ -1109,6 +1164,7 @@ op_extend_root( model_t *       m,
 
 static void
 fuzz_cleanup( void ) {
+  if( fuzz_spill_fd>=0 ) FD_TEST( !close( fuzz_spill_fd ) );
   free( fuzz_shmem );
   free( fuzz_ljoin );
 }
@@ -1124,7 +1180,11 @@ LLVMFuzzerInitialize( int *    argc,
   fd_log_level_logfile_set( 4 );
   atexit( fd_halt );
 
-  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT );
+  char path[] = "/tmp/fd-txncache-fuzz-XXXXXX";
+  fuzz_spill_fd = mkstemp( path );
+  FD_TEST( fuzz_spill_fd>=0 ); FD_TEST( !unlink( path ) );
+  FD_TEST( !fcntl( fuzz_spill_fd, F_SETFL, O_DIRECT ) );
+  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT, 2UL*sizeof(fd_txncache_txnpage_t) );
   fuzz_ljoin_fp = fd_txncache_footprint( FUZZ_MAX_LIVE_SLOTS );
   FD_TEST( fuzz_shmem_fp );
   FD_TEST( fuzz_ljoin_fp );
