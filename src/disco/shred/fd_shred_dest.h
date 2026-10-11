@@ -74,7 +74,7 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   ulong   flat_total;
   ulong   flat_W;          /* unremoved weight */
   ulong   flat_dirty_mid;  /* bit g set if mid row g was modified */
-  ulong   flat_dirty[ 4 ]; /* bit r set if row r was modified */
+  ulong   flat_dirty[ 2 ]; /* bit r set if row r was modified */
   ulong * flat_rowb;
   ulong * flat_row;
   ulong * flat_midb;

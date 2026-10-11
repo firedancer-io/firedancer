@@ -37,11 +37,13 @@ struct __attribute__((packed)) shred_dest_input {
 typedef struct shred_dest_input shred_dest_input_t;
 
 /* Flat staked sampler (AVX-512 or AVX2, staked_cnt<=FLAT_MAX): group
-   prefixes in registers over rows of 16 or 32 leaf prefixes, with 16
-   subgroup prefixes in between for class 3.  Prefixes are < 2^63 so
-   the signed AVX2 compares work. */
-#define FLAT_MAX  (4096UL)
+   prefixes in registers over rows of 16 or 32 leaf prefixes, with 8
+   groups of 16 subgroup prefixes in between for class 3.  Prefixes are
+   < 2^63 so the signed AVX2 compares work.  Larger staked_cnt (not
+   possible under VAT) uses fd_wsample. */
+#define FLAT_MAX  (2048UL)
 #define FLAT_CLS3 (3UL)
+#define FLAT_MID  (128UL) /* class 3 subgroup prefixes */
 
 #if FD_HAS_AVX512
 #define FLAT_VL                  (8UL)
@@ -87,7 +89,7 @@ flat_row_cnt( ulong staked_cnt ) {
 
 static inline ulong
 flat_footprint( ulong staked_cnt ) {
-  ulong mid_cnt = fd_ulong_if( flat_cls( staked_cnt )==FLAT_CLS3, 256UL, 0UL );
+  ulong mid_cnt = fd_ulong_if( flat_cls( staked_cnt )==FLAT_CLS3, FLAT_MID, 0UL );
   return sizeof(ulong)*2UL*( flat_row_cnt( staked_cnt ) + mid_cnt );
 }
 
@@ -210,7 +212,7 @@ fd_shred_dest_new( void                           * mem,
       sdest->flat_p0b[ j>>lgr ] = acc;
     }
     fd_memcpy( _flat+flat_cnt, frowb, sizeof(ulong)*flat_cnt );
-    if( cls==FLAT_CLS3 ) fd_memcpy( fmidb+256UL, fmidb, sizeof(ulong)*256UL );
+    if( cls==FLAT_CLS3 ) fd_memcpy( fmidb+FLAT_MID, fmidb, sizeof(ulong)*FLAT_MID );
     if( FD_UNLIKELY( ovf | (tot>=(1UL<<63)) ) ) cls = 0UL; /* fd_wsample fallback */
     else fd_memcpy( sdest->flat_p0m+8UL, sdest->flat_p0b, sizeof(sdest->flat_p0b) );
   }
@@ -246,7 +248,7 @@ fd_shred_dest_new( void                           * mem,
   sdest->flat_rowb      = _flat;
   sdest->flat_row       = _flat + flat_cnt;
   sdest->flat_midb      = fmidb;
-  sdest->flat_mid       = fmidb + 256UL;
+  sdest->flat_mid       = fmidb + FLAT_MID;
 
   return (void *)sdest;
 }
@@ -625,9 +627,9 @@ flat_sample3( fd_shred_dest_t * sdest,
   ulong *           mid = sdest->flat_mid;
   ulong *           row = sdest->flat_row;
 
-  flat_v_t p0[ 16UL/FLAT_VL ];
-# pragma GCC unroll 16
-  for( ulong j=0UL; j<16UL/FLAT_VL; j++ ) p0[ j ] = flat_v_ld( p0m+FLAT_VL*j );
+  flat_v_t p0[ 8UL/FLAT_VL ];
+# pragma GCC unroll 8
+  for( ulong j=0UL; j<8UL/FLAT_VL; j++ ) p0[ j ] = flat_v_ld( p0m+FLAT_VL*j );
 
   ulong W    = sdest->flat_W;
   /* guessed next group and p0m[group-1], per roll word */
@@ -639,15 +641,11 @@ flat_sample3( fd_shred_dest_t * sdest,
   ulong off  = rng->buf_off;
   ulong fill = rng->buf_fill;
 
-# if FD_HAS_AVX512 /* AVX2: the 16 ymm ring state spills in class 3 */
   FLAT_PRE_DECL;
-# endif
 
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
-#   if FD_HAS_AVX512
     FLAT_PRE_STEP;
-#   endif
 
     ulong off0 = off;
     ulong r    = flat_roll( rng, W, &off, &fill );
@@ -664,8 +662,8 @@ flat_sample3( fd_shred_dest_t * sdest,
       flat_v_t vs0 = flat_v_bcast( h0 );
       flat_v_t vs1 = flat_v_bcast( h1 );
       ns0 = 0UL; ns1 = 0UL;
-#     pragma GCC unroll 16
-      for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) {
+#     pragma GCC unroll 8
+      for( ulong k=0UL; k<8UL/FLAT_VL; k++ ) {
         ns0 += flat_v_cnt_le( p0[ k ], vs0 );
         ns1 += flat_v_cnt_le( p0[ k ], vs1 );
       }
@@ -674,8 +672,8 @@ flat_sample3( fd_shred_dest_t * sdest,
     }
     flat_v_t vr = flat_v_bcast( r );
     ulong    g  = 0UL;
-#   pragma GCC unroll 16
-    for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) g += flat_v_cnt_le( p0[ k ], vr );
+#   pragma GCC unroll 8
+    for( ulong k=0UL; k<8UL/FLAT_VL; k++ ) g += flat_v_cnt_le( p0[ k ], vr );
 
     flat_v_t v1 = flat_v_bcast( r - xq );
     ulong *  m  = mid + gq*16UL;
@@ -703,7 +701,7 @@ flat_sample3( fd_shred_dest_t * sdest,
     flat_v_t vw = flat_v_bcast( wt );
 #   pragma GCC unroll 16
     for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) {
-      p0[ k ] = flat_v_sub_gt( p0[ k ], vr, vw ); flat_v_st( p0m+FLAT_VL*k, p0[ k ] );
+      if( k<8UL/FLAT_VL ) { p0[ k ] = flat_v_sub_gt( p0[ k ], vr, vw ); flat_v_st( p0m+FLAT_VL*k, p0[ k ] ); }
       flat_v_st( m+FLAT_VL*k, flat_v_sub_gt( mm[ k ], v1, vw ) );
       flat_v_st( q+FLAT_VL*k, flat_v_sub_gt( qq[ k ], v2, vw ) );
     }
@@ -776,7 +774,7 @@ flat_restore_all( fd_shred_dest_t * sdest ) {
   ulong   gsz  = flat_gsz( sdest->flat_cls );
   ulong * row  = sdest->flat_row;
   ulong * rowb = sdest->flat_rowb;
-  for( ulong h=0UL; h<4UL; h++ ) {
+  for( ulong h=0UL; h<2UL; h++ ) {
     for( ulong d=sdest->flat_dirty[ h ]; d; d=fd_ulong_pop_lsb( d ) ) {
       ulong o = ( h*64UL + (ulong)fd_ulong_find_lsb( d ) )*gsz;
       for( ulong v=0UL; v<gsz; v+=FLAT_VL ) flat_v_st( row+o+v, flat_v_ld( rowb+o+v ) );
