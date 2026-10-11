@@ -158,8 +158,7 @@ FD_PROTOTYPES_BEGIN
    and two RSS QPs, one hashing outer headers and one hashing inner tunnel
    headers.  It creates an MR, UAR, RX CQ, TX CQ, receive WQ, and send-only QP
    for each entry in tiles.  For entries with a non-NULL rx_comp_channel_fd, it also
-   attaches a uverbs completion channel to the RX CQ.  tile_cnt must be a
-   power of two. */
+   attaches a uverbs completion channel to the RX CQ. */
 fd_mlx5_rss_qp_t *
 fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
                 fd_mlx5_uverbs_tile_t * tiles,
