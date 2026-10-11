@@ -258,7 +258,6 @@ mlx5_check( fd_config_t    const * config,
   if( strcmp( config->net.provider, "auto" ) ) return 0;
   if( !info->has_mlx5_rdma_port ) return 0;
   if( !info->has_uverbs && !info->has_uverbs_module ) return 0;
-  if( !fd_ulong_is_pow2( config->layout.net_tile_count ) ) return 0;
   return 1;
 }
 
