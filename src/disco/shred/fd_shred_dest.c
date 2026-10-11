@@ -69,6 +69,9 @@ static inline ulong
 flat_cls( ulong staked_cnt ) {
 # if FD_HAS_AVX
   if( FD_UNLIKELY( (staked_cnt==0UL) | (staked_cnt>FLAT_MAX) ) ) return 0UL;
+# if !FD_HAS_AVX512
+  if( staked_cnt>512UL ) return FLAT_CLS3; /* AVX2: three levels beat 32 leaf rows */
+# endif
   return 1UL + (ulong)(staked_cnt>512UL) + (ulong)(staked_cnt>1024UL);
 # else
   (void)staked_cnt;
@@ -596,6 +599,9 @@ flat_sample2( fd_shred_dest_t * sdest,
     ulong    idx = g*gsz + k;
     ulong    wt  = q[ k ] - (q[ (k-1UL)&(gsz-1UL) ] & (-(ulong)(k!=0UL)));
     flat_v_t vw  = flat_v_bcast( wt );
+#   if !FD_HAS_AVX512 /* AVX2: recompare rather than spill the compare masks */
+    __asm__( "" : "+x"(vr), "+x"(vrr) );
+#   endif
 #   pragma GCC unroll 32
     for( ulong j=0UL; j<32UL/FLAT_VL; j++ ) { p0[ j ] = flat_v_sub_gt( p0[ j ], vr, vw ); flat_v_st( p0m+FLAT_VL*j, p0[ j ] ); }
 #   if !FD_HAS_AVX512 /* AVX2: reload rather than spill the 32 leaf row */
@@ -727,11 +733,13 @@ flat_sample3( fd_shred_dest_t * sdest,
 }
 
 #else /* AVX2: guess only the group */
-/* flat_sample3 is flat_sample2 for the three level class. */
-static void
+/* flat_sample3 is flat_sample2 for the three level class, gcnt (4 or
+   8) group lanes. */
+static inline __attribute__((always_inline)) void
 flat_sample3( fd_shred_dest_t * sdest,
               ulong           * out,
-              ulong             cnt ) {
+              ulong             cnt,
+              ulong const       gcnt ) {
   fd_chacha_rng_t * rng = sdest->rng;
   ulong *           p0m = sdest->flat_p0m+8UL;
   ulong *           mid = sdest->flat_mid;
@@ -739,7 +747,7 @@ flat_sample3( fd_shred_dest_t * sdest,
 
   flat_v_t p0[ 8UL/FLAT_VL ];
 # pragma GCC unroll 8
-  for( ulong j=0UL; j<8UL/FLAT_VL; j++ ) p0[ j ] = flat_v_ld( p0m+FLAT_VL*j );
+  for( ulong j=0UL; j<gcnt/FLAT_VL; j++ ) p0[ j ] = flat_v_ld( p0m+FLAT_VL*j );
 
   ulong W    = sdest->flat_W;
   /* guessed next group and p0m[group-1], per roll word */
@@ -773,7 +781,7 @@ flat_sample3( fd_shred_dest_t * sdest,
       flat_v_t vs1 = flat_v_bcast( h1 );
       ns0 = 0UL; ns1 = 0UL;
 #     pragma GCC unroll 8
-      for( ulong k=0UL; k<8UL/FLAT_VL; k++ ) {
+      for( ulong k=0UL; k<gcnt/FLAT_VL; k++ ) {
         ns0 += flat_v_cnt_le( p0[ k ], vs0 );
         ns1 += flat_v_cnt_le( p0[ k ], vs1 );
       }
@@ -783,7 +791,7 @@ flat_sample3( fd_shred_dest_t * sdest,
     flat_v_t vr = flat_v_bcast( r );
     ulong    g  = 0UL;
 #   pragma GCC unroll 8
-    for( ulong k=0UL; k<8UL/FLAT_VL; k++ ) g += flat_v_cnt_le( p0[ k ], vr );
+    for( ulong k=0UL; k<gcnt/FLAT_VL; k++ ) g += flat_v_cnt_le( p0[ k ], vr );
 
     flat_v_t v1 = flat_v_bcast( r - xq );
     ulong *  m  = mid + gq*16UL;
@@ -811,7 +819,7 @@ flat_sample3( fd_shred_dest_t * sdest,
     flat_v_t vw = flat_v_bcast( wt );
 #   pragma GCC unroll 16
     for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) {
-      if( k<8UL/FLAT_VL ) { p0[ k ] = flat_v_sub_gt( p0[ k ], vr, vw ); flat_v_st( p0m+FLAT_VL*k, p0[ k ] ); }
+      if( k<gcnt/FLAT_VL ) { p0[ k ] = flat_v_sub_gt( p0[ k ], vr, vw ); flat_v_st( p0m+FLAT_VL*k, p0[ k ] ); }
       flat_v_st( m+FLAT_VL*k, flat_v_sub_gt( mm[ k ], v1, vw ) );
       flat_v_st( q+FLAT_VL*k, flat_v_sub_gt( qq[ k ], v2, vw ) );
     }
@@ -830,6 +838,13 @@ flat_sample3( fd_shred_dest_t * sdest,
 }
 #endif
 
+#if !FD_HAS_AVX512
+static __attribute__((noinline)) void
+flat_sample3_g4( fd_shred_dest_t * sdest, ulong * out, ulong cnt ) { flat_sample3( sdest, out, cnt, 4UL ); }
+static __attribute__((noinline)) void
+flat_sample3_g8( fd_shred_dest_t * sdest, ulong * out, ulong cnt ) { flat_sample3( sdest, out, cnt, 8UL ); }
+#endif
+
 #undef FLAT_PRE_DECL
 #undef FLAT_PRE_STEP
 
@@ -840,7 +855,14 @@ flat_sample_and_remove_many( fd_shred_dest_t * sdest,
   switch( sdest->flat_cls ) {
   case 1UL: flat_sample2( sdest, out, cnt, 16UL ); break;
   case 2UL: flat_sample2( sdest, out, cnt, 32UL ); break;
-  default:  flat_sample3( sdest, out, cnt      ); break;
+# if FD_HAS_AVX512
+  default:  flat_sample3( sdest, out, cnt ); break;
+# else /* pad groups are never selected */
+  default:
+    if( sdest->staked_cnt<=1024UL ) flat_sample3_g4( sdest, out, cnt );
+    else                            flat_sample3_g8( sdest, out, cnt );
+    break;
+# endif
   }
 }
 
