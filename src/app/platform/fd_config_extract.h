@@ -111,7 +111,7 @@ fdctl_cfg_get_bool( int *                 out,
   return 1;
 }
 
-/* Handles true, false, "true", "false" and "auto" */
+/* Handles true, false, "true", "false", "auto" and "force" */
 static inline int
 fdctl_cfg_get_boolau( int *                 out,
                       ulong                 out_sz FD_PARAM_UNUSED,
@@ -119,7 +119,7 @@ fdctl_cfg_get_boolau( int *                 out,
                       char const *          path ) {
   if( info->val_type==FD_POD_VAL_TYPE_CSTR ) {
     char const * info_val = (char const *)info->val;
-    if( !strcmp( info_val, "auto"  ) ) {
+    if( !strcmp( info_val, "auto" ) ) {
       *out = 2;
       return 1;
     } else if( !strcmp( info_val, "true"  ) ) {
@@ -127,6 +127,9 @@ fdctl_cfg_get_boolau( int *                 out,
       return 1;
     } else if( !strcmp( info_val, "false" ) ) {
       *out = 0;
+      return 1;
+    } else if( !strcmp( info_val, "force" ) ) {
+      *out = 3;
       return 1;
     }
     FD_LOG_WARNING(( "invalid value of `%s` entered for `%s`, must be true, false or auto. ",
