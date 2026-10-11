@@ -1,6 +1,6 @@
 #include "fd_config_json.h"
 
-#include "../../util/fd_boolau.h"
+#include "../../util/fd_bool_auto.h"
 #include "../../ballet/toml/fd_toml.h"
 
 #include <stdarg.h>
