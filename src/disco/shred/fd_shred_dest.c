@@ -617,6 +617,116 @@ flat_sample2( fd_shred_dest_t * sdest,
   sdest->flat_dirty[ 0 ] = dirty;
 }
 
+#if FD_HAS_AVX512
+/* flat_sample3 is flat_sample2 for the three level class. */
+static void
+flat_sample3( fd_shred_dest_t * sdest,
+              ulong           * out,
+              ulong             cnt ) {
+  fd_chacha_rng_t * rng = sdest->rng;
+  ulong *           p0m = sdest->flat_p0m+8UL;
+  ulong *           mid = sdest->flat_mid;
+  ulong *           row = sdest->flat_row;
+
+  flat_v_t p0 = flat_v_ld( p0m );
+
+  ulong W    = sdest->flat_W;
+  /* guessed next row and its exclusive prefix, per roll word */
+  ulong js0  = 0UL;
+  ulong js1  = 0UL;
+  ulong ys0  = 0UL;
+  ulong ys1  = 0UL;
+  ulong dmid = sdest->flat_dirty_mid;
+  ulong off  = rng->buf_off;
+  ulong fill = rng->buf_fill;
+
+  FLAT_PRE_DECL;
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
+    FLAT_PRE_STEP;
+
+    ulong off0 = off;
+    ulong r    = flat_roll( rng, W, &off, &fill );
+    int   w1   = off-off0!=8UL; /* a wrong guess is only slower */
+    ulong j    = fd_ulong_if( w1, js1, js0 );
+    ulong d    = r - fd_ulong_if( w1, ys1, ys0 );
+    ulong nj0, nj1, ny0, ny1;
+    {
+      ulong v0 = FD_LOAD( ulong, rng->buf + ( off     % FD_CHACHA_RNG_BUFSZ) );
+      ulong v1 = FD_LOAD( ulong, rng->buf + ((off+8UL) % FD_CHACHA_RNG_BUFSZ) );
+      ulong h0, l0, h1, l1;
+      fd_uwide_mul( &h0, &l0, v0, W );
+      fd_uwide_mul( &h1, &l1, v1, W );
+      ulong g0 = flat_v_cnt_le( p0, flat_v_bcast( h0 ) );
+      ulong g1 = flat_v_cnt_le( p0, flat_v_bcast( h1 ) );
+      ulong x0 = p0m[ (long)g0-1L ];
+      ulong x1 = p0m[ (long)g1-1L ];
+      ulong const * m0 = mid + g0*16UL;
+      ulong const * m1 = mid + g1*16UL;
+      flat_v_t vt0 = flat_v_bcast( h0-x0 );
+      flat_v_t vt1 = flat_v_bcast( h1-x1 );
+      ulong s0 = 0UL; ulong s1 = 0UL;
+#     pragma GCC unroll 16
+      for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) {
+        s0 += flat_v_cnt_le( flat_v_ld( m0+FLAT_VL*k ), vt0 );
+        s1 += flat_v_cnt_le( flat_v_ld( m1+FLAT_VL*k ), vt1 );
+      }
+      nj0 = g0*16UL + s0; ny0 = x0 + *fd_ptr_if( s0!=0UL, m0+s0-1UL, p0m-1L ); /* p0m[-1]==0 */
+      nj1 = g1*16UL + s1; ny1 = x1 + *fd_ptr_if( s1!=0UL, m1+s1-1UL, p0m-1L );
+    }
+    flat_v_t vr = flat_v_bcast( r );
+
+    /* d<row total iff the guessed row holds r */
+    ulong *  q  = row + j*16UL;
+    flat_v_t v2 = flat_v_bcast( d );
+    flat_v_t qq[ 16UL/FLAT_VL ];
+    ulong    t  = 0UL;
+#   pragma GCC unroll 16
+    for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) { qq[ k ] = flat_v_ld( q+FLAT_VL*k ); t += flat_v_cnt_le( qq[ k ], v2 ); }
+    if( FD_UNLIKELY( d>=q[ 15 ] ) ) {
+      ulong         g  = flat_v_cnt_le( p0, vr );
+      ulong         e  = r - p0m[ (long)g-1L ];
+      ulong const * m  = mid + g*16UL;
+      flat_v_t      ve = flat_v_bcast( e );
+      ulong         s  = 0UL;
+#     pragma GCC unroll 16
+      for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) s += flat_v_cnt_le( flat_v_ld( m+FLAT_VL*k ), ve );
+      j  = g*16UL + s;
+      d  = e - *fd_ptr_if( s!=0UL, m+s-1UL, p0m-1L );
+      q  = row + j*16UL;
+      v2 = flat_v_bcast( d );
+      t  = 0UL;
+#     pragma GCC unroll 16
+      for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) { qq[ k ] = flat_v_ld( q+FLAT_VL*k ); t += flat_v_cnt_le( qq[ k ], v2 ); }
+    }
+
+    ulong    g  = j>>4;
+    ulong *  m  = mid + g*16UL;
+    flat_v_t v1 = flat_v_bcast( r - p0m[ (long)g-1L ] );
+    ulong    wt = q[ t ] - (q[ (t-1UL)&15UL ] & (-(ulong)(t!=0UL)));
+    flat_v_t vw = flat_v_bcast( wt );
+#   pragma GCC unroll 16
+    for( ulong k=0UL; k<16UL/FLAT_VL; k++ ) {
+      flat_v_st( m+FLAT_VL*k, flat_v_sub_gt( flat_v_ld( m+FLAT_VL*k ), v1, vw ) );
+      flat_v_st( q+FLAT_VL*k, flat_v_sub_gt( qq[ k ], v2, vw ) );
+    }
+    p0 = flat_v_sub_gt( p0, vr, vw ); flat_v_st( p0m, p0 );
+
+    js0 = nj0; ys0 = ny0 - (wt & (-(ulong)(j<nj0)));
+    js1 = nj1; ys1 = ny1 - (wt & (-(ulong)(j<nj1)));
+    dmid                      |= 1UL<<g;
+    sdest->flat_dirty[ j>>6 ] |= 1UL<<(j&63UL);
+    W                         -= wt;
+    out[ i ] = j*16UL + t;
+  }
+
+  rng->buf_off          = off;
+  sdest->flat_W         = W;
+  sdest->flat_dirty_mid = dmid;
+}
+
+#else /* AVX2: guess only the group */
 /* flat_sample3 is flat_sample2 for the three level class. */
 static void
 flat_sample3( fd_shred_dest_t * sdest,
@@ -718,6 +828,7 @@ flat_sample3( fd_shred_dest_t * sdest,
   sdest->flat_W         = W;
   sdest->flat_dirty_mid = dmid;
 }
+#endif
 
 #undef FLAT_PRE_DECL
 #undef FLAT_PRE_STEP
