@@ -59,7 +59,7 @@ typedef struct shred_dest_input shred_dest_input_t;
 #define flat_v_st( p, v )        wl_st( (long *)(p), (v) )
 #define flat_v_bcast( x )        wl_bcast( (long)(x) )
 #define flat_v_sub( a, b )       wl_sub( (a), (b) )
-#define flat_v_cnt_le( a, x )    (4UL-((ulong)fd_uint_popcnt( (uint)wc_pack( wl_gt( (a), (x) ) ) )>>1)) /* 2 pack bits per lane */
+#define flat_v_cnt_le( a, x )    (4UL-(ulong)fd_uint_popcnt( (uint)_mm256_movemask_pd( _mm256_castsi256_pd( wl_gt( (a), (x) ) ) ) ))
 #define flat_v_sub_gt( a, x, w ) wl_sub( (a), wl_and( wl_gt( (a), (x) ), (w) ) )
 #endif
 
