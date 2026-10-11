@@ -34,7 +34,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
-#include "../../util/fd_boolau.h"
+#include "../../util/fd_bool_auto.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/stakes/fd_stakes.h"

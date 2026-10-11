@@ -16,7 +16,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
 #include "../../discof/restore/utils/fd_wfs.h"
-#include "../../util/fd_boolau.h"
+#include "../../util/fd_bool_auto.h"
 
 #include <unistd.h>
 #include <errno.h>
