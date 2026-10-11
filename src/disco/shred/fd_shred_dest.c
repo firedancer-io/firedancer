@@ -1,26 +1,21 @@
 #include "fd_shred_dest.h"
 #include "../../util/fd_hash32.h"
 
-struct pubkey_to_idx {
-  fd_pubkey_t key;
-  ulong       idx;
-};
-typedef struct pubkey_to_idx pubkey_to_idx_t;
-
 static const fd_pubkey_t null_pubkey = {{ 0 }};
 
-#define MAP_NAME              pubkey_to_idx
-#define MAP_T                 pubkey_to_idx_t
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          null_pubkey
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_MEMOIZE           0
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(k,s)     ((MAP_HASH_T)fd_hash32( (k).key, (s) ))
-
-#include "../../util/tmpl/fd_map_dynamic.c"
-
+static inline fd_shred_dest_idx_t
+pubkey_map_query( fd_shred_dest_t const * sdest,
+                  fd_pubkey_t const *     key ) {
+  uint const * map  = sdest->pubkey_map;
+  ulong        mask = sdest->pubkey_map_mask;
+  ulong        slot = fd_hash32( key->uc, sdest->pubkey_map_seed ) & mask;
+  for(;;) {
+    uint idx = map[ slot ];
+    if( FD_UNLIKELY( idx==UINT_MAX ) ) return FD_SHRED_DEST_NO_DEST;
+    if( FD_LIKELY( !memcmp( sdest->all_destinations[ idx ].pubkey.uc, key->uc, 32UL ) ) ) return idx;
+    slot = (slot+1UL) & mask;
+  }
+}
 
 /* This 45 byte struct gets hashed to compute the seed for ChaCha to
    compute the shred destinations. */
@@ -35,11 +30,11 @@ typedef struct shred_dest_input shred_dest_input_t;
 ulong
 fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt ) {
   ulong cnt = staked_cnt+unstaked_cnt;
-  int lg_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) ) );
+  ulong map_cnt = fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) );
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
                 FD_LAYOUT_INIT,
                 fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              ),
-                pubkey_to_idx_align(),             pubkey_to_idx_footprint( lg_cnt )    ),
+                64UL,                              sizeof(uint)*map_cnt                 ),
                 alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt ),
                 fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 )),
                 alignof(ulong),                    sizeof(ulong)*unstaked_cnt           ),
@@ -65,14 +60,17 @@ fd_shred_dest_new( void                           * mem,
     return NULL;
   }
 
-  int lg_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) ) );
+  ulong map_cnt = fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) );
   FD_SCRATCH_ALLOC_INIT( footprint, mem );
   fd_shred_dest_t * sdest;
   /* */  sdest     = FD_SCRATCH_ALLOC_APPEND( footprint, fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              );
-  void * _map      = FD_SCRATCH_ALLOC_APPEND( footprint, pubkey_to_idx_align(),             pubkey_to_idx_footprint( lg_cnt )    );
+  uint * map       = FD_SCRATCH_ALLOC_APPEND( footprint, 64UL,                              sizeof(uint)*map_cnt                 );
   void * _info     = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt );
 
   ulong cnts[2] = { 0UL, 0UL }; /* cnts[0] = staked, cnts[1] = unstaked */
+
+  ulong mask = map_cnt-1UL;
+  fd_memset( map, 0xFF, sizeof(uint)*map_cnt );
 
   fd_shred_dest_weighted_t * copy = (fd_shred_dest_weighted_t *)_info;
   for( ulong i=0UL; i<cnt; i++ ) {
@@ -85,6 +83,16 @@ fd_shred_dest_new( void                           * mem,
       return NULL;
     }
     cnts[ stake==0UL ]++;
+
+    fd_pubkey_t const * key = &info[ i ].pubkey;
+    if( FD_UNLIKELY( !memcmp( key->uc, null_pubkey.uc, 32UL ) ) ) continue;
+    ulong slot = fd_hash32( key->uc, seed ) & mask;
+    for(;;) {
+      uint idx = map[ slot ];
+      if( FD_LIKELY  ( idx==UINT_MAX                                     ) ) { map[ slot ] = (uint)i; break; }
+      if( FD_UNLIKELY( !memcmp( copy[ idx ].pubkey.uc, key->uc, 32UL ) ) ) break;
+      slot = (slot+1UL) & mask;
+    }
   }
 
   ulong staked_cnt   = cnts[0];
@@ -101,22 +109,6 @@ fd_shred_dest_new( void                           * mem,
   for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
   _staked   = fd_wsample_new_fini( _staked, 0UL );
 
-  pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt, seed ) );
-  for( ulong i=0UL; i<cnt; i++ ) {
-    /* we should never have duplicates in info[i].pubkey, but in case
-       of duplicates it's better to skip than to segfault. */
-    pubkey_to_idx_t * inserted = pubkey_to_idx_insert( pubkey_to_idx_map, info[i].pubkey );
-    if( FD_UNLIKELY( !inserted ) ) {
-      continue;
-    }
-    inserted->idx = i;
-  }
-  pubkey_to_idx_t * query = pubkey_to_idx_query( pubkey_to_idx_map, *source, NULL );
-  if( FD_UNLIKELY( !query ) ) {
-    FD_LOG_WARNING(( "source pubkey not found" ));
-    return NULL;
-  }
-
   memset( sdest->null_dest, 0, sizeof(fd_shred_dest_weighted_t) );
   sdest->lsched                     = lsched;
   sdest->cnt                        = cnt;
@@ -126,8 +118,16 @@ fd_shred_dest_new( void                           * mem,
   sdest->unstaked_unremoved_cnt     = 0UL; /* unstaked doesn't get initialized until it's needed */
   sdest->staked_cnt                 = staked_cnt;
   sdest->unstaked_cnt               = unstaked_cnt;
-  sdest->pubkey_to_idx_map          = pubkey_to_idx_map;
-  sdest->source_validator_orig_idx  = query->idx;
+  sdest->pubkey_map                 = map;
+  sdest->pubkey_map_mask            = mask;
+  sdest->pubkey_map_seed            = seed;
+
+  fd_shred_dest_idx_t source_idx = pubkey_map_query( sdest, source );
+  if( FD_UNLIKELY( source_idx==FD_SHRED_DEST_NO_DEST ) ) {
+    FD_LOG_WARNING(( "source pubkey not found" ));
+    return NULL;
+  }
+  sdest->source_validator_orig_idx  = source_idx;
 
   return (void *)sdest;
 }
@@ -140,7 +140,6 @@ void * fd_shred_dest_delete( void * mem ) {
 
   fd_chacha_rng_delete( fd_chacha_rng_leave( sdest->rng               ) );
   fd_wsample_delete   ( fd_wsample_leave   ( sdest->staked            ) );
-  pubkey_to_idx_delete( pubkey_to_idx_leave( sdest->pubkey_to_idx_map ) );
   return mem;
 }
 
@@ -336,9 +335,9 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
   fd_pubkey_t const * leader = fd_epoch_leaders_get   ( sdest->lsched, slot );
   if( FD_UNLIKELY( !leader                 ) ) return NULL; /* Unknown slot */
 
-  pubkey_to_idx_t *   query  = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *leader, NULL );
-  int                 leader_is_staked = query ? (query->idx<sdest->staked_cnt): 0;
-  ulong               leader_idx       = query ?  query->idx                   : ULONG_MAX;
+  fd_shred_dest_idx_t query  = pubkey_map_query( sdest, leader );
+  int                 leader_is_staked = query<sdest->staked_cnt; /* NO_DEST is never <staked_cnt */
+  ulong               leader_idx       = fd_ulong_if( query!=FD_SHRED_DEST_NO_DEST, (ulong)query, ULONG_MAX );
   if( FD_UNLIKELY( leader_idx==my_orig_idx ) ) return NULL; /* I am the leader. Use compute_first */
 
   if( FD_UNLIKELY( (sdest->cnt<=1UL) |                    /* We don't know about a single destination, so we can't send
@@ -366,7 +365,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     /* Remove the leader. */
-    if( FD_LIKELY( query && leader_is_staked ) ) fd_wsample_remove_idx( sdest->staked, leader_idx );
+    if( FD_LIKELY( leader_is_staked ) ) fd_wsample_remove_idx( sdest->staked, leader_idx );
 
     ulong my_idx         = 0UL;
     fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] ); /* Seeds both samplers since the rng is shared */
@@ -380,7 +379,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
          start of the function. */
       staked_shuffle_populated_cnt = sdest->staked_cnt + 1UL;
       fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle, staked_shuffle_populated_cnt );
-      my_idx += sdest->staked_cnt - (ulong)(query && leader_is_staked);
+      my_idx += sdest->staked_cnt - (ulong)leader_is_staked;
 
       prepare_unstaked_sampling( sdest, leader_idx );
       while( my_idx <= fanout ) {
@@ -477,10 +476,7 @@ fd_shred_dest_pubkey_to_idx( fd_shred_dest_t   * sdest,
                              fd_pubkey_t const * pubkey     ) {
   if( FD_UNLIKELY( !memcmp( pubkey, null_pubkey.uc, 32UL ) ) ) return FD_SHRED_DEST_NO_DEST;
 
-  pubkey_to_idx_t default_res[ 1 ] = {{ .idx = FD_SHRED_DEST_NO_DEST }};
-  pubkey_to_idx_t * query = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *pubkey, default_res );
-
-  return (fd_shred_dest_idx_t)query->idx;
+  return pubkey_map_query( sdest, pubkey );
 }
 
 fd_shred_dest_idx_t
@@ -489,10 +485,9 @@ fd_shred_dest_leader_for_slot( fd_shred_dest_t const * sdest,
   fd_pubkey_t const * leader = fd_epoch_leaders_get( sdest->lsched, slot );
   if( FD_UNLIKELY( !leader ) ) return FD_SHRED_DEST_NO_DEST;
 
-  pubkey_to_idx_t default_res[ 1 ] = {{ .idx = FD_SHRED_DEST_NO_DEST }};
-  pubkey_to_idx_t const * query  = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *leader, default_res );
-  if( FD_UNLIKELY( query->idx==sdest->source_validator_orig_idx ) ) return FD_SHRED_DEST_NO_DEST;
+  fd_shred_dest_idx_t idx = pubkey_map_query( sdest, leader );
+  if( FD_UNLIKELY( idx==sdest->source_validator_orig_idx ) ) return FD_SHRED_DEST_NO_DEST;
 
-  return (fd_shred_dest_idx_t)query->idx;
+  return idx;
 }
 
