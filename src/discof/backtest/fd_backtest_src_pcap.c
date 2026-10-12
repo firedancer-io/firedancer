@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
@@ -305,13 +306,17 @@ fd_backt_src_t *
 fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
                           uint                          format,
                           uint                          flags ) {
-  (void)flags;
-  FILE * file = fopen( opts->path, "rb" );
-  if( FD_UNLIKELY( !file ) ) {
-    FD_LOG_WARNING(( "fopen(%s,rb) failed", opts->path ));
+  if( FD_UNLIKELY( -1==lseek( opts->fd, 0L, SEEK_SET ) ) ) {
+    FD_LOG_WARNING(( "lseek(%s) failed (%i-%s)", opts->path, errno, fd_io_strerror( errno ) ));
+    close( opts->fd );
     return NULL;
   }
-  int fd = fileno( file );
+  FILE * file = fdopen( opts->fd, "rb" );
+  if( FD_UNLIKELY( !file ) ) {
+    FD_LOG_WARNING(( "fdopen(%s,rb) failed (%i-%s)", opts->path, errno, fd_io_strerror( errno ) ));
+    close( opts->fd );
+    return NULL;
+  }
 
   ZSTD_DStream * zstd = NULL;
   if( flags & FD_BACKT_SRC_FLAG_ZSTD ) {
@@ -331,7 +336,7 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
   if( FD_UNLIKELY( !src ) ) FD_LOG_ERR(( "out of memory" ));
 
   *src = (fd_backt_src_pcap_t){
-    .src = {{ .vt = &fd_backt_src_pcap_vt, .fd = fd }},
+    .src = {{ .vt = &fd_backt_src_pcap_vt }},
     .file = file,
     .format = format,
     .zstd = zstd,

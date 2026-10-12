@@ -68,6 +68,7 @@ struct fd_backt_tile {
   uint shutdown           : 1;
 
   fd_backt_src_t * src;
+  int              ledger_fd;  /* file descriptor owned by src, -1 if none */
   ulong            first_slot; /* slot of the first shred in src, ULONG_MAX if none */
 
   ulong root_distance;
@@ -655,14 +656,18 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( fcntl( ctx->store_disk_fd, F_GETFD )<0 ) )
     FD_LOG_ERR(( "store file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  /* The source allocates its buffers on open and on the first read, so
-     both must happen before the sandbox drops the ability to allocate. */
   ctx->src        = NULL;
+  ctx->ledger_fd  = -1;
   ctx->first_slot = ULONG_MAX;
   if( FD_LIKELY( tile->backtest.ledger_path[ 0 ] ) ) { /* empty path: load the snapshot, then exit */
+    ctx->ledger_fd = open( tile->backtest.ledger_path, O_RDONLY|O_CLOEXEC );
+    if( FD_UNLIKELY( ctx->ledger_fd<0 ) )
+      FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->backtest.ledger_path, errno, fd_io_strerror( errno ) ));
+
     fd_backtest_src_opts_t opts = {
       .format      = tile->backtest.ledger_format,
       .path        = tile->backtest.ledger_path,
+      .fd          = ctx->ledger_fd,
       .rooted_only = 1,
       .code_shreds = 0,
     };
@@ -791,7 +796,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->store_disk_fd;
-  if( FD_LIKELY( ctx->src ) ) out_fds[ out_cnt++ ] = ctx->src->fd;
+  if( FD_LIKELY( -1!=ctx->ledger_fd ) ) out_fds[ out_cnt++ ] = ctx->ledger_fd;
   return out_cnt;
 }
 
@@ -804,8 +809,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
 
-  uint ledger_fd = ctx->src ? (uint)ctx->src->fd : (uint)-1;
-  populate_sock_filter_policy_fd_backtest_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), ledger_fd, (uint)ctx->store_disk_fd );
+  populate_sock_filter_policy_fd_backtest_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->ledger_fd, (uint)ctx->store_disk_fd );
   return sock_filter_policy_fd_backtest_tile_instr_cnt;
 }
 
