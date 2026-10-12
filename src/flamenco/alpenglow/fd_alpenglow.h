@@ -16,6 +16,7 @@
 
 #include "../runtime/fd_bank.h"
 #include "fd_block_marker.h"
+#include "fd_footer_cache.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -57,7 +58,8 @@ fd_alpenglow_migration_slot( fd_bank_t *  bank,
 int
 fd_alpenglow_footer_verify( fd_bank_t const *         bank,
                             fd_block_footer_t const * footer,
-                            ushort                    shred_version );
+                            ushort                    shred_version,
+                            fd_footer_cache_t *       cache );
 
 /* fd_alpenglow_rewards_apply applies the side effects of the footer's
    certs to the bank's accounts.  Only the slot and signer bitmap of

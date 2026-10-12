@@ -27,6 +27,7 @@ vote_stakes_iter_kind_for_epoch( ulong fork_id,
 #define VOTE_TAG_SKIP  (3U) /* WireConsensusMessageKind::SkipVote     */
 
 #define VOTE_SIGNING_SER_MAX ( sizeof(uchar) + sizeof(ulong) + sizeof(fd_hash_t) + sizeof(ushort) )
+FD_STATIC_ASSERT( VOTE_SIGNING_SER_MAX<=FD_FOOTER_CACHE_MSG_MAX, footer_cache_msg_max );
 
 static ulong
 vote_signing_ser( uint          tag,
@@ -122,6 +123,7 @@ validator_set_for_slot( validator_set_t * set,
 
 static int
 cert_verify( validator_set_t *              set,
+             fd_footer_cache_t *            cache,
              fd_bank_t const *              bank,
              fd_block_footer_cert_t const * cert,
              uint                           vote_tag,
@@ -161,7 +163,9 @@ cert_verify( validator_set_t *              set,
 
   uchar payload[ VOTE_SIGNING_SER_MAX ];
   ulong payload_sz = vote_signing_ser( vote_tag, cert_slot, vote_tag==VOTE_TAG_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
-  if( FD_UNLIKELY( !fd_bls_agg_verify( payload, payload_sz, pub, sig ) ) ) {
+  blst_p2_affine h[1];
+  fd_footer_cache_hash_msg( cache, payload, payload_sz, h );
+  if( FD_UNLIKELY( !fd_bls_agg_verify_hashed( h, pub, sig ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer (is_reward %d) cert for slot %lu failed signature verification", bank_slot, !quorum_numer, cert_slot ));
     return 0;
   }
@@ -171,7 +175,8 @@ cert_verify( validator_set_t *              set,
 int
 fd_alpenglow_footer_verify( fd_bank_t const *         bank,
                             fd_block_footer_t const * footer,
-                            ushort                    shred_version ) {
+                            ushort                    shred_version,
+                            fd_footer_cache_t *       cache ) {
   int has_certs = footer->has_fast_final_cert | footer->has_final_cert | footer->has_skip_reward_cert | footer->has_notar_reward_cert;
   if( FD_LIKELY( !has_certs ) ) return 0;
   if( FD_UNLIKELY( !shred_version ) ) {
@@ -184,17 +189,17 @@ fd_alpenglow_footer_verify( fd_bank_t const *         bank,
   static FD_TL validator_set_t set[1];
 
   if( footer->has_fast_final_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->fast_final_cert,   VOTE_TAG_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->fast_final_cert,   VOTE_TAG_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
   }
   if( footer->has_final_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->final_cert,        VOTE_TAG_FINAL, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_cert,        VOTE_TAG_NOTAR, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->final_cert,        VOTE_TAG_FINAL, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->notar_cert,        VOTE_TAG_NOTAR, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
   }
   if( footer->has_skip_reward_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->skip_reward_cert,  VOTE_TAG_SKIP,  0UL, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->skip_reward_cert,  VOTE_TAG_SKIP,  0UL, shred_version ) ) ) return -1;
   }
   if( footer->has_notar_reward_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, bank, &footer->notar_reward_cert, VOTE_TAG_NOTAR, 0UL, shred_version ) ) ) return -1;
+    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->notar_reward_cert, VOTE_TAG_NOTAR, 0UL, shred_version ) ) ) return -1;
   }
   return 0;
 }

@@ -5,6 +5,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/alpenglow/fd_footer_cache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 #include "../../discof/backup/fd_backup_shmem.h"
 
@@ -201,6 +202,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
   .footprint = txncache_footprint,
   .align     = txncache_align,
   .new       = txncache_new,
+};
+
+static ulong
+footer_cache_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                        fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_footer_cache_footprint();
+}
+
+static ulong
+footer_cache_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                    fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_footer_cache_align();
+}
+
+static void
+footer_cache_new( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_footer_cache_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_footer_cache = {
+  .name      = "footer_cache",
+  .footprint = footer_cache_footprint,
+  .align     = footer_cache_align,
+  .new       = footer_cache_new,
 };
 
 static ulong
