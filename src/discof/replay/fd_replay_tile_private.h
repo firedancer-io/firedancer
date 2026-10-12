@@ -18,6 +18,7 @@
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache.h"
+#include "../../flamenco/alpenglow/fd_footer_cache.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
@@ -621,6 +622,8 @@ struct fd_replay_tile {
 
   ulong                runtime_stack_seed;
   fd_runtime_stack_t * runtime_stack;
+
+  fd_footer_cache_t * footer_cache;
 
   fd_event_block_completed_t * block_completed_event;
 
