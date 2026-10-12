@@ -241,12 +241,12 @@ struct fd_iavf_virtchnl_queue_config {
   ushort queue_pair_cnt;
   uint   pad;
   /* Linux PF message validation requires space for one extra queue pair. */
-  fd_iavf_virtchnl_queue_pair_t pairs[ 2 ];
+  fd_iavf_virtchnl_queue_pair_t pairs[ FD_IAVF_TILE_MAX+1UL ];
 };
 
 typedef struct fd_iavf_virtchnl_queue_config fd_iavf_virtchnl_queue_config_t;
 
-FD_STATIC_ASSERT( sizeof(fd_iavf_virtchnl_queue_config_t)==136UL, iavf_virtchnl_queue_config_sz );
+FD_STATIC_ASSERT( sizeof(fd_iavf_virtchnl_queue_config_t)==8UL+64UL*(FD_IAVF_TILE_MAX+1UL), iavf_virtchnl_queue_config_sz );
 
 /* fd_iavf_virtchnl_irq_map holds Linux virtchnl_irq_map_info and one virtchnl_vector_map. */
 struct fd_iavf_virtchnl_irq_map {
@@ -1691,15 +1691,17 @@ fd_iavf_queue_footprint( uint tx_depth,
 }
 
 int
-fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *            vfio,
-                                  fd_iavf_adminq_t *          adminq,
-                                  fd_iavf_vf_info_t const *   info,
-                                  fd_iavf_vfio_tile_t const * tile,
-                                  ulong                       dma_iova,
-                                  uint                        rx_buffer_sz,
-                                  uint                        max_frame_sz ) {
-  if( FD_UNLIKELY( !info->queue_pair_cnt ) ) {
-    FD_LOG_WARNING(( "VF has no queue pairs" ));
+fd_iavf_virtchnl_configure_queues( fd_iavf_vfio_t *            vfio,
+                                   fd_iavf_adminq_t *          adminq,
+                                   fd_iavf_vf_info_t const *   info,
+                                   fd_iavf_vfio_tile_t const * tiles,
+                                   uint                        queue_cnt,
+                                   ulong                       dma_iova,
+                                   uint                        rx_buffer_sz,
+                                   uint                        max_frame_sz ) {
+  /* Check VF queue and frame limits */
+  if( FD_UNLIKELY( queue_cnt>info->queue_pair_cnt ) ) {
+    FD_LOG_WARNING(( "queue pair count %u exceeds VF allocation %hu", queue_cnt, info->queue_pair_cnt ));
     errno = EINVAL;
     return -1;
   }
@@ -1720,57 +1722,94 @@ fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *            vfio,
     return -1;
   }
 
-  if( FD_UNLIKELY( !tile->tx_queue || !tile->rx_queue || tile->tx_queue==tile->rx_queue || !tile->queue_memory ) ) {
-    FD_LOG_WARNING(( "queue pair requires distinct non-NULL TX/RX queue state and non-NULL DMA memory" ));
-    errno = EINVAL;
-    return -1;
-  }
-  uint const tx_depth = tile->tx_queue->depth;
-  uint const rx_depth = tile->rx_queue->depth;
-  ulong const footprint = fd_iavf_queue_footprint( tx_depth, rx_depth );
-  if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "queue depths TX %u, RX %u must be powers of two in [%u,%u]", tx_depth, rx_depth, FD_IAVF_QUEUE_DEPTH_MIN, FD_IAVF_QUEUE_DEPTH_MAX ));
-    errno = EINVAL;
-    return -1;
-  }
-  if( FD_UNLIKELY( tile->queue_memory_sz<footprint || footprint>ULONG_MAX-dma_iova ) ) {
-    FD_LOG_WARNING(( "invalid queue DMA bounds, memory size %lu, required %lu, IOVA %#lx", tile->queue_memory_sz, footprint, dma_iova ));
-    errno = EINVAL;
-    return -1;
+  /* Check every tile's queue memory before mapping */
+  ulong queue_iova = dma_iova;
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    fd_iavf_vfio_tile_t const * tile = &tiles[i];
+    if( FD_UNLIKELY( !tile->tx_queue || !tile->rx_queue || tile->tx_queue==tile->rx_queue || !tile->queue_memory ) ) {
+      FD_LOG_WARNING(( "queue pair %u requires distinct non-NULL TX/RX queue state and non-NULL DMA memory", i ));
+      errno = EINVAL;
+      return -1;
+    }
+    uint  tx_depth  = tile->tx_queue->depth;
+    uint  rx_depth  = tile->rx_queue->depth;
+    ulong footprint = fd_iavf_queue_footprint( tx_depth, rx_depth );
+    if( FD_UNLIKELY( !footprint ) ) {
+      FD_LOG_WARNING(( "queue %u depths TX %u, RX %u must be powers of two in [%u,%u]", i, tx_depth, rx_depth, FD_IAVF_QUEUE_DEPTH_MIN, FD_IAVF_QUEUE_DEPTH_MAX ));
+      errno = EINVAL;
+      return -1;
+    }
+    if( FD_UNLIKELY( tile->queue_memory_sz<footprint || footprint>ULONG_MAX-queue_iova ) ) {
+      FD_LOG_WARNING(( "invalid queue %u DMA bounds, memory size %lu, required %lu, IOVA %#lx", i, tile->queue_memory_sz, footprint, queue_iova ));
+      errno = EINVAL;
+      return -1;
+    }
+    queue_iova += footprint;
   }
 
-  ulong const tx_ring_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(fd_iavf_tx_desc_t), FD_IAVF_PAGE_SZ );
-  ulong const rx_ring_sz = fd_ulong_align_up( (ulong)rx_depth*sizeof(fd_iavf_hw_rx_desc_t), FD_IAVF_PAGE_SZ );
-  if( FD_UNLIKELY( fd_iavf_vfio_dma_map( vfio, tile->queue_memory, footprint, dma_iova ) ) ) return -1;
-  fd_memset( tile->queue_memory, 0, footprint );
-  *tile->tx_queue = (fd_iavf_queue_t) {
-    .ring      = tile->queue_memory,
-    .depth     = tx_depth,
-    .tail      = (volatile uint *)(vfio->bar0 + FD_IAVF_TX_TAIL( 0U )),
-    .comp_ring = (ulong *)((uchar *)tile->queue_memory + tx_ring_sz + rx_ring_sz)
+  /* Map tile queues at consecutive IOVAs, queue IDs match tile indices */
+  fd_iavf_virtchnl_queue_config_t config = {
+    .vsi_id         = info->vsi_id,
+    .queue_pair_cnt = (ushort)queue_cnt
   };
-  *tile->rx_queue = (fd_iavf_queue_t) {
-    .ring  = (uchar *)tile->queue_memory + tx_ring_sz,
-    .depth = rx_depth,
-    .tail  = (volatile uint *)(vfio->bar0 + FD_IAVF_RX_TAIL( 0U ))
-  };
-  fd_iavf_virtchnl_queue_config_t config = { .vsi_id=info->vsi_id, .queue_pair_cnt=1U };
-  config.pairs[0].tx = (fd_iavf_virtchnl_txq_info_t) {
-    .vsi_id=info->vsi_id, .queue_id=0U, .ring_len=(ushort)tx_depth, .ring_iova=dma_iova
-  };
-  /* Without flexible RX descriptor negotiation, the PF uses the 32-byte base format */
-  config.pairs[0].rx = (fd_iavf_virtchnl_rxq_info_t) {
-    .vsi_id=info->vsi_id, .queue_id=0U, .ring_len=rx_depth,
-    .data_buffer_sz=rx_buffer_sz, .max_frame_sz=max_frame_sz, .ring_iova=dma_iova+tx_ring_sz
-  };
+  queue_iova = dma_iova;
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    fd_iavf_vfio_tile_t const * tile = &tiles[i];
+    uint  tx_depth   = tile->tx_queue->depth;
+    uint  rx_depth   = tile->rx_queue->depth;
+    ulong tx_ring_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(fd_iavf_tx_desc_t), FD_IAVF_PAGE_SZ );
+    ulong rx_ring_sz = fd_ulong_align_up( (ulong)rx_depth*sizeof(fd_iavf_hw_rx_desc_t), FD_IAVF_PAGE_SZ );
+    ulong tx_comp_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(ulong), FD_IAVF_PAGE_SZ );
+    ulong footprint  = tx_ring_sz + rx_ring_sz + tx_comp_sz;
+    if( FD_UNLIKELY( fd_iavf_vfio_dma_map( vfio, tile->queue_memory, footprint, queue_iova ) ) ) return -1;
+    fd_memset( tile->queue_memory, 0, footprint );
+    *tile->tx_queue = (fd_iavf_queue_t) {
+      .ring      = tile->queue_memory,
+      .depth     = tx_depth,
+      .tail      = (volatile uint *)(vfio->bar0 + FD_IAVF_TX_TAIL( i )),
+      .comp_ring = (ulong *)((uchar *)tile->queue_memory + tx_ring_sz + rx_ring_sz)
+    };
+    *tile->rx_queue = (fd_iavf_queue_t) {
+      .ring  = (uchar *)tile->queue_memory + tx_ring_sz,
+      .depth = rx_depth,
+      .tail  = (volatile uint *)(vfio->bar0 + FD_IAVF_RX_TAIL( i ))
+    };
+    config.pairs[i].tx = (fd_iavf_virtchnl_txq_info_t) {
+      .vsi_id    = info->vsi_id,
+      .queue_id  = (ushort)i,
+      .ring_len  = (ushort)tx_depth,
+      .ring_iova = queue_iova
+    };
+    /* Without flexible RX descriptor negotiation, the PF uses the 32-byte base format */
+    config.pairs[i].rx = (fd_iavf_virtchnl_rxq_info_t) {
+      .vsi_id         = info->vsi_id,
+      .queue_id       = (ushort)i,
+      .ring_len       = rx_depth,
+      .data_buffer_sz = rx_buffer_sz,
+      .max_frame_sz   = max_frame_sz,
+      .ring_iova      = queue_iova + tx_ring_sz
+    };
+    queue_iova += footprint;
+  }
+
+  /* Include the unused queue-pair entry required by Linux PF validation */
+  ulong config_sz = offsetof(fd_iavf_virtchnl_queue_config_t, pairs) +
+                    ((ulong)queue_cnt+1UL)*sizeof(fd_iavf_virtchnl_queue_pair_t);
   ulong response_sz = 0UL;
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_CONFIG_QUEUES,
-                                             &config, sizeof(config), NULL, &response_sz ) ) ) return -1;
+                                             &config, config_sz, NULL, &response_sz ) ) ) return -1;
 
   /* Virtchnl requires queue interrupt mappings even when polling
      Vector 0 is reserved for Admin Queue events */
+  ushort queue_map = (ushort)((1U<<queue_cnt)-1U);
   fd_iavf_virtchnl_irq_map_t irq_map = {
-    .vector_cnt=1U, .vsi_id=info->vsi_id, .vector_id=1U, .rx_queue_map=1U, .tx_queue_map=1U
+    .vector_cnt   = 1U,
+    .vsi_id       = info->vsi_id,
+    .vector_id    = 1U,
+    .rx_queue_map = queue_map,
+    .tx_queue_map = queue_map,
+    .rx_itr_idx   = 0U,
+    .tx_itr_idx   = 0U
   };
   response_sz = 0UL;
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_CONFIG_IRQ_MAP,
@@ -1787,31 +1826,42 @@ fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *            vfio,
 }
 
 int
-fd_iavf_virtchnl_enable_queue( fd_iavf_vfio_t *            vfio,
-                               fd_iavf_adminq_t *          adminq,
-                               fd_iavf_vf_info_t *         info,
-                               fd_iavf_vfio_tile_t const * tile ) {
-  if( FD_UNLIKELY( !vfio || !adminq || !info || !tile || !info->queue_pair_cnt ) ) {
+fd_iavf_virtchnl_enable_queues( fd_iavf_vfio_t *            vfio,
+                                fd_iavf_adminq_t *          adminq,
+                                fd_iavf_vf_info_t *         info,
+                                fd_iavf_vfio_tile_t const * tiles,
+                                uint                        queue_cnt ) {
+  if( FD_UNLIKELY( !vfio || !adminq || !info || !tiles ||
+                   !queue_cnt || queue_cnt>FD_IAVF_TILE_MAX || queue_cnt>info->queue_pair_cnt ) ) {
     errno = EINVAL;
     return -1;
   }
-  fd_iavf_queue_t * tx_queue = tile->tx_queue;
-  fd_iavf_queue_t * rx_queue = tile->rx_queue;
   /* Post RX buffers before enabling reception on the VF */
-  if( FD_UNLIKELY( !tx_queue || !rx_queue || tx_queue==rx_queue ||
-                   tx_queue->enabled || rx_queue->enabled || !rx_queue->posted ||
-                   rx_queue->posted!=rx_queue->prod ||
-                   rx_queue->prod-rx_queue->cons>=rx_queue->depth ) ) {
-    FD_LOG_WARNING(( "queue pair must have distinct disabled TX/RX queues and posted RX buffers below ring capacity" ));
-    errno = EINVAL;
-    return -1;
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    fd_iavf_queue_t const * tx_queue = tiles[i].tx_queue;
+    fd_iavf_queue_t const * rx_queue = tiles[i].rx_queue;
+    if( FD_UNLIKELY( !tx_queue || !rx_queue || tx_queue==rx_queue ||
+                     tx_queue->enabled || rx_queue->enabled || !rx_queue->posted ||
+                     rx_queue->posted!=rx_queue->prod ||
+                     rx_queue->prod-rx_queue->cons>=rx_queue->depth ) ) {
+      FD_LOG_WARNING(( "queue pair %u must have distinct disabled TX/RX queues and posted RX buffers below ring capacity", i ));
+      errno = EINVAL;
+      return -1;
+    }
   }
-  fd_iavf_virtchnl_queue_select_t select = { .vsi_id=info->vsi_id, .rx_queue_map=1U, .tx_queue_map=1U };
+  uint queue_map = (1U<<queue_cnt)-1U;
+  fd_iavf_virtchnl_queue_select_t select = {
+    .vsi_id       = info->vsi_id,
+    .rx_queue_map = queue_map,
+    .tx_queue_map = queue_map
+  };
   ulong response_sz = 0UL;
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_ENABLE_QUEUES,
                                              &select, sizeof(select), NULL, &response_sz ) ) ) return -1;
-  tx_queue->enabled = 1;
-  rx_queue->enabled = 1;
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    tiles[i].tx_queue->enabled = 1;
+    tiles[i].rx_queue->enabled = 1;
+  }
 
   /* Queue enable triggers a new PF link report */
   info->link_usable = 0;
@@ -1859,7 +1909,7 @@ fd_iavf_virtchnl_configure_rss( fd_iavf_vfio_t *          vfio,
                                              &request, FD_IAVF_RSS_KEY_LEGACY_SZ+(ulong)info->rss_key_sz-1UL,
                                              NULL, &response_sz ) ) ) return -1;
 
-  /* Map RSS entries to the configured queue */
+  /* Cycle queue IDs through the LUT, tile count need not be a power of two */
   fd_memset( request.bytes, 0, sizeof(request.bytes) );
   request.count = (ushort)info->rss_lut_sz;
   for( uint i=0U; i<info->rss_lut_sz; i++ ) request.bytes[i] = (uchar)(i%queue_cnt);
@@ -1873,21 +1923,26 @@ int
 fd_iavf_init( fd_iavf_vfio_t *            vfio,
               fd_iavf_adminq_t *          adminq,
               fd_iavf_vf_info_t *         info,
-              fd_iavf_vfio_tile_t const * tile,
+              fd_iavf_vfio_tile_t const * tiles,
+              uint                        tile_cnt,
               char const *                pci_addr,
               uint                        rx_buffer_sz,
               uint                        max_frame_sz ) {
-  if( FD_UNLIKELY( !vfio || !adminq || !info || !tile ) ) {
+  if( FD_UNLIKELY( !vfio || !adminq || !info || !tiles || !tile_cnt || tile_cnt>FD_IAVF_TILE_MAX ) ) {
     errno = EINVAL;
     return -1;
   }
 
   /* Place Admin Queue and queue IOVAs after packet mappings to avoid overlap */
-  if( FD_UNLIKELY( tile->packet_memory_sz>ULONG_MAX-tile->packet_iova ) ) {
-    errno = EINVAL;
-    return -1;
+  ulong adminq_iova = 0UL;
+  for( uint tile_idx=0U; tile_idx<tile_cnt; tile_idx++ ) {
+    fd_iavf_vfio_tile_t const * tile = &tiles[tile_idx];
+    if( FD_UNLIKELY( tile->packet_memory_sz>ULONG_MAX-tile->packet_iova ) ) {
+      errno = EINVAL;
+      return -1;
+    }
+    adminq_iova = fd_ulong_max( adminq_iova, tile->packet_iova+tile->packet_memory_sz );
   }
-  ulong const adminq_iova = tile->packet_iova+tile->packet_memory_sz;
   ulong const adminq_memory_sz = fd_iavf_adminq_footprint();
   if( FD_UNLIKELY( adminq_memory_sz>ULONG_MAX-adminq_iova ) ) {
     errno = EINVAL;
@@ -1905,12 +1960,16 @@ fd_iavf_init( fd_iavf_vfio_t *            vfio,
   if( FD_UNLIKELY( fd_iavf_virtchnl_version( vfio, adminq ) ) ) return -1;
   if( FD_UNLIKELY( fd_iavf_virtchnl_get_resources( vfio, adminq, info ) ) ) return -1;
 
-  /* Configure the queue pair and receive delivery */
-  if( FD_UNLIKELY( fd_iavf_virtchnl_configure_queue( vfio, adminq, info, tile,
-                                                    queue_iova, rx_buffer_sz, max_frame_sz ) ) ) return -1;
+  /* Configure tile queues and receive delivery */
+  if( FD_UNLIKELY( fd_iavf_virtchnl_configure_queues( vfio, adminq, info, tiles, tile_cnt,
+                                                     queue_iova, rx_buffer_sz, max_frame_sz ) ) ) return -1;
   if( FD_UNLIKELY( fd_iavf_virtchnl_add_mac( vfio, adminq, info ) ) ) return -1;
-  if( FD_UNLIKELY( fd_iavf_virtchnl_configure_rss( vfio, adminq, info, 1U ) ) ) return -1;
+  if( FD_UNLIKELY( fd_iavf_virtchnl_configure_rss( vfio, adminq, info, tile_cnt ) ) ) return -1;
 
   /* Map packet buffers before the caller posts RX buffers and enables queues */
-  return fd_iavf_vfio_dma_map( vfio, tile->packet_memory, tile->packet_memory_sz, tile->packet_iova );
+  for( uint tile_idx=0U; tile_idx<tile_cnt; tile_idx++ ) {
+    fd_iavf_vfio_tile_t const * tile = &tiles[tile_idx];
+    if( FD_UNLIKELY( fd_iavf_vfio_dma_map( vfio, tile->packet_memory, tile->packet_memory_sz, tile->packet_iova ) ) ) return -1;
+  }
+  return 0;
 }

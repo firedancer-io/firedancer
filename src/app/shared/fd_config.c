@@ -692,7 +692,10 @@ fd_config_validate( fd_config_t const * config ) {
       FD_LOG_ERR(( "invalid iavf TX queue depth %u: must be at least %u and must not exceed %u",
                    config->net.iavf.tx_queue_size, FD_IAVF_BATCH_SIZE, FD_IAVF_QUEUE_DEPTH_MAX ));
     }
-    if( FD_UNLIKELY( config->layout.net_tile_count!=1U ) ) FD_LOG_ERR(( "IAVF currently requires one net tile" ));
+    if( FD_UNLIKELY( config->layout.net_tile_count>FD_IAVF_TILE_MAX ) ) {
+      FD_LOG_ERR(( "invalid iavf net tile count %u: must be between 1 and %lu",
+                   config->layout.net_tile_count, FD_IAVF_TILE_MAX ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );

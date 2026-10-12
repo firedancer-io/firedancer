@@ -4,7 +4,7 @@
    completions written into the descriptor rings themselves.
 
    Separate Admin Queues carry configuration requests to the PF driver.
-   The tile consumes PF events during housekeeping. */
+   Tile 0 consumes PF events for all tiles. */
 
 #include "../fd_net_tile.h"
 #include "../fd_net_tile_private.h"
@@ -80,6 +80,9 @@ struct __attribute__((aligned(64UL))) fd_iavf_tile {
   ulong                 vf_cnt;
   ulong                 tx_vf_idx;
   ulong                 rx_next_vf;
+  /* vf_link_usable shares tile 0's PF link decision with the other tiles. */
+  ulong                 vf_link_usable[ FD_IAVF_MEMBER_MAX ];
+  ulong const *         vf_link_usable_shared;
   long                  vf_housekeeping_interval_ticks;
   long                  vf_housekeeping_deadline_ticks;
   uint                  prepared;
@@ -118,7 +121,11 @@ fd_iavf_hw_join_queues( fd_iavf_tile_t *       ctx,
 
   for( ulong vf_idx=0UL; vf_idx<tile->iavf.member_cnt; vf_idx++ ) {
     fd_iavf_tile_vf_t * vf = &ctx->vfs[vf_idx];
-    vf->adminq.dma_memory = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
+    /* Only tile 0 needs Admin Queue memory */
+    vf->adminq.dma_memory = NULL;
+    if( !tile->kind_id ) {
+      vf->adminq.dma_memory = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
+    }
 
     vf->queue_memory       = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, queue_sz );
     vf->tx_queue.ring      = vf->queue_memory;
@@ -464,7 +471,23 @@ before_frag( fd_iavf_tile_t * ctx,
   if( FD_UNLIKELY( dst_proto!=DST_PROTO_OUTGOING ) ) return 1;
 
   ulong const hash       = fd_disco_netmux_sig_hash( sig );
+  ulong       target_idx = hash % ctx->net.tile_cnt;
+  ulong const kind_id    = ctx->net.kind_id;
+  if( kind_id!=0UL && kind_id!=target_idx ) return 1;
+
   uint const dst_ip = fd_disco_netmux_sig_ip( sig );
+  if( kind_id!=target_idx ) {
+    /* Tile 0 probes for loopback without counting another tile's route failures. */
+    fd_fib4_hop_t hop[2];
+    hop[0] = fd_fib4_lookup( ctx->router.fib_local, dst_ip, 0UL );
+    hop[1] = fd_fib4_lookup( ctx->router.fib_main,  dst_ip, 0UL );
+    fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
+    if( next_hop->rtype!=FD_FIB4_RTYPE_LOCAL && next_hop->rtype!=FD_FIB4_RTYPE_UNICAST ) return 1;
+    uint const if_idx = next_hop->rtype==FD_FIB4_RTYPE_LOCAL ? 1U : next_hop->if_idx;
+    fd_netdev_t const * netdev = fd_netdev_tbl_query( &ctx->router.netdev_tbl, if_idx );
+    if( !netdev || netdev->dev_type!=ARPHRD_LOOPBACK ) return 1;
+  }
+
   fd_net_tx_route_t * route  = &ctx->net.tx_route;
   if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, dst_ip, route ) ) ) return 1;
   if( FD_UNLIKELY( route->use_gre ) ) {
@@ -485,6 +508,9 @@ before_frag( fd_iavf_tile_t * ctx,
     route->gre_outer_dst_ip = outer_dst_ip;
     route->use_gre          = 1U;
   }
+
+  if( route->use_loopback ) target_idx = 0UL;
+  if( kind_id!=target_idx ) return 1;
 
   ctx->tx_vf_idx = route->use_loopback ? 0UL : fd_iavf_tile_select_tx_vf( ctx, hash );
   if( FD_UNLIKELY( ctx->tx_vf_idx==ULONG_MAX ) ) {
@@ -655,12 +681,28 @@ metrics_write( fd_iavf_tile_t * ctx ) {
 }
 
 static inline void
+fd_iavf_tile_publish_vf_link( fd_iavf_tile_t * ctx,
+                              ulong            vf_idx ) {
+  ulong const usable = (ulong)ctx->vfs[vf_idx].vf_info.link_usable;
+  __atomic_store_n( &ctx->vf_link_usable[vf_idx], usable, __ATOMIC_RELEASE );
+}
+
+static inline void
 fd_iavf_tile_vf_housekeeping( fd_iavf_tile_t * ctx ) {
+  /* Other tiles read tile 0's link decisions */
+  if( ctx->net.kind_id ) {
+    for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
+      ctx->vfs[vf_idx].vf_info.link_usable = (int)__atomic_load_n( &ctx->vf_link_usable_shared[vf_idx], __ATOMIC_ACQUIRE );
+    }
+    return;
+  }
+
   /* There is no need to check VF state on every housekeeping pass */
   long const now = fd_tickcount();
   if( FD_LIKELY( now<ctx->vf_housekeeping_deadline_ticks ) ) return;
   ctx->vf_housekeeping_deadline_ticks = now+ctx->vf_housekeeping_interval_ticks;
 
+  /* Only tile 0 consumes PF events */
   for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
     fd_iavf_tile_vf_t * vf = &ctx->vfs[vf_idx];
     int changed;
@@ -668,6 +710,7 @@ fd_iavf_tile_vf_housekeeping( fd_iavf_tile_t * ctx ) {
       FD_LOG_ERR(( "PF member %lu VF link event or reset failure (%i-%s)", vf_idx, errno, fd_io_strerror( errno ) ));
     }
     if( changed ) {
+      fd_iavf_tile_publish_vf_link( ctx, vf_idx );
       FD_LOG_INFO(( "PF member %lu VF link %s", vf_idx, vf->vf_info.link_usable ? "up" : "down" ));
     }
   }
@@ -730,7 +773,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong layout = FD_LAYOUT_INIT;
   layout       = FD_LAYOUT_APPEND( layout, alignof(fd_iavf_tile_t), sizeof(fd_iavf_tile_t) );
   for( ulong i=0UL; i<tile->iavf.member_cnt; i++ ) {
-    layout = FD_LAYOUT_APPEND( layout, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
+    if( !tile->kind_id ) layout = FD_LAYOUT_APPEND( layout, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
     layout = FD_LAYOUT_APPEND( layout, FD_IAVF_PAGE_SZ, queue_sz                                );
     layout = FD_LAYOUT_APPEND( layout, alignof(uint),   tile->iavf.rx_queue_size*sizeof(uint)   );
     layout = FD_LAYOUT_APPEND( layout, alignof(uint),   tile->iavf.tx_queue_size*sizeof(uint)   );
@@ -751,7 +794,7 @@ fd_iavf_tile_fib4_join( fd_fib4_t *            out,
   (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(fd_iavf_tile_t), sizeof(fd_iavf_tile_t) );
   ulong queue_sz = fd_iavf_queue_footprint( tile->iavf.tx_queue_size, tile->iavf.rx_queue_size );
   for( ulong i=0UL; i<tile->iavf.member_cnt; i++ ) {
-    (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
+    if( !tile->kind_id ) (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
     (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, queue_sz                                );
     (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),   tile->iavf.rx_queue_size*sizeof(uint)   );
     (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),   tile->iavf.tx_queue_size*sizeof(uint)   );
@@ -851,67 +894,108 @@ fd_iavf_tile_join_obj_workspace( fd_topo_t * topo,
 void
 fd_topo_install_iavf( fd_topo_t *     topo,
                       fd_iavf_fds_t * fds ) {
-  if( FD_UNLIKELY( fd_topo_tile_name_cnt( topo, "iavf" )!=1UL ) ) FD_LOG_ERR(( "IAVF currently requires one net tile" ));
-  ulong const tile_id = fd_topo_find_tile( topo, "iavf", 0UL );
-  FD_TEST( tile_id!=ULONG_MAX );
-  fd_topo_tile_t const * tile = &topo->tiles[tile_id];
-  fd_iavf_tile_join_obj_workspace( topo, tile->tile_obj_id );
-  fd_iavf_tile_join_obj_workspace( topo, tile->net.umem_dcache_obj_id );
-  for( ulong out_idx=0UL; out_idx<tile->out_cnt; out_idx++ ) {
-    fd_iavf_tile_join_obj_workspace( topo, topo->links[ tile->out_link_id[out_idx] ].mcache_obj_id );
+  ulong const tile_cnt = fd_topo_tile_name_cnt( topo, "iavf" );
+  if( FD_UNLIKELY( !tile_cnt || tile_cnt>FD_IAVF_TILE_MAX ) ) {
+    FD_LOG_ERR(( "IAVF net tile count %lu must be in [1,%lu]", tile_cnt, FD_IAVF_TILE_MAX ));
   }
-  fd_iavf_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  fd_memset( ctx, 0, sizeof(*ctx) );
-  ctx->vf_cnt       = tile->iavf.member_cnt;
-  ctx->batch_size   = FD_IAVF_BATCH_SIZE;
-  ctx->net.tile_cnt = 1UL;
-  fd_iavf_hw_join_queues( ctx, tile );
-  void * packet_memory;
-  ulong  packet_memory_sz;
-  ulong  packet_iova;
-  fd_iavf_tile_join_pkt_bufs( topo, tile, ctx, &packet_memory, &packet_memory_sz, &packet_iova );
-  fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
-  fd_iavf_vfio_tile_t queues[ FD_IAVF_MEMBER_MAX ];
-  for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
-    fd_iavf_tile_vf_t * vf = &ctx->vfs[vf_idx];
-    queues[vf_idx] = (fd_iavf_vfio_tile_t) {
-      .tx_queue=&vf->tx_queue, .rx_queue=&vf->rx_queue,
-      .queue_memory=vf->queue_memory,
-      .queue_memory_sz=fd_iavf_queue_footprint( vf->tx_queue.depth, vf->rx_queue.depth ),
-      .packet_memory=packet_memory, .packet_memory_sz=packet_memory_sz, .packet_iova=packet_iova
-    };
-    char const * pf_if = tile->iavf.members[vf_idx];
+  fd_iavf_tile_t *       ctxs  [ FD_IAVF_TILE_MAX ];
+  fd_topo_tile_t const * tiles [ FD_IAVF_TILE_MAX ];
+  fd_iavf_vfio_tile_t    queues[ FD_IAVF_MEMBER_MAX ][ FD_IAVF_TILE_MAX ];
+
+  /* Prepare tile memory and collect queue pairs by VF */
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    ulong const tile_id = fd_topo_find_tile( topo, "iavf", tile_idx );
+    FD_TEST( tile_id!=ULONG_MAX );
+    fd_topo_tile_t const * tile = &topo->tiles[tile_id];
+    tiles[tile_idx] = tile;
+
+    fd_iavf_tile_join_obj_workspace( topo, tile->tile_obj_id );
+    fd_iavf_tile_join_obj_workspace( topo, tile->net.umem_dcache_obj_id );
+    for( ulong out_idx=0UL; out_idx<tile->out_cnt; out_idx++ ) {
+      fd_iavf_tile_join_obj_workspace( topo, topo->links[ tile->out_link_id[out_idx] ].mcache_obj_id );
+    }
+    fd_iavf_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+    ctxs[tile_idx] = ctx;
+    fd_memset( ctx, 0, sizeof(*ctx) );
+    ctx->vf_cnt                = tile->iavf.member_cnt;
+    ctx->batch_size            = FD_IAVF_BATCH_SIZE;
+    ctx->net.kind_id           = tile_idx;
+    ctx->net.tile_cnt          = tile_cnt;
+    ctx->vf_link_usable_shared = ctxs[0]->vf_link_usable;
+    fd_iavf_hw_join_queues( ctx, tile );
+
+    void * packet_memory;
+    ulong  packet_memory_sz;
+    ulong  packet_iova;
+    fd_iavf_tile_join_pkt_bufs( topo, tile, ctx, &packet_memory, &packet_memory_sz, &packet_iova );
+    for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
+      fd_iavf_tile_vf_t * vf = &ctx->vfs[vf_idx];
+      queues[vf_idx][tile_idx] = (fd_iavf_vfio_tile_t) {
+        .tx_queue         = &vf->tx_queue,
+        .rx_queue         = &vf->rx_queue,
+        .queue_memory     = vf->queue_memory,
+        .queue_memory_sz  = fd_iavf_queue_footprint( vf->tx_queue.depth, vf->rx_queue.depth ),
+        .packet_memory    = packet_memory,
+        .packet_memory_sz = packet_memory_sz,
+        .packet_iova      = packet_iova
+      };
+    }
+    fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
+  }
+
+  /* Configure VFs through tile 0's Admin Queues */
+  fd_topo_tile_t const * first_tile = tiles[0];
+  fd_iavf_tile_t *       owner      = ctxs[0];
+  for( ulong vf_idx=0UL; vf_idx<owner->vf_cnt; vf_idx++ ) {
+    fd_iavf_tile_vf_t * vf = &owner->vfs[vf_idx];
+    char const * pf_if = first_tile->iavf.members[vf_idx];
     char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
     if( FD_UNLIKELY( fd_iavf_get_last_vf( pf_if, NULL, vf_pci ) ) ) {
       FD_LOG_ERR(( "VF lookup for PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) ));
     }
     if( FD_UNLIKELY( fd_iavf_init( &vf->vfio, &vf->adminq, &vf->vf_info,
-                                   &queues[vf_idx], vf_pci, FD_NET_MTU, FD_NET_MTU ) ) ) {
+                                   queues[vf_idx], (uint)tile_cnt, vf_pci, FD_NET_MTU, FD_NET_MTU ) ) ) {
       FD_LOG_ERR(( "VF %s setup failed (%i-%s)", vf_pci, errno, fd_io_strerror( errno ) ));
     }
   }
 
   /* Fill RX descriptors before enabling reception */
-  fd_iavf_tile_init_pkt_bufs( topo, tile, ctx );
-  if( fds ) fds->member_cnt = ctx->vf_cnt;
-  for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
-    fd_iavf_tile_vf_t * vf = &ctx->vfs[vf_idx];
-    char const * pf_if = tile->iavf.members[vf_idx];
-    if( FD_UNLIKELY( fd_iavf_virtchnl_enable_queue( &vf->vfio, &vf->adminq, &vf->vf_info, &queues[vf_idx] ) ) ) {
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+    fd_iavf_tile_init_pkt_bufs( topo, tiles[tile_idx], ctxs[tile_idx] );
+  }
+
+  /* Enable queues and distribute VF state to all tiles */
+  if( fds ) fds->member_cnt = owner->vf_cnt;
+  for( ulong vf_idx=0UL; vf_idx<owner->vf_cnt; vf_idx++ ) {
+    fd_iavf_tile_vf_t * vf = &owner->vfs[vf_idx];
+    char const * pf_if = first_tile->iavf.members[vf_idx];
+    if( FD_UNLIKELY( fd_iavf_virtchnl_enable_queues( &vf->vfio, &vf->adminq, &vf->vf_info, queues[vf_idx], (uint)tile_cnt ) ) ) {
       FD_LOG_ERR(( "VF queue enable for PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) ));
     }
+    fd_iavf_tile_publish_vf_link( owner, vf_idx );
+
+    /* Save VFIO descriptors for child launch */
     if( fds ) {
       fds->container_fd[ vf_idx ] = vf->vfio.container_fd;
       fds->group_fd    [ vf_idx ] = vf->vfio.group_fd;
       fds->device_fd   [ vf_idx ] = vf->vfio.device_fd;
     }
+
+    /* Each tile remaps BAR0 at launch */
     if( FD_UNLIKELY( fd_iavf_vfio_unmap_bar( &vf->vfio ) ) ) {
       FD_LOG_ERR(( "VF BAR unmap for PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) ));
     }
-    vf->tx_queue.tail = NULL;
-    vf->rx_queue.tail = NULL;
+
+    /* Copy VF resources while retaining each tile's queues */
+    for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+      fd_iavf_tile_vf_t * tile_vf = &ctxs[tile_idx]->vfs[vf_idx];
+      tile_vf->vfio          = vf->vfio;
+      tile_vf->vf_info       = vf->vf_info;
+      tile_vf->tx_queue.tail = NULL;
+      tile_vf->rx_queue.tail = NULL;
+    }
   }
-  ctx->prepared = 1U;
+  for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) ctxs[tile_idx]->prepared = 1U;
 }
 #endif
 
@@ -928,11 +1012,18 @@ privileged_init( fd_topo_t const *      topo,
   fd_iavf_hw_join_queues( ctx, tile );
   fd_iavf_tile_join_pkt_bufs( topo, tile, ctx, NULL, NULL, NULL );
 
+  /* Use tile 0's VF link decisions */
+  ulong const owner_tile_id = fd_topo_find_tile( topo, "iavf", 0UL );
+  FD_TEST( owner_tile_id!=ULONG_MAX );
+  fd_iavf_tile_t const * owner = fd_topo_obj_laddr( topo, topo->tiles[ owner_tile_id ].tile_obj_id );
+  ctx->vf_link_usable_shared = owner->vf_link_usable;
+
+  /* Queue IDs match IAVF tile indices */
   for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
     fd_iavf_tile_vf_t * vf = &ctx->vfs[vf_idx];
     char const * pf_if = tile->iavf.members[vf_idx];
 
-    if( FD_UNLIKELY( fd_iavf_hw_map_regs( vf, 0UL ) ) ) {
+    if( FD_UNLIKELY( fd_iavf_hw_map_regs( vf, tile->kind_id ) ) ) {
       FD_LOG_ERR(( "VF register mapping for PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) ));
     }
 
@@ -951,7 +1042,8 @@ privileged_init( fd_topo_t const *      topo,
   ctx->router.if_virt         = interface_idx;
   ctx->router.default_address = fd_iavf_tile_if_ip4_addr( tile->iavf.if_name );
 
-  ctx->lo_tx_sock = fd_iavf_tile_lo_tx_socket();
+  /* Only tile 0 sends loopback traffic */
+  ctx->lo_tx_sock = 0UL==tile->kind_id ? fd_iavf_tile_lo_tx_socket() : -1;
 }
 
 FD_FN_UNUSED static void
