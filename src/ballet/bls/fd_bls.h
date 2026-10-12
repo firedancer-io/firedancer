@@ -74,6 +74,16 @@ fd_bls_pub_sum( fd_bls_pub_t *         pub,
                 fd_bls_set_t const *   set,
                 fd_bls_pub_t const *   full );
 
+void
+fd_bls_hash_msg( uchar const *    msg,
+                 ulong            msg_sz,
+                 blst_p2_affine * h );
+
+int
+fd_bls_agg_verify_hashed( blst_p2_affine const * h,
+                          fd_bls_pub_t const *   pub,
+                          fd_bls_sig_t const *   sig );
+
 int
 fd_bls_agg_verify( uchar const *        msg,
                    ulong                msg_sz,
