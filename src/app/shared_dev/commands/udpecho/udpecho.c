@@ -100,6 +100,7 @@ udpecho_cmd_fn( args_t *   args,
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
   configure_stage( &fd_cfg_stage_uverbs,           CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_vfio,             CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_iavf,             CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );

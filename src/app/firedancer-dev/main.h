@@ -65,6 +65,7 @@ extern configure_stage_t fd_cfg_stage_keys;
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
   &fd_cfg_stage_uverbs,
+  &fd_cfg_stage_vfio,
   &fd_cfg_stage_iavf,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,

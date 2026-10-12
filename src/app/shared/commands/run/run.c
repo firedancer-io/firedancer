@@ -1058,6 +1058,9 @@ fdctl_check_configure( config_t const * config ) {
   }
 
   if( fd_cfg_stage_iavf.enabled( config ) ) {
+    check = fd_cfg_stage_vfio.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_ERR(( "%s. Run `%s configure init vfio`.", check.message, FD_BINARY_NAME ));
     check = fd_cfg_stage_iavf.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "IAVF is not configured correctly, %s. Run `%s configure init iavf`.", check.message, FD_BINARY_NAME ));

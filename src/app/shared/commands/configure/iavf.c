@@ -9,7 +9,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/capability.h>
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
 #include <sys/ioctl.h>
@@ -45,45 +44,10 @@ enabled( fd_config_t const * config ) {
   return !strcmp( config->net.provider, "iavf" );
 }
 
-static int
-iavf_vfio_avail( void ) {
-  struct stat st;
-  return !stat( IAVF_SYSFS_ROOT "/bus/pci/drivers/vfio-pci", &st ) && S_ISDIR( st.st_mode );
-}
-
-static int
-iavf_vfio_modprobe( void ) {
-  pid_t pid = fork();
-  if( pid<0 ) return -1;
-  if( !pid ) {
-    int null_fd = open( "/dev/null", O_RDWR );
-    if( null_fd<0 || dup2( null_fd, STDIN_FILENO )<0 ) _exit( 1 );
-    if( null_fd!=STDIN_FILENO ) close( null_fd );
-    char * const argv[] = { "modprobe", "--quiet", "vfio-pci", NULL };
-    char * const envp[] = { NULL };
-    execve( "/sbin/modprobe", argv, envp );
-    _exit( 1 );
-  }
-  int status;
-  while( waitpid( pid, &status, 0 )<0 ) {
-    if( errno!=EINTR ) return -1;
-  }
-  if( WIFEXITED( status ) && !WEXITSTATUS( status ) ) return 0;
-  errno = EIO;
-  return -1;
-}
-
 static void
 perm( fd_cap_chk_t *      chk,
       fd_config_t const * config FD_PARAM_UNUSED ) {
   fd_cap_chk_root( chk, NAME, "create an Intel SR-IOV Virtual Function and bind it to vfio-pci" );
-}
-
-static void
-init_perm( fd_cap_chk_t *      chk,
-           fd_config_t const * config ) {
-  perm( chk, config );
-  if( !iavf_vfio_avail() ) fd_cap_chk_cap( chk, NAME, CAP_SYS_MODULE, "run modprobe to load the vfio-pci kernel module" );
 }
 
 static int
@@ -953,6 +917,10 @@ iavf_owned_interfaces( char const * owner_if,
 
 static void
 init( fd_config_t const * config ) {
+  configure_result_t vfio = fd_cfg_stage_vfio.check( config, FD_CONFIGURE_CHECK_TYPE_PRE_INIT );
+  if( FD_UNLIKELY( vfio.result!=CONFIGURE_OK ) ) {
+    FD_LOG_ERR(( "%s. Run `%s configure init vfio`.", vfio.message, FD_BINARY_NAME ));
+  }
   char  members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
   ulong member_cnt;
   if( fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
@@ -987,9 +955,6 @@ init( fd_config_t const * config ) {
       close( owned_fds[i] );
     }
     FD_LOG_ERR(( "IAVF ownership reservation failed (%i-%s)", err, fd_io_strerror( err ) ));
-  }
-  if( !iavf_vfio_avail() && iavf_vfio_modprobe() ) {
-    err = errno;
   }
   for( ulong i=0UL; i<member_cnt; i++ ) {
     if( err ) break;
@@ -1123,7 +1088,7 @@ check( fd_config_t const * config,
 configure_stage_t fd_cfg_stage_iavf = {
   .name      = NAME,
   .enabled   = enabled,
-  .init_perm = init_perm,
+  .init_perm = perm,
   .fini_perm = perm,
   .init      = init,
   .fini      = fini,
