@@ -3,6 +3,7 @@
 #include "configure.h"
 #include "fd_ethtool_ioctl.h"
 #include "../../../platform/fd_file_util.h"
+#include "../../../platform/fd_sys_util.h"
 #include "../../../../disco/net/iavf/fd_iavf.h"
 #include "../../../../waltz/ip/fd_netlink1.h"
 #include "../../../../util/net/fd_eth.h"
@@ -10,6 +11,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/capability.h>
 #include <linux/ethtool.h>
 #include <linux/rtnetlink.h>
 #include <linux/sockios.h>
@@ -62,8 +64,17 @@ enabled( fd_config_t const * config ) {
 }
 
 static void
-perm( fd_cap_chk_t *      chk,
-      fd_config_t const * config FD_PARAM_UNUSED ) {
+init_perm( fd_cap_chk_t *      chk,
+           fd_config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, NAME, "configure Intel SR-IOV VFs and PF filters" );
+  if( !fd_iavf_vfio_avail() ) {
+    fd_cap_chk_cap( chk, NAME, CAP_SYS_MODULE, "run modprobe to load the vfio-pci kernel module" );
+  }
+}
+
+static void
+fini_perm( fd_cap_chk_t *      chk,
+           fd_config_t const * config FD_PARAM_UNUSED ) {
   fd_cap_chk_root( chk, NAME, "configure Intel SR-IOV VFs and PF filters" );
 }
 
@@ -807,6 +818,15 @@ iavf_init_device( char const *        pf_if,
 
 static void
 init( fd_config_t const * config ) {
+  if( !fd_iavf_vfio_avail() ) {
+    FD_LOG_NOTICE(( "%sRUN: `modprobe vfio-pci`%s", fd_log_style_dim(), fd_log_style_normal() ));
+    if( FD_UNLIKELY( fd_sys_util_modprobe( "vfio-pci", 0 ) ) ) {
+      FD_LOG_ERR(( "failed to load vfio-pci kernel module. Run `sudo modprobe vfio-pci` and retry" ));
+    }
+    if( FD_UNLIKELY( !fd_iavf_vfio_avail() ) ) {
+      FD_LOG_ERR(( "vfio-pci driver still unavailable after trying to load its kernel module" ));
+    }
+  }
   char const * members[] = { config->net.interface };
   ulong const member_cnt = 1UL;
   /* Require IOMMU support before creating the VF. */
@@ -893,6 +913,12 @@ check( fd_config_t const * config,
     missing_cnt += (ulong)(result.result==CONFIGURE_NOT_CONFIGURED);
     if( first.result==CONFIGURE_OK && result.result!=CONFIGURE_OK ) first = result;
   }
+  if( check_type!=FD_CONFIGURE_CHECK_TYPE_FINI_PERM &&
+      check_type!=FD_CONFIGURE_CHECK_TYPE_PRE_FINI  &&
+      check_type!=FD_CONFIGURE_CHECK_TYPE_POST_FINI &&
+      !fd_iavf_vfio_avail() ) {
+    NOT_CONFIGURED( "vfio-pci driver unavailable" );
+  }
   if( first.result==CONFIGURE_OK ) CONFIGURE_OK();
   /* Init repairs existing VFs without removing them first */
   if( check_type==FD_CONFIGURE_CHECK_TYPE_PRE_INIT ) NOT_CONFIGURED( "%s", first.message );
@@ -903,8 +929,8 @@ check( fd_config_t const * config,
 configure_stage_t fd_cfg_stage_iavf = {
   .name      = NAME,
   .enabled   = enabled,
-  .init_perm = perm,
-  .fini_perm = perm,
+  .init_perm = init_perm,
+  .fini_perm = fini_perm,
   .init      = init,
   .fini      = fini,
   .check     = check,

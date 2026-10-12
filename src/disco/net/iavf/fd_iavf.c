@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -395,6 +396,12 @@ fd_iavf_read_link_name( char *       name,
   }
   fd_memcpy( name, base, base_sz+1UL );
   return 0;
+}
+
+int
+fd_iavf_vfio_avail( void ) {
+  struct stat st;
+  return !stat( "/sys/bus/pci/drivers/vfio-pci", &st ) && S_ISDIR( st.st_mode );
 }
 
 #if FD_HAS_X86

@@ -1,4 +1,5 @@
 #include "configure.h"
+#include "../../../platform/fd_sys_util.h"
 #include "../../../../disco/net/mlx5/fd_mlx5.h"
 
 #include <linux/capability.h>
@@ -18,7 +19,7 @@ init_perm( fd_cap_chk_t   * chk,
 static void
 init( config_t const * config FD_PARAM_UNUSED ) {
   FD_LOG_NOTICE(( "%sRUN: `modprobe ib_uverbs`%s", fd_log_style_dim(), fd_log_style_normal() ));
-  if( FD_UNLIKELY( fd_mlx5_uverbs_modprobe( 0 ) ) ) {
+  if( FD_UNLIKELY( fd_sys_util_modprobe( "ib_uverbs", 0 ) ) ) {
     FD_LOG_ERR(( "failed to load ib_uverbs kernel module. "
                  "Run `sudo modprobe ib_uverbs` and retry" ));
   }
