@@ -306,20 +306,22 @@ poll_timeout( fd_rotor_tile_t * ctx,
       timeout_t req = prq[ 0 ];
       timeout_prq_remove_min( prq );
 
+      if( FD_UNLIKELY( req.slot <= ctx->rotor->root ) ) continue;
       fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &req.slot, NULL, ctx->rotor->blk_pool );
       while( blk && fd_rotor_blk_pool_idx( ctx->rotor->blk_pool, blk )!=req.blk ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* the req outlived its blk */
       if( FD_UNLIKELY( !blk ) ) { ctx->metrics->req_cancelled++; continue; }
+
       fd_rotor_slot_meta_t const * meta = fd_rotor_slot_meta( ctx->rotor, blk->slot );
       if( FD_UNLIKELY( meta->final!=req.blk && meta->notar!=req.blk && meta->eager==req.blk && !blk->eager ) ) { ctx->metrics->req_cancelled++; continue; } /* the slot's eager blk, never repaired */
       fd_rotor_fec_t const * fec = fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_rotor_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
-      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT && blk->parent_slot!=ULONG_MAX                                      ) ) { ctx->metrics->req_cancelled++; continue; }
-      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX             && fec && fec->complete                                             ) ) { ctx->metrics->req_cancelled++; continue; }
-      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX             && !blk->eager && req.fec_idx>=blk->cmpl_fec_cnt                     ) ) { ctx->metrics->req_cancelled++; continue; } /* of a freed blk whose pool idx was reused */
-      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->cmpl_fec_cnt                                                ) ) { ctx->metrics->req_cancelled++; continue; }
+      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT && blk->parent_slot!=ULONG_MAX                   ) ) { ctx->metrics->req_cancelled++; continue; }
+      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX             && fec && fec->complete                          ) ) { ctx->metrics->req_cancelled++; continue; }
+      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX             && !blk->eager && req.fec_idx>=blk->cmpl_fec_cnt ) ) { ctx->metrics->req_cancelled++; continue; } /* of a freed blk whose pool idx was reused */
+      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->cmpl_fec_cnt                             ) ) { ctx->metrics->req_cancelled++; continue; }
       fd_rotor_blk_t const * parent = fd_rotor_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_ORPHAN && ( blk->connected==1 || blk->parent_slot<=ctx->rotor->root || ( parent && parent->parent_slot!=ULONG_MAX ) ) ) ) { blk->orphan_req = 0; ctx->metrics->req_cancelled++; continue; } /* its ancestry showed up, died with the root, or a lower blk asks */
       long t_eager = fd_rotor_strat_eager_ns( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, blk->slot ) );
-      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->rcvd_fec_ts+t_eager>now                                     ) ) { /* turbine is not quiet yet */
+      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->rcvd_fec_ts+t_eager>now                  ) ) { /* turbine is not quiet yet */
         req.timeout = blk->rcvd_fec_ts+t_eager;
         push_timeout( ctx, blk, &req );
         continue;
