@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -395,6 +396,52 @@ fd_iavf_read_link_name( char *       name,
   }
   fd_memcpy( name, base, base_sz+1UL );
   return 0;
+}
+
+int
+fd_iavf_vfio_avail( void ) {
+  struct stat st;
+  return 0==stat( "/sys/bus/pci/drivers/vfio-pci", &st ) && S_ISDIR( st.st_mode );
+}
+
+int
+fd_iavf_vfio_api_check( char const ** diagnostic ) {
+  if( NULL!=diagnostic ) *diagnostic = NULL;
+
+  char const * message = "Opening /dev/vfio/vfio failed";
+  int fd = open( "/dev/vfio/vfio", O_RDWR|O_CLOEXEC );
+  if( FD_UNLIKELY( -1==fd ) ) goto fail;
+
+  message = "Reading the VFIO API version from /dev/vfio/vfio failed";
+  int api_version = ioctl( fd, VFIO_GET_API_VERSION );
+  if( FD_UNLIKELY( -1==api_version ) ) goto fail;
+  if( FD_UNLIKELY( api_version!=VFIO_API_VERSION ) ) {
+    message = "The kernel's VFIO API version is incompatible with the iavf networking provider";
+    errno   = EPROTONOSUPPORT;
+    goto fail;
+  }
+  message = "Checking VFIO TYPE1v2 IOMMU support through /dev/vfio/vfio failed";
+  int type1v2_supported = ioctl( fd, VFIO_CHECK_EXTENSION, VFIO_TYPE1v2_IOMMU );
+  if( FD_UNLIKELY( -1==type1v2_supported ) ) goto fail;
+  if( FD_UNLIKELY( !type1v2_supported ) ) {
+    message = "VFIO TYPE1v2 IOMMU support is unavailable";
+    errno   = EPROTONOSUPPORT;
+    goto fail;
+  }
+  if( FD_UNLIKELY( -1==close( fd ) ) ) {
+    if( NULL!=diagnostic ) *diagnostic = "Closing /dev/vfio/vfio failed";
+    return -1;
+  }
+  return 0;
+
+fail:
+  {
+    int err = errno;
+    if( -1!=fd ) close( fd );
+    if( NULL!=diagnostic ) *diagnostic = message;
+    errno = err;
+    return -1;
+  }
 }
 
 #if FD_HAS_X86
