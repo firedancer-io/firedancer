@@ -107,7 +107,7 @@ struct fd_iavf_queue {
 typedef struct fd_iavf_queue fd_iavf_queue_t;
 
 /* fd_iavf_vfio_tile identifies one tile's queues and packet memory during
-   VF initialization. Queue depths must be set before initialization. */
+   shared VF initialization. Queue depths must be set before initialization. */
 struct fd_iavf_vfio_tile {
   fd_iavf_queue_t * tx_queue;
   fd_iavf_queue_t * rx_queue;
@@ -121,16 +121,17 @@ typedef struct fd_iavf_vfio_tile fd_iavf_vfio_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_iavf_init opens and resets a VF, negotiates PF resources, maps the
+/* fd_iavf_init opens and resets a VF, negotiates PF resources, maps each
    tile's memory and configures queues, MAC delivery and RSS. adminq->dma_memory
    must hold fd_iavf_adminq_footprint() bytes. Queues remain disabled so callers
-   can post RX buffers before fd_iavf_virtchnl_enable_queue. Returns 0 on
+   can post RX buffers before fd_iavf_virtchnl_enable_queues. Returns 0 on
    success or -1 with errno set. After failure, the caller must exit. */
 int
 fd_iavf_init( fd_iavf_vfio_t *            vfio,
               fd_iavf_adminq_t *          adminq,
               fd_iavf_vf_info_t *         info,
-              fd_iavf_vfio_tile_t const * tile,
+              fd_iavf_vfio_tile_t const * tiles,
+              uint                        tile_cnt,
               char const *                pci_addr,
               uint                        rx_buffer_sz,
               uint                        max_frame_sz );
@@ -186,22 +187,28 @@ ulong
 fd_iavf_queue_footprint( uint tx_depth,
                          uint rx_depth );
 
-/* fd_iavf_virtchnl_configure_queue maps and configures one queue pair.
-   It remains disabled until fd_iavf_virtchnl_enable_queue succeeds. */
+/* fd_iavf_virtchnl_configure_queues prepares queue pairs 0 through queue_cnt-1
+   for independent tile ownership. Requires initialized VFIO and Admin Queue
+   state, validated info and queue_cnt in [1,FD_IAVF_TILE_MAX].
+   Each tile must provide distinct queue memory and queue state.
+   Maps pairs at consecutive IOVAs starting at dma_iova and
+   leaves them disabled until fd_iavf_virtchnl_enable_queues. */
 int
-fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *            vfio,
-                                  fd_iavf_adminq_t *          adminq,
-                                  fd_iavf_vf_info_t const *   info,
-                                  fd_iavf_vfio_tile_t const * tile,
-                                  ulong                       dma_iova,
-                                  uint                        rx_buffer_sz,
-                                  uint                        max_frame_sz );
+fd_iavf_virtchnl_configure_queues( fd_iavf_vfio_t *            vfio,
+                                   fd_iavf_adminq_t *          adminq,
+                                   fd_iavf_vf_info_t const *   info,
+                                   fd_iavf_vfio_tile_t const * tiles,
+                                   uint                        queue_cnt,
+                                   ulong                       dma_iova,
+                                   uint                        rx_buffer_sz,
+                                   uint                        max_frame_sz );
 
 int
-fd_iavf_virtchnl_enable_queue( fd_iavf_vfio_t *            vfio,
-                               fd_iavf_adminq_t *          adminq,
-                               fd_iavf_vf_info_t *         info,
-                               fd_iavf_vfio_tile_t const * tile );
+fd_iavf_virtchnl_enable_queues( fd_iavf_vfio_t *            vfio,
+                                fd_iavf_adminq_t *          adminq,
+                                fd_iavf_vf_info_t *         info,
+                                fd_iavf_vfio_tile_t const * tiles,
+                                uint                        queue_cnt );
 
 FD_PROTOTYPES_END
 #endif
