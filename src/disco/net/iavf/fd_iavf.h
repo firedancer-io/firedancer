@@ -11,6 +11,7 @@
 #define FD_IAVF_PCI_ADDR_SZ     (13UL)
 #define FD_IAVF_DRIVER_NAME_MAX (32UL)
 #define FD_IAVF_MEMBER_MAX      (16UL)
+#define FD_IAVF_TILE_MAX        (8UL)
 
 /* fd_iavf_pci_info describes a validated Intel Ethernet Virtual Function. */
 struct fd_iavf_pci_info {
