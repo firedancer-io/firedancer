@@ -50,8 +50,6 @@ backtest_cmd_args( int *    pargc,
 static void
 backtest_topo( config_t * config ) {
 
-  /* Without the sandbox there is no PID namespace to tear the tile
-     processes down as a group, so run them as threads instead. */
   if( FD_UNLIKELY( !config->development.sandbox ) ) config->development.no_clone = 1;
 
   config->firedancer.layout.resolv_tile_count = 0;
@@ -465,8 +463,8 @@ backtest_topo( config_t * config ) {
   if( FD_LIKELY( telemetry_enabled ) ) {
     wire_event_links( topo );
 
-    /* The backtest tile waits for the event tile to drain its inputs
-       before shutting down. */
+    /* backtest tile needs to check the event tiles in order to make
+       sure that they are drained before shutting down. */
     fd_topo_tile_t const * event_tile = &topo->tiles[ fd_topo_find_tile( topo, "event", 0UL ) ];
     for( ulong i=0UL; i<event_tile->in_cnt; i++ ) {
       fd_topo_link_t const * link = &topo->links[ event_tile->in_link_id[ i ] ];
@@ -544,8 +542,6 @@ backtest_cmd_fn( args_t *   args,
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 
-  /* The backtest topology has no network tiles and configures only some
-     host stages, so skip the configuration checks for a live validator. */
   run_firedancer_dev( config, -1, 1, 0, !args->backtest.no_watch, 1, NULL );
 }
 
