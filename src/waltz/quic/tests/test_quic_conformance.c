@@ -1590,6 +1590,113 @@ FD_UNIT_TEST( quic_initial_datagram_size ) {
   }
 }
 
+/* test_quic_coalesced_long_pkt writes a protected long header packet
+   carrying a PING frame addressed to conn into out.  Returns the number
+   of bytes written. */
+
+static ulong
+test_quic_coalesced_long_pkt( uchar *                       out,
+                              ulong                         out_sz,
+                              fd_quic_conn_t const *        conn,
+                              uint                          pkt_type,
+                              ulong                         pkt_num,
+                              fd_quic_crypto_keys_t const * keys ) {
+  uchar payload[ 20 ] = { 0x01 }; /* PING frame, followed by PADDING */
+  ulong body_sz = 4UL + sizeof(payload) + FD_QUIC_CRYPTO_TAG_SZ;
+
+  uchar hdr[ 64 ];
+  ulong hdr_sz = 0UL;
+  hdr[ hdr_sz++ ] = (uchar)( 0xc0 | (pkt_type<<4) | 0x03 ); /* 4 byte pkt num */
+  FD_STORE( uint, hdr+hdr_sz, fd_uint_bswap( 1U ) );     hdr_sz += 4UL;
+  hdr[ hdr_sz++ ] = FD_QUIC_CONN_ID_SZ;
+  FD_STORE( ulong, hdr+hdr_sz, conn->our_conn_id );     hdr_sz += FD_QUIC_CONN_ID_SZ;
+  hdr[ hdr_sz++ ] = conn->peer_cids[0].sz;
+  fd_memcpy( hdr+hdr_sz, conn->peer_cids[0].conn_id, conn->peer_cids[0].sz );
+  hdr_sz += conn->peer_cids[0].sz;
+  if( pkt_type==FD_QUIC_PKT_TYPE_INITIAL ) hdr[ hdr_sz++ ] = 0x00; /* token length */
+  hdr[ hdr_sz++ ] = (uchar)( 0x40 | (body_sz>>8) );
+  hdr[ hdr_sz++ ] = (uchar)( body_sz );
+  FD_STORE( uint, hdr+hdr_sz, fd_uint_bswap( (uint)pkt_num ) ); hdr_sz += 4UL;
+
+  ulong pkt_sz = out_sz;
+  FD_TEST( fd_quic_crypto_encrypt( out, &pkt_sz, hdr, hdr_sz, payload, sizeof(payload), keys, keys, pkt_num )==FD_QUIC_SUCCESS );
+  FD_TEST( pkt_sz==hdr_sz-4UL+body_sz );
+  return pkt_sz;
+}
+
+/* RFC 9000 Section 12.2. Coalescing Packets
+
+   > If any QUIC packet in the datagram fails to be processed ... the
+   > receiver MAY either discard or buffer the packet for later
+   > processing and MUST attempt to process the remaining packets.
+
+   This test sends a datagram containing an Initial packet for which
+   keys were already discarded (RFC 9001 Section 4.9.1), followed by a
+   Handshake packet.  The Handshake packet must still be processed. */
+
+static void
+test_quic_coalesced_skip_initial( int role ) {
+  fd_quic_sandbox_init( sandbox, role );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  FD_TEST( conn );
+  conn->keys_avail = (1U<<fd_quic_enc_level_handshake_id) | (1U<<fd_quic_enc_level_appdata_id);
+
+  fd_quic_transport_params_t tp[1] = {0};
+  conn->tls_hs = fd_quic_tls_hs_new(
+      fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+      state->tls,
+      (void *)conn,
+      conn->server,
+      tp,
+      state->now );
+  FD_TEST( conn->tls_hs );
+
+  uchar datagram[ 512 ];
+  ulong off = sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+  off += test_quic_coalesced_long_pkt( datagram+off, sizeof(datagram)-off, conn, FD_QUIC_PKT_TYPE_INITIAL,
+                                       0UL, &conn->keys[ fd_quic_enc_level_initial_id   ][0] );
+  off += test_quic_coalesced_long_pkt( datagram+off, sizeof(datagram)-off, conn, FD_QUIC_PKT_TYPE_HANDSHAKE,
+                                       7UL, &conn->keys[ fd_quic_enc_level_handshake_id ][0] );
+
+  fd_ip4_hdr_t ip4 = {
+    .verihl      = FD_IP4_VERIHL( 4, 5 ),
+    .net_tot_len = (ushort)off,
+    .ttl         = 64,
+    .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
+    .saddr       = FD_QUIC_SANDBOX_PEER_IP4,
+    .daddr       = FD_QUIC_SANDBOX_SELF_IP4,
+  };
+  fd_udp_hdr_t udp = {
+    .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+    .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    .net_len   = (ushort)( off - sizeof(fd_ip4_hdr_t) ),
+  };
+  FD_TEST( fd_quic_encode_ip4( datagram,                      sizeof(fd_ip4_hdr_t), &ip4 )==sizeof(fd_ip4_hdr_t) );
+  FD_TEST( fd_quic_encode_udp( datagram+sizeof(fd_ip4_hdr_t), sizeof(fd_udp_hdr_t), &udp )==sizeof(fd_udp_hdr_t) );
+
+  fd_quic_metrics_t * metrics = &quic->metrics;
+  ulong no_key_cnt = metrics->pkt_no_key_cnt[ fd_quic_enc_level_initial_id ];
+  ulong ack_cnt    = metrics->ack_tx[ FD_QUIC_ACK_TX_NEW ];
+
+  fd_quic_process_packet( quic, datagram, off, sandbox->wallclock );
+
+  FD_TEST( metrics->pkt_no_key_cnt[ fd_quic_enc_level_initial_id ]==no_key_cnt+1UL );
+  FD_TEST( metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_handshake_id ]==0UL );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NEW ]==ack_cnt+1UL );
+  FD_TEST( conn->exp_pkt_number[1]==8UL );
+}
+
+FD_UNIT_TEST( quic_coalesced_skip_initial_client ) {
+  test_quic_coalesced_skip_initial( FD_QUIC_ROLE_CLIENT );
+}
+
+FD_UNIT_TEST( quic_coalesced_skip_initial_server ) {
+  test_quic_coalesced_skip_initial( FD_QUIC_ROLE_SERVER );
+}
+
 int
 main( int     argc,
       char ** argv ) {
