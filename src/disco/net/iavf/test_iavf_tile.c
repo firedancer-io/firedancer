@@ -147,6 +147,25 @@ test_bond_route( void ) {
   FD_TEST( test_tile.net.tx_route.if_idx==4U );
   FD_TEST( !memcmp( test_tile.net.tx_route.mac_addrs, neighbor.mac_addr, 6UL ) );
   FD_TEST( !memcmp( test_tile.net.tx_route.mac_addrs+6UL, test_netdevs[0].mac_addr, 6UL ) );
+  for( ulong tile_cnt=1UL; tile_cnt<=FD_IAVF_TILE_MAX; tile_cnt++ ) {
+    test_tile.net.tile_cnt = tile_cnt;
+    for( ushort port=9000U; port<9256U; port++ ) {
+      ulong multi_sig = fd_disco_netmux_sig( dst, port, dst, DST_PROTO_OUTGOING, 0UL );
+      ulong target    = fd_disco_netmux_sig_hash( multi_sig )%tile_cnt;
+      ulong accepted  = 0UL;
+      for( ulong tile_idx=0UL; tile_idx<tile_cnt; tile_idx++ ) {
+        test_tile.net.kind_id = tile_idx;
+        if( !before_frag( &test_tile, 0UL, 0UL, multi_sig ) ) {
+          FD_TEST( tile_idx==target );
+          accepted++;
+        }
+      }
+      FD_TEST( accepted==1UL );
+    }
+  }
+  test_tile.net.kind_id  = 0UL;
+  test_tile.net.tile_cnt = 1UL;
+  FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) );
   ulong chosen = test_tile.tx_vf;
   FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) && test_tile.tx_vf==chosen );
   test_tile.vfs[chosen].vf_info.link_up = 0;
@@ -339,7 +358,41 @@ test_vf_batches( void ) {
 }
 
 static void
-test_hardware( char const * pci_addr ) {
+test_shared_links( void ) {
+  static fd_iavf_tile_t reader;
+  test_vfs_init();
+  reader                      = test_tile;
+  reader.net.kind_id          = 1UL;
+  reader.vf_link_state_shared = test_tile.vf_link_state;
+  for( ulong i=0UL; i<test_tile.vf_cnt; i++ ) {
+    test_tile.vfs[i].vf_info.link_speed_mbps = 25000U;
+    fd_iavf_tile_publish_link( &test_tile, i );
+  }
+  fd_iavf_tile_refresh_links( &reader );
+  FD_TEST( fd_iavf_tile_select_tx_vf( &reader, 0UL )==0UL );
+  FD_TEST( reader.vfs[0].vf_info.link_speed_mbps==25000U );
+  test_tile.vfs[0].vf_info.link_up = 0;
+  fd_iavf_tile_publish_link( &test_tile, 0UL );
+  FD_TEST( fd_iavf_tile_select_tx_vf( &reader, 0UL )==0UL );
+  fd_iavf_tile_refresh_links( &reader );
+  FD_TEST( fd_iavf_tile_select_tx_vf( &reader, 0UL )==1UL );
+  FD_TEST( !fd_iavf_tile_vf_active( &reader, &reader.vfs[0], LACP_STATE_COLLECTING ) );
+  test_tile.vfs[1].vf_info.link_state_valid = 0;
+  fd_iavf_tile_publish_link( &test_tile, 1UL );
+  fd_iavf_tile_refresh_links( &reader );
+  FD_TEST( fd_iavf_tile_select_tx_vf( &reader, 0UL )==ULONG_MAX );
+  test_tile.vfs[0].vf_info.link_up         = 1;
+  test_tile.vfs[0].vf_info.link_speed_mbps = 100000U;
+  fd_iavf_tile_publish_link( &test_tile, 0UL );
+  fd_iavf_tile_refresh_links( &reader );
+  FD_TEST( fd_iavf_tile_select_tx_vf( &reader, 0UL )==0UL );
+  FD_TEST( reader.vfs[0].vf_info.link_speed_mbps==100000U );
+  FD_TEST( !reader.vfs[0].adminq.dma_memory && !reader.vfs[0].vfio.bar0 );
+}
+
+static void
+test_hardware( char const * pci_addr,
+                uint         queue_cnt ) {
   fd_iavf_pci_info_t pci;
   fd_iavf_vfio_t     vfio;
   fd_iavf_adminq_t   adminq;
@@ -355,35 +408,46 @@ test_hardware( char const * pci_addr ) {
                   pci.pci_addr, info.vsi_id, info.queue_pair_cnt, info.vector_cnt,
                   info.rss_key_sz, info.rss_lut_sz ));
 
-  fd_memset( &test_tile, 0, sizeof(test_tile) );
-  test_tile.net.pkt_buf_chunk0 = 1UL;
-  uint chunks[ 64 ];
-  fd_iavf_tile_vf_t * vf = &test_tile.vfs[0];
-  vf->packet_iova0           = 0x200000000UL;
-  vf->rx_desc_buf_chunk      = chunks;
-  ulong  queue_sz     = fd_iavf_queue_footprint( 64U, 64U );
-  void * queue_memory = NULL;
-  void * rx_memory    = NULL;
-  FD_TEST( !posix_memalign( &queue_memory, 4096UL, queue_sz ) );
-  FD_TEST( !posix_memalign( &rx_memory, 4096UL, 64UL*2048UL ) );
-  FD_TEST( !fd_iavf_virtchnl_configure_queue( &vfio, &adminq, &info, &vf->queue, queue_memory,
-                                              queue_sz, 0x100100000UL, 64U, 64U, 2048U, 2048U ) );
-  FD_TEST( !fd_iavf_virtchnl_add_mac( &vfio, &adminq, &info ) );
-  FD_TEST( !fd_iavf_virtchnl_configure_rss( &vfio, &adminq, &info, 1U ) );
-  FD_TEST( !fd_iavf_vfio_dma_map( &vfio, rx_memory, 64UL*2048UL, 0x200000000UL ) );
-  for( uint i=0U; i<63U; i++ ) {
-    vf->rx_pending_chunk[i] = (uint)(1UL+(((ulong)i*2048UL)>>FD_CHUNK_LG_SZ));
+  FD_TEST( queue_cnt && queue_cnt<=FD_IAVF_TILE_MAX && queue_cnt<=info.queue_pair_cnt );
+  static fd_iavf_tile_t tiles[ FD_IAVF_TILE_MAX ];
+  uint chunks[ FD_IAVF_TILE_MAX ][ 64 ];
+  fd_iavf_queue_t * queues[ FD_IAVF_TILE_MAX ];
+  void *            queue_memory[ FD_IAVF_TILE_MAX ];
+  void *            rx_memory[ FD_IAVF_TILE_MAX ];
+  ulong queue_sz = fd_iavf_queue_footprint( 64U, 64U );
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    fd_memset( &tiles[i], 0, sizeof(tiles[i]) );
+    tiles[i].net.pkt_buf_chunk0 = 1UL;
+    fd_iavf_tile_vf_t * vf = &tiles[i].vfs[0];
+    vf->packet_iova0      = 0x200000000UL+(ulong)i*64UL*2048UL;
+    vf->rx_desc_buf_chunk = chunks[i];
+    queues[i]            = &vf->queue;
+    FD_TEST( !posix_memalign( &queue_memory[i], 4096UL, queue_sz ) );
+    FD_TEST( !posix_memalign( &rx_memory[i], 4096UL, 64UL*2048UL ) );
   }
-  FD_TEST( !fd_iavf_hw_rx_enqueue( &test_tile, vf, 63U ) );
-  FD_TEST( !fd_iavf_virtchnl_enable_queue( &vfio, &adminq, &info, &vf->queue ) );
-  FD_LOG_NOTICE(( "queue 0 enabled with RSS delivery and the PF-assigned MAC" ));
+  FD_TEST( !fd_iavf_virtchnl_configure_queues( &vfio, &adminq, &info, queues, queue_memory,
+                                               queue_sz, 0x100100000UL, queue_cnt, 64U, 64U, 2048U, 2048U ) );
+  FD_TEST( !fd_iavf_virtchnl_add_mac( &vfio, &adminq, &info ) );
+  FD_TEST( !fd_iavf_virtchnl_configure_rss( &vfio, &adminq, &info, queue_cnt ) );
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf = &tiles[i].vfs[0];
+    FD_TEST( !fd_iavf_vfio_dma_map( &vfio, rx_memory[i], 64UL*2048UL, vf->packet_iova0 ) );
+    for( uint j=0U; j<63U; j++ ) {
+      vf->rx_pending_chunk[j] = (uint)(1UL+(((ulong)j*2048UL)>>FD_CHUNK_LG_SZ));
+    }
+    FD_TEST( !fd_iavf_hw_rx_enqueue( &tiles[i], vf, 63U ) );
+  }
+  FD_TEST( !fd_iavf_virtchnl_enable_queues( &vfio, &adminq, &info, queues, queue_cnt ) );
+  FD_LOG_NOTICE(( "%u queues enabled with RSS delivery and the PF-assigned MAC", queue_cnt ));
 
   FD_TEST( !munmap( (void *)vfio.bar0, FD_IAVF_BAR0_MAP_SZ ) );
   FD_TEST( !close( vfio.device_fd ) );
   FD_TEST( !close( vfio.group_fd ) );
   FD_TEST( !close( vfio.container_fd ) );
-  free( rx_memory );
-  free( queue_memory );
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    free( rx_memory[i] );
+    free( queue_memory[i] );
+  }
   free( memory );
 }
 
@@ -397,7 +461,18 @@ main( int argc, char ** argv ) {
   test_bond_route();
   test_inactive_rx();
   test_vf_batches();
-  if( argc==2 ) test_hardware( argv[1] );
+  test_shared_links();
+  if( argc>=2 ) {
+    uint queue_cnt = 1U;
+    if( argc==3 ) {
+      char * end;
+      ulong count = strtoul( argv[2], &end, 10 );
+      FD_TEST( !*end && count && count<=FD_IAVF_TILE_MAX );
+      queue_cnt = (uint)count;
+    }
+    FD_TEST( argc<=3 );
+    test_hardware( argv[1], queue_cnt );
+  }
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

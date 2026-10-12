@@ -74,6 +74,10 @@ struct __attribute__((aligned(64UL))) fd_iavf_tile {
   ulong                 vf_cnt;
   ulong                 tx_vf;
   ulong                 rx_next_vf;
+  ulong                 packet_iova;
+  /* vf_link_state publishes validity, status and speed from tile 0. */
+  ulong                 vf_link_state[ FD_IAVF_MEMBER_MAX ];
+  ulong const *         vf_link_state_shared;
   uint                  prepared;
   uint                  batch_size;
   long                  tx_flush_timeout_ticks;
@@ -108,7 +112,7 @@ fd_iavf_hw_join_queues( fd_iavf_tile_t *       ctx,
   ulong rx_ring_sz = fd_ulong_align_up( tile->iavf.rx_queue_size*sizeof(fd_iavf_rx_desc_t), FD_IAVF_PAGE_SZ );
   for( ulong i=0UL; i<tile->iavf.member_cnt; i++ ) {
     fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
-    vf->adminq.dma_memory      = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
+    vf->adminq.dma_memory      = tile->kind_id ? NULL : FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
     vf->queue.dma_memory       = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, queue_sz                   );
     vf->queue.tx_ring          = vf->queue.dma_memory;
     vf->queue.rx_ring          = (fd_iavf_rx_desc_t *)((uchar *)vf->queue.dma_memory + tx_ring_sz);
@@ -627,15 +631,39 @@ metrics_write( fd_iavf_tile_t * ctx ) {
 }
 
 static inline void
-during_housekeeping( fd_iavf_tile_t * ctx ) {
+fd_iavf_tile_publish_link( fd_iavf_tile_t * ctx,
+                           ulong            vf_idx ) {
+  fd_iavf_vf_info_t const * info = &ctx->vfs[vf_idx].vf_info;
+  ulong state = (ulong)!!info->link_state_valid | ((ulong)!!info->link_up<<1) |
+                ((ulong)info->link_speed_mbps<<32);
+  __atomic_store_n( &ctx->vf_link_state[vf_idx], state, __ATOMIC_RELEASE );
+}
+
+static inline void
+fd_iavf_tile_refresh_links( fd_iavf_tile_t * ctx ) {
   for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
     fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
-    int changed;
-    if( FD_UNLIKELY( fd_iavf_virtchnl_poll_link( &vf->vfio, &vf->adminq, &vf->vf_info, &changed ) ) ) {
-      FD_LOG_ERR(( "VF link event or reset failure (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( !ctx->net.kind_id ) {
+      int changed;
+      if( FD_UNLIKELY( fd_iavf_virtchnl_poll_link( &vf->vfio, &vf->adminq, &vf->vf_info, &changed ) ) ) {
+        FD_LOG_ERR(( "VF link event or reset failure (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+      if( changed ) {
+        fd_iavf_tile_publish_link( ctx, i );
+        FD_LOG_INFO(( "VF %lu link %s", i, vf->vf_info.link_up ? "up" : "down" ));
+      }
+    } else {
+      ulong state = __atomic_load_n( &ctx->vf_link_state_shared[i], __ATOMIC_ACQUIRE );
+      vf->vf_info.link_state_valid = (int)(state & 1UL);
+      vf->vf_info.link_up          = (int)((state>>1) & 1UL);
+      vf->vf_info.link_speed_mbps  = (uint)(state>>32);
     }
-    if( changed ) FD_LOG_INFO(( "VF %lu link %s", i, vf->vf_info.link_up ? "up" : "down" ));
   }
+}
+
+static inline void
+during_housekeeping( fd_iavf_tile_t * ctx ) {
+  fd_iavf_tile_refresh_links( ctx );
   if( FD_UNLIKELY( fd_netdev_tbl_refresh( &ctx->router.netdev_tbl, &ctx->router.netdev_shared, &ctx->netdev_seq ) ) ) {
     fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
   }
@@ -689,7 +717,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong layout = FD_LAYOUT_INIT;
   layout       = FD_LAYOUT_APPEND( layout, alignof(fd_iavf_tile_t), sizeof(fd_iavf_tile_t) );
   for( ulong i=0UL; i<tile->iavf.member_cnt; i++ ) {
-    layout = FD_LAYOUT_APPEND( layout, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint()              );
+    if( !tile->kind_id ) layout = FD_LAYOUT_APPEND( layout, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
     layout = FD_LAYOUT_APPEND( layout, FD_IAVF_PAGE_SZ, queue_sz                                );
     layout = FD_LAYOUT_APPEND( layout, alignof(uint),   tile->iavf.rx_queue_size*sizeof(uint)   );
     layout = FD_LAYOUT_APPEND( layout, alignof(uint),   tile->iavf.tx_queue_size*sizeof(uint)   );
@@ -710,7 +738,7 @@ fd_iavf_tile_fib4_join( fd_fib4_t *            out,
   (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(fd_iavf_tile_t), sizeof(fd_iavf_tile_t) );
   ulong queue_sz = fd_iavf_queue_footprint( tile->iavf.tx_queue_size, tile->iavf.rx_queue_size );
   for( ulong i=0UL; i<tile->iavf.member_cnt; i++ ) {
-    (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint()              );
+    if( !tile->kind_id ) (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
     (void)FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, queue_sz                                );
     (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),   tile->iavf.rx_queue_size*sizeof(uint)   );
     (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),   tile->iavf.tx_queue_size*sizeof(uint)   );
@@ -739,11 +767,12 @@ fd_iavf_tile_packet_memory( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !chunk0 || chunk0>UINT_MAX || wmark>UINT_MAX || chunk0>wmark ) ) FD_LOG_ERR(( "invalid packet buffer bounds" ));
   ulong map_start            = fd_ulong_align_dn( (ulong)dcache, FD_IAVF_PAGE_SZ );
   ulong map_end              = fd_ulong_align_up( (ulong)dcache+data_sz, FD_IAVF_PAGE_SZ );
+  if( FD_UNLIKELY( map_end-map_start>ULONG_MAX-ctx->packet_iova ) ) FD_LOG_ERR(( "packet DMA address overflow" ));
   ctx->net.pkt_buf_wksp_base = wksp_base;
   ctx->net.pkt_buf_chunk0    = chunk0;
   ctx->net.pkt_buf_wmark     = wmark;
   for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
-    ctx->vfs[i].packet_iova0 = FD_IAVF_PACKET_IOVA + (ulong)dcache-map_start;
+    ctx->vfs[i].packet_iova0 = ctx->packet_iova + (ulong)dcache-map_start;
   }
   if( map_memory ) *map_memory = (void *)map_start;
   if( map_memory_sz ) *map_memory_sz = map_end-map_start;
@@ -807,26 +836,50 @@ fd_iavf_tile_join_obj_workspace( fd_topo_t * topo,
 void
 fd_topo_install_iavf( fd_topo_t *     topo,
                       fd_iavf_fds_t * fds ) {
-  if( FD_UNLIKELY( fd_topo_tile_name_cnt( topo, "iavf" )!=1UL ) ) FD_LOG_ERR(( "IAVF currently requires one net tile" ));
-  ulong tile_id = fd_topo_find_tile( topo, "iavf", 0UL );
-  FD_TEST( tile_id!=ULONG_MAX );
-  fd_topo_tile_t const * tile = &topo->tiles[tile_id];
-  fd_iavf_tile_join_obj_workspace( topo, tile->tile_obj_id );
-  fd_iavf_tile_join_obj_workspace( topo, tile->net.umem_dcache_obj_id );
-  for( ulong i=0UL; i<tile->out_cnt; i++ ) fd_iavf_tile_join_obj_workspace( topo, topo->links[ tile->out_link_id[i] ].mcache_obj_id );
-  fd_iavf_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  fd_memset( ctx, 0, sizeof(*ctx) );
-  ctx->vf_cnt     = tile->iavf.member_cnt;
-  ctx->batch_size = FD_IAVF_BATCH_SIZE;
-  (void)fd_iavf_hw_join_queues( ctx, tile );
-  void * packet_memory;
-  ulong  packet_memory_sz;
-  fd_iavf_tile_packet_memory( topo, tile, ctx, &packet_memory, &packet_memory_sz );
-  fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
-  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
-    fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
+  ulong const tile_cnt = fd_topo_tile_name_cnt( topo, "iavf" );
+  if( FD_UNLIKELY( !tile_cnt || tile_cnt>FD_IAVF_TILE_MAX ) ) {
+    FD_LOG_ERR(( "IAVF net tile count %lu must be in [1,%lu]", tile_cnt, FD_IAVF_TILE_MAX ));
+  }
+  fd_iavf_tile_t *       ctxs[ FD_IAVF_TILE_MAX ];
+  fd_topo_tile_t const * tiles[ FD_IAVF_TILE_MAX ];
+  void *                 packet_memory[ FD_IAVF_TILE_MAX ];
+  ulong                  packet_memory_sz[ FD_IAVF_TILE_MAX ];
+  ulong                  packet_iova = FD_IAVF_PACKET_IOVA;
+  for( ulong i=0UL; i<tile_cnt; i++ ) {
+    ulong tile_id = fd_topo_find_tile( topo, "iavf", i );
+    FD_TEST( tile_id!=ULONG_MAX );
+    fd_topo_tile_t const * tile = &topo->tiles[tile_id];
+    tiles[i] = tile;
+    FD_TEST( tile->iavf.member_cnt==tiles[0]->iavf.member_cnt &&
+             tile->iavf.rx_queue_size==tiles[0]->iavf.rx_queue_size &&
+             tile->iavf.tx_queue_size==tiles[0]->iavf.tx_queue_size );
+    for( ulong j=0UL; j<tile->iavf.member_cnt; j++ ) FD_TEST( !strcmp( tile->iavf.members[j], tiles[0]->iavf.members[j] ) );
+    fd_iavf_tile_join_obj_workspace( topo, tile->tile_obj_id );
+    fd_iavf_tile_join_obj_workspace( topo, tile->net.umem_dcache_obj_id );
+    for( ulong j=0UL; j<tile->out_cnt; j++ ) fd_iavf_tile_join_obj_workspace( topo, topo->links[ tile->out_link_id[j] ].mcache_obj_id );
+    fd_iavf_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+    ctxs[i] = ctx;
+    fd_memset( ctx, 0, sizeof(*ctx) );
+    ctx->vf_cnt               = tile->iavf.member_cnt;
+    ctx->batch_size           = FD_IAVF_BATCH_SIZE;
+    ctx->net.kind_id          = i;
+    ctx->net.tile_cnt         = tile_cnt;
+    ctx->packet_iova          = packet_iova;
+    ctx->vf_link_state_shared = ctxs[0]->vf_link_state;
+    (void)fd_iavf_hw_join_queues( ctx, tile );
+    fd_iavf_tile_packet_memory( topo, tile, ctx, &packet_memory[i], &packet_memory_sz[i] );
+    if( FD_UNLIKELY( packet_memory_sz[i]>ULONG_MAX-packet_iova ) ) FD_LOG_ERR(( "packet DMA address overflow" ));
+    packet_iova += packet_memory_sz[i];
+    fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
+  }
+
+  fd_topo_tile_t const * first_tile = tiles[0];
+  fd_iavf_tile_t *       owner      = ctxs[0];
+  ulong const            queue_sz   = fd_iavf_queue_footprint( first_tile->iavf.tx_queue_size, first_tile->iavf.rx_queue_size );
+  for( ulong i=0UL; i<owner->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf = &owner->vfs[i];
     char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
-    fd_iavf_tile_vf_pci( tile->iavf.members[i], vf_pci );
+    fd_iavf_tile_vf_pci( first_tile->iavf.members[i], vf_pci );
     fd_iavf_pci_info_t pci;
     if( FD_UNLIKELY( fd_iavf_pci_probe( &pci, vf_pci ) || fd_iavf_vfio_init( &vf->vfio, &pci ) ) ) {
       FD_LOG_ERR(( "VFIO setup for %s failed (%i-%s)", vf_pci, errno, fd_io_strerror( errno ) ));
@@ -838,25 +891,41 @@ fd_topo_install_iavf( fd_topo_t *     topo,
                      fd_iavf_virtchnl_get_resources( &vf->vfio, &vf->adminq, &vf->vf_info ) ) ) {
       FD_LOG_ERR(( "VF resource setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    void * queue_memory = vf->queue.dma_memory;
-    if( FD_UNLIKELY( fd_iavf_virtchnl_configure_queue( &vf->vfio, &vf->adminq, &vf->vf_info,
-                                                       &vf->queue, queue_memory,
-                                                       fd_iavf_queue_footprint( tile->iavf.tx_queue_size, tile->iavf.rx_queue_size ),
-                                                       FD_IAVF_QUEUE_IOVA, tile->iavf.tx_queue_size, tile->iavf.rx_queue_size,
-                                                       FD_NET_MTU, FD_NET_MTU ) ||
+    if( FD_UNLIKELY( tile_cnt>vf->vf_info.queue_pair_cnt ) ) {
+      FD_LOG_ERR(( "VF %s has %hu queue pairs, %lu IAVF tiles requested", vf_pci, vf->vf_info.queue_pair_cnt, tile_cnt ));
+    }
+    fd_iavf_queue_t * queues[ FD_IAVF_TILE_MAX ];
+    void *            queue_memory[ FD_IAVF_TILE_MAX ];
+    for( ulong j=0UL; j<tile_cnt; j++ ) {
+      ctxs[j]->vfs[i].vfio    = vf->vfio;
+      ctxs[j]->vfs[i].vf_info = vf->vf_info;
+      queues[j]              = &ctxs[j]->vfs[i].queue;
+      queue_memory[j]        = queues[j]->dma_memory;
+    }
+    if( FD_UNLIKELY( fd_iavf_virtchnl_configure_queues( &vf->vfio, &vf->adminq, &vf->vf_info,
+                                                        queues, queue_memory, queue_sz, FD_IAVF_QUEUE_IOVA, (uint)tile_cnt,
+                                                        first_tile->iavf.tx_queue_size, first_tile->iavf.rx_queue_size,
+                                                        FD_NET_MTU, FD_NET_MTU ) ||
                      fd_iavf_virtchnl_add_mac( &vf->vfio, &vf->adminq, &vf->vf_info ) ||
-                     fd_iavf_virtchnl_configure_rss( &vf->vfio, &vf->adminq, &vf->vf_info, 1U ) ||
-                     fd_iavf_vfio_dma_map( &vf->vfio, packet_memory, packet_memory_sz, FD_IAVF_PACKET_IOVA ) ) ) {
+                     fd_iavf_virtchnl_configure_rss( &vf->vfio, &vf->adminq, &vf->vf_info, (uint)tile_cnt ) ) ) {
       FD_LOG_ERR(( "VF queue setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
+    for( ulong j=0UL; j<tile_cnt; j++ ) {
+      if( FD_UNLIKELY( fd_iavf_vfio_dma_map( &vf->vfio, packet_memory[j], packet_memory_sz[j], ctxs[j]->packet_iova ) ) ) {
+        FD_LOG_ERR(( "VF packet DMA mapping failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+    }
   }
-  fd_iavf_tile_init_buffers( topo, tile, ctx );
-  if( fds ) fds->member_cnt = ctx->vf_cnt;
-  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
-    fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
-    if( FD_UNLIKELY( fd_iavf_virtchnl_enable_queue( &vf->vfio, &vf->adminq, &vf->vf_info, &vf->queue ) ) ) {
+  for( ulong i=0UL; i<tile_cnt; i++ ) fd_iavf_tile_init_buffers( topo, tiles[i], ctxs[i] );
+  if( fds ) fds->member_cnt = owner->vf_cnt;
+  for( ulong i=0UL; i<owner->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf = &owner->vfs[i];
+    fd_iavf_queue_t * queues[ FD_IAVF_TILE_MAX ];
+    for( ulong j=0UL; j<tile_cnt; j++ ) queues[j] = &ctxs[j]->vfs[i].queue;
+    if( FD_UNLIKELY( fd_iavf_virtchnl_enable_queues( &vf->vfio, &vf->adminq, &vf->vf_info, queues, (uint)tile_cnt ) ) ) {
       FD_LOG_ERR(( "VF queue enable failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
+    fd_iavf_tile_publish_link( owner, i );
     if( fds ) {
       fds->container_fd[ i ] = vf->vfio.container_fd;
       fds->group_fd    [ i ] = vf->vfio.group_fd;
@@ -865,11 +934,14 @@ fd_topo_install_iavf( fd_topo_t *     topo,
     if( FD_UNLIKELY( munmap( (void *)vf->vfio.bar0, FD_IAVF_BAR0_MAP_SZ ) ) ) {
       FD_LOG_ERR(( "VF BAR unmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    vf->vfio.bar0     = NULL;
-    vf->queue.tx_tail = NULL;
-    vf->queue.rx_tail = NULL;
+    for( ulong j=0UL; j<tile_cnt; j++ ) {
+      ctxs[j]->vfs[i].vf_info       = vf->vf_info;
+      ctxs[j]->vfs[i].vfio.bar0     = NULL;
+      ctxs[j]->vfs[i].queue.tx_tail = NULL;
+      ctxs[j]->vfs[i].queue.rx_tail = NULL;
+    }
   }
-  ctx->prepared = 1U;
+  for( ulong i=0UL; i<tile_cnt; i++ ) ctxs[i]->prepared = 1U;
 }
 #endif
 
@@ -884,11 +956,15 @@ privileged_init( fd_topo_t const *      topo,
   }
   (void)fd_iavf_hw_join_queues( ctx, tile );
   fd_iavf_tile_packet_memory( topo, tile, ctx, NULL, NULL );
+  ulong owner_id = fd_topo_find_tile( topo, "iavf", 0UL );
+  FD_TEST( owner_id!=ULONG_MAX );
+  fd_iavf_tile_t const * owner = fd_topo_obj_laddr( topo, topo->tiles[owner_id].tile_obj_id );
+  ctx->vf_link_state_shared = owner->vf_link_state;
   for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
     fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
     if( FD_UNLIKELY( fd_iavf_vfio_map_bar( &vf->vfio ) ) ) FD_LOG_ERR(( "VF BAR mapping failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    vf->queue.tx_tail = (volatile uint *)(vf->vfio.bar0 + FD_IAVF_TX_TAIL( 0U ));
-    vf->queue.rx_tail = (volatile uint *)(vf->vfio.bar0 + FD_IAVF_RX_TAIL( 0U ));
+    vf->queue.tx_tail = (volatile uint *)(vf->vfio.bar0 + FD_IAVF_TX_TAIL( tile->kind_id ));
+    vf->queue.rx_tail = (volatile uint *)(vf->vfio.bar0 + FD_IAVF_RX_TAIL( tile->kind_id ));
     vf->if_idx        = if_nametoindex( tile->iavf.members[i] );
     if( FD_UNLIKELY( !vf->if_idx ) ) FD_LOG_ERR(( "PF interface lookup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }

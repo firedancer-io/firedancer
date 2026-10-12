@@ -174,26 +174,29 @@ ulong
 fd_iavf_queue_footprint( uint tx_depth,
                          uint rx_depth );
 
-/* fd_iavf_virtchnl_configure_queue maps and configures one queue pair.
-   It remains disabled until fd_iavf_virtchnl_enable_queue succeeds. */
+/* fd_iavf_virtchnl_configure_queues maps separate memory for queue pairs
+   0 through queue_cnt-1 at consecutive IOVAs. Each memory region must hold
+   dma_memory_sz bytes. Queues remain disabled until enabled together. */
 int
-fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *          vfio,
-                                  fd_iavf_adminq_t *        adminq,
-                                  fd_iavf_vf_info_t const * info,
-                                  fd_iavf_queue_t *         queue,
-                                  void *                    dma_memory,
-                                  ulong                     dma_memory_sz,
-                                  ulong                     dma_iova,
-                                  uint                      tx_depth,
-                                  uint                      rx_depth,
-                                  uint                      rx_buffer_sz,
-                                  uint                      max_frame_sz );
+fd_iavf_virtchnl_configure_queues( fd_iavf_vfio_t *          vfio,
+                                   fd_iavf_adminq_t *        adminq,
+                                   fd_iavf_vf_info_t const * info,
+                                   fd_iavf_queue_t * const * queues,
+                                   void * const *            dma_memory,
+                                   ulong                     dma_memory_sz,
+                                   ulong                     dma_iova,
+                                   uint                      queue_cnt,
+                                   uint                      tx_depth,
+                                   uint                      rx_depth,
+                                   uint                      rx_buffer_sz,
+                                   uint                      max_frame_sz );
 
 int
-fd_iavf_virtchnl_enable_queue( fd_iavf_vfio_t *    vfio,
-                               fd_iavf_adminq_t *  adminq,
-                               fd_iavf_vf_info_t * info,
-                               fd_iavf_queue_t *   queue );
+fd_iavf_virtchnl_enable_queues( fd_iavf_vfio_t *          vfio,
+                                fd_iavf_adminq_t *        adminq,
+                                fd_iavf_vf_info_t *       info,
+                                fd_iavf_queue_t * const * queues,
+                                uint                      queue_cnt );
 
 int
 fd_iavf_virtchnl_add_mac( fd_iavf_vfio_t *          vfio,

@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <stddef.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
@@ -178,19 +179,26 @@ typedef struct fd_iavf_virtchnl_rxq_info fd_iavf_virtchnl_rxq_info_t;
 
 FD_STATIC_ASSERT( sizeof(fd_iavf_virtchnl_rxq_info_t)==40UL, iavf_virtchnl_rxq_info_sz );
 
-struct fd_iavf_virtchnl_queue_config {
-  ushort                      vsi_id;
-  ushort                      queue_pair_cnt;
-  uint                        pad;
+struct fd_iavf_virtchnl_queue_pair {
   fd_iavf_virtchnl_txq_info_t tx;
   fd_iavf_virtchnl_rxq_info_t rx;
+};
+
+typedef struct fd_iavf_virtchnl_queue_pair fd_iavf_virtchnl_queue_pair_t;
+
+FD_STATIC_ASSERT( sizeof(fd_iavf_virtchnl_queue_pair_t)==64UL, iavf_virtchnl_queue_pair_sz );
+
+struct fd_iavf_virtchnl_queue_config {
+  ushort vsi_id;
+  ushort queue_pair_cnt;
+  uint   pad;
   /* Linux virtchnl legacy sizing includes one extra zero queue pair. */
-  uchar legacy_padding[ 64 ];
+  fd_iavf_virtchnl_queue_pair_t pairs[ FD_IAVF_TILE_MAX+1UL ];
 };
 
 typedef struct fd_iavf_virtchnl_queue_config fd_iavf_virtchnl_queue_config_t;
 
-FD_STATIC_ASSERT( sizeof(fd_iavf_virtchnl_queue_config_t)==136UL, iavf_virtchnl_queue_config_sz );
+FD_STATIC_ASSERT( sizeof(fd_iavf_virtchnl_queue_config_t)==8UL+64UL*(FD_IAVF_TILE_MAX+1UL), iavf_virtchnl_queue_config_sz );
 
 struct fd_iavf_virtchnl_irq_map {
   ushort vector_cnt;
@@ -1307,74 +1315,97 @@ fd_iavf_queue_footprint( uint tx_depth,
 }
 
 int
-fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *          vfio,
-                                  fd_iavf_adminq_t *        adminq,
-                                  fd_iavf_vf_info_t const * info,
-                                  fd_iavf_queue_t *         queue,
-                                  void *                    dma_memory,
-                                  ulong                     dma_memory_sz,
-                                  ulong                     dma_iova,
-                                  uint                      tx_depth,
-                                  uint                      rx_depth,
-                                  uint                      rx_buffer_sz,
-                                  uint                      max_frame_sz ) {
+fd_iavf_virtchnl_configure_queues( fd_iavf_vfio_t *          vfio,
+                                   fd_iavf_adminq_t *        adminq,
+                                   fd_iavf_vf_info_t const * info,
+                                   fd_iavf_queue_t * const * queues,
+                                   void * const *            dma_memory,
+                                   ulong                     dma_memory_sz,
+                                   ulong                     dma_iova,
+                                   uint                      queue_cnt,
+                                   uint                      tx_depth,
+                                   uint                      rx_depth,
+                                   uint                      rx_buffer_sz,
+                                   uint                      max_frame_sz ) {
   ulong footprint = fd_iavf_queue_footprint( tx_depth, rx_depth );
-  if( FD_UNLIKELY( !vfio || !adminq || !info || !queue || !dma_memory || !footprint ||
+  if( FD_UNLIKELY( !vfio || !adminq || !info || !queues || !dma_memory || !footprint ||
+                   !queue_cnt || queue_cnt>FD_IAVF_TILE_MAX || queue_cnt>info->queue_pair_cnt ||
                    !vfio->bar0 || vfio->bar0_sz<FD_IAVF_BAR0_MAP_SZ ||
-                   dma_memory_sz<footprint || !fd_ulong_is_aligned( (ulong)dma_memory, 4096UL ) ||
-                   !fd_ulong_is_aligned( dma_iova, 4096UL ) || !info->queue_pair_cnt ||
+                   dma_memory_sz<footprint || !fd_ulong_is_aligned( dma_iova, FD_IAVF_PAGE_SZ ) ||
+                   footprint>(ULONG_MAX-dma_iova)/queue_cnt ||
                    info->vector_cnt<2U || !rx_buffer_sz || (rx_buffer_sz & 127U) ||
                    max_frame_sz<64U || max_frame_sz>=16384U || max_frame_sz>rx_buffer_sz ||
                    (info->max_mtu && max_frame_sz>info->max_mtu) ) ) {
-    FD_LOG_WARNING(( "invalid queue setup, TX depth %u, RX depth %u, frame %u, buffer %u",
-                     tx_depth, rx_depth, max_frame_sz, rx_buffer_sz ));
+    FD_LOG_WARNING(( "invalid queue setup, count %u, TX depth %u, RX depth %u, frame %u, buffer %u",
+                     queue_cnt, tx_depth, rx_depth, max_frame_sz, rx_buffer_sz ));
     errno = EINVAL;
     return -1;
   }
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    if( FD_UNLIKELY( !queues[i] || !dma_memory[i] ||
+                     !fd_ulong_is_aligned( (ulong)dma_memory[i], FD_IAVF_PAGE_SZ ) ||
+                     (ulong)dma_memory[i]>ULONG_MAX-footprint ) ) {
+      errno = EINVAL;
+      return -1;
+    }
+    for( uint j=0U; j<i; j++ ) {
+      if( FD_UNLIKELY( queues[i]==queues[j] ||
+                       ((ulong)dma_memory[i]<(ulong)dma_memory[j]+footprint &&
+                        (ulong)dma_memory[j]<(ulong)dma_memory[i]+footprint) ) ) {
+        errno = EINVAL;
+        return -1;
+      }
+    }
+  }
 
-  fd_memset( dma_memory, 0, footprint );
-  if( FD_UNLIKELY( fd_iavf_vfio_dma_map( vfio, dma_memory, footprint, dma_iova ) ) ) return -1;
   ulong tx_ring_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(fd_iavf_tx_desc_t), 4096UL );
   ulong rx_ring_sz = fd_ulong_align_up( (ulong)rx_depth*sizeof(fd_iavf_rx_desc_t), 4096UL );
-  *queue           = (fd_iavf_queue_t) {
-    .dma_memory   = dma_memory,
-    .tx_ring      = dma_memory,
-    .rx_ring      = (fd_iavf_rx_desc_t *)((uchar *)dma_memory + tx_ring_sz),
-    .tx_comp_ring = (ulong *)((uchar *)dma_memory + tx_ring_sz + rx_ring_sz),
-    .tx_depth     = tx_depth,
-    .rx_depth     = rx_depth,
-    .tx_tail      = (volatile uint *)(vfio->bar0 + FD_IAVF_TX_TAIL( 0U )),
-    .rx_tail      = (volatile uint *)(vfio->bar0 + FD_IAVF_RX_TAIL( 0U ))
-  };
-
   fd_iavf_virtchnl_queue_config_t config = {
     .vsi_id         = info->vsi_id,
-    .queue_pair_cnt = 1U,
-    .tx             = {
+    .queue_pair_cnt = (ushort)queue_cnt
+  };
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    ulong queue_iova = dma_iova+(ulong)i*footprint;
+    fd_memset( dma_memory[i], 0, footprint );
+    if( FD_UNLIKELY( fd_iavf_vfio_dma_map( vfio, dma_memory[i], footprint, queue_iova ) ) ) return -1;
+    *queues[i] = (fd_iavf_queue_t) {
+      .dma_memory   = dma_memory[i],
+      .tx_ring      = dma_memory[i],
+      .rx_ring      = (fd_iavf_rx_desc_t *)((uchar *)dma_memory[i] + tx_ring_sz),
+      .tx_comp_ring = (ulong *)((uchar *)dma_memory[i] + tx_ring_sz + rx_ring_sz),
+      .tx_depth     = tx_depth,
+      .rx_depth     = rx_depth,
+      .tx_tail      = (volatile uint *)(vfio->bar0 + FD_IAVF_TX_TAIL( i )),
+      .rx_tail      = (volatile uint *)(vfio->bar0 + FD_IAVF_RX_TAIL( i ))
+    };
+    config.pairs[i].tx = (fd_iavf_virtchnl_txq_info_t) {
       .vsi_id    = info->vsi_id,
-      .queue_id  = 0U,
+      .queue_id  = (ushort)i,
       .ring_len  = (ushort)tx_depth,
-      .ring_iova = dma_iova
-    },
-    .rx = {
+      .ring_iova = queue_iova
+    };
+    config.pairs[i].rx = (fd_iavf_virtchnl_rxq_info_t) {
       .vsi_id         = info->vsi_id,
-      .queue_id       = 0U,
+      .queue_id       = (ushort)i,
       .ring_len       = rx_depth,
       .data_buffer_sz = rx_buffer_sz,
       .max_frame_sz   = max_frame_sz,
-      .ring_iova      = dma_iova + tx_ring_sz
-    }
-  };
+      .ring_iova      = queue_iova + tx_ring_sz
+    };
+  }
+  ulong config_sz = offsetof(fd_iavf_virtchnl_queue_config_t, pairs) +
+                    ((ulong)queue_cnt+1UL)*sizeof(fd_iavf_virtchnl_queue_pair_t);
   ulong response_sz = 0UL;
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_CONFIG_QUEUES,
-                                             &config, sizeof(config), NULL, &response_sz ) ) ) return -1;
+                                             &config, config_sz, NULL, &response_sz ) ) ) return -1;
 
+  ushort queue_map = (ushort)((1U<<queue_cnt)-1U);
   fd_iavf_virtchnl_irq_map_t irq_map = {
     .vector_cnt   = 1U,
     .vsi_id       = info->vsi_id,
     .vector_id    = 1U,
-    .rx_queue_map = 1U,
-    .tx_queue_map = 1U,
+    .rx_queue_map = queue_map,
+    .tx_queue_map = queue_map,
     .rx_itr_idx   = 0U,
     .tx_itr_idx   = 0U
   };
@@ -1385,25 +1416,35 @@ fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *          vfio,
 }
 
 int
-fd_iavf_virtchnl_enable_queue( fd_iavf_vfio_t *    vfio,
-                               fd_iavf_adminq_t *  adminq,
-                               fd_iavf_vf_info_t * info,
-                               fd_iavf_queue_t *   queue ) {
-  if( FD_UNLIKELY( !vfio || !adminq || !info || !queue || queue->enabled || !queue->rx_posted ||
-                   queue->rx_posted!=queue->rx_prod ||
-                   queue->rx_prod-queue->rx_cons>= queue->rx_depth ) ) {
+fd_iavf_virtchnl_enable_queues( fd_iavf_vfio_t *          vfio,
+                                fd_iavf_adminq_t *        adminq,
+                                fd_iavf_vf_info_t *       info,
+                                fd_iavf_queue_t * const * queues,
+                                uint                      queue_cnt ) {
+  if( FD_UNLIKELY( !vfio || !adminq || !info || !queues ||
+                   !queue_cnt || queue_cnt>FD_IAVF_TILE_MAX || queue_cnt>info->queue_pair_cnt ) ) {
     errno = EINVAL;
     return -1;
   }
+  for( uint i=0U; i<queue_cnt; i++ ) {
+    fd_iavf_queue_t const * queue = queues[i];
+    if( FD_UNLIKELY( !queue || queue->enabled || !queue->rx_posted ||
+                     queue->rx_posted!=queue->rx_prod ||
+                     queue->rx_prod-queue->rx_cons>=queue->rx_depth ) ) {
+      errno = EINVAL;
+      return -1;
+    }
+  }
+  uint queue_map = (1U<<queue_cnt)-1U;
   fd_iavf_virtchnl_queue_select_t select = {
     .vsi_id       = info->vsi_id,
-    .rx_queue_map = 1U,
-    .tx_queue_map = 1U
+    .rx_queue_map = queue_map,
+    .tx_queue_map = queue_map
   };
   ulong response_sz = 0UL;
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_ENABLE_QUEUES,
                                              &select, sizeof(select), NULL, &response_sz ) ) ) return -1;
-  queue->enabled         = 1;
+  for( uint i=0U; i<queue_cnt; i++ ) queues[i]->enabled = 1;
   info->link_state_valid = 0;
   return fd_iavf_virtchnl_wait_link( vfio, adminq, info );
 }
@@ -1441,7 +1482,7 @@ fd_iavf_virtchnl_configure_rss( fd_iavf_vfio_t *          vfio,
                                 fd_iavf_vf_info_t const * info,
                                 uint                      queue_cnt ) {
   if( FD_UNLIKELY( !vfio || !adminq || !info || !queue_cnt ||
-                   queue_cnt>info->queue_pair_cnt || queue_cnt>16U ||
+                   queue_cnt>info->queue_pair_cnt || queue_cnt>FD_IAVF_TILE_MAX ||
                    !info->rss_key_sz || info->rss_key_sz>4090U ||
                    !info->rss_lut_sz || info->rss_lut_sz>4090U ) ) {
     errno = EINVAL;

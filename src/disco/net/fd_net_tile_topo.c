@@ -154,6 +154,11 @@ setup_iavf_tile( fd_topo_t *             topo,
                  ulong                   route_max,
                  ulong                   route_peer_max ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "iavf", "iavf", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
+  if( tile_kind_id ) {
+    ulong owner_id = fd_topo_find_tile( topo, "iavf", 0UL );
+    FD_TEST( owner_id!=ULONG_MAX );
+    fd_topob_tile_uses( topo, tile, &topo->objs[ topo->tiles[ owner_id ].tile_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
   tile->sleep_eventfd = topo->sleep_obj_id!=ULONG_MAX;
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL,         "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -381,8 +386,8 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     fd_topob_tile_out( topo, "netlnk", 0UL, "iproute_out", 0UL );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
-    if( FD_UNLIKELY( net_tile_cnt!=1UL ) ) {
-      FD_LOG_ERR(( "net.provider=\"iavf\" requires layout.net_tile_count to be one" ));
+    if( FD_UNLIKELY( !net_tile_cnt || net_tile_cnt>FD_IAVF_TILE_MAX ) ) {
+      FD_LOG_ERR(( "IAVF net tile count %lu must be in [1,%lu]", net_tile_cnt, FD_IAVF_TILE_MAX ));
     }
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
       setup_iavf_tile( topo, i, netlink_tile, tile_to_cpu, net_cfg, netlnk_max_routes, netlnk_max_peer_routes );
