@@ -644,6 +644,7 @@ privileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
+  memset( ctx, 0, sizeof(fd_backt_tile_t) );
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );
@@ -688,15 +689,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t)                        );
-  int              store_disk_fd = ctx->store_disk_fd;
-  fd_backt_src_t * src           = ctx->src;
-  ulong            first_slot    = ctx->first_slot;
   void * _rooted_slots  = FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(),     rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
-  memset( ctx, 0, sizeof(fd_backt_tile_t) );
-  ctx->store_disk_fd = store_disk_fd;
-  ctx->src           = src;
-  ctx->first_slot    = first_slot;
-  ctx->source_exhausted = !src;
+  ctx->source_exhausted = !ctx->src;
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
