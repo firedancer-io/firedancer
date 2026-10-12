@@ -24,6 +24,19 @@ typedef struct fd_iavf_pci_info fd_iavf_pci_info_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_iavf_vfio_avail returns 1 if the vfio-pci driver is registered with
+   the kernel, or 0 otherwise. Does not load the module. */
+int
+fd_iavf_vfio_avail( void );
+
+/* fd_iavf_vfio_api_check checks the VFIO API version and TYPE1v2 IOMMU
+   support through /dev/vfio/vfio
+   Returns 0 on success or -1 with errno set
+   If diagnostic is non-NULL, sets it to NULL on success or a static
+   error message on failure */
+int
+fd_iavf_vfio_api_check( char const ** diagnostic );
+
 /* fd_iavf_sriov_bios_guide returns a static BIOS setup explanation for the
    detected manufacturer and CPU, with a vendor URL when available.
    Otherwise returns generic advice, or NULL if vendor_only is nonzero */

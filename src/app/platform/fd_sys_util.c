@@ -3,6 +3,7 @@
 
 #include <pwd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h> /* getenv */
 #include <time.h>
 #include <unistd.h>
@@ -26,6 +27,48 @@ fd_sys_util_nanosleep( uint secs,
     else return -1;
   }
   return 0;
+}
+
+int
+fd_sys_util_modprobe( char const * module,
+                      int          is_dry_run ) {
+  pid_t pid = fork();
+  if( FD_UNLIKELY( -1==pid ) ) {
+    FD_LOG_WARNING(( "fork() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+  if( 0==pid ) {
+    int null_fd = open( "/dev/null", O_RDWR );
+    if( FD_UNLIKELY( -1==null_fd ) ) {
+      FD_LOG_WARNING(( "open(/dev/null) for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      _exit( 1 );
+    }
+    if( FD_UNLIKELY( -1==dup2( null_fd, STDIN_FILENO ) ||
+                     ( is_dry_run && -1==dup2( null_fd, STDOUT_FILENO ) ) ) ) {
+      FD_LOG_WARNING(( "dup2() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      _exit( 1 );
+    }
+    if( null_fd!=STDIN_FILENO &&
+        !( is_dry_run && null_fd==STDOUT_FILENO ) ) close( null_fd );
+
+    char * argv[] = { "modprobe", "--quiet", (char *)module, NULL, NULL };
+    if( is_dry_run ) {
+      argv[2] = "--dry-run";
+      argv[3] = (char *)module;
+    }
+    char * const envp[] = { NULL };
+    execve( "/sbin/modprobe", argv, envp );
+    FD_LOG_WARNING(( "execve(/sbin/modprobe) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    _exit( 1 );
+  }
+
+  int status;
+  while( FD_UNLIKELY( -1==waitpid( pid, &status, 0 ) ) ) {
+    if( errno==EINTR ) continue;
+    FD_LOG_WARNING(( "waitpid() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+  return WIFEXITED( status ) && 0==WEXITSTATUS( status ) ? 0 : -1;
 }
 
 char const *

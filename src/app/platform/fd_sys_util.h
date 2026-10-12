@@ -24,6 +24,13 @@ int
 fd_sys_util_nanosleep( uint secs,
                        uint nanos );
 
+/* fd_sys_util_modprobe invokes modprobe for module.  is_dry_run=1 checks
+   availability without loading it, is_dry_run=0 loads it.
+   Returns 0 if modprobe succeeds, otherwise -1. */
+int
+fd_sys_util_modprobe( char const * module,
+                      int          is_dry_run );
+
 /* fd_sys_util_username() returns the best guess at the currently logged
    in user.  This is not necessarily the same as the user running the
    process.  The function returns NULL on failure, or the (probable)
