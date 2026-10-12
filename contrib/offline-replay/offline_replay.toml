@@ -15,8 +15,6 @@ name = "{name}"
     [tiles.metric]
         prometheus_listen_address = "0.0.0.0"
         prometheus_listen_port = {metric_port}
-[accounts]
-    max_accounts = {index_max}
 [runtime]
     max_live_slots = 128
     max_fork_width = 4
@@ -37,8 +35,7 @@ name = "{name}"
             allow_list = []
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
-[consensus]
-    alpenglow = {alpenglow}
+
 [development]
     [development.ledger_input]
         format = "pcap"
