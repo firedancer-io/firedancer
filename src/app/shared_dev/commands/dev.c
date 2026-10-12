@@ -112,14 +112,15 @@ update_config_for_dev( fd_config_t * config ) {
 static void
 run_firedancer_threaded( config_t * config,
                          int        init_workspaces,
+                         int        check_configure,
                          void ( * agave_main )( config_t const * ) ) {
   install_parent_signals();
 
   fd_topo_print_log( 0, &config->topo );
 
-  run_firedancer_init( config, init_workspaces, 1 );
+  run_firedancer_init( config, init_workspaces, check_configure );
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+  if( 0==strcmp( config->net.provider, "xdp" ) && fd_topo_find_tile( &config->topo, "net", 0UL )!=ULONG_MAX ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
@@ -139,7 +140,7 @@ run_firedancer_threaded( config_t * config,
      name, when it should be (name, mode)). */
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, config->development.core_dump_level );
-  if( 0==strcmp( config->net.provider, "mlx5" ) ) {
+  if( 0==strcmp( config->net.provider, "mlx5" ) && fd_topo_find_tile( &config->topo, "mlx5", 0UL )!=ULONG_MAX ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
@@ -149,7 +150,7 @@ run_firedancer_threaded( config_t * config,
   }
 }
 
-void
+static void
 run_firedancer_watched( config_t * config,
                         int        check_configure,
                         int        full_watch ) {
@@ -213,6 +214,42 @@ run_firedancer_watched( config_t * config,
 }
 
 void
+run_firedancer_dev( config_t * config,
+                    int        parent_pipefd,
+                    int        init_workspaces,
+                    int        check_configure,
+                    int        watch,
+                    int        full_watch,
+                    void ( * agave_main )( config_t const * ) ) {
+  if( FD_LIKELY( !watch ) ) {
+    if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, parent_pipefd, init_workspaces, check_configure );
+    else {
+      run_firedancer_threaded( config, init_workspaces, check_configure, agave_main );
+      for(;;) pause();
+    }
+  } else {
+    if( FD_LIKELY( !config->development.no_clone ) ) {
+      run_firedancer_watched( config, check_configure, full_watch );
+    } else {
+      int pipefd[2];
+      if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+      if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
+
+      args_t watch_args;
+      watch_args.watch.drain_output_fd = pipefd[0];
+      watch_args.watch.full = full_watch;
+      fd_log_private_restore_stderr = dup( STDERR_FILENO );
+      if( FD_UNLIKELY( fd_log_private_restore_stderr==-1 ) ) FD_LOG_ERR(( "dup() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+      run_firedancer_threaded( config, 0, check_configure, agave_main );
+      watch_cmd_fn( &watch_args, config );
+    }
+  }
+}
+
+void
 dev_cmd_fn( args_t *   args,
             config_t * config,
             void ( * agave_main )( config_t const * ) ) {
@@ -228,30 +265,5 @@ dev_cmd_fn( args_t *   args,
   update_config_for_dev( config );
   if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
 
-  if( FD_LIKELY( args->dev.no_watch ) ) {
-    if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces, 1 );
-    else {
-      run_firedancer_threaded( config , !args->dev.no_init_workspaces, agave_main );
-      for(;;) pause();
-    }
-  } else {
-    if( FD_LIKELY( !config->development.no_clone ) ) {
-      run_firedancer_watched( config, 1, args->dev.full_watch );
-    } else {
-      int pipefd[2];
-      if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-      if( FD_LIKELY( !args->dev.no_init_workspaces ) ) initialize_workspaces( config );
-
-      args_t watch_args;
-      watch_args.watch.drain_output_fd = pipefd[0];
-      watch_args.watch.full = args->dev.full_watch;
-      fd_log_private_restore_stderr = dup( STDERR_FILENO );
-      if( FD_UNLIKELY( fd_log_private_restore_stderr==-1 ) ) FD_LOG_ERR(( "dup() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-      run_firedancer_threaded( config, 0, agave_main );
-      watch_cmd_fn( &watch_args, config );
-    }
-  }
+  run_firedancer_dev( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces, 1, !args->dev.no_watch, args->dev.full_watch, agave_main );
 }
