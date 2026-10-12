@@ -113,7 +113,7 @@ static void
 run_firedancer_threaded( config_t * config,
                          int        init_workspaces,
                          int        check_configure,
-                         void ( * agave_main )( config_t const * ) ) {
+                         void       ( * agave_main )( config_t const * ) ) {
   install_parent_signals();
 
   fd_topo_print_log( 0, &config->topo );
@@ -204,11 +204,8 @@ run_firedancer_watched( config_t * config,
 
   if( FD_UNLIKELY( exited_pid==watch_pid ) ) {
     if( FD_UNLIKELY( kill( firedancer_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
-  } else if( FD_LIKELY( !watch_eof && exit_code ) ) {
-    if( FD_UNLIKELY( kill( watch_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else if( FD_LIKELY( !watch_eof ) ) {
-    /* clean exit, let watch drain the remaining output */
-    if( FD_UNLIKELY( -1==wait4( watch_pid, NULL, (int)__WALL, NULL ) ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( kill( watch_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   fd_sys_util_exit_group( exit_code );
 }
@@ -220,7 +217,7 @@ run_firedancer_dev( config_t * config,
                     int        check_configure,
                     int        watch,
                     int        full_watch,
-                    void ( * agave_main )( config_t const * ) ) {
+                    void       ( * agave_main )( config_t const * ) ) {
   if( FD_LIKELY( !watch ) ) {
     if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, parent_pipefd, init_workspaces, check_configure );
     else {
