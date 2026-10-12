@@ -2,6 +2,7 @@
 #include "ag_slot_state.h"
 #include "ag_finality_tracker.h"
 #include "ag_parent_ready_tracker.h"
+#include "ag_vote_serde.h"
 
 #define QUEUE_NAME pool_events
 #define QUEUE_T    ag_pool_event_t
@@ -528,7 +529,7 @@ ag_pool_add_cert( ag_pool_t *       self,
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
-                  ag_vote_t const * vote,
+                  ag_vote_t *       vote,
                   fd_bls_set_t *    bad,
                   uchar *           quorum_reached ) {
   ulong slot = ag_vote_slot( vote );
@@ -554,7 +555,11 @@ ag_pool_add_vote( ag_pool_t *       self,
   } else if( FD_UNLIKELY( ag_slot_state_should_ignore_vote( slot_state_, vote ) ) ) {
     return AG_POOL_ERR_DUPLICATE;
   }
-  if( FD_UNLIKELY( !blst_p2_in_g2( ag_vote_sig( vote ) ) ) ) {
+  if( FD_UNLIKELY( vote->sig_raw && ag_vote_sig_de( vote ) ) ) {
+    fd_bls_set_insert( bad, voter );
+    return AG_POOL_SUCCESS;
+  }
+  if( FD_UNLIKELY( !blst_p2_in_g2( ag_vote_sig( vote ) ) || blst_p2_is_inf( ag_vote_sig( vote ) ) ) ) {
     fd_bls_set_insert( bad, voter );
     return AG_POOL_SUCCESS;
   }

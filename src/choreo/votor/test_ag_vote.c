@@ -110,6 +110,15 @@ check_wire( ag_vote_t const *    v,
 
   ag_vote_t rt;
   FD_TEST( ag_vote_de( &rt, out, n )==AG_VOTE_DE_SUCCESS );
+  FD_TEST( rt.sig_raw ); /* left raw: the wire bytes, undecoded */
+  uchar const * rt_raw = rt.kind==AG_VOTE_KIND_NOTAR          ? rt.notar.sig_raw
+                       : rt.kind==AG_VOTE_KIND_FINAL          ? rt.final.sig_raw
+                       : rt.kind==AG_VOTE_KIND_SKIP           ? rt.skip.sig_raw
+                       : rt.kind==AG_VOTE_KIND_NOTAR_FALLBACK ? rt.notar_fallback.sig_raw
+                       :                                        rt.skip_fallback.sig_raw;
+  FD_TEST( !memcmp( rt_raw, wire_sig, FD_BLS_SIG_SZ ) );
+  FD_TEST( ag_vote_sig_de( &rt )==AG_VOTE_DE_SUCCESS && !rt.sig_raw );
+  FD_TEST( blst_p2_is_equal( ag_vote_sig( &rt ), ag_vote_sig( v ) ) );
   FD_TEST( rt.kind==v->kind );
   FD_TEST( ag_vote_shred_version( &rt )==TEST_SHRED_VERSION );
   FD_TEST( ag_vote_slot  ( &rt )==ag_vote_slot  ( v ) );
@@ -125,11 +134,19 @@ check_wire( ag_vote_t const *    v,
   fd_memset( comp_sig+FD_BLS_SIG_COMPRESSED_SZ, 0xEE, FD_BLS_SIG_SZ-FD_BLS_SIG_COMPRESSED_SZ );
   FD_TEST( comp_sig[0]&0x80U );
   FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_SUCCESS );
+  FD_TEST( ag_vote_sig_de( &rt )==AG_VOTE_DE_SUCCESS );
   FD_TEST( blst_p2_is_equal( ag_vote_sig( &rt ), ag_vote_sig( v ) ) );
 
+  /* The decoder leaves the signature raw, so bytes that are not on the
+     curve, and the identity, decode fine: ag_vote_sig_de rejects the
+     former and the pool the latter. */
   fd_memset( comp_sig, 0, FD_BLS_SIG_SZ );
-  comp_sig[0] = 0x40; FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_ERR_SIG ); /* uncompressed identity */
-  comp_sig[0] = 0xC0; FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_ERR_SIG ); /* compressed identity   */
+  comp_sig[0] = 0x01; comp_sig[FD_BLS_SIG_SZ-1UL] = 0x01; /* uncompressed, off curve */
+  FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_SUCCESS );
+  FD_TEST( ag_vote_sig_de( &rt )==AG_VOTE_DE_ERR_INVAL && rt.sig_raw );
+  fd_memset( comp_sig, 0, FD_BLS_SIG_SZ );
+  comp_sig[0] = 0x40; FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_SUCCESS ); /* uncompressed identity */
+  comp_sig[0] = 0xC0; FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_SUCCESS ); /* compressed identity   */
 
   uchar        payload[ AG_VOTE_SIGNING_SER_MAX ];
   ulong        payload_sz = ag_vote_signing_ser( v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION, payload );

@@ -122,11 +122,16 @@ ag_pool_add_cert( ag_pool_t *       self,
                   int               verified,
                   fd_bls_set_t *    bad );
 
-/* Definition 12. Pool::add_vote */
+/* Definition 12. Pool::add_vote
+
+   A vote off the wire still carries its raw signature (see ag_vote_de),
+   decoded here in place only after the bounds, slashable and duplicate
+   checks, so a dropped vote costs no curve math.  A signature that is
+   off the curve, outside G2 or the identity marks the voter bad. */
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
-                  ag_vote_t const * vote,
+                  ag_vote_t *       vote,
                   fd_bls_set_t *    bad,
                   uchar *           quorum_reached );
 

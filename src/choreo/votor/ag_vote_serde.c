@@ -50,48 +50,64 @@ ag_vote_de( ag_vote_t *   self,
   }
   vote.signature     = buf+off;                    off += FD_BLS_SIG_SZ;
 
-  fd_bls_sig_t   sig[1];
-  blst_p2_affine sig_aff[1];
-  FAIL( blst_p2_deserialize( sig_aff, vote.signature )!=BLST_SUCCESS, INVAL );
-  blst_p2_from_affine( sig, sig_aff );
-  FAIL( blst_p2_is_inf( sig ), SIG );
   vote.shred_version = FD_LOAD( ushort, buf+off ); off += sizeof(ushort);
 
   fd_memset( self, 0, sizeof(ag_vote_t) );
-  self->kind = kind;
+  self->kind    = kind;
+  self->sig_raw = 1U;
 
   switch( kind ) {
   case AG_VOTE_KIND_NOTAR:
     self->notar.slot = vote.slot;
     self->notar.shred_version = vote.shred_version;
     memcpy( self->notar.block_hash, vote.block_id, sizeof(ag_block_hash_t) );
-    self->notar.sig = *sig;
+    memcpy( self->notar.sig_raw, vote.signature, FD_BLS_SIG_SZ );
     break;
   case AG_VOTE_KIND_FINAL:
     self->final.slot = vote.slot;
     self->final.shred_version = vote.shred_version;
-    self->final.sig = *sig;
+    memcpy( self->final.sig_raw, vote.signature, FD_BLS_SIG_SZ );
     break;
   case AG_VOTE_KIND_SKIP:
     self->skip.slot = vote.slot;
     self->skip.shred_version = vote.shred_version;
-    self->skip.sig = *sig;
+    memcpy( self->skip.sig_raw, vote.signature, FD_BLS_SIG_SZ );
     break;
   case AG_VOTE_KIND_NOTAR_FALLBACK:
     self->notar_fallback.slot = vote.slot;
     self->notar_fallback.shred_version = vote.shred_version;
     memcpy( self->notar_fallback.block_hash, vote.block_id, sizeof(ag_block_hash_t) );
-    self->notar_fallback.sig = *sig;
+    memcpy( self->notar_fallback.sig_raw, vote.signature, FD_BLS_SIG_SZ );
     break;
   case AG_VOTE_KIND_SKIP_FALLBACK:
     self->skip_fallback.slot = vote.slot;
     self->skip_fallback.shred_version = vote.shred_version;
-    self->skip_fallback.sig = *sig;
+    memcpy( self->skip_fallback.sig_raw, vote.signature, FD_BLS_SIG_SZ );
     break;
   default:
     return AG_VOTE_DE_ERR_INVAL;
   }
 
+  return AG_VOTE_DE_SUCCESS;
+}
+
+int
+ag_vote_sig_de( ag_vote_t * self ) {
+  fd_bls_sig_t * sig;
+  switch( self->kind ) {
+  case AG_VOTE_KIND_NOTAR:          sig = &self->notar.sig;          break;
+  case AG_VOTE_KIND_FINAL:          sig = &self->final.sig;          break;
+  case AG_VOTE_KIND_SKIP:           sig = &self->skip.sig;           break;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: sig = &self->notar_fallback.sig; break;
+  case AG_VOTE_KIND_SKIP_FALLBACK:  sig = &self->skip_fallback.sig;  break;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+  /* sig_raw aliases sig, so deserialize out of a copy */
+  uchar          raw[ FD_BLS_SIG_SZ ]; memcpy( raw, sig, FD_BLS_SIG_SZ );
+  blst_p2_affine sig_aff[1];
+  FAIL( blst_p2_deserialize( sig_aff, raw )!=BLST_SUCCESS, INVAL );
+  blst_p2_from_affine( sig, sig_aff );
+  self->sig_raw = 0U;
   return AG_VOTE_DE_SUCCESS;
 }
 

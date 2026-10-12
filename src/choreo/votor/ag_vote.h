@@ -25,7 +25,7 @@ typedef void
 struct ag_vote_notar {
   ulong           slot;
   ag_block_hash_t block_hash;
-  fd_bls_sig_t    sig;
+  union { fd_bls_sig_t sig; uchar sig_raw[ FD_BLS_SIG_SZ ]; };
   ushort          rank;
   ushort          shred_version;
 };
@@ -33,7 +33,7 @@ typedef struct ag_vote_notar ag_vote_notar_t;
 
 struct ag_vote_final {
   ulong        slot;
-  fd_bls_sig_t sig;
+  union { fd_bls_sig_t sig; uchar sig_raw[ FD_BLS_SIG_SZ ]; };
   ushort       rank;
   ushort       shred_version;
 };
@@ -41,7 +41,7 @@ typedef struct ag_vote_final ag_vote_final_t;
 
 struct ag_vote_skip {
   ulong        slot;
-  fd_bls_sig_t sig;
+  union { fd_bls_sig_t sig; uchar sig_raw[ FD_BLS_SIG_SZ ]; };
   ushort       rank;
   ushort       shred_version;
 };
@@ -50,7 +50,7 @@ typedef struct ag_vote_skip ag_vote_skip_t;
 struct ag_vote_notar_fallback {
   ulong           slot;
   ag_block_hash_t block_hash;
-  fd_bls_sig_t    sig;
+  union { fd_bls_sig_t sig; uchar sig_raw[ FD_BLS_SIG_SZ ]; };
   ushort          rank;
   ushort          shred_version;
 };
@@ -58,14 +58,20 @@ typedef struct ag_vote_notar_fallback ag_vote_notar_fallback_t;
 
 struct ag_vote_skip_fallback {
   ulong        slot;
-  fd_bls_sig_t sig;
+  union { fd_bls_sig_t sig; uchar sig_raw[ FD_BLS_SIG_SZ ]; };
   ushort       rank;
   ushort       shred_version;
 };
 typedef struct ag_vote_skip_fallback ag_vote_skip_fallback_t;
 
+/* sig_raw is set when the signature is still the raw wire bytes left by
+   ag_vote_de; ag_pool_add_vote decodes it in place (see ag_vote_sig_de)
+   once the vote has passed its cheaper checks.  A vote built locally,
+   or one the pool has accepted, has sig_raw clear and a decoded sig. */
+
 struct ag_vote {
   uint   kind;
+  uint   sig_raw;
   union {
     ag_vote_notar_t          notar;
     ag_vote_final_t          final;
@@ -75,6 +81,8 @@ struct ag_vote {
   };
 };
 typedef struct ag_vote ag_vote_t;
+
+FD_STATIC_ASSERT( sizeof(uchar[ FD_BLS_SIG_SZ ])<=sizeof(fd_bls_sig_t), ag_vote_sig_raw );
 
 FD_PROTOTYPES_BEGIN
 
@@ -110,6 +118,7 @@ ag_vote_block_hash( ag_vote_t const * self ) {
 
 FD_FN_PURE static inline fd_bls_sig_t const *
 ag_vote_sig( ag_vote_t const * self ) {
+  FD_DCHECK_ALERT( !self->sig_raw, "vote signature read before ag_vote_sig_de" );
   switch( self->kind ) {
   case AG_VOTE_KIND_NOTAR:          return &self->notar.sig;
   case AG_VOTE_KIND_FINAL:          return &self->final.sig;

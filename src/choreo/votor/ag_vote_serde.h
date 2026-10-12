@@ -6,7 +6,6 @@
 #define AG_VOTE_DE_SUCCESS   ( 0)
 #define AG_VOTE_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), PreallocationSizeLimit, LengthEncodingOverflow            */
 #define AG_VOTE_DE_ERR_INVAL (-2) /* InvalidTagEncoding, InvalidValue                                             */
-#define AG_VOTE_DE_ERR_SIG   (-3) /* BLS verification failed, identity is never a valid vote signature            */
 
 #define AG_VOTE_SERDE_TAG_NOTAR          (1)  /* WireConsensusMessageKind::NotarVote          #[wincode(tag = 1)] */
 #define AG_VOTE_SERDE_TAG_FINAL          (2)  /* WireConsensusMessageKind::FinalizeVote       #[wincode(tag = 2)] */
@@ -50,10 +49,25 @@ ulong
 ag_vote_ser( ag_vote_t const * self,
              uchar             buf[ static AG_VOTE_SER_MAX ] );
 
+/* ag_vote_de decodes a wire vote into self, except the signature: the
+   raw signature bytes are copied into self undecoded and sig_raw is
+   set, as Agave's decoder leaves it.  Decoding costs a square root and
+   a subgroup check, so ag_pool_add_vote decodes the signature with
+   ag_vote_sig_de only once the vote has passed its cheaper checks. */
+
 int
 ag_vote_de( ag_vote_t *   self,
             uchar const * buf,
             ulong         buf_sz );
+
+/* ag_vote_sig_de decodes self's raw signature (as left by ag_vote_de)
+   in place and clears sig_raw.  Returns AG_VOTE_DE_SUCCESS, or
+   AG_VOTE_DE_ERR_INVAL if the bytes are not a point on the curve, in
+   which case self's signature is left raw.  The subgroup check is the
+   caller's. */
+
+int
+ag_vote_sig_de( ag_vote_t * self );
 
 ulong
 ag_vote_signing_ser( uint          kind,

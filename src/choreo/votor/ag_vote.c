@@ -20,7 +20,7 @@ ag_vote_construct_notar( fd_bls_sign_fn        sign_fn,
                          ag_block_hash_t const hash,
                          ushort                rank,
                          ushort                shred_version ) {
-  ag_vote_t vote;
+  ag_vote_t vote = {0};
   vote.kind                = AG_VOTE_KIND_NOTAR;
   vote.notar.slot          = slot;
   vote.notar.rank          = rank;
@@ -37,7 +37,7 @@ ag_vote_construct_final( fd_bls_sign_fn sign_fn,
                          ulong          slot,
                          ushort         rank,
                          ushort         shred_version ) {
-  ag_vote_t vote;
+  ag_vote_t vote = {0};
   vote.kind                = AG_VOTE_KIND_FINAL;
   vote.final.slot          = slot;
   vote.final.rank          = rank;
@@ -53,7 +53,7 @@ ag_vote_construct_skip( fd_bls_sign_fn sign_fn,
                         ulong          slot,
                         ushort         rank,
                         ushort         shred_version ) {
-  ag_vote_t vote;
+  ag_vote_t vote = {0};
   vote.kind               = AG_VOTE_KIND_SKIP;
   vote.skip.slot          = slot;
   vote.skip.rank          = rank;
@@ -70,7 +70,7 @@ ag_vote_construct_notar_fallback( fd_bls_sign_fn        sign_fn,
                                   ag_block_hash_t const hash,
                                   ushort                rank,
                                   ushort                shred_version ) {
-  ag_vote_t vote;
+  ag_vote_t vote = {0};
   vote.kind                         = AG_VOTE_KIND_NOTAR_FALLBACK;
   vote.notar_fallback.slot          = slot;
   vote.notar_fallback.rank          = rank;
@@ -87,7 +87,7 @@ ag_vote_construct_skip_fallback( fd_bls_sign_fn sign_fn,
                                  ulong          slot,
                                  ushort         rank,
                                  ushort         shred_version ) {
-  ag_vote_t vote;
+  ag_vote_t vote = {0};
   vote.kind                        = AG_VOTE_KIND_SKIP_FALLBACK;
   vote.skip_fallback.slot          = slot;
   vote.skip_fallback.rank          = rank;

@@ -939,6 +939,44 @@ test_vote_subgroup_after_duplicate( void ) {
   teardown_pool( pool );
 }
 
+/* A vote off the wire reaches ag_pool_add_vote with its signature still
+   raw, decoded only after the admission checks: a signature that is off
+   the curve or the identity marks the voter bad, and a duplicate is
+   dropped without decoding its signature at all. */
+
+static void
+test_vote_raw_sig( void ) {
+  ag_pool_t * pool = setup_pool();
+  ag_block_hash_t gh; genesis_hash( gh );
+  ulong slot = 0UL;
+
+  ag_vote_t good = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, gh, 0, TEST_SHRED_VERSION );
+  uchar     good_raw[ FD_BLS_SIG_SZ ];
+  blst_p2_affine good_aff[1]; blst_p2_to_affine( good_aff, ag_vote_sig( &good ) ); blst_p2_affine_serialize( good_raw, good_aff );
+
+  ag_vote_t v;
+  v = good; v.sig_raw = 1U; fd_memset( v.notar.sig_raw, 0, FD_BLS_SIG_SZ ); v.notar.sig_raw[0] = 0x01; v.notar.sig_raw[FD_BLS_SIG_SZ-1UL] = 0x01; /* off curve */
+  FD_TEST( ag_pool_add_vote( pool, &v, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 0UL ) );
+
+  v = good; v.sig_raw = 1U; fd_memset( v.notar.sig_raw, 0, FD_BLS_SIG_SZ ); v.notar.sig_raw[0] = 0x40; /* identity */
+  FD_TEST( ag_pool_add_vote( pool, &v, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 0UL ) );
+
+  v = good; v.sig_raw = 1U; memcpy( v.notar.sig_raw, good_raw, FD_BLS_SIG_SZ );
+  FD_TEST( ag_pool_add_vote( pool, &v, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( fd_bls_set_is_null( bad ) && !v.sig_raw );
+  FD_TEST( blst_p2_is_equal( ag_vote_sig( &v ), ag_vote_sig( &good ) ) );
+
+  /* A duplicate is dropped before its signature is decoded, so an off
+     curve signature on it is a duplicate, not a bad voter. */
+  v = good; v.sig_raw = 1U; fd_memset( v.notar.sig_raw, 0, FD_BLS_SIG_SZ ); v.notar.sig_raw[0] = 0x01; v.notar.sig_raw[FD_BLS_SIG_SZ-1UL] = 0x01;
+  FD_TEST( ag_pool_add_vote( pool, &v, bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( fd_bls_set_is_null( bad ) && v.sig_raw );
+
+  teardown_pool( pool );
+}
+
 /* src/consensus/pool.rs::duplicate_certs */
 
 static void
@@ -1886,6 +1924,7 @@ main( int     argc,
   test_pruning();
   test_duplicate_votes();
   test_vote_subgroup_after_duplicate();
+  test_vote_raw_sig();
   test_duplicate_certs();
   test_add_verified_cert();
   test_out_of_bounds_votes();
