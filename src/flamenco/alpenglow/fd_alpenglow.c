@@ -1,4 +1,5 @@
 #include "fd_alpenglow.h"
+#include "fd_vote_queue.h"
 #include "../rewards/fd_epoch_inflation_account.h"
 
 #include "../runtime/fd_hashes.h"
@@ -356,7 +357,9 @@ vote_account_store( fd_bank_t *                       bank,
                     fd_accdb_t *                      accdb,
                     fd_capture_ctx_t *                capture_ctx,
                     fd_acc_t *                        acc,
-                    fd_vote_state_versioned_t const * vs ) {
+                    fd_vote_state_versioned_t const * vs,
+                    fd_footer_cache_memo_t *          memo,
+                    fd_vote_queue_t *                 q ) {
   fd_memset( acc->data, 0, acc->data_len );
   if( FD_UNLIKELY( fd_vote_state_versioned_serialize( vs, acc->data, acc->data_len ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( acc->pubkey, pk_b58 );
@@ -365,23 +368,27 @@ vote_account_store( fd_bank_t *                       bank,
     return;
   }
   acc->executable = 0;
-  fd_hashes_update_pair( acc->pubkey, acc->prior_owner, acc->prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len,
-                                      acc->owner,       acc->lamports,       acc->executable,       acc->data,       acc->data_len,       bank, capture_ctx );
+
+  fd_vote_queue_store( q, acc, memo );
+  fd_hashes_capture_account( acc->pubkey, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+
   acc->commit = 1;
   fd_accdb_unwrite_one( accdb, acc );
 }
 
 static void
-vote_account_modify( fd_bank_t *           bank,
-                     fd_accdb_t *          accdb,
-                     fd_capture_ctx_t *    capture_ctx,
-                     fd_pubkey_t const *   pk,
-                     vote_update_t const * upd ) {
+vote_account_modify( fd_bank_t *              bank,
+                     fd_accdb_t *             accdb,
+                     fd_capture_ctx_t *       capture_ctx,
+                     fd_pubkey_t const *      pk,
+                     vote_update_t const *    upd,
+                     fd_footer_cache_memo_t * memo,
+                     fd_vote_queue_t *        q ) {
   static FD_TL fd_vote_state_versioned_t vs[1];
   fd_acc_t acc;
   if( FD_UNLIKELY( !vote_account_open( bank, accdb, pk, vs, &acc ) ) ) return;
   vote_update_apply( vs, upd );
-  vote_account_store( bank, accdb, capture_ctx, &acc, vs );
+  vote_account_store( bank, accdb, capture_ctx, &acc, vs, memo, q );
 }
 
 void
@@ -427,6 +434,7 @@ int
 fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_accdb_t *              accdb,
                             fd_capture_ctx_t *        capture_ctx,
+                            fd_footer_cache_t *       cache,
                             fd_block_footer_t const * footer ) {
 
   ulong bank_slot         = bank->f.slot;
@@ -527,10 +535,21 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
     final_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, final_slot, NULL );
     final_ts_ns = slot_timestamp( bank, final_slot, footer_time_nanos );
     final_kind  = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, final_epoch );
+    if( FD_UNLIKELY( !final_kind ) ) {
+      FD_LOG_WARNING(( "slot %lu: finalization epoch %lu is not t-1 through t-5", bank_slot, final_epoch ));
+      return -1;
+    }
   }
 
   /* Same epoch set: one walk, reward then final update, one store per
      signer (Agave update_accounts).  Else reward walk, then final. */
+
+  uchar __attribute__((aligned(FD_VOTE_QUEUE_ALIGN))) q_mem[ FD_VOTE_QUEUE_FOOTPRINT ];
+  fd_vote_queue_t * q = fd_vote_queue_init( q_mem );
+
+  fd_pubkey_t const * leader_vote_pubkey = fd_epoch_leaders_get_vote( fd_bank_epoch_leaders_query( bank, current_epoch ), bank_slot );
+  FD_TEST( leader_vote_pubkey );
+  ulong leader_rank = ULONG_MAX; /* memo slot, if the leader is ranked */
 
   int fused = has_reward && final_kind==reward_kind;
   for( ulong pass=0UL; pass<2UL; pass++ ) {
@@ -538,10 +557,6 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
     int fin = has_final && ( pass ? !fused : fused );
     if( !rwd && !fin ) continue;
     int iter_kind = rwd ? reward_kind : final_kind;
-    if( FD_UNLIKELY( !iter_kind ) ) {
-      FD_LOG_WARNING(( "slot %lu: finalization epoch %lu is not t-1 through t-5", bank_slot, final_epoch ));
-      return -1;
-    }
 
     int have_ranked_vote = 0;
     fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
@@ -558,6 +573,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       FD_TEST( rank<AG_VAT_MAX );
       have_ranked_vote = 1;
       ulong r      = (ulong)rank;
+      if( fd_pubkey_eq( &vote_key, leader_vote_pubkey ) ) leader_rank = r;
       int   in_rwd = rwd && fd_bls_set_test( reward_set, r );
       int   in_fin = fin && fd_bls_set_test( final_set,  r );
       if( !in_rwd && !in_fin ) continue;
@@ -595,11 +611,12 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
           .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = final_ts_ns,
         } );
       }
-      vote_account_store( bank, accdb, capture_ctx, &acc, vs );
+      vote_account_store( bank, accdb, capture_ctx, &acc, vs, cache->memo+r, q );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       if( rwd ) FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu",    bank_slot, reward_slot ));
       else      FD_LOG_WARNING(( "slot %lu: no ranked validators for finalized slot %lu", bank_slot, final_slot  ));
+      fd_vote_queue_fini( q );
       return -1;
     }
   }
@@ -607,18 +624,16 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
   /* leader rewards */
 
   if( leader_credits ) {
-    fd_pubkey_t const * leader_vote_pubkey = fd_epoch_leaders_get_vote( fd_bank_epoch_leaders_query( bank, current_epoch ), bank_slot );
-    if( FD_UNLIKELY( !leader_vote_pubkey ) ) {
-      FD_LOG_WARNING(( "slot %lu: leader vote account unknown; dropping %lu leader reward credits (bank hash will diverge)", bank_slot, leader_credits ));
-    } else {
-      vote_update_t upd = {
-        .credits         = leader_credits,
-        .migration_epoch = migration_epoch,
-        .current_epoch   = current_epoch,
-      };
-      vote_account_modify( bank, accdb, capture_ctx, leader_vote_pubkey, &upd );
-    }
+    vote_update_t upd = {
+      .credits         = leader_credits,
+      .migration_epoch = migration_epoch,
+      .current_epoch   = current_epoch,
+    };
+    vote_account_modify( bank, accdb, capture_ctx, leader_vote_pubkey, &upd, leader_rank!=ULONG_MAX ? cache->memo+leader_rank : NULL, q );
   }
+
+  fd_lthash_add( fd_bank_lthash_locking_modify( bank ), fd_vote_queue_fini( q ) );
+  fd_bank_lthash_end_locking_modify( bank );
 
   return 0;
 }

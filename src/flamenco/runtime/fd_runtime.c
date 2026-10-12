@@ -1904,7 +1904,7 @@ apply_footer( fd_bank_t *               bank,
   fd_memcpy( acc.data, data, sizeof(data) );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 
-  return fd_alpenglow_rewards_apply( bank, accdb, capture_ctx, footer );
+  return fd_alpenglow_rewards_apply( bank, accdb, capture_ctx, cache, footer );
 }
 
 int

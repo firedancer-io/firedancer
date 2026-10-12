@@ -1,18 +1,5 @@
 #include "fd_footer_cache.h"
 
-#define ENTRY_CNT (64UL)
-
-struct __attribute__((aligned(FD_FOOTER_CACHE_ALIGN))) fd_footer_cache {
-  ulong magic; /* ==FD_FOOTER_CACHE_MAGIC */
-  ulong next;
-
-  struct {
-    ulong sz; /* 0 if empty */
-    uchar msg[ FD_FOOTER_CACHE_MSG_MAX ];
-    blst_p2_affine h;
-  } e[ ENTRY_CNT ];
-};
-
 ulong
 fd_footer_cache_align( void ) {
   return FD_FOOTER_CACHE_ALIGN;
@@ -73,12 +60,47 @@ fd_footer_cache_hash_msg( fd_footer_cache_t * cache,
                           ulong               msg_sz,
                           blst_p2_affine *    h ) {
   FD_TEST( msg_sz && msg_sz<=FD_FOOTER_CACHE_MSG_MAX );
-  for( ulong i=0UL; i<ENTRY_CNT; i++ ) {
+  for( ulong i=0UL; i<FD_FOOTER_CACHE_MSG_CNT; i++ ) {
     if( cache->e[ i ].sz==msg_sz && !memcmp( cache->e[ i ].msg, msg, msg_sz ) ) { *h = cache->e[ i ].h; return; }
   }
   fd_bls_hash_msg( msg, msg_sz, h );
-  ulong i = cache->next++ % ENTRY_CNT;
+  ulong i = cache->next++ % FD_FOOTER_CACHE_MSG_CNT;
   cache->e[ i ].sz = msg_sz;
   memcpy( cache->e[ i ].msg, msg, msg_sz );
   cache->e[ i ].h  = *h;
+}
+
+fd_lthash_value_t const *
+fd_footer_cache_memo_query( fd_footer_cache_memo_t const * memo,
+                            uchar const                    pubkey[ static FD_HASH_FOOTPRINT ],
+                            uchar const                    owner[ static FD_HASH_FOOTPRINT ],
+                            ulong                          lamports,
+                            int                            executable,
+                            uchar const *                  data,
+                            ulong                          data_len ) {
+  int hit = lamports && memo->lamports==lamports && memo->data_len==data_len && memo->executable==!!executable &&
+            fd_memeq( memo->pubkey, pubkey, 32UL ) && fd_memeq( memo->owner, owner, 32UL ) &&
+            fd_memeq( memo->data, data, data_len );
+  return hit ? &memo->lthash : NULL;
+}
+
+int
+fd_footer_cache_memo_insert( fd_footer_cache_memo_t * memo,
+                             uchar const              pubkey[ static FD_HASH_FOOTPRINT ],
+                             uchar const              owner[ static FD_HASH_FOOTPRINT ],
+                             ulong                    lamports,
+                             int                      executable,
+                             uchar const *            data,
+                             ulong                    data_len ) {
+  if( FD_UNLIKELY( !lamports || data_len>FD_FOOTER_CACHE_MEMO_DATA_MAX ) ) {
+    memo->lamports = 0UL;
+    return 0;
+  }
+  fd_memcpy( memo->pubkey, pubkey, 32UL );
+  fd_memcpy( memo->owner,  owner,  32UL );
+  memo->lamports   = lamports;
+  memo->data_len   = data_len;
+  memo->executable = !!executable;
+  fd_memcpy( memo->data, data, data_len );
+  return 1;
 }
