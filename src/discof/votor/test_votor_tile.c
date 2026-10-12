@@ -1352,8 +1352,9 @@ test_park( void ) {
   ctx->mleaders    = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
   FD_TEST( ctx->pool && ctx->votor && ctx->peers && ctx->reconn_prq && ctx->mleaders );
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
-  ctx->next_leader_slot = ULONG_MAX;
-  ctx->ns_per_slot      = 400000000L;
+  ctx->next_leader_slot    = ULONG_MAX;
+  ctx->ns_per_slot         = 400000000L;
+  ctx->vote_history_dir_fd = -1;
   int charge_busy;
 
   /* Not yet init: no QUIC conns and nothing else counts. */
