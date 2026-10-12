@@ -18,10 +18,10 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                              ulong                          max_stake_accounts ) {
 
   if( FD_UNLIKELY( max_vote_accounts!=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ||
-                   max_stake_accounts!=FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) {
-    FD_LOG_WARNING(( "banks capacity mismatch: max_vote_accounts=%lu (expected %lu) max_stake_accounts=%lu (expected %lu)",
+                   !max_stake_accounts ) ) {
+    FD_LOG_WARNING(( "banks capacity mismatch: max_vote_accounts=%lu (expected %lu) max_stake_accounts=%lu (expected nonzero)",
                      max_vote_accounts,  FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS,
-                     max_stake_accounts, FD_RUNTIME_MAX_STAKE_ACCOUNTS ));
+                     max_stake_accounts ));
     return -1;
   }
 

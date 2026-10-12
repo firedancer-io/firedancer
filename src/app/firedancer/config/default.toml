@@ -793,6 +793,13 @@ telemetry = true
     # or test environments to decrease memory usage or test edge cases.
     max_fork_width = 32
 
+    # The maximum number of stake delegations held in memory.  Stake
+    # delegations beyond this limit spill to disk, which is slower.
+    #
+    # It is not recommended to change this value, except in development
+    # or test environments to decrease memory usage or test edge cases.
+    max_stake_delegations = 2150000
+
     # Total size of the program cache workspace in MiB.
     #
     # The program cache pre-loads frequently executed programs for
