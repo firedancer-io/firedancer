@@ -15,6 +15,7 @@
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/commands/watch/watch.h"
+#include "../../shared_dev/commands/dev.h"
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared/fd_config_json.h"
 #include "../../../disco/topo/fd_topob.h"
@@ -54,8 +55,9 @@ backtest_cmd_args( int *    pargc,
 static void
 backtest_topo( config_t * config ) {
 
-  config->development.sandbox  = 0;
-  config->development.no_clone = 1;
+  /* Without the sandbox there is no PID namespace to tear the tile
+     processes down as a group, so run them as threads instead. */
+  if( FD_UNLIKELY( !config->development.sandbox ) ) config->development.no_clone = 1;
 
   config->firedancer.layout.resolv_tile_count = 0;
 
@@ -103,6 +105,8 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "backt" );
   fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", NEXT_CPU, 0, 0, 0, 0 );
+  backt_tile->allow_shutdown = 1;
+  backt_tile->shutdown_app   = 1;
 
   fd_topob_wksp( topo, "replay" );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", NEXT_CPU, 0, 1, 0, 0 );
@@ -141,6 +145,7 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "execrp" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
   FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", NEXT_CPU, 0, 0, 0, 0 );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /**********************************************************************/
   /* Add the capture tile to topo                                       */
@@ -462,7 +467,17 @@ backtest_topo( config_t * config ) {
     }
   }
 
-  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
+  if( FD_LIKELY( telemetry_enabled ) ) {
+    wire_event_links( topo );
+
+    /* The backtest tile waits for the event tile to drain its inputs
+       before shutting down. */
+    fd_topo_tile_t const * event_tile = &topo->tiles[ fd_topo_find_tile( topo, "event", 0UL ) ];
+    for( ulong i=0UL; i<event_tile->in_cnt; i++ ) {
+      fd_topo_link_t const * link = &topo->links[ event_tile->in_link_id[ i ] ];
+      fd_topob_tile_uses( topo, backt_tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    }
+  }
 
   // fd_topob_auto_layout( topo, 0 );
   if( FD_UNLIKELY( !is_auto_affinity ) ) {
@@ -533,6 +548,13 @@ backtest_cmd_fn( args_t *   args,
   fixup_config( config );
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
+
+  /* The backtest topology has no network tiles and configures only some
+     host stages, so skip the configuration checks for a live validator. */
+  if( FD_LIKELY( !config->development.no_clone ) ) {
+    if( args->backtest.no_watch ) run_firedancer( config, -1, 1, 0 );
+    else                          run_firedancer_watched( config, 0, 1 );
+  }
 
   initialize_workspaces( config );
   initialize_stacks( config );

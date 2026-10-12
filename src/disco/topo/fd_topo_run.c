@@ -7,6 +7,7 @@
 #include "../events/fd_event_report.h"
 #include "../../util/tile/fd_tile_private.h"
 
+#include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -175,6 +176,7 @@ run_tile_thread_main( void * _args ) {
 
   fd_topo_run_tile( args.topo, args.tile, 0, 1, 1, args.uid, args.gid, -1, &args.tile_run );
   FD_TEST( args.tile->allow_shutdown );
+  if( FD_UNLIKELY( args.tile->shutdown_app ) ) exit( 0 );
   return NULL;
 }
 

@@ -14,9 +14,10 @@
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
 
-#include <stdlib.h> /* exit(2) */
 #include <errno.h>
 #include <fcntl.h>  /* open(2) */
+#include <linux/futex.h>
+#include "generated/fd_backtest_tile_seccomp.h"
 
 #define SHRED_BUFFER_LEN     (1048576UL)
 #define BANK_HASH_BUFFER_LEN (4096UL)
@@ -64,8 +65,10 @@ struct fd_backt_tile {
   uint first_fec_complete : 1;
   uint reasm_ready        : 1; /* reasm root is set, so we can start publishing FECs to replay */
   uint source_exhausted   : 1;
+  uint shutdown           : 1;
 
   fd_backt_src_t * src;
+  ulong            first_slot; /* slot of the first shred in src, ULONG_MAX if none */
 
   ulong root_distance;
 
@@ -352,7 +355,7 @@ publish_shred_version( fd_backt_tile_t *   ctx,
   fd_stem_publish( stem, ctx->ipecho_out_idx, shred_version, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
 }
 
-/* Log the run summary, drain telemetry and exit the process. */
+/* Log the run summary, drain telemetry and shut down the application. */
 
 static void
 finish( fd_backt_tile_t * ctx,
@@ -375,10 +378,6 @@ finish( fd_backt_tile_t * ctx,
                 ctx->slot_cnt ? replay_s/(double)ctx->slot_cnt : 0.0,
                 replay_s>0.0 ? (double)ctx->txn_cnt/replay_s : 0.0,
                 (double)(now-ctx->boot_time)/1e9 ));
-  if( FD_LIKELY( ctx->src ) ) {
-    fd_backtest_src_destroy( ctx->src );
-    ctx->src = NULL;
-  }
   if( FD_UNLIKELY( ctx->event_metrics ) ) {
     long deadline = fd_log_wallclock() + (long)120e9;
     for(;;) {
@@ -399,7 +398,12 @@ finish( fd_backt_tile_t * ctx,
       FD_SPIN_PAUSE();
     }
   }
-  exit(0);
+  ctx->shutdown = 1;
+}
+
+static inline int
+should_shutdown( fd_backt_tile_t * ctx ) {
+  return ctx->shutdown;
 }
 
 static inline int
@@ -421,19 +425,10 @@ returnable_frag( fd_backt_tile_t *   ctx,
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SNAP: {
       if( FD_LIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
-        uchar first_buf[ FD_SHRED_MAX_SZ ];
-        ulong first_sz = ctx->src ? ctx->src->vt->first_shred( ctx->src, first_buf, sizeof(first_buf) ) : 0UL;
-        if( FD_LIKELY( first_sz ) ) {
-          fd_shred_t const * first = fd_shred_parse( first_buf, first_sz, FD_SHRED_BLK_MAX );
-          if( FD_UNLIKELY( !first ) ) {
-            FD_LOG_HEXDUMP_WARNING(( "invalid shred", first_buf, first_sz ));
-            FD_LOG_ERR(( "invalid shred from backtest source (sz=%lu)", first_sz ));
-          }
-          if( FD_UNLIKELY( ctx->start_slot<first->slot ) ) {
-            FD_LOG_ERR(( "Snapshot too old for ledger! "
-                         "Snapshot slot: %lu is before ledger start slot: %lu",
-                         ctx->start_slot, first->slot ));
-          }
+        if( FD_UNLIKELY( ctx->first_slot!=ULONG_MAX && ctx->start_slot<ctx->first_slot ) ) {
+          FD_LOG_ERR(( "Snapshot too old for ledger! "
+                       "Snapshot slot: %lu is before ledger start slot: %lu",
+                       ctx->start_slot, ctx->first_slot ));
         }
         /* Skip past any shreds in the source for slots <=start_slot so we don't replay them */
         if( FD_LIKELY( ctx->src ) ) fd_backtest_src_seek( ctx->src, ctx->start_slot+1UL );
@@ -658,6 +653,32 @@ privileged_init( fd_topo_t const *      topo,
   ctx->store_disk_fd = FD_STORE_FD_RW;
   if( FD_UNLIKELY( fcntl( ctx->store_disk_fd, F_GETFD )<0 ) )
     FD_LOG_ERR(( "store file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* The source allocates its buffers on open and on the first read, so
+     both must happen before the sandbox drops the ability to allocate. */
+  ctx->src        = NULL;
+  ctx->first_slot = ULONG_MAX;
+  if( FD_LIKELY( tile->backtest.ledger_path[ 0 ] ) ) { /* empty path: load the snapshot, then exit */
+    fd_backtest_src_opts_t opts = {
+      .format      = tile->backtest.ledger_format,
+      .path        = tile->backtest.ledger_path,
+      .rooted_only = 1,
+      .code_shreds = 0,
+    };
+    ctx->src = fd_backtest_src_create( &opts );
+    FD_TEST( ctx->src );
+
+    uchar first_buf[ FD_SHRED_MAX_SZ ];
+    ulong first_sz = ctx->src->vt->first_shred( ctx->src, first_buf, sizeof(first_buf) );
+    if( FD_LIKELY( first_sz ) ) {
+      fd_shred_t const * first = fd_shred_parse( first_buf, first_sz, FD_SHRED_BLK_MAX );
+      if( FD_UNLIKELY( !first ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "invalid shred", first_buf, first_sz ));
+        FD_LOG_ERR(( "invalid shred from backtest source (sz=%lu)", first_sz ));
+      }
+      ctx->first_slot = first->slot;
+    }
+  }
 }
 
 static void
@@ -667,10 +688,15 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t)                        );
-  int store_disk_fd = ctx->store_disk_fd;
+  int              store_disk_fd = ctx->store_disk_fd;
+  fd_backt_src_t * src           = ctx->src;
+  ulong            first_slot    = ctx->first_slot;
   void * _rooted_slots  = FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(),     rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
   memset( ctx, 0, sizeof(fd_backt_tile_t) );
   ctx->store_disk_fd = store_disk_fd;
+  ctx->src           = src;
+  ctx->first_slot    = first_slot;
+  ctx->source_exhausted = !src;
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
@@ -720,19 +746,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->alpenglow     = tile->backtest.alpenglow;
   ctx->boot_time     = tile->backtest.boot_timestamp_nanos;
 
-  ctx->src = NULL;
-  if( FD_LIKELY( tile->backtest.ledger_path[ 0 ] ) ) { /* empty path: load the snapshot, then exit */
-    fd_backtest_src_opts_t opts = {
-      .format      = tile->backtest.ledger_format,
-      .path        = tile->backtest.ledger_path,
-      .rooted_only = 1,
-      .code_shreds = 0,
-    };
-    ctx->src = fd_backtest_src_create( &opts );
-    FD_TEST( ctx->src );
-  } else {
-    ctx->source_exhausted = 1;
-  }
   FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
   FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot   );
 
@@ -779,18 +792,34 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->store_disk_fd;
+  if( FD_LIKELY( ctx->src ) ) out_fds[ out_cnt++ ] = ctx->src->fd;
   return out_cnt;
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
+
+  uint ledger_fd = ctx->src ? (uint)ctx->src->fd : (uint)-1;
+  populate_sock_filter_policy_fd_backtest_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), ledger_fd, (uint)ctx->store_disk_fd );
+  return sock_filter_policy_fd_backtest_tile_instr_cnt;
 }
 
 #define STEM_BURST                  (2UL) /* 1 after_credit + 1 returnable_frag */
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_backt_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_backt_tile_t)
 
+#define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
@@ -799,6 +828,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_backtest = {
   .name                     = "backt",
+  .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,

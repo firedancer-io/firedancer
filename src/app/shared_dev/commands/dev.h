@@ -16,6 +16,15 @@ dev_cmd_perm( args_t *         args,
               fd_cap_chk_t *   chk,
               config_t const * config );
 
+/* run_firedancer_watched runs Firedancer in a child process with its
+   output shown by watch in another child process.  Exits with the exit
+   code of the first child to stop. */
+
+void
+run_firedancer_watched( config_t * config,
+                        int        check_configure,
+                        int        full_watch );
+
 void
 dev_cmd_fn( args_t *   args,
             config_t * config,

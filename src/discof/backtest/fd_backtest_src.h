@@ -26,6 +26,7 @@ typedef struct fd_backt_src_vt fd_backt_src_vt_t;
 
 struct fd_backt_src {
   fd_backt_src_vt_t const * vt;
+  int                       fd; /* underlying ledger file descriptor */
 };
 typedef struct fd_backt_src fd_backt_src_t;
 

@@ -372,7 +372,7 @@ main_pid_namespace( void * _args ) {
   int config_memfd = fd_config_to_memfd( config );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int need_mlx5 = 0==strcmp( config->net.provider, "mlx5" );
+  int need_mlx5 = 0==strcmp( config->net.provider, "mlx5" ) && fd_topo_find_tile( &config->topo, "mlx5", 0UL )!=ULONG_MAX;
   fd_mlx5_fds_t mlx5_fds = { .cmd_fd=-1, .async_fd=-1 };
   if( need_mlx5 ) {
     fd_topo_install_mlx5( (fd_topo_t *)&config->topo, &mlx5_fds );
@@ -396,7 +396,7 @@ main_pid_namespace( void * _args ) {
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int need_xdp = 0==strcmp( config->net.provider, "xdp" );
+  int need_xdp = 0==strcmp( config->net.provider, "xdp" ) && fd_topo_find_tile( &config->topo, "net", 0UL )!=ULONG_MAX;
   fd_xdp_fds_t xdp_fds[ FD_TOPO_XDP_FDS_MAX ];
   uint         xdp_fds_cnt = FD_TOPO_XDP_FDS_MAX;
   if( need_xdp ) {
@@ -729,7 +729,10 @@ main_pid_namespace( void * _args ) {
         fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
       } else {
         int exit_code = WEXITSTATUS( wstatus );
-        if( FD_LIKELY( !exit_code && tile_idx!=ULONG_MAX && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
+        if( FD_UNLIKELY( !exit_code && tile_idx!=ULONG_MAX && config->topo.tiles[ tile_idx ].shutdown_app ) ) {
+          FD_LOG_INFO(( "tile %s:%lu exited gracefully, shutting down", tile_name, tile_id ));
+          fd_sys_util_exit_group( 0 );
+        } else if( FD_LIKELY( !exit_code && tile_idx!=ULONG_MAX && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
           found = 1;
           FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
         } else {
@@ -1471,11 +1474,12 @@ initialize_snapshot_fds( config_t const * config ) {
 void
 run_firedancer( config_t * config,
                 int        parent_pipefd,
-                int        init_workspaces ) {
+                int        init_workspaces,
+                int        check_configure ) {
   /* dump the topology we are using to the output log */
   fd_topo_print_log( 0, &config->topo );
 
-  run_firedancer_init( config, init_workspaces, 1 );
+  run_firedancer_init( config, init_workspaces, check_configure );
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fd_log_private_logfile_fd()!=1 && close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1522,14 +1526,18 @@ run_firedancer( config_t * config,
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
 
-  /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
-     so if wait4() completes, it must be an error */
+  /* Unless a tile can shut down the application, the only clean way to
+     exit is SIGINT or SIGTERM on this parent process, so if wait4()
+     completes, it must be an error */
   int wstatus;
   if( FD_UNLIKELY( -1==wait4( pid_namespace, &wstatus, (int)__WALL, NULL ) ) )
     FD_LOG_ERR(( "main wait4() failed (%i-%s)\nLog at \"%s\"", errno, fd_io_strerror( errno ), fd_log_private_path ));
 
   if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
-  else fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+
+  int shutdown_app = 0;
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) shutdown_app |= config->topo.tiles[ i ].shutdown_app;
+  fd_sys_util_exit_group( WEXITSTATUS( wstatus ) || shutdown_app ? WEXITSTATUS( wstatus ) : 1 );
 }
 
 void
@@ -1562,7 +1570,7 @@ run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
   #undef CHECK_PORT_NON_ZERO
 
-  run_firedancer( config, -1, 1 );
+  run_firedancer( config, -1, 1, 1 );
 }
 
 static void

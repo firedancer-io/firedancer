@@ -311,6 +311,7 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
     FD_LOG_WARNING(( "fopen(%s,rb) failed", opts->path ));
     return NULL;
   }
+  int fd = fileno( file );
 
   ZSTD_DStream * zstd = NULL;
   if( flags & FD_BACKT_SRC_FLAG_ZSTD ) {
@@ -330,7 +331,7 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
   if( FD_UNLIKELY( !src ) ) FD_LOG_ERR(( "out of memory" ));
 
   *src = (fd_backt_src_pcap_t){
-    .src = {{ .vt = &fd_backt_src_pcap_vt }},
+    .src = {{ .vt = &fd_backt_src_pcap_vt, .fd = fd }},
     .file = file,
     .format = format,
     .zstd = zstd,

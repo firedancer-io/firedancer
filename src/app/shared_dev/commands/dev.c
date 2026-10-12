@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 
+#include "dev.h"
 #include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
@@ -149,6 +150,69 @@ run_firedancer_threaded( config_t * config,
 }
 
 void
+run_firedancer_watched( config_t * config,
+                        int        check_configure,
+                        int        full_watch ) {
+  install_parent_signals();
+
+  int pipefd[2];
+  if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  initialize_workspaces(config);
+  firedancer_pid = fork();
+  if( !firedancer_pid ) {
+    if( FD_UNLIKELY( -1==close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( STDERR_FILENO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( dup2( pipefd[1], STDERR_FILENO ) == -1 ) )
+      FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", "always", 1 ) ) ) /* otherwise RUST_LOG will not be colorized to the pipe */
+      FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    run_firedancer( config, -1, 0, check_configure );
+  } else {
+    if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  args_t watch_args;
+  watch_args.watch.drain_output_fd = pipefd[0];
+  watch_args.watch.full = full_watch;
+
+  watch_pid = fork();
+  if( !watch_pid ) watch_cmd_fn( &watch_args, config );
+
+  if( FD_UNLIKELY( close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  int wstatus;
+  pid_t exited_pid = wait4( -1, &wstatus, (int)__WALL, NULL );
+  if( FD_UNLIKELY( exited_pid == -1 ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  int watch_eof = exited_pid==watch_pid && WIFEXITED( wstatus ) && !WEXITSTATUS( wstatus );
+  if( FD_UNLIKELY( watch_eof ) ) {
+    exited_pid = wait4( firedancer_pid, &wstatus, (int)__WALL, NULL );
+    if( FD_UNLIKELY( exited_pid == -1 ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  char * exited_child = exited_pid == firedancer_pid ? "firedancer" : exited_pid == watch_pid ? "watch" : "unknown";
+  int exit_code = 0;
+  if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+    FD_LOG_ERR_NOEXIT(( "%s%s%s exited unexpectedly with signal %d %s(%s)%s", fd_log_style_bold(), exited_child, fd_log_style_normal(), WTERMSIG( wstatus ), fd_log_style_dim(), fd_io_strsignal( WTERMSIG( wstatus ) ), fd_log_style_normal() ));
+    exit_code = WTERMSIG( wstatus );
+  } else {
+    exit_code = WEXITSTATUS( wstatus );
+    if( FD_UNLIKELY( exit_code ) ) FD_LOG_ERR_NOEXIT(( "%s%s%s exited unexpectedly with code %d", fd_log_style_bold(), exited_child, fd_log_style_normal(), exit_code ));
+  }
+
+  if( FD_UNLIKELY( exited_pid==watch_pid ) ) {
+    if( FD_UNLIKELY( kill( firedancer_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
+  } else if( FD_LIKELY( !watch_eof && exit_code ) ) {
+    if( FD_UNLIKELY( kill( watch_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
+  } else if( FD_LIKELY( !watch_eof ) ) {
+    /* clean exit, let watch drain the remaining output */
+    if( FD_UNLIKELY( -1==wait4( watch_pid, NULL, (int)__WALL, NULL ) ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  fd_sys_util_exit_group( exit_code );
+}
+
+void
 dev_cmd_fn( args_t *   args,
             config_t * config,
             void ( * agave_main )( config_t const * ) ) {
@@ -165,67 +229,14 @@ dev_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
 
   if( FD_LIKELY( args->dev.no_watch ) ) {
-    if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );
+    if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces, 1 );
     else {
       run_firedancer_threaded( config , !args->dev.no_init_workspaces, agave_main );
       for(;;) pause();
     }
   } else {
     if( FD_LIKELY( !config->development.no_clone ) ) {
-      install_parent_signals();
-
-      int pipefd[2];
-      if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      initialize_workspaces(config);
-      firedancer_pid = fork();
-      if( !firedancer_pid ) {
-        if( FD_UNLIKELY( -1==close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==close( STDERR_FILENO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( dup2( pipefd[1], STDERR_FILENO ) == -1 ) )
-          FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", "always", 1 ) ) ) /* otherwise RUST_LOG will not be colorized to the pipe */
-          FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        run_firedancer( config, -1, 0 );
-      } else {
-        if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      }
-
-      args_t watch_args;
-      watch_args.watch.drain_output_fd = pipefd[0];
-      watch_args.watch.full = args->dev.full_watch;
-
-      watch_pid = fork();
-      if( !watch_pid ) watch_cmd_fn( &watch_args, config );
-
-      if( FD_UNLIKELY( close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-      int wstatus;
-      pid_t exited_pid = wait4( -1, &wstatus, (int)__WALL, NULL );
-      if( FD_UNLIKELY( exited_pid == -1 ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-      int watch_eof = exited_pid==watch_pid && WIFEXITED( wstatus ) && !WEXITSTATUS( wstatus );
-      if( FD_UNLIKELY( watch_eof ) ) {
-        exited_pid = wait4( firedancer_pid, &wstatus, (int)__WALL, NULL );
-        if( FD_UNLIKELY( exited_pid == -1 ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      }
-
-      char * exited_child = exited_pid == firedancer_pid ? "firedancer" : exited_pid == watch_pid ? "watch" : "unknown";
-      int exit_code = 0;
-      if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-        FD_LOG_ERR_NOEXIT(( "%s%s%s exited unexpectedly with signal %d %s(%s)%s", fd_log_style_bold(), exited_child, fd_log_style_normal(), WTERMSIG( wstatus ), fd_log_style_dim(), fd_io_strsignal( WTERMSIG( wstatus ) ), fd_log_style_normal() ));
-        exit_code = WTERMSIG( wstatus );
-      } else {
-        FD_LOG_ERR_NOEXIT(( "%s%s%s exited unexpectedly with code %d", fd_log_style_bold(), exited_child, fd_log_style_normal(), WEXITSTATUS( wstatus ) ));
-        exit_code = WEXITSTATUS( wstatus );
-      }
-
-      if( FD_UNLIKELY( exited_pid==watch_pid ) ) {
-        if( FD_UNLIKELY( kill( firedancer_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
-      } else if( FD_LIKELY( !watch_eof ) ) {
-        if( FD_UNLIKELY( kill( watch_pid, SIGKILL ) ) ) FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
-      }
-      fd_sys_util_exit_group( exit_code );
+      run_firedancer_watched( config, 1, args->dev.full_watch );
     } else {
       int pipefd[2];
       if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
