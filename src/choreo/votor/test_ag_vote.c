@@ -127,6 +127,10 @@ check_wire( ag_vote_t const *    v,
   FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_SUCCESS );
   FD_TEST( blst_p2_is_equal( ag_vote_sig( &rt ), ag_vote_sig( v ) ) );
 
+  fd_memset( comp_sig, 0, FD_BLS_SIG_SZ );
+  comp_sig[0] = 0x40; FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_ERR_SIG ); /* uncompressed identity */
+  comp_sig[0] = 0xC0; FD_TEST( ag_vote_de( &rt, wire_comp, n )==AG_VOTE_DE_ERR_SIG ); /* compressed identity   */
+
   uchar        payload[ AG_VOTE_SIGNING_SER_MAX ];
   ulong        payload_sz = ag_vote_signing_ser( v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION, payload );
   fd_bls_sig_t   sig[1];
