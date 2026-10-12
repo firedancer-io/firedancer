@@ -720,6 +720,16 @@ main_pid_namespace( void * _args ) {
         if( FD_LIKELY( !exit_code && tile_idx!=ULONG_MAX && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
           found = 1;
           FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
+          /* The supervisor cannot start a tile again: by this point it
+             has closed the descriptors a tile boots from and entered a
+             sandbox with no filesystem, no spare namespace budget and
+             a policy that has neither clone nor execve.  A tile that
+             declares itself restartable is therefore still gone for
+             the lifetime of the validator, which is worth saying out
+             loud because the service it was providing has stopped. */
+          if( FD_UNLIKELY( config->topo.tiles[ tile_idx ].restartable ) )
+            FD_LOG_WARNING(( "tile %s:%lu is restartable but nothing starts it again, and it will stay "
+                             "down until the validator is restarted", tile_name, tile_id ));
         } else {
           FD_LOG_ERR_NOEXIT(( "tile %s%s:%lu%s exited with code %d", fd_log_style_bold(), tile_name, tile_id, fd_log_style_normal(), exit_code ));
           fd_sys_util_exit_group( exit_code ? exit_code : 1 );

@@ -114,8 +114,12 @@ class Schema:
     id: int
     description: str
     fields: Dict[str, Field]
+    internal: bool = False  # produced on the dedicated internal link and consumed
+                            # in-process: C struct plus pack/unpack helpers only, no
+                            # protobuf, no event tile dispatch, no ClickHouse column
 
 _FIELD_KEYS = {"type", "description", "variants", "fields", "element", "max_len", "dynamic", "compression"}
+_SCHEMA_KEYS = {"name", "id", "description", "fields", "internal"}
 
 def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
     unknown = set(f) - _FIELD_KEYS
@@ -166,8 +170,29 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
 
 def parse_schema(path: Path, shared_types: Dict[str, dict]) -> Schema:
     data = json.loads(path.read_text())
+    unknown = set(data) - _SCHEMA_KEYS
+    if unknown:
+        raise ValueError(f"{path.name}: unknown schema keys (typo?): {sorted(unknown)}")
     fields = {k: parse_field(v, shared_types) for k, v in data["fields"].items()}
-    return Schema(data["name"], data["id"], data["description"], fields)
+    schema = Schema(data["name"], data["id"], data["description"], fields, bool(data.get("internal")))
+    if schema.internal:
+        check_internal_schema(schema)
+    return schema
+
+def check_internal_schema(s: Schema) -> None:
+    """An internal schema travels as a fixed prefix followed by the used entries
+    of each dynamic array, so every variable-length field has to be such an
+    array: an inline Bytes/String buffer or a max_len-sized Array would put
+    worst-case capacity in the prefix, which for these schemas is megabytes."""
+    for name, f in s.fields.items():
+        if not field_is_supported(f):
+            raise ValueError(f"{s.name}.{name}: type not supported by the C codegen")
+        if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
+            raise ValueError(f"{s.name}.{name}: internal schemas carry bytes as a dynamic Array")
+        if f.chtype == ClickHouseType.Array and not f.dynamic:
+            raise ValueError(f"{s.name}.{name}: arrays of an internal schema must be dynamic")
+    if not any(f.dynamic for f in s.fields.values()):
+        raise ValueError(f"{s.name}: an internal schema needs at least one dynamic array")
 
 def collect_nested_messages(fields: Dict[str, Field], prefix: str = "") -> List[tuple]:
     msgs = []
@@ -591,18 +616,24 @@ def generate_c_header(schemas: List[Schema]) -> str:
     # actual footprint of dcache rather than max_len capacity.
     for s in eligible:
         dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        up = s.name.upper()
+        lines += [
+            f"/* FD_EVENT_{up}_ID is the type of a {s.name} event on an event link",
+            "   (FD_EVENT_SIG_TYPE of its frag). */",
+            f"#define FD_EVENT_{up}_ID ({s.id}UL)",
+            "",
+        ]
         if not dyn_names:
             lines += [
                 f"/* Report a {s.name} event ({to_pascal_case(s.name)}, id {s.id}) to the event tile via",
                 "   the thread-local reporter (no-op when the tile has no event link). */",
                 "static inline void",
                 f"fd_event_report_{s.name}( fd_event_{s.name}_t const * msg ) {{",
-                f"  fd_event_report_( {s.id}UL, msg, sizeof(fd_event_{s.name}_t) );",
+                f"  fd_event_report_( FD_EVENT_{up}_ID, msg, sizeof(fd_event_{s.name}_t) );",
                 "}",
                 "",
             ]
         else:
-            up = s.name.upper()
             iovs = [f"    {{ (void const *)msg, FD_EVENT_{up}_PREFIX_SZ }},"]
             for dn in dyn_names:
                 iovs.append(f"    {{ (void const *)msg->{dn}, msg->{dn}_cnt*sizeof(msg->{dn}[0]) }},")
@@ -619,7 +650,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
                 "  fd_event_report_iov_t iov[] = {",
             ] + iovs + [
                 "  };",
-                f"  fd_event_report_gather_( {s.id}UL, iov, sizeof(iov)/sizeof(iov[0]) );",
+                f"  fd_event_report_gather_( FD_EVENT_{up}_ID, iov, sizeof(iov)/sizeof(iov[0]) );",
                 "}",
                 "",
             ]
@@ -905,6 +936,265 @@ def generate_c_test_header(schemas: List[Schema]) -> str:
     ]
     return "\n".join(lines)
 
+def internal_elem_type(schema_name: str, field_name: str, f: Field) -> tuple:
+    """(C type name of one array entry, sizeof expression, 1 if the entry is an
+    array type and therefore needs a pointer-to-array declarator)."""
+    el = f.element
+    if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        tn = c_tuple_name( schema_name, field_name )
+        return (tn, f"sizeof({tn})", 0)
+    if el.variants:
+        return ("int", "sizeof(int)", 0)
+    if el.chtype in _FIXED_BYTE_SZ:
+        n = _FIXED_BYTE_SZ[el.chtype]
+        return (f"uchar [ {n}UL ]", f"{n}UL", 1)
+    ct = _SCALAR_C[el.chtype][0]
+    return (ct, f"sizeof({ct})", 0)
+
+def internal_ptr_decl(schema_name: str, field_name: str, f: Field) -> str:
+    tn, _, is_arr = internal_elem_type( schema_name, field_name, f )
+    if is_arr:
+        base, dim = tn.split( " ", 1 )
+        return f"{base} const (* {field_name}){dim}"
+    return f"{tn} const * {field_name}"
+
+def internal_ptr_cast(schema_name: str, field_name: str, f: Field) -> str:
+    tn, _, is_arr = internal_elem_type( schema_name, field_name, f )
+    if is_arr:
+        base, dim = tn.split( " ", 1 )
+        return f"({base} const (*){dim})"
+    return f"({tn} const *)"
+
+def generate_c_internal_header(schemas: List[Schema]) -> str:
+    """Emit the C side of the internal schemas: the fixed prefix struct, the
+    bounds of each dynamic array, a parts view (prefix plus one pointer per
+    array), the packed footprint, the chunked publish helper and the unpack
+    helper a consumer validates a received record with."""
+    lines = [
+        "/* THIS FILE WAS GENERATED BY gen_events.py. DO NOT EDIT BY HAND! */",
+        "#ifndef HEADER_fd_src_disco_events_generated_fd_event_internal_gen_h",
+        "#define HEADER_fd_src_disco_events_generated_fd_event_internal_gen_h",
+        "",
+        "/* Internal records travel on the dedicated internal link, from a",
+        "   producer tile to one in-process consumer, as a fixed prefix",
+        "   followed by the used entries of each dynamic array, each array",
+        "   region padded to 8 bytes so every entry is naturally aligned.",
+        "   They have no protobuf representation and the event tile never",
+        "   sees them. */",
+        "",
+        "#include <stddef.h> /* offsetof */",
+        "",
+        '#include "../fd_event_report.h"',
+        "",
+        "FD_PROTOTYPES_BEGIN",
+        "",
+    ]
+
+    for s in schemas:
+        up       = s.name.upper()
+        dyn      = [(n, f) for n, f in s.fields.items() if f.dynamic]
+
+        # Enum #defines, matching the public generator's numbering.
+        for name, f in s.fields.items():
+            if not f.variants:
+                continue
+            names = [c_enum_value(s.name, name, vn) for vn in f.variants]
+            w = max(len(n) for n in names)
+            lines.append(f"/* {f.description} */")
+            for i, (vn, v) in enumerate(f.variants.items(), 1):
+                lines.append(f"#define {c_enum_value(s.name, name, vn):<{w}} ({i}) /* {v.description} */")
+            lines += [""]
+
+        # Element structs of the Tuple arrays.
+        for name, f in s.fields.items():
+            tflds = tuple_fields_of( f )
+            if tflds is not None:
+                inner = f.element if f.chtype == ClickHouseType.Array else f
+                lines += gen_tuple_struct( s.name, name, tflds, inner.description )
+
+        members = []
+        for name, f in s.fields.items():
+            if f.dynamic:
+                members.append(("ulong", f"{name}_cnt", f"Number of {name} entries (<= {f.max_len})"))
+            elif f.variants:
+                members.append(("int", name, f.description))
+            elif f.chtype in _FIXED_BYTE_SZ:
+                members.append(("uchar", f"{name}[ {_FIXED_BYTE_SZ[f.chtype]}UL ]", f.description))
+            elif f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+                members.append((c_tuple_name( s.name, name ), name, f.description))
+            else:
+                members.append((_SCALAR_C[f.chtype][0], name, f.description))
+        tw = max(len(c) for c, _, _ in members)
+        dw = max(len(d) for _, d, _ in members)
+        lines += [f"/* {s.description} */", f"struct fd_event_{s.name} {{"]
+        for ctype, decl, desc in members:
+            lines.append(f"  {ctype:<{tw}} {decl + ';':<{dw + 1}} /* {desc} */")
+        lines += ["};", f"typedef struct fd_event_{s.name} fd_event_{s.name}_t;", ""]
+
+        defines = [
+            (f"FD_EVENT_{up}_ID",        f"({s.id}UL)"),
+            (f"FD_EVENT_{up}_PREFIX_SZ", f"(sizeof(fd_event_{s.name}_t))"),
+        ] + [
+            (f"FD_EVENT_{up}_{n.upper()}_MAX", f"({f.max_len}UL)") for n, f in dyn
+        ]
+        nw = max(len(n) for n, _ in defines)
+        lines += [f"#define {n:<{nw}} {v}" for n, v in defines]
+        lines += [
+            "",
+            "/* Every array region starts at a multiple of 8 bytes from the start",
+            "   of the record, which holds only if the prefix is a multiple of 8",
+            "   too. */",
+            f"FD_STATIC_ASSERT( FD_EVENT_{up}_PREFIX_SZ%8UL==0UL, {s.name}_prefix_align );",
+            "",
+        ]
+
+        # Parts view.
+        ptrs = [("fd_event_" + s.name + "_t const *", "prefix", "Fixed prefix")]
+        lines += [
+            f"/* fd_event_{s.name}_parts_t is one record as a set of pointers: the",
+            "   prefix plus the base of each dynamic array.  A producer fills it",
+            "   with its own buffers, a consumer gets it from the unpack helper",
+            "   pointing into the received record. */",
+            "",
+            f"struct fd_event_{s.name}_parts {{",
+            f"  fd_event_{s.name}_t const * prefix;",
+        ] + [
+            f"  {internal_ptr_decl( s.name, n, f )};" for n, f in dyn
+        ] + [
+            "};",
+            f"typedef struct fd_event_{s.name}_parts fd_event_{s.name}_parts_t;",
+            "",
+        ]
+        del ptrs
+
+        # Bounds of the prefix's counts.
+        lines += [
+            f"/* fd_event_{s.name}_bounded returns 1 if every array count of the",
+            "   prefix is within its bound. */",
+            "",
+            "FD_FN_PURE static inline int",
+            f"fd_event_{s.name}_bounded( fd_event_{s.name}_t const * msg ) {{",
+            "  return " + ( " &&\n         ".join( f"msg->{n}_cnt<=FD_EVENT_{up}_{n.upper()}_MAX" for n, f in dyn ) ) + ";",
+            "}",
+            "",
+        ]
+
+        # Packed footprint.
+        lines += [
+            f"/* fd_event_{s.name}_footprint is the packed size of the record the",
+            "   prefix describes.  Only meaningful for a bounded prefix. */",
+            "",
+            "FD_FN_PURE static inline ulong",
+            f"fd_event_{s.name}_footprint( fd_event_{s.name}_t const * msg ) {{",
+            f"  return FD_EVENT_{up}_PREFIX_SZ",
+        ] + [
+            f"       + fd_ulong_align_up( msg->{n}_cnt*{internal_elem_type( s.name, n, f )[1]}, 8UL )"
+            for n, f in dyn
+        ] + [
+            "       ;",
+            "}",
+            "",
+        ]
+
+        # Array table and publish helpers.  The table lets a producer pack
+        # a contiguous range of the arrays and splice in its own iov entries
+        # for one it holds in pieces (instruction data and account data live
+        # in buffers of their own), so nothing large is ever staged.
+        arr_defs = [(f"FD_EVENT_{up}_ARR_CNT", f"({len(dyn)}UL)")]
+        arr_defs += [(f"FD_EVENT_{up}_ARR_{n.upper()}", f"({i}UL)") for i, (n, _) in enumerate( dyn )]
+        arr_defs += [(f"FD_EVENT_{up}_IOV_MAX", f"({2*len(dyn)+1}UL)")]
+        nw = max(len(n) for n, _ in arr_defs)
+        lines += [f"#define {n:<{nw}} {v}" for n, v in arr_defs] + [""]
+
+        lines += [
+            f"/* fd_event_{s.name}_arrs describes the record's dynamic arrays in",
+            "   wire order, for the generic packing helper. */",
+            "",
+            "FD_FN_CONST static inline fd_event_internal_arr_t const *",
+            f"fd_event_{s.name}_arrs( void ) {{",
+            f"  static fd_event_internal_arr_t const arrs[ FD_EVENT_{up}_ARR_CNT ] = {{",
+        ] + [
+            "    { (ushort)offsetof(fd_event_" + s.name + "_t, " + n + "_cnt), " +
+            "(ushort)offsetof(fd_event_" + s.name + "_parts_t, " + n + "), " +
+            internal_elem_type( s.name, n, f )[1] + " },"
+            for n, f in dyn
+        ] + [
+            "  };",
+            "  return arrs;",
+            "}",
+            "",
+            f"/* fd_event_{s.name}_iov appends the arrays [first,last) of the",
+            "   record to iov and returns the new count.  A producer that holds",
+            "   one array in pieces packs the arrays below it, appends its own",
+            "   pieces (each padded to 8 bytes, with the array's count equal to",
+            "   the total), then packs the arrays above it. */",
+            "",
+            "static inline ulong",
+            f"fd_event_{s.name}_iov( fd_event_{s.name}_parts_t const * parts,",
+            f"{' '*len(f'fd_event_{s.name}_iov( ')}fd_event_report_iov_t *          iov,",
+            f"{' '*len(f'fd_event_{s.name}_iov( ')}ulong                            iov_cnt,",
+            f"{' '*len(f'fd_event_{s.name}_iov( ')}ulong                            first,",
+            f"{' '*len(f'fd_event_{s.name}_iov( ')}ulong                            last ) {{",
+            f"  return fd_event_internal_iov_arrs( parts->prefix, parts, fd_event_{s.name}_arrs()+first, last-first, iov, iov_cnt );",
+            "}",
+            "",
+            f"/* fd_event_report_{s.name} publishes one record on the internal",
+            "   link, chunked into consecutive frags.  A no-op when the calling",
+            "   tile has no internal link, and a no-op for a prefix whose counts",
+            "   are out of bounds: a producer must never fail on its own hot",
+            "   path. */",
+            "",
+            "static inline void",
+            f"fd_event_report_{s.name}( fd_event_{s.name}_parts_t const * parts ) {{",
+            "  if( FD_LIKELY( !fd_event_internal_tl ) ) return;",
+            f"  if( FD_UNLIKELY( !fd_event_{s.name}_bounded( parts->prefix ) ) ) return;",
+            "",
+            f"  fd_event_report_iov_t iov[ FD_EVENT_{up}_IOV_MAX ];",
+            "  iov[ 0 ].base = (void const *)parts->prefix;",
+            f"  iov[ 0 ].sz   = FD_EVENT_{up}_PREFIX_SZ;",
+            f"  ulong iov_cnt = fd_event_{s.name}_iov( parts, iov, 1UL, 0UL, FD_EVENT_{up}_ARR_CNT );",
+            f"  fd_event_report_chunked_( FD_EVENT_{up}_ID, iov, iov_cnt );",
+            "}",
+            "",
+        ]
+
+        # Unpack helper.
+        fn  = f"fd_event_{s.name}_unpack( "
+        pad = " "*len(fn)
+        ptw = len(f"fd_event_{s.name}_parts_t *")
+        lines += [
+            f"/* fd_event_{s.name}_unpack points parts at the arrays of a received",
+            "   record.  Returns 0 on success, or -1 if the record is too short,",
+            "   its counts are out of bounds, or its size does not match the",
+            "   footprint its counts imply.  rec must be 8 byte aligned. */",
+            "",
+            "static inline int",
+            f"{fn}{'void const *':<{ptw}} rec,",
+            f"{pad}{'ulong':<{ptw}} rec_sz,",
+            f"{pad}{f'fd_event_{s.name}_parts_t *':<{ptw}} parts ) {{",
+            f"  if( FD_UNLIKELY( rec_sz<FD_EVENT_{up}_PREFIX_SZ ) ) return -1;",
+            "  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)rec, 8UL ) ) ) return -1;",
+            f"  fd_event_{s.name}_t const * msg = (fd_event_{s.name}_t const *)rec;",
+            f"  if( FD_UNLIKELY( !fd_event_{s.name}_bounded( msg ) ) ) return -1;",
+            f"  if( FD_UNLIKELY( rec_sz!=fd_event_{s.name}_footprint( msg ) ) ) return -1;",
+            "",
+            f"  uchar const * cur = (uchar const *)rec + FD_EVENT_{up}_PREFIX_SZ;",
+            "  parts->prefix = msg;",
+        ]
+        for k, (n, f) in enumerate( dyn ):
+            esz = internal_elem_type( s.name, n, f )[1]
+            lines += [f"  parts->{n} = {internal_ptr_cast( s.name, n, f )}cur;"]
+            if k+1<len(dyn):
+                lines += [f"  cur += fd_ulong_align_up( msg->{n}_cnt*{esz}, 8UL );"]
+        lines += [
+            "  return 0;",
+            "}",
+            "",
+        ]
+
+    lines += ["FD_PROTOTYPES_END", "", "#endif", ""]
+    return "\n".join(lines)
+
 def check_breaking_changes(schema_dir: Path) -> None:
     buf_path: Optional[str] = shutil.which("buf")
     if not buf_path:
@@ -944,19 +1234,25 @@ def main() -> None:
             raise SystemExit(f"ERROR: duplicate schema name {s.name!r} (ids {seen_names[s.name]} and {s.id})")
         seen_ids[s.id]     = s.name
         seen_names[s.name] = s.id
-    proto_path.write_text(generate_protobuf(schemas))
 
-    print(f"Protobuf generated successfully from {len(schemas)} schemas")
+    internal = [s for s in schemas if s.internal]
+    public   = [s for s in schemas if not s.internal]
+
+    proto_path.write_text(generate_protobuf(public))
+
+    print(f"Protobuf generated successfully from {len(public)} schemas")
 
     gen_dir = Path(__file__).parent / "generated"
     gen_dir.mkdir(exist_ok=True)
-    (gen_dir / "fd_event_gen.h").write_text(generate_c_header(schemas))
-    (gen_dir / "fd_event_gen.c").write_text(generate_c_source(schemas))
-    (gen_dir / "fd_event_gen_test.h").write_text(generate_c_test_header(schemas))
-    eligible = [s.name for s in schemas if schema_is_supported(s)]
-    skipped  = [s.name for s in schemas if not schema_is_supported(s)]
+    (gen_dir / "fd_event_gen.h").write_text(generate_c_header(public))
+    (gen_dir / "fd_event_gen.c").write_text(generate_c_source(public))
+    (gen_dir / "fd_event_gen_test.h").write_text(generate_c_test_header(public))
+    (gen_dir / "fd_event_internal_gen.h").write_text(generate_c_internal_header(internal))
+    eligible = [s.name for s in public if schema_is_supported(s)]
+    skipped  = [s.name for s in public if not schema_is_supported(s)]
     print(f"C structs/serializers generated for fixed-length schemas: {eligible}")
     print(f"  (skipped variable-length schemas: {skipped})")
+    print(f"C structs/pack helpers generated for internal schemas: {[s.name for s in internal]}")
 
     if not args.skip_check:
         check_breaking_changes(schema_dir)

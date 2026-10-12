@@ -198,6 +198,20 @@ struct fd_replay_slot_completed {
   } cost_tracker;
 
   fd_block_footer_t footer;
+
+  fd_hash_t parent_block_hash; /* last microblock hash of the parent, zero if the parent bank is gone */
+  long  block_time;      /* unix_timestamp of the clock sysvar at block end, LONG_MIN if unknown */
+  ulong epoch_reward_partitions; /* num_partitions of the epoch rewards sysvar on the first block of an epoch while rewards are being distributed, ULONG_MAX otherwise */
+  ulong entry_cnt;       /* entries (microblocks, ticks included) the block was replayed from; 0 for a block this validator produced */
+
+  /* The fee rewards the block paid out when it froze, in the order
+     agave lists them among the block's rewards. */
+  ulong fee_reward_cnt;
+  struct {
+    fd_pubkey_t pubkey;
+    ulong       lamports;
+    ulong       post_balance;
+  } fee_reward[ 2 ];
 };
 
 typedef struct fd_replay_slot_completed fd_replay_slot_completed_t;

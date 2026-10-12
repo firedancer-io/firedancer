@@ -93,6 +93,7 @@ enum {
 #include "fd_metrics_snapin.h"
 #include "fd_metrics_metric.h"
 #include "fd_metrics_rpc.h"
+#include "fd_metrics_dragon.h"
 #include "fd_metrics_diag.h"
 #include "fd_metrics_genesi.h"
 #include "fd_metrics_admin.h"
@@ -263,7 +264,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 
 #define FD_METRICS_TOTAL_SZ (8UL*272UL)
 
-#define FD_METRICS_TILE_KIND_CNT 50
+#define FD_METRICS_TILE_KIND_CNT 51
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

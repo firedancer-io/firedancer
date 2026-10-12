@@ -137,6 +137,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   FD_TEST( tile->metrics );
   fd_metrics_register( tile->metrics );
   fd_event_register( topo, tile );
+  fd_event_register_internal( topo, tile );
 
   FD_MGAUGE_SET( TILE, PID, pid );
   FD_MGAUGE_SET( TILE, TID, tid );

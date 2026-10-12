@@ -14,7 +14,9 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
                              fd_pubkey_t const *               signers,
                              ulong                             signers_cnt ) {
   /* Set up the instr info */
-  fd_instr_info_t *        instr_info = &ctx->runtime->instr.trace[ ctx->runtime->instr.trace_length++ ];
+  /* The entry joins the trace only once the instruction executes, so an
+     invoke that fails preparation leaves no trace entry. */
+  fd_instr_info_t *        instr_info = &ctx->runtime->instr.trace[ ctx->runtime->instr.trace_length ];
   fd_instruction_account_t instruction_accounts[ FD_TXN_INSTR_ACCT_MAX ];
   ulong                    instruction_accounts_cnt;
 
@@ -64,6 +66,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L315-L321 */
+  ctx->runtime->instr.trace_length++;
   return fd_execute_instr( ctx->runtime, ctx->bank, ctx->txn_in, ctx->txn_out, instr_info );
 }
 

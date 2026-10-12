@@ -1,0 +1,49 @@
+{
+    "name": "internal_runtime_write",
+    "id": 201,
+    "internal": true,
+    "description": "One record per account written: by a transaction, following that transaction's commit record on the same link, or by the runtime outside of one (the sysvars of block preparation and finalization, fee settlement, epoch rewards and genesis)",
+    "fields": {
+        "bank_seq":          { "type": "UInt64", "description": "Bank sequence number of the bank the write belongs to" },
+        "slot":              { "type": "UInt64", "description": "Slot of that bank" },
+        "phase":             { "type": "UInt32", "description": "0 for a write before the block's transactions, 1 for a transaction's write, 2 for a write after them" },
+        "signature":         { "type": "Signature", "description": "First signature of the transaction for a phase 1 write; zero otherwise" },
+        "commit_index_in_slot": { "type": "UInt64", "description": "For a phase 1 write, the commit order of the transaction within its slot, as its commit record carries it; 0 otherwise" },
+        "touched_idx":       { "type": "UInt32", "description": "For a phase 1 write, the position of this account in the transaction's touched list; 0 otherwise" },
+        "is_leader":         { "type": "Bool",   "description": "True if the bank is a block this validator is producing" },
+        "accounts_included": { "type": "Bool",   "description": "True if account_data carries the post state data; false when account reporting is off" },
+        "write_seq":         { "type": "UInt64", "description": "For a phase 0 or 2 write, its 0-indexed order among the runtime writes of its bank and phase; 0 otherwise" },
+        "keys": {
+            "type": "Array",
+            "description": "Account keys written by this record",
+            "max_len": 64,
+            "dynamic": true,
+            "element": { "type": "Pubkey", "description": "Account key" }
+        },
+        "touched": {
+            "type": "Array",
+            "description": "Post state of every account this record wrote",
+            "max_len": 64,
+            "dynamic": true,
+            "element": {
+                "type": "Tuple",
+                "description": "Post state of one written account",
+                "fields": {
+                    "key_idx":    { "type": "UInt32", "description": "Index into keys of the account written" },
+                    "executable": { "type": "UInt32", "description": "1 if the post state is executable" },
+                    "lamports":   { "type": "UInt64", "description": "Post state lamports; 0 means the account was closed" },
+                    "data_off":   { "type": "UInt64", "description": "Offset of the post state data in account_data" },
+                    "data_sz":    { "type": "UInt64", "description": "Size of the post state data" },
+                    "owner":      { "type": "Pubkey", "description": "Post state owner" }
+                }
+            }
+        },
+        "account_data": {
+            "type": "Array",
+            "description": "Post state data of every touched account, concatenated in touched order, empty unless accounts_included",
+            "max_len": 12582912,
+            "dynamic": true,
+            "element": { "type": "UInt8", "description": "Account data byte" }
+        }
+    }
+}

@@ -1,0 +1,28 @@
+{
+    "name": "internal_reward",
+    "id": 202,
+    "internal": true,
+    "description": "The epoch rewards a bank credited while it was prepared: the vote commission rewards of the first block of an epoch and the stake rewards of the partition blocks that follow, in the order they were credited",
+    "fields": {
+        "bank_seq":  { "type": "UInt64", "description": "Bank sequence number of the bank that credited the rewards" },
+        "slot":      { "type": "UInt64", "description": "Slot of that bank" },
+        "is_leader": { "type": "Bool",   "description": "True if the bank is a block this validator is producing" },
+        "rewards": {
+            "type": "Array",
+            "description": "Rewards credited, each one agave reward entry of the block",
+            "max_len": 256,
+            "dynamic": true,
+            "element": {
+                "type": "Tuple",
+                "description": "One credited reward",
+                "fields": {
+                    "reward_type":    { "type": "UInt32", "description": "agave RewardType: 3 staking, 4 voting, 5 deactivated stake" },
+                    "commission_bps": { "type": "UInt32", "description": "Commission of the vote account in basis points, UINT_MAX when agave records none" },
+                    "lamports":       { "type": "UInt64", "description": "Lamports credited" },
+                    "post_balance":   { "type": "UInt64", "description": "Lamports of the account after the credit" },
+                    "pubkey":         { "type": "Pubkey", "description": "Account credited" }
+                }
+            }
+        }
+    }
+}

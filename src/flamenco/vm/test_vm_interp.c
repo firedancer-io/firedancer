@@ -164,6 +164,29 @@ test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
     FD_TEST( vm->stack_push_frame_count==expected_ct[i] );
   }
 
+  /* The access violation messages, rendered from the recorded fault
+     the way sbpf's EbpfError renders them (error.rs:54-59): the stack
+     frame index for a stack fault; otherwise the access, size, address
+     and the region named by the address, "unallocated" when no region
+     holds it.  The vm is the V3 one of the loop's last pass. */
+  fd_vm_mem_cfg( vm );
+  char  msg[ 128 ];
+  ulong msg_sz;
+
+  vm->segv_vaddr = 0x200007fa8UL; vm->segv_access_len = 8UL; vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+  msg_sz = fd_vm_access_violation_cstr( vm, FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION, msg, sizeof(msg) );
+  FD_TEST( msg_sz==strlen( msg ) && !strcmp( msg, "Access violation in stack frame 7 at address 0x200007fa8 of size 8" ) );
+
+  vm->segv_vaddr = 0x400001234UL; vm->segv_access_len = 8UL; vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+  msg_sz = fd_vm_access_violation_cstr( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION, msg, sizeof(msg) );
+  FD_TEST( !strcmp( msg, "Access violation reading 8 bytes at address 0x400001234 (in unallocated region)" ) );
+
+  vm->heap_sz = FD_VM_HEAP_DEFAULT;
+  vm->segv_vaddr = 0x300000010UL; vm->segv_access_len = 16UL; vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+  fd_vm_mem_cfg( vm );
+  msg_sz = fd_vm_access_violation_cstr( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION, msg, sizeof(msg) );
+  FD_TEST( !strcmp( msg, "Access violation writing 16 bytes at address 0x300000010 (in heap region)" ) );
+
   FD_LOG_NOTICE(( "%-20s PASS", "stack-frame-cfg" ));
 }
 

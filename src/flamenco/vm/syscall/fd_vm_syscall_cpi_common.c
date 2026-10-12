@@ -794,7 +794,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      the translated CPI ABI inputs.
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L895 */
   fd_pubkey_t cpi_instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ];
-  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->runtime->instr.trace[ vm->instr_ctx->runtime->instr.trace_length++ ];
+  /* The entry joins the trace only once the instruction executes, so a
+     CPI that fails preparation leaves no trace entry.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/invoke_context.rs#L603-L609 */
+  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->runtime->instr.trace[ vm->instr_ctx->runtime->instr.trace_length ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute, cpi_instr_acct_keys );
   if( FD_UNLIKELY( err ) ) {
@@ -890,6 +893,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   long const regime1 = fd_tickcount();
 
   /* Execute the CPI instruction in the runtime */
+  vm->instr_ctx->runtime->instr.trace_length++;
   int err_exec = fd_execute_instr( vm->instr_ctx->runtime, vm->instr_ctx->bank, vm->instr_ctx->txn_in, vm->instr_ctx->txn_out, instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
 

@@ -479,6 +479,16 @@ fd_vm_exec( fd_vm_t * vm ) {
   else                           return fd_vm_exec_notrace( vm );
 }
 
+/* fd_vm_access_violation_cstr renders the access violation err the vm
+   halted on, from the fault the vm recorded, the way agave's EbpfError
+   does.  Returns the length written to buf (without the NUL). */
+
+ulong
+fd_vm_access_violation_cstr( fd_vm_t * vm,
+                             int       err,
+                             char *    buf,
+                             ulong     buf_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_h */

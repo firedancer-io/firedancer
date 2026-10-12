@@ -54,6 +54,36 @@ fd_vm_syscall_strerror( int err ) {
    intended to be logged by log_collector, or an empty string if the error code
    should be omitted in logs for whatever reason.
    See also fd_log_collector_program_failure(). */
+ulong
+fd_vm_access_violation_cstr( fd_vm_t * vm,
+                             int       err,
+                             char *    buf,
+                             ulong     buf_sz ) {
+  ulong vaddr = vm->segv_vaddr;
+  ulong len   = vm->segv_access_len;
+  ulong out_len = 0UL;
+  if( err==FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION ) {
+    long rel_offset  = fd_long_sat_sub( (long)vaddr, (long)FD_VM_MEM_MAP_STACK_REGION_START );
+    long stack_frame = rel_offset / (long)FD_VM_STACK_FRAME_SZ;
+    fd_cstr_printf( buf, buf_sz, &out_len, "Access violation in stack frame %ld at address 0x%lx of size %lu", stack_frame, vaddr, len );
+    return out_len;
+  }
+  /* sbpf names the region by its base address, "unallocated" when no
+     region holds the first byte of the access, "allocated" for one
+     with no name of its own (memory_region.rs:999-1027). */
+  int inside = !!fd_vm_mem_haddr( vm, vaddr, 1UL, vm->region_haddr, vm->region_ld_sz, 0, 0UL );
+  ulong        base   = vaddr & ~0xFFFFFFFFUL;
+  char const * region = !inside                                      ? "unallocated"
+                      : base==FD_VM_MEM_MAP_PROGRAM_REGION_START     ? "program"
+                      : base==FD_VM_MEM_MAP_STACK_REGION_START       ? "stack"
+                      : base==FD_VM_MEM_MAP_HEAP_REGION_START        ? "heap"
+                      : base==FD_VM_MEM_MAP_INPUT_REGION_START       ? "input"
+                      :                                                "allocated";
+  fd_cstr_printf( buf, buf_sz, &out_len, "Access violation %s %lu bytes at address 0x%lx (in %s region)",
+                  vm->segv_access_type==FD_VM_ACCESS_TYPE_ST ? "writing" : "reading", len, vaddr, region );
+  return out_len;
+}
+
 char const *
 fd_vm_ebpf_strerror( int err ) {
 

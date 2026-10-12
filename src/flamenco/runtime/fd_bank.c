@@ -472,6 +472,8 @@ fd_banks_new( void * shmem,
   }
 
   banks_data->report_runtime_diffs = 0;
+  banks_data->dragon_enabled     = 0;
+  banks_data->dragon_accounts    = 0;
   banks_data->max_total_banks    = max_total_banks;
   banks_data->max_fork_width     = max_fork_width;
   banks_data->max_stake_accounts = max_stake_accounts;
@@ -674,6 +676,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   child_bank->f.signature_count           = 0UL;
   child_bank->f.total_compute_units_used  = 0UL;
   child_bank->f.shred_cnt                 = 0UL;
+  child_bank->f.fee_reward_cnt            = 0UL;
   child_bank->f.txn_count                 = 0UL;
   child_bank->f.nonvote_txn_count         = 0UL;
   child_bank->f.failed_txn_count          = 0UL;
