@@ -1791,6 +1791,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->votor.identity_key_path, config->paths.identity_key, sizeof(tile->votor.identity_key_path) );
     fd_cstr_ncpy( tile->votor.vote_history_path, config->tiles.votor.write_vote_history_file ? config->paths.vote_history : "", sizeof(tile->votor.vote_history_path) );
+    tile->votor.target_gid = config->gid;
+    tile->votor.target_uid = config->uid;
     tile->votor.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
@@ -1807,6 +1809,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     fd_cstr_ncpy( tile->tower.tower_path, config->tiles.tower.write_vote_history_file ? config->paths.vote_history : "", sizeof(tile->tower.tower_path) );
+    tile->tower.target_gid = config->gid;
+    tile->tower.target_uid = config->uid;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {
 

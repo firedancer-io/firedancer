@@ -654,12 +654,16 @@ struct fd_topo_tile {
       char  identity_key[ PATH_MAX ];
       char  vote_account[ PATH_MAX ];
       char  tower_path[ PATH_MAX ];
+      uint  target_gid;
+      uint  target_uid;
       ulong max_shreds_per_block;
     } tower;
 
     struct {
       char   identity_key_path[ PATH_MAX ];
       char   vote_history_path[ PATH_MAX ];
+      uint   target_gid;
+      uint   target_uid;
       ulong  authorized_voter_paths_cnt;
       ushort quic_client_listen_port;
       ushort quic_server_listen_port;
