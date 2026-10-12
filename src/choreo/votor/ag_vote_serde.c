@@ -54,6 +54,7 @@ ag_vote_de( ag_vote_t *   self,
   blst_p2_affine sig_aff[1];
   FAIL( blst_p2_deserialize( sig_aff, vote.signature )!=BLST_SUCCESS, INVAL );
   blst_p2_from_affine( sig, sig_aff );
+  FAIL( blst_p2_is_inf( sig ), SIG );
   vote.shred_version = FD_LOAD( ushort, buf+off ); off += sizeof(ushort);
 
   fd_memset( self, 0, sizeof(ag_vote_t) );
