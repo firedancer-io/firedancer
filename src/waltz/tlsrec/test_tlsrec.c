@@ -5,8 +5,11 @@
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/x509/fd_x509_mock.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 
 /* Reimplement IV generation logic for testing.
@@ -1325,6 +1328,138 @@ test_tlsrec_sock_close_notify( fd_rng_t * rng ) {
   FD_TEST( !close( fds[1] ) );
 }
 
+static void
+test_tlsrec_tcp_pair( int fd[ static 2 ] ) {
+  int listener = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( listener>=0 );
+
+  struct sockaddr_in addr = {
+    .sin_family      = AF_INET,
+    .sin_addr.s_addr = fd_uint_bswap( INADDR_LOOPBACK ),
+    .sin_port        = 0,
+  };
+  FD_TEST( !bind( listener, fd_type_pun_const( &addr ), sizeof(addr) ) );
+  FD_TEST( !listen( listener, 1 ) );
+  socklen_t addr_sz = sizeof(addr);
+  FD_TEST( !getsockname( listener, fd_type_pun( &addr ), &addr_sz ) );
+
+  fd[0] = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( fd[0]>=0 );
+  FD_TEST( !connect( fd[0], fd_type_pun_const( &addr ), sizeof(addr) ) );
+  fd[1] = accept( listener, NULL, NULL );
+  FD_TEST( fd[1]>=0 );
+  FD_TEST( !close( listener ) );
+  FD_TEST( fcntl( fd[0], F_SETFL, O_NONBLOCK )>=0 );
+  FD_TEST( fcntl( fd[1], F_SETFL, O_NONBLOCK )>=0 );
+}
+
+static int
+test_tlsrec_ktls_wait_rx( fd_tlsrec_sock_t * sock,
+                          fd_tlsrec_conn_t * conn,
+                          int                fd ) {
+  for( ulong i=0UL; i<100000UL; i++ ) {
+    ulong progress = 0UL;
+    int rc = fd_tlsrec_sock_rx( sock, conn, fd, &progress );
+    if( rc || progress || fd_tlsrec_sock_rx_avail( sock ) ) return rc;
+  }
+  FD_LOG_ERR(( "kTLS receive made no progress" ));
+}
+
+/* kTLS replaces the complete application record path, including
+   application data, post-handshake KeyUpdate, and alerts. */
+
+static void
+test_tlsrec_ktls( fd_rng_t * rng ) {
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
+  fd_chacha_rng_t chacha[1];
+  fd_tls_t tls = {
+    .rng  = fd_tls_test_rand( chacha, rng ),
+    .sign = fd_tls_test_sign( sign_ctx ),
+  };
+  for( ulong j=0UL; j<32UL; j++ ) tls.kex_private_key[j] = fd_rng_uchar( rng );
+  fd_x25519_public( tls.kex_public_key, tls.kex_private_key );
+  fd_memcpy( tls.cert_public_key, sign_ctx->public_key, 32UL );
+  fd_x509_mock_cert( tls.cert_x509, tls.cert_public_key );
+  tls.cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+
+  static fd_tlsrec_conn_t cli[1], srv[1];
+  FD_TEST( fd_tlsrec_conn_init( cli, &tls, 0 )==cli );
+  FD_TEST( fd_tlsrec_conn_init( srv, &tls, 1 )==srv );
+
+  int fd[2];
+  test_tlsrec_tcp_pair( fd );
+  fd_tlsrec_sock_t cli_sock[1]; fd_tlsrec_sock_init_ktls( cli_sock );
+  fd_tlsrec_sock_t srv_sock[1]; fd_tlsrec_sock_init_ktls( srv_sock );
+
+  /* The userspace record layer carries only the handshake.  Reading
+     one record at a time leaves the TCP receive queue exactly on the
+     application-key boundary where both directions enter kTLS. */
+  for( ulong i=0UL; i<10000UL &&
+       !(fd_tlsrec_sock_ktls_enabled( cli_sock ) && fd_tlsrec_sock_ktls_enabled( srv_sock )); i++ ) {
+    int rc = fd_tlsrec_sock_rx( cli_sock, cli, fd[0], NULL );
+    if( FD_UNLIKELY( rc==FD_TLSREC_SOCK_ERR_KTLS ) ) {
+      FD_LOG_WARNING(( "kernel TLS unavailable (%d-%s); skipping kTLS test", errno, fd_io_strerror( errno ) ));
+      FD_TEST( !close( fd[0] ) );
+      FD_TEST( !close( fd[1] ) );
+      return;
+    }
+    FD_TEST( !rc );
+    FD_TEST( !fd_tlsrec_sock_rx( srv_sock, srv, fd[1], NULL ) );
+  }
+  FD_TEST( fd_tlsrec_conn_is_ready( cli ) && fd_tlsrec_conn_is_ready( srv ) );
+  FD_TEST( fd_tlsrec_sock_ktls_enabled( cli_sock ) );
+  FD_TEST( fd_tlsrec_sock_ktls_enabled( srv_sock ) );
+  uchar zero_key[ FD_AES_128_KEY_SZ ] = {0};
+  uchar zero_iv [ FD_AES_GCM_IV_SZ  ] = {0};
+  FD_TEST( !memcmp( cli->keys[1].read_key,  zero_key, sizeof(zero_key) ) );
+  FD_TEST( !memcmp( cli->keys[1].write_key, zero_key, sizeof(zero_key) ) );
+  FD_TEST( !memcmp( cli->keys[1].read_iv,   zero_iv,  sizeof(zero_iv)  ) );
+  FD_TEST( !memcmp( cli->keys[1].write_iv,  zero_iv,  sizeof(zero_iv)  ) );
+
+  uchar const msg0[] = "client to server through kTLS";
+  ulong consumed = 0UL;
+  FD_TEST( !fd_tlsrec_sock_tx( cli_sock, cli, fd[0], msg0, sizeof(msg0), &consumed ) );
+  FD_TEST( consumed==sizeof(msg0) );
+  FD_TEST( !test_tlsrec_ktls_wait_rx( srv_sock, srv, fd[1] ) );
+  FD_TEST( fd_tlsrec_sock_rx_avail( srv_sock )==sizeof(msg0) );
+  FD_TEST( !memcmp( fd_tlsrec_sock_rx_data( srv_sock ), msg0, sizeof(msg0) ) );
+  fd_tlsrec_sock_rx_consume( srv_sock, sizeof(msg0) );
+
+  /* Server requests an update.  Client installs TLS_RX, answers under
+     its old TX key, then installs TLS_TX.  Server consumes that answer
+     and resumes with the matching keys. */
+  FD_TEST( !fd_tlsrec_sock_key_update( srv_sock, srv, fd[1], 1 ) );
+  FD_TEST( !test_tlsrec_ktls_wait_rx( cli_sock, cli, fd[0] ) );
+  FD_TEST( !fd_tlsrec_sock_rx_avail( cli_sock ) );
+  FD_TEST( !test_tlsrec_ktls_wait_rx( srv_sock, srv, fd[1] ) );
+  FD_TEST( !fd_tlsrec_sock_rx_avail( srv_sock ) );
+  FD_TEST( !memcmp( cli->keys[1].read_secret,  srv->keys[1].write_secret, 32UL ) );
+  FD_TEST( !memcmp( cli->keys[1].write_secret, srv->keys[1].read_secret,  32UL ) );
+
+  /* Exercise the automatic TX usage limit without sending 2^24
+     records.  The KeyUpdate is emitted before the application record. */
+  srv->write_seq = FD_TLSREC_KEY_UPDATE_SEQ;
+  uchar const msg1[] = "server to client after KeyUpdate";
+  consumed = 0UL;
+  FD_TEST( !fd_tlsrec_sock_tx( srv_sock, srv, fd[1], msg1, sizeof(msg1), &consumed ) );
+  FD_TEST( consumed==sizeof(msg1) );
+  FD_TEST( !test_tlsrec_ktls_wait_rx( cli_sock, cli, fd[0] ) );
+  FD_TEST( !fd_tlsrec_sock_rx_avail( cli_sock ) );
+  FD_TEST( !memcmp( cli->keys[1].read_secret, srv->keys[1].write_secret, 32UL ) );
+  FD_TEST( !test_tlsrec_ktls_wait_rx( cli_sock, cli, fd[0] ) );
+  FD_TEST( fd_tlsrec_sock_rx_avail( cli_sock )==sizeof(msg1) );
+  FD_TEST( !memcmp( fd_tlsrec_sock_rx_data( cli_sock ), msg1, sizeof(msg1) ) );
+  fd_tlsrec_sock_rx_consume( cli_sock, sizeof(msg1) );
+
+  FD_TEST( !fd_tlsrec_sock_close( cli_sock, cli, fd[0] ) );
+  FD_TEST( test_tlsrec_ktls_wait_rx( srv_sock, srv, fd[1] )==FD_TLSREC_SOCK_ERR_EOF );
+  FD_TEST( srv->rx_closed );
+
+  FD_TEST( !close( fd[0] ) );
+  FD_TEST( !close( fd[1] ) );
+}
+
 /* RFC 8446 Sections 5.1-5.2: ignore the legacy version, but authenticate
    it as AAD.  Encrypted records must have outer type application_data. */
 
@@ -1844,6 +1979,7 @@ main( int     argc,
   test_tlsrec_plaintext_alert( rng );
   test_tlsrec_close_notify( rng );
   test_tlsrec_sock_close_notify( rng );
+  test_tlsrec_ktls( rng );
   test_tlsrec_rec_hdr( rng );
   test_tlsrec_inner_plaintext( rng );
   test_tlsrec_seq_and_closed_update( rng );
