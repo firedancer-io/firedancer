@@ -2555,6 +2555,8 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
 
     /* multiple QUIC packets in a UDP packet */
     /* shortest valid quic payload? */
+    uchar const * dcid0    = cur_ptr+6;
+    ulong         dcid0_sz = cur_ptr[5];
     ulong pkt_idx;
     for( pkt_idx=0UL; pkt_idx<FD_QUIC_PKT_COALESCE_LIMIT; pkt_idx++ ) {
       /* Are we done? Omit short packet handling that follows */
@@ -2579,6 +2581,13 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
              all packets on a connection must be of the same version (5.2) */
         quic->metrics.pkt_quic_hdr_err_cnt++;
         FD_DEBUG( FD_LOG_DEBUG(( "Mixed QUIC versions in packet" )) );
+        return;
+      }
+
+      /* RFC 9000 Section 12.2: ignore coalesced packets with a different DCID */
+      if( FD_UNLIKELY( cur_ptr[5]!=dcid0_sz || 6UL+dcid0_sz>cur_sz ||
+                       ( pkt_idx && memcmp( cur_ptr+6, dcid0, dcid0_sz ) ) ) ) {
+        quic->metrics.pkt_quic_hdr_err_cnt++;
         return;
       }
 
