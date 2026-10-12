@@ -485,7 +485,8 @@ fd_wsample_remove( fd_wsample_t * sampler,
   ulong cursor = to_remove.idx + sampler->internal_node_cnt;
   tree_ele_t * tree = sampler->tree;
 
-  for( ulong h=0UL; h<sampler->height; h++ ) {
+  ulong height = sampler->height;
+  for( ulong h=0UL; h<height; h++ ) {
     ulong parent = (cursor-1UL)/R;
     ulong child_idx = cursor-1UL - R*parent; /* in [0, R) */
 #if FD_HAS_AVX512 && R==9
@@ -734,7 +735,22 @@ fd_wsample_sample_and_remove_many( fd_wsample_t * sampler,
       continue;
     }
 #if FD_WSAMPLE_IMPLEMENTATION > 0
-  if( FD_LIKELY( sampler->height==4UL ) ) {
+  if( FD_LIKELY( sampler->height==3UL ) ) {
+    tree_ele_t * tree = sampler->tree;
+    PREPARE();
+
+    TRAVERSE_LEVEL(0);
+    TRAVERSE_LEVEL(1);
+    TRAVERSE_LEVEL(2);
+    PROPAGATE_LEVEL(0);
+    PROPAGATE_LEVEL(1);
+    PROPAGATE_LEVEL(2);
+
+    FINALIZE();
+    idxs[ i ] = cursor - sampler->internal_node_cnt;
+    continue;
+  }
+  else if( FD_LIKELY( sampler->height==4UL ) ) {
     tree_ele_t * tree = sampler->tree;
     PREPARE();
 
@@ -780,6 +796,20 @@ fd_wsample_sample_and_remove( fd_wsample_t * sampler ) {
   }
 
 #if FD_WSAMPLE_IMPLEMENTATION > 0
+  if( FD_LIKELY( sampler->height==3UL ) ) {
+    tree_ele_t * tree = sampler->tree;
+    PREPARE();
+
+    TRAVERSE_LEVEL(0);
+    TRAVERSE_LEVEL(1);
+    TRAVERSE_LEVEL(2);
+    PROPAGATE_LEVEL(0);
+    PROPAGATE_LEVEL(1);
+    PROPAGATE_LEVEL(2);
+
+    FINALIZE();
+    return cursor - sampler->internal_node_cnt;
+  }
   if( FD_LIKELY( sampler->height==4UL ) ) {
     tree_ele_t * tree = sampler->tree;
     PREPARE();
