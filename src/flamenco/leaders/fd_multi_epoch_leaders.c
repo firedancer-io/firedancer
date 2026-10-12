@@ -139,6 +139,13 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
 
   fd_vote_stake_weight_t * stakes = mleaders->vote_stake_weight;
 
+  if( FD_UNLIKELY( slot_cnt>MAX_SLOTS_PER_EPOCH ) )
+    FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu slots in it,"
+                 " but the maximum allowed is %lu", slot_cnt, MAX_SLOTS_PER_EPOCH ));
+  if( FD_UNLIKELY( pub_cnt>MAX_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
+                 " but the maximum allowed is %lu", pub_cnt, MAX_STAKE_WEIGHTS ));
+
   /* Clear old data */
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( mleaders->lsched[epoch_idx] ) );
 

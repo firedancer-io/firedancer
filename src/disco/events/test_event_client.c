@@ -1,4 +1,15 @@
+#define _GNU_SOURCE
+#include "../keyguard/fd_keyguard_client.h"
+static ulong test_sign_cnt;
+static void
+test_sign( fd_keyguard_client_t * kg, uchar * sig, uchar const * data, ulong sz, int type ) {
+  (void)kg; (void)data; (void)sz; (void)type;
+  memset( sig, 0, 64UL );
+  test_sign_cnt++;
+}
+#define fd_keyguard_client_sign test_sign
 #include "fd_event_client.c"
+#undef fd_keyguard_client_sign
 #include "../../waltz/tls/test_tls_helper.h"
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/x509/fd_x509_mock.h"
@@ -236,7 +247,7 @@ FD_UNIT_TEST( stream_heartbeat ) {
      pop, no disconnect. */
   uchar resp[ 11 ] = { 0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01 }; /* field 1 varint ULONG_MAX */
   client->defer_disconnect = INT_MAX;
-  fd_event_client_handle_stream_events_resp( client, resp, sizeof(resp) );
+  fd_event_client_handle_stream_events_resp( client, resp, sizeof(resp), FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS|(1UL<<8) );
   FD_TEST( client->defer_disconnect==INT_MAX );
   FD_TEST( client->metrics.last_acked_id==0UL );
 
@@ -266,8 +277,23 @@ test_connected_client( fd_circq_t * circq,
   client->event_stream = fd_grpc_client_stream_acquire( grpc, FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS );
   FD_TEST( client->event_stream );
   client->event_stream->s.tx_wnd = UINT_MAX>>1;
+  FD_TEST( !ZSTD_isError( ZSTD_CCtx_reset( client->zst, ZSTD_reset_session_only ) ) );
+  client->zout = (ZSTD_outBuffer){ .dst = grpc->nanopb_tx+sizeof(fd_grpc_hdr_t), .size = grpc->nanopb_tx_max-sizeof(fd_grpc_hdr_t), .pos = 0UL };
   return client;
 }
+
+/* Queue an event of sz bytes, incompressible unless zero. */
+static void
+test_push( fd_circq_t * circq,
+           fd_rng_t *   rng,
+           ulong        sz,
+           int          zero ) {
+  uchar * b = fd_circq_push_back( circq, 1UL, sz ); FD_TEST( b );
+  for( ulong i=0UL; i<sz; i++ ) b[ i ] = zero ? 0 : fd_rng_uchar( rng );
+}
+
+#define FLUSH_NS FD_EVENT_CLIENT_ZSTD_FLUSH_NANOS
+
 
 /* One poll's worth of sending without a socket. */
 static void
@@ -285,35 +311,50 @@ test_drain( fd_grpc_client_t * grpc ) {
   return sz;
 }
 
+/* Poll at *now, then FLUSH_NS later so a started batch goes out.
+   Returns bytes drained. */
+static ulong
+test_send( fd_event_client_t * client,
+           long *              now ) {
+  test_poll_tx( client, *now );
+  *now += FLUSH_NS;
+  test_poll_tx( client, *now );
+  return test_drain( client->grpc_client );
+}
+
+/* Body bytes after which an event of sz raw bytes no longer fits. */
+static ulong
+test_cap_room( fd_event_client_t * client,
+               ulong               sz ) {
+  return client->stream_body_max-sizeof(fd_grpc_hdr_t)-( ZSTD_COMPRESSBOUND( fd_pb_varint64_sz_max+sz )+64UL );
+}
+
+/* Batches go out while the pacing bucket is positive, and a batch is
+   debited its compressed size, so the bucket overshoots by at most one
+   batch. */
 FD_UNIT_TEST( tx_pacing ) {
   static uchar circq_mem[ 4096UL+(1UL<<20) ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 1UL<<20 ) );
   FD_TEST( circq );
   fd_rng_t rng_mem[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
-  fd_event_client_t * client = test_connected_client( circq, rng, 65536UL );
+  fd_event_client_t * client = test_connected_client( circq, rng, 1UL<<20 );
   fd_grpc_client_t * grpc = client->grpc_client;
 
-  /* 2x burst worth of 1 KiB messages queued */
-  ulong const msg_sz   = 1024UL;
-  ulong const msg_cnt  = 2UL*(ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz;
-  ulong const frame_sz = msg_sz+sizeof(fd_grpc_hdr_t)+sizeof(fd_h2_frame_hdr_t);
-  for( ulong i=0UL; i<msg_cnt; i++ ) { uchar * b = fd_circq_push_back( circq, 1UL, msg_sz ); FD_TEST( b ); memset( b, 0, msg_sz ); }
+  /* 2x burst worth of incompressible 1 KiB events */
+  ulong const msg_sz  = 1024UL;
+  ulong const msg_cnt = 2UL*(ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz;
+  for( ulong i=0UL; i<msg_cnt; i++ ) test_push( circq, rng, msg_sz, 0 );
 
-  /* Same instant: whole messages go out until the bucket is empty. */
+  /* Same instant: full batches go out until the bucket is empty. */
   long now = fd_log_wallclock();
   client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
-  ulong sent = 0UL, wire = 0UL;
-  for( ulong i=0UL; i<msg_cnt; i++ ) {
-    ulong before = client->metrics.events_sent;
-    test_poll_tx( client, now );
-    wire += test_drain( grpc );
-    if( client->metrics.events_sent==before ) break;
-    sent++;
-  }
-  FD_TEST( sent>0UL && sent<=(ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz+1UL );
-  FD_TEST( wire==sent*frame_sz ); /* one DATA frame per message, never sliced */
-  FD_TEST( client->tx_tokens<=0L && client->tx_tokens>-(long)msg_sz );
+  ulong wire = 0UL;
+  for( ulong i=0UL; i<64UL; i++ ) { test_poll_tx( client, now ); wire += test_drain( grpc ); }
+  ulong const batch = FD_EVENT_CLIENT_ZSTD_BATCH+msg_sz;
+  FD_TEST( client->tx_tokens<=0L && client->tx_tokens>-(long)(2UL*batch) );
+  FD_TEST( wire>=(ulong)FD_EVENT_CLIENT_TX_BURST && wire<=(ulong)FD_EVENT_CLIENT_TX_BURST+2UL*batch );
+  FD_TEST( client->metrics.events_sent*msg_sz<=(ulong)FD_EVENT_CLIENT_TX_BURST+batch );
   client->last_response_ns = now;
   long dl = fd_event_client_next_deadline( client, now );
   FD_TEST( dl>now && dl<=now+(long)1e9 );
@@ -332,20 +373,15 @@ FD_UNIT_TEST( tx_pacing ) {
   /* One second later: another burst's worth is allowed (refill clamps at burst). */
   now += (long)1e9;
   ulong wire2 = 0UL;
-  for( ulong i=0UL; i<msg_cnt; i++ ) {
-    test_poll_tx( client, now );
-    ulong got = test_drain( grpc );
-    if( !got ) break;
-    wire2 += got;
-  }
-  FD_TEST( wire2>0UL && wire2<=((ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz+1UL)*frame_sz );
+  for( ulong i=0UL; i<64UL; i++ ) { test_poll_tx( client, now ); wire2 += test_drain( grpc ); }
+  FD_TEST( wire2>0UL && wire2<=(ulong)FD_EVENT_CLIENT_TX_BURST+2UL*batch );
 
   free( client );
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
-/* A message larger than the burst still goes out whole; the bucket goes
-   negative and the next message waits for the refill. */
+/* An event larger than the burst still goes out whole; the bucket goes
+   negative and the next event waits for the refill. */
 FD_UNIT_TEST( tx_pacing_large_msg ) {
   static uchar circq_mem[ 4096UL+(2UL<<20) ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 2UL<<20 ) );
@@ -356,8 +392,8 @@ FD_UNIT_TEST( tx_pacing_large_msg ) {
   fd_grpc_client_t * grpc = client->grpc_client;
 
   ulong const msg_sz = 3UL*(ulong)FD_EVENT_CLIENT_TX_BURST;
-  uchar * b = fd_circq_push_back( circq, 1UL, msg_sz ); FD_TEST( b ); memset( b, 0, msg_sz );
-  b = fd_circq_push_back( circq, 1UL, 16UL ); FD_TEST( b ); memset( b, 0, 16UL );
+  test_push( circq, rng, msg_sz, 0 );
+  test_push( circq, rng, 16UL, 0 );
 
   long now = fd_log_wallclock();
   client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
@@ -366,25 +402,28 @@ FD_UNIT_TEST( tx_pacing_large_msg ) {
   FD_TEST( client->metrics.events_sent==1UL );
   FD_TEST( wire>=msg_sz+sizeof(fd_grpc_hdr_t) );
   FD_TEST( grpc->request_tx_op->chunk_sz==0UL );
-  FD_TEST( client->tx_tokens==-2L*FD_EVENT_CLIENT_TX_BURST );
+  FD_TEST( client->tx_tokens<=-2L*FD_EVENT_CLIENT_TX_BURST && client->tx_tokens>-2L*FD_EVENT_CLIENT_TX_BURST-4096L );
   FD_TEST( !fd_grpc_client_tx_starved( grpc ) );
   FD_TEST( !credit_stall_check( client, now ) );
   FD_TEST( !client->stall_since );
 
-  /* Same instant: the small message waits. */
+  /* Same instant: the small event waits. */
   test_poll_tx( client, now );
   FD_TEST( client->metrics.events_sent==1UL && !test_drain( grpc ) );
   client->last_response_ns = now;
   long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
   long dl = fd_event_client_next_deadline( client, now );
-  FD_TEST( dl==now+(2L*FD_EVENT_CLIENT_TX_BURST+1L)*ns_per_byte );
+  FD_TEST( dl==now+(1L-client->tx_tokens)*ns_per_byte );
 
-  /* At the deadline the bucket is back to one token: it goes out. */
+  /* At the deadline the bucket is back to one token: it joins a batch,
+     which goes out once FLUSH_NS old. */
   test_poll_tx( client, dl-1L );
-  FD_TEST( client->metrics.events_sent==1UL );
+  FD_TEST( client->zbatch_cnt==0UL );
   test_poll_tx( client, dl );
-  FD_TEST( client->metrics.events_sent==2UL );
-  FD_TEST( test_drain( grpc )==16UL+sizeof(fd_grpc_hdr_t)+sizeof(fd_h2_frame_hdr_t) );
+  FD_TEST( client->zbatch_cnt==1UL && client->metrics.events_sent==1UL );
+  FD_TEST( fd_event_client_next_deadline( client, dl )==dl+FLUSH_NS );
+  test_poll_tx( client, dl+FLUSH_NS );
+  FD_TEST( client->metrics.events_sent==2UL && test_drain( grpc ) );
 
   free( client );
   fd_rng_delete( fd_rng_leave( rng ) );
@@ -404,18 +443,18 @@ FD_UNIT_TEST( credit_stall ) {
   FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK, 0, sv ) );
   client->sockfd = sv[0]; /* disconnect() closes it */
 
-  ulong const msg_sz = 4096UL;
-  uchar * b = fd_circq_push_back( circq, 1UL, msg_sz ); FD_TEST( b ); memset( b, 0, msg_sz );
+  test_push( circq, rng, 4096UL, 0 );
 
-  /* Peer grants only 100 bytes: the message parks on zero stream credit. */
+  /* Peer grants only 100 bytes: the batch parks on zero stream credit. */
   long now = fd_log_wallclock();
   client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
   client->event_stream->s.tx_wnd = 100U;
+  test_poll_tx( client, now-FLUSH_NS );
   test_poll_tx( client, now );
   test_drain( grpc );
   FD_TEST( client->event_stream->s.tx_wnd==0U );
   ulong rem = fd_grpc_client_tx_starved( grpc );
-  FD_TEST( rem==msg_sz+sizeof(fd_grpc_hdr_t)-100UL );
+  FD_TEST( rem==client->stream_tx_sz-100UL );
 
   /* Timer arms, does not fire early. */
   FD_TEST( !credit_stall_check( client, now ) );
@@ -428,7 +467,7 @@ FD_UNIT_TEST( credit_stall ) {
   /* The bucket keeps refilling while parked, so an expired pacing
      deadline does not pin the tile awake. */
   long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
-  b = fd_circq_push_back( circq, 1UL, 16UL ); FD_TEST( b ); memset( b, 0, 16UL );
+  test_push( circq, rng, 16UL, 1 );
   client->tx_tokens = -1000L; client->tx_tokens_ns = now;
   long t0 = now+2000L*ns_per_byte;
   client->last_response_ns = t0; client->last_stream_send_ns = t0;
@@ -539,6 +578,400 @@ FD_UNIT_TEST( disconnect_transport_failure ) {
   FD_TEST( client->consecutive_failure_count==1UL );
 
   close( listener ); close( client->sockfd ); close( sv[1] );
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* A stream about to cross the body cap half-closes, and a new one opens
+   on the same connection after a fresh token.  Acks on the new stream
+   are held until the old one is fully acked, then the old stream is
+   cancelled. */
+FD_UNIT_TEST( stream_rotation ) {
+  static uchar circq_mem[ 4096UL+(1UL<<20) ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 1UL<<20 ) );
+  FD_TEST( circq );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client( circq, rng, 65536UL );
+  fd_grpc_client_t * grpc = client->grpc_client;
+  grpc->conn->peer_settings.max_concurrent_streams = 100U;
+  client->stream_gen = 1UL;
+  client->event_stream->request_ctx = FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS|(1UL<<8);
+  ulong const ctx1 = FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS|(1UL<<8);
+  ulong const ctx2 = FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS|(2UL<<8);
+
+  /* One event per batch: push each just before it is sent */
+  long now = fd_log_wallclock();
+  client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
+  for( ulong i=0UL; i<2UL; i++ ) { test_push( circq, rng, 16UL, 1 ); test_send( client, &now ); }
+  FD_TEST( client->metrics.events_sent==2UL );
+
+  /* The next event fits exactly: it goes out. */
+  test_push( circq, rng, 16UL, 1 );
+  client->stream_tx_sz = test_cap_room( client, 16UL );
+  test_send( client, &now );
+  FD_TEST( client->metrics.events_sent==3UL && client->event_stream );
+
+  /* One more would cross the cap: end the zstd frame, then half-close
+     and request a token. */
+  test_push( circq, rng, 16UL, 1 );
+  fd_grpc_h2_stream_t * old = client->event_stream;
+  client->stream_tx_sz = test_cap_room( client, 16UL )+1UL;
+  FD_TEST( client->zframe_open );
+  test_poll_tx( client, now );
+  FD_TEST( !client->zframe_open && client->event_stream==old && test_drain( grpc ) );
+  test_poll_tx( client, now );
+  FD_TEST( client->metrics.events_sent==3UL );
+  FD_TEST( !client->event_stream && client->drain_stream==old );
+  FD_TEST( old->s.state==FD_H2_STREAM_STATE_CLOSING_TX && old->has_rx_end_deadline );
+  FD_TEST( client->drain_gen==1UL && client->drain_last==2UL );
+  FD_TEST( client->auth_send_pending && client->state==FD_EVENT_CLIENT_STATE_CONNECTED );
+  test_drain( grpc );
+
+  /* No new stream before the token arrives. */
+  client->auth_bearer_len = 0UL;
+  test_poll_tx( client, now );
+  FD_TEST( !client->event_stream );
+
+  /* Token arrives: new stream opens with generation 2. */
+  client->auth_bearer_len = 4UL; memcpy( client->auth_bearer, "abcd", 5UL );
+  test_poll_tx( client, now ); test_drain( grpc );
+  FD_TEST( client->event_stream && client->event_stream!=old );
+  FD_TEST( client->event_stream->request_ctx==ctx2 );
+  FD_TEST( client->stream_gen==2UL && !client->stream_tx_sz && !client->auth_bearer_len );
+  client->event_stream->s.tx_wnd = UINT_MAX>>1;
+  test_send( client, &now );
+  FD_TEST( client->metrics.events_sent==4UL );
+
+  /* While the old stream drains, a full new stream waits instead of
+     rotating again. */
+  {
+    uchar * b = fd_circq_push_back( circq, 1UL, 16UL ); FD_TEST( b ); memset( b, 0, 16UL );
+  }
+  client->stream_tx_sz = test_cap_room( client, 16UL )+1UL;
+  FD_TEST( !test_send( client, &now ) );
+  FD_TEST( client->metrics.events_sent==4UL && client->event_stream );
+  client->stream_tx_sz = 0UL;
+
+  /* A new-stream ack is held; old-stream acks apply. */
+  uchar ack[2] = { 0x08, 0x03 };
+  fd_event_client_handle_stream_events_resp( client, ack, 2UL, ctx2 );
+  FD_TEST( client->held_ack==3UL && circq->cnt==5UL );
+  ack[1] = 0x01;
+  fd_event_client_handle_stream_events_resp( client, ack, 2UL, ctx1 );
+  FD_TEST( client->metrics.last_acked_id==1UL && circq->cnt==3UL && client->drain_gen );
+
+  /* The old stream's last event acked: the held ack applies and the
+     still-open old stream is cancelled on the next poll. */
+  ack[1] = 0x02;
+  fd_event_client_handle_stream_events_resp( client, ack, 2UL, ctx1 );
+  FD_TEST( !client->drain_gen && client->held_ack==ULONG_MAX );
+  FD_TEST( client->metrics.last_acked_id==3UL && circq->cnt==1UL );
+  FD_TEST( client->drain_stream==old );
+  ulong stream_cnt = grpc->stream_cnt;
+  test_poll_tx( client, now );
+  FD_TEST( !client->drain_stream && grpc->stream_cnt==stream_cnt-1UL );
+  fd_h2_frame_hdr_t rst; FD_TEST( fd_h2_rbuf_used_sz( grpc->frame_tx )>=sizeof(fd_h2_rst_stream_t) );
+  fd_h2_rbuf_pop_copy( grpc->frame_tx, &rst, sizeof(rst) );
+  FD_TEST( fd_h2_frame_type( rst.typlen )==FD_H2_FRAME_TYPE_RST_STREAM );
+  test_drain( grpc );
+
+  /* A late watermark from the drained stream is ignored. */
+  ack[1] = 0x02;
+  fd_event_client_handle_stream_events_resp( client, ack, 2UL, ctx1 );
+  FD_TEST( client->metrics.last_acked_id==3UL );
+  test_send( client, &now );
+  FD_TEST( client->metrics.events_sent==5UL );
+
+  /* A rotated stream the server ends before acking it reconnects. */
+  fd_grpc_resp_hdrs_t hdrs = { .h2_status=200, .grpc_status=FD_GRPC_STATUS_OK };
+  client->stream_tx_sz = test_cap_room( client, 16UL )+1UL;
+  {
+    uchar * b = fd_circq_push_back( circq, 1UL, 16UL ); FD_TEST( b ); memset( b, 0, 16UL );
+  }
+  test_poll_tx( client, now ); test_drain( grpc ); /* frame epilogue */
+  test_poll_tx( client, now ); test_drain( grpc );
+  FD_TEST( client->drain_gen==2UL && client->drain_last==4UL && client->drain_stream );
+  fd_event_client_grpc_rx_end( client, ctx2, &hdrs );
+  FD_TEST( !client->drain_stream );
+  FD_TEST( client->defer_disconnect==DISCONNECT_REASON_PEER_CLOSED );
+
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* With one concurrent stream allowed, a fully acked drain stream the
+   server has not ended holds the only slot: it is cancelled even though
+   the replacement stream is still waiting for its token. */
+FD_UNIT_TEST( stream_rotation_single_slot ) {
+  static uchar circq_mem[ 4096UL+(1UL<<20) ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 1UL<<20 ) );
+  FD_TEST( circq );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client( circq, rng, 65536UL );
+  fd_grpc_client_t * grpc = client->grpc_client;
+  grpc->conn->peer_settings.max_concurrent_streams = 1U;
+  client->stream_gen = 1UL;
+  ulong const ctx1 = FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS|(1UL<<8);
+  client->event_stream->request_ctx = ctx1;
+
+  long now = fd_log_wallclock();
+  client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
+  test_push( circq, rng, 16UL, 1 );
+  test_send( client, &now );
+  FD_TEST( client->metrics.events_sent==1UL );
+
+  /* Rotate: the half-closed stream keeps the only slot. */
+  test_push( circq, rng, 16UL, 1 );
+  client->stream_tx_sz = test_cap_room( client, 16UL )+1UL;
+  test_poll_tx( client, now ); test_drain( grpc ); /* frame epilogue */
+  test_poll_tx( client, now ); test_drain( grpc );
+  fd_grpc_h2_stream_t * old = client->drain_stream;
+  FD_TEST( old && !client->event_stream && client->drain_gen==1UL );
+  FD_TEST( !fd_grpc_client_stream_acquire_is_safe( grpc ) );
+  FD_TEST( !fd_event_client_try_send_authenticate( client, now ) );
+  long dl = fd_event_client_next_deadline( client, now );
+  FD_TEST( dl>now && dl<=now+FD_EVENT_CLIENT_STREAM_DRAIN_NANOS ); /* no busy retry */
+
+  /* Fully acked: the next poll frees the slot without a token. */
+  uchar ack[2] = { 0x08, 0x00 };
+  fd_event_client_handle_stream_events_resp( client, ack, 2UL, ctx1 );
+  FD_TEST( !client->drain_gen && client->drain_stream==old );
+  client->auth_bearer_len = 0UL;
+  test_poll_tx( client, now );
+  FD_TEST( !client->drain_stream );
+  FD_TEST( fd_grpc_client_stream_acquire_is_safe( grpc ) );
+  test_drain( grpc );
+  FD_TEST( fd_event_client_next_deadline( client, now )==now );
+  FD_TEST( fd_event_client_try_send_authenticate( client, now ) );
+
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* Events on a StreamEventsZstd stream go out as flushed chunks of one
+   zstd stream that decompress to varint length prefixed events. */
+FD_UNIT_TEST( stream_zstd ) {
+  static uchar circq_mem[ 4096UL+(4UL<<20) ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 4UL<<20 ) );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client( circq, rng, 1UL<<20 );
+  fd_grpc_client_t * grpc = client->grpc_client;
+  grpc->conn->peer_settings.max_concurrent_streams = 100U;
+
+  /* Open a zstd stream as after an Authenticate advertising it */
+  client->event_stream = NULL;
+  grpc->stream_cnt = 0UL; fd_grpc_client_reset( grpc ); grpc->h2_hs_done = 1; grpc->conn->flags = 0; grpc->conn->tx_wnd = UINT_MAX>>1;
+  client->auth_bearer_len = 4UL; memcpy( client->auth_bearer, "abcd", 5UL );
+  long now = fd_log_wallclock();
+  client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
+  test_poll_tx( client, now ); test_drain( grpc );
+  FD_TEST( client->event_stream );
+  client->event_stream->s.tx_wnd = UINT_MAX>>1;
+
+  /* 200 similar events */
+  ulong const ev_cnt = 200UL;
+  static uchar evs[ 200 ][ 300 ];
+  ulong ev_sz[ 200 ];
+  ulong raw_total = 0UL;
+  for( ulong i=0UL; i<ev_cnt; i++ ) {
+    ev_sz[ i ] = 100UL + (i*7UL)%200UL;
+    for( ulong j=0UL; j<ev_sz[ i ]; j++ ) evs[ i ][ j ] = (uchar)( j<40UL ? j : (i+j)&3 );
+    uchar * b = fd_circq_push_back( circq, 1UL, ev_sz[ i ] ); FD_TEST( b );
+    memcpy( b, evs[ i ], ev_sz[ i ] );
+    raw_total += ev_sz[ i ];
+  }
+
+  /* Collect the gRPC messages (DATA payloads) the client sends */
+  static uchar wire[ 1UL<<20 ]; ulong wire_sz = 0UL;
+  ulong msgs = 0UL;
+  for( ulong step=0UL; step<64UL && client->metrics.events_sent<ev_cnt; step++ ) {
+    now += FD_EVENT_CLIENT_ZSTD_FLUSH_NANOS;
+    client->tx_tokens = FD_EVENT_CLIENT_TX_BURST;
+    test_poll_tx( client, now );
+    ulong sz = fd_h2_rbuf_used_sz( grpc->frame_tx );
+    if( !sz ) continue;
+    static uchar frame[ 1UL<<20 ];
+    fd_h2_rbuf_pop_copy( grpc->frame_tx, frame, sz );
+    /* frames: 9 byte header + payload; strip gRPC 5 byte prefix */
+    ulong off = 0UL;
+    while( off<sz ) {
+      fd_h2_frame_hdr_t fh; memcpy( &fh, frame+off, sizeof(fh) );
+      ulong len = fd_h2_frame_length( fh.typlen );
+      FD_TEST( fd_h2_frame_type( fh.typlen )==FD_H2_FRAME_TYPE_DATA );
+      memcpy( wire+wire_sz, frame+off+9UL, len ); wire_sz += len;
+      off += 9UL+len;
+    }
+    msgs++;
+  }
+  FD_TEST( client->metrics.events_sent==ev_cnt );
+  FD_TEST( msgs>=1UL );
+
+  /* Rotation, due once the next event would cross the cap, ends the frame
+     before closing the stream */
+  { uchar * b = fd_circq_push_back( circq, 1UL, 16UL ); FD_TEST( b ); memset( b, 0, 16UL ); }
+  FD_TEST( client->stream_tx_sz==wire_sz );
+  ulong const tx_sz = client->stream_body_max;
+  client->stream_tx_sz = tx_sz;
+  test_poll_tx( client, now );
+  FD_TEST( !client->zframe_open );
+  {
+    ulong sz = fd_h2_rbuf_used_sz( grpc->frame_tx );
+    static uchar frame[ 4096 ];
+    FD_TEST( sz && sz<=sizeof(frame) );
+    fd_h2_rbuf_pop_copy( grpc->frame_tx, frame, sz );
+    fd_h2_frame_hdr_t fh; memcpy( &fh, frame, sizeof(fh) );
+    ulong len = fd_h2_frame_length( fh.typlen );
+    memcpy( wire+wire_sz, frame+9UL, len ); wire_sz += len;
+  }
+
+  /* Decompress every gRPC message with one stream context */
+  ZSTD_DCtx * dctx = ZSTD_createDCtx(); FD_TEST( dctx );
+  static uchar plain[ 1UL<<20 ]; ulong plain_sz = 0UL;
+  ulong off = 0UL, comp_total = 0UL;
+  int   frame_done = 0;
+  while( off<wire_sz ) {
+    fd_grpc_hdr_t gh; memcpy( &gh, wire+off, sizeof(gh) ); off += sizeof(gh);
+    FD_TEST( !gh.compressed );
+    ulong len = fd_uint_bswap( gh.msg_sz );
+    comp_total += len;
+    ZSTD_inBuffer  in  = { .src = wire+off, .size = len, .pos = 0UL };
+    ZSTD_outBuffer out = { .dst = plain+plain_sz, .size = sizeof(plain)-plain_sz, .pos = 0UL };
+    ulong r = 1UL;
+    while( in.pos<in.size ) { r = ZSTD_decompressStream( dctx, &out, &in ); FD_TEST( !ZSTD_isError( r ) ); }
+    plain_sz += out.pos;
+    off += len;
+    frame_done = !r;
+  }
+  FD_TEST( frame_done ); /* epilogue received: decoder saw a complete frame */
+  ZSTD_freeDCtx( dctx );
+  FD_TEST( comp_total*3UL<raw_total ); /* compresses */
+
+  /* Split and compare */
+  fd_pb_inbuf_t inbuf[1]; fd_pb_inbuf_init( inbuf, plain, plain_sz );
+  for( ulong i=0UL; i<ev_cnt; i++ ) {
+    ulong len = 0UL; uint shift = 0U;
+    for(;;) { uchar c = *inbuf->cur++; len |= (ulong)(c&0x7f)<<shift; shift += 7U; if( !(c&0x80) ) break; }
+    FD_TEST( len==ev_sz[ i ] );
+    FD_TEST( !memcmp( inbuf->cur, evs[ i ], len ) );
+    inbuf->cur += len;
+  }
+  FD_TEST( !fd_pb_inbuf_sz( inbuf ) );
+  FD_TEST( client->stream_tx_sz-tx_sz==sizeof(fd_grpc_hdr_t)+fd_uint_bswap( ((fd_grpc_hdr_t *)( wire+wire_sz-client->stream_tx_sz+tx_sz ))->msg_sz ) );
+
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* The Authenticate response takes the challenge and an optional stream
+   body cap in either order; anything else fails authentication. */
+FD_UNIT_TEST( auth_resp_fields ) {
+  static uchar circq_mem[ 4096UL+512UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 512UL ) );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client( circq, rng, 4096UL );
+  ulong const def = FD_EVENT_CLIENT_STREAM_BODY_CAP-FD_EVENT_CLIENT_STREAM_BODY_MARGIN;
+
+  uchar tok[ 3UL+FD_EVENT_CLIENT_TOKEN_SZ ] = { 0x0a, 0xd9, 0x01 }; /* field 1, len 217 */
+  uchar cap[ 5 ] = { 0x10, 0x80, 0x80, 0x80, 0x01 };               /* field 2 = 2^21 */
+  uchar small[ 4 ] = { 0x10, 0x80, 0x80, 0x01 };                     /* field 2 = 2^14, below buf_max */
+  uchar buf[ 512 ];
+
+  /* challenge only: default cap */
+  client->defer_disconnect = INT_MAX; test_sign_cnt = 0UL;
+  fd_event_client_handle_auth_challenge_resp( client, tok, sizeof(tok) );
+  FD_TEST( client->defer_disconnect==INT_MAX && test_sign_cnt==1UL );
+  FD_TEST( client->stream_body_max==def );
+
+  /* cap before challenge */
+  memcpy( buf, cap, 5UL ); memcpy( buf+5UL, tok, sizeof(tok) );
+  test_sign_cnt = 0UL;
+  fd_event_client_handle_auth_challenge_resp( client, buf, 5UL+sizeof(tok) );
+  FD_TEST( client->defer_disconnect==INT_MAX && test_sign_cnt==1UL );
+  FD_TEST( client->stream_body_max==(1UL<<21)-FD_EVENT_CLIENT_STREAM_BODY_MARGIN );
+
+  /* cap after challenge */
+  memcpy( buf, tok, sizeof(tok) ); memcpy( buf+sizeof(tok), cap, 5UL );
+  client->stream_body_max = 0UL;
+  fd_event_client_handle_auth_challenge_resp( client, buf, sizeof(tok)+5UL );
+  FD_TEST( client->defer_disconnect==INT_MAX );
+  FD_TEST( client->stream_body_max==(1UL<<21)-FD_EVENT_CLIENT_STREAM_BODY_MARGIN );
+
+  /* missing challenge, wrong size, truncated, unknown field, cap below the
+     largest event: auth fails without signing */
+  uchar bad_size[ 4 ] = { 0x0a, 0x02, 0x00, 0x00 };
+  uchar unknown[ 3UL+FD_EVENT_CLIENT_TOKEN_SZ+2UL ];
+  memcpy( unknown, tok, sizeof(tok) ); unknown[ sizeof(tok) ] = 0x18; unknown[ sizeof(tok)+1UL ] = 0x01;
+  uchar too_small[ sizeof(tok)+4UL ];
+  memcpy( too_small, tok, sizeof(tok) ); memcpy( too_small+sizeof(tok), small, 4UL );
+  struct { uchar const * p; ulong sz; } bad[] = {
+    { cap, 5UL }, { bad_size, 4UL }, { tok, sizeof(tok)-1UL }, { unknown, sizeof(unknown) }, { tok, 0UL }, { too_small, sizeof(too_small) }
+  };
+  for( ulong i=0UL; i<sizeof(bad)/sizeof(bad[0]); i++ ) {
+    client->defer_disconnect = INT_MAX; test_sign_cnt = 0UL;
+    fd_event_client_handle_auth_challenge_resp( client, bad[ i ].p, bad[ i ].sz );
+    FD_TEST( client->defer_disconnect==DISCONNECT_REASON_AUTH_FAILED && !test_sign_cnt );
+  }
+
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* A rotation Authenticate that ends without a challenge reconnects. */
+FD_UNIT_TEST( rotation_auth_no_challenge ) {
+  static uchar circq_mem[ 4096UL+512UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 512UL ) );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client( circq, rng, 4096UL );
+  fd_grpc_resp_hdrs_t hdrs = { .h2_status=200, .grpc_status=FD_GRPC_STATUS_OK };
+
+  /* Challenge received: the stream opens on the next poll, no disconnect */
+  client->event_stream    = NULL;
+  client->auth_bearer_len = 4UL;
+  fd_event_client_grpc_rx_end( client, FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE, &hdrs );
+  FD_TEST( client->defer_disconnect==INT_MAX );
+
+  /* No challenge */
+  client->auth_bearer_len = 0UL;
+  fd_event_client_grpc_rx_end( client, FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE, &hdrs );
+  FD_TEST( client->defer_disconnect==DISCONNECT_REASON_AUTH_FAILED );
+
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* An idle stream at the body cap rotates instead of sending a heartbeat
+   past it. */
+FD_UNIT_TEST( heartbeat_at_cap ) {
+  static uchar circq_mem[ 4096UL+512UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 512UL ) );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client( circq, rng, 4096UL );
+  fd_grpc_client_t * grpc = client->grpc_client;
+  grpc->conn->peer_settings.max_concurrent_streams = 100U;
+
+  long now = fd_log_wallclock();
+  client->tx_tokens = FD_EVENT_CLIENT_TX_BURST; client->tx_tokens_ns = now;
+  client->last_stream_send_ns = now-FD_EVENT_CLIENT_HEARTBEAT_NANOS-1L;
+
+  /* Room left: heartbeat */
+  client->stream_tx_sz = client->stream_body_max-sizeof(fd_grpc_hdr_t);
+  fd_grpc_h2_stream_t * stream = client->event_stream;
+  test_poll_tx( client, now );
+  FD_TEST( client->event_stream==stream && client->stream_tx_sz==client->stream_body_max );
+  test_drain( grpc );
+
+  /* No room: rotate */
+  client->last_stream_send_ns = now-FD_EVENT_CLIENT_HEARTBEAT_NANOS-1L;
+  test_poll_tx( client, now );
+  FD_TEST( !client->event_stream && client->drain_stream==stream && client->auth_send_pending );
+  FD_TEST( client->stream_tx_sz==client->stream_body_max );
+
   free( client );
   fd_rng_delete( fd_rng_leave( rng ) );
 }

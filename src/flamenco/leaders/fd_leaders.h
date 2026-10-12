@@ -28,6 +28,7 @@
    rotation. */
 
 #include "../fd_flamenco_base.h"
+#include "fd_leaders_base.h"
 #include "../stakes/fd_stake_weight.h"
 #include "../../ballet/wsample/fd_wsample.h"
 
@@ -103,6 +104,7 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
    which spans slots [slot0, slot0+slot_cnt).  `slot0` must be the first
    slot in the epoch, but slot_cnt can be less than the length of the
    epoch to derive only the first portion of the leader schedule.
+   slot_cnt must be at most MAX_SLOTS_PER_EPOCH (FD_LOG_ERR otherwise).
    pub_cnt is the number of unique public keys in this schedule.
    `stakes` points to the first entry of pub_cnt entries of stake
    weights sorted by tuple (stake, pubkey) in descending order.

@@ -15,6 +15,9 @@
 #include "../../waltz/tlsrec/fd_tlsrec.h"
 #include "../../ballet/ed25519/fd_x25519.h"
 
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+
 #include <netinet/tcp.h>
 #include <unistd.h>
 #include <errno.h>
@@ -33,14 +36,35 @@
 #define DISCONNECT_REASON_INVALID_PROTOBUF   (8)
 
 #define FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE  (1UL)
-#define FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS (3UL)
+#define FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS (2UL) /* low byte; stream generation above */
 
 #define FD_EVENT_CLIENT_HEARTBEAT_NANOS (15L*(long)1e9)
 #define FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS (60L*(long)1e9)
 
-#define FD_EVENT_CLIENT_TX_RATE_BPS (2L*1000L*1000L)
+#define FD_EVENT_CLIENT_TX_RATE_BPS (4L*1000L*1000L)
 #define FD_EVENT_CLIENT_TX_BURST (256L<<10)
 #define FD_EVENT_CLIENT_CREDIT_STALL_NANOS (20L*(long)1e9)
+
+/* The edge proxy fails a request after 100 MB of body.  Rotate to a new
+   StreamEvents request on the same connection before that.  The server
+   may override the cap in its Authenticate response. */
+#define FD_EVENT_CLIENT_STREAM_BODY_CAP     (100UL*1000UL*1000UL)
+#define FD_EVENT_CLIENT_STREAM_BODY_MARGIN  (64UL<<10)
+
+/* Sent in Authenticate; servers send newer response fields only to
+   clients that advertise them.  1: max_stream_body */
+#define FD_EVENT_CLIENT_PROTOCOL_VERSION (1UL)
+
+/* StreamEventsZstd has one zstd stream per call.  Each gRPC message is
+   the compressor output at one flush; decompressed, the stream is
+   varint(len) | StreamEventsRequest, repeated.  A flush ends a batch
+   always on an event boundary. */
+#define FD_EVENT_CLIENT_ZSTD_LEVEL       (3)
+#define FD_EVENT_CLIENT_ZSTD_WLOG        (20)
+#define FD_EVENT_CLIENT_ZSTD_BATCH       (64UL<<10)
+#define FD_EVENT_CLIENT_ZSTD_FLUSH_NANOS (10L*1000L*1000L)
+FD_STATIC_ASSERT( FD_EVENT_CLIENT_ZSTD_LEVEL<=3 || FD_EVENT_CLIENT_ZSTD_LEVEL>=16, zstd_level );
+#define FD_EVENT_CLIENT_STREAM_DRAIN_NANOS (30L*(long)1e9)
 
 #define FD_EVENT_CLIENT_TOKEN_SZ (217UL)
 
@@ -83,6 +107,22 @@ struct fd_event_client {
   ulong stall_events_sent;
 
   int auth_send_pending;
+
+  ulong stream_body_max; /* rotate before a stream's request body exceeds this */
+
+  ZSTD_CCtx *    zst;
+  ZSTD_outBuffer zout;
+  ulong          zbatch_raw;
+  ulong          zbatch_cnt;
+  long           zbatch_ns;
+  int            zframe_open; /* frame started, epilogue not yet sent */
+
+  ulong stream_gen;   /* generation of event_stream, in its request_ctx */
+  ulong stream_tx_sz; /* request body bytes sent on event_stream */
+  fd_grpc_h2_stream_t * drain_stream; /* half-closed stream, NULL once the server ends it */
+  ulong drain_gen;    /* generation of the half-closed stream, 0 if none */
+  ulong drain_last;   /* last nonce sent on the half-closed stream */
+  ulong held_ack;     /* newer stream's ack held until the drain ends, ULONG_MAX if none */
 
   ulong state;
   union {
@@ -165,12 +205,20 @@ fd_event_client_align( void ) {
   return alignof( fd_event_client_t );
 }
 
-FD_FN_CONST ulong
+static ulong
+zstd_footprint( void ) {
+  ZSTD_compressionParameters cp = ZSTD_getCParams( FD_EVENT_CLIENT_ZSTD_LEVEL, ZSTD_CONTENTSIZE_UNKNOWN, 0UL );
+  cp.windowLog = FD_EVENT_CLIENT_ZSTD_WLOG;
+  return ZSTD_estimateCStreamSize_usingCParams( cp );
+}
+
+ulong
 fd_event_client_footprint( ulong buf_max ) {
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_client_t), sizeof(fd_event_client_t)           );
   l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max ) );
+  l = FD_LAYOUT_APPEND( l, 64UL,                       zstd_footprint()                    );
   return FD_LAYOUT_FINI( l, alignof(fd_event_client_t) );
 }
 
@@ -203,8 +251,9 @@ fd_event_client_new( void *                     shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_event_client_t * client = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_client_t), sizeof(fd_event_client_t)          );
+  fd_event_client_t * client = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_client_t), sizeof(fd_event_client_t)           );
   void * grpc_client_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max ) );
+  void * zst_mem             = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                       zstd_footprint()                    );
 
   fd_url_t url[1];
   _Bool _is_ssl = 0;
@@ -248,6 +297,19 @@ fd_event_client_new( void *                     shmem,
   }
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
+  client->stream_body_max = FD_EVENT_CLIENT_STREAM_BODY_CAP-FD_EVENT_CLIENT_STREAM_BODY_MARGIN;
+  client->zst = ZSTD_initStaticCStream( zst_mem, zstd_footprint() );
+  FD_TEST( client->zst );
+  FD_TEST( !ZSTD_isError( ZSTD_CCtx_setParameter( client->zst, ZSTD_c_compressionLevel, FD_EVENT_CLIENT_ZSTD_LEVEL ) ) );
+  FD_TEST( !ZSTD_isError( ZSTD_CCtx_setParameter( client->zst, ZSTD_c_windowLog,        FD_EVENT_CLIENT_ZSTD_WLOG  ) ) );
+  client->zbatch_raw   = 0UL;
+  client->zbatch_cnt   = 0UL;
+  client->zframe_open  = 0;
+  client->stream_gen   = 0UL;
+  client->stream_tx_sz = 0UL;
+  client->drain_stream = NULL;
+  client->drain_gen    = 0UL;
+  client->held_ack     = ULONG_MAX;
   client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
   client->disconnected.reconnect_deadline = 0L;
 
@@ -354,6 +416,13 @@ disconnect( fd_event_client_t * client,
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
   client->stall_since = 0L;
+  client->stream_tx_sz = 0UL;
+  client->zbatch_raw   = 0UL;
+  client->zbatch_cnt   = 0UL;
+  client->zframe_open  = 0;
+  client->drain_stream = NULL;
+  client->drain_gen    = 0UL;
+  client->held_ack     = ULONG_MAX;
 
   client->auth_bearer[ 0 ] = '\0';
   client->auth_bearer_len  = 0UL;
@@ -501,6 +570,7 @@ fd_event_client_try_send_authenticate( fd_event_client_t * client,
   fd_pb_push_uint64( auth_req, 7U, client->machine_id );
   fd_pb_push_uint64( auth_req, 8U, client->boot_id );
   fd_pb_push_string( auth_req, 9U, client->action, strlen( client->action ) );
+  fd_pb_push_uint64( auth_req, 10U, FD_EVENT_CLIENT_PROTOCOL_VERSION );
 
   fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
       client->grpc_client,
@@ -541,47 +611,47 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   fd_pb_inbuf_t inbuf[1];
   fd_pb_inbuf_init( inbuf, protobuf, protobuf_sz );
 
-  if( FD_UNLIKELY( protobuf_sz==0UL ) ) {
-    FD_LOG_WARNING(( "Empty auth challenge response" ));
+  /* challenge (1) and optional max_stream_body (2), in any order */
+  uchar const * challenge = NULL;
+  ulong         body_cap  = FD_EVENT_CLIENT_STREAM_BODY_CAP;
+  while( fd_pb_inbuf_sz( inbuf ) ) {
+    fd_pb_tlv_t tlv;
+    if( FD_UNLIKELY( !fd_pb_read_tlv( inbuf, &tlv ) ) ) {
+      FD_LOG_WARNING(( "Failed to parse auth challenge response" ));
+      client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
+      return;
+    }
+    if( tlv.field_id==1U && tlv.wire_type==FD_PB_WIRE_TYPE_LEN ) {
+      if( FD_UNLIKELY( tlv.len!=FD_EVENT_CLIENT_TOKEN_SZ || fd_pb_inbuf_sz( inbuf )<tlv.len ) ) {
+        FD_LOG_WARNING(( "Invalid challenge token size: %lu bytes (expected %lu)", tlv.len, FD_EVENT_CLIENT_TOKEN_SZ ));
+        client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
+        return;
+      }
+      challenge = inbuf->cur;
+      inbuf->cur += tlv.len;
+    } else if( tlv.field_id==2U && tlv.wire_type==FD_PB_WIRE_TYPE_VARINT ) {
+      body_cap = fd_ulong_min( tlv.varint, UINT_MAX );
+    } else {
+      FD_LOG_WARNING(( "Unexpected field in auth challenge response" ));
+      client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
+      return;
+    }
+  }
+  if( FD_UNLIKELY( !challenge ) ) {
+    FD_LOG_WARNING(( "Missing challenge in auth challenge response" ));
     client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
     return;
   }
-
-  fd_pb_tlv_t challenge_tlv;
-  if( FD_UNLIKELY( !fd_pb_read_tlv( inbuf, &challenge_tlv ) ) ) {
-    FD_LOG_WARNING(( "Failed to parse auth challenge response" ));
+  if( FD_UNLIKELY( body_cap<client->grpc_client->nanopb_tx_max+FD_EVENT_CLIENT_STREAM_BODY_MARGIN ) ) {
+    FD_LOG_WARNING(( "telemetry server stream body cap %lu is below the largest event (%lu)", body_cap, client->grpc_client->nanopb_tx_max ));
     client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
     return;
   }
+  client->stream_body_max = body_cap-FD_EVENT_CLIENT_STREAM_BODY_MARGIN;
 
-  if( FD_UNLIKELY( challenge_tlv.field_id!=1U || challenge_tlv.wire_type!=FD_PB_WIRE_TYPE_LEN ) ) {
-    FD_LOG_WARNING(( "Unexpected field in auth challenge response" ));
-    client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
-    return;
-  }
-
-  ulong challenge_len = challenge_tlv.len;
-  if( FD_UNLIKELY( challenge_len!=FD_EVENT_CLIENT_TOKEN_SZ ) ) {
-    FD_LOG_WARNING(( "Invalid challenge token size: %lu bytes (expected %lu)", challenge_len, FD_EVENT_CLIENT_TOKEN_SZ ));
-    client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
-    return;
-  }
-
-  if( FD_UNLIKELY( fd_pb_inbuf_sz( inbuf )<challenge_len ) ) {
-    FD_LOG_WARNING(( "Truncated auth challenge response" ));
-    client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
-    return;
-  }
-
+  ulong challenge_len = FD_EVENT_CLIENT_TOKEN_SZ;
   uchar challenge_token[ FD_EVENT_CLIENT_TOKEN_SZ ];
-  memcpy( challenge_token, inbuf->cur, challenge_len );
-  inbuf->cur += challenge_len;
-
-  if( FD_UNLIKELY( fd_pb_inbuf_sz( inbuf ) ) ) {
-    FD_LOG_WARNING(( "Trailing data in auth challenge response" ));
-    client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
-    return;
-  }
+  memcpy( challenge_token, challenge, challenge_len );
 
   uchar sign_request[ 100UL + FD_EVENT_CLIENT_TOKEN_SZ ];
   static char const sign_prefix[ 100 ] =
@@ -603,6 +673,8 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   fd_hex_encode( client->auth_bearer + 2UL*FD_EVENT_CLIENT_TOKEN_SZ+1UL, signature, 64UL );
   client->auth_bearer_len = 2UL*FD_EVENT_CLIENT_TOKEN_SZ + 1UL + 2UL*64UL;
   client->auth_bearer[ client->auth_bearer_len ] = '\0';
+
+  if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED ) ) return; /* stream rotation */
 
   client->event_stream = NULL;
   client->metrics.transport_success_cnt++;
@@ -639,9 +711,27 @@ fd_event_client_grpc_rx_start( void * app_ctx,
 }
 
 static void
+ack_apply( fd_event_client_t * client,
+           ulong               nonce_ack ) {
+  client->metrics.last_acked_id = nonce_ack;
+  if( FD_UNLIKELY( -1==fd_circq_pop_until( client->circq, nonce_ack ) ) ) {
+    FD_LOG_WARNING(( "Event gRPC rx msg: invalid cursor ack %lu", nonce_ack ));
+    client->defer_disconnect = DISCONNECT_REASON_INVALID_CURSOR;
+  }
+}
+
+static void
+drain_end( fd_event_client_t * client ) {
+  client->drain_gen = 0UL;
+  if( FD_UNLIKELY( client->held_ack!=ULONG_MAX ) ) ack_apply( client, client->held_ack );
+  client->held_ack = ULONG_MAX;
+}
+
+static void
 fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
                                            void const *        protobuf,
-                                           ulong               protobuf_sz ) {
+                                           ulong               protobuf_sz,
+                                           ulong               request_ctx ) {
   fd_pb_inbuf_t inbuf[1];
   fd_pb_inbuf_init( inbuf, protobuf, protobuf_sz );
 
@@ -668,13 +758,17 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
   client->last_response_ns = client->now;
   if( FD_UNLIKELY( nonce_ack==ULONG_MAX ) ) return;
 
-  client->metrics.last_acked_id = nonce_ack;
-
-  int err = fd_circq_pop_until( client->circq, nonce_ack );
-  if( FD_UNLIKELY( -1==err ) ) {
-    FD_LOG_WARNING(( "Event gRPC rx msg: invalid cursor ack %lu", nonce_ack ));
-    client->defer_disconnect = DISCONNECT_REASON_INVALID_CURSOR;
+  /* Acks are cumulative over the circq, so the new stream's acks would
+     also pop events still in flight on the draining stream. */
+  ulong gen = request_ctx>>8;
+  if( FD_UNLIKELY( client->drain_gen && gen!=client->drain_gen ) ) {
+    client->held_ack = nonce_ack;
+    return;
   }
+  if( FD_UNLIKELY( !client->drain_gen && gen!=client->stream_gen ) ) return; /* stale watermark from a drained stream */
+
+  ack_apply( client, nonce_ack );
+  if( FD_UNLIKELY( client->drain_gen && nonce_ack>=client->drain_last ) ) drain_end( client );
 }
 
 void
@@ -684,12 +778,12 @@ fd_event_client_grpc_rx_msg( void *       app_ctx,
                              ulong        request_ctx ) {
   fd_event_client_t * client = app_ctx;
 
-  switch( request_ctx ) {
+  switch( request_ctx & 0xffUL ) {
     case FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE:
       fd_event_client_handle_auth_challenge_resp( client, protobuf, protobuf_sz );
       break;
     case FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS:
-      fd_event_client_handle_stream_events_resp( client, protobuf, protobuf_sz );
+      fd_event_client_handle_stream_events_resp( client, protobuf, protobuf_sz, request_ctx );
       break;
     default:
       FD_LOG_WARNING(( "Unknown request_ctx: %lu, disconnecting", request_ctx ));
@@ -704,6 +798,16 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
                              fd_grpc_resp_hdrs_t * resp ) {
   fd_event_client_t * client = app_ctx;
 
+  if( FD_UNLIKELY( client->drain_stream && request_ctx==client->drain_stream->request_ctx ) ) {
+    client->drain_stream = NULL; /* released by the gRPC client */
+    if( FD_LIKELY( !client->drain_gen ) ) return;
+    /* Unacked events on the old stream sit behind the cursor: resend
+       them by reconnecting. */
+    FD_LOG_WARNING(( "telemetry server ended rotated stream before acking it (%lu<%lu)", client->metrics.last_acked_id, client->drain_last ));
+    client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
+    return;
+  }
+
   if( FD_UNLIKELY( resp->h2_status!=200 ) ) {
     FD_LOG_WARNING(( "telemetry server request failed %s(HTTP status %u)%s", fd_log_style_dim(), resp->h2_status, fd_log_style_normal() ));
     client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
@@ -717,7 +821,7 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
   }
 
   if( FD_UNLIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
-    switch( request_ctx ) {
+    switch( request_ctx & 0xffUL ) {
     case FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE:
       FD_LOG_WARNING(( "telemetry server authentication failed: %.*s %s(%u-%s)%s",
                        (int)resp->grpc_msg_len, resp->grpc_msg,
@@ -739,18 +843,29 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
     }
   }
 
-  if( request_ctx==FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS ) {
+  if( (request_ctx & 0xffUL)==FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS ) {
     FD_LOG_INFO(( "telemetry server event stream ended gracefully" ));
     client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
+  }
+
+  if( FD_UNLIKELY( (request_ctx & 0xffUL)==FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE &&
+                   client->state==FD_EVENT_CLIENT_STATE_CONNECTED &&
+                   !client->event_stream && !client->auth_bearer_len ) ) {
+    FD_LOG_WARNING(( "telemetry server ended authentication without a challenge" ));
+    client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
   }
 }
 
 void
 fd_event_client_grpc_rx_timeout( void * app_ctx,
-                                 ulong  request_ctx FD_PARAM_UNUSED,
+                                 ulong  request_ctx,
                                  int    deadline_kind FD_PARAM_UNUSED ) {
-  FD_LOG_WARNING(( "Event gRPC rx timeout" ));
   fd_event_client_t * client = (fd_event_client_t *)app_ctx;
+  if( FD_UNLIKELY( client->drain_stream && request_ctx==client->drain_stream->request_ctx ) ) {
+    client->drain_stream = NULL; /* released by the gRPC client */
+    if( FD_LIKELY( !client->drain_gen ) ) return;
+  }
+  FD_LOG_WARNING(( "Event gRPC rx timeout" ));
   client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
   client->event_stream     = NULL;
 }
@@ -772,6 +887,103 @@ pace_refill( fd_event_client_t * client,
   return client->tx_tokens;
 }
 
+
+static void
+zstd_emit( fd_event_client_t * client,
+           long                now,
+           int *               charge_busy,
+           ZSTD_EndDirective   mode ) {
+  ZSTD_inBuffer in = { .src = NULL, .size = 0UL, .pos = 0UL };
+  ulong rem = ZSTD_compressStream2( client->zst, &client->zout, &in, mode );
+  if( FD_UNLIKELY( ZSTD_isError( rem ) || rem ) ) FD_LOG_CRIT(( "ZSTD_compressStream2 failed: %s", ZSTD_isError( rem ) ? ZSTD_getErrorName( rem ) : "output full" ));
+  if( mode==ZSTD_e_end ) client->zframe_open = 0;
+  ulong sz = client->zout.pos;
+  FD_TEST( fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, client->zout.dst, sz ) );
+  client->tx_tokens          -= (long)sz;
+  client->stream_tx_sz       += sizeof(fd_grpc_hdr_t)+sz;
+  client->metrics.events_sent += client->zbatch_cnt;
+  client->last_stream_send_ns = now;
+  client->zout.pos   = 0UL;
+  client->zbatch_raw = 0UL;
+  client->zbatch_cnt = 0UL;
+  *charge_busy = 1;
+}
+
+static void
+rotate( fd_event_client_t * client,
+        long                now,
+        int *               charge_busy ) {
+  if( FD_UNLIKELY( client->drain_gen || client->drain_stream ) ) return; /* previous rotation still draining */
+  if( FD_UNLIKELY( client->zframe_open ) ) { zstd_emit( client, now, charge_busy, ZSTD_e_end ); return; } /* close once the epilogue is out */
+  if( FD_UNLIKELY( !fd_grpc_client_stream_close( client->grpc_client, client->event_stream ) ) ) return;
+  FD_LOG_INFO(( "rotating telemetry event stream after %lu bytes", client->stream_tx_sz ));
+  fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_RX_END, now+FD_EVENT_CLIENT_STREAM_DRAIN_NANOS );
+  client->drain_stream      = client->event_stream;
+  client->event_stream      = NULL;
+  client->auth_send_pending = 1;
+  if( FD_LIKELY( fd_circq_unsent_cnt( client->circq )<client->circq->cnt ) ) { /* unacked events in flight */
+    client->drain_gen  = client->stream_gen;
+    client->drain_last = client->circq->cursor_seq-1UL;
+  }
+  *charge_busy = 1;
+}
+
+static void
+tx_zstd( fd_event_client_t * client,
+         long                now,
+         long                tokens,
+         int *               charge_busy ) {
+  for(;;) {
+    ulong next_sz;
+    int   has_next = fd_circq_cursor_peek( client->circq, &next_sz );
+
+    if( client->zbatch_cnt && ( !has_next || tokens<=0L ||
+                                client->zbatch_raw>=FD_EVENT_CLIENT_ZSTD_BATCH ) ) {
+      if( FD_UNLIKELY( now-client->zbatch_ns>=FD_EVENT_CLIENT_ZSTD_FLUSH_NANOS || client->zbatch_raw>=FD_EVENT_CLIENT_ZSTD_BATCH ) ) zstd_emit( client, now, charge_busy, ZSTD_e_flush );
+      return;
+    }
+
+    if( !has_next ) {
+      if( FD_UNLIKELY( now-client->last_stream_send_ns>FD_EVENT_CLIENT_HEARTBEAT_NANOS ) ) {
+        if( FD_UNLIKELY( client->stream_tx_sz+sizeof(fd_grpc_hdr_t)>client->stream_body_max ) ) { rotate( client, now, charge_busy ); return; }
+        if( FD_LIKELY( fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, (uchar const *)"", 0UL ) ) ) {
+          client->stream_tx_sz       += sizeof(fd_grpc_hdr_t);
+          client->last_stream_send_ns = now;
+          *charge_busy = 1;
+        }
+      }
+      return;
+    }
+    if( FD_UNLIKELY( tokens<=0L ) ) return;
+
+    /* Worst case batch size on the wire with this event */
+    ulong raw = client->zbatch_raw + fd_pb_varint64_sz_max + next_sz;
+    ulong out = FD_EVENT_CLIENT_ZSTD_OUT_MAX( raw );
+    if( FD_UNLIKELY( client->stream_tx_sz+sizeof(fd_grpc_hdr_t)+out>client->stream_body_max ||
+                     out>client->zout.size ) ) {
+      if( client->zbatch_cnt ) { zstd_emit( client, now, charge_busy, ZSTD_e_flush ); return; }
+      if( FD_UNLIKELY( out>client->zout.size ) ) FD_LOG_CRIT(( "%lu byte telemetry event does not fit the %lu byte gRPC buffer", next_sz, client->grpc_client->nanopb_tx_max ));
+      rotate( client, now, charge_busy );
+      return;
+    }
+
+    ulong msg_sz;
+    uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
+    uchar prefix[ fd_pb_varint64_sz_max ];
+    ulong prefix_sz = (ulong)( fd_pb_append_varint64( prefix, msg_sz )-prefix );
+    ZSTD_inBuffer in0 = { .src = prefix, .size = prefix_sz, .pos = 0UL };
+    ZSTD_inBuffer in1 = { .src = msg,    .size = msg_sz,    .pos = 0UL };
+    ulong r0 = ZSTD_compressStream2( client->zst, &client->zout, &in0, ZSTD_e_continue );
+    ulong r1 = ZSTD_compressStream2( client->zst, &client->zout, &in1, ZSTD_e_continue );
+    if( FD_UNLIKELY( ZSTD_isError( r0 ) || ZSTD_isError( r1 ) || in0.pos!=in0.size || in1.pos!=in1.size ) ) FD_LOG_CRIT(( "ZSTD_compressStream2 failed" ));
+    if( !client->zbatch_cnt ) client->zbatch_ns = now;
+    client->zframe_open = 1;
+    client->zbatch_raw += prefix_sz+msg_sz;
+    client->zbatch_cnt++;
+    *charge_busy = 1;
+  }
+}
+
 static void
 tx( fd_event_client_t * client,
     long                now,
@@ -779,6 +991,15 @@ tx( fd_event_client_t * client,
   FD_TEST( client->state==FD_EVENT_CLIENT_STATE_CONNECTED );
 
   long tokens = pace_refill( client, now );
+
+  /* Fully acked, but the server has not ended it.  Cancel before
+     anything that waits on a stream slot: it may hold the only one. */
+  if( FD_UNLIKELY( client->drain_stream && !client->drain_gen ) ) {
+    if( FD_UNLIKELY( !fd_grpc_client_stream_cancel( client->grpc_client, client->drain_stream ) ) ) return;
+    client->drain_stream = NULL;
+    *charge_busy = 1;
+    return;
+  }
 
   if( FD_UNLIKELY( client->event_stream && client->grpc_client->request_stream != NULL && client->grpc_client->request_stream!=client->event_stream ) ) return;
 
@@ -789,14 +1010,23 @@ tx( fd_event_client_t * client,
   }
 
   if( FD_UNLIKELY( !client->event_stream ) ) {
+    if( FD_UNLIKELY( !client->auth_bearer_len ) ) return; /* rotation awaiting a fresh token */
     client->event_stream = fd_grpc_client_request_start1(
         client->grpc_client,
-        "/events.v1.EventService/StreamEvents", strlen("/events.v1.EventService/StreamEvents"),
-        FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS,
+        "/events.v1.EventService/StreamEventsZstd", strlen("/events.v1.EventService/StreamEventsZstd"),
+        FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS | ((client->stream_gen+1UL)<<8),
         NULL, 0UL, /* headers only; first message sent later */
         client->auth_bearer, client->auth_bearer_len,
         1 /* streaming */ );
     if( FD_UNLIKELY( !client->event_stream ) ) return; /* transient; retry next poll */
+    client->stream_gen++;
+    client->stream_tx_sz    = 0UL;
+    client->auth_bearer_len = 0UL;
+    FD_TEST( !ZSTD_isError( ZSTD_CCtx_reset( client->zst, ZSTD_reset_session_only ) ) );
+    client->zout       = (ZSTD_outBuffer){ .dst = client->grpc_client->nanopb_tx+sizeof(fd_grpc_hdr_t), .size = client->grpc_client->nanopb_tx_max-sizeof(fd_grpc_hdr_t), .pos = 0UL };
+    client->zbatch_raw  = 0UL;
+    client->zbatch_cnt  = 0UL;
+    client->zframe_open = 0;
     fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, now+(long)10e9 /* 10s */ );
     client->last_stream_send_ns = now;
     client->last_response_ns    = now;
@@ -804,30 +1034,7 @@ tx( fd_event_client_t * client,
     return;
   }
 
-  if( FD_UNLIKELY( tokens<=0L ) ) return;
-
-  ulong msg_sz;
-  uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
-  if( FD_LIKELY( !msg ) ) {
-    /* Nothing to send.  If the stream has been quiet long enough that an
-       intermediary proxy might kill it, send a zero-length
-       StreamEventsRequest to heartbeat. */
-    if( FD_UNLIKELY( now-client->last_stream_send_ns>FD_EVENT_CLIENT_HEARTBEAT_NANOS ) ) {
-      if( FD_LIKELY( fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, (uchar const *)"", 0UL ) ) ) {
-        client->last_stream_send_ns = now;
-        *charge_busy = 1;
-      }
-    }
-    return;
-  }
-
-  int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
-  if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
-
-  client->tx_tokens -= (long)msg_sz;
-  client->metrics.events_sent++;
-  client->last_stream_send_ns = now;
-  *charge_busy = 1;
+  tx_zstd( client, now, tokens, charge_busy );
 }
 
 static void
@@ -864,10 +1071,8 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
                    !fd_grpc_client_tls_tx_pending( client->grpc_client ) ) ) return now;
 
   long deadline = fd_grpc_client_next_deadline( client->grpc_client );
-  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING ) ) {
-    deadline = fd_long_min( deadline, client->auth_deadline );
-    if( FD_UNLIKELY( client->auth_send_pending ) ) deadline = now;
-  }
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING ) ) deadline = fd_long_min( deadline, client->auth_deadline );
+  if( FD_UNLIKELY( client->auth_send_pending && !fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) deadline = now;
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->consecutive_failure_count ) ) {
     deadline = fd_long_min( deadline, client->connected.connected_timestamp+10L*(long)1e9 );
   }
@@ -878,6 +1083,7 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
       deadline = fd_long_min( deadline, client->tx_tokens_ns + (1L-client->tx_tokens)*(long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS );
     }
     if( FD_UNLIKELY( client->stall_since ) ) deadline = fd_long_min( deadline, client->stall_since+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
+    if( FD_UNLIKELY( client->zbatch_cnt ) ) deadline = fd_long_min( deadline, client->zbatch_ns+FD_EVENT_CLIENT_ZSTD_FLUSH_NANOS );
   }
   return deadline;
 }
@@ -943,9 +1149,7 @@ poll1( fd_event_client_t * client,
     return;
   }
 
-  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && client->auth_send_pending ) ) {
-    fd_event_client_try_send_authenticate( client, now );
-  }
+  if( FD_UNLIKELY( client->auth_send_pending ) ) fd_event_client_try_send_authenticate( client, now );
 
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
     if( FD_UNLIKELY( client->event_stream && now-client->last_response_ns>FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS ) ) {

@@ -104,6 +104,14 @@ uchar const *
 fd_circq_cursor_advance( fd_circq_t * circq,
                          ulong *      msg_sz );
 
+/* fd_circq_cursor_peek returns 1 and sets *msg_sz to the size of the
+   message the next fd_circq_cursor_advance would return, or returns 0
+   if there is none.  Does not move the cursor. */
+
+int
+fd_circq_cursor_peek( fd_circq_t const * circq,
+                      ulong *            msg_sz );
+
 /* fd_circq_pop_until removes messages from the front of the circular
    buffer up to and including the message with the given cursor value.
    Returns 0 on success, or -1 if the given cursor value is invalid

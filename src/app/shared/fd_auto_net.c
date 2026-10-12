@@ -241,9 +241,8 @@ is_xdp_zc_auto( fd_config_t * config ) {
 
 static int
 xdp_zc_check( fd_config_t    const * config,
-              fd_auto_info_t const * info ) {
+              fd_auto_info_t const * info FD_PARAM_UNUSED ) {
   if( strcmp( config->net.xdp.xdp_mode, "drv") ) return 0;
-  if( 0==strcmp( info->driver, "i40e" ) && info->is_bonded_if ) return 0;
   return 1;
 }
 
@@ -259,7 +258,6 @@ mlx5_check( fd_config_t    const * config,
   if( strcmp( config->net.provider, "auto" ) ) return 0;
   if( !info->has_mlx5_rdma_port ) return 0;
   if( !info->has_uverbs && !info->has_uverbs_module ) return 0;
-  if( !fd_ulong_is_pow2( config->layout.net_tile_count ) ) return 0;
   return 1;
 }
 
@@ -328,8 +326,7 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
       {
         .name              = "Zero Copy",
         .supported_drivers = {
-          { "mlx5_core", 6,  1, 0, 0 },
-          { "i40e",      5, 19, 0, 0 }
+          { "mlx5_core", 6, 1, 0, 0 }
         },
         .is_feat_auto      = is_xdp_zc_auto,
         .check             = xdp_zc_check,

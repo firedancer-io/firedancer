@@ -1028,6 +1028,8 @@ fan_out( fd_shred_ctx_t *     ctx,
   fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shreds[ 0 ]->slot );
   if( FD_UNLIKELY( !sdest ) ) return;
 
+  fd_shred_dest_idx_t * _dests = ctx->scratchpad_dests;
+
   ulong out_stride;
   ulong max_dest_cnt[1];
   fd_shred_dest_idx_t * dests;
@@ -1036,14 +1038,19 @@ fan_out( fd_shred_ctx_t *     ctx,
       for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], ctx->adtl_dests_retransmit+j, tsorig );
     }
     out_stride = k;
-    dests = fd_shred_dest_compute_children( sdest, shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
+    dests = fd_shred_dest_compute_children( sdest, shreds, k, _dests, k, fanout, fanout, max_dest_cnt );
   } else {
     for( ulong i=0UL; i<k; i++ ) {
       for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], ctx->adtl_dests_leader+j, tsorig );
     }
-    out_stride = 1UL;
-    *max_dest_cnt = 1UL;
-    dests = fd_shred_dest_compute_first( sdest, shreds, k, ctx->scratchpad_dests );
+    out_stride = k;
+    *max_dest_cnt = 2UL; /* Root of turbine tree and next leader */
+    dests = fd_shred_dest_compute_first( sdest, shreds, k, _dests );
+
+    /* Send leader shreds to the next leader.  At the epoch boundary,
+       this will be a no-op so we don't need to get the other sdest. */
+    fd_shred_dest_idx_t next_leader = fd_shred_dest_leader_for_slot( sdest, shreds[ 0 ]->slot + 4UL );
+    for( ulong i=0UL; i<k; i++ ) _dests[ k+i ] = fd_uint_if( next_leader==_dests[ i ], FD_SHRED_DEST_NO_DEST, next_leader );
   }
   if( FD_UNLIKELY( !dests ) ) return;
 

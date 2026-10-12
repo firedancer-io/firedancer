@@ -437,7 +437,7 @@ FD_VM_SYSCALL_DECL( sol_memmove );
 /* syscall(d56b5fe9) "sol_get_clock_sysvar"
    syscall(23a29a61) "sol_get_epoch_schedule_sysvar"
    syscall(bf7188f6) "sol_get_rent_sysvar"
-   syscall(77f9b9d0) "sol_get_last_restart_slot_sysvar"
+   syscall(188a0031) "sol_get_last_restart_slot"
    Get various sysvar values
 
    Inputs:
@@ -690,7 +690,7 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
 /* syscall(9377323c) "sol_create_program_address"
 
-   Compute SHA-256 hash of <program ID> .. &[&[u8]] .. <PDA Marker>
+   Compute SHA-256 hash of &[&[u8]] .. <program ID> .. <PDA Marker>
    and check whether result is an Ed25519 curve point.
 
    Inputs:

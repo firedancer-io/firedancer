@@ -590,7 +590,7 @@ fd_mlx5_tile_poll_rx( fd_mlx5_tile_t *    ctx,
       ctx->net.metrics.rx_malformed_cnt++;
       freed_chunk = comp[ i ].chunk;
     } else {
-      fd_net_rx_pkt( &ctx->net, stem, comp[ i ].chunk, comp[ i ].byte_len, tspub, &freed_chunk );
+      fd_net_rx_pkt( &ctx->net, stem, comp[ i ].chunk, 0UL, comp[ i ].byte_len, tspub, &freed_chunk );
     }
     if( FD_UNLIKELY( !freed_chunk ) ) FD_LOG_CRIT(( "invalid chunk in mcache" ));
     fd_mlx5_tile_rx_recycle( ctx, freed_chunk );
@@ -965,7 +965,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
     }
 
     ulong freed_chunk;
-    if( fd_net_rx_pkt( &ctx->net, stem, chunk, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk ) ) {
+    if( fd_net_rx_pkt( &ctx->net, stem, chunk, 0UL, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk ) ) {
       ctx->sq_wqe_buf_chunk[ ctx->tx_qp.sq_prod & (ctx->tx_qp.tx_depth-1U) ] = (uint)freed_chunk;
     }
     ctx->net.metrics.tx_pkt_cnt++;
@@ -1151,8 +1151,8 @@ void
 fd_topo_install_mlx5( fd_topo_t *     topo,
                       fd_mlx5_fds_t * fds ) {
   ulong const tile_cnt = fd_topo_tile_name_cnt( topo, "mlx5" );
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( tile_cnt ) || tile_cnt>FD_MLX5_TILE_MAX ) ) {
-    FD_LOG_ERR(( "mlx5 tile count %lu must be a power of two and at most %lu", tile_cnt, FD_MLX5_TILE_MAX ));
+  if( FD_UNLIKELY( 0==tile_cnt || tile_cnt>FD_MLX5_TILE_MAX ) ) {
+    FD_LOG_ERR(( "mlx5 tile count %lu must be in [1,%lu]", tile_cnt, FD_MLX5_TILE_MAX ));
   }
 
   fd_mlx5_tile_t *       ctxs  [ FD_MLX5_TILE_MAX ];

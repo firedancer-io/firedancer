@@ -97,6 +97,10 @@ fd_epoch_leaders_new( void  *                  shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( slot_cnt>MAX_SLOTS_PER_EPOCH ) ) {
+    FD_LOG_ERR(( "epoch %lu has %lu slots, but the maximum supported is %lu", epoch, slot_cnt, MAX_SLOTS_PER_EPOCH ));
+  }
+
   /* The eventual layout that we want is:
      struct                   (align=8, footprint=48)
      list of indices          (align=4, footprint=4*ceil(slot_cnt/4))

@@ -882,7 +882,7 @@ main( int     argc,
 
     /* Pop frame off FILL ring */
     FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
-    ulong const rx_frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ];
+    ulong const rx_frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ] + (ulong)i*37UL; /* exercise unaligned offsets */
     xdp_fr_ring_cons++;
 
     /* Write packet into frame */

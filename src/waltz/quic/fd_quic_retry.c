@@ -180,8 +180,8 @@ fd_quic_retry_server_verify(
   int   is_ip4        = 0==memcmp( retry_token->data.ip6_addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff", 12 );
   uint  pkt_port      = fd_ushort_bswap( (ushort)pkt->udp->net_sport );
   uint  retry_port    = retry_token->data.udp_port;
-  long  expire_at     = (long)retry_token->data.expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT;
-  long  expire_before = now + ttl;
+  long  expire_at     = (long)( retry_token->data.expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT );
+  long  expire_before = (long)( (ulong)now + (ulong)ttl );
   ulong pkt_dcid      = FD_LOAD( ulong, initial->dst_conn_id );
 
   int is_match =

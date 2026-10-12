@@ -75,25 +75,12 @@ fd_shred_parse( uchar const * const buf,
     if( FD_UNLIKELY( (shred->data.flags&0xC0)==0x80                              ) ) return NULL;
     if( FD_UNLIKELY( parent_off>slot                                             ) ) return NULL;
 
-    /* There are 3 cases we want to allow:
-        slot==0, parent_off==0
-        slot==1, parent_off==1
-        slot>1,  0<parent_off<slot
-      We've already ensured parent_off<=slot, so the cases we need to reject are:
-        slot==1, parent_off==0
-        slot>1,  parent_off==0
-        slot>1,  parent_off==slot
-
-      That gives
-      (slot==1 & parent_off==0) | (slot>1 & parent_off==0) | (slot>1 & parent_off==slot)
-      Simplifying a bit,
-      ((slot==1 | slot>1) & parent_off==0) | (slot>1 & parent_off==slot)
-      (slot!=0 & parent_off==0) | (slot>1 & parent_off==slot)
-
-      https://github.com/anza-xyz/agave/blob/dda8b79162d9aa1191c7813ca7f024ab5a5b0b9f/ledger/src/blockstore.rs#L5035
-    */
-
-    if( FD_UNLIKELY( ((slot!=0UL) & (parent_off==0UL)) | ((slot>1UL) & (parent_off==slot)) ) ) return NULL;
+    /* Slot 0 is its own parent (parent_off==0); every other slot has
+       a parent strictly below it, so parent_off must be nonzero.  A
+       parent of slot 0 is valid for any slot: whether it lies below
+       the root is decided when the shred is ingested, not here.
+       https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/ledger/src/shred/traits.rs#L41-L54 */
+    if( FD_UNLIKELY( (slot!=0UL) & (parent_off==0UL)                             ) ) return NULL;
     if( FD_UNLIKELY( shred->idx<shred->fec_set_idx                               ) ) return NULL;
 
     /* https://github.com/anza-xyz/agave/blob/v4.0.2/ledger/src/shred/shred_data.rs#L19 */

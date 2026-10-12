@@ -71,7 +71,7 @@ fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey ) {
 uchar
 fd_executor_program_is_active( fd_bank_t *         bank,
                                fd_pubkey_t const * pubkey ) {
-  fd_native_prog_info_t const null_function = {0};
+  fd_native_prog_info_t const null_function = { .feature_enable_offset = ULONG_MAX };
   ulong feature_offset = fd_native_program_fn_lookup_tbl_query( pubkey, &null_function )->feature_enable_offset;
 
   return feature_offset==ULONG_MAX ||

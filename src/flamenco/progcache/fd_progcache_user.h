@@ -40,7 +40,7 @@
    Cache eviction (i.e. force removal of potentially useful records)
    happens on fill: when a fill finds its size class full, it evicts
    within that class (per-class CLOCK), and falls back to the spill
-   scratch if no record frees up.  The replay tile's housekeeping runs
+   scratch if no record frees up.  The accdb tile's housekeeping runs
    the same sweep to keep a few slots free per class.
 
    ### Garbage collect policy

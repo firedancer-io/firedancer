@@ -208,6 +208,22 @@ fd_circq_cursor_advance( fd_circq_t * circq,
 }
 
 int
+fd_circq_cursor_peek( fd_circq_t const * circq,
+                      ulong *            msg_sz ) {
+  uchar const * buf = (uchar const *)(circq+1);
+  ulong off;
+  if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( !circq->cnt ) ) return 0;
+    off = circq->head;
+  } else {
+    if( FD_UNLIKELY( circq->cursor_seq>=circq->cursor_push_seq ) ) return 0;
+    off = ((fd_circq_message_t const *)(buf+circq->cursor))->next;
+  }
+  *msg_sz = ((fd_circq_message_t const *)(buf+off))->footprint;
+  return 1;
+}
+
+int
 fd_circq_pop_until( fd_circq_t * circq,
                     ulong        cursor ) {
   if( FD_UNLIKELY( cursor>=circq->cursor_seq ) ) return -1;

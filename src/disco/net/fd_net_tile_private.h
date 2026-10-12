@@ -343,7 +343,8 @@ fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
 static inline int
 fd_net_rx_pkt( fd_net_tile_t *     ctx,
                fd_stem_context_t * stem,
-               ulong               chunk,
+               ulong               chunk, /* offset high bits */
+               ulong               ctl,   /* offset low bits */
                ulong               byte_len,
                ulong               tspub,
                ulong *             freed_chunk ) {
@@ -355,7 +356,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
     return 0;
   }
 
-  uchar * frame = fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk );
+  uchar * frame = (uchar *)fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk ) + ctl;
   fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
   if( FD_UNLIKELY( fd_ushort_bswap( eth_hdr->net_type )!=FD_ETH_HDR_TYPE_IP ) ) {
     ctx->metrics.rx_malformed_cnt++;
@@ -375,7 +376,6 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
     return 0;
   }
 
-  ulong ctl = 0UL;
   int is_gre = ip4_hdr->protocol==FD_IP4_HDR_PROTOCOL_GRE;
   if( FD_UNLIKELY( is_gre ) ) {
     if( FD_UNLIKELY( !ctx->gre_tunnel_ip[0] ) ) {
@@ -403,7 +403,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
     fd_memcpy( frame, eth_hdr, sizeof(fd_eth_hdr_t) );
 
     byte_len    -= overhead;
-    ctl          = overhead;
+    ctl         += overhead;
     eth_hdr      = (fd_eth_hdr_t *)frame;
     ip4_hdr      = (fd_ip4_hdr_t *)(eth_hdr+1);
     ip4_hdr_sz   = FD_IP4_GET_LEN( *ip4_hdr );

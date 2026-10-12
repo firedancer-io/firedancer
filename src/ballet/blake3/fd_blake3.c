@@ -627,6 +627,40 @@ fd_blake3_fini( fd_blake3_t * sha,
   return hash;
 }
 
+static void
+fd_blake3_fini_xof_setup( fd_blake3_t * sha ) {
+  fd_blake3_pos_t * s = &sha->pos;
+
+  /* TODO HACKY!! */
+  s->input    = sha->block - ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ );
+  s->input_sz = ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ ) + sha->block_sz;
+}
+
+#if FD_BLAKE3_PARA_MAX>1
+
+static ulong
+fd_blake3_fini_xof_prepare( fd_blake3_t *    sha,
+                            fd_blake3_op_t * ops,
+                            ulong            tick ) {
+  fd_blake3_pos_t * s = &sha->pos;
+
+  int l0_complete = fd_blake3_l0_complete( s );
+  int ln_complete = s->live_cnt == 2UL;
+  if( l0_complete & ln_complete ) return 0UL;
+
+  ulong op_cnt = 0UL;
+  while( op_cnt<FD_BLAKE3_PARA_MAX ) {
+    if( !fd_blake3_prepare( s, &sha->buf, ops+op_cnt, tick ) ) break;
+    op_cnt++;
+  }
+  if( FD_UNLIKELY( !op_cnt ) ) {
+    FD_LOG_ERR(( "fd_blake3_fini_xof_compress invariant violation: failed to prepare branch compression with live_cnt=%lu (duplicate call to fini?)", s->live_cnt ));
+  }
+  return op_cnt;
+}
+
+#endif
+
 /* fd_blake3_fini_xof_compress performs BLAKE3 compression (input
    hashing) for all blocks in the hash tree except for the root block.
    Root compression inputs are returned via the function's out pointers:
@@ -641,14 +675,10 @@ void
 fd_blake3_fini_xof_compress( fd_blake3_t * sha,
                              uchar *       root_msg,
                              uchar *       root_cv_pre ) {
-  fd_blake3_pos_t * s        = &sha->pos;
-  fd_blake3_buf_t * tbl      = &sha->buf;
-  uchar *           buf      = sha->block;
-  ulong             buf_used = sha->block_sz;
+  fd_blake3_pos_t * s   = &sha->pos;
+  fd_blake3_buf_t * tbl = &sha->buf;
 
-  /* TODO HACKY!! */
-  s->input    = buf - ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ );
-  s->input_sz = ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ ) + buf_used;
+  fd_blake3_fini_xof_setup( sha );
 
   /* The root block is contained in a leaf.  Process all but the last
      blocks of the chunk.  (The last block is the "root" block) */
@@ -668,25 +698,17 @@ fd_blake3_fini_xof_compress( fd_blake3_t * sha,
      only two blocks remaining. */
   ulong tick = sha->pos.next_tick+1;
   for(;;) {
+#if FD_BLAKE3_PARA_MAX>1
+    fd_blake3_op_t ops[ FD_BLAKE3_PARA_MAX ] = {0};
+    ulong          op_cnt = fd_blake3_fini_xof_prepare( sha, ops, tick );
+    if( !op_cnt ) break;
+
+    fd_blake3_batch_hash( ops, op_cnt );
+#else
     int l0_complete = fd_blake3_l0_complete( s );
     int ln_complete = s->live_cnt == 2UL;
     if( l0_complete & ln_complete ) break;
 
-#if FD_BLAKE3_PARA_MAX>1
-    fd_blake3_op_t ops[ FD_BLAKE3_PARA_MAX ] = {0};
-    ulong          op_cnt = 0UL;
-    while( op_cnt<FD_BLAKE3_PARA_MAX ) {
-      fd_blake3_op_t * op = &ops[ op_cnt ];
-      if( !fd_blake3_prepare( s, tbl, op, tick ) )
-        break;
-      op_cnt++;
-    }
-    if( FD_UNLIKELY( !op_cnt ) ) {
-      FD_LOG_ERR(( "fd_blake3_fini_xof_compress invariant violation: failed to prepare branch compression with live_cnt=%lu (duplicate call to fini?)", s->live_cnt ));
-    }
-
-    fd_blake3_batch_hash( ops, op_cnt );
-#else
     fd_blake3_op_t op[1] = {0};
     if( !fd_blake3_prepare( s, tbl, op, tick ) )
       break;
@@ -700,19 +722,11 @@ fd_blake3_fini_xof_compress( fd_blake3_t * sha,
   }
 }
 
-void *
-fd_blake3_fini_2048( fd_blake3_t * sha,
-                     void *        hash ) {
-  FD_BLAKE3_TRACE(( "fd_blake3_fini_2048(sha=%p,hash=%p)", (void *)sha, hash ));
-
-  /* Compress input until the last remaining piece of work is the BLAKE3
-     root block.  This root block is put through the compression
-     function repeatedly to "expand" the hash output (XOF hashing).
-     Solana uses this to generate a 2048 byte 'LtHash' value.
-     fd_blake3 does this SIMD-parallel for better performance. */
-  uchar root_msg   [ 64 ] __attribute__((aligned(64)));
-  uchar root_cv_pre[ 32 ] __attribute__((aligned(32)));
-  fd_blake3_fini_xof_compress( sha, root_msg, root_cv_pre );
+static void
+fd_blake3_fini_xof_expand( fd_blake3_t * sha,
+                           uchar *       root_msg,
+                           uchar *       root_cv_pre,
+                           void *        hash ) {
 
   /* Restore root block details */
   uint          last_block_sz    = 64u;
@@ -762,9 +776,57 @@ fd_blake3_fini_2048( fd_blake3_t * sha,
     fd_blake3_ref_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
 #endif
   }
+}
+
+void *
+fd_blake3_fini_2048( fd_blake3_t * sha,
+                     void *        hash ) {
+  FD_BLAKE3_TRACE(( "fd_blake3_fini_2048(sha=%p,hash=%p)", (void *)sha, hash ));
+
+  uchar root_msg   [ 64 ] __attribute__((aligned(64)));
+  uchar root_cv_pre[ 32 ] __attribute__((aligned(32)));
+  fd_blake3_fini_xof_compress( sha, root_msg, root_cv_pre );
+  fd_blake3_fini_xof_expand( sha, root_msg, root_cv_pre, hash );
 
   FD_BLAKE3_TRACE(( "fd_blake3_fini_2048: done" ));
   return hash;
+}
+
+void
+fd_blake3_fini_2048_xn( ulong          n,
+                        fd_blake3_t ** sha,
+                        void **        hash ) {
+#if FD_BLAKE3_PARA_MAX>1
+  int single = 0;
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_blake3_fini_xof_setup( sha[ i ] );
+    single |= sha[ i ]->pos.input_sz<=FD_BLAKE3_CHUNK_SZ;
+  }
+
+  if( FD_UNLIKELY( single ) ) {
+    for( ulong i=0UL; i<n; i++ ) fd_blake3_fini_2048( sha[ i ], hash[ i ] );
+    return;
+  }
+
+  ulong tick[ FD_BLAKE3_XN_MAX ];
+  for( ulong i=0UL; i<n; i++ ) tick[ i ] = sha[ i ]->pos.next_tick+1UL;
+  for(;;) {
+    fd_blake3_op_t ops[ FD_BLAKE3_XN_MAX*FD_BLAKE3_PARA_MAX ];
+    ulong op_cnt = 0UL;
+    for( ulong i=0UL; i<n; i++ ) op_cnt += fd_blake3_fini_xof_prepare( sha[ i ], ops+op_cnt, tick[ i ]++ );
+    if( !op_cnt ) break;
+
+    for( ulong off=0UL; off<op_cnt; off+=FD_BLAKE3_PARA_MAX ) {
+      fd_blake3_batch_hash( ops+off, fd_ulong_min( op_cnt-off, FD_BLAKE3_PARA_MAX ) );
+    }
+  }
+
+  uchar root_msg   [ 64 ] __attribute__((aligned(64)));
+  uchar root_cv_pre[ 32 ] __attribute__((aligned(32)));
+  for( ulong i=0UL; i<n; i++ ) fd_blake3_fini_xof_expand( sha[ i ], root_msg, root_cv_pre, hash[ i ] );
+#else
+  for( ulong i=0UL; i<n; i++ ) fd_blake3_fini_2048( sha[ i ], hash[ i ] );
+#endif
 }
 
 void *

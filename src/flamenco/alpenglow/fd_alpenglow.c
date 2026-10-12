@@ -1,7 +1,7 @@
 #include "fd_alpenglow.h"
 #include "../rewards/fd_epoch_inflation_account.h"
 
-#include "../runtime/fd_accdb_svm.h"
+#include "../runtime/fd_hashes.h"
 #include "../runtime/fd_pubkey_utils.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
@@ -46,6 +46,7 @@ struct validator_set {
   ulong          epoch;
   ulong          validator_cnt;          /* 0 if not built */
   ulong          total_stake;
+  fd_bls_pub_t   key_sum;                /* sum of all keys, infinity for a t-1 set */
   blst_p1_affine bls_keys[ AG_VAT_MAX ]; /* indexed by rank */
   ulong          stakes  [ AG_VAT_MAX ]; /* indexed by rank */
 };
@@ -53,10 +54,10 @@ typedef struct validator_set validator_set_t;
 
 /* validator_set_for_slot makes set hold the validators of slot's epoch,
    rebuilding it only when the epoch differs from the one it holds.  A
-   set built from the t-1 tier is never reused: t-1 is fork specific,
-   so two banks in the same epoch can hold different t-1 sets.  Returns
-   1 on success, 0 if the fork cannot address the epoch or the bank
-   holds no ranked validators for it. */
+   set built from the t-1 tier is never reused and gets no key sum: t-1
+   is fork specific, so two banks in the same epoch can hold different
+   t-1 sets.  Returns 1 on success, 0 if the fork cannot address the
+   epoch or the bank holds no ranked validators for it. */
 
 static int
 validator_set_for_slot( validator_set_t * set,
@@ -101,6 +102,10 @@ validator_set_for_slot( validator_set_t * set,
     FD_LOG_WARNING(( "slot %lu: epoch %lu has %lu ranked validators, highest rank %lu", bank->f.slot, epoch, cnt, max_rank ));
     return 0;
   }
+  memset( &set->key_sum, 0, sizeof(fd_bls_pub_t) ); /* point at infinity */
+  if( FD_LIKELY( iter_kind!=FD_VOTE_STAKES_ITER_T_1 ) ) {
+    for( ulong rank=0UL; rank<cnt; rank++ ) blst_p1_add_or_double_affine( &set->key_sum, &set->key_sum, set->bls_keys+rank );
+  }
   set->epoch         = iter_kind==FD_VOTE_STAKES_ITER_T_1 ? ULONG_MAX : epoch;
   set->validator_cnt = cnt;
   set->total_stake   = total;
@@ -134,13 +139,12 @@ cert_verify( validator_set_t *              set,
     return 0;
   }
 
-  fd_bls_pub_t pub[1]; memset( pub, 0, sizeof(fd_bls_pub_t) );
-  ulong        stake = 0UL;
-  for( ulong rank=0UL; rank<=last_rank; rank++ ) {
-    if( !fd_bls_set_test( cert->signer_set, rank ) ) continue;
-    blst_p1_add_or_double_affine( pub, pub, set->bls_keys+rank );
+  ulong stake = 0UL;
+  for( ulong rank=fd_bls_set_const_iter_init( cert->signer_set ); !fd_bls_set_const_iter_done( rank ); rank=fd_bls_set_const_iter_next( cert->signer_set, rank ) ) {
     stake += set->stakes[ rank ];
   }
+  fd_bls_pub_t pub[1];
+  fd_bls_pub_sum( pub, set->bls_keys, set->validator_cnt, cert->signer_set, set->epoch!=ULONG_MAX ? &set->key_sum : NULL );
   if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)AG_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has %lu of %lu stake, below %lu/%lu",
                      bank_slot, cert_slot, stake, set->total_stake, quorum_numer, AG_QUORUM_THRESHOLD_DENOM ));
@@ -309,38 +313,25 @@ struct vote_update {
 typedef struct vote_update vote_update_t;
 
 static int
-vote_account_read( fd_bank_t *                 bank,
+vote_account_open( fd_bank_t *                 bank,
                    fd_accdb_t *                accdb,
                    fd_pubkey_t const *         pk,
                    fd_vote_state_versioned_t * vs,
-                   ulong *                     out_data_len,
-                   fd_pubkey_t *               out_owner ) {
-  fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pk->uc );
-  if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
-    fd_accdb_unread_one( accdb, &acc );
+                   fd_acc_t *                  acc ) {
+  *acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pk->uc );
+  if( FD_UNLIKELY( !acc->prior_lamports ||
+                   !fd_vsv_is_correct_size_owner_and_init( acc->prior_owner, acc->prior_data, acc->prior_data_len ) ||
+                   !fd_vote_state_versioned_deserialize( vs, acc->prior_data, acc->prior_data_len ) ||
+                   vs->kind==fd_vote_state_versioned_enum_uninitialized ) ) {
+    fd_accdb_unwrite_one( accdb, acc );
     return 0;
   }
-  if( FD_UNLIKELY( fd_vsv_deserialize( &acc, vs ) ) ) {
-    fd_accdb_unread_one( accdb, &acc );
-    return 0;
-  }
-  *out_data_len = acc.data_len;
-  fd_memcpy( out_owner->uc, acc.owner, sizeof(fd_pubkey_t) );
-  fd_accdb_unread_one( accdb, &acc );
   return 1;
 }
 
 static void
-vote_account_write( fd_bank_t *                 bank,
-                    fd_accdb_t *                accdb,
-                    fd_capture_ctx_t *          capture_ctx,
-                    fd_pubkey_t const *         pk,
-                    fd_pubkey_t const *         owner,
-                    ulong                       data_len,
-                    fd_vote_state_versioned_t * vs,
-                    vote_update_t const *       upd ) {
-  static FD_TL uchar buf[ 8192UL ];
-
+vote_update_apply( fd_vote_state_versioned_t * vs,
+                   vote_update_t const *       upd ) {
   if( upd->update_votes ) vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
   if( upd->update_root ) {
     ulong const * root = fd_vsv_get_root_slot( vs );
@@ -348,14 +339,26 @@ vote_account_write( fd_bank_t *                 bank,
     fd_vsv_set_root_slot( vs, &latest_root );
   }
   if( upd->credits ) credits_increment( fd_vsv_get_epoch_credits_mutable( vs ), upd->migration_epoch, upd->current_epoch, upd->credits );
+}
 
-  fd_memset( buf, 0, data_len );
-  if( FD_UNLIKELY( fd_vote_state_versioned_serialize( vs, buf, data_len ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( pk->uc, pk_b58 );
+static void
+vote_account_store( fd_bank_t *                       bank,
+                    fd_accdb_t *                      accdb,
+                    fd_capture_ctx_t *                capture_ctx,
+                    fd_acc_t *                        acc,
+                    fd_vote_state_versioned_t const * vs ) {
+  fd_memset( acc->data, 0, acc->data_len );
+  if( FD_UNLIKELY( fd_vote_state_versioned_serialize( vs, acc->data, acc->data_len ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( acc->pubkey, pk_b58 );
     FD_LOG_WARNING(( "slot %lu: vote account %s failed to serialize; skipping", bank->f.slot, pk_b58 ));
+    fd_accdb_unwrite_one( accdb, acc );
     return;
   }
-  fd_accdb_svm_write( bank, accdb, capture_ctx, pk, owner, buf, data_len, 0UL, 0, 1 );
+  acc->executable = 0;
+  fd_hashes_update_pair( acc->pubkey, acc->prior_owner, acc->prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len,
+                                      acc->owner,       acc->lamports,       acc->executable,       acc->data,       acc->data_len,       bank, capture_ctx );
+  acc->commit = 1;
+  fd_accdb_unwrite_one( accdb, acc );
 }
 
 static void
@@ -365,10 +368,10 @@ vote_account_modify( fd_bank_t *           bank,
                      fd_pubkey_t const *   pk,
                      vote_update_t const * upd ) {
   static FD_TL fd_vote_state_versioned_t vs[1];
-  ulong       data_len;
-  fd_pubkey_t owner;
-  if( FD_UNLIKELY( !vote_account_read( bank, accdb, pk, vs, &data_len, &owner ) ) ) return;
-  vote_account_write( bank, accdb, capture_ctx, pk, &owner, data_len, vs, upd );
+  fd_acc_t acc;
+  if( FD_UNLIKELY( !vote_account_open( bank, accdb, pk, vs, &acc ) ) ) return;
+  vote_update_apply( vs, upd );
+  vote_account_store( bank, accdb, capture_ctx, &acc, vs );
 }
 
 void
@@ -424,8 +427,22 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
 
   /* credits for the attested voters of the reward slot */
 
-  if( footer->has_skip_reward_cert || footer->has_notar_reward_cert ) {
-    fd_bls_set_t reward_set[ fd_bls_set_word_cnt ];
+  int          has_reward = footer->has_skip_reward_cert || footer->has_notar_reward_cert;
+  int          has_final  = footer->has_fast_final_cert  || footer->has_final_cert;
+  fd_bls_set_t reward_set[ fd_bls_set_word_cnt ];
+  fd_bls_set_t final_set [ fd_bls_set_word_cnt ];
+  ulong        reward_slot     = 0UL;
+  ulong        max_reward      = 0UL;
+  ulong        slots_per_epoch = 0UL;
+  ulong        total_stake     = 0UL;
+  long         reward_ts_ns    = 0L;
+  int          reward_kind     = 0;
+  ulong        final_slot      = 0UL;
+  ulong        final_epoch     = 0UL;
+  long         final_ts_ns     = 0L;
+  int          final_kind      = 0;
+
+  if( has_reward ) {
     fd_bls_set_null( reward_set );
     ulong skip_slot = ULONG_MAX, notar_slot = ULONG_MAX;
     if( footer->has_skip_reward_cert ) {
@@ -440,7 +457,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       FD_LOG_WARNING(( "slot %lu: reward cert slots differ: skip %lu, notar %lu", bank_slot, skip_slot, notar_slot ));
       return -1;
     }
-    ulong reward_slot = fd_ulong_min( skip_slot, notar_slot );
+    reward_slot = fd_ulong_min( skip_slot, notar_slot );
 
     ulong migration_slot = fd_alpenglow_migration_slot( bank, accdb );
     if( FD_UNLIKELY( migration_slot==ULONG_MAX ) ) {
@@ -470,23 +487,54 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       FD_LOG_WARNING(( "slot %lu: no epoch inflation state for epoch %lu", bank_slot, current_epoch ));
       return -1;
     }
-    ulong max_reward      = inflation_state->max_possible_validator_reward;
-    ulong slots_per_epoch = inflation_state->slots_per_epoch;
+    max_reward      = inflation_state->max_possible_validator_reward;
+    slots_per_epoch = inflation_state->slots_per_epoch;
 
-    ulong total_stake = fd_vote_stakes_total_stake( fd_bank_vote_stakes( bank ), reward_epoch );
+    total_stake = fd_vote_stakes_total_stake( fd_bank_vote_stakes( bank ), reward_epoch );
     if( FD_UNLIKELY( !total_stake ) ) {
       FD_LOG_WARNING(( "slot %lu: no epoch stakes for reward epoch %lu", bank_slot, reward_epoch ));
       return -1;
     }
 
-    long ts_ns = slot_timestamp( bank, reward_slot, footer_time_nanos );
-    int have_ranked_vote = 0;
-    fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
-    int iter_kind = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, reward_epoch );
-    if( FD_UNLIKELY( !iter_kind ) ) {
+    reward_ts_ns = slot_timestamp( bank, reward_slot, footer_time_nanos );
+    reward_kind  = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, reward_epoch );
+    if( FD_UNLIKELY( !reward_kind ) ) {
       FD_LOG_WARNING(( "slot %lu: reward epoch %lu is not t-1 through t-5", bank_slot, reward_epoch ));
       return -1;
     }
+  }
+
+  /* finalization cert: root/votes/timestamp for the signers */
+
+  if( has_final ) {
+    if( footer->has_fast_final_cert ) {
+      final_slot = footer->fast_final_cert.slot;
+      fd_bls_set_copy( final_set, footer->fast_final_cert.signer_set );
+    } else {
+      final_slot = footer->final_cert.slot;
+      fd_bls_set_union( final_set, footer->final_cert.signer_set, footer->notar_cert.signer_set );
+    }
+    final_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, final_slot, NULL );
+    final_ts_ns = slot_timestamp( bank, final_slot, footer_time_nanos );
+    final_kind  = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, final_epoch );
+  }
+
+  /* Same epoch set: one walk, reward then final update, one store per
+     signer (Agave update_accounts).  Else reward walk, then final. */
+
+  int fused = has_reward && final_kind==reward_kind;
+  for( ulong pass=0UL; pass<2UL; pass++ ) {
+    int rwd = !pass && has_reward;
+    int fin = has_final && ( pass ? !fused : fused );
+    if( !rwd && !fin ) continue;
+    int iter_kind = rwd ? reward_kind : final_kind;
+    if( FD_UNLIKELY( !iter_kind ) ) {
+      FD_LOG_WARNING(( "slot %lu: finalization epoch %lu is not t-1 through t-5", bank_slot, final_epoch ));
+      return -1;
+    }
+
+    int have_ranked_vote = 0;
+    fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
     uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter_mem );
          !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter );
@@ -499,86 +547,49 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
       FD_TEST( rank<AG_VAT_MAX );
       have_ranked_vote = 1;
-      ulong r = (ulong)rank;
-      if( !fd_bls_set_test( reward_set, r ) ) continue;
-      /* per-slot, stake-fractional reward; split half validator, half
-         (rounded up) leader */
-      uint128 numerator   = (uint128)max_reward*(uint128)stake;
-      uint128 denominator = (uint128)slots_per_epoch*(uint128)total_stake;
-      ulong   reward      = denominator ? (ulong)( numerator/denominator ) : 0UL;
-      ulong   validator_reward = reward/2UL;
+      ulong r      = (ulong)rank;
+      int   in_rwd = rwd && fd_bls_set_test( reward_set, r );
+      int   in_fin = fin && fd_bls_set_test( final_set,  r );
+      if( !in_rwd && !in_fin ) continue;
 
-      vote_update_t upd = {
-        .update_votes    = 1, .vote_slot = reward_slot, .vote_ts_ns = ts_ns,
-        .credits         = validator_reward,
-        .migration_epoch = migration_epoch,
-        .current_epoch   = current_epoch,
-      };
       static FD_TL fd_vote_state_versioned_t vs[1];
-      ulong       data_len;
-      fd_pubkey_t owner;
+      fd_acc_t acc;
 
       /* Skip this node if the vote account cannot be deserialized
          https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L378-L380 */
-      if( FD_UNLIKELY( !vote_account_read( bank, accdb, &vote_key, vs, &data_len, &owner ) ) ) continue;
+      if( FD_UNLIKELY( !vote_account_open( bank, accdb, &vote_key, vs, &acc ) ) ) continue;
 
-      /* Only accumulate the leader credits if the vote account could
-         be successfully read.
+      if( in_rwd ) {
+        /* per-slot, stake-fractional reward; split half validator, half
+           (rounded up) leader */
+        uint128 numerator   = (uint128)max_reward*(uint128)stake;
+        uint128 denominator = (uint128)slots_per_epoch*(uint128)total_stake;
+        ulong   reward      = denominator ? (ulong)( numerator/denominator ) : 0UL;
+        ulong   validator_reward = reward/2UL;
 
-         https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L249 */
-      leader_credits = fd_ulong_sat_add( leader_credits, reward-validator_reward );
-      vote_account_write( bank, accdb, capture_ctx, &vote_key, &owner, data_len, vs, &upd );
+        /* Only accumulate the leader credits if the vote account could
+           be successfully read.
+
+           https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L249 */
+        leader_credits = fd_ulong_sat_add( leader_credits, reward-validator_reward );
+        vote_update_apply( vs, &(vote_update_t){
+          .update_votes    = 1, .vote_slot = reward_slot, .vote_ts_ns = reward_ts_ns,
+          .credits         = validator_reward,
+          .migration_epoch = migration_epoch,
+          .current_epoch   = current_epoch,
+        } );
+      }
+      if( in_fin ) {
+        vote_update_apply( vs, &(vote_update_t){
+          .update_root  = 1, .root_slot = final_slot,
+          .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = final_ts_ns,
+        } );
+      }
+      vote_account_store( bank, accdb, capture_ctx, &acc, vs );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
-      FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu", bank_slot, reward_slot ));
-      return -1;
-    }
-  }
-
-  /* finalization cert: root/votes/timestamp for the signers */
-
-  if( footer->has_fast_final_cert || footer->has_final_cert ) {
-    ulong        final_slot;
-    fd_bls_set_t final_set[ fd_bls_set_word_cnt ];
-    if( footer->has_fast_final_cert ) {
-      final_slot = footer->fast_final_cert.slot;
-      fd_bls_set_copy( final_set, footer->fast_final_cert.signer_set );
-    } else {
-      final_slot = footer->final_cert.slot;
-      fd_bls_set_union( final_set, footer->final_cert.signer_set, footer->notar_cert.signer_set );
-    }
-
-    ulong final_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, final_slot, NULL );
-
-    long ts_ns = slot_timestamp( bank, final_slot, footer_time_nanos );
-    int have_ranked_vote = 0;
-    fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
-    int iter_kind = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, final_epoch );
-    if( FD_UNLIKELY( !iter_kind ) ) {
-      FD_LOG_WARNING(( "slot %lu: finalization epoch %lu is not t-1 through t-5", bank_slot, final_epoch ));
-      return -1;
-    }
-    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter_mem );
-         !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter );
-         fd_vote_stakes_iter_next( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter ) ) {
-      fd_pubkey_t vote_key;
-      ushort      rank;
-      fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter,
-                               &vote_key, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
-      if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
-      FD_TEST( rank<AG_VAT_MAX );
-      have_ranked_vote = 1;
-      ulong r = (ulong)rank;
-      if( !fd_bls_set_test( final_set, r ) ) continue;
-      vote_update_t upd = {
-        .update_root  = 1, .root_slot = final_slot,
-        .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = ts_ns,
-      };
-      vote_account_modify( bank, accdb, capture_ctx, &vote_key, &upd );
-    }
-    if( FD_UNLIKELY( !have_ranked_vote ) ) {
-      FD_LOG_WARNING(( "slot %lu: no ranked validators for finalized slot %lu", bank_slot, final_slot ));
+      if( rwd ) FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu",    bank_slot, reward_slot ));
+      else      FD_LOG_WARNING(( "slot %lu: no ranked validators for finalized slot %lu", bank_slot, final_slot  ));
       return -1;
     }
   }

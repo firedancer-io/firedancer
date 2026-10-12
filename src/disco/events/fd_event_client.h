@@ -6,6 +6,21 @@
 #include "../../ballet/x509/fd_x509_ca_store.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 
+#include <zstd.h> /* ZSTD_COMPRESSBOUND */
+
+/* FD_EVENT_CLIENT_ZSTD_OUT_MAX is the worst case compressed size of
+   raw_sz bytes of events (with their varint length prefixes) in one
+   flushed or ended zstd chunk. */
+#define FD_EVENT_CLIENT_ZSTD_OUT_MAX( raw_sz ) ( ZSTD_COMPRESSBOUND( (raw_sz) ) + 64UL )
+
+/* FD_EVENT_CLIENT_FITS is whether an event of event_sz bytes always
+   fits a client with gRPC buffer buf_max: its worst case compressed
+   chunk with the 5 byte gRPC message prefix and a 9 byte HTTP/2 DATA
+   frame header per 16 KiB frame. */
+#define FD_EVENT_CLIENT_FITS( event_sz, buf_max ) \
+  ( FD_EVENT_CLIENT_ZSTD_OUT_MAX( 10UL+(event_sz) )+5UL+ \
+    9UL*( ( FD_EVENT_CLIENT_ZSTD_OUT_MAX( 10UL+(event_sz) )+5UL+16383UL )/16384UL )<=(buf_max) )
+
 #define FD_EVENT_CLIENT_STATE_DISCONNECTED    (0)
 #define FD_EVENT_CLIENT_STATE_CONNECTING      (1)
 #define FD_EVENT_CLIENT_STATE_AUTHENTICATING  (2)
@@ -36,7 +51,7 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_event_client_align( void );
 
-FD_FN_CONST ulong
+ulong
 fd_event_client_footprint( ulong buf_max );
 
 void *

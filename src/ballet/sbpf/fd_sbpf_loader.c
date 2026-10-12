@@ -398,8 +398,6 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
 
    Obviously invalid relocations (e.g. out-of-bounds of ELF file or
    unsupported reloc type) raise an error.
-   Relocations that would corrupt ELF data structures are silently
-   ignored (using the fd_sbpf_reloc_mask mechanism).
 
    ### History
 
@@ -469,7 +467,7 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
     fd_elf64_sym const *  dynsym_table = (fd_elf64_sym const *)( elf->bin + sh_dynsym->sh_offset );
     ulong                 dynsym_cnt   = (ulong)(sh_dynsym->sh_size / sizeof(fd_elf64_sym));
 
-    /* The symbol table index is stored in the lower 4 bytes of r_info.
+    /* The symbol table index is stored in the upper 4 bytes of r_info.
        Check the bounds of the symbol table index. */
     ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
     if( FD_UNLIKELY( r_sym>=dynsym_cnt ) ) {
@@ -658,7 +656,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   fd_elf64_sym const *  dynsym_table = (fd_elf64_sym const *)( elf->bin + sh_dynsym->sh_offset );
   ulong                 dynsym_cnt   = (ulong)(sh_dynsym->sh_size / sizeof(fd_elf64_sym));
 
-  /* The symbol table index is stored in the lower 4 bytes of r_info.
+  /* The symbol table index is stored in the upper 4 bytes of r_info.
      Check the bounds of the symbol table index. */
   ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
   if( FD_UNLIKELY( r_sym>=dynsym_cnt ) ) {

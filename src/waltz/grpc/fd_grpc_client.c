@@ -795,7 +795,7 @@ fd_grpc_client_stream_send_msg1(
 
   /* Copy protobuf to buffer after gRPC header */
   uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  memcpy( proto_buf, protobuf, protobuf_sz );
+  if( protobuf!=proto_buf ) memcpy( proto_buf, protobuf, protobuf_sz );
 
   /* Create gRPC length prefix */
   fd_grpc_hdr_t hdr = {
@@ -834,6 +834,15 @@ fd_grpc_client_stream_close(
 
   FD_LOG_DEBUG(( "gRPC stream_close stream_id=%u", stream->s.stream_id ));
 
+  return 1;
+}
+
+int
+fd_grpc_client_stream_cancel( fd_grpc_client_t *    client,
+                              fd_grpc_h2_stream_t * stream ) {
+  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( client->frame_tx )<sizeof(fd_h2_rst_stream_t) ) ) return 0;
+  fd_h2_stream_error( &stream->s, client->conn, client->frame_tx, FD_H2_ERR_CANCEL );
+  fd_grpc_client_stream_release( client, stream );
   return 1;
 }
 

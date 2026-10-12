@@ -473,3 +473,16 @@ fd_shred_dest_pubkey_to_idx( fd_shred_dest_t   * sdest,
   return (fd_shred_dest_idx_t)query->idx;
 }
 
+fd_shred_dest_idx_t
+fd_shred_dest_leader_for_slot( fd_shred_dest_t const * sdest,
+                               ulong slot ) {
+  fd_pubkey_t const * leader = fd_epoch_leaders_get( sdest->lsched, slot );
+  if( FD_UNLIKELY( !leader ) ) return FD_SHRED_DEST_NO_DEST;
+
+  pubkey_to_idx_t default_res[ 1 ] = {{ .idx = FD_SHRED_DEST_NO_DEST }};
+  pubkey_to_idx_t const * query  = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *leader, default_res );
+  if( FD_UNLIKELY( query->idx==sdest->source_validator_orig_idx ) ) return FD_SHRED_DEST_NO_DEST;
+
+  return (fd_shred_dest_idx_t)query->idx;
+}
+
