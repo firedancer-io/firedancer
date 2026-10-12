@@ -36,6 +36,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
 
@@ -2025,10 +2026,25 @@ privileged_init( fd_topo_t const *      topo,
 
     ctx->tower_dir_fd = open( tile->tower.tower_path, O_RDONLY|O_DIRECTORY );
     if( FD_UNLIKELY( -1==ctx->tower_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", tile->tower.tower_path, errno, fd_io_strerror( errno ) ));
+
+    /* Switch to non-root uid/gid for file creation. */
+    gid_t gid = getgid();
+    uid_t uid = getuid();
+    if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->tower.target_gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->tower.target_uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
     for( ulong i=0UL; i<2UL; i++ ) {
       ctx->tower_fd[ i ] = openat( ctx->tower_dir_fd, ctx->tower_name[ i ], O_WRONLY|O_CREAT, 0644 );
-      if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", tile->tower.tower_path, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->tower.tower_path, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
+      struct stat st;
+      if( FD_UNLIKELY( -1==fstat( ctx->tower_fd[ i ], &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->tower.tower_path, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( st.st_uid!=tile->tower.target_uid ) ) {
+        FD_LOG_ERR(( "tower file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->tower.tower_path, ctx->tower_name[ i ], st.st_uid, tile->tower.target_uid ));
+      }
     }
+
+    if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }
 
