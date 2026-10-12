@@ -966,7 +966,7 @@ after_credit( fd_rotor_tile_t *   ctx,
     msg->slot_complete   = out.fec_idx+1U==blk->cmpl_fec_cnt;
     msg->data_complete   = fec->data_complete;
     msg->is_leader       = fec->is_leader;
-    msg->known_id        = fd_rotor_slot_meta( ctx->rotor, blk->slot )->eager!=out.blk_idx;
+    msg->known_id        = blk->known_id;
     msg->block_id        = blk->dmr;
     msg->metrics.highest_fec_complete_slot = ctx->highest_fec_complete_slot;
     msg->metrics.fec_completed_ts_nanos    = fec->cmpl_ts;       /* shred tile rx of the shred that completed it, 0 for our own */
