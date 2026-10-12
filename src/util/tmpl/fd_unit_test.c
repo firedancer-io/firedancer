@@ -55,8 +55,25 @@ match_test_name( char const * test_name,
 static inline void
 fd_unit_tests( int     argc,
                char ** argv ) {
+  /* The unit test runner passes workspace options to every test.  Strip
+     unused options so their values do not become test name filters. */
+  int filter_argc = argc>0;
+  for( int i=1; i<argc; i++ ) {
+    char * arg = argv[ i ];
+    if( !strcmp( arg, "--numa-idx" ) || !strcmp( arg, "--page-cnt" ) || !strcmp( arg, "--page-sz" ) ) {
+      if( FD_UNLIKELY( i+1>=argc || !strncmp( argv[ i+1 ], "--", 2UL ) ) ) {
+        FD_LOG_ERR(( "missing value for %s", arg ));
+      }
+      i++;
+    } else {
+      if( FD_UNLIKELY( !strncmp( arg, "--", 2UL ) ) ) FD_LOG_ERR(( "unrecognized argument %s", arg ));
+      argv[ filter_argc++ ] = arg;
+    }
+  }
+  argv[ filter_argc ] = NULL;
+
   for( fd_unit_test_t * tc = fd_unit_test_head; tc; tc = tc->next ) {
-    if( match_test_name( tc->name, argc, argv ) ) {
+    if( match_test_name( tc->name, filter_argc, argv ) ) {
       FD_LOG_NOTICE(( "Running %s", tc->name ));
       tc->fn();
     }
