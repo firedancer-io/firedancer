@@ -494,6 +494,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
       fd_gui_handle_epoch_info( ctx->gui, epoch_info, fd_clock_tile_now( ctx->clock ) );
       fd_gui_peers_handle_epoch_info( ctx->peers, epoch_info, fd_clock_tile_now( ctx->clock ) );
+      fd_gui_peers_start_wfs( ctx->peers, epoch_info, fd_clock_tile_now( ctx->clock ) );
       break;
     }
     case IN_KIND_SNAPIN: {
@@ -501,11 +502,8 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_SNAPIN_MANIF: {
-      if( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) {
-        fd_gui_peers_commit_snapshot_manifest( ctx->peers );
-      } else {
+      if( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) {
         fd_gui_stage_snapshot_manifest( ctx->gui, (fd_snapshot_manifest_t const *)src );
-        fd_gui_peers_stage_snapshot_manifest( ctx->peers, (fd_snapshot_manifest_t const *)src, fd_clock_tile_now( ctx->clock ) );
       }
       break;
     }

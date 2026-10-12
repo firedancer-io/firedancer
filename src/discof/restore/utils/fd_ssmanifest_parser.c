@@ -79,298 +79,236 @@
 #define STATE_STAKES_VOTE_ACCOUNTS_STAKE                                                                 ( 65)
 #define STATE_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS                                                        ( 66)
 #define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH                                                     ( 67)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT                                                    ( 68)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY                                             ( 69)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER                                   ( 70)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR                             ( 71)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR                                 ( 72)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS                        ( 73)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS                            ( 74)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS                               ( 75)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION                            ( 76)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED                                   ( 77)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH                                            ( 78)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES                                                   ( 79)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION                                        ( 80)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT                                               ( 81)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH                                ( 82)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS                                       ( 83)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH                                    ( 84)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS                                           ( 85)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT                                     ( 86)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP                                ( 87)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY                                             ( 88)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER                                   ( 89)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION                                              ( 90)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH                                            ( 91)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES                                                   ( 92)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION                                        ( 93)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT                                               ( 94)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH                                ( 95)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS                                       ( 96)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS                                            ( 97)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH                                    ( 98)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS                                           ( 99)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT                                     (100)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP                                (101)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY                                         (102)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER                               (103)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION                                          (104)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH                                        (105)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES                                               (106)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION                                    (107)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT                                           (108)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH                            (109)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS                                   (110)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS                                        (111)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH                                (112)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS                                       (113)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT                                 (114)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP                            (115)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY                                          (116)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER                                     (117)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH                               (118)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS                                         (119)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER                                (120)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION                                           (121)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH                                         (122)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES                                                (123)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION                                     (124)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT                                            (125)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH                                 (126)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS                                        (127)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT                                  (128)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP                             (129)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY                                                      (130)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_OWNER                                                           (131)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE                                                      (132)
-#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH                                                      (133)
-#define STATE_STAKES_STAKE_DELEGATIONS_LENGTH                                                            (134)
-#define STATE_STAKES_STAKE_DELEGATIONS                                                                   (135)
-#define STATE_STAKES_UNUSED                                                                              (136)
-#define STATE_STAKES_EPOCH                                                                               (137)
-#define STATE_STAKES_STAKE_HISTORY_LENGTH                                                                (138)
-#define STATE_STAKES_STAKE_HISTORY                                                                       (139)
-#define STATE_UNUSED_ACCOUNTS1_LENGTH                                                                    (140)
-#define STATE_UNUSED_ACCOUNTS1_UNUSED                                                                    (141)
-#define STATE_UNUSED_ACCOUNTS2_LENGTH                                                                    (142)
-#define STATE_UNUSED_ACCOUNTS2_UNUSED                                                                    (143)
-#define STATE_UNUSED_ACCOUNTS3_LENGTH                                                                    (144)
-#define STATE_UNUSED_ACCOUNTS3_UNUSED                                                                    (145)
-#define STATE_EPOCH_STAKES_LENGTH                                                                        (146)
-#define STATE_EPOCH_STAKES_KEY                                                                           (147)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH                                                          (148)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_KEY                                                             (149)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_STAKE                                                           (150)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS                                                  (151)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH                                               (152)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT                                              (153)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY                                       (154)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER                             (155)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR                       (156)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR                           (157)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS                  (158)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS                      (159)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS                         (160)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION                      (161)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED                             (162)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH                                      (163)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES                                             (164)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION                                  (165)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT                                         (166)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH                          (167)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS                                 (168)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH                              (169)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS                                     (170)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT                               (171)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP                          (172)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY                                       (173)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER                             (174)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION                                        (175)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH                                      (176)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES                                             (177)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION                                  (178)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT                                         (179)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH                          (180)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS                                 (181)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS                                      (182)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH                              (183)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS                                     (184)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT                               (185)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP                          (186)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY                                   (187)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER                         (188)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION                                    (189)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH                                  (190)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES                                         (191)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION                              (192)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT                                     (193)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH                      (194)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS                             (195)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS                                  (196)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH                          (197)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS                                 (198)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT                           (199)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP                      (200)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY                                    (201)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER                               (202)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH                         (203)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS                                   (204)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER                          (205)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION                                     (206)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH                                   (207)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES                                          (208)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION                               (209)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT                                      (210)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH                           (211)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS                                  (212)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT                            (213)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP                       (214)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY                                                (215)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_OWNER                                                     (216)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE                                                (217)
-#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH                                                (218)
-#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH                                                      (219)
-#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_KEY                                                         (220)
-#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_VOTER_PUBKEY                                                (221)
-#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_STAKE                                                       (222)
-#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_ACTIVATION_EPOCH                                            (223)
-#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_DEACTIVATION_EPOCH                                          (224)
-#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE                                        (225)
-#define STATE_EPOCH_STAKES_UNUSED                                                                        (226)
-#define STATE_EPOCH_STAKES_EPOCH                                                                         (227)
-#define STATE_EPOCH_STAKES_STAKE_HISTORY_LENGTH                                                          (228)
-#define STATE_EPOCH_STAKES_STAKE_HISTORY                                                                 (229)
-#define STATE_EPOCH_STAKES_TOTAL_STAKE                                                                   (230)
-#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH                                               (231)
-#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_KEY                                                  (232)
-#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS_LENGTH                                 (233)
-#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS                                        (234)
-#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_TOTAL_STAKE                                          (235)
-#define STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH                                                (236)
-#define STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS                                                       (237)
-#define STATE_IS_DELTA                                                                                   (238)
-#define STATE_ACCOUNTS_DB_STORAGES_LENGTH                                                                (239)
-#define STATE_ACCOUNTS_DB_STORAGES_SLOT                                                                  (240)
-#define STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_LENGTH                                                   (241)
-#define STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_ID                                                       (242)
-#define STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ                                                  (243)
-#define STATE_ACCOUNTS_DB_STORAGES_DUMMY                                                                 (244)
-#define STATE_ACCOUNTS_DB_VERSION                                                                        (245)
-#define STATE_ACCOUNTS_DB_SLOT                                                                           (246)
-#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_ACCOUNTS_DELTA_HASH                                             (247)
-#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_ACCOUNTS_HASH                                                   (248)
-#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_NUM_UPDATED_ACCOUNTS                                      (249)
-#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_NUM_REMOVED_ACCOUNTS                                      (250)
-#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_NUM_LAMPORTS_STORED                                       (251)
-#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_TOTAL_DATA_LEN                                            (252)
-#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_NUM_EXECUTABLE_ACCOUNTS                                   (253)
-#define STATE_ACCOUNTS_DB_HISTORICAL_ROOTS_LENGTH                                                        (254)
-#define STATE_ACCOUNTS_DB_HISTORICAL_ROOTS                                                               (255)
-#define STATE_ACCOUNTS_DB_HISTORICAL_WITH_HASH_LENGTH                                                    (256)
-#define STATE_ACCOUNTS_DB_HISTORICAL_WITH_HASH                                                           (257)
-#define STATE_LAMPORTS_PER_SIGNATURE                                                                     (258)
-#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_OPTION                                               (259)
-#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FULL_SLOT                                            (260)
-#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FULL_HASH                                            (261)
-#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FULL_CAPITALIZATION                                  (262)
-#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_INCREMENTAL_HASH                                     (263)
-#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_INCREMENTAL_CAPITALIZATION                           (264)
-#define STATE_EPOCH_ACCOUNT_HASH_OPTION                                                                  (265)
-#define STATE_EPOCH_ACCOUNT_HASH                                                                         (266)
-#define STATE_VERSIONED_EPOCH_STAKES_LENGTH                                                              (267)
-#define STATE_VERSIONED_EPOCH_STAKES_EPOCH                                                               (268)
-#define STATE_VERSIONED_EPOCH_STAKES_VARIANT                                                             (269)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH                                         (270)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_KEY                                            (271)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_STAKE                                          (272)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS                                 (273)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH                              (274)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT                             (275)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY                      (276)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER            (277)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR      (278)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR          (279)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS (280)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS     (281)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS        (282)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION     (283)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED            (284)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH                     (285)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES                            (286)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION                 (287)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT                        (288)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH         (289)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS                (290)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH             (291)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS                    (292)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT              (293)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP         (294)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY                      (295)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER            (296)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION                       (297)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH                     (298)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES                            (299)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION                 (300)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT                        (301)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH         (302)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS                (303)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS                     (304)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH             (305)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS                    (306)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT              (307)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP         (308)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY                  (309)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER        (310)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION                   (311)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH                 (312)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES                        (313)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION             (314)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT                    (315)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH     (316)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS            (317)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS                 (318)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH         (319)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS                (320)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT          (321)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP     (322)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY                   (323)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER              (324)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH        (325)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS                  (326)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER         (327)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION                    (328)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH                  (329)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES                         (330)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION              (331)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT                     (332)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH          (333)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS                 (334)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT           (335)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP      (336)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY                               (337)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_OWNER                                    (338)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE                               (339)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH                               (340)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH                                     (341)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS                                            (342)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_UNUSED                                                       (343)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_EPOCH                                                        (344)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_HISTORY_LENGTH                                         (345)
-#define STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_HISTORY                                                (346)
-#define STATE_VERSIONED_EPOCH_STAKES_TOTAL_STAKE                                                         (347)
-#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH                                     (348)
-#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_KEY                                        (349)
-#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS_LENGTH                       (350)
-#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS                              (351)
-#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_TOTAL_STAKE                                (352)
-#define STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH                                      (353)
-#define STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS                                             (354)
-#define STATE_LTHASH_OPTION                                                                              (355)
-#define STATE_LTHASH                                                                                     (356)
-#define STATE_BLOCK_ID_OPTION                                                                            (357)
-#define STATE_BLOCK_ID                                                                                   (358)
-#define STATE_DONE                                                                                       (359)
+#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA                                                            ( 68)
+#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_OWNER                                                           ( 69)
+#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE                                                      ( 70)
+#define STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH                                                      ( 71)
+#define STATE_STAKES_STAKE_DELEGATIONS_LENGTH                                                            ( 72)
+#define STATE_STAKES_STAKE_DELEGATIONS                                                                   ( 73)
+#define STATE_STAKES_UNUSED                                                                              ( 74)
+#define STATE_STAKES_EPOCH                                                                               ( 75)
+#define STATE_STAKES_STAKE_HISTORY_LENGTH                                                                ( 76)
+#define STATE_STAKES_STAKE_HISTORY                                                                       ( 77)
+#define STATE_UNUSED_ACCOUNTS1_LENGTH                                                                    ( 78)
+#define STATE_UNUSED_ACCOUNTS1_UNUSED                                                                    ( 79)
+#define STATE_UNUSED_ACCOUNTS2_LENGTH                                                                    ( 80)
+#define STATE_UNUSED_ACCOUNTS2_UNUSED                                                                    ( 81)
+#define STATE_UNUSED_ACCOUNTS3_LENGTH                                                                    ( 82)
+#define STATE_UNUSED_ACCOUNTS3_UNUSED                                                                    ( 83)
+#define STATE_EPOCH_STAKES_LENGTH                                                                        ( 84)
+#define STATE_EPOCH_STAKES_KEY                                                                           ( 85)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH                                                          ( 86)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_KEY                                                             ( 87)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_STAKE                                                           ( 88)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS                                                  ( 89)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH                                               ( 90)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT                                              ( 91)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY                                       ( 92)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER                             ( 93)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR                       ( 94)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR                           ( 95)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS                  ( 96)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS                      ( 97)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS                         ( 98)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION                      ( 99)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED                             (100)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH                                      (101)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES                                             (102)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION                                  (103)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT                                         (104)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH                          (105)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS                                 (106)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH                              (107)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS                                     (108)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT                               (109)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP                          (110)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY                                       (111)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER                             (112)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION                                        (113)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH                                      (114)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES                                             (115)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION                                  (116)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT                                         (117)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH                          (118)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS                                 (119)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS                                      (120)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH                              (121)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS                                     (122)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT                               (123)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP                          (124)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY                                   (125)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER                         (126)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION                                    (127)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH                                  (128)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES                                         (129)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION                              (130)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT                                     (131)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH                      (132)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS                             (133)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS                                  (134)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH                          (135)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS                                 (136)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT                           (137)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP                      (138)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY                                    (139)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER                               (140)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH                         (141)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS                                   (142)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER                          (143)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION                                     (144)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH                                   (145)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES                                          (146)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION                               (147)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT                                      (148)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH                           (149)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS                                  (150)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT                            (151)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP                       (152)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY                                                (153)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_OWNER                                                     (154)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE                                                (155)
+#define STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH                                                (156)
+#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH                                                      (157)
+#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_KEY                                                         (158)
+#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_VOTER_PUBKEY                                                (159)
+#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_STAKE                                                       (160)
+#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_ACTIVATION_EPOCH                                            (161)
+#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_DEACTIVATION_EPOCH                                          (162)
+#define STATE_EPOCH_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE                                        (163)
+#define STATE_EPOCH_STAKES_UNUSED                                                                        (164)
+#define STATE_EPOCH_STAKES_EPOCH                                                                         (165)
+#define STATE_EPOCH_STAKES_STAKE_HISTORY_LENGTH                                                          (166)
+#define STATE_EPOCH_STAKES_STAKE_HISTORY                                                                 (167)
+#define STATE_EPOCH_STAKES_TOTAL_STAKE                                                                   (168)
+#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH                                               (169)
+#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_KEY                                                  (170)
+#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS_LENGTH                                 (171)
+#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS                                        (172)
+#define STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_TOTAL_STAKE                                          (173)
+#define STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH                                                (174)
+#define STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS                                                       (175)
+#define STATE_IS_DELTA                                                                                   (176)
+#define STATE_ACCOUNTS_DB_STORAGES_LENGTH                                                                (177)
+#define STATE_ACCOUNTS_DB_STORAGES_SLOT                                                                  (178)
+#define STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_LENGTH                                                   (179)
+#define STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_ID                                                       (180)
+#define STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ                                                  (181)
+#define STATE_ACCOUNTS_DB_STORAGES_DUMMY                                                                 (182)
+#define STATE_ACCOUNTS_DB_VERSION                                                                        (183)
+#define STATE_ACCOUNTS_DB_SLOT                                                                           (184)
+#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_ACCOUNTS_DELTA_HASH                                             (185)
+#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_ACCOUNTS_HASH                                                   (186)
+#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_NUM_UPDATED_ACCOUNTS                                      (187)
+#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_NUM_REMOVED_ACCOUNTS                                      (188)
+#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_NUM_LAMPORTS_STORED                                       (189)
+#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_TOTAL_DATA_LEN                                            (190)
+#define STATE_ACCOUNTS_DB_BANK_HASH_INFO_STATS_NUM_EXECUTABLE_ACCOUNTS                                   (191)
+#define STATE_ACCOUNTS_DB_HISTORICAL_ROOTS_LENGTH                                                        (192)
+#define STATE_ACCOUNTS_DB_HISTORICAL_ROOTS                                                               (193)
+#define STATE_ACCOUNTS_DB_HISTORICAL_WITH_HASH_LENGTH                                                    (194)
+#define STATE_ACCOUNTS_DB_HISTORICAL_WITH_HASH                                                           (195)
+#define STATE_LAMPORTS_PER_SIGNATURE                                                                     (196)
+#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_OPTION                                               (197)
+#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FULL_SLOT                                            (198)
+#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FULL_HASH                                            (199)
+#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FULL_CAPITALIZATION                                  (200)
+#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_INCREMENTAL_HASH                                     (201)
+#define STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_INCREMENTAL_CAPITALIZATION                           (202)
+#define STATE_EPOCH_ACCOUNT_HASH_OPTION                                                                  (203)
+#define STATE_EPOCH_ACCOUNT_HASH                                                                         (204)
+#define STATE_VERSIONED_EPOCH_STAKES_LENGTH                                                              (205)
+#define STATE_VERSIONED_EPOCH_STAKES_EPOCH                                                               (206)
+#define STATE_VERSIONED_EPOCH_STAKES_VARIANT                                                             (207)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH                                         (208)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_KEY                                            (209)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_STAKE                                          (210)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS                                 (211)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH                              (212)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT                             (213)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY                      (214)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER            (215)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR      (216)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR          (217)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS (218)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS     (219)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS        (220)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION     (221)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED            (222)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH                     (223)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES                            (224)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION                 (225)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT                        (226)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH         (227)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS                (228)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH             (229)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS                    (230)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT              (231)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP         (232)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY                      (233)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER            (234)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION                       (235)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH                     (236)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES                            (237)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION                 (238)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT                        (239)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH         (240)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS                (241)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS                     (242)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH             (243)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS                    (244)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT              (245)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP         (246)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY                  (247)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER        (248)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION                   (249)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH                 (250)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES                        (251)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION             (252)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT                    (253)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH     (254)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS            (255)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS                 (256)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH         (257)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS                (258)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT          (259)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP     (260)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY                   (261)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER              (262)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH        (263)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS                  (264)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER         (265)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION                    (266)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH                  (267)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES                         (268)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION              (269)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT                     (270)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH          (271)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS                 (272)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT           (273)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP      (274)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY                               (275)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_OWNER                                    (276)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE                               (277)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH                               (278)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH                                     (279)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS                                            (280)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_UNUSED                                                       (281)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_EPOCH                                                        (282)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_HISTORY_LENGTH                                         (283)
+#define STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_HISTORY                                                (284)
+#define STATE_VERSIONED_EPOCH_STAKES_TOTAL_STAKE                                                         (285)
+#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH                                     (286)
+#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_KEY                                        (287)
+#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS_LENGTH                       (288)
+#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS                              (289)
+#define STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_TOTAL_STAKE                                (290)
+#define STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH                                      (291)
+#define STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS                                             (292)
+#define STATE_LTHASH_OPTION                                                                              (293)
+#define STATE_LTHASH                                                                                     (294)
+#define STATE_BLOCK_ID_OPTION                                                                            (295)
+#define STATE_BLOCK_ID                                                                                   (296)
+#define STATE_DONE                                                                                       (297)
 
 struct fd_ssmanifest_parser_private {
   int     state;
@@ -382,7 +320,6 @@ struct fd_ssmanifest_parser_private {
   uchar   option;
   uint    variant;
   uchar   ns_per_slot[ 16UL ];
-  ulong   vote_account_stake;
 
   ulong   idx1;
   ulong   idx2;
@@ -483,69 +420,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_STAKE:                                                                    return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS:                                                           return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                                                        return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:                                                       return 4UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY:                                                return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER:                                      return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR:                                return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR:                                    return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:                           return 2UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS:                               return 2UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS:                                  return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION:                               return 1UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED:                                      return 48UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH:                                               return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES:                                                      return 13UL*length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION:                                           return 1UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT:                                                  return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:                                   return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS:                                          return 40UL*length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                                       return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                              return 24UL*length4;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                        return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                                   return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                                return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER:                                      return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                                                 return 1UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH:                                               return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES:                                                      return 13UL*length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION:                                           return 1UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT:                                                  return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:                                   return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS:                                          return 40UL*length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS:                                               return 9UL+48UL*32UL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                                       return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                              return 24UL*length4;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                        return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                                   return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                            return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER:                                  return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                                             return 1UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH:                                           return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES:                                                  return 12UL*length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION:                                       return 1UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT:                                              return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:                               return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS:                                      return 40UL*length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS:                                           return 9UL+48UL*32UL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:                                   return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                          return 24UL*length4;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                                    return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                               return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                             return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER:                                        return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH:                                  return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS:                                            return 1800UL      ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER:                                   return 32UL        ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:                                              return 1UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH:                                            return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES:                                                   return 12UL*length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION:                                        return 1UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT:                                               return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:                                    return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                           return 24UL*length4;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:                                     return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                                return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                                         return parser->length2-(parser->off-parser->account_data_start);
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA:                                                               return parser->length2;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_OWNER:                                                              return 32UL        ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                                         return 1UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                                                         return 8UL         ;
@@ -850,73 +725,11 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_INFLATION_FOUNDATION_TERM:                                                                     return (uchar*)&manifest->inflation_params.foundation_term;
     case STATE_INFLATION_UNUSED:                                                                              return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_LENGTH:                                                                   return (uchar*)&parser->length1;
-    case STATE_STAKES_VOTE_ACCOUNTS_KEY:                                                                      return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? manifest->vote_accounts[ manifest->vote_accounts_len ].vote_account_pubkey : NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_STAKE:                                                                    return (uchar*)&parser->vote_account_stake;
+    case STATE_STAKES_VOTE_ACCOUNTS_KEY:                                                                      return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_STAKE:                                                                    return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS:                                                           return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                                                        return (uchar*)&parser->length2;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:                                                       return (uchar*)&parser->variant;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY:                                                return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ manifest->vote_accounts_len ].node_account_pubkey : NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER:                                      return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR:                                return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR:                                    return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:                           return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS:                               return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS:                                  return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION:                               return &parser->option;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED:                                      return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH:                                               return (uchar*)&parser->length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES:                                                      return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION:                                           return &parser->option;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT:                                                  return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:                                   return (uchar*)&parser->length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS:                                          return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                                       return (uchar*)&parser->length4;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                              return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                        return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                                   return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                                return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ manifest->vote_accounts_len ].node_account_pubkey : NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER:                                      return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                                                 return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH:                                               return (uchar*)&parser->length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES:                                                      return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION:                                           return &parser->option;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT:                                                  return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:                                   return (uchar*)&parser->length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS:                                          return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS:                                               return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                                       return (uchar*)&parser->length4;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                              return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                        return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                                   return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                            return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ manifest->vote_accounts_len ].node_account_pubkey : NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER:                                  return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                                             return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH:                                           return (uchar*)&parser->length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES:                                                  return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION:                                       return &parser->option;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT:                                              return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:                               return (uchar*)&parser->length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS:                                      return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS:                                           return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:                                   return (uchar*)&parser->length4;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                          return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                                    return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                               return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                             return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ manifest->vote_accounts_len ].node_account_pubkey : NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER:                                        return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH:                                  return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS:                                            return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER:                                   return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:                                              return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH:                                            return (uchar*)&parser->length3;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES:                                                   return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION:                                        return &parser->option;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT:                                               return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:                                    return (uchar*)&parser->length4;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                           return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:                                     return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                                return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                                         return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA:                                                               return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_OWNER:                                                              return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                                         return (uchar*)&parser->option;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                                                         return NULL;
@@ -1171,7 +984,7 @@ state_log( fd_ssmanifest_parser_t * parser ) {
     case STATE_INFLATION_TAPER:                                                  FD_LOG_NOTICE(( "STATE_INFLATION_TAPER                                                   %lf", manifest->inflation_params.taper ));                            break;
     case STATE_INFLATION_FOUNDATION:                                             FD_LOG_NOTICE(( "STATE_INFLATION_FOUNDATION                                              %lf", manifest->inflation_params.foundation ));                       break;
     case STATE_INFLATION_FOUNDATION_TERM:                                        FD_LOG_NOTICE(( "STATE_INFLATION_FOUNDATION_TERM                                         %lf", manifest->inflation_params.foundation_term ));                  break;
-    case STATE_STAKES_VOTE_ACCOUNTS_LENGTH:                                      FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_LENGTH                                       %lu", manifest->vote_accounts_len ));                                 break;
+    case STATE_STAKES_VOTE_ACCOUNTS_LENGTH:                                      FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_LENGTH                                       %lu", parser->length1 ));                                 break;
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH:                                  FD_LOG_NOTICE(( "STATE_STAKES_STAKE_DELEGATIONS_LENGTH                                   %lu", parser->length1 ));                                             break;
     case STATE_STAKES_STAKE_HISTORY_LENGTH:                                      FD_LOG_NOTICE(( "STATE_STAKES_STAKE_HISTORY_LENGTH                                       %lu", parser->length1 ));                                             break;
     case STATE_EPOCH_STAKES_LENGTH:                                              FD_LOG_NOTICE(( "STATE_EPOCH_STAKES_LENGTH                                               %lu", parser->length1 ));                                             break;
@@ -1188,14 +1001,7 @@ state_log( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_HISTORY_LENGTH:               FD_LOG_NOTICE(( "STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_HISTORY_LENGTH                %lu", parser->length2 ));                                             break;
     case STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH:           FD_LOG_NOTICE(( "STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH            %lu", parser->length2 ));                                             break;
     case STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH:            FD_LOG_NOTICE(( "STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH             %lu", parser->length2 ));                                             break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH:              FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH               %lu", parser->length3 ));                                             break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH:               FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH                %lu", parser->length3 ));                                             break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION:          FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION            %d", parser->option ));                                              break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:                          FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:                           %u", parser->variant ));                                             break;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                           FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                           %lu", parser->length2 ));                                             break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:      FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:      %lu", parser->length3 ));                                             break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:  FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:  %lu", parser->length3 ));                                             break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:      FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:      %lu", parser->length4 ));                                        break;
     default: break;
   }
 }
@@ -1253,7 +1059,6 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT: {
       if( FD_UNLIKELY( parser->variant>3 ) ) {
@@ -1267,41 +1072,6 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE: {
       if( FD_UNLIKELY( parser->option>1 ) ) {
         FD_LOG_WARNING(( "invalid vote_accounts value executable %d", parser->option ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: {
-      if( FD_UNLIKELY( parser->option>1 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data v4 bls pubkey compressed option %d", parser->option ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION: {
-      if( FD_UNLIKELY( parser->option>1 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data current root slot option %d", parser->option ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION: {
-      if( FD_UNLIKELY( parser->option>1 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data current root slot option %d", parser->option ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION: {
-      if( FD_UNLIKELY( parser->option>1 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data v11411 root slot option %d", parser->option ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION: {
-      if( FD_UNLIKELY( parser->option>1 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data v0235 root slot option %d", parser->option ));
         return -1;
       }
       break;
@@ -1436,16 +1206,6 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH: {
-      if( FD_UNLIKELY( parser->length4>FD_EPOCH_CREDITS_MAX ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data current epoch credits length %lu (max %lu)", parser->length4, FD_EPOCH_CREDITS_MAX ));
-        return -1;
-      }
-      break;
-    }
     case STATE_EPOCH_STAKES_LENGTH: {
       if( FD_UNLIKELY( parser->epoch_stakes_len ) ) {
         /* The epoch stakes in the bank is a deprecated, unused field.
@@ -1458,34 +1218,6 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_LENGTH: {
       if( FD_UNLIKELY( parser->epoch_stakes_len>6UL ) ) {
         FD_LOG_WARNING(( "invalid epoch_stakes_len %lu", parser->epoch_stakes_len ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH: {
-      if( FD_UNLIKELY( parser->length3>31 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data current votes length %lu", parser->length3 ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH: {
-      if( FD_UNLIKELY( parser->length3>31 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data current votes length %lu", parser->length3 ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH: {
-      if( FD_UNLIKELY( parser->length3>31 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data v11411 votes length %lu", parser->length3 ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH: {
-      if( FD_UNLIKELY( parser->length3>31 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data v0235 votes length %lu", parser->length3 ));
         return -1;
       }
       break;
@@ -1581,15 +1313,6 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH: {
       if( FD_UNLIKELY( parser->length2>(1UL<<16UL) ) ) {
         FD_LOG_WARNING(( "invalid versioned epoch stakes node id to vote accounts length %lu", parser->length2 ));
-        return -1;
-      }
-      break;
-    }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH: {
-      if( FD_UNLIKELY( parser->length3>1024UL ) ) {
-        FD_LOG_WARNING(( "invalid vote account authorized voters length %lu", parser->length3 ));
         return -1;
       }
       break;
@@ -1723,35 +1446,6 @@ state_process( fd_ssmanifest_parser_t * parser ) {
     }
   }
 
-  /* STATE_STAKES_VOTE_ACCOUNTS */
-
-  /* Only staked vote accounts are kept. */
-  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_LENGTH ) ) {
-    manifest->vote_accounts_len = 0UL;
-  }
-  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH && parser->vote_account_stake ) ) {
-    if( FD_LIKELY( manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
-      manifest->vote_accounts[ manifest->vote_accounts_len ].stake = parser->vote_account_stake;
-      manifest->vote_accounts_len++;
-    } else {
-      FD_LOG_WARNING(( "snapshot has more than %lu staked vote accounts, dropping one", FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
-    }
-  }
-
-  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH && !parser->length2 ) ) {
-    parser->state = STATE_STAKES_VOTE_ACCOUNTS_VALUE_OWNER;
-    return 0;
-  }
-
-  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT ) ) {
-    switch( parser->variant ) {
-      case 3: parser->state = STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY; return 0;
-      case 2: parser->state = STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY; return 0;
-      case 1: parser->state = STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY; return 0;
-      case 0: parser->state = STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY; return 0;
-    }
-  }
-
   /* Older vote states only populate bottom 8 bits of the commission
      field, upper bytes should be cleared, then multiplied by 100 to
      convert to basis points. */
@@ -1770,22 +1464,6 @@ state_process( fd_ssmanifest_parser_t * parser ) {
       (  parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION
       || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION ) ) ) {
     memset( parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].identity_bls, 0, 48UL );
-  }
-
-  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) parser->account_data_start = parser->off;
-
-  switch( parser->state ) {
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:
-      if( FD_UNLIKELY( parser->off-parser->account_data_start>parser->length2 ) ) {
-        FD_LOG_WARNING(( "invalid vote account data: consumed %lu bytes exceeds declared length %lu", parser->off-parser->account_data_start, parser->length2 ));
-        return -1;
-      }
-      parser->state = STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY;
-      return 0;
-    default: break;
   }
 
   /* STATE_EPOCH_STAKES_VOTE_ACCOUNTS */
@@ -1861,11 +1539,6 @@ state_process( fd_ssmanifest_parser_t * parser ) {
       return 0;
     }
     case STATE_EPOCH_ACCOUNT_HASH_OPTION: manifest->has_epoch_account_hash = !!parser->option; parser->state += 2-!!parser->option; return 0;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: parser->state += 2-!!parser->option; return 0;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_LTHASH_OPTION:             manifest->has_accounts_lthash    = !!parser->option; parser->state += 2-!!parser->option; return 0;
     case STATE_BLOCK_ID_OPTION:           manifest->has_block_id           = !!parser->option; parser->state += 2-!!parser->option; return 0;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: if( parser->epoch_idx!=ULONG_MAX ) manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].has_identity_bls = !!parser->option; parser->state += 2-!!parser->option; return 0;

@@ -204,6 +204,7 @@ fd_gui_peers_new( void *             shmem,
     ctx->wfs_peers_cnt = 0UL;
     ctx->wfs_peers_valid = 0;
     ctx->wfs_stakes_sent = 0;
+    ctx->wfs_boot_epoch = ULONG_MAX;
     wfs_fresh_dlist_join( wfs_fresh_dlist_new( ctx->wfs_fresh_dlist ) );
 
     return shmem;
@@ -1015,33 +1016,24 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
 }
 
 void
-fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
-                                      fd_snapshot_manifest_t const * manifest,
-                                      long                           now ) {
+fd_gui_peers_start_wfs( fd_gui_peers_ctx_t *        peers,
+                        fd_epoch_info_msg_t const * epoch_info,
+                        long                        now ) {
 
   if( FD_LIKELY( !peers->wfs_enabled ) ) return;
+  if( FD_LIKELY( peers->wfs_peers_valid ) ) return;
 
-  fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
-  ulong vote_scratch_cnt = 0UL;
-  ulong vote_accounts_sz = manifest->vote_accounts_len;
-  if( FD_UNLIKELY( vote_accounts_sz>FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
-    FD_LOG_WARNING(( "vote accounts %lu exceeds maximum %lu", vote_accounts_sz, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
-    vote_accounts_sz = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS;
+  /* Replay sends two epoch messages at boot, the current epoch's
+     stakes and then the next epoch's.  Wait for supermajority starts
+     from the second one, the same list the gossip tile uses. */
+  if( FD_UNLIKELY( peers->wfs_boot_epoch==ULONG_MAX ) ) {
+    peers->wfs_boot_epoch = epoch_info->epoch;
+    return;
   }
-  for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
-    if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-    vote_scratch[ vote_scratch_cnt ].stake = manifest->vote_accounts[ i ].stake;
-    vote_scratch_cnt++;
-  }
+  if( FD_UNLIKELY( epoch_info->epoch<=peers->wfs_boot_epoch ) ) return;
 
-  /* Mirrors gossip WFS logic */
-  fd_stake_weight_t * id_weights = peers->scratch.manifest_id_weights;
-  ulong id_cnt = compute_id_weights_from_vote_weights( id_weights, vote_scratch, vote_scratch_cnt );
-
-  /* Restore invariant: sorted by identity key */
-  fd_stake_weight_key_sort_inplace( id_weights, id_cnt );
+  fd_stake_weight_t const * id_weights = fd_epoch_info_msg_id_weights( epoch_info );
+  ulong id_cnt = epoch_info->staked_id_cnt;
 
   for( ulong i=0UL; i<id_cnt; i++ ) {
     peers->wfs_peers[ i ].identity_key = id_weights[ i ].key;
@@ -1051,19 +1043,17 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
 
     ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &id_weights[ i ].key, ULONG_MAX,peers->contact_info_table );
     if( peer_idx!=ULONG_MAX && peers->contact_info_table[ peer_idx ].row.update_time_nanos > now - FD_GUI_WFS_ACTIVITY_TIMEOUT_NANOS ) {
-      peers->wfs_peers[ i ].is_online       = 1;
+      peers->wfs_peers[ i ].is_online         = 1;
       peers->wfs_peers[ i ].update_time_nanos = peers->contact_info_table[ peer_idx ].row.update_time_nanos;
     } else {
-      peers->wfs_peers[ i ].is_online       = 0;
+      peers->wfs_peers[ i ].is_online         = 0;
       peers->wfs_peers[ i ].update_time_nanos = 0L;
     }
   }
   peers->wfs_peers_cnt = id_cnt;
-}
 
-void
-fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers ) {
-  if( FD_UNLIKELY( !peers->wfs_enabled ) ) return;
+  /* Restore invariant: sorted by identity key */
+  wfs_peer_sort_inplace( peers->wfs_peers, peers->wfs_peers_cnt );
 
   wfs_fresh_dlist_join( wfs_fresh_dlist_new( peers->wfs_fresh_dlist ) );
 
