@@ -113,32 +113,32 @@ validator_set_for_slot( validator_set_t * set,
   return 1;
 }
 
-/* cert_verify checks one footer cert against its epoch's validator set.
-   The aggregate signature verifies over the vote with wire tag vote_tag the
-   signers would have signed, and if quorum_numer is nonzero the signers
-   hold quorum_numer/5 of the epoch's stake.  i.e., for verifying
-   reward certs, quorum_numer should be 0.
-
-   Returns 1 if the cert verifies, 0 otherwise. */
-
-static int
-cert_verify( validator_set_t *              set,
-             fd_footer_cache_t *            cache,
-             fd_bank_t const *              bank,
-             fd_block_footer_cert_t const * cert,
-             uint                           vote_tag,
-             ulong                          quorum_numer,
-             ushort                         shred_version ) {
+int
+fd_alpenglow_cert_verify( fd_bank_t const *              bank,
+                          fd_block_footer_cert_t const * cert,
+                          uint                           vote_tag,
+                          ulong                          quorum_numer,
+                          ushort                         shred_version,
+                          fd_footer_cache_t *            cache ) {
   ulong bank_slot = bank->f.slot;
   ulong cert_slot = cert->slot;
 
-  if( FD_UNLIKELY( !validator_set_for_slot( set, bank, cert_slot ) ) ) return 0;
+  if( FD_UNLIKELY( !shred_version ) ) {
+    FD_LOG_WARNING(( "slot %lu: footer carries certs but the shred version is not known yet; cannot verify them", bank_slot ));
+    return -1;
+  }
+
+  /* ~200 KiB, kept across calls: consecutive blocks' certs almost
+     always share a ring epoch; a fork specific t-1 set is not reused */
+  static FD_TL validator_set_t set[1];
+
+  if( FD_UNLIKELY( !validator_set_for_slot( set, bank, cert_slot ) ) ) return -1;
 
   ulong last_rank = fd_bls_set_last( cert->signer_set ); /* ULONG_MAX when empty */
   if( FD_UNLIKELY( cert->nbits>set->validator_cnt || last_rank>=set->validator_cnt ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu names %u ranks (highest signer %lu) but its epoch has %lu validators",
                      bank_slot, cert_slot, cert->nbits, last_rank, set->validator_cnt ));
-    return 0;
+    return -1;
   }
 
   ulong stake = 0UL;
@@ -150,26 +150,45 @@ cert_verify( validator_set_t *              set,
   if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)AG_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has %lu of %lu stake, below %lu/%lu",
                      bank_slot, cert_slot, stake, set->total_stake, quorum_numer, AG_QUORUM_THRESHOLD_DENOM ));
-    return 0;
+    return -1;
   }
 
   blst_p2_affine sig_affine[1];
   fd_bls_sig_t   sig[1];
   if( FD_UNLIKELY( blst_p2_uncompress( sig_affine, cert->sig )!=BLST_SUCCESS || !blst_p2_affine_in_g2( sig_affine ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has a malformed signature", bank_slot, cert_slot ));
-    return 0;
+    return -1;
   }
   blst_p2_from_affine( sig, sig_affine );
 
   uchar payload[ VOTE_SIGNING_SER_MAX ];
   ulong payload_sz = vote_signing_ser( vote_tag, cert_slot, vote_tag==VOTE_TAG_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
   blst_p2_affine h[1];
-  fd_footer_cache_hash_msg( cache, payload, payload_sz, h );
+  if( cache ) fd_footer_cache_hash_msg( cache, payload, payload_sz, h );
+  else        fd_bls_hash_msg( payload, payload_sz, h );
   if( FD_UNLIKELY( !fd_bls_agg_verify_hashed( h, pub, sig ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer (is_reward %d) cert for slot %lu failed signature verification", bank_slot, !quorum_numer, cert_slot ));
-    return 0;
+    return -1;
   }
-  return 1;
+  return 0;
+}
+
+ulong
+fd_alpenglow_footer_certs( fd_block_footer_t const *      footer,
+                           fd_block_footer_cert_t const * cert  [ static FD_ALPENGLOW_FOOTER_CERT_MAX ],
+                           uint                           tag   [ static FD_ALPENGLOW_FOOTER_CERT_MAX ],
+                           ulong                          quorum[ static FD_ALPENGLOW_FOOTER_CERT_MAX ] ) {
+  ulong n = 0UL;
+# define PUSH(c,t,q) do { cert[ n ] = (c); tag[ n ] = (t); quorum[ n ] = (q); n++; } while(0)
+  if( footer->has_fast_final_cert   ) PUSH( &footer->fast_final_cert,   VOTE_TAG_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER );
+  if( footer->has_final_cert        ) {
+    PUSH( &footer->final_cert, VOTE_TAG_FINAL, AG_QUORUM_THRESHOLD_NUMER );
+    PUSH( &footer->notar_cert, VOTE_TAG_NOTAR, AG_QUORUM_THRESHOLD_NUMER );
+  }
+  if( footer->has_skip_reward_cert  ) PUSH( &footer->skip_reward_cert,  VOTE_TAG_SKIP,  0UL );
+  if( footer->has_notar_reward_cert ) PUSH( &footer->notar_reward_cert, VOTE_TAG_NOTAR, 0UL );
+# undef PUSH
+  return n;
 }
 
 int
@@ -179,27 +198,13 @@ fd_alpenglow_footer_verify( fd_bank_t const *         bank,
                             fd_footer_cache_t *       cache ) {
   int has_certs = footer->has_fast_final_cert | footer->has_final_cert | footer->has_skip_reward_cert | footer->has_notar_reward_cert;
   if( FD_LIKELY( !has_certs ) ) return 0;
-  if( FD_UNLIKELY( !shred_version ) ) {
-    FD_LOG_WARNING(( "slot %lu: footer carries certs but the shred version is not known yet; cannot verify them", bank->f.slot ));
-    return -1;
-  }
 
-  /* ~200 KiB, kept across calls: consecutive blocks' certs almost
-     always share a ring epoch; a fork specific t-1 set is not reused */
-  static FD_TL validator_set_t set[1];
-
-  if( footer->has_fast_final_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->fast_final_cert,   VOTE_TAG_NOTAR, AG_STRONG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
-  }
-  if( footer->has_final_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->final_cert,        VOTE_TAG_FINAL, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
-    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->notar_cert,        VOTE_TAG_NOTAR, AG_QUORUM_THRESHOLD_NUMER, shred_version ) ) ) return -1;
-  }
-  if( footer->has_skip_reward_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->skip_reward_cert,  VOTE_TAG_SKIP,  0UL, shred_version ) ) ) return -1;
-  }
-  if( footer->has_notar_reward_cert ) {
-    if( FD_UNLIKELY( !cert_verify( set, cache, bank, &footer->notar_reward_cert, VOTE_TAG_NOTAR, 0UL, shred_version ) ) ) return -1;
+  fd_block_footer_cert_t const * cert  [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+  uint                           tag   [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+  ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+  ulong                          cnt = fd_alpenglow_footer_certs( footer, cert, tag, quorum );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( fd_alpenglow_cert_verify( bank, cert[ i ], tag[ i ], quorum[ i ], shred_version, cache ) ) ) return -1;
   }
   return 0;
 }
