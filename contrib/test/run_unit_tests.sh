@@ -232,6 +232,10 @@ fi
 # Clean up process tree on exit
 trap 'exit' INT QUIT TERM
 
+# Private dir for job exit codes (a shared /tmp path collides on PIDs)
+RC_DIR="$(mktemp -d)"
+trap 'rm -rf "$RC_DIR"' EXIT
+
 # Track list of PIDs of child processes
 declare -A PIDS
 
@@ -269,7 +273,7 @@ done < <(grep -v '^#' "$TESTS")
 echo "test.sh: Scheduling ${#TEST_LIST[@]} tests with $JOBS workers" >&2
 
 rc_path () {
-  echo "/tmp/.pid-$1.rc"
+  echo "$RC_DIR/$1.rc"
 }
 
 runner () {
@@ -399,12 +403,15 @@ reap () {
     if [[ ! -d "/proc/$pid" ]]; then
       # Job finished
       local rcfile; rcfile="$(rc_path "$pid")"
-      local rc
-      local elapsed
-      {
-        IFS= read -r rc
-        IFS= read -r elapsed
-      } < "$rcfile"
+      local rc=1 # fail if the job left no exit code
+      local elapsed=?
+      if [[ -s "$rcfile" ]]; then
+        {
+          IFS= read -r rc
+          IFS= read -r elapsed
+        } < "$rcfile"
+      fi
+      rm -f "$rcfile"
       local numa="${PID2NUMA["$pid"]}"
       local cpu="${PID2CPU["$pid"]}"
       local unit="${PID2UNIT["$pid"]}"
