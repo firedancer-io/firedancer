@@ -50,6 +50,7 @@ typedef struct ag_parent_ready_states ag_parent_ready_states_t;
 struct __attribute__((aligned(128UL))) ag_parent_ready_tracker {
   ag_parent_ready_states_t states;
   ulong                    root;
+  ulong                    highest_parent_ready; /* highest slot with a ready parent, 0 if none */
 };
 typedef struct ag_parent_ready_tracker ag_parent_ready_tracker_t;
 
@@ -119,6 +120,16 @@ ag_parent_ready_tracker_is_parent_ready( ag_parent_ready_tracker_t const * self,
 ag_block_id_t
 ag_parent_ready_tracker_wait_for_parent_ready( ag_parent_ready_tracker_t const * self,
                                                ulong                             slot );
+
+/* ag_parent_ready_tracker_highest_parent_ready returns the highest slot
+   (window start or not) that has a ready parent, 0 if none.  A leader
+   window starting below it was certified without its leader, Agave's
+   ParentReadyTracker::block_production_parent MissedWindow. */
+
+FD_FN_PURE static inline ulong
+ag_parent_ready_tracker_highest_parent_ready( ag_parent_ready_tracker_t const * self ) {
+  return self->highest_parent_ready;
+}
 
 /* Section 2.9. ParentReadyTracker::prune */
 
