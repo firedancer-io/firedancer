@@ -398,7 +398,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, acc_info, decl ) \
   ulong decl = acc_info->lamports_addr;
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
-  ulong * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_addr, alignof(ulong), sizeof(ulong) );
+  void * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_addr, alignof(ulong), sizeof(ulong) );
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L304 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl ) \
@@ -474,16 +474,16 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 /* The lamports and the account data are stored behind RefCells,
    so we have an additional layer of indirection to unwrap. */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, acc_info, decl )                                                                             \
-    ulong const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                         \
+    void const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                          \
       FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) ); \
     /* Extract the vaddr embedded in the RefCell */                                                                                              \
-    ulong decl = *FD_EXPAND_THEN_CONCAT2(decl, _hptr_);
+    ulong decl = FD_LOAD( ulong, FD_EXPAND_THEN_CONCAT2(decl, _hptr_) );
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L184-L195 */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                                                                     \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _vaddr_) =                                                                                                                  \
-      *((ulong const *)FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) )); \
-    ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _vaddr_), alignof(ulong), sizeof(ulong) );
+      FD_LOAD( ulong, FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) ) ); \
+    void * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _vaddr_), alignof(ulong), sizeof(ulong) );
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L367-L378 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \

@@ -136,8 +136,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
   *out_must_update_caller = 0;
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1222-L1224 */
-  if( fd_borrowed_account_get_lamports( callee_acc )!=*(caller_account->lamports) ) {
-    err = fd_borrowed_account_set_lamports( callee_acc, *(caller_account->lamports) );
+  if( fd_borrowed_account_get_lamports( callee_acc )!=FD_LOAD( ulong, caller_account->lamports ) ) {
+    err = fd_borrowed_account_set_lamports( callee_acc, FD_LOAD( ulong, caller_account->lamports ) );
     if( FD_UNLIKELY( err ) ) {
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return -1;
@@ -152,7 +152,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1226-L1255 */
   if( vm->virtual_address_space_adjustments ) {
     ulong prev_len = fd_borrowed_account_get_data_len( callee_acc );
-    ulong post_len = *caller_account->ref_to_len_in_vm;
+    ulong post_len = FD_LOAD( ulong, caller_account->ref_to_len_in_vm );
 
     /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1229-L1251 */
     if( FD_UNLIKELY( prev_len!=post_len ) ) {
@@ -404,7 +404,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
 
       /* Rust ABI: https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L405-L406
          C ABI:    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L523-L524 */
-      ulong * data_len = FD_VM_MEM_HADDR_ST( vm, data_len_vaddr, 1UL, sizeof(ulong) );
+      void * data_len = FD_VM_MEM_HADDR_ST( vm, data_len_vaddr, 1UL, sizeof(ulong) );
       caller_account->ref_to_len_in_vm = data_len;
 
       /* Rust ABI: https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L408-L421
@@ -421,7 +421,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
         } else {
           address_space_reserved_for_account = fd_ulong_sat_add( acc_region_meta->original_data_len, MAX_PERMITTED_DATA_INCREASE );
         }
-        if( FD_UNLIKELY( *data_len > address_space_reserved_for_account ) ) {
+        if( FD_UNLIKELY( FD_LOAD( ulong, data_len ) > address_space_reserved_for_account ) ) {
           FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
           return -1;
         }
@@ -450,7 +450,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
            https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L275-L291 */
         uchar * serialization_ptr           = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, FD_VM_MEM_MAP_INPUT_REGION_START, alignof(uchar), 1UL );
         caller_account->serialized_data     = serialization_ptr + fd_ulong_sat_sub( data_vaddr, FD_VM_MEM_MAP_INPUT_REGION_START );
-        caller_account->serialized_data_len = *data_len;
+        caller_account->serialized_data_len = FD_LOAD( ulong, data_len );
       } else {
         /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L291-L298 */
         VM_SYSCALL_CPI_ACC_INFO_DATA( vm, (account_infos + j), data_haddr );
@@ -467,7 +467,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1148-L1156 */
       if( vm->syscall_parameter_address_restrictions ) {
-        FD_VM_CU_UPDATE( vm, *data_len / FD_VM_CPI_BYTES_PER_UNIT );
+        FD_VM_CU_UPDATE( vm, FD_LOAD( ulong, data_len ) / FD_VM_CPI_BYTES_PER_UNIT );
       }
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1157-L1181 */
@@ -523,7 +523,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
   /* Update the caller account lamports with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1191 */
-  *(caller_account->lamports) = borrowed_callee_acc->acc->lamports;
+  FD_STORE( ulong, caller_account->lamports, borrowed_callee_acc->acc->lamports );
 
   /* Update the caller account owner with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1192 */
@@ -533,7 +533,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
   /* Update the caller account data with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1194-L1195 */
-  ulong prev_len = *caller_account->ref_to_len_in_vm;
+  ulong prev_len = FD_LOAD( ulong, caller_account->ref_to_len_in_vm );
   ulong post_len = borrowed_callee_acc->acc->data_len;
 
   /* Calculate the address space reserved for the account. With syscall_parameter_address_restrictions
@@ -604,11 +604,11 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
     }
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1240-L1241 */
-    *caller_account->ref_to_len_in_vm = post_len;
+    FD_STORE( ulong, caller_account->ref_to_len_in_vm, post_len );
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1243-L1251 */
-    ulong * caller_len = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_sub(caller_account->vm_data_vaddr, sizeof(ulong)), alignof(ulong), sizeof(ulong) );
-    *caller_len = post_len;
+    void * caller_len = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_sub(caller_account->vm_data_vaddr, sizeof(ulong)), alignof(ulong), sizeof(ulong) );
+    FD_STORE( ulong, caller_len, post_len );
   }
 
   /* Without direct mapping, copy the updated account data from the callee's
