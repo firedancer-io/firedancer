@@ -1610,6 +1610,68 @@ FD_UNIT_TEST( quic_initial_scid_server ) {
   test_quic_initial_scid( FD_QUIC_ROLE_SERVER );
 }
 
+/* RFC 9000 Section 12.2: ignore coalesced packets with a different DCID. */
+
+FD_UNIT_TEST( quic_coalesced_dcid_mismatch ) {
+  FD_TEST( fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT ) );
+  fd_quic_t * quic = sandbox->quic;
+
+  uchar dgram[ 1500 ];
+  ulong off = 28UL;
+  fd_quic_conn_t * conns[2];
+  for( ulong j=0UL; j<2UL; j++ ) {
+    ulong our_conn_id = fd_rng_ulong( rng );
+    fd_quic_conn_id_t dcid = fd_quic_conn_id_new( &our_conn_id, FD_QUIC_CONN_ID_SZ );
+    fd_quic_conn_t * conn = fd_quic_conn_create(
+        quic, our_conn_id, &dcid,
+        FD_QUIC_SANDBOX_PEER_IP4, FD_QUIC_SANDBOX_PEER_PORT,
+        FD_QUIC_SANDBOX_SELF_IP4, FD_QUIC_SANDBOX_SELF_PORT, 0 );
+    FD_TEST( conn );
+    conns[j] = conn;
+    fd_quic_svc_timers_schedule( fd_quic_get_state( quic )->svc_timers, conn, sandbox->wallclock );
+    fd_quic_gen_initial_secrets( &conn->secrets, dcid.conn_id, dcid.sz, 0 );
+    fd_quic_crypto_keys_t * keys = &conn->keys[ fd_quic_enc_level_initial_id ][0];
+    fd_quic_gen_keys( keys, conn->secrets.secret[ fd_quic_enc_level_initial_id ][0] );
+
+    uchar payload[ 64 ] = { 0x01 }; /* PING + padding */
+    fd_quic_initial_t initial = {
+      .h0              = fd_quic_initial_h0( 3 ),
+      .version         = 1,
+      .dst_conn_id_len = FD_QUIC_CONN_ID_SZ,
+      .src_conn_id_len = FD_QUIC_CONN_ID_SZ,
+      .len             = 4UL + sizeof(payload) + FD_QUIC_CRYPTO_TAG_SZ
+    };
+    memcpy( initial.dst_conn_id, dcid.conn_id, dcid.sz );
+    memcpy( initial.src_conn_id, dcid.conn_id, dcid.sz );
+    ulong hdr_sz = fd_quic_encode_initial( dgram+off, sizeof(dgram)-off, &initial );
+    FD_TEST( hdr_sz!=FD_QUIC_ENCODE_FAIL );
+    ulong pkt_sz = sizeof(dgram)-off;
+    FD_TEST( fd_quic_crypto_encrypt( dgram+off, &pkt_sz, dgram+off, hdr_sz, payload, sizeof(payload),
+                                     keys, keys, 0UL )==FD_QUIC_SUCCESS );
+    off += pkt_sz;
+  }
+
+  fd_ip4_hdr_t ip4 = {
+    .verihl      = FD_IP4_VERIHL(4,5),
+    .net_tot_len = (ushort)off,
+    .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
+    .saddr       = FD_QUIC_SANDBOX_PEER_IP4,
+    .daddr       = FD_QUIC_SANDBOX_SELF_IP4
+  };
+  fd_udp_hdr_t udp = {
+    .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+    .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    .net_len   = (ushort)( off-20UL )
+  };
+  FD_TEST( fd_quic_encode_ip4( dgram,     20UL, &ip4 )==20UL );
+  FD_TEST( fd_quic_encode_udp( dgram+20UL, 8UL, &udp )==8UL  );
+
+  fd_quic_process_packet( quic, dgram, off, sandbox->wallclock );
+  FD_TEST( conns[0]->exp_pkt_number[0]==1UL );
+  FD_TEST( conns[1]->exp_pkt_number[0]==0UL );
+  fd_quic_fini( quic );
+}
+
 FD_UNIT_TEST( quic_initial_datagram_size ) {
   uint const token_lengths[] = { 0U, 46U };
   for( ulong i=0UL; i<sizeof(token_lengths)/sizeof(token_lengths[0]); i++ ) {
