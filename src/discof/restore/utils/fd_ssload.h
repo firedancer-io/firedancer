@@ -11,9 +11,9 @@ FD_PROTOTYPES_BEGIN
    hash_index, wraparound), array bounds (hard forks, stake delegations, vote
    accounts, epoch stakes), epoch credits downcasting safety (epoch fits
    ushort, credit deltas fit uint), and epoch stakes index bounds.
-   max_vote_accounts and max_stake_accounts must equal
-   FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS and FD_RUNTIME_MAX_STAKE_ACCOUNTS
-   respectively; mismatches are rejected as a configuration error.  The
+   max_vote_accounts must equal FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS and
+   max_stake_accounts must be nonzero; mismatches are rejected as a
+   configuration error.  The
    historical epoch-stakes maps are capped by
    FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, while the snapshot vote-account
    map, which covers every staked voter rather than only the admitted

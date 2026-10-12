@@ -64,7 +64,7 @@ test_capacity_mismatch( fd_snapshot_manifest_t * manifest ) {
   /* Mismatched max_stake_accounts. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  FD_TEST( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, 100UL )==-1 );
+  FD_TEST( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, 0UL )==-1 );
 
   FD_LOG_NOTICE(( "... pass" ));
 }
