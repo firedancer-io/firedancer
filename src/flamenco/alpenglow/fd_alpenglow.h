@@ -88,13 +88,15 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
 
 /* fd_alpenglow_rewards_apply applies the side effects of the footer's
    certs to the bank's accounts.  Only the slot and signer bitmap of
-   each cert are read; the signatures are not verified here.
-   Returns 0 on success and -1 if processing of the bank should fail */
+   each cert are read; the signatures are not verified here.  cache
+   must not be NULL.  Returns 0 on success and -1 if processing of the
+   bank should fail */
 
 int
 fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_accdb_t *              accdb,
                             fd_capture_ctx_t *        capture_ctx,
+                            fd_footer_cache_t *       cache,
                             fd_block_footer_t const * footer );
 
 FD_PROTOTYPES_END

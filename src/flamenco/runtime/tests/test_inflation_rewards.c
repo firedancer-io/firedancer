@@ -421,6 +421,22 @@ vote_last_voted_slot( fd_svm_mini_t *     mini,
   return result;
 }
 
+static fd_footer_cache_t *
+new_cache( void ) {
+  void * mem = aligned_alloc( FD_FOOTER_CACHE_ALIGN, fd_ulong_align_up( fd_footer_cache_footprint(), FD_FOOTER_CACHE_ALIGN ) );
+  FD_TEST( mem );
+  return fd_footer_cache_join( fd_footer_cache_new( mem ) );
+}
+
+/* empty_cache returns a reset cache: reference runs hash every image */
+
+static fd_footer_cache_t *
+empty_cache( void ) {
+  static fd_footer_cache_t * cache;
+  if( !cache ) cache = new_cache();
+  return fd_footer_cache_join( fd_footer_cache_new( cache ) );
+}
+
 static void
 test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
                                    int             use_t_3 ) {
@@ -476,7 +492,7 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
 
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )!=reward_slot );
-  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, empty_cache(), footer ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==reward_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=reward_slot );
 
@@ -486,7 +502,7 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   footer->has_fast_final_cert       = 1;
   footer->fast_final_cert.slot      = final_slot;
   fd_bls_set_insert( footer->fast_final_cert.signer_set, 0UL );
-  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, empty_cache(), footer ) );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_a )==final_slot );
   FD_TEST( vote_last_voted_slot( mini, fork_id, &vote_b )!=final_slot );
 }
@@ -599,6 +615,7 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     blst_p1_affine aff[1]; blst_p1_to_affine( aff, pub ); blst_p1_affine_compress( bls[i], aff );
   }
 
+  fd_footer_cache_t * cache = new_cache();
   ulong fused_cnt = 0UL, split_cnt = 0UL, rev_diff_cnt = 0UL;
   for( ulong it=0UL; it<200UL; it++ ) {
     ulong root_idx = fd_svm_mini_reset( mini, params );
@@ -620,8 +637,8 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     ulong final_slot  = fd_rng_uint_roll( rng, 2U ) ? reward_slot+fd_rng_ulong_roll( rng, 8UL ) : 2UL+fd_rng_ulong_roll( rng, bank_slot-2UL );
     set_alpenglow_migration( mini, ( reward_slot>17UL && fd_rng_uint_roll( rng, 2U ) ) ? 17UL : TEST_ROOT_SLOT );
 
-    fd_bank_t * bank[3];
-    for( ulong b=0UL; b<3UL; b++ ) bank[b] = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, bank_slot ) );
+    fd_bank_t * bank[4];
+    for( ulong b=0UL; b<4UL; b++ ) bank[b] = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, bank_slot ) );
 
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank[0] );
     fd_vote_stakes_reset( vote_stakes );
@@ -635,7 +652,7 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     }
     fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
     fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_3 );
-    for( ulong b=0UL; b<3UL; b++ ) {
+    for( ulong b=0UL; b<4UL; b++ ) {
       FD_FEATURE_SET_ACTIVE( &bank[b]->f.features, alpenglow, 0UL );
       bank[b]->vote_stakes_fork_id = vs_fork;
     }
@@ -674,19 +691,36 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     }
 
     fd_accdb_t * accdb = mini->runtime->accdb;
-    FD_TEST( !fd_alpenglow_rewards_apply( bank[0], accdb, NULL, both   ) );
-    FD_TEST( !fd_alpenglow_rewards_apply( bank[1], accdb, NULL, reward ) );
-    FD_TEST( !fd_alpenglow_rewards_apply( bank[1], accdb, NULL, final  ) );
-    FD_TEST( !fd_alpenglow_rewards_apply( bank[2], accdb, NULL, final  ) );
-    FD_TEST( !fd_alpenglow_rewards_apply( bank[2], accdb, NULL, reward ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[0], accdb, NULL, empty_cache(), both ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[1], accdb, NULL, empty_cache(), reward ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[1], accdb, NULL, empty_cache(), final ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[2], accdb, NULL, empty_cache(), final ) );
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[2], accdb, NULL, empty_cache(), reward ) );
 
-    fd_lthash_value_t lthash[3];
-    for( ulong b=0UL; b<3UL; b++ ) { lthash[b] = *fd_bank_lthash_locking_query( bank[b] ); fd_bank_lthash_end_locking_query( bank[b] ); }
+    /* the same footers with the cache, kept across iterations so slots
+       hold other resets' images, must match bank 0 */
+    fd_block_footer_t const * seq[3] = { both, final, reward };
+    FD_TEST( !fd_alpenglow_rewards_apply( bank[3], accdb, NULL, cache, seq[0] ) );
+
+    fd_lthash_value_t lthash[4];
+    for( ulong b=0UL; b<4UL; b++ ) { lthash[b] = *fd_bank_lthash_locking_query( bank[b] ); fd_bank_lthash_end_locking_query( bank[b] ); }
     FD_TEST( fd_lthash_eq( lthash+0, lthash+1 ) );
+    FD_TEST( fd_lthash_eq( lthash+0, lthash+3 ) );
     for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) FD_TEST( fused_accounts_eq( mini, bank[0], bank[1], vote+i ) );
+    for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) FD_TEST( fused_accounts_eq( mini, bank[0], bank[3], vote+i ) );
     rev_diff_cnt += !fd_lthash_eq( lthash+0, lthash+2 );
+
+    /* repeat footers: prior images are the ones the cache just stored */
+    for( ulong k=1UL; k<3UL; k++ ) {
+      FD_TEST( !fd_alpenglow_rewards_apply( bank[3], accdb, NULL, cache, seq[k] ) );
+      FD_TEST( !fd_alpenglow_rewards_apply( bank[0], accdb, NULL, empty_cache(), seq[k] ) );
+    }
+    for( ulong b=0UL; b<4UL; b+=3UL ) { lthash[b] = *fd_bank_lthash_locking_query( bank[b] ); fd_bank_lthash_end_locking_query( bank[b] ); }
+    FD_TEST( fd_lthash_eq( lthash+0, lthash+3 ) );
+    for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) FD_TEST( fused_accounts_eq( mini, bank[0], bank[3], vote+i ) );
   }
   FD_TEST( fused_cnt && split_cnt && rev_diff_cnt );
+  free( cache );
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "test_footer_fused_matches_sequential: PASSED (fused %lu, split %lu, reverse order differs %lu)", fused_cnt, split_cnt, rev_diff_cnt ));
 }
@@ -805,7 +839,7 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
     fd_bls_set_insert( footer->skip_reward_cert.signer_set, r );
     fd_bls_set_insert( footer->fast_final_cert.signer_set,  r );
   }
-  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, footer ) );
+  FD_TEST( !fd_alpenglow_rewards_apply( bank, mini->runtime->accdb, NULL, empty_cache(), footer ) );
 
   for( ulong i=0UL; i<2UL; i++ ) {
     acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, vote[i].uc );
