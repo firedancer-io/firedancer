@@ -74,11 +74,13 @@ FD_FN_CONST ulong
 ag_pool_align( void );
 
 FD_FN_CONST ulong
-ag_pool_footprint( ulong slot_max );
+ag_pool_footprint( ulong slot_max,
+                   ulong burst );
 
 void *
 ag_pool_new( void * mem,
              ulong  slot_max,
+             ulong  burst,
              ulong  seed );
 
 ag_pool_t *

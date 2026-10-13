@@ -61,6 +61,24 @@
 #define QUIC_CONN_MAX            (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
 #define QUIC_CLIENT_CONN_MAX     (AG_VAT_MAX * 4) /* one conn to every validator of the prev, curr and next epochs, plus an epoch of evicted conns still closing */
 
+/* QUIC_DGRAM_BURST bounds the number of QUIC DATAGRAME frames that can
+   fit in a single net packet.  This can result in a burst of up to 9
+   quic_server_datagram_rx calls in a single tile loop.
+
+       2048 B  FD_NET_MTU
+     -   14 B  Ethernet header
+     -   20 B  IPv4 header
+     -    8 B  UDP header
+     -    1 B  short header flags
+     -    8 B  destination conn id, FD_QUIC_CONN_ID_SZ
+     -    1 B  packet number, at least
+     -   16 B  AEAD tag
+     = 1980 B  DATAGRAM frames
+     /  207 B  smallest frame: 1 B type, 2 B length, 204 B skip or final vote (a cert is at least 212 B)
+     =    9    (9.57, and with a last frame of 205 B without its length, 8*207+205 = 1861 B still fits only 9) */
+
+#define QUIC_DGRAM_BURST (9UL)
+
 #define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
 #define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
 #define REWARD_VOTE_RTT_MAX_NS (200000000L)                               /* retry a reward vote no later than 200ms */
@@ -1480,7 +1498,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                              );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
-  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
+  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
   l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
   l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                 );
   l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
@@ -2137,7 +2155,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                              );
   void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
   void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
-  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
+  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
   void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
   void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                 );
   void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
@@ -2160,7 +2178,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
 
-  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, seed ) );
+  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, QUIC_DGRAM_BURST, seed ) );
   FD_TEST( ctx->pool );
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
