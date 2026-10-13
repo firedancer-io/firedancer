@@ -77,26 +77,17 @@ ag_parent_ready_tracker_delete( void * shtracker );
 
 /* Definition 15. ParentReadyTracker::mark_notar_fallback */
 
-void
+ulong
 ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
                                              ag_block_id_t const *       id,
-                                             ag_parent_ready_t *         newly_certified,
-                                             ulong *                     newly_certified_cnt );
+                                             ag_parent_ready_t *         newly_certified );
 
 /* Definition 15. ParentReadyTracker::mark_skipped */
 
-void
+ulong
 ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
                                       ulong                       marked_slot,
-                                      ag_parent_ready_t *         newly_certified,
-                                      ulong *                     newly_certified_cnt );
-
-/* ag_parent_ready_tracker_delivered marks the ParentReady queued for
-   slot as delivered, so the next ready parent queues another. */
-
-void
-ag_parent_ready_tracker_delivered( ag_parent_ready_tracker_t * self,
-                                   ulong                       slot );
+                                      ag_parent_ready_t *         newly_certified );
 
 /* Definition 15. ParentReadyTracker::parents_ready.  Writes up to
    out_max ready parents of slot to out and returns how many are ready. */

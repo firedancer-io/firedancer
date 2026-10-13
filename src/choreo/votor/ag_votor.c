@@ -10,10 +10,6 @@ typedef struct vote_event vote_event_t;
 #define QUEUE_T    vote_event_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
-#define QUEUE_NAME cert_events
-#define QUEUE_T    ag_cert_t
-#include "../../util/tmpl/fd_queue_dynamic.c"
-
 /* AG_VOTOR_SLOT_VOTE_MAX bounds the distinct votes votor casts in a
    slot: a notar or skip, a final, the notar fallbacks and a skip
    fallback. */
@@ -108,7 +104,6 @@ struct __attribute__((aligned(128UL))) ag_votor {
   epoch_bls_key_t next_epoch;
 
   vote_event_t *    vote_events;
-  ag_cert_t *       cert_events;
   pending_dlist_t * pending_dlist;
   timeout_dlist_t * timeout_dlist[ AG_SLOTS_PER_WINDOW ];
 
@@ -117,11 +112,6 @@ struct __attribute__((aligned(128UL))) ag_votor {
     ag_parent_ready_t * parent_readys;
   } scratch;
 };
-
-FD_FN_PURE static inline int
-timer_idle( slot_state_ele_t const * ele ) {
-  return ele->timeout==LONG_MAX;
-}
 
 static slot_state_ele_t *
 state_mut( ag_votor_t * self,
@@ -159,32 +149,6 @@ push_vote( ag_votor_t * self,
   state->vote_cnt++;
 }
 
-/* A slot's deadline is now plus an offset fixed by its position in the
-   window, so each position's list fills in deadline order and its head
-   is its earliest timer.  The walk back from the tail only runs if the
-   slot length changed (block duration feature activation), or the clock
-   stepped back. */
-
-static void
-set_timeout( ag_votor_t *       self,
-             slot_state_ele_t * ele,
-             long               deadline ) {
-  timeout_dlist_t *  list = self->timeout_dlist[ ele->slot%AG_SLOTS_PER_WINDOW ];
-  slot_state_ele_t * pool = self->slot_states->pool;
-  if( FD_LIKELY( !timer_idle( ele ) ) ) {
-    if( FD_LIKELY( ele->timeout<=deadline ) ) return;
-    timeout_dlist_ele_remove( list, ele, pool );
-  }
-  ele->timeout = deadline;
-
-  timeout_dlist_iter_t iter = timeout_dlist_iter_rev_init( list, pool );
-  while( FD_UNLIKELY( !timeout_dlist_iter_done( iter, list, pool ) && timeout_dlist_iter_ele( iter, list, pool )->timeout>deadline ) ) {
-    iter = timeout_dlist_iter_rev_next( iter, list, pool );
-  }
-  if( FD_LIKELY( !timeout_dlist_iter_done( iter, list, pool ) ) ) timeout_dlist_ele_insert_after( list, ele, timeout_dlist_iter_ele( iter, list, pool ), pool );
-  else                                                            timeout_dlist_ele_push_head   ( list, ele, pool );
-}
-
 /* No crashed-leader timeout.  Agave tracks one, but with
    delta_first_fec_set = delta_block its deadline lands on the first
    slot's timeout, so it never skips a window earlier. */
@@ -198,12 +162,33 @@ set_timeouts( ag_votor_t * self,
 
   for( ulong s=slot; s<slot+AG_SLOTS_PER_WINDOW; s++ ) {
     deadline += fd_long_if( ag_is_start_of_window( s ), 0L, self->ns_per_slot );
-    set_timeout( self, state_mut( self, s ), deadline );
+
+    /* A slot's deadline is now plus an offset fixed by its position in the
+       window, so each position's list fills in deadline order and its head
+       is its earliest timer.  The walk back from the tail only runs if the
+       slot length changed (block duration feature activation), or the clock
+       stepped back. */
+
+    slot_state_ele_t * ele  = state_mut( self, s );
+    timeout_dlist_t *  list = self->timeout_dlist[ s%AG_SLOTS_PER_WINDOW ];
+    slot_state_ele_t * pool = self->slot_states->pool;
+    if( FD_LIKELY( ele->timeout!=LONG_MAX ) ) {
+      if( FD_LIKELY( ele->timeout<=deadline ) ) continue;
+      timeout_dlist_ele_remove( list, ele, pool );
+    }
+    ele->timeout = deadline;
+
+    timeout_dlist_iter_t iter = timeout_dlist_iter_rev_init( list, pool );
+    while( FD_UNLIKELY( !timeout_dlist_iter_done( iter, list, pool ) && timeout_dlist_iter_ele( iter, list, pool )->timeout>deadline ) ) {
+      iter = timeout_dlist_iter_rev_next( iter, list, pool );
+    }
+    if( FD_LIKELY( !timeout_dlist_iter_done( iter, list, pool ) ) ) timeout_dlist_ele_insert_after( list, ele, timeout_dlist_iter_ele( iter, list, pool ), pool );
+    else                                                            timeout_dlist_ele_push_head   ( list, ele, pool );
   }
 }
 
 static slot_state_ele_t *
-timeout_head( ag_votor_t const * self ) {
+next_timeout( ag_votor_t const * self ) {
   slot_state_ele_t * pool = self->slot_states->pool;
   slot_state_ele_t * head = NULL;
   for( ulong k=0UL; k<AG_SLOTS_PER_WINDOW; k++ ) {
@@ -222,11 +207,10 @@ ag_votor_align( void ) {
 ulong
 ag_votor_footprint( ulong slot_max ) {
   if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW ) ) return 0UL;
-  ulong events_max = slot_max*( AG_NOTAR_FALLBACK_CERT_MAX + 1UL /* notar */ + 1UL /* skip */ ); /* a standstill bundle, see ag_pool_footprint */
+  ulong events_max = slot_max*( AG_NOTAR_FALLBACK_CERT_MAX + 1UL /* notar */ + 1UL /* skip */ );
   ulong slot_state_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
   ulong ready_max            = slot_max + 2UL*AG_SLOTS_PER_WINDOW + 1UL; /* see ag_pool_footprint, plus the window below first_unpruned_slot */
   return FD_LAYOUT_FINI(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -245,7 +229,6 @@ ag_votor_footprint( ulong slot_max ) {
       pending_dlist_align(),    pending_dlist_footprint()                         ),
       timeout_dlist_align(),    timeout_dlist_footprint()*AG_SLOTS_PER_WINDOW     ),
       vote_events_align(),      vote_events_footprint( events_max )               ),
-      cert_events_align(),      cert_events_footprint( events_max )               ),
       alignof(ulong),           sizeof(ulong)*slot_max                            ),
       ag_parent_ready_tracker_align(), ag_parent_ready_tracker_footprint( ready_max ) ),
       alignof(ag_parent_ready_t), sizeof(ag_parent_ready_t)*slot_max              ),
@@ -283,7 +266,6 @@ ag_votor_new( void * mem,
   void *       pending_dlist    = FD_SCRATCH_ALLOC_APPEND( l, pending_dlist_align(),    pending_dlist_footprint()                         );
   uchar *      timeout_dlist    = FD_SCRATCH_ALLOC_APPEND( l, timeout_dlist_align(),    timeout_dlist_footprint()*AG_SLOTS_PER_WINDOW     );
   void *       vote_events      = FD_SCRATCH_ALLOC_APPEND( l, vote_events_align(),      vote_events_footprint( events_max )               );
-  void *       cert_events      = FD_SCRATCH_ALLOC_APPEND( l, cert_events_align(),      cert_events_footprint( events_max )               );
   void *       slot_scratch     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           sizeof(ulong)*slot_max                            );
   void *       ready_tracker    = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_tracker_align(), ag_parent_ready_tracker_footprint( ready_max ) );
   void *       ready_scratch    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_parent_ready_t), sizeof(ag_parent_ready_t)*slot_max              );
@@ -305,7 +287,6 @@ ag_votor_new( void * mem,
   votor->curr_epoch              = (epoch_bls_key_t){ .start_slot = ULONG_MAX, .rank = USHORT_MAX };
   votor->next_epoch              = (epoch_bls_key_t){ .start_slot = ULONG_MAX, .rank = USHORT_MAX };
   votor->vote_events             = vote_events_join( vote_events_new( vote_events, events_max ) );
-  votor->cert_events             = cert_events_join( cert_events_new( cert_events, events_max ) );
   votor->pending_dlist           = pending_dlist_join( pending_dlist_new( pending_dlist ) );
   for( ulong k=0UL; k<AG_SLOTS_PER_WINDOW; k++ ) votor->timeout_dlist[ k ] = timeout_dlist_join( timeout_dlist_new( timeout_dlist+k*timeout_dlist_footprint() ) );
   votor->scratch.slots           = (ulong *)slot_scratch;
@@ -360,15 +341,14 @@ ag_votor_init( ag_votor_t *          self,
                fd_bls_sign_fn        sign_fn,
                void *                sign_ctx ) {
   FD_TEST( sign_fn );
-  ulong slot = root->slot;
   self->now                     = now;
-  self->root                    = slot;
+  self->root                    = root->slot;
   self->shred_version           = shred_version;
   self->ns_per_slot             = ns_per_slot;
   self->bls_sign_fn             = sign_fn;
   self->bls_sign_ctx            = sign_ctx;
 
-  slot_state_ele_t * state       = state_mut( self, slot );
+  slot_state_ele_t * state       = state_mut( self, root->slot );
   state->voted                   = 1;
   state->voted_notar             = 1;
   state->block_notarized         = 1;
@@ -376,20 +356,20 @@ ag_votor_init( ag_votor_t *          self,
   memcpy( state->voted_notar_hash,     root->hash, sizeof(ag_block_hash_t) );
   memcpy( state->block_notarized_hash, root->hash, sizeof(ag_block_hash_t) );
 
-  for( ulong s=ag_first_slot_in_window( slot ); s<slot; s++ ) {
+  for( ulong s=ag_first_slot_in_window( root->slot ); s<root->slot; s++ ) {
     slot_state_ele_t * below = state_mut( self, s );
     below->voted               = 1;
     below->retired             = 1;
   }
 
-  self->highest_final_cert_slot = slot;
+  self->highest_final_cert_slot = root->slot;
 
   ulong ready_cnt;
-  self->parent_ready_tracker->root = fd_ulong_sat_sub( ag_first_slot_in_window( fd_ulong_sat_sub( slot, AG_REWARD_SLOT_DELTA ) ), AG_SLOTS_PER_WINDOW );
-  ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys, &ready_cnt );
-  for( ulong i=0UL; i<ready_cnt; i++ ) ag_parent_ready_tracker_delivered( self->parent_ready_tracker, self->scratch.parent_readys[i].slot );
+  self->parent_ready_tracker->root = fd_ulong_sat_sub( ag_first_slot_in_window( fd_ulong_sat_sub( root->slot, AG_REWARD_SLOT_DELTA ) ), AG_SLOTS_PER_WINDOW );
+  ready_cnt = ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys );
+  for( ulong i=0UL; i<ready_cnt; i++ ) ag_parent_ready_state_map_ele_query( self->parent_ready_tracker->states.map, &self->scratch.parent_readys[i].slot, NULL, self->parent_ready_tracker->states.pool )->ready = 0;
 
-  set_timeouts( self, ag_first_slot_in_window( slot ) );
+  set_timeouts( self, ag_first_slot_in_window( root->slot ) );
 }
 
 void
@@ -444,11 +424,9 @@ should_ignore_pool_event( ag_votor_t const *      self,
   case AG_POOL_EVENT_SAFE_TO_NOTAR: slot = event->safe_to_notar.slot;            break;
   case AG_POOL_EVENT_SAFE_TO_SKIP:  slot = event->safe_to_skip;                  break;
   case AG_POOL_EVENT_CERT_CREATED:  slot = ag_cert_slot( &event->cert_created ); break;
-  case AG_POOL_EVENT_STANDSTILL:    slot = event->standstill.slot;               break;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
   switch( event->kind ) {
-  case AG_POOL_EVENT_STANDSTILL:    return 0;
   case AG_POOL_EVENT_CERT_CREATED:  return slot<first_unpruned_slot( self );
   case AG_POOL_EVENT_PARENT_READY:
   case AG_POOL_EVENT_SAFE_TO_NOTAR:
@@ -564,8 +542,8 @@ prune( ag_votor_t * self ) {
   for( ulong slot=self->root; slot<first_unpruned; slot++ ) {
     slot_state_ele_t * ele = slot_state_map_ele_remove( self->slot_states->map, &slot, NULL, self->slot_states->pool );
     if( FD_LIKELY( ele ) ) {
-      if( FD_UNLIKELY( ele->pending_block   ) ) pending_dlist_ele_remove( self->pending_dlist, ele, self->slot_states->pool );
-      if( FD_LIKELY  ( !timer_idle( ele )   ) ) timeout_dlist_ele_remove( self->timeout_dlist[ slot%AG_SLOTS_PER_WINDOW ], ele, self->slot_states->pool );
+      if( FD_UNLIKELY( ele->pending_block     ) ) pending_dlist_ele_remove( self->pending_dlist, ele, self->slot_states->pool );
+      if( FD_LIKELY  ( ele->timeout!=LONG_MAX ) ) timeout_dlist_ele_remove( self->timeout_dlist[ slot%AG_SLOTS_PER_WINDOW ], ele, self->slot_states->pool );
       slot_state_pool_ele_release( self->slot_states->pool, ele );
     }
   }
@@ -573,7 +551,7 @@ prune( ag_votor_t * self ) {
   ag_parent_ready_tracker_prune( self->parent_ready_tracker, fd_ulong_sat_sub( first_unpruned, AG_SLOTS_PER_WINDOW ) ); /* parents of the window at first_unpruned */
 }
 
-static void
+static ag_cert_t const *
 handle_cert_created( ag_votor_t *      self,
                      ag_cert_t const * cert ) {
   ulong slot = ag_cert_slot( cert );
@@ -607,8 +585,7 @@ handle_cert_created( ag_votor_t *      self,
     FD_LOG_CRIT(( "unreachable" ));
   }
 
-  FD_TEST( !cert_events_full( self->cert_events ) );
-  cert_events_push( self->cert_events, *cert );
+  return cert;
 }
 
 void
@@ -672,7 +649,7 @@ ag_votor_wait_to_vote( ag_votor_t * self,
   }
 }
 
-void
+ag_cert_t const *
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_pool_event_t const * event,
                             long                    now ) {
@@ -692,17 +669,17 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
     case AG_CERT_KIND_NOTAR:
     case AG_CERT_KIND_NOTAR_FALLBACK: {
       ag_block_id_t block_id = ag_block_id( ag_cert_slot( cert ), ag_cert_block_hash( cert ) );
-      ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, &block_id, self->scratch.parent_readys, &ready_cnt );
+      ready_cnt = ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, &block_id, self->scratch.parent_readys );
       break;
     }
-    case AG_CERT_KIND_SKIP:           ag_parent_ready_tracker_mark_skipped( self->parent_ready_tracker, ag_cert_slot( cert ), self->scratch.parent_readys, &ready_cnt ); break;
+    case AG_CERT_KIND_SKIP:           ready_cnt = ag_parent_ready_tracker_mark_skipped( self->parent_ready_tracker, ag_cert_slot( cert ), self->scratch.parent_readys ); break;
     default:                          FD_LOG_CRIT(( "unreachable" ));
     }
-    for( ulong i=0UL; i<ready_cnt; i++ ) ag_parent_ready_tracker_delivered( self->parent_ready_tracker, self->scratch.parent_readys[i].slot );
+    for( ulong i=0UL; i<ready_cnt; i++ ) ag_parent_ready_state_map_ele_query( self->parent_ready_tracker->states.map, &self->scratch.parent_readys[i].slot, NULL, self->parent_ready_tracker->states.pool )->ready = 0;
     if( FD_UNLIKELY( ready_cnt ) ) check_pending_blocks( self, AG_VOTOR_REASON_PARENT_READY );
   }
 
-  if( FD_UNLIKELY( should_ignore_pool_event( self, event ) ) ) return;
+  if( FD_UNLIKELY( should_ignore_pool_event( self, event ) ) ) return NULL;
 
   switch( event->kind ) {
 
@@ -738,21 +715,12 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
   }
 
   case AG_POOL_EVENT_CERT_CREATED:
-    handle_cert_created( self, &event->cert_created );
-    break;
-
-  case AG_POOL_EVENT_STANDSTILL: {
-    ag_standstill_t const * standstill = &event->standstill;
-    FD_TEST( cert_events_avail( self->cert_events )>=standstill->cert_cnt );
-    for( ulong i=0UL; i<standstill->cert_cnt; i++ ) cert_events_push( self->cert_events, standstill->certs[i] );
-    FD_TEST( vote_events_avail( self->vote_events )>=standstill->vote_cnt );
-    for( ulong i=0UL; i<standstill->vote_cnt; i++ ) vote_events_push( self->vote_events, (vote_event_t){ .reason = UCHAR_MAX, .vote = standstill->votes[i] } );
-    break;
-  }
+    return handle_cert_created( self, &event->cert_created );
 
   default:
     FD_LOG_ERR(( "invalid pool event kind %d", event->kind ));
   }
+  return NULL;
 }
 
 void
@@ -789,7 +757,7 @@ ag_votor_poll_skip_timeout( ag_votor_t * self,
                             ulong *      slot ) {
   self->now = now;
 
-  slot_state_ele_t * ele = timeout_head( self );
+  slot_state_ele_t * ele = next_timeout( self );
   if( FD_LIKELY( !ele || ele->timeout>now ) ) return 0;
   timeout_dlist_ele_remove( self->timeout_dlist[ ele->slot%AG_SLOTS_PER_WINDOW ], ele, self->slot_states->pool );
   ele->timeout = LONG_MAX;
@@ -800,7 +768,7 @@ ag_votor_poll_skip_timeout( ag_votor_t * self,
 
 FD_FN_PURE long
 ag_votor_next_skip_timeout( ag_votor_t const * self ) {
-  slot_state_ele_t const * head = timeout_head( self );
+  slot_state_ele_t const * head = next_timeout( self );
   return head ? head->timeout : LONG_MAX;
 }
 
@@ -812,14 +780,6 @@ ag_votor_poll_vote( ag_votor_t * self,
   vote_event_t event = vote_events_pop( self->vote_events );
   *vote   = event.vote;
   *reason = event.reason;
-  return 1;
-}
-
-int
-ag_votor_poll_cert( ag_votor_t * self,
-                    ag_cert_t *  cert ) {
-  if( FD_LIKELY( cert_events_empty( self->cert_events ) ) ) return 0;
-  *cert = cert_events_pop( self->cert_events );
   return 1;
 }
 

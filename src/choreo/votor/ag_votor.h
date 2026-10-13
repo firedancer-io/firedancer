@@ -108,7 +108,7 @@ ag_votor_wait_to_vote( ag_votor_t * self,
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
-void
+ag_cert_t const *
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_pool_event_t const * event,
                             long                    now );
@@ -138,10 +138,6 @@ int
 ag_votor_poll_vote( ag_votor_t * self,
                     ag_vote_t *  vote,
                     uchar *      reason );
-
-int
-ag_votor_poll_cert( ag_votor_t * self,
-                    ag_cert_t *  cert );
 
 /* ag_votor_vote_history writes votor's history to out. */
 

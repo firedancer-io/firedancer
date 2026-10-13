@@ -98,12 +98,6 @@ ag_parent_ready_tracker_delete( void * shtracker ) {
   return shtracker;
 }
 
-FD_FN_PURE static int
-block_id_lt( ag_block_id_t const * a,
-             ag_block_id_t const * b ) {
-  return a->slot<b->slot || ( a->slot==b->slot && 0>memcmp( a->hash, b->hash, sizeof(ag_block_hash_t) ) );
-}
-
 static ag_parent_ready_state_t *
 slot_state( ag_parent_ready_tracker_t * self,
             ulong                       slot ) {
@@ -133,7 +127,7 @@ add_to_ready( ag_parent_ready_tracker_t * self,
               ag_parent_ready_t *         newly_certified,
               ulong *                     newly_certified_cnt ) {
   ag_parent_ready_state_t * state = slot_state( self, slot );
-  if( FD_LIKELY( state->parent_ready_lo.slot==ULONG_MAX || block_id_lt( parent, &state->parent_ready_lo ) ) ) state->parent_ready_lo = *parent;
+  if( FD_LIKELY( state->parent_ready_lo.slot==ULONG_MAX || ag_block_id_lt( parent, &state->parent_ready_lo ) ) ) state->parent_ready_lo = *parent;
   if( FD_UNLIKELY( state->ready ) ) return;
   state->ready = 1;
   newly_certified[ *newly_certified_cnt ].slot   = slot;
@@ -141,42 +135,41 @@ add_to_ready( ag_parent_ready_tracker_t * self,
   (*newly_certified_cnt)++;
 }
 
-void
+ulong
 ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
                                              ag_block_id_t const *       block_id,
-                                             ag_parent_ready_t *         newly_certified,
-                                             ulong *                     newly_certified_cnt ) {
-  *newly_certified_cnt = 0UL;
+                                             ag_parent_ready_t *         newly_certified ) {
+  ulong newly_certified_cnt = 0UL;
 
   ulong         slot = block_id->slot;
   uchar const * hash = block_id->hash;
 
-  if( FD_UNLIKELY( slot < self->root ) ) return;
+  if( FD_UNLIKELY( slot < self->root ) ) return 0UL;
 
   ag_parent_ready_state_t * state = slot_state( self, slot );
   for( ulong i=0UL; i<state->notar_fallbacks_cnt; i++ ) {
-    if( FD_UNLIKELY( 0==memcmp( state->notar_fallbacks[i], hash, sizeof(ag_block_hash_t) ) ) ) return;
+    if( FD_UNLIKELY( 0==memcmp( state->notar_fallbacks[i], hash, sizeof(ag_block_hash_t) ) ) ) return 0UL;
   }
   FD_CHECK_CRIT( state->notar_fallbacks_cnt<AG_NOTAR_FALLBACK_CERT_MAX, "consensus safety violation" ); /* Lemma 48 */
   memcpy( state->notar_fallbacks[ state->notar_fallbacks_cnt++ ], hash, sizeof(ag_block_hash_t) );
 
   for( ulong s=slot+1UL; ; s++ ) {
-    if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) add_to_ready( self, s, block_id, newly_certified, newly_certified_cnt );
+    if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) add_to_ready( self, s, block_id, newly_certified, &newly_certified_cnt );
     ag_parent_ready_state_t const * next = ag_parent_ready_state_map_ele_query_const( self->states.map, &s, NULL, self->states.pool );
     if( FD_LIKELY( !next || !next->skip ) ) break;
   }
+  return newly_certified_cnt;
 }
 
-void
+ulong
 ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
                                       ulong                       skipped_slot,
-                                      ag_parent_ready_t *         newly_certified,
-                                      ulong *                     newly_certified_cnt ) {
-  *newly_certified_cnt = 0UL;
+                                      ag_parent_ready_t *         newly_certified ) {
+  ulong newly_certified_cnt = 0UL;
 
-  if( FD_UNLIKELY( skipped_slot < self->root ) ) return;
+  if( FD_UNLIKELY( skipped_slot < self->root ) ) return 0UL;
   ag_parent_ready_state_t * state = slot_state( self, skipped_slot );
-  if( FD_UNLIKELY( state->skip ) ) return;
+  if( FD_UNLIKELY( state->skip ) ) return 0UL;
   state->skip = 1;
 
   /* The skip extends every chain ending at skipped_slot down to b_lo,
@@ -193,31 +186,25 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
     ag_parent_ready_state_t const * prev = ag_parent_ready_state_map_ele_query_const( self->states.map, &slot, NULL, self->states.pool );
     for( ulong i=0UL; prev && i<prev->notar_fallbacks_cnt; i++ ) {
       ag_block_id_t nf = ag_block_id( slot, prev->notar_fallbacks[i] );
-      if( parent.slot==ULONG_MAX || block_id_lt( &nf, &parent ) ) parent = nf;
+      if( parent.slot==ULONG_MAX || ag_block_id_lt( &nf, &parent ) ) parent = nf;
     }
     if( FD_LIKELY( !prev || !prev->skip ) ) { b_lo = slot; break; }
   }
   if( FD_UNLIKELY( b_lo==ULONG_MAX ) ) { /* [first,skipped_slot) all skipped, the window start knows the rest */
     ag_parent_ready_state_t const * start = ag_parent_ready_state_map_ele_query_const( self->states.map, &first, NULL, self->states.pool );
     b_lo = ( start && start->b_lo!=ULONG_MAX ) ? start->b_lo : fd_ulong_sat_sub( first, 1UL );
-    if( start && start->parent_ready_lo.slot!=ULONG_MAX && start->parent_ready_lo.slot>=self->root && ( parent.slot==ULONG_MAX || block_id_lt( &start->parent_ready_lo, &parent ) ) ) parent = start->parent_ready_lo;
+    if( start && start->parent_ready_lo.slot!=ULONG_MAX && start->parent_ready_lo.slot>=self->root && ( parent.slot==ULONG_MAX || ag_block_id_lt( &start->parent_ready_lo, &parent ) ) ) parent = start->parent_ready_lo;
   }
 
   for( ulong s=skipped_slot+1UL; ; s++ ) {
     if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) {
       slot_state( self, s )->b_lo = b_lo;
-      if( FD_LIKELY( parent.slot!=ULONG_MAX ) ) add_to_ready( self, s, &parent, newly_certified, newly_certified_cnt );
+      if( FD_LIKELY( parent.slot!=ULONG_MAX ) ) add_to_ready( self, s, &parent, newly_certified, &newly_certified_cnt );
     }
     ag_parent_ready_state_t const * next = ag_parent_ready_state_map_ele_query_const( self->states.map, &s, NULL, self->states.pool );
     if( FD_LIKELY( !next || !next->skip ) ) break;
   }
-}
-
-void
-ag_parent_ready_tracker_delivered( ag_parent_ready_tracker_t * self,
-                                   ulong                       slot ) {
-  ag_parent_ready_state_t * state = ag_parent_ready_state_map_ele_query( self->states.map, &slot, NULL, self->states.pool );
-  if( FD_LIKELY( state ) ) state->ready = 0;
+  return newly_certified_cnt;
 }
 
 ulong
@@ -291,7 +278,7 @@ ag_parent_ready_tracker_prune( ag_parent_ready_tracker_t * self,
       ag_parent_ready_state_t const * nf = ag_parent_ready_state_map_ele_query_const( map, &s, NULL, pool );
       for( ulong i=0UL; nf && i<nf->notar_fallbacks_cnt; i++ ) {
         ag_block_id_t id = ag_block_id( s, nf->notar_fallbacks[i] );
-        if( state->parent_ready_lo.slot==ULONG_MAX || block_id_lt( &id, &state->parent_ready_lo ) ) state->parent_ready_lo = id;
+        if( state->parent_ready_lo.slot==ULONG_MAX || ag_block_id_lt( &id, &state->parent_ready_lo ) ) state->parent_ready_lo = id;
       }
     }
   }

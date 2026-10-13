@@ -176,6 +176,27 @@ event( ulong i ) {
   return &g_event[ i ];
 }
 
+/* src/consensus/pool.rs::recover_from_standstill, collected from
+   ag_pool_standstill_iter into the reference's bundle so the tests
+   ported from the reference still apply. */
+
+#define STANDSTILL_CERT_MAX (TEST_SLOT_MAX*8UL)
+#define STANDSTILL_VOTE_MAX (TEST_SLOT_MAX*7UL)
+
+static ag_cert_t g_standstill_cert[ STANDSTILL_CERT_MAX ];
+static ag_vote_t g_standstill_vote[ STANDSTILL_VOTE_MAX ];
+
+static ag_standstill_t
+recover_from_standstill( ag_pool_t const * pool ) {
+  ag_standstill_t standstill = { .slot = ag_pool_finalized_slot( pool )+1UL, .certs = g_standstill_cert, .votes = g_standstill_vote };
+  ag_pool_standstill_iter_t iter_[1];
+  for( ag_pool_standstill_iter_t * iter = ag_pool_standstill_iter_init( iter_, pool ); !ag_pool_standstill_iter_done( iter ); ag_pool_standstill_iter_next( iter, pool ) ) {
+    if( iter->is_vote ) { FD_TEST( standstill.vote_cnt<STANDSTILL_VOTE_MAX ); standstill.votes[ standstill.vote_cnt++ ] = iter->vote; }
+    else                { FD_TEST( standstill.cert_cnt<STANDSTILL_CERT_MAX ); standstill.certs[ standstill.cert_cnt++ ] = iter->cert; }
+  }
+  return standstill;
+}
+
 /* At most three epoch infos are live at once: a, b and c in
    test_retired_epoch_already_pruned.  They are ~281 KiB apiece and the
    tests compare them by address, so each needs its own storage. */
@@ -1103,14 +1124,8 @@ test_standstill_recovery( void ) {
   ag_block_hash_t hash3; random_hash( hash3 );
   add_notar_votes( pool, slot3, hash3, 0UL, 1UL );
 
-  ag_pool_recover_from_standstill( pool );
-
-  ag_standstill_t const * ss = NULL;
-  ulong event_cnt = take_events( pool );
-  for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_POOL_EVENT_STANDSTILL ) ss = &event( i )->standstill;
-  }
-  FD_TEST( ss );
+  ag_standstill_t         standstill = recover_from_standstill( pool );
+  ag_standstill_t const * ss         = &standstill;
   FD_TEST( ss->slot==slot2 );
 
   ag_cert_t const * certs     = ss->certs;
@@ -1758,19 +1773,229 @@ test_standstill_recovery_no_final_cert( void ) {
   FD_TEST(  ag_pool_finalized_slot( pool )==0UL );
   FD_TEST( !contains_slot( pool, 0UL ) );
 
-  ag_pool_recover_from_standstill( pool );
-
-  ag_standstill_t const * ss = NULL;
-  ulong event_cnt = take_events( pool );
-  for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_POOL_EVENT_STANDSTILL ) ss = &event( i )->standstill;
-  }
-  FD_TEST( ss );
+  ag_standstill_t         standstill = recover_from_standstill( pool );
+  ag_standstill_t const * ss         = &standstill;
   FD_TEST( ss->slot    ==1UL ); /* finalized slot + 1 */
   FD_TEST( ss->cert_cnt==0UL );
   FD_TEST( ss->vote_cnt==0UL );
 
   teardown_pool_only( pool );
+}
+
+/* Firedancer-only test.
+
+   ag_pool_standstill_iter walks the bundle in kind order: the finalized
+   slot's final and notar certs, then each later slot's final,
+   fast-final, notar, notar-fallback and skip certs followed by our
+   notar, final, skip, notar-fallback and skip-fallback votes.  Slot 8
+   fills every notar-fallback cert and vote position.  Our votes in the
+   finalized slot are not part of it, and its fast-final cert, once
+   there, replaces its final and notar certs. */
+
+static void
+test_standstill_iter_order( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ag_block_hash_t h1;  random_hash( h1  );
+  ag_block_hash_t h3;  random_hash( h3  );
+  ag_block_hash_t h3b; random_hash( h3b );
+  ag_block_hash_t h5;  random_hash( h5  );
+
+  notar_cert( pool, 1UL, h1, 7UL );
+  add_final_votes( pool, 1UL, 0UL, 7UL );
+  FD_TEST( ag_pool_finalized_slot( pool )==1UL );
+
+  add_skip_votes( pool, 2UL, 0UL, 7UL );
+
+  add_notar_votes( pool, 3UL, h3,  0UL, 1UL );
+  add_notar_votes( pool, 3UL, h3b, 1UL, 5UL );
+  add_notar_fallback_votes( pool, 3UL, h3b, 0UL, 1UL );
+  add_notar_fallback_votes( pool, 3UL, h3b, 5UL, 9UL );
+
+  add_notar_votes( pool, 5UL, h5, 0UL, 1UL );
+  ag_vote_t sf5 = ag_vote_construct_skip_fallback( sec_sign_fn, &g_sk[0], test_bls_public_key, 5UL, (ushort)0, TEST_SHRED_VERSION );
+  FD_TEST( ag_pool_add_vote( pool, &sf5, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  drain_events( pool );
+
+  add_final_votes( pool, 6UL, 0UL, 7UL );
+
+  ag_block_hash_t h7; random_hash( h7 );
+  add_notar_votes( pool, 7UL, h7, 0UL, 7UL ); /* notar and notar-fallback certs */
+  add_final_votes( pool, 7UL, 0UL, 1UL );
+
+  ag_block_hash_t h8[ 4 ]; for( ulong i=0UL; i<4UL; i++ ) random_hash( h8[ i ] );
+  add_notar_votes( pool, 8UL, h8[ 0 ], 0UL, 3UL  );
+  add_notar_votes( pool, 8UL, h8[ 1 ], 3UL, 6UL  );
+  add_notar_votes( pool, 8UL, h8[ 2 ], 6UL, 9UL  );
+  add_notar_votes( pool, 8UL, h8[ 3 ], 9UL, NV   );
+  add_notar_fallback_votes( pool, 8UL, h8[ 0 ], 3UL, NV  ); /* each hash reaches 60%, in order */
+  add_notar_fallback_votes( pool, 8UL, h8[ 1 ], 0UL, 3UL );
+  add_notar_fallback_votes( pool, 8UL, h8[ 1 ], 6UL, NV  );
+  add_notar_fallback_votes( pool, 8UL, h8[ 2 ], 0UL, 6UL );
+  add_notar_fallback_votes( pool, 8UL, h8[ 2 ], 9UL, NV  );
+  add_notar_fallback_votes( pool, 8UL, h8[ 3 ], 0UL, 9UL );
+
+  struct { ulong slot; int is_vote; uint kind; uchar const * hash; } expected[] = {
+    { 1UL, 0, AG_CERT_KIND_FINAL,          NULL },
+    { 1UL, 0, AG_CERT_KIND_NOTAR,          h1   },
+    { 2UL, 0, AG_CERT_KIND_SKIP,           NULL },
+    { 2UL, 1, AG_VOTE_KIND_SKIP,           NULL },
+    { 3UL, 0, AG_CERT_KIND_NOTAR_FALLBACK, h3b  },
+    { 3UL, 1, AG_VOTE_KIND_NOTAR,          h3   },
+    { 3UL, 1, AG_VOTE_KIND_NOTAR_FALLBACK, h3b  },
+    { 5UL, 1, AG_VOTE_KIND_NOTAR,          h5   },
+    { 5UL, 1, AG_VOTE_KIND_SKIP_FALLBACK,  NULL },
+    { 6UL, 0, AG_CERT_KIND_FINAL,          NULL },
+    { 6UL, 1, AG_VOTE_KIND_FINAL,          NULL },
+    { 7UL, 0, AG_CERT_KIND_NOTAR,          h7   },
+    { 7UL, 0, AG_CERT_KIND_NOTAR_FALLBACK, h7   },
+    { 7UL, 1, AG_VOTE_KIND_NOTAR,          h7   },
+    { 7UL, 1, AG_VOTE_KIND_FINAL,          NULL },
+    { 8UL, 0, AG_CERT_KIND_NOTAR_FALLBACK, h8[0]},
+    { 8UL, 0, AG_CERT_KIND_NOTAR_FALLBACK, h8[1]},
+    { 8UL, 0, AG_CERT_KIND_NOTAR_FALLBACK, h8[2]},
+    { 8UL, 0, AG_CERT_KIND_NOTAR_FALLBACK, h8[3]},
+    { 8UL, 1, AG_VOTE_KIND_NOTAR,          h8[0]},
+    { 8UL, 1, AG_VOTE_KIND_NOTAR_FALLBACK, h8[1]},
+    { 8UL, 1, AG_VOTE_KIND_NOTAR_FALLBACK, h8[2]},
+    { 8UL, 1, AG_VOTE_KIND_NOTAR_FALLBACK, h8[3]},
+  };
+  ulong cnt = 0UL;
+  ag_pool_standstill_iter_t iter_[1];
+  for( ag_pool_standstill_iter_t * iter = ag_pool_standstill_iter_init( iter_, pool ); !ag_pool_standstill_iter_done( iter ); ag_pool_standstill_iter_next( iter, pool ) ) {
+    FD_TEST( cnt<sizeof(expected)/sizeof(expected[0]) );
+    FD_TEST( iter->is_vote==expected[ cnt ].is_vote );
+    if( iter->is_vote ) {
+      FD_TEST( ag_vote_slot( &iter->vote )==expected[ cnt ].slot );
+      FD_TEST( iter->vote.kind==expected[ cnt ].kind );
+      FD_TEST( ag_vote_rank( &iter->vote )==0UL );
+      FD_TEST( ag_vote_shred_version( &iter->vote )==TEST_SHRED_VERSION );
+      if( expected[ cnt ].kind==AG_VOTE_KIND_NOTAR          ) FD_TEST( !memcmp( iter->vote.notar.block_hash,          expected[ cnt ].hash, sizeof(ag_block_hash_t) ) );
+      if( expected[ cnt ].kind==AG_VOTE_KIND_NOTAR_FALLBACK ) FD_TEST( !memcmp( iter->vote.notar_fallback.block_hash, expected[ cnt ].hash, sizeof(ag_block_hash_t) ) );
+    } else {
+      FD_TEST( ag_cert_slot( &iter->cert )==expected[ cnt ].slot );
+      FD_TEST( iter->cert.kind==expected[ cnt ].kind );
+      if( expected[ cnt ].hash ) FD_TEST( !memcmp( ag_cert_block_hash( &iter->cert ), expected[ cnt ].hash, sizeof(ag_block_hash_t) ) );
+    }
+    cnt++;
+  }
+  FD_TEST( cnt==sizeof(expected)/sizeof(expected[0]) );
+
+  ag_vote_t skip2 = ag_vote_construct_skip          ( sec_sign_fn, &g_sk[0], test_bls_public_key, 2UL,          (ushort)0, TEST_SHRED_VERSION );
+  ag_vote_t nf8   = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[0], test_bls_public_key, 8UL, h8[ 3 ], (ushort)0, TEST_SHRED_VERSION );
+  ag_standstill_t standstill = recover_from_standstill( pool );
+  FD_TEST( standstill.cert_cnt==11UL && standstill.vote_cnt==12UL );
+  FD_TEST( !memcmp( ag_vote_sig( &standstill.votes[  0 ] ), ag_vote_sig( &skip2 ), sizeof(fd_bls_sig_t) ) );
+  FD_TEST( !memcmp( ag_vote_sig( &standstill.votes[  4 ] ), ag_vote_sig( &sf5   ), sizeof(fd_bls_sig_t) ) );
+  FD_TEST( !memcmp( ag_vote_sig( &standstill.votes[ 11 ] ), ag_vote_sig( &nf8   ), sizeof(fd_bls_sig_t) ) );
+
+  add_notar_votes( pool, 1UL, h1, 0UL, 10UL ); /* fast-finalizes slot 1 too */
+  standstill = recover_from_standstill( pool );
+  FD_TEST( standstill.cert_cnt==10UL && standstill.vote_cnt==12UL );
+  FD_TEST( standstill.certs[ 0 ].kind==AG_CERT_KIND_FAST_FINAL && ag_cert_slot( &standstill.certs[ 0 ] )==1UL );
+  FD_TEST( ag_cert_slot( &standstill.certs[ 1 ] )==2UL );
+
+  teardown_pool( pool );
+}
+
+/* Firedancer-only test.
+
+   On snapshot boot the finalized slot is the replayed root, and a vote
+   or cert for it can give it a slot state without a finalization pair.
+   The bundle then starts at the next slot.  The reference asserts a
+   final cert is present; here a peer's vote must not crash us. */
+
+static void
+test_standstill_iter_partial_root( void ) {
+  ag_pool_t * pool = setup_pool(); /* finalized slot 0, no slot state */
+
+  ag_block_hash_t h0; random_hash( h0 );
+  add_notar_votes( pool, 0UL, h0, 3UL, 4UL );
+  FD_TEST( contains_slot( pool, 0UL ) );
+  ag_standstill_t standstill = recover_from_standstill( pool );
+  FD_TEST( standstill.cert_cnt==0UL && standstill.vote_cnt==0UL );
+
+  add_final_votes( pool, 0UL, 0UL, 7UL ); /* a final cert, still no notar cert */
+  FD_TEST( has_final_cert( pool, 0UL ) && !has_notar_cert( pool, 0UL ) );
+  FD_TEST( ag_pool_finalized_slot( pool )==0UL );
+
+  ag_block_hash_t h1; random_hash( h1 );
+  add_notar_votes( pool, 1UL, h1, 0UL, 1UL );
+  standstill = recover_from_standstill( pool );
+  FD_TEST( standstill.cert_cnt==0UL && standstill.vote_cnt==1UL );
+  FD_TEST( ag_vote_slot( &standstill.votes[ 0 ] )==1UL && standstill.votes[ 0 ].kind==AG_VOTE_KIND_NOTAR );
+
+  teardown_pool( pool );
+}
+
+/* Firedancer-only test.
+
+   The tile steps the iterator across passes, so the pool can finalize
+   and prune the slots ahead of it between steps.  The iterator skips
+   the pruned slots and carries on from the live ones. */
+
+static void
+test_standstill_iter_prune( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ag_block_hash_t h[ 31 ];
+  for( ulong slot=1UL; slot<=30UL; slot++ ) random_hash( h[ slot ] );
+  for( ulong slot=1UL; slot<=30UL; slot++ ) add_notar_votes( pool, slot, h[ slot ], 0UL, 1UL );
+
+  ag_pool_standstill_iter_t iter[1];
+  ag_pool_standstill_iter_init( iter, pool );
+  FD_TEST( !ag_pool_standstill_iter_done( iter ) && iter->is_vote && ag_vote_slot( &iter->vote )==1UL );
+  ag_pool_standstill_iter_next( iter, pool );
+  FD_TEST( !ag_pool_standstill_iter_done( iter ) && iter->is_vote && ag_vote_slot( &iter->vote )==2UL );
+
+  for( ulong slot=1UL; slot<=20UL; slot++ ) add_notar_votes( pool, slot, h[ slot ], 1UL, NV ); /* fast-finalizes 1..20 */
+  FD_TEST( ag_pool_finalized_slot( pool )==20UL );
+  FD_TEST( !contains_slot( pool, 3UL ) && min_live_slot( pool )==12UL );
+
+  uint const kind[ 3 ] = { AG_CERT_KIND_FAST_FINAL, AG_CERT_KIND_NOTAR, AG_CERT_KIND_NOTAR_FALLBACK }; /* 11 notar votes certify all three */
+  ulong cnt = 0UL;
+  for( ag_pool_standstill_iter_next( iter, pool ); !ag_pool_standstill_iter_done( iter ); ag_pool_standstill_iter_next( iter, pool ) ) {
+    ulong slot = 12UL + fd_ulong_if( cnt<36UL, cnt/4UL, 9UL+cnt-36UL );
+    ulong pos  = fd_ulong_if( cnt<36UL, cnt%4UL, 3UL );
+    if( pos==3UL ) {
+      FD_TEST( iter->is_vote && iter->vote.kind==AG_VOTE_KIND_NOTAR && ag_vote_slot( &iter->vote )==slot );
+      FD_TEST( !memcmp( iter->vote.notar.block_hash, h[ slot ], sizeof(ag_block_hash_t) ) );
+    } else {
+      FD_TEST( !iter->is_vote && ag_cert_slot( &iter->cert )==slot && iter->cert.kind==kind[ pos ] );
+    }
+    cnt++;
+  }
+  FD_TEST( cnt==9UL*4UL+10UL );
+
+  ag_standstill_t standstill = recover_from_standstill( pool );
+  FD_TEST( standstill.slot==21UL && standstill.cert_cnt==1UL && standstill.vote_cnt==10UL );
+  FD_TEST( standstill.certs[ 0 ].kind==AG_CERT_KIND_FAST_FINAL && ag_cert_slot( &standstill.certs[ 0 ] )==20UL );
+  for( ulong i=0UL; i<10UL; i++ ) FD_TEST( ag_vote_slot( &standstill.votes[ i ] )==21UL+i );
+
+  teardown_pool( pool );
+}
+
+/* Firedancer-only test.
+
+   Popping a ParentReady clears its state's ready flag.  A finalization
+   processed while the event was queued can prune that state, so the pop
+   finds none and still delivers the event. */
+
+static void
+test_parent_ready_pruned_while_queued( void ) {
+  ag_pool_t * pool = setup_pool();
+  drain_events( pool );
+
+  ulong slot = 12344UL;
+  FD_TEST( !ag_parent_ready_state_map_ele_query_const( pool->parent_ready_tracker->states.map, &slot, NULL, pool->parent_ready_tracker->states.pool ) );
+  pool_events_push( pool->pool_events, (ag_pool_event_t){ .kind = AG_POOL_EVENT_PARENT_READY, .parent_ready = { .slot = slot } } );
+
+  ag_pool_event_t event;
+  FD_TEST(  ag_pool_poll_pool_event( pool, &event ) );
+  FD_TEST(  event.kind==AG_POOL_EVENT_PARENT_READY && event.parent_ready.slot==slot );
+  FD_TEST( !ag_pool_poll_pool_event( pool, &event ) );
+
+  teardown_pool( pool );
 }
 
 /* Firedancer-only test.
@@ -1911,6 +2136,10 @@ main( int     argc,
   test_epoch_installed_late();
   test_retired_epoch_already_pruned();
   test_standstill_recovery_no_final_cert();
+  test_standstill_iter_order();
+  test_standstill_iter_partial_root();
+  test_standstill_iter_prune();
+  test_parent_ready_pruned_while_queued();
   test_add_block_below_watermark();
   test_set_rank();
 
