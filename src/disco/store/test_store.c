@@ -79,6 +79,71 @@ test_publish( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
 
+/* A payload reserved and filled before fd_store_insert_ready survives a
+   publish that lands mid-write, since nothing is linked yet; the FEC is
+   RAM_READY once linked; a duplicate frees its cache slot; and a FEC
+   published away is not refilled. */
+
+void
+test_insert_ready( fd_wksp_t * wksp ) {
+  ulong  fec_max     = 4;
+  void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL, 0UL, 0UL, 0UL, 1, 1UL ), 1UL );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 31840UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1, 1UL ) );
+  FD_TEST( store );
+  fd_store_map_t map[1];
+  FD_TEST( fd_store_map_ljoin( store, map ) );
+
+  ushort shred_sz[ FD_FEC_SHRED_CNT ] = { 0 };
+  fd_hash_t mr0 = { .ul = { 1UL } };
+  fd_hash_t mr1 = { .ul = { 2UL } };
+  fd_store_fec_t * fec;
+  FD_TEST( fd_store_publish( store, map, 10UL )==0UL );
+
+  uint    data_idx;
+  uchar * data = fd_store_fec_data_reserve( store, -1, &data_idx, NULL );
+  FD_TEST( data && store->cache_free_cnt==fec_max-1UL );
+  fd_memset( data, 0xAA, 100UL );
+  FD_TEST( fd_store_publish( store, map, 11UL )==0UL ); /* mid-write, nothing to remove */
+  FD_TEST( store->cache_free_cnt==fec_max-1UL );
+  shred_sz[ 0 ] = 100;
+  FD_TEST( !fd_store_insert_ready( store, map, &mr0, 5UL, 0UL, data_idx, 100U, shred_sz, &fec ) && fec ); /* below the root */
+  FD_TEST( fec->data_state==FD_STORE_FEC_DATA_RAM_READY && fec->data_idx==data_idx && fec->data_sz==100U && fec->shred_sz[ 0 ]==100 );
+  FD_TEST( fec->slot==11U );
+  FD_TEST( store->cache_lru_tail==cache_fec_idx( store, fec ) );
+
+  fd_store_fec_data_view_t view[1];
+  FD_TEST( !fd_store_fec_data_view( store, -1, fec, view ) && view->data[ 99 ]==0xAA );
+  fd_store_fec_data_view_release( store, view );
+
+  data = fd_store_fec_data_reserve( store, -1, &data_idx, NULL );
+  FD_TEST( data && store->cache_free_cnt==fec_max-2UL );
+  fd_store_fec_t * dup;
+  FD_TEST( fd_store_insert_ready( store, map, &mr0, 11UL, 0UL, data_idx, 0U, shred_sz, &dup )==FD_MAP_ERR_KEY && !dup );
+  FD_TEST( store->cache_free_cnt==fec_max-1UL );
+
+  FD_TEST( fd_store_publish( store, map, 12UL )==1UL );
+  FD_TEST( !fd_store_query( map, &mr0 ) );
+  FD_TEST( store->cache_free_cnt==fec_max );
+  FD_TEST( fec->data_state==FD_STORE_FEC_DATA_CONSUMED );
+  FD_TEST( !fd_store_fec_data_acquire( store, -1, fec ) ); /* back in the pool */
+  FD_TEST( store->cache_free_cnt==fec_max );
+
+  /* The whole pool and cache are reusable. */
+  for( ulong i=0UL; i<fec_max; i++ ) {
+    fd_hash_t mr = { .ul = { 100UL+i } };
+    data = fd_store_fec_data_reserve( store, -1, &data_idx, NULL );
+    FD_TEST( data );
+    FD_TEST( !fd_store_insert_ready( store, map, &mr, 12UL, 0UL, data_idx, 0U, shred_sz, &fec ) && fec );
+  }
+  FD_TEST( !store->cache_free_cnt );
+  FD_TEST( !fd_store_fec_data_reserve( store, -1, &data_idx, NULL ) ); /* no disk to spill to */
+  FD_TEST( fd_store_publish( store, map, 13UL )==fec_max );
+  FD_TEST( store->cache_free_cnt==fec_max && store->cache_lru_head==UINT_MAX );
+  FD_TEST( !fd_store_insert( store, map, &mr1, 13UL, 0UL, &fec ) && fec );
+
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
+}
+
 void
 test_api( fd_wksp_t * wksp ) {
   FD_TEST( sizeof(fd_store_fec_t)==128UL );
@@ -1319,6 +1384,7 @@ main( int argc, char ** argv ) {
 
   test_api         ( wksp );
   test_publish     ( wksp );
+  test_insert_ready( wksp );
   test_file_create ( wksp );
   test_pread_all   ();
   test_query_miss  ( wksp );
