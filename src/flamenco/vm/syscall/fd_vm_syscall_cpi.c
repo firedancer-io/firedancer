@@ -237,8 +237,7 @@ get_cpi_invoke_unit_cost( void ) {
 }
 
 /* fd_vm_syscall_cpi_check_instruction contains common instruction acct
-   count and data sz checks.  Also consumes compute units proportional
-   to instruction data size. */
+   count and data sz checks. */
 
 static int
 fd_vm_syscall_cpi_check_instruction( ulong           acct_cnt,
