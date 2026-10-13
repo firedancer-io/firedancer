@@ -1166,6 +1166,41 @@ deferred_acc_append( fd_accdb_t * accdb,
   accdb->deferred_acc_buf[ shmem->deferred_acc_buf_cnt++ ] = acc_idx;
 }
 
+/* The snapshot loader locks a chain while it writes accounts into it.
+   Everyone else waits for the lock to clear before reading the
+   chain's head. */
+
+#define CHAIN_LOCKED (UINT_MAX-1U)
+
+static inline uint
+chain_head( uint const * head ) {
+  for(;;) {
+    uint acc = FD_VOLATILE_CONST( *head );
+    if( FD_LIKELY( acc!=CHAIN_LOCKED ) ) return acc;
+    fd_racesan_hook( "accdb_chain_head:locked" );
+    FD_SPIN_PAUSE();
+  }
+}
+
+/* chain_unlink_interior atomically removes acc_idx from its chain.
+   Safe against the snapshot loader inserting into the same chain at
+   the same time. */
+
+static inline void
+chain_unlink_interior( fd_accdb_t * accdb,
+                       uint         map_idx,
+                       uint         prev,
+                       uint         acc_idx,
+                       uint         next ) {
+  for(;;) {
+    if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_pool[ prev ].map.next, acc_idx, next )==acc_idx ) ) return;
+    prev = chain_head( &accdb->acc_map[ map_idx ] );
+    while( FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next )!=acc_idx ) {
+      prev = FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next );
+    }
+  }
+}
+
 /* acc_unlink unlinks an account from its hash map chain, frees any
    associated disk bytes, and invalidates a stale cache reference.  Does
    NOT release the acc pool slot — the caller is responsible for that
@@ -1228,7 +1263,7 @@ acc_unlink( fd_accdb_t * accdb,
     /* Head removal — CAS may fail if a concurrent insert prepended a
        new node.  On failure the target is now interior. */
     for(;;) {
-      uint old_head = FD_VOLATILE_CONST( accdb->acc_map[ map_idx ] );
+      uint old_head = chain_head( &accdb->acc_map[ map_idx ] );
       if( FD_LIKELY( old_head==acc_idx ) ) {
         if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_map[ map_idx ], acc_idx, accmeta->map.next )==acc_idx ) ) break;
         FD_SPIN_PAUSE();
@@ -1239,11 +1274,11 @@ acc_unlink( fd_accdb_t * accdb,
          this thread removes elements. */
       prev = old_head;
       while( FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next )!=acc_idx ) prev = FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next );
-      FD_ATOMIC_CAS( &accdb->acc_pool[ prev ].map.next, acc_idx, accmeta->map.next );
+      chain_unlink_interior( accdb, map_idx, prev, acc_idx, accmeta->map.next );
       break;
     }
   } else {
-    FD_ATOMIC_CAS( &accdb->acc_pool[ prev ].map.next, acc_idx, accmeta->map.next );
+    chain_unlink_interior( accdb, map_idx, prev, acc_idx, accmeta->map.next );
   }
 
   fd_racesan_hook( "accdb_acc_unlink:post_splice" );
@@ -1421,7 +1456,7 @@ chain_prewalk( fd_accdb_t *      accdb,
     if( from_head[ i ] ) __builtin_prefetch( &accdb->acc_map[ map_idxs[ i ] ], 1, 3 );
   }
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( from_head[ i ] ) cur[ i ] = FD_VOLATILE_CONST( accdb->acc_map[ map_idxs[ i ] ] );
+    if( from_head[ i ] ) cur[ i ] = chain_head( &accdb->acc_map[ map_idxs[ i ] ] );
     else                 cur[ i ] = FD_VOLATILE_CONST( accdb->acc_pool[ acc_idx[ i ] ].map.next );
   }
 
@@ -1466,7 +1501,7 @@ purge_inner( fd_accdb_t *              accdb,
         uint acc_map_idx = map_idxs[ w ];
 
         uint prev = UINT_MAX;
-        uint cur = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
+        uint cur = chain_head( &accdb->acc_map[ acc_map_idx ] );
         while( cur!=acc_idx ) {
           prev = cur;
           cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next );
@@ -1560,7 +1595,7 @@ background_advance_root( fd_accdb_t *       accdb,
         FD_TEST( new_acc->key.generation==fork->shmem->generation && fd_accdb_acc_fork_id( new_acc )==fork_id.val );
         if( FD_LIKELY( new_acc->lamports ) ) {
 #if FD_TMPL_USE_HANDHOLDING
-          uint chk = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
+          uint chk = chain_head( &accdb->acc_map[ acc_map_idx ] );
           while( chk!=UINT_MAX && chk!=txne->acc_pool_idx ) {
             fd_accdb_accmeta_t const * ahead = &accdb->acc_pool[ chk ];
             FD_TEST( !( (ahead->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(ahead) ) ) && !memcmp( new_acc->key.pubkey, ahead->key.pubkey, 32UL ) ) );
@@ -1572,7 +1607,7 @@ background_advance_root( fd_accdb_t *       accdb,
           prev = txne->acc_pool_idx;
           acc  = FD_VOLATILE_CONST( new_acc->map.next );
         } else {
-          acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
+          acc = chain_head( &accdb->acc_map[ acc_map_idx ] );
           FD_TEST( acc!=UINT_MAX );
         }
         while( acc!=UINT_MAX ) {
@@ -2160,7 +2195,7 @@ background_compact( fd_accdb_t * accdb,
 
     fd_accdb_accmeta_t * accmeta = NULL;
     ulong source_packed = 0UL;
-    uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
+    uint acc_idx = chain_head( &accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
     while( acc_idx!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ acc_idx ];
       uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
@@ -2477,7 +2512,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
      concurrent releases serialize on the CAS of the chain head. */
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     acc_map_idxs[ i ] = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-    uint acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idxs[ i ] ] );
+    uint acc = chain_head( &accdb->acc_map[ acc_map_idxs[ i ] ] );
     while( acc!=UINT_MAX ) {
       fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
       uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
@@ -3632,7 +3667,7 @@ release_inner( fd_accdb_t * accdb,
          CAS.  Multiple concurrent releases may also race on the head
          pointer — the CAS retry handles this. */
       for(;;) {
-        uint old_head = FD_VOLATILE_CONST( accdb->acc_map[ accs[ i ]._acc_map_idx ] );
+        uint old_head = chain_head( &accdb->acc_map[ accs[ i ]._acc_map_idx ] );
         accmeta->map.next = old_head;
         FD_COMPILER_MFENCE();
         fd_racesan_hook( "accdb_release:pre_chain_cas" );
@@ -3783,7 +3818,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  uint acc_idx = chain_head( &accdb->acc_map[ hash ] );
   fd_accdb_accmeta_t const * accmeta = NULL;
   while( acc_idx!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate = &accdb->acc_pool[ acc_idx ];
@@ -3955,7 +3990,7 @@ fd_accdb_exists( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  uint acc = chain_head( &accdb->acc_map[ hash ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
@@ -3991,7 +4026,7 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  uint acc = chain_head( &accdb->acc_map[ hash ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
@@ -4039,7 +4074,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  uint acc = chain_head( &accdb->acc_map[ hash ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
@@ -4327,8 +4362,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             out_replaced_lamports,
                                ulong *             out_ignored_lamports,
                                uchar *             results ) {
-#define CHAIN_LOCKED (UINT_MAX-1U)
-
   FD_TEST( cnt>0UL && cnt<=8UL );
 
   int incremental = fork_id.val!=USHORT_MAX;
@@ -4523,8 +4556,6 @@ fini:
   *out_ignored_lamports  = ignored_lamports;
 
   return result;
-
-#undef CHAIN_LOCKED
 }
 
 
