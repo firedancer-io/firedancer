@@ -585,14 +585,17 @@ fd_store_delete( void * shstore ) {
 }
 
 
-/* Pops a free RAM cache slot, spilling LRU payloads as needed.  May
-   drop and retake cache_lock.  Returns ULONG_MAX if nothing can be
-   spilled. */
-
-static ulong
-cache_slot_acquire_locked( fd_store_t                  * store,
-                           int                           disk_fd,
+uchar *
+fd_store_fec_data_reserve( fd_store_t                 * store,
+                           int                          disk_fd,
+                           uint                       * data_idx,
                            fd_store_fec_spill_stats_t * spill ) {
+  if( FD_LIKELY( spill ) ) *spill = (fd_store_fec_spill_stats_t){0};
+  if( FD_UNLIKELY( !store || !data_idx ) ) return NULL;
+
+  /* Pops a free RAM cache slot, spilling LRU payloads as needed. */
+  fd_rwlock_write( &store->cache_lock );
+
   while( FD_UNLIKELY( !store->cache_free_cnt ) ) {
     if( FD_UNLIKELY( store->cache_lru_head==UINT_MAX ) ) {
       fd_rwlock_unwrite( &store->cache_lock );
@@ -607,23 +610,14 @@ cache_slot_acquire_locked( fd_store_t                  * store,
       fd_rwlock_write( &store->cache_lock );
       continue;
     }
-    if( FD_UNLIKELY( !spill_result ) ) return ULONG_MAX;
+    if( FD_UNLIKELY( !spill_result ) ) {
+      fd_rwlock_unwrite( &store->cache_lock );
+      return NULL;
+    }
   }
-  return cache_free_laddr( store )[ --store->cache_free_cnt ];
-}
 
-uchar *
-fd_store_fec_data_reserve( fd_store_t                  * store,
-                           int                           disk_fd,
-                           uint                        * data_idx,
-                           fd_store_fec_spill_stats_t * spill ) {
-  if( FD_LIKELY( spill ) ) *spill = (fd_store_fec_spill_stats_t){0};
-  if( FD_UNLIKELY( !store || !data_idx ) ) return NULL;
-
-  fd_rwlock_write( &store->cache_lock );
-  ulong slot = cache_slot_acquire_locked( store, disk_fd, spill );
+  ulong slot = cache_free_laddr( store )[ --store->cache_free_cnt ];
   fd_rwlock_unwrite( &store->cache_lock );
-  if( FD_UNLIKELY( slot==ULONG_MAX ) ) return NULL;
 
   *data_idx = (uint)slot;
   return cache_data_laddr( store ) + slot*store->payload_slot_sz;
