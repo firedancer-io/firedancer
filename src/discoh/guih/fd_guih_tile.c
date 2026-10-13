@@ -140,14 +140,14 @@ during_housekeeping( fd_guih_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_guih_ctx_t * ctx ) {
-  FD_MGAUGE_SET( GUIH, CONN_ACTIVE, ctx->gui_server->metrics.connection_cnt );
-  FD_MGAUGE_SET( GUIH, WEBSOCKET_CONN_ACTIVE, ctx->gui_server->metrics.ws_connection_cnt );
+  FD_MGAUGE_SET( GUIH, CONN_OPEN,   ctx->gui_server->metrics.connection_cnt );
+  FD_MGAUGE_SET( GUIH, WEBSOCKET_CONN_OPEN, ctx->gui_server->metrics.ws_connection_cnt );
 
   FD_MCNT_SET( GUIH, WEBSOCKET_FRAME_TX, ctx->gui_server->metrics.frames_written );
   FD_MCNT_SET( GUIH, WEBSOCKET_FRAME_RX, ctx->gui_server->metrics.frames_read );
 
-  FD_MCNT_SET( GUIH, BYTES_WRITTEN, ctx->gui_server->metrics.bytes_written );
-  FD_MCNT_SET( GUIH, BYTES_READ,    ctx->gui_server->metrics.bytes_read );
+  FD_MCNT_SET( GUIH, CONN_TX_BYTES, ctx->gui_server->metrics.bytes_written );
+  FD_MCNT_SET( GUIH, CONN_RX_BYTES, ctx->gui_server->metrics.bytes_read );
 }
 
 static void

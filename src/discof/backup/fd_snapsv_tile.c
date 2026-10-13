@@ -1184,7 +1184,7 @@ shovel_comp_net( fd_snapsv_t *       ctx,
   conn->res.sent      += (uint)res;
   conn->snap.req_sent += (ulong)res;
   conn->active_ts      = now;
-  FD_MCNT_INC( SNAPSV, BYTES_WRITTEN, (ulong)res );
+  FD_MCNT_INC( SNAPSV, HTTP_TX_BYTES, (ulong)res );
   shovel( ctx, stem, conn_idx, now );
 }
 
@@ -1615,7 +1615,7 @@ handle_peek( fd_snapsv_t *       ctx,
   }
   uint peek_len = (uint)res;
 
-  FD_MCNT_INC( SNAPSV, BYTES_READ, (ulong)res );
+  FD_MCNT_INC( SNAPSV, HTTP_RX_BYTES, (ulong)res );
 
   char const * method;  ulong method_len;
   char const * path;    ulong path_len;
@@ -2202,9 +2202,9 @@ during_housekeeping( fd_snapsv_t * ctx ) {
 
 static void
 metrics_write( fd_snapsv_t * ctx ) {
-  FD_MGAUGE_SET( SNAPSV, SNAPSHOTS_AVAILABLE_FULL,        ctx->snap_cnt_full );
-  FD_MGAUGE_SET( SNAPSV, SNAPSHOTS_AVAILABLE_INCREMENTAL, ctx->snap_cnt_incr );
-  FD_MGAUGE_SET( SNAPSV, CONN_ACTIVE,                     ctx->conn_cnt      );
+  FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_FULL,         ctx->snap_cnt_full );
+  FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_INCREMENTAL,  ctx->snap_cnt_incr );
+  FD_MGAUGE_SET( SNAPSV, CONN_OPEN,                       ctx->conn_cnt      );
 }
 
 /* snapsv uses a custom sleep with io_uring_enter and doesn't currently

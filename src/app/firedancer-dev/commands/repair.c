@@ -523,7 +523,7 @@ print_histogram_buckets( volatile ulong * metrics,
   fd_histf_t hist[1];
 
   /* Create histogram structure only to get bucket edges for display */
-  if( FD_LIKELY( converter == FD_METRICS_CONVERTER_SECONDS ) ) {
+  if( FD_LIKELY( converter == FD_METRICS_CONVERTER_NANOSECONDS ) ) {
     FD_TEST( fd_histf_new_edges( hist, edges_ns ) );
   } else if( FD_LIKELY( converter == FD_METRICS_CONVERTER_NONE ) ) {
     FD_TEST( fd_histf_new( hist, histmin, histmax ) );
@@ -551,7 +551,7 @@ print_histogram_buckets( volatile ulong * metrics,
       le_str = "+Inf";
     } else {
       ulong edge = fd_histf_right( hist, k );
-      if( FD_LIKELY( converter == FD_METRICS_CONVERTER_SECONDS ) ) {
+      if( FD_LIKELY( converter == FD_METRICS_CONVERTER_NANOSECONDS ) ) {
         double edgef = (double)(edge - 1) / 1e9;
         FD_TEST( fd_cstr_printf_check( le_buf, sizeof( le_buf ), NULL, "%.3f", edgef ) );
       } else {
@@ -582,8 +582,8 @@ print_histogram_buckets( volatile ulong * metrics,
   /* Print sum and total count */
   char sum_buf[ 64 ];
   char avg_buf[ 64 ];
-  if( FD_LIKELY( converter == FD_METRICS_CONVERTER_SECONDS ) ) {
-    double sumf = fd_metrics_convert_ticks_to_seconds( metrics[ offset + FD_HISTF_BUCKET_CNT ] );
+  if( FD_LIKELY( converter == FD_METRICS_CONVERTER_NANOSECONDS ) ) {
+    double sumf = (double)fd_metrics_convert_ticks_to_nanoseconds( metrics[ offset + FD_HISTF_BUCKET_CNT ] ) / 1e9;
     FD_TEST( fd_cstr_printf_check( sum_buf, sizeof( sum_buf ), NULL, "%.6f", sumf ) );
     double avg = sumf / (double)total_count;
     FD_TEST( fd_cstr_printf_check( avg_buf, sizeof( avg_buf ), NULL, "%.6f", avg ) );
@@ -726,17 +726,17 @@ print_tile_metrics( volatile ulong * shred_metrics,
                     long    last_print_ts,
                     long    now ) {
   char buf2[ 64 ];
-  ulong rcvd = shred_metrics [ MIDX( COUNTER, SHRED,  SHRED_REPAIR_RX ) ];
-  ulong sent = repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_NEEDED_WINDOW ) ] +
-                repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_NEEDED_HIGHEST_WINDOW ) ] +
-                repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_NEEDED_ORPHAN ) ];
+  ulong rcvd = shred_metrics [ MIDX( COUNTER, SHRED,  REPAIR_RX ) ];
+  ulong sent = repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_WINDOW_INDEX ) ] +
+                repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_HIGHEST_WINDOW_INDEX ) ] +
+                repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_ORPHAN ) ];
   printf(" Requests received: (%lu/%lu) %.1f%% \n", rcvd, sent, (double)rcvd / (double)sent * 100.0 );
   printf( " +---------------+--------------+\n" );
   printf( " | Request Type  | Count        |\n" );
   printf( " +---------------+--------------+\n" );
-  printf( " | Orphan        | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_NEEDED_ORPHAN         ) ] ) );
-  printf( " | HighestWindow | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_NEEDED_HIGHEST_WINDOW ) ] ) );
-  printf( " | Index         | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_NEEDED_WINDOW         ) ] ) );
+  printf( " | Orphan        | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_ORPHAN                ) ] ) );
+  printf( " | HighestWindow | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_HIGHEST_WINDOW_INDEX  ) ] ) );
+  printf( " | Index         | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_TX_WINDOW_INDEX          ) ] ) );
   printf( " +---------------+--------------+\n" );
   printf( " Send Pkt Rate: %s pps\n",  fmt_count( buf2, (ulong)((sent - *last_sent_cnt)*1e9L / (now - last_print_ts) ) ) );
   *last_sent_cnt = sent;
@@ -771,22 +771,23 @@ print_tile_metrics( volatile ulong * shred_metrics,
                             FD_METRICS_HISTOGRAM_REPAIR_RESPONSE_LATENCY_NANOS_MAX,
                             "Response Latency" );
 
-  printf(" Repair Peers: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, PEER_REQUESTED ) ] );
-  printf(" Shreds rejected (no stakes): %lu\n", shred_metrics[ MIDX( COUNTER, SHRED, SHRED_PROCESSED ) ] );
+  printf(" Repair Peers: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, PEER_COUNT ) ] );
+  printf(" Shreds rejected (no stakes): %lu\n", shred_metrics[ MIDX( COUNTER, SHRED, PROCESSED ) ] );
   /* Print histogram buckets similar to Prometheus format */
   print_histogram_buckets( repair_metrics,
-                          MIDX( HISTOGRAM, REPAIR, SLOT_COMPLETE_DURATION_SECONDS ),
-                          FD_METRICS_CONVERTER_SECONDS,
-                          FD_MHIST_EDGES_NS( REPAIR, SLOT_COMPLETE_DURATION_SECONDS ),
+                          MIDX( HISTOGRAM, REPAIR, SLOT_COMPLETE_DURATION_NANOS ),
+                          FD_METRICS_CONVERTER_NANOSECONDS,
+                          FD_MHIST_EDGES_NS( REPAIR, SLOT_COMPLETE_DURATION_NANOS ),
                           0UL, /* unused with edges */
                           0UL,
                           "Slot Complete Time" );
 
-#define DIFFX(METRIC) repair_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - repair_metrics_prev[ MIDX( COUNTER, TILE, METRIC ) ]
-  ulong hkeep_ticks        = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_HOUSEKEEPING) + DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_HOUSEKEEPING);
-  ulong busy_ticks         = DIFFX(REGIME_DURATION_NANOS_PROCESSING_PREFRAG) + DIFFX(REGIME_DURATION_NANOS_PROCESSING_POSTFRAG ) + DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG);
-  ulong caught_up_ticks    = DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG) + DIFFX(REGIME_DURATION_NANOS_CAUGHT_UP_SLEEPING);
-  ulong backpressure_ticks = DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG) + DIFFX(REGIME_DURATION_NANOS_BACKPRESSURE_SLEEPING);
+#define DIFFG(GROUP) ( fd_metrics_enum_group_sum( repair_metrics+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS ), FD_METRICS_ENUM_TILE_REGIME_G_##GROUP##_MASK ) - \
+                       fd_metrics_enum_group_sum( repair_metrics_prev+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS ), FD_METRICS_ENUM_TILE_REGIME_G_##GROUP##_MASK ) )
+  ulong hkeep_ticks        = DIFFG(HOUSEKEEPING);
+  ulong busy_ticks         = DIFFG(BUSY);
+  ulong caught_up_ticks    = DIFFG(IDLE);
+  ulong backpressure_ticks = DIFFG(BACKPRESSURE);
   ulong total_ticks = hkeep_ticks + busy_ticks + caught_up_ticks + backpressure_ticks;
 
   printf( " Repair Hkeep: %.1f %%  Busy: %.1f %%  Idle: %.1f %%  Backp: %0.1f %%\n",
@@ -794,14 +795,14 @@ print_tile_metrics( volatile ulong * shred_metrics,
             (double)busy_ticks/(double)total_ticks*100.0,
             (double)caught_up_ticks/(double)total_ticks*100.0,
             (double)backpressure_ticks/(double)total_ticks*100.0 );
-#undef DIFFX
+#undef DIFFG
   fflush( stdout );
 
   printf( " Block failed insert: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, BLOCK_INSERT_FAILED ) ] );
   printf( " Block evicted: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, BLOCK_EVICTED ) ] );
-  printf( " slot evicted: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_LAST_EVICTED ) ] );
-  printf( " slot evicted by: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_LAST_EVICTION_CAUSE ) ] );
-  printf( " slot failed insert: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_LAST_INSERT_FAILED ) ] );
+  printf( " slot evicted: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, LAST_EVICTED_SLOT ) ] );
+  printf( " slot evicted by: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, LAST_EVICTION_CAUSE_SLOT ) ] );
+  printf( " slot failed insert: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, LAST_INSERT_FAILED_SLOT ) ] );
   for( ulong i=0UL; i<FD_METRICS_TOTAL_SZ/sizeof(ulong); i++ ) repair_metrics_prev[ i ] = repair_metrics[ i ];
 }
 
@@ -949,8 +950,8 @@ repair_cmd_fn_catchup( args_t *   args,
     int catchup_finished = 0;
     if( FD_UNLIKELY( now - last_print > 1e9L ) ) {
       print_tile_metrics( shred_metrics, repair_metrics, repair_metrics_prev, repair_net_links, net_shred_links, net_cnt, &last_sent, last_print, now );
-      ulong slots_behind = turbine_slot0 > repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ] ? turbine_slot0 - repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ] : 0;
-      printf(" Repaired slots: %lu/%lu  (slots behind: %lu)\n", repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ], turbine_slot0, slots_behind );
+      ulong slots_behind = turbine_slot0 > repair_metrics[ MIDX( GAUGE, REPAIR, HIGHEST_REPAIRED_SLOT ) ] ? turbine_slot0 - repair_metrics[ MIDX( GAUGE, REPAIR, HIGHEST_REPAIRED_SLOT ) ] : 0;
+      printf(" Repaired slots: %lu/%lu  (slots behind: %lu)\n", repair_metrics[ MIDX( GAUGE, REPAIR, HIGHEST_REPAIRED_SLOT ) ], turbine_slot0, slots_behind );
       if( turbine_slot0 && !slots_behind ) {
         catchup_finished = 1;
       }
@@ -1020,7 +1021,7 @@ repair_cmd_fn_eqvoc( args_t *   args,
   int confirmed = 0;
   for(;;) {
     /* publish a confirmation on tower_out */
-    if( FD_UNLIKELY( !confirmed && repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ] != 0 ) ) {
+    if( FD_UNLIKELY( !confirmed && repair_metrics[ MIDX( GAUGE, REPAIR, HIGHEST_REPAIRED_SLOT ) ] != 0 ) ) {
       fd_tower_slot_confirmed_t * msg = fd_chunk_to_laddr( tower_out_mem, tower_out_chunk );
       FD_LOG_NOTICE(( "publishing confirmation for slot %lu", msg->slot ));
       fd_mcache_publish( tower_out_mcache, tower_out_link->depth, 0, FD_TOWER_SIG_SLOT_CONFIRMED, tower_out_chunk, sizeof(fd_tower_slot_confirmed_t), 0, 0, 0 );

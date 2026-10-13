@@ -12,11 +12,11 @@
 #include "../leaders/fd_leaders_base.h"
 #include "../../util/fd_hash32.h"
 
-FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT==FD_GOSSIP_MESSAGE_CNT,
-                  "FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT must match FD_GOSSIP_MESSAGE_CNT" );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT==FD_GOSSIP_MESSAGE_CNT,
+                  "FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT must match FD_GOSSIP_MESSAGE_CNT" );
 
-FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT==FD_GOSSIP_VALUE_CNT,
-                  "FD_METRICS_ENUM_CRDS_VALUE_CNT must match FD_GOSSIP_VALUE_CNT" );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT==FD_GOSSIP_VALUE_CNT,
+                  "FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT must match FD_GOSSIP_VALUE_CNT" );
 
 #define BLOOM_FALSE_POSITIVE_RATE (0.1)
 #define BLOOM_NUM_KEYS            (8.0)
@@ -813,9 +813,9 @@ rx_pull_response( fd_gossip_t *                     gossip,
   rx_values( gossip, pull_response->values_len, pull_response->values, payload, failed, stem, now, results );
   for( ulong i=0UL; i<pull_response->values_len; i++ ) {
     if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
-    if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PULL_RESPONSE_IDX ]++;
-    else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_STALE_IDX ]++;
-    else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
+    if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_INSERTED_PULL_RESPONSE_IDX ]++;
+    else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_STALE_PULL_RESPONSE_IDX ]++;
+    else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_DUPLICATE_PULL_RESPONSE_IDX ]++;
   }
 }
 
@@ -905,9 +905,9 @@ rx_push( fd_gossip_t *            gossip,
 
   for( ulong i=0UL; i<push->values_len; i++ ) {
     if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
-    if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
-    else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_STALE_IDX ]++;
-    else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ]++;
+    if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_INSERTED_PUSH_IDX ]++;
+    else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_STALE_PUSH_IDX ]++;
+    else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_DUPLICATE_PUSH_IDX ]++;
 
     ulong num_dups;
     if( FD_LIKELY( !results[ i ] ) )          num_dups = 0UL;

@@ -373,8 +373,8 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
   ulong *          gossip_prev    = ctx->gossip_prev;
 
   ulong total_crds = 0UL;
-  for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) total_crds += gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED )+i ];
-  ulong total_contact_infos = gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V2 ) ];
+  for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT; i++ ) total_crds += gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED )+i ];
+  ulong total_contact_infos = gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_CONTACT_INFO_V2 ) ];
 
   ctx->last_total_crds          = total_crds;
   ctx->last_total_contact_infos = total_contact_infos;
@@ -396,23 +396,22 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
     total_overrun += overrun_count;
   }
   printf( " Total Overrun: %s\n", fmt_count( buf1, total_overrun ) );
-  printf( " Total ping tracked: %lu\n", gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_TRACKER_ADDED ) ] );
+  printf( " Total ping tracked: %lu\n", gossip_metrics[ MIDX( COUNTER, GOSSIP, PING_PEER_ADDED ) ] );
 
   for( ulong i=0UL; i<ctx->net_tile_cnt; i++ ) {
     if( FD_LIKELY( ctx->net_provider==FD_GOSSIP_DIAG_NET_XDP ) ) {
-      printf( " Net %lu RX bw %s, TX bw %s .. %s %s\n", i,
+      printf( " Net %lu RX bw %s, TX bw %s .. %s\n", i,
               fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),
-              fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_TX_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ),
-              fmt_count( buf3, ctx->net_metrics[ i ][ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL ) ] ),
-              fmt_count( buf4, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_RX_BACKPRESSURE ) ] ) );
+              fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_TX_SUBMITTED_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ),
+              fmt_count( buf3, ctx->net_metrics[ i ][ MIDX( COUNTER, NET, RX_FILL_RING_STALLED ) ] ) );
       ctx->prev_net_rx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_RX_BYTES ) ];
-      ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_TX_BYTES ) ];
+      ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  PKT_TX_SUBMITTED_BYTES ) ];
     } else if( FD_LIKELY( ctx->net_provider==FD_GOSSIP_DIAG_NET_MLX5 ) ) {
       printf( " Net %lu RX bw %s, TX bw %s\n", i,
               fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),
-              fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ) );
+              fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED_BYTES ) ] - ctx->prev_net_tx_bytes[ i ] ) );
       ctx->prev_net_rx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ];
-      ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ];
+      ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED_BYTES ) ];
     } else {
       printf( " Net %lu RX bw %s, TX bw %s\n", i,
               fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, SOCK, PKT_RX_BYTES ) ] - ctx->prev_net_rx_bytes[ i ] ),
@@ -432,21 +431,21 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
   ulong pull_response_success = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PULL_RESPONSE ) );
   printf( " Pull response drops (no valid CRDS): %lu/%lu\n", pull_response_drops, pull_response_drops + pull_response_success );
 
-  ulong crds_forwarded         = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_SUCCESS_PULL_RESPONSE ) )
-                               + aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_SUCCESS_PULL_RESPONSE_DUPLICATE ) );
+  ulong crds_forwarded         = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_VERIFIED_PULL_RESPONSE ) )
+                               + aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DUPLICATE_PULL_RESPONSE ) );
   ulong crds_signature         = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_SIGNATURE ) );
-  ulong crds_origin_no_contact = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) );
-  ulong crds_origin_shred      = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) );
+  ulong crds_origin_no_contact = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_NO_CONTACT_INFO ) );
+  ulong crds_origin_shred      = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_SHRED_VERSION ) );
   ulong crds_inactive          = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_INACTIVE ) );
   ulong crds_wallclock         = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_WALLCLOCK ) );
 
   ulong pull_response_crds_total = crds_forwarded + crds_signature + crds_origin_no_contact + crds_origin_shred + crds_inactive + crds_wallclock;
 
-  ulong prev_crds_forwarded         = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_SUCCESS_PULL_RESPONSE ) )
-                                    + aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_SUCCESS_PULL_RESPONSE_DUPLICATE ) );
+  ulong prev_crds_forwarded         = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_VERIFIED_PULL_RESPONSE ) )
+                                    + aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DUPLICATE_PULL_RESPONSE ) );
   ulong prev_crds_signature         = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_SIGNATURE ) );
-  ulong prev_crds_origin_no_contact = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) );
-  ulong prev_crds_origin_shred      = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) );
+  ulong prev_crds_origin_no_contact = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_NO_CONTACT_INFO ) );
+  ulong prev_crds_origin_shred      = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_SHRED_VERSION ) );
   ulong prev_crds_inactive          = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_INACTIVE ) );
   ulong prev_crds_wallclock         = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PULL_RESPONSE_WALLCLOCK ) );
 
@@ -472,46 +471,46 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
           (double)(crds_inactive - prev_crds_inactive) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(crds_wallclock - prev_crds_wallclock) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0 );
 
-  ulong pull_response_insertion_total = gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) ] +
-                                        gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_STALE ) ] +
-                                        gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_DUPLICATE ) ];
-  ulong prev_pull_response_insertion_total = gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) ] +
-                                             gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_STALE ) ] +
-                                             gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_DUPLICATE ) ];
+  ulong pull_response_insertion_total = gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) ] +
+                                        gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PULL_RESPONSE ) ] +
+                                        gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PULL_RESPONSE ) ];
+  ulong prev_pull_response_insertion_total = gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) ] +
+                                             gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PULL_RESPONSE ) ] +
+                                             gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PULL_RESPONSE ) ];
 
   printf( " Pull response CRDS insertion drops: (%lu/%lu) %.1f %% (%.1f %% no override, %.1f %% hash duplicate)\n",
-          pull_response_insertion_total - gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) ],
+          pull_response_insertion_total - gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) ],
           pull_response_insertion_total,
-          ((double)pull_response_insertion_total - (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) ] ) / (double)pull_response_insertion_total * 100.0,
-          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_STALE ) ] / (double)pull_response_insertion_total * 100.0,
-          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_DUPLICATE ) ] / (double)pull_response_insertion_total * 100.0 );
+          ((double)pull_response_insertion_total - (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) ] ) / (double)pull_response_insertion_total * 100.0,
+          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PULL_RESPONSE ) ] / (double)pull_response_insertion_total * 100.0,
+          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PULL_RESPONSE ) ] / (double)pull_response_insertion_total * 100.0 );
   printf( " Pull response CRDS insertion inc drops: (%lu/%lu) %.1f %% (%.1f %% no override, %.1f %% hash duplicate)\n\n",
-          (pull_response_insertion_total - prev_pull_response_insertion_total) - (gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) ]),
+          (pull_response_insertion_total - prev_pull_response_insertion_total) - (gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) ]),
           pull_response_insertion_total - prev_pull_response_insertion_total,
-          ((double)(pull_response_insertion_total - prev_pull_response_insertion_total) - (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PULL_RESPONSE ) ]) ) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0,
-          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_STALE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_STALE ) ]) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0,
-          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_DUPLICATE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PULL_RESPONSE_DUPLICATE ) ]) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0 );
+          ((double)(pull_response_insertion_total - prev_pull_response_insertion_total) - (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PULL_RESPONSE ) ]) ) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0,
+          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PULL_RESPONSE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PULL_RESPONSE ) ]) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0,
+          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PULL_RESPONSE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PULL_RESPONSE ) ]) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0 );
 
   /* Push message statistics */
   ulong push_drops   = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, MESSAGE_RX_DROPPED_PUSH_NO_VALID_CRDS ) );
   ulong push_success = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, MESSAGE_RX_SUCCESS_PUSH ) );
   printf( " Push drops: %lu/%lu\n", push_drops, push_drops + push_success );
 
-  ulong push_crds_forwarded         = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_SUCCESS_PUSH ) )
-                                    + aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_SUCCESS_PUSH_DUPLICATE ) );
+  ulong push_crds_forwarded         = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_VERIFIED_PUSH ) )
+                                    + aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DUPLICATE_PUSH ) );
   ulong push_crds_signature         = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_SIGNATURE ) );
-  ulong push_crds_origin_no_contact = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO ) );
-  ulong push_crds_origin_shred      = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_ORIGIN_SHRED_VERSION ) );
+  ulong push_crds_origin_no_contact = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_NO_CONTACT_INFO ) );
+  ulong push_crds_origin_shred      = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_SHRED_VERSION ) );
   ulong push_crds_inactive          = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_INACTIVE ) );
   ulong push_crds_wallclock         = aggregate_gossvf_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_WALLCLOCK ) );
 
   ulong push_crds_total = push_crds_forwarded + push_crds_signature + push_crds_origin_no_contact + push_crds_origin_shred + push_crds_inactive + push_crds_wallclock;
 
-  ulong prev_push_crds_forwarded         = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_SUCCESS_PUSH ) )
-                                         + aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_SUCCESS_PUSH_DUPLICATE ) );
+  ulong prev_push_crds_forwarded         = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_VERIFIED_PUSH ) )
+                                         + aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DUPLICATE_PUSH ) );
   ulong prev_push_crds_signature         = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_SIGNATURE ) );
-  ulong prev_push_crds_origin_no_contact = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO ) );
-  ulong prev_push_crds_origin_shred      = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_ORIGIN_SHRED_VERSION ) );
+  ulong prev_push_crds_origin_no_contact = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_NO_CONTACT_INFO ) );
+  ulong prev_push_crds_origin_shred      = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_SHRED_VERSION ) );
   ulong prev_push_crds_inactive          = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_INACTIVE ) );
   ulong prev_push_crds_wallclock         = aggregate_gossvf_prev_counter( &ctx->gossvf, MIDX( COUNTER, GOSSVF, CRDS_RX_DROPPED_PUSH_WALLCLOCK ) );
 
@@ -537,43 +536,43 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
           (double)(push_crds_inactive - prev_push_crds_inactive) / (double)(push_crds_total - prev_push_crds_total) * 100.0,
           (double)(push_crds_wallclock - prev_push_crds_wallclock) / (double)(push_crds_total - prev_push_crds_total) * 100.0 );
 
-  ulong push_insertion_total = gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) ] +
-                               gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_STALE ) ] +
-                               gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_DUPLICATE ) ];
-  ulong prev_push_insertion_total = gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) ] +
-                                    gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_STALE ) ] +
-                                    gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_DUPLICATE ) ];
+  ulong push_insertion_total = gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) ] +
+                               gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PUSH ) ] +
+                               gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PUSH ) ];
+  ulong prev_push_insertion_total = gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) ] +
+                                    gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PUSH ) ] +
+                                    gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PUSH ) ];
 
   printf( " Push CRDS insertion drops: (%lu/%lu) %.1f %% (%.1f %% no override, %.1f %% hash duplicate)\n",
-          push_insertion_total - gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) ],
+          push_insertion_total - gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) ],
           push_insertion_total,
-          ((double)push_insertion_total - (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) ] ) / (double)push_insertion_total * 100.0,
-          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_STALE ) ] / (double)push_insertion_total * 100.0,
-          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_DUPLICATE ) ] / (double)push_insertion_total * 100.0 );
+          ((double)push_insertion_total - (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) ] ) / (double)push_insertion_total * 100.0,
+          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PUSH ) ] / (double)push_insertion_total * 100.0,
+          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PUSH ) ] / (double)push_insertion_total * 100.0 );
   printf( " Push CRDS insertion inc drops: (%lu/%lu) %.1f %% (%.1f %% no override, %.1f %% hash duplicate)\n\n",
-          (push_insertion_total - prev_push_insertion_total) - (gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) ]),
+          (push_insertion_total - prev_push_insertion_total) - (gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) ]),
           push_insertion_total - prev_push_insertion_total,
-          ((double)(push_insertion_total - prev_push_insertion_total) - (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_UPSERTED_PUSH ) ]) ) / (double)(push_insertion_total - prev_push_insertion_total) * 100.0,
-          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_STALE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_STALE ) ]) / (double)(push_insertion_total - prev_push_insertion_total) * 100.0,
-          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_DUPLICATE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_DROPPED_PUSH_DUPLICATE ) ]) / (double)(push_insertion_total - prev_push_insertion_total) * 100.0 );
+          ((double)(push_insertion_total - prev_push_insertion_total) - (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_INSERTED_PUSH ) ]) ) / (double)(push_insertion_total - prev_push_insertion_total) * 100.0,
+          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PUSH ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_STALE_PUSH ) ]) / (double)(push_insertion_total - prev_push_insertion_total) * 100.0,
+          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PUSH ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_UPSERTED_DUPLICATE_PUSH ) ]) / (double)(push_insertion_total - prev_push_insertion_total) * 100.0 );
 
   printf( " +------------------------+--------------+  +------------+--------------+\n" );
   printf( " | CRDS Type              | Count        |  | Ping Type  | Count        |\n" );
   printf( " +------------------------+--------------+  +------------+--------------+\n" );
-  printf( " | Contact Info V1        | %s |"        "  | Unpinged   | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V1 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKED_UNPINGED ) ] ) );
-  printf( " | Contact Info V2        | %s |"        "  | Invalid    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V2 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKED_INVALID ) ] ) );
-  printf( " | Vote                   | %s |"        "  | Valid      | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_VOTE ) ] ),            fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKED_VALID ) ] ) );
-  printf( " | Lowest Slot            | %s |"        "  | Refreshing | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_LOWEST_SLOT ) ] ),     fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_TRACKED_VALID_REFRESHING ) ] ) );
-  printf( " | Snapshot Hashes        | %s |"        "  +------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_SNAPSHOT_HASHES ) ] ) );
-  printf( " | Accounts Hashes        | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_ACCOUNTS_HASHES ) ] ) );
-  printf( " | Inc Snapshot Hashes    | %s |"        "  | Contact Info Events    | Count        |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_INCREMENTAL_SNAPSHOT_HASHES ) ] ) );
-  printf( " | Epoch Slots            | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_EPOCH_SLOTS ) ] ) );
-  printf( " | Version V1             | %s |"        "  | Unrecognized Socket    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_VERSION_V1 ) ] ), fmt_count( buf2, 0UL ) );
-  printf( " | Version V2             | %s |"        "  | IPv6 Address           | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_VERSION_V2 ) ] ), fmt_count( buf2, 0UL ) );
-  printf( " | Node Instance          | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_NODE_INSTANCE ) ] ) );
-  printf( " | Duplicate Shred        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_DUPLICATE_SHRED ) ] ) );
-  printf( " | Restart Last Voted     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_RESTART_LAST_VOTED_FORK_SLOTS ) ] ) );
-  printf( " | Restart Heaviest       | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_RESTART_HEAVIEST_FORK ) ] ) );
+  printf( " | Contact Info V1        | %s |"        "  | Unpinged   | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_CONTACT_INFO_V1 ) ] ),     fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_PEER_COUNT_UNPINGED ) ] ) );
+  printf( " | Contact Info V2        | %s |"        "  | Invalid    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_CONTACT_INFO_V2 ) ] ),     fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_PEER_COUNT_AWAITING_PONG ) ] ) );
+  printf( " | Vote                   | %s |"        "  | Valid      | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_VOTE ) ] ),                fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_PEER_COUNT_VALID ) ] ) );
+  printf( " | Lowest Slot            | %s |"        "  | Refreshing | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_LOWEST_SLOT ) ] ),         fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, PING_PEER_COUNT_REFRESHING ) ] ) );
+  printf( " | Snapshot Hashes        | %s |"        "  +------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_SNAPSHOT_HASHES ) ] ) );
+  printf( " | Accounts Hashes        | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_ACCOUNTS_HASHES ) ] ) );
+  printf( " | Inc Snapshot Hashes    | %s |"        "  | Contact Info Events    | Count        |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_INCREMENTAL_SNAPSHOT_HASHES ) ] ) );
+  printf( " | Epoch Slots            | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_EPOCH_SLOTS ) ] ) );
+  printf( " | Version V1             | %s |"        "  | Unrecognized Socket    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_VERSION_V1 ) ] ), fmt_count( buf2, 0UL ) );
+  printf( " | Version V2             | %s |"        "  | IPv6 Address           | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_VERSION_V2 ) ] ), fmt_count( buf2, 0UL ) );
+  printf( " | Node Instance          | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_NODE_INSTANCE ) ] ) );
+  printf( " | Duplicate Shred        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_DUPLICATE_SHRED ) ] ) );
+  printf( " | Restart Last Voted     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_RESTART_LAST_VOTED_FORK_SLOTS ) ] ) );
+  printf( " | Restart Heaviest       | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_RESTART_HEAVIEST_FORK ) ] ) );
   printf( " +------------------------+--------------+\n\n" );
 
 #define DIFFX(METRIC) gossip_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - gossip_prev[ MIDX( COUNTER, TILE, METRIC ) ]
@@ -624,14 +623,14 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
     fmt_count( buf4, gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_EVICTED ) ] ),
     fmt_count( buf5, gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_EXPIRED ) ] ) );
   printf( " | Contact Info | %s | %s | %s | %s |          n/a |\n",
-    fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V2 ) ] ),
+    fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_CONTACT_INFO_V2 ) ] ),
     fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PEER_CAPACITY ) ] ),
-    fmt_pct( buf3, (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V2 ) ] / (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PEER_CAPACITY ) ] ),
+    fmt_pct( buf3, (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_USED_CONTACT_INFO_V2 ) ] / (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PEER_CAPACITY ) ] ),
     fmt_count( buf4, gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_PEER_EVICTED ) ] ) );
   printf( " | Purged       | %s | %s | %s | %s | %s |\n",
-    fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_OCCUPIED ) ] ),
+    fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_USED ) ] ),
     fmt_count( buf2, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_CAPACITY ) ] ),
-    fmt_pct( buf3, (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_OCCUPIED ) ] / (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_CAPACITY ) ] ),
+    fmt_pct( buf3, (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_USED ) ] / (double)gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_PURGED_CAPACITY ) ] ),
     fmt_count( buf4, gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_PURGED_EVICTED ) ] ),
     fmt_count( buf5, gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_PURGED_EXPIRED ) ] ) );
   printf( " +--------------+--------------+--------------+--------------+--------------+--------------+\n\n" );

@@ -20,7 +20,7 @@ typedef struct fd_crds_private fd_crds_t;
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
 
 struct fd_crds_metrics {
-  ulong count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong count[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
   ulong expired_cnt;
   ulong evicted_cnt;
 

@@ -106,8 +106,8 @@ tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,til
     tile_snap_t * snap = &snap_cur[ tile_idx ];
 
     fd_topo_tile_t const * tile = &topo->tiles[ tile_idx ];
-    snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIMESTAMP_NANOS_OFF ];
-    snap->status    = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_STATUS_OFF    ];
+    snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIME_OFF ];
+    snap->status    = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_STATE_OFF          ];
 
     fd_metrics_register( tile->metrics );
 
@@ -115,7 +115,7 @@ tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,til
     snap->tid       = FD_MGAUGE_GET( TILE, TID );
     snap->nvcsw     = FD_MCNT_GET( TILE, CONTEXT_SWITCH_VOLUNTARY );
     snap->nivcsw    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY );
-    snap->in_backp  = FD_MGAUGE_GET( TILE, IN_BACKPRESSURE );
+    snap->in_backp  = FD_MGAUGE_GET( TILE, IS_BACKPRESSURED );
     snap->backp_cnt = FD_MCNT_GET( TILE, BACKPRESSURE );
     for( ulong i=0UL; i<FD_METRICS_ENUM_TILE_REGIME_CNT; i++ ) {
       snap->regime_ticks[ i ] = fd_metrics_tl[ MIDX(COUNTER, TILE, REGIME_DURATION_NANOS)+i ];
@@ -151,7 +151,7 @@ link_snap( link_snap_t *     snap_cur,
         snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_BYTES_OFF ];
         snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_LINK_POLLING_OVERRUN_OFF ];
         snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_LINK_READING_OVERRUN_OFF ];
-        snap->fseq_diag_slow_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_SLOW_OFF ];
+        snap->fseq_diag_slow_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_BACKPRESSURE_BLAMED_OFF ];
       } else {
         snap->fseq_diag_tot_cnt   = 0UL;
         snap->fseq_diag_tot_sz    = 0UL;
@@ -445,18 +445,8 @@ run_monitor( config_t const * config,
 
       fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
       volatile ulong * pack_metrics = fd_metrics_tile( pack->metrics );
-      ulong pack_invalid = pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_INSTR_ACCT_CNT_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_WRITE_SYSVAR_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_ESTIMATION_FAIL_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_TOO_LARGE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_EXPIRED_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_ADDR_LUT_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_UNAFFORDABLE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_DUPLICATE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_PRIORITY_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_NONVOTE_REPLACE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_VOTE_REPLACE_OFF ];
-      ulong pack_overrun = pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_EXTRA_DROPPED_OFF ];
+      ulong pack_invalid = fd_metrics_enum_group_sum( pack_metrics+FD_METRICS_COUNTER_PACK_TXN_INSERT_ATTEMPTED_OFF,
+                                           FD_METRICS_ENUM_PACK_TXN_INSERT_RESULT_G_REJECTED_MASK|FD_METRICS_ENUM_PACK_TXN_INSERT_RESULT_G_REPLACED_MASK );
       ulong pack_sent = pack_metrics[ FD_METRICS_HISTOGRAM_PACK_TXN_PER_MICROBLOCK_OFF + FD_HISTF_BUCKET_CNT ];
 
       static ulong last_fseq_sum;
@@ -466,7 +456,6 @@ run_monitor( config_t const * config,
       static ulong last_verify_sent;
       static ulong last_dedup_failed;
       static ulong last_dedup_sent;
-      static ulong last_pack_overrun;
       static ulong last_pack_invalid;
       static ulong last_pack_sent;
 
@@ -477,7 +466,6 @@ run_monitor( config_t const * config,
       PRINT( "VERIFY SENT:    %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, verify_sent,    100.0 * (double)verify_sent/(double)net_sent,     100.0 * (double)(verify_sent - last_verify_sent)/(double)(net_sent - last_net_sent)         );
       PRINT( "DEDUP FAILED:   %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, dedup_failed,   100.0 * (double)dedup_failed/(double)verify_sent, 100.0 * (double)(dedup_failed - last_dedup_failed)/(double)(verify_sent - last_verify_sent) );
       PRINT( "DEDUP SENT:     %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, dedup_sent,     100.0 * (double)dedup_sent/(double)verify_sent,   100.0 * (double)(dedup_sent - last_dedup_sent)/(double)(verify_sent - last_verify_sent)     );
-      PRINT( "PACK OVERRUN:   %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, pack_overrun,   100.0 * (double)pack_overrun/(double)dedup_sent,  100.0 * (double)(pack_overrun - last_pack_overrun)/(double)(dedup_sent - last_dedup_sent)   );
       PRINT( "PACK INVALID:   %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, pack_invalid,   100.0 * (double)pack_invalid/(double)dedup_sent,  100.0 * (double)(pack_invalid - last_pack_invalid)/(double)(dedup_sent - last_dedup_sent)   );
       PRINT( "PACK SENT:      %-10lu %-5.2lf%%  %-5.2lf%%" TEXT_NEWLINE, pack_sent,      100.0 * (double)pack_sent/(double)dedup_sent,     100.0 * (double)(pack_sent - last_pack_sent)/(double)(dedup_sent - last_dedup_sent)         );
 
@@ -488,7 +476,6 @@ run_monitor( config_t const * config,
       last_verify_sent = verify_sent;
       last_dedup_failed = dedup_failed;
       last_dedup_sent = dedup_sent;
-      last_pack_overrun = pack_overrun;
       last_pack_invalid = pack_invalid;
       last_pack_sent = pack_sent;
     }

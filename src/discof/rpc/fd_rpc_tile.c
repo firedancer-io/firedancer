@@ -708,11 +708,11 @@ during_housekeeping( fd_rpc_tile_t * ctx ) {
 
 static inline void
 metrics_write( fd_rpc_tile_t * ctx ) {
-  FD_MHIST_COPY( RPC, REQUEST_DURATION_SECONDS,           ctx->request_duration                );
-  FD_MGAUGE_SET( RPC, CONN_ACTIVE,                        ctx->http->metrics.connection_cnt    );
-  FD_MGAUGE_SET( RPC, WEBSOCKET_CONN_ACTIVE,              ctx->http->metrics.ws_connection_cnt );
-  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_VOTE, ctx->ws_subscribers_vote_cnt         );
-  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_SLOT, ctx->ws_subscribers_slot_cnt         );
+  FD_MHIST_COPY( RPC, REQUEST_DURATION_NANOS,             ctx->request_duration                );
+  FD_MGAUGE_SET( RPC, CONN_OPEN,                          ctx->http->metrics.connection_cnt    );
+  FD_MGAUGE_SET( RPC, WEBSOCKET_CONN_OPEN,                ctx->http->metrics.ws_connection_cnt );
+  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_VOTE,    ctx->ws_subscribers_vote_cnt         );
+  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_SLOT,    ctx->ws_subscribers_slot_cnt         );
   FD_ACCDB_METRICS_WRITE_RO( RPC, fd_accdb_metrics( ctx->accdb ) );
 }
 
@@ -875,8 +875,8 @@ fd_rpc_publish_vote_event( fd_rpc_tile_t *          ctx,
     i++;
   }
 
-  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_UNIQUE_SENT_VOTE, !!sent_cnt );
-  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_SENT_VOTE,          sent_cnt );
+  FD_MCNT_INC( RPC, WEBSOCKET_NOTIFICATION_PUBLISHED_VOTE, !!sent_cnt );
+  FD_MCNT_INC( RPC, WEBSOCKET_NOTIFICATION_TX_VOTE,          sent_cnt );
 }
 
 static void
@@ -903,8 +903,8 @@ fd_rpc_publish_slot_event( fd_rpc_tile_t *                    ctx,
     i++;
   }
 
-  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_UNIQUE_SENT_SLOT, !!sent_cnt );
-  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_SENT_SLOT,          sent_cnt );
+  FD_MCNT_INC( RPC, WEBSOCKET_NOTIFICATION_PUBLISHED_SLOT, !!sent_cnt );
+  FD_MCNT_INC( RPC, WEBSOCKET_NOTIFICATION_TX_SLOT,          sent_cnt );
 }
 
 static inline void
@@ -1678,8 +1678,9 @@ static fd_http_server_response_t                       \
 X( fd_rpc_tile_t *         ctx,                        \
    char const *            id_cstr,                    \
    fd_rpc_params_t const * params ) {                     \
-  (void)ctx; (void)id_cstr; (void)params;              \
-  return (fd_http_server_response_t){ .status = 501 }; \
+  (void)ctx; (void)id_cstr; (void)params;                 \
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_UNIMPLEMENTED, 1UL ); \
+  return (fd_http_server_response_t){ .status = 501 };    \
 }
 
 UNIMPLEMENTED(getBlock)
@@ -1774,7 +1775,7 @@ static fd_http_server_response_t
 getAccountInfo( fd_rpc_tile_t *         ctx,
                 char const *            id_cstr,
                 fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_ACCOUNT_INFO, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_ACCOUNT_INFO, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 2, &response ) ) ) return response;
@@ -1828,7 +1829,7 @@ static fd_http_server_response_t
 getBalance( fd_rpc_tile_t *         ctx,
             char const *            id_cstr,
             fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_BALANCE, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_BALANCE, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 2, &response ) ) ) return response;
@@ -1861,7 +1862,7 @@ static fd_http_server_response_t
 getBlockHeight( fd_rpc_tile_t *         ctx,
                 char const *            id_cstr,
                 fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_BLOCK_HEIGHT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_BLOCK_HEIGHT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -1893,7 +1894,7 @@ static fd_http_server_response_t
 getClusterNodes( fd_rpc_tile_t *         ctx,
                  char const *            id_cstr,
                  fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_CLUSTER_NODES, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_CLUSTER_NODES, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -1977,7 +1978,7 @@ static fd_http_server_response_t
 getEpochInfo( fd_rpc_tile_t *         ctx,
               char const *            id_cstr,
               fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_EPOCH_INFO, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_EPOCH_INFO, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2014,7 +2015,7 @@ static fd_http_server_response_t
 getGenesisHash( fd_rpc_tile_t *         ctx,
                 char const *            id_cstr,
                 fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_GENESIS_HASH, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_GENESIS_HASH, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2048,7 +2049,7 @@ static fd_http_server_response_t
 getAgGenesisCert( fd_rpc_tile_t *         ctx,
                   char const *            id_cstr,
                   fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_AG_GENESIS_CERT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_AG_GENESIS_CERT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2137,8 +2138,6 @@ getAgGenesisCert( fd_rpc_tile_t *         ctx,
 
 static inline int
 _getHealth( fd_rpc_tile_t * ctx ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_HEALTH, 1UL );
-
   /* Requests are not served until RPC has initialized banks */
   if( FD_UNLIKELY( ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
@@ -2152,6 +2151,8 @@ static fd_http_server_response_t
 getHealth( fd_rpc_tile_t *         ctx,
            char const *            id_cstr,
            fd_rpc_params_t const * params ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_HEALTH, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
 
@@ -2174,7 +2175,7 @@ static fd_http_server_response_t
 getIdentity( fd_rpc_tile_t *         ctx,
              char const *            id_cstr,
              fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_IDENTITY, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_IDENTITY, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2187,7 +2188,7 @@ static fd_http_server_response_t
 getInflationGovernor( fd_rpc_tile_t *         ctx,
                       char const *            id_cstr,
                       fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_INFLATION_GOVERNOR, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_INFLATION_GOVERNOR, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2226,7 +2227,7 @@ static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t *         ctx,
                     char const *            id_cstr,
                     fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_LATEST_BLOCKHASH, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_LATEST_BLOCKHASH, 1UL );
 
   if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX ) ) {
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
@@ -2270,7 +2271,7 @@ static fd_http_server_response_t
 getLeaderSchedule( fd_rpc_tile_t *         ctx,
                    char const *            id_cstr,
                    fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_LEADER_SCHEDULE, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_LEADER_SCHEDULE, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 2, &response ) ) ) return response;
@@ -2403,7 +2404,7 @@ static fd_http_server_response_t
 getMaxRetransmitSlot( fd_rpc_tile_t *         ctx,
                       char const *            id_cstr,
                       fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MAX_RETRANSMIT_SLOT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_MAX_RETRANSMIT_SLOT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2422,7 +2423,7 @@ static fd_http_server_response_t
 getMinimumBalanceForRentExemption( fd_rpc_tile_t *         ctx,
                                    char const *            id_cstr,
                                    fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 2, &response ) ) ) return response;
@@ -2465,7 +2466,7 @@ static fd_http_server_response_t
 getMultipleAccounts( fd_rpc_tile_t *         ctx,
                      char const *            id_cstr,
                      fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MULTIPLE_ACCOUNTS, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_MULTIPLE_ACCOUNTS, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 2, &response ) ) ) return response;
@@ -2551,7 +2552,7 @@ static fd_http_server_response_t
 getSlot( fd_rpc_tile_t *         ctx,
          char const *            id_cstr,
          fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_SLOT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2579,7 +2580,7 @@ static fd_http_server_response_t
 getSlotLeader( fd_rpc_tile_t *         ctx,
                char const *            id_cstr,
                fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT_LEADER, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_SLOT_LEADER, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2614,7 +2615,7 @@ static fd_http_server_response_t
 getSlotLeaders( fd_rpc_tile_t *         ctx,
                 char const *            id_cstr,
                 fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT_LEADERS, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_SLOT_LEADERS, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( params->kind==FD_RPC_VAL_NULL ) ) {
@@ -2671,7 +2672,7 @@ static fd_http_server_response_t
 getTransactionCount( fd_rpc_tile_t *         ctx,
                      char const *            id_cstr,
                      fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_TRANSACTION_COUNT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_TRANSACTION_COUNT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
@@ -2699,7 +2700,7 @@ static fd_http_server_response_t
 getVersion( fd_rpc_tile_t *         ctx,
             char const *            id_cstr,
             fd_rpc_params_t const * params ) {
-  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_VERSION, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_VERSION, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
@@ -2712,6 +2713,8 @@ voteSubscribe( fd_rpc_tile_t *         ctx,
                char const *            id_cstr,
                fd_rpc_params_t const * params,
                ulong                   ws_conn_id ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_VOTE_SUBSCRIBE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
 
@@ -2730,6 +2733,8 @@ slotSubscribe( fd_rpc_tile_t *         ctx,
                char const *            id_cstr,
                fd_rpc_params_t const * params,
                ulong                   ws_conn_id ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_SLOT_SUBSCRIBE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
 
@@ -2748,6 +2753,8 @@ voteUnsubscribe( fd_rpc_tile_t *         ctx,
                  char const *            id_cstr,
                  fd_rpc_params_t const * params,
                  ulong                   ws_conn_id ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_VOTE_UNSUBSCRIBE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 1, &response ) ) ) return response;
 
@@ -2773,6 +2780,8 @@ slotUnsubscribe( fd_rpc_tile_t *         ctx,
                  char const *            id_cstr,
                  fd_rpc_params_t const * params,
                  ulong                   ws_conn_id ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_SLOT_UNSUBSCRIBE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 1, &response ) ) ) return response;
 
@@ -2820,6 +2829,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   }
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/health" ) ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_HEALTH, 1UL );
     int health_status = _getHealth( ctx );
 
     switch( health_status ) {
@@ -2831,7 +2841,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   }
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
-    FD_MCNT_INC( RPC, REQUEST_SERVED_GENESIS, 1UL );
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
     return (fd_http_server_response_t) {
@@ -2879,10 +2889,12 @@ rpc_json_request( fd_rpc_tile_t * ctx,
     /* A bug in Agave ¯\_(ツ)_/¯ */
     fd_jtok_arr_enter( j );
     if( FD_LIKELY( !fd_jtok_arr_next( j ) && !fd_jtok_fini( j ) ) ) return (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
   if( FD_UNLIKELY( kind!=FD_JTOK_OBJ ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
@@ -2906,6 +2918,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
     if( member->kind==FD_RPC_VAL_NONE ) fd_rpc_val_read( j, member );
   }
   if( FD_UNLIKELY( fd_jtok_fini( j ) ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
@@ -2914,7 +2927,8 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   char const * id_cstr = "null";
   if( id->kind!=FD_RPC_VAL_NONE ) {
     if( FD_UNLIKELY( id->raw_sz>FD_RPC_ID_MAX_SZ ) ) {
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
+      FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
     }
     fd_memcpy( id_buf, id->raw, id->raw_sz );
     id_buf[ id->raw_sz ] = '\0';
@@ -2922,6 +2936,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   }
 
   if( FD_UNLIKELY( unknown_member ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
   }
 
@@ -2931,28 +2946,34 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   }
 
   if( FD_UNLIKELY( jsonrpc->kind==FD_RPC_VAL_NONE && _method->kind!=FD_RPC_VAL_NONE ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", id_cstr );
   }
 
   if( FD_UNLIKELY( jsonrpc->kind==FD_RPC_VAL_NONE || _method->kind==FD_RPC_VAL_NONE ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
   }
 
   if( FD_UNLIKELY( !(id->kind==FD_RPC_VAL_INT && !id->neg) && id->kind!=FD_RPC_VAL_STR && id->kind!=FD_RPC_VAL_NULL ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
 
   if( FD_UNLIKELY( jsonrpc->kind==FD_RPC_VAL_NULL ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", id_cstr );
   }
 
   if( FD_UNLIKELY( jsonrpc->kind!=FD_RPC_VAL_STR || !fd_jtok_str_eq( &jsonrpc->str, "2.0" ) ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
   }
 
   fd_http_server_response_t response;
 
   if( FD_UNLIKELY( _method->kind!=FD_RPC_VAL_STR ) ) {
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_INVALID, 1UL );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
   }
   char method[ 64 ];
@@ -3019,7 +3040,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   else if( FD_LIKELY( !strcmp( method, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id_cstr, params );
   else if( FD_LIKELY( !strcmp( method, "getAgGenesisCert"                  ) ) ) response = getAgGenesisCert( ctx, id_cstr, params );
   else {
-    FD_MCNT_INC( RPC, REQUEST_SERVED_UNKNOWN, 1UL );
+    FD_MCNT_INC( RPC, REQUEST_HANDLED_UNKNOWN, 1UL );
     response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
   }
 
@@ -3269,7 +3290,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb_join, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
 
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->request_duration, FD_MHIST_EDGES_NS( RPC, REQUEST_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->request_duration, FD_MHIST_EDGES_NS( RPC, REQUEST_DURATION_NANOS ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

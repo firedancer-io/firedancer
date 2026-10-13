@@ -142,8 +142,8 @@ after_credit( test_ctx_t *        ctx,
               int *               charge_busy ) {
   (void)opt_poll_in;
   volatile ulong const * tile_metrics = fd_metrics_tl;
-  ulong ring = tile_metrics[ FD_METRICS_COUNTER_TILE_UNPARK_RING_OFF     ];
-  ulong dead = tile_metrics[ FD_METRICS_COUNTER_TILE_UNPARK_DEADLINE_OFF ];
+  ulong ring = tile_metrics[ FD_METRICS_COUNTER_TILE_PARK_ATTEMPTED_RING_OFF     ];
+  ulong dead = tile_metrics[ FD_METRICS_COUNTER_TILE_PARK_ATTEMPTED_DEADLINE_OFF ];
 
   switch( ctx->phase ) {
   case PHASE_FILL:
@@ -186,7 +186,7 @@ after_credit( test_ctx_t *        ctx,
     ctx->phase      = PHASE_IDLE;
     ctx->idle_hk0   = ctx->hk_cnt;
     ctx->idle_t0    = fd_tickcount();
-    ctx->heartbeat0 = tile_metrics[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIMESTAMP_NANOS_OFF ];
+    ctx->heartbeat0 = tile_metrics[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIME_OFF ];
     *charge_busy    = 1;
     break;
 
@@ -209,7 +209,7 @@ after_credit( test_ctx_t *        ctx,
       FD_TEST( elapsed< (long)IDLE_WAKES*ctx->cap_ticks  );                       /* and not to the cap */
       FD_TEST( hk<=IDLE_WAKES/2UL );                                             /* not on every wake */
       FD_TEST( hk>=(ulong)( elapsed/( 2L*( ctx->hk_ticks+ctx->park_ticks ) ) ) ); /* but about once per lazy */
-      FD_TEST( tile_metrics[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIMESTAMP_NANOS_OFF ]>ctx->heartbeat0 );
+      FD_TEST( tile_metrics[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIME_OFF ]>ctx->heartbeat0 );
       ctx->phase = PHASE_BP;
     }
     break;

@@ -153,11 +153,11 @@ struct fd_resolh_tile {
   uchar _bank_msg[ sizeof(fd_completed_bank_t) ];
 
   struct {
-    ulong lut[ FD_METRICS_COUNTER_RESOLH_LUT_RESOLVED_CNT ];
-    ulong blockhash_expired;
+    ulong lut[ FD_METRICS_COUNTER_RESOLH_TXN_LUT_RESOLVE_ATTEMPTED_CNT ];
+    ulong txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_CNT ];
     ulong blockhash_unknown;
-    ulong bundle_peer_failure_cnt;
-    ulong stash[ FD_METRICS_COUNTER_RESOLH_STASH_OPERATION_CNT ];
+    ulong stash_inserted;
+    ulong stash_removed[ FD_METRICS_COUNTER_RESOLH_STASH_TXN_REMOVED_CNT ];
   } metrics;
 
   fd_resolh_in_t in[ 64UL ];
@@ -201,10 +201,10 @@ fd_ext_resolv_tile_cnt( void ) {
 
 static inline void
 metrics_write( fd_resolh_tile_t * ctx ) {
-  FD_MCNT_SET( RESOLH, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
-  FD_MCNT_ENUM_COPY( RESOLH, LUT_RESOLVED, ctx->metrics.lut );
-  FD_MCNT_ENUM_COPY( RESOLH, STASH_OPERATION, ctx->metrics.stash );
-  FD_MCNT_SET( RESOLH, TXN_BUNDLE_PEER_FAILED, ctx->metrics.bundle_peer_failure_cnt );
+  FD_MCNT_ENUM_COPY( RESOLH, TXN_DROPPED,                   ctx->metrics.txn_dropped         );
+  FD_MCNT_ENUM_COPY( RESOLH, TXN_LUT_RESOLVE_ATTEMPTED,     ctx->metrics.lut                     );
+  FD_MCNT_SET(       RESOLH, STASH_TXN_INSERTED,            ctx->metrics.stash_inserted          );
+  FD_MCNT_ENUM_COPY( RESOLH, STASH_TXN_REMOVED,             ctx->metrics.stash_removed           );
 }
 
 static int
@@ -261,12 +261,12 @@ publish_txn( fd_resolh_tile_t *         ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLH, TXN_NO_BANK, 1 );
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_NO_BANK_IDX ]++;
       return 0;
     } else {
       int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
       /* result is in [-5, 0]. We want to map -5 to 0, -4 to 1, etc. */
-      ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLH_LUT_RESOLVED_CNT+result-1L) ]++;
+      ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLH_TXN_LUT_RESOLVE_ATTEMPTED_CNT+result-1L) ]++;
 
       if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) return 0;
     }
@@ -293,9 +293,9 @@ after_credit( fd_resolh_tile_t *  ctx,
   ulong next = map_chain_idx_next_const( ctx->flush_pool_idx, ULONG_MAX, ctx->pool );
   map_chain_idx_remove_fast( ctx->map_chain, ctx->flush_pool_idx, ctx->pool );
   if( FD_LIKELY( publish_txn( ctx, stem, pool_ele( ctx->pool, ctx->flush_pool_idx ) ) ) ) {
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_PUBLISHED_IDX ]++;
+    ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_PUBLISHED_IDX ]++;
   } else {
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_REMOVED_IDX ]++;
+    ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_FAILED_IDX    ]++;
   }
   lru_list_idx_remove( ctx->lru_list, ctx->flush_pool_idx, ctx->pool );
   pool_idx_release( ctx->pool, ctx->flush_pool_idx );
@@ -398,7 +398,7 @@ after_frag( fd_resolh_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( txnm->block_engine.bundle_id && ctx->bundle_failed ) ) {
-    ctx->metrics.bundle_peer_failure_cnt++;
+    ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_BUNDLE_PEER_FAILED_IDX ]++;
     return;
   }
 
@@ -415,7 +415,7 @@ after_frag( fd_resolh_tile_t *  ctx,
     txnm->reference_block_height = blockhash->block_height;
     if( FD_UNLIKELY( (!is_durable_nonce) & (txnm->reference_block_height+151UL<ctx->completed_block_height) ) ) {
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
-      ctx->metrics.blockhash_expired++;
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_BLOCKHASH_EXPIRED_IDX ]++;
       return;
     }
   }
@@ -427,7 +427,7 @@ after_frag( fd_resolh_tile_t *  ctx,
     if( FD_UNLIKELY( !pool_free( ctx->pool ) ) ) {
       pool_idx = lru_list_idx_pop_tail( ctx->lru_list, ctx->pool );
       map_chain_idx_remove_fast( ctx->map_chain, pool_idx, ctx->pool );
-      ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_OVERRUN_IDX ]++;
+      ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_EVICTED_IDX ]++;
     } else {
       pool_idx = pool_idx_acquire( ctx->pool );
     }
@@ -444,7 +444,7 @@ after_frag( fd_resolh_tile_t *  ctx,
     FD_COMPILER_FORGET( stash_txn );
     fd_memcpy( stash_txn->_, txnm, fd_txn_m_realized_footprint( txnm, 1, 0 ) );
     stash_txn->blockhash = (blockhash_t *)(fd_txn_m_payload( (fd_txn_m_t *)(stash_txn->_) ) + txnt->recent_blockhash_off);
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]++;
+    ctx->metrics.stash_inserted++;
 
     map_chain_ele_insert( ctx->map_chain, stash_txn, ctx->pool );
     lru_list_idx_push_head( ctx->lru_list, pool_idx, ctx->pool );
@@ -454,14 +454,14 @@ after_frag( fd_resolh_tile_t *  ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLH, TXN_NO_BANK, 1 );
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_NO_BANK_IDX ]++;
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }
 
     int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
     /* result is in [-5, 0]. We want to map -5 to 0, -4 to 1, etc. */
-    ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLH_LUT_RESOLVED_CNT+result-1L) ]++;
+    ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLH_TXN_LUT_RESOLVE_ATTEMPTED_CNT+result-1L) ]++;
 
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;

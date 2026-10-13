@@ -92,7 +92,7 @@ struct fd_execrp_tile {
     /* Ticks spent committing a txn (database writes) */
     ulong txn_commit_cum_ticks;
 
-    ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
+    ulong txn_result[ FD_METRICS_ENUM_TXN_RESULT_CNT ];
     ulong txn_version[ FD_METRICS_ENUM_TXN_VERSION_CNT ];
   } metrics;
 
@@ -138,16 +138,16 @@ static void
 metrics_write( fd_execrp_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
-  FD_MCNT_SET      ( EXECRP, SIGNATURE_VERIFIED,    ctx->metrics.sigverify_cnt );
-  FD_MCNT_SET      ( EXECRP, POH_HASHED,     ctx->metrics.poh_hash_cnt  );
-  FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );
-  FD_MCNT_ENUM_COPY( EXECRP, TXN_VERSION,  ctx->metrics.txn_version   );
+  FD_MCNT_SET      ( EXECRP, SIGNATURE_CHECKED,    ctx->metrics.sigverify_cnt );
+  FD_MCNT_SET      ( EXECRP, POH_HASH_COMPUTED,     ctx->metrics.poh_hash_cnt  );
+  FD_MCNT_ENUM_COPY( EXECRP, TXN_PROCESSED,             ctx->metrics.txn_result    );
+  FD_MCNT_ENUM_COPY( EXECRP, TXN_PROCESSED_BY_VERSION,  ctx->metrics.txn_version   );
 
   FD_PROGCACHE_METRICS_WRITE( EXECRP, ctx->progcache->metrics );
 
-  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
-  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
-  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_LOAD,    ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXECUTE, ctx->metrics.txn_exec_cum_ticks   );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_COMMIT,  ctx->metrics.txn_commit_cum_ticks );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
@@ -159,10 +159,10 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
   FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
-  FD_MCNT_SET( EXECRP, CU_EXECUTED, runtime->metrics.cu_cum );
-  FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED, runtime->metrics.instr_cum );
-  FD_MCNT_SET( EXECRP, CPI_EXECUTED,         runtime->metrics.cpi_cum   );
-  FD_MCNT_SET( EXECRP, LTHASH_UNCHANGED,     runtime->metrics.lthash_unchanged_cnt );
+  FD_MCNT_SET( EXECRP, CU_CONSUMED, runtime->metrics.cu_cum );
+  FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED,   runtime->metrics.instr_cum );
+  FD_MCNT_SET( EXECRP, CPI_EXECUTED,           runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECRP, ACCOUNT_LTHASH_SKIPPED, runtime->metrics.lthash_unchanged_cnt );
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -268,7 +268,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
   FD_TEST( (sig&0xFFFFFFFFUL)==ctx->tile_idx );
 
-  FD_MGAUGE_SET( EXECRP, PROCESSING, 1UL );
+  FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 1UL );
 
   if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in->chunk0 || chunk > ctx->replay_in->wmark ) ) {
@@ -350,7 +350,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
     }
   } else FD_LOG_CRIT(( "invalid in_idx %lu", in_idx ));
 
-  FD_MGAUGE_SET( EXECRP, PROCESSING, 0UL );
+  FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 0UL );
 
   return 0;
 }

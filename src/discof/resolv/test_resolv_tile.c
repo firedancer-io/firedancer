@@ -364,7 +364,7 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
 
   FD_TEST( env->stem_seqs[0]==0UL );
   FD_TEST( pool_free( env->ctx->pool )==( (1UL<<16UL)-1UL ) );
-  FD_TEST( env->ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]==1UL );
+  FD_TEST( env->ctx->metrics.stash_inserted==1UL );
 
   env->ctx->_completed_slot_msg.slot         = 250UL;
   env->ctx->_completed_slot_msg.block_height = 250UL;
@@ -377,7 +377,7 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
 
   FD_TEST( env->stem_seqs[0]==1UL );
   FD_TEST( pool_free( env->ctx->pool )==(1UL<<16UL) );
-  FD_TEST( env->ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_PUBLISHED_IDX ]==1UL );
+  FD_TEST( env->ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_PUBLISHED_IDX ]==1UL );
   FD_TEST( env->stem_seqs[0]>0UL );
   fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
   FD_TEST( meta->seq==0UL );
@@ -420,7 +420,7 @@ FD_UNIT_TEST( resolv_blockhash_expired ) {
   test_ingest_txn( env, &hash, 0 );
 
   FD_TEST( env->stem_seqs[0]==0UL );
-  FD_TEST( env->ctx->metrics.blockhash_expired==1UL );
+  FD_TEST( env->ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_BLOCKHASH_EXPIRED_IDX ]==1UL );
 
   test_env_destroy( env );
 }

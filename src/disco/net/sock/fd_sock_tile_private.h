@@ -27,7 +27,7 @@
 
 struct fd_sock_tile_metrics {
   ulong sys_recvmmsg_cnt;
-  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_CNT ];
+  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SENDMMSG_RESULT_CNT ];
   ulong rx_pkt_cnt;
   ulong tx_pkt_cnt;
   ulong tx_drop_cnt;
@@ -73,6 +73,7 @@ struct fd_sock_tile {
   ulong                batch_cnt; /* <=STEM_BURST */
   struct iovec *       batch_iov;
   void *               batch_cmsg;
+  ulong *              batch_frame_sz; /* full frame size, for PktTxBytes */
   struct sockaddr_in * batch_sa;
   struct mmsghdr *     batch_msg;
 

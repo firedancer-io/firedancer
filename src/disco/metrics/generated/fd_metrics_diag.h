@@ -7,69 +7,69 @@
 #include "fd_metrics_enums.h"
 
 enum {
-  FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_OFF = FD_METRICS_TILE_OFF,
-  FD_METRICS_GAUGE_DIAG_VOTE_STATUS_OFF,
-  FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_OFF,
-  FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_OFF,
-  FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_OFF,
-  FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_OFF,
-  FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_OFF,
-  FD_METRICS_COUNTER_DIAG_SOFTIRQ_OFF,
-  FD_METRICS_COUNTER_DIAG_SOFTIRQ_NET_OFF = FD_METRICS_COUNTER_DIAG_SOFTIRQ_OFF,
-  FD_METRICS_COUNTER_DIAG_SOFTIRQ_DISK_OFF,
-  FD_METRICS_COUNTER_DIAG_SOFTIRQ_OTHER_OFF,
-  FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_OFF,
-  FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_NET_OFF = FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_OFF,
-  FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_DISK_OFF,
-  FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_OTHER_OFF,
+  FD_METRICS_GAUGE_DIAG_BUNDLE_STATE_OFF = FD_METRICS_TILE_OFF,
+  FD_METRICS_GAUGE_DIAG_VOTE_STATE_OFF,
+  FD_METRICS_GAUGE_DIAG_REPLAY_STATE_OFF,
+  FD_METRICS_GAUGE_DIAG_TURBINE_STATE_OFF,
+  FD_METRICS_GAUGE_DIAG_BUILDER_STATE_OFF,
+  FD_METRICS_COUNTER_DIAG_SYSTEM_DEVICE_IRQ_OFF,
+  FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_ON_TILE_CPU_OFF,
+  FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_OFF,
+  FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_NET_OFF = FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_OFF,
+  FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_DISK_OFF,
+  FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_OTHER_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_NET_OFF = FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_DISK_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_OTHER_OFF,
 };
 
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_NAME "diag_bundle_status"
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_DESC "Precise status of the bundle subsystem: 0=disabled (no bundle tiles configured), 1=disconnected (all bundle tiles disconnected), 2=connecting (at least one bundle tile connecting, none connected or sleeping), 3=connected (at least one bundle tile connected), 4=sleeping (at least one bundle tile sleeping, none connected)"
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATE_NAME "diag_bundle_state"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATE_DESC "Bundle subsystem state: 0=disconnected (All bundle tiles disconnected), 1=connecting (At least one bundle tile connecting, none connected or sleeping), 2=connected (At least one bundle tile connected), 3=sleeping (At least one bundle tile sleeping, none connected), 4=disabled (No bundle tiles configured)"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_NAME "diag_vote_status"
-#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_DESC "Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally), 4=inadmissible (voting, but the vote account fails the validator admission ticket filter)"
-#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATE_NAME "diag_vote_state"
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATE_DESC "Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)"
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_NAME "diag_replay_status"
-#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_DESC "Precise status of the replay subsystem: 0=disabled (no replay tile), 1=not started (replay tile not running or slots are zero), 2=behind (replay lagging behind turbine or reset slot stalled), 3=running (replay keeping up)"
-#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATE_NAME "diag_replay_state"
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATE_DESC "Replay subsystem state: 0=disabled (No replay tile), 1=not_started (Replay tile not running or slots are zero), 2=behind (Replay lagging behind turbine or reset slot stalled), 3=running (Replay keeping up)"
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_NAME "diag_turbine_status"
-#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_DESC "Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally)"
-#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATE_NAME "diag_turbine_state"
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATE_DESC "Turbine subsystem state: 0=disabled (No shred or replay tiles), 1=not_started (Tiles not all running or turbine slot is zero), 2=stalled (Turbine slot not advancing), 3=repair_outpacing (Repair byte throughput exceeds turbine), 4=running (Turbine receiving normally)"
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_NAME "diag_builder_status"
-#define FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_DESC "Precise status of the external block builder subsystem: 0=disabled (no block builder configured), 1=disconnected (block builder disconnected), 2=connecting (block builder connection in progress), 3=unhealthy (connected, but the block builder is not in a usable state), 4=connected (block builder connected and healthy)"
-#define FD_METRICS_GAUGE_DIAG_BUILDER_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_BUILDER_STATE_NAME "diag_builder_state"
+#define FD_METRICS_GAUGE_DIAG_BUILDER_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_BUILDER_STATE_DESC "External block builder subsystem state: 0=disabled (No block builder configured), 1=disconnected (Block builder disconnected), 2=connecting (Block builder connection in progress), 3=unhealthy (Connected, but the block builder is not in a usable state), 4=connected (Block builder connected and healthy)"
+#define FD_METRICS_GAUGE_DIAG_BUILDER_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_NAME "diag_device_irq"
-#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_DESC "Number of device IRQs across all CPUs"
-#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_DEVICE_IRQ_NAME "diag_system_device_irq"
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_DEVICE_IRQ_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_DEVICE_IRQ_DESC "Device IRQs across all CPUs"
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_DEVICE_IRQ_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_NAME "diag_device_irq_undesired"
-#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_DESC "Number of device hard IRQs that stole CPU time from fixed tiles"
-#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_ON_TILE_CPU_NAME "diag_device_irq_on_tile_cpu"
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_ON_TILE_CPU_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_ON_TILE_CPU_DESC "Device IRQs on CPUs dedicated to pinned tiles; subset of SystemDeviceIrq"
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_ON_TILE_CPU_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_NAME "diag_softirq"
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_DESC "Number of soft-IRQs across all CPUs"
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_CVT  (FD_METRICS_CONVERTER_NONE)
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_CNT  (3UL)
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_NAME "diag_system_softirq"
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_DESC "Soft-IRQs across all CPUs, by softirq type"
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_COUNTER_DIAG_SYSTEM_SOFTIRQ_CNT  (3UL)
 
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_NAME "diag_softirq_undesired"
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_DESC "Number of soft-IRQs that stole CPU time from fixed tiles"
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_CVT  (FD_METRICS_CONVERTER_NONE)
-#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_CNT  (3UL)
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_NAME "diag_softirq_on_tile_cpu"
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_DESC "Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq"
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_ON_TILE_CPU_CNT  (3UL)
 
 #define FD_METRICS_DIAG_TOTAL (13UL)
 extern const fd_metrics_meta_t FD_METRICS_DIAG[FD_METRICS_DIAG_TOTAL];

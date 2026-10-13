@@ -183,10 +183,10 @@ typedef struct {
   fd_replay_slot_completed_t _completed_slot_msg;
 
   struct {
-    ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
-    ulong blockhash_expired;
-    ulong bundle_peer_failure;
-    ulong stash[ FD_METRICS_COUNTER_RESOLV_STASH_OPERATION_CNT ];
+    ulong lut[ FD_METRICS_COUNTER_RESOLV_TXN_LUT_RESOLVE_ATTEMPTED_CNT ];
+    ulong txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_CNT ];
+    ulong stash_inserted;
+    ulong stash_removed[ FD_METRICS_COUNTER_RESOLV_STASH_TXN_REMOVED_CNT ];
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -224,10 +224,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_resolv_ctx_t * ctx ) {
-  FD_MCNT_SET(       RESOLV, BLOCKHASH_EXPIRED,               ctx->metrics.blockhash_expired );
-  FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED,                    ctx->metrics.lut );
-  FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION,                 ctx->metrics.stash );
-  FD_MCNT_SET(       RESOLV, TXN_BUNDLE_PEER_FAILED, ctx->metrics.bundle_peer_failure );
+  FD_MCNT_ENUM_COPY( RESOLV, TXN_DROPPED,                   ctx->metrics.txn_dropped         );
+  FD_MCNT_ENUM_COPY( RESOLV, TXN_LUT_RESOLVE_ATTEMPTED,     ctx->metrics.lut                 );
+  FD_MCNT_SET(       RESOLV, STASH_TXN_INSERTED,            ctx->metrics.stash_inserted      );
+  FD_MCNT_ENUM_COPY( RESOLV, STASH_TXN_REMOVED,             ctx->metrics.stash_removed       );
 
   FD_ACCDB_METRICS_WRITE_RO( RESOLV, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -362,7 +362,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->bank ) ) {
-      FD_MCNT_INC( RESOLV, TXN_NO_BANK, 1 );
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_NO_BANK_IDX ]++;
       return 0;
     }
     int err = peek_aluts( ctx, txnm );
@@ -392,9 +392,9 @@ after_credit( fd_resolv_ctx_t *   ctx,
   ulong next = map_chain_idx_next_const( ctx->flush_pool_idx, ULONG_MAX, ctx->pool );
   map_chain_idx_remove_fast( ctx->map_chain, ctx->flush_pool_idx, ctx->pool );
   if( FD_LIKELY( publish_txn( ctx, stem, pool_ele( ctx->pool, ctx->flush_pool_idx ) ) ) ) {
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_PUBLISHED_IDX ]++;
+    ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_PUBLISHED_IDX ]++;
   } else {
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_REMOVED_IDX ]++;
+    ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_FAILED_IDX    ]++;
   }
   lru_list_idx_remove( ctx->lru_list, ctx->flush_pool_idx, ctx->pool );
   pool_idx_release( ctx->pool, ctx->flush_pool_idx );
@@ -519,7 +519,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( txnm->block_engine.bundle_id && ctx->bundle_failed ) ) {
-    ctx->metrics.bundle_peer_failure++;
+    ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_BUNDLE_PEER_FAILED_IDX ]++;
     return;
   }
 
@@ -536,7 +536,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
     txnm->reference_block_height = blockhash->block_height;
     if( FD_UNLIKELY( (!is_durable_nonce) & (txnm->reference_block_height+151UL<ctx->completed_block_height) ) ) {
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
-      ctx->metrics.blockhash_expired++;
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_BLOCKHASH_EXPIRED_IDX ]++;
       return;
     }
   }
@@ -548,7 +548,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
     if( FD_UNLIKELY( !pool_free( ctx->pool ) ) ) {
       pool_idx = lru_list_idx_pop_tail( ctx->lru_list, ctx->pool );
       map_chain_idx_remove_fast( ctx->map_chain, pool_idx, ctx->pool );
-      ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_OVERRUN_IDX ]++;
+      ctx->metrics.stash_removed[ FD_METRICS_ENUM_STASH_REMOVE_REASON_V_EVICTED_IDX ]++;
     } else {
       pool_idx = pool_idx_acquire( ctx->pool );
     }
@@ -565,7 +565,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
     FD_COMPILER_FORGET( stash_txn );
     fd_memcpy( stash_txn->_, txnm, fd_txn_m_realized_footprint( txnm, 1, 0 ) );
     stash_txn->blockhash = (blockhash_t *)(fd_txn_m_payload( (fd_txn_m_t *)(stash_txn->_) ) + txnt->recent_blockhash_off);
-    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]++;
+    ctx->metrics.stash_inserted++;
 
     map_chain_ele_insert( ctx->map_chain, stash_txn, ctx->pool );
     lru_list_idx_push_head( ctx->lru_list, pool_idx, ctx->pool );
@@ -575,7 +575,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->bank ) ) {
-      FD_MCNT_INC( RESOLV, TXN_NO_BANK, 1 );
+      ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_NO_BANK_IDX ]++;
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }

@@ -124,15 +124,15 @@ static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
-  FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED, ctx->runtime->metrics.instr_cum );
-  FD_MCNT_SET( EXECLE, CPI_EXECUTED,         ctx->runtime->metrics.cpi_cum   );
-  FD_MCNT_SET( EXECLE, LTHASH_UNCHANGED,     ctx->runtime->metrics.lthash_unchanged_cnt );
+  FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED,   ctx->runtime->metrics.instr_cum );
+  FD_MCNT_SET( EXECLE, CPI_EXECUTED,           ctx->runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECLE, ACCOUNT_LTHASH_SKIPPED, ctx->runtime->metrics.lthash_unchanged_cnt );
 
-  FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
+  FD_MCNT_SET( EXECLE, CU_CONSUMED, ctx->runtime->metrics.cu_cum );
 
-  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_check_cum_ticks+ctx->metrics.txn_load_cum_ticks );
-  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
-  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_LOAD,    ctx->metrics.txn_check_cum_ticks+ctx->metrics.txn_load_cum_ticks );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_EXECUTE, ctx->metrics.txn_exec_cum_ticks   );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_COMMIT,  ctx->metrics.txn_commit_cum_ticks );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks + runtime->metrics.cpi_commit_cum_ticks;
@@ -339,7 +339,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
       txn_out->err.is_committable = 0;
     }
 
-    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( txn ) ) ]++;
+    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_VERSION )+fd_execle_version_from_txn( TXN( txn ) ) ]++;
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
@@ -347,8 +347,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
       /* Use pre-resolved ALT accounts for rebates even for unlanded transactions */
       fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
       last_ticks = fd_tickcount();
       continue;
     }
@@ -369,8 +369,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
         /* txn->execle_cu already initialized to full rebate at top of loop */
         fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
         if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
-        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]++;
+        fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
         /* FD_TXN_P_FLAGS_EXECUTE_SUCCESS = 0 ensures txn won't be
            mixed-in by POH */
         last_ticks = fd_tickcount();
@@ -378,15 +378,15 @@ handle_microblock( fd_execle_tile_t *  ctx,
       }
     }
 
-    if( FD_UNLIKELY( txn_out->err.is_fees_only ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FEES_ONLY_IDX ]++;
-    else if( FD_UNLIKELY( txn_out->err.txn_err ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_FAILED_IDX ]++;
-    else                                           fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
+    if( FD_UNLIKELY( txn_out->err.is_fees_only ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_FEES_ONLY_IDX ]++;
+    else if( FD_UNLIKELY( txn_out->err.txn_err ) ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_FAILED_IDX ]++;
+    else                                           fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_SUCCESS_IDX ]++;
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
        transactions. */
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+    fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
 
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
@@ -613,9 +613,9 @@ handle_bundle( fd_execle_tile_t *  ctx,
       txns[ i ].flags                        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       tips[ i ]                               = txn_out->details.tips;
 
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ]++;
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_SUCCESS_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_SUCCESS_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   } else {
     /* A failed bundle is dropped in its entirety: every transaction is
@@ -641,10 +641,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
       if( i!=failed_idx || txn_err==FD_RUNTIME_EXECUTE_SUCCESS ) txn_err = FD_RUNTIME_TXN_ERR_BUNDLE_PEER;
       txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_err)<<24);
 
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
-      if( i==failed_idx ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;
-      else                fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX ]++;
-      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]++;
+      if( i==failed_idx ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;
+      else                fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_BUNDLE_PEER_IDX ]++;
+      fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   }
 

@@ -251,16 +251,15 @@ vote_account_config( fd_tower_tile_t * ctx,
 static void
 update_metrics_eqvoc( fd_tower_tile_t * ctx,
                       int               err ) {
-  ctx->metrics.eqvoc_success += (ulong)(err==FD_EQVOC_SUCCESS);
-  ctx->metrics.eqvoc_err     += (ulong)(err<0);
+  ctx->metrics.eqvoc[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_VERIFIED_IDX ] += (ulong)(err==FD_EQVOC_SUCCESS);
+  ctx->metrics.eqvoc[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_IGNORED_IDX  ] += (ulong)(err==FD_EQVOC_IGNORED);
+  ctx->metrics.eqvoc[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_INVALID_IDX  ] += (ulong)(err<0);
 }
 
 static void
 update_metrics_ghost( fd_tower_tile_t * ctx,
                       int               err ) {
   ctx->metrics.ghost[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_V_SUCCESS_IDX       ] += (ulong)(err==FD_GHOST_SUCCESS);
-  ctx->metrics.ghost[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_V_NOT_VOTED_IDX     ] += (ulong)(err==FD_GHOST_ERR_NOT_VOTED);
-  ctx->metrics.ghost[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_V_TOO_OLD_IDX       ] += (ulong)(err==FD_GHOST_ERR_VOTE_TOO_OLD);
   ctx->metrics.ghost[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_V_ALREADY_VOTED_IDX ] += (ulong)(err==FD_GHOST_ERR_ALREADY_VOTED);
 }
 
@@ -268,17 +267,21 @@ static void
 update_metrics_hfork( fd_tower_tile_t * ctx,
                       int               hfork_err,
                       ulong             slot,
-                      fd_hash_t const * block_id ) {
+                      fd_hash_t const * block_id,
+                      int               own_bank ) {
   switch( hfork_err ) {
   case FD_HFORK_SUCCESS_MATCHED:
-    ctx->metrics.hfork[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_SUCCESS_MATCHED_IDX ]++;
+    if( own_bank ) ctx->metrics.hfork_bank[ FD_METRICS_ENUM_HARD_FORK_BANK_HASH_RESULT_V_MATCHED_IDX ]++;
+    else           ctx->metrics.hfork     [ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_MATCHED_IDX      ]++;
     ctx->metrics.hfork_matched_slot = fd_ulong_max( ctx->metrics.hfork_matched_slot, slot );
     break;
   case FD_HFORK_SUCCESS:
-    ctx->metrics.hfork[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_SUCCESS_IDX ]++;
+    if( own_bank ) ctx->metrics.hfork_bank[ FD_METRICS_ENUM_HARD_FORK_BANK_HASH_RESULT_V_PENDING_IDX ]++;
+    else           ctx->metrics.hfork     [ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_PENDING_IDX      ]++;
     break;
   case FD_HFORK_ERR_MISMATCHED:
-    ctx->metrics.hfork[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_MISMATCHED_IDX ]++;
+    if( own_bank ) ctx->metrics.hfork_bank[ FD_METRICS_ENUM_HARD_FORK_BANK_HASH_RESULT_V_MISMATCHED_IDX ]++;
+    else           ctx->metrics.hfork     [ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_MISMATCHED_IDX      ]++;
     if( FD_UNLIKELY( ctx->hard_fork_fatal ) ) {
       FD_BASE58_ENCODE_32_BYTES( block_id->uc, _block_id );
       FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", slot, _block_id ));
@@ -862,7 +865,7 @@ count_vote_txn( fd_tower_tile_t * ctx,
     prev = vote;
   }
 
-  if( FD_UNLIKELY( 0==memcmp( &tower_sync->block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_UNKNOWN_BLOCK_ID_IDX ]++; return; };
+  if( FD_UNLIKELY( 0==memcmp( &tower_sync->block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_NULL_BLOCK_ID_IDX ]++; return; };
 
   /* The vote txn contains a block id and bank hash for their last vote
      slot in the tower.  Agave always counts the last vote.
@@ -912,7 +915,7 @@ count_vote_txn( fd_tower_tile_t * ctx,
   ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_SUCCESS_IDX ]++;
 
   int hfork_err = fd_hfork_count_vote( ctx->hfork, vote_acc, their_block_id, their_bank_hash, their_last_vote->slot, vtr->stake, total_stake );
-  update_metrics_hfork( ctx, hfork_err, their_last_vote->slot, their_block_id );
+  update_metrics_hfork( ctx, hfork_err, their_last_vote->slot, their_block_id, 0 );
 
   /* One voter lookup, shared by every slot of this txn (the voter set
      only changes at epoch boundaries, outside this function). */
@@ -939,16 +942,16 @@ count_vote_txn( fd_tower_tile_t * ctx,
   fd_tower_blk_t const * our_blk = fd_tower_blocks_query( ctx->tower, their_last_vote->slot );
   if( FD_UNLIKELY( !our_blk ) ) {
      /* we haven't replayed this block yet */
-    ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_UNKNOWN_SLOT_IDX ]++;
+    ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_SLOT_RESULT_V_UNREPLAYED_SLOT_IDX ]++;
     return;
   };
   fd_hash_t const * our_block_id = fd_tower_blk_canonical_block_id( our_blk );
-  if( FD_UNLIKELY( 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) { ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_UNKNOWN_BLOCK_ID_IDX ]++; return; } /* we don't recognize this block id */
+  if( FD_UNLIKELY( 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) { ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_SLOT_RESULT_V_MISMATCHED_BLOCK_ID_IDX ]++; return; } /* we don't recognize this block id */
 
   /* At this point, we know we have replayed the same slot and also have
      a matching block id, so we can count the intermediate votes. */
 
-  ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_PROCEED_IDX ]++;
+  ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_SLOT_RESULT_V_COUNTED_IDX ]++;
 
   int skipped_last_vote = 0;
   for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init_rev( ctx->scratch_tower       );
@@ -1413,7 +1416,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, slot_completed->slot );
   int hfork_flag = fd_hfork_record_our_bank_hash( ctx->hfork, &slot_completed->block_id, &slot_completed->bank_hash, fd_ulong_if( lsched->epoch==ctx->root_epoch, ctx->root_epoch_total_stake, ctx->next_epoch_total_stake ) );
-  update_metrics_hfork( ctx, hfork_flag, slot_completed->slot, &slot_completed->block_id );
+  update_metrics_hfork( ctx, hfork_flag, slot_completed->slot, &slot_completed->block_id, 1 );
 
   if( FD_UNLIKELY( ctx->vote_history_pending ) ) check_vote_history( ctx, slot_completed );
 
@@ -1518,24 +1521,24 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
      and 0b) where it sets no flags.  Those are distinguished by vote_slot:
      0a does not vote (vote_slot==ULONG_MAX), 0b votes (vote_slot set). */
 
-  if(      fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_DECISION_V_ANCESTOR_ROLLBACK_IDX ]++;
-  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SIBLING_CONFIRMED ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_DECISION_V_SIBLING_CONFIRMED_IDX ]++;
-  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SAME_FORK         ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_DECISION_V_SAME_FORK_IDX         ]++;
-  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_PASS       ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_DECISION_V_SWITCH_PASS_IDX       ]++;
-  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_FAIL       ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_DECISION_V_SWITCH_FAIL_IDX       ]++;
-  else if( out.vote_slot!=ULONG_MAX                                          ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_DECISION_V_EMPTY_TOWER_VOTE_IDX   ]++;
-  else                                                                         ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_DECISION_V_NO_VOTE_NOT_RECENT_IDX ]++;
+  if(      fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_RESULT_V_ANCESTOR_ROLLBACK_IDX   ]++;
+  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SIBLING_CONFIRMED ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_RESULT_V_SIBLING_CONFIRMED_IDX   ]++;
+  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SAME_FORK         ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_RESULT_V_SAME_FORK_IDX           ]++;
+  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_PASS       ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_RESULT_V_SWITCH_PASSED_IDX       ]++;
+  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_FAIL       ) ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_RESULT_V_SWITCH_FAILED_IDX       ]++;
+  else if( out.vote_slot!=ULONG_MAX                                          ) ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_RESULT_V_EMPTY_TOWER_VOTE_IDX     ]++;
+  else                                                                         ctx->metrics.fork[ FD_METRICS_ENUM_TOWER_FORK_RESULT_V_EMPTY_TOWER_STALE_IDX    ]++;
 
   /* Vote-gate axis: if a votable block was selected, it is gated by the
      lockout/threshold/propagated checks (at most one fails) or it passes
      all of them and we vote.  If no votable block was selected, there is
      no candidate to gate. */
 
-  if(      out.vote_slot!=ULONG_MAX                                            ) ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_V_VOTED_IDX           ]++;
-  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_LOCKOUT_FAIL    )    ) ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_V_LOCKOUT_FAIL_IDX    ]++;
-  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_THRESHOLD_FAIL  )    ) ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_V_THRESHOLD_FAIL_IDX  ]++;
-  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_PROPAGATED_FAIL )    ) ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_V_PROPAGATED_FAIL_IDX ]++;
-  else                                                                          ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_V_NO_CANDIDATE_IDX     ]++;
+  if(      out.vote_slot!=ULONG_MAX                                            ) ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_RESULT_V_VOTED_IDX             ]++;
+  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_LOCKOUT_FAIL    )    ) ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_RESULT_V_LOCKOUT_FAILED_IDX    ]++;
+  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_THRESHOLD_FAIL  )    ) ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_RESULT_V_THRESHOLD_FAILED_IDX  ]++;
+  else if( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_PROPAGATED_FAIL )    ) ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_RESULT_V_PROPAGATED_FAILED_IDX ]++;
+  else                                                                          ctx->metrics.gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_RESULT_V_NO_CANDIDATE_IDX       ]++;
 
   /* Log out structures. */
 
@@ -1800,37 +1803,35 @@ metrics_write( fd_tower_tile_t * ctx ) {
 
   FD_MCNT_SET( TOWER, FRAG_NOT_READY_DROPPED, ctx->metrics.not_ready );
 
-  FD_MCNT_SET  ( TOWER, FRAG_IGNORED,  ctx->metrics.ignored_cnt  );
-  FD_MGAUGE_SET( TOWER, SLOT_LAST_IGNORED, ctx->metrics.ignored_slot );
+  FD_MCNT_SET  ( TOWER, PRUNED_FORK_SLOT_IGNORED,      ctx->metrics.ignored_cnt  );
+  FD_MGAUGE_SET( TOWER, LAST_PRUNED_FORK_IGNORED_SLOT, ctx->metrics.ignored_slot );
 
-  FD_MGAUGE_SET( TOWER, REPLAY_SLOT, ctx->metrics.replay_slot    );
-  FD_MGAUGE_SET( TOWER, VOTE_SLOT,   ctx->metrics.last_vote_slot );
-  FD_MGAUGE_SET( TOWER, RESET_SLOT,  ctx->metrics.reset_slot     );
-  FD_MGAUGE_SET( TOWER, ROOT_SLOT,   ctx->metrics.root_slot      );
-  FD_MGAUGE_SET( TOWER, INIT_SLOT,   ctx->metrics.init_slot      );
+  FD_MGAUGE_SET( TOWER, LAST_REPLAYED_SLOT, ctx->metrics.replay_slot );
+  FD_MGAUGE_SET( TOWER, LAST_VOTE_SLOT,     fd_ulong_if( ctx->metrics.last_vote_slot==ULONG_MAX, 0UL, ctx->metrics.last_vote_slot ) );
+  FD_MGAUGE_SET( TOWER, RESET_SLOT,         ctx->metrics.reset_slot  );
+  FD_MGAUGE_SET( TOWER, ROOT_SLOT,          fd_ulong_if( ctx->metrics.root_slot==ULONG_MAX, 0UL, ctx->metrics.root_slot ) );
+  FD_MGAUGE_SET( TOWER, INIT_SLOT,          ctx->metrics.init_slot   );
 
-  FD_MCNT_ENUM_COPY( TOWER, FORK_DECISION, ctx->metrics.fork );
-  FD_MCNT_ENUM_COPY( TOWER, VOTE_GATE,     ctx->metrics.gate );
+  FD_MCNT_ENUM_COPY( TOWER, FORK_CHOSEN,       ctx->metrics.fork );
+  FD_MCNT_ENUM_COPY( TOWER, VOTE_GATE_CHECKED, ctx->metrics.gate );
 
-  FD_MCNT_SET  ( TOWER, TOWER_FILE_WRITE,      ctx->metrics.tower_file_write );
-  FD_MGAUGE_SET( TOWER, TOWER_FILE_SLOT,       ctx->metrics.tower_file_slot  );
+  FD_MCNT_SET  ( TOWER, TOWER_FILE_WRITTEN,      ctx->metrics.tower_file_write );
+  FD_MGAUGE_SET( TOWER, TOWER_FILE_SLOT,       fd_ulong_if( ctx->metrics.tower_file_slot==ULONG_MAX, 0UL, ctx->metrics.tower_file_slot ) );
   FD_MGAUGE_SET( TOWER, TOWER_FILE_SIZE_BYTES, ctx->metrics.tower_file_sz    );
 
-  FD_MCNT_ENUM_COPY( TOWER, VOTE_TXN,               ctx->metrics.votes      );
-  FD_MCNT_ENUM_COPY( TOWER, VOTE_SLOT_COUNTED,      ctx->metrics.vote_slots );
-  FD_MCNT_ENUM_COPY( TOWER, VOTE_INTERMEDIATE_GATE, ctx->metrics.gate_int   );
+  FD_MCNT_ENUM_COPY( TOWER, VOTE_TXN_PROCESSED,             ctx->metrics.votes      );
+  FD_MCNT_ENUM_COPY( TOWER, VOTE_SLOT_PROCESSED,            ctx->metrics.vote_slots );
+  FD_MCNT_ENUM_COPY( TOWER, VOTE_INTERMEDIATE_SLOT_CHECKED, ctx->metrics.gate_int   );
 
-  ulong eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_CNT ];
-  eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_SUCCESS_IDX ] = ctx->metrics.eqvoc_success;
-  eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_IDX   ] = ctx->metrics.eqvoc_err;
-  FD_MCNT_ENUM_COPY( TOWER, EQVOC_PROOF, eqvoc_proof );
+  FD_MCNT_ENUM_COPY( TOWER, EQVOC_CHUNK_PROCESSED, ctx->metrics.eqvoc );
 
-  FD_MCNT_ENUM_COPY( TOWER, GHOST_VOTE, ctx->metrics.ghost );
+  FD_MCNT_ENUM_COPY( TOWER, GHOST_VOTE_PROCESSED, ctx->metrics.ghost );
 
-  FD_MCNT_ENUM_COPY( TOWER, HARD_FORK_VOTE, ctx->metrics.hfork );
+  FD_MCNT_ENUM_COPY( TOWER, HARD_FORK_VOTE_PROCESSED,             ctx->metrics.hfork      );
+  FD_MCNT_ENUM_COPY( TOWER, HARD_FORK_BANK_HASH_CHECKED, ctx->metrics.hfork_bank );
 
-  FD_MGAUGE_SET( TOWER, HARD_FORK_MATCHED_SLOT,    ctx->metrics.hfork_matched_slot    );
-  FD_MGAUGE_SET( TOWER, HARD_FORK_MISMATCHED_SLOT, ctx->metrics.hfork_mismatched_slot );
+  FD_MGAUGE_SET( TOWER, HIGHEST_HARD_FORK_MATCHED_SLOT,    ctx->metrics.hfork_matched_slot    );
+  FD_MGAUGE_SET( TOWER, HIGHEST_HARD_FORK_MISMATCHED_SLOT, ctx->metrics.hfork_mismatched_slot );
 
   FD_ACCDB_METRICS_WRITE( TOWER, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -1944,7 +1945,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
       FD_TEST( lsched->epoch==ctx->root_epoch || lsched->epoch==ctx->root_epoch + 1 );
       ulong total_stake = fd_ulong_if( lsched->epoch==ctx->root_epoch, ctx->root_epoch_total_stake, ctx->next_epoch_total_stake );
       int hfork_flag = fd_hfork_record_our_bank_hash( ctx->hfork, &slot_dead->block_id, NULL, total_stake );
-      update_metrics_hfork( ctx, hfork_flag, slot_dead->slot, &slot_dead->block_id );
+      update_metrics_hfork( ctx, hfork_flag, slot_dead->slot, &slot_dead->block_id, 1 );
       break;
     case REPLAY_SIG_TXN_EXECUTED:;
       FD_TEST( ctx->init ); /* replay_txn_executed should never be received before replay_slot_completed, which sets init to 1. */

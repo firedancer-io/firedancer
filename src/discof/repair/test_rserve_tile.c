@@ -178,8 +178,8 @@ test_meta_requests( fd_repair_t * client ) {
   FD_TEST( res->parent_fec_set_res.parent_slot==blk_parent );
   FD_TEST( fd_hash_eq( &res->parent_fec_set_res.parent_block_id, &blk_parent_id ) );
   FD_TEST( !ag_repair_parent_fec_count_verify( &res->parent_fec_set_res, &blk_id ) );
-  FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
-  FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
+  FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
+  FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
 
   /* FecSetRoot for every FEC set */
   for( uint k=0U; k<FEC_CNT; k++ ) {
@@ -191,14 +191,14 @@ test_meta_requests( fd_repair_t * client ) {
     FD_TEST( !memcmp( res->fec_set_root.root, blk_roots[ k ], FD_SHRED_MERKLE_NODE_SZ ) );
     FD_TEST( !ag_repair_fec_set_root_verify( &res->fec_set_root, &blk_id, k*FD_FEC_SHRED_CNT, FEC_CNT ) );
   }
-  FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_FEC_SET_ROOT_IDX ]==FEC_CNT );
+  FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_FEC_SET_ROOT_IDX ]==FEC_CNT );
 
   /* Unaligned and out of range FEC set indices are rejected */
   msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, FD_FEC_SHRED_CNT+1U );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
   msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, FEC_CNT*FD_FEC_SHRED_CNT );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  FD_TEST( ctx->metrics->fail_invalid_fec_set_idx==2UL );
+  FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_FEC_SET_INDEX_INVALID_IDX ]==2UL );
 
   /* Unknown blocks miss: other block id, or right block id in another slot */
   fd_hash_t other = blk_id; other.uc[ 5 ] ^= 1;
@@ -206,32 +206,32 @@ test_meta_requests( fd_repair_t * client ) {
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
   msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot+1UL, &blk_id, 0U );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  FD_TEST( ctx->metrics->missed_pkt_types[ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
-  FD_TEST( ctx->metrics->missed_pkt_types[ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_FEC_SET_ROOT_IDX        ]==1UL );
+  FD_TEST( ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
+  FD_TEST( ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX        ]==1UL );
 
   /* Tampered after signing */
   msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
   sz  = sign( msg );
   msg->fec_set_root.fec_set_idx = FD_FEC_SHRED_CNT;
   FD_TEST( !request( ctx, (uchar const *)msg, sz ) );
-  FD_TEST( ctx->metrics->fail_sigverify_request==1UL );
+  FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]==1UL );
 
   /* Addressed to someone else */
   fd_pubkey_t someone = server_pub; someone.uc[ 0 ] ^= 1;
   msg = ag_repair_parent_and_fec_set_count( client, &someone, now_ms(), 1U, blk_slot, &blk_id );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  FD_TEST( ctx->metrics->fail_not_for_us==1UL );
+  FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_WRONG_RECIPIENT_IDX ]==1UL );
 
   /* Wrong size */
   msg = ag_repair_parent_and_fec_set_count( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id );
   sz  = sign( msg );
   FD_TEST( !request( ctx, (uchar const *)msg, sz-1UL ) );
-  FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_WRONG_SIZE_IDX ]==1UL );
+  FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_WRONG_SIZE_IDX ]==1UL );
 
   /* Stale timestamp */
   msg = ag_repair_parent_and_fec_set_count( client, &server_pub, now_ms()-FD_RSERVE_SIGNED_REPAIR_WINDOW-1000UL, 1U, blk_slot, &blk_id );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  FD_TEST( ctx->metrics->fail_outdated==1UL );
+  FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_TIMESTAMP_SKEW_IDX ]==1UL );
 
   FD_LOG_NOTICE(( "pass: test_meta_requests" ));
 }
@@ -252,8 +252,8 @@ test_legacy_sigverify( fd_repair_t * client ) {
   msg = fd_repair_orphan( client, &server_pub, now_ms(), 1U, 10UL );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
 
-  FD_TEST( ctx->metrics->fail_sigverify_request==0UL );
-  FD_TEST( ctx->metrics->disk_read_miss==3UL );
+  FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]==0UL );
+  FD_TEST( ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]==3UL );
   FD_LOG_NOTICE(( "pass: test_legacy_sigverify" ));
 }
 
@@ -272,7 +272,7 @@ test_no_blockdb( fd_repair_t * client ) {
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
   msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_UNKNOWN_TAG_IDX ]==3UL );
+  FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNKNOWN_TAG_IDX ]==3UL );
   FD_LOG_NOTICE(( "pass: test_no_blockdb" ));
 }
 
@@ -360,8 +360,8 @@ test_shred_for_block_id( fd_repair_t * client,
     FD_TEST( sz );
     check_shred( sz, blk_slot, idxs[ i ], marks[ i ], 200U+(uint)i );
   }
-  FD_TEST( ctx->metrics->sent_pkt_types        [ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_SHRED_FOR_BLOCK_ID_IDX ]==3UL );
-  FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_V_SHRED_FOR_BLOCK_ID_IDX       ]==3UL );
+  FD_TEST( ctx->metrics->sent_pkt_types        [ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ]==3UL );
+  FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX  ]==3UL );
 
   /* The legacy request gets the alternate version */
   fd_repair_msg_t * msg = fd_repair_shred( client, &server_pub, now_ms(), 9U, blk_slot, 33UL );
@@ -370,34 +370,34 @@ test_shred_for_block_id( fd_repair_t * client,
   check_shred( sz, blk_slot, 33U, 0xEEU, 9U );
 
   /* A shred of the block that isn't stored misses */
-  ulong read_miss = ctx->metrics->disk_read_miss;
+  ulong read_miss = ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ];
   msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 1U );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  FD_TEST( ctx->metrics->disk_read_miss==read_miss+1UL );
+  FD_TEST( ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]==read_miss+1UL );
 
   /* An unknown block misses */
   fd_hash_t other = blk_id; other.uc[ 3 ] ^= 1;
   msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &other, 0U );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  FD_TEST( ctx->metrics->missed_pkt_types[ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_SHRED_FOR_BLOCK_ID_IDX ]==2UL );
+  FD_TEST( ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ]==2UL );
 
   /* Past the end of the block */
   msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, FEC_CNT*FD_FEC_SHRED_CNT );
   FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  FD_TEST( ctx->metrics->fail_invalid_shred_idx==1UL );
+  FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SHRED_INDEX_INVALID_IDX ]==1UL );
 
   /* Tampered after signing */
   msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
   sz  = sign( msg );
   msg->shred_block_id.shred_idx = 95U;
   FD_TEST( !request( ctx, (uchar const *)msg, sz ) );
-  FD_TEST( ctx->metrics->fail_sigverify_request==1UL );
+  FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]==1UL );
 
   /* Wrong size */
   msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
   sz  = sign( msg );
   FD_TEST( !request( ctx, (uchar const *)msg, sz-1UL ) );
-  FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_RSERVE_MALFORMED_TYPES_V_WRONG_SIZE_IDX ]==1UL );
+  FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_WRONG_SIZE_IDX ]==1UL );
 
   close( ctx->disk_fd );
   FD_TEST( !unlink( TEST_STORE_PATH ) );
