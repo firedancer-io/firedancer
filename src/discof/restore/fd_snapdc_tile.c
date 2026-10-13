@@ -88,13 +88,11 @@ should_shutdown( fd_snapdc_tile_t * ctx ) {
 
 static void
 metrics_write( fd_snapdc_tile_t * ctx ) {
-  FD_MGAUGE_SET( SNAPDC, FULL_COMPRESSED_BYTES_READ,              ctx->metrics.full.compressed_bytes_read );
-  FD_MGAUGE_SET( SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN,         ctx->metrics.full.decompressed_bytes_written );
-
-  FD_MGAUGE_SET( SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ,       ctx->metrics.incremental.compressed_bytes_read );
-  FD_MGAUGE_SET( SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN,  ctx->metrics.incremental.decompressed_bytes_written );
-
-  FD_MGAUGE_SET( SNAPDC, STATE,                                   (ulong)(ctx->state) );
+  FD_MGAUGE_SET( SNAPDC, COMPRESSED_PROGRESS_BYTES_FULL,          ctx->metrics.full.compressed_bytes_read             );
+  FD_MGAUGE_SET( SNAPDC, COMPRESSED_PROGRESS_BYTES_INCREMENTAL,   ctx->metrics.incremental.compressed_bytes_read      );
+  FD_MGAUGE_SET( SNAPDC, DECOMPRESSED_PROGRESS_BYTES_FULL,        ctx->metrics.full.decompressed_bytes_written        );
+  FD_MGAUGE_SET( SNAPDC, DECOMPRESSED_PROGRESS_BYTES_INCREMENTAL, ctx->metrics.incremental.decompressed_bytes_written );
+  FD_MGAUGE_SET( SNAPDC, STREAM_STATE,                            (ulong)(ctx->state)                                 );
 }
 
 static inline void

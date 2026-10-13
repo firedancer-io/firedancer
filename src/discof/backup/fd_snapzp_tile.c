@@ -883,11 +883,11 @@ returnable_frag( fd_snapzp_t *       ctx,
 
 static void
 metrics_write( fd_snapzp_t * ctx ) {
-  FD_MCNT_SET( SNAPZP, ACCOUNTS_COMPRESSED,         ctx->metrics.accounts_compressed );
-  FD_MCNT_SET( SNAPZP, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed    );
-  FD_MCNT_SET( SNAPZP, BYTES_WRITTEN,               ctx->metrics.bytes_written       );
-  FD_MCNT_SET( SNAPZP, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks    );
-  FD_MCNT_SET( SNAPZP, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks      );
+  FD_MCNT_SET( SNAPZP, ACCOUNT_COMPRESSED,          ctx->metrics.accounts_compressed );
+  FD_MCNT_SET( SNAPZP, COMPRESS_CONSUMED_BYTES,     ctx->metrics.bytes_compressed    );
+  FD_MCNT_SET( SNAPZP, DISK_WRITTEN_BYTES,          ctx->metrics.bytes_written       );
+  FD_MCNT_SET( SNAPZP, IO_BLOCKED_DURATION_NANOS,   ctx->metrics.io_blocked_ticks    );
+  FD_MCNT_SET( SNAPZP, COMPRESS_DURATION_NANOS,     ctx->metrics.compress_ticks      );
   FD_MCNT_SET( SNAPZP, CACHE_READ_TORN,             ctx->metrics.cache_read_torn     );
 }
 

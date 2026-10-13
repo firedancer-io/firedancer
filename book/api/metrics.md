@@ -43,4 +43,6 @@ There are three metric types reported by Firedancer, following the
  - `gauge` &mdash; A single numerical value that can go arbitrarily up or down.
  - `histogram` &mdash; Samples observations like packet sizes and counts them in buckets.
 
+Durations are reported in integer nanoseconds (`*_nanos`), not seconds.
+
 <!--@include: ./metrics-generated.md-->

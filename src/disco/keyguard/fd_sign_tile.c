@@ -195,7 +195,7 @@ during_housekeeping( fd_sign_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_sign_ctx_t * ctx ) {
-  FD_MHIST_COPY( SIGN, SIGN_DURATION_SECONDS, ctx->sign_duration );
+  FD_MHIST_COPY( SIGN, SIGN_DURATION_NANOS, ctx->sign_duration );
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -424,7 +424,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
   FD_TEST( tile->in_cnt<=MAX_IN );
   FD_TEST( tile->in_cnt==tile->out_cnt );
 
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->sign_duration, FD_MHIST_EDGES_NS( SIGN, SIGN_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->sign_duration, FD_MHIST_EDGES_NS( SIGN, SIGN_DURATION_NANOS ) ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   derive_fields( ctx );

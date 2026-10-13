@@ -796,7 +796,7 @@ fd_guih_printf_waterfall( fd_guih_t *               gui,
       jsonp_ulong( gui->http, "pack_expired",        cur->out.pack_expired        - prev->out.pack_expired );
       jsonp_ulong( gui->http, "pack_already_executed", cur->out.pack_already_executed - prev->out.pack_already_executed );
       jsonp_ulong( gui->http, "pack_retained",       cur->out.pack_retained );
-      jsonp_ulong( gui->http, "pack_wait_full",      cur->out.pack_wait_full      - prev->out.pack_wait_full );
+      jsonp_ulong( gui->http, "pack_wait_full",      0UL );
       jsonp_ulong( gui->http, "pack_leader_slow",    cur->out.pack_leader_slow    - prev->out.pack_leader_slow );
       jsonp_ulong( gui->http, "bank_invalid",        cur->out.bank_invalid        - prev->out.bank_invalid );
       jsonp_ulong( gui->http, "bank_nonce_already_advanced", cur->out.bank_nonce_already_advanced - prev->out.bank_nonce_already_advanced );
@@ -993,16 +993,16 @@ fd_guih_printf_tile_metrics( fd_guih_t *                   gui,
     }
 
     ulong cur_total = 0UL;
-    for( ulong j=0UL; j<FD_METRICS_ENUM_CPU_REGIME_CNT; j++ ) cur_total += cur[ i ].sched_timers[ j ];
+    for( ulong j=0UL; j<FD_METRICS_ENUM_THREAD_REGIME_CNT; j++ ) cur_total += cur[ i ].sched_timers[ j ];
 
     ulong prev_total = 0UL;
-    for( ulong j=0UL; j<FD_METRICS_ENUM_CPU_REGIME_CNT; j++ ) prev_total += prev[ i ].sched_timers[ j ];
+    for( ulong j=0UL; j<FD_METRICS_ENUM_THREAD_REGIME_CNT; j++ ) prev_total += prev[ i ].sched_timers[ j ];
 
     if( FD_UNLIKELY( cur_total==prev_total ) ) {
       jsonp_null( gui->http, NULL );
     } else {
       jsonp_open_array( gui->http, NULL );
-        for (ulong j = 0UL; j<FD_METRICS_ENUM_CPU_REGIME_CNT; j++) {
+        for (ulong j = 0UL; j<FD_METRICS_ENUM_THREAD_REGIME_CNT; j++) {
             double percent       = ((double)(cur[ i ].sched_timers[ j ] - prev[ i ].sched_timers[ j ]) / (double)(cur_total-prev_total)) * 100.0;
             double percent_trunc = (double)((long)(percent * 100.0)) / 100.0;
             jsonp_double( gui->http, NULL, percent_trunc );
@@ -1141,10 +1141,10 @@ fd_guih_printf_health( fd_guih_t * gui ) {
 
   if( FD_LIKELY( diag_tile_idx!=ULONG_MAX ) ) {
     volatile ulong const * metrics = fd_metrics_tile( topo->tiles[ diag_tile_idx ].metrics );
-    bundle_status  = metrics[ MIDX( GAUGE, DIAG, BUNDLE_STATUS  ) ];
-    vote_status    = metrics[ MIDX( GAUGE, DIAG, VOTE_STATUS    ) ];
-    replay_status  = metrics[ MIDX( GAUGE, DIAG, REPLAY_STATUS  ) ];
-    turbine_status = metrics[ MIDX( GAUGE, DIAG, TURBINE_STATUS ) ];
+    bundle_status  = metrics[ MIDX( GAUGE, DIAG, BUNDLE_STATE   ) ];
+    vote_status    = metrics[ MIDX( GAUGE, DIAG, VOTE_STATE     ) ];
+    replay_status  = metrics[ MIDX( GAUGE, DIAG, REPLAY_STATE   ) ];
+    turbine_status = metrics[ MIDX( GAUGE, DIAG, TURBINE_STATE  ) ];
   }
 
   if( FD_UNLIKELY( !gui->summary.is_full_client ) ) {
@@ -1847,10 +1847,10 @@ fd_guih_printf_slot_transactions_request( fd_guih_t * gui,
             default: FD_LOG_ERR(( "unreachable" ));
           }
           jsonp_open_array( gui->http, "slot_schedule_counts" );
-            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->block_results[ i ] );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->block_results[ i ] );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "end_slot_schedule_counts" );
-            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->end_block_results[ i ] );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->end_block_results[ i ] );
           jsonp_close_array( gui->http );
 
           if( FD_LIKELY( lslot->scheduler_stats->pending_smallest->cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_cost", lslot->scheduler_stats->pending_smallest->cus );

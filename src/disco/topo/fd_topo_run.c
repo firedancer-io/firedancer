@@ -147,7 +147,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   tile_run->run( topo, tile );
   if( FD_UNLIKELY( !tile->allow_shutdown ) ) FD_LOG_ERR(( "tile %s:%lu run loop returned", tile->name, tile->kind_id ));
 
-  FD_MGAUGE_SET( TILE, STATUS, 2UL );
+  FD_MGAUGE_SET( TILE, STATE, 2UL );
 }
 
 typedef struct {

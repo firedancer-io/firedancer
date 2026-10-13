@@ -171,33 +171,32 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
     ulong tx_byte_now = 0;
 
     if( 0==strcmp( provider, "xdp" ) ) {
-      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, NET, RX_BUFFER_IDLE ) ];
-      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, NET, RX_BUFFER_BUSY ) ];
-      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, NET, TX_BUFFER_IDLE ) ];
-      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, NET, TX_BUFFER_BUSY ) ];
+      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, NET, RX_BUFFER_FREE ) ];
+      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, NET, RX_BUFFER_USED ) ];
+      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, NET, TX_BUFFER_FREE ) ];
+      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, NET, TX_BUFFER_USED ) ];
 
       rx_ok_now     = metrics[ MIDX( COUNTER, NET, PKT_RX                    ) ];
       rx_byte_now   = metrics[ MIDX( COUNTER, NET, PKT_RX_BYTES              ) ];
-      rx_drop_now   = metrics[ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL     ) ];
-      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, PKT_RX_BACKPRESSURE       ) ];
-      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED      ) ];
-      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCRIPTOR ) ];
-      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL          ) ];
+      rx_drop_now   = metrics[ MIDX( COUNTER, NET, RX_FILL_RING_STALLED      ) ];
+      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED              ) ];
+      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCRIPTOR_DROPPED ) ];
+      /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL_DROPPED          ) ];
       tx_ok_now     = metrics[ MIDX( COUNTER, NET, PKT_TX_COMPLETED          ) ];
-      tx_byte_now   = metrics[ MIDX( COUNTER, NET, PKT_TX_BYTES              ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, NET, PKT_TX_SUBMITTED_BYTES    ) ];
 
     } else if( 0==strcmp( provider, "mlx5" ) ) {
-      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, MLX5, RX_BUFFER_IDLE ) ];
-      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, MLX5, RX_BUFFER_BUSY ) ];
-      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, MLX5, TX_BUFFER_IDLE ) ];
-      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, MLX5, TX_BUFFER_BUSY ) ];
+      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, MLX5, RX_BUFFER_FREE ) ];
+      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, MLX5, RX_BUFFER_USED ) ];
+      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, MLX5, TX_BUFFER_FREE ) ];
+      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, MLX5, TX_BUFFER_USED ) ];
 
       rx_ok_now     = metrics[ MIDX( COUNTER, MLX5, PKT_RX       ) ];
       rx_byte_now   = metrics[ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ];
-      rx_drop_now   = metrics[ MIDX( COUNTER, MLX5, PKT_RX_MALFORMED  ) ];
-      /* */ rx_drop_now += metrics[ MIDX( COUNTER, MLX5, PKT_RX_ROUTE_FAIL ) ];
-      tx_ok_now     = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED ) ];
-      tx_byte_now   = metrics[ MIDX( COUNTER, MLX5, PKT_TX_BYTES     ) ];
+      rx_drop_now   = 0UL;
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) rx_drop_now += metrics[ MIDX( COUNTER, MLX5, PKT_RX_DROPPED )+r ];
+      tx_ok_now     = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED       ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED_BYTES ) ];
     }
 
 

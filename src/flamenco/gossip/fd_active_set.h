@@ -47,11 +47,11 @@ typedef void (*fd_gossip_send_fn)( void *                 ctx,
                                    ulong                  now );
 
 struct fd_active_set_metrics {
-  ulong message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  ulong message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
 
-  ulong crds_tx_push[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong crds_tx_push_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong crds_tx_push[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
+  ulong crds_tx_push_bytes[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
 };
 
 typedef struct fd_active_set_metrics fd_active_set_metrics_t;

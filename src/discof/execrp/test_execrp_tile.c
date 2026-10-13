@@ -400,7 +400,7 @@ FD_UNIT_TEST( execrp_metrics_write ) {
   env->execrp->metrics.txn_check_cum_ticks   = 7UL;
   env->execrp->metrics.txn_exec_cum_ticks    = 11UL;
   env->execrp->metrics.txn_commit_cum_ticks  = 13UL;
-  env->execrp->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX ] = 1UL;
+  env->execrp->metrics.txn_result[ FD_METRICS_ENUM_TXN_RESULT_V_SUCCESS_IDX ]         = 1UL;
   env->execrp->metrics.txn_version[ FD_METRICS_ENUM_TXN_VERSION_V_LEGACY_IDX ]        = 1UL;
   env->execrp->runtime->metrics.cu_cum       = 17UL;
   env->execrp->runtime->metrics.instr_cum    = 23UL;

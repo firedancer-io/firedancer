@@ -101,7 +101,7 @@ after_frag( fd_store_ctx_t *    ctx,
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->data_shreds->b,   FD_SHRED_MIN_SZ, FD_SHRED_MIN_SZ, trusted, fd_ext_pinnable_slice, fd_ext_write_batch );
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->parity_shreds->b, FD_SHRED_MAX_SZ, FD_SHRED_MAX_SZ, trusted, fd_ext_pinnable_slice, fd_ext_write_batch );
 
-  FD_MCNT_INC( STORE, TXN_INSERTED, est_txn_cnt );
+  FD_MCNT_INC( STORE, LEADER_TXN_INSERTED, est_txn_cnt );
 
   /* On receiving the SLOT_COMPLETE in an FEC set, set the block_id of
      the slot to the FEC set's merkle root and release the bank reference.

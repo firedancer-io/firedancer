@@ -29,6 +29,12 @@
 #define STEM_BURST (5UL)
 FD_STATIC_ASSERT( FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE<=STEM_BURST, stem_burst );
 
+/* Raw state values exported by the metrics (states= enums) */
+FD_STATIC_ASSERT( FD_BUNDLE_STATE_DISCONNECTED==FD_METRICS_ENUM_BUNDLE_CONN_STATE_V_DISCONNECTED_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_BUNDLE_STATE_CONNECTING==FD_METRICS_ENUM_BUNDLE_CONN_STATE_V_CONNECTING_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_BUNDLE_STATE_CONNECTED==FD_METRICS_ENUM_BUNDLE_CONN_STATE_V_CONNECTED_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_BUNDLE_STATE_SLEEPING==FD_METRICS_ENUM_BUNDLE_CONN_STATE_V_SLEEPING_IDX, metrics_state );
+
 /* hysteresis thresholds to avoid bouncing (e.g. during forks) */
 #define FD_BUNDLE_SLEEP_THRESHOLD_SLOTS   (450UL)
 #define FD_BUNDLE_WAKE_THRESHOLD_SLOTS    (400UL)
@@ -90,21 +96,20 @@ fd_bundle_tile_maybe_sleep( fd_bundle_tile_t * ctx, long now_ns ) {
 
 static inline void
 metrics_write( fd_bundle_tile_t * ctx ) {
-  FD_MCNT_SET( BUNDLE, TXN_RX,                 ctx->metrics.txn_received_cnt          );
-  FD_MCNT_SET( BUNDLE, BUNDLE_RX,              ctx->metrics.bundle_received_cnt       );
-  FD_MCNT_SET( BUNDLE, PKT_RX,                 ctx->metrics.packet_received_cnt       );
-  FD_MCNT_SET( BUNDLE, PROTOBUF_RX_BYTES,         ctx->metrics.proto_received_bytes      );
-  FD_MCNT_SET( BUNDLE, SHREDSTREAM_HEARTBEAT_SENT, ctx->metrics.shredstream_heartbeat_cnt );
-  FD_MCNT_SET( BUNDLE, PING_ACKED,        ctx->metrics.ping_ack_cnt              );
-  FD_MCNT_SET( BUNDLE, CONN_ERROR_PROTOBUF,         ctx->metrics.decode_fail_cnt           );
-  FD_MCNT_SET( BUNDLE, CONN_ERROR_TRANSPORT,        ctx->metrics.transport_fail_cnt        );
-  FD_MCNT_SET( BUNDLE, CONN_ERROR_NO_FEE_INFO,      ctx->metrics.missing_builder_info_fail_cnt );
-  FD_MGAUGE_SET( BUNDLE, TXN_PENDING,          pending_txn_cnt( ctx->pending_txns )   );
-  FD_MCNT_SET  ( BUNDLE, TXN_BUFFER_FULL,     ctx->metrics.backpressure_drop_cnt );
+  FD_MCNT_SET  ( BUNDLE, TXN_RX,                    ctx->metrics.txn_received_cnt              );
+  FD_MCNT_SET  ( BUNDLE, BUNDLE_RX,                 ctx->metrics.bundle_received_cnt           );
+  FD_MCNT_SET  ( BUNDLE, STANDALONE_TXN_RX,         ctx->metrics.packet_received_cnt           );
+  FD_MCNT_SET  ( BUNDLE, PROTOBUF_RX_BYTES,         ctx->metrics.proto_received_bytes          );
+  FD_MCNT_SET  ( BUNDLE, PING_ACKED,                ctx->metrics.ping_ack_cnt                  );
+  FD_MCNT_SET  ( BUNDLE, CLIENT_FAILED_DECODE,      ctx->metrics.decode_fail_cnt               );
+  FD_MCNT_SET  ( BUNDLE, CLIENT_FAILED_TRANSPORT,   ctx->metrics.transport_fail_cnt            );
+  FD_MCNT_SET  ( BUNDLE, CLIENT_FAILED_NO_FEE_INFO, ctx->metrics.missing_builder_info_fail_cnt );
+  FD_MGAUGE_SET( BUNDLE, TXN_PENDING,               pending_txn_cnt( ctx->pending_txns )       );
+  FD_MCNT_SET  ( BUNDLE, TXN_BUFFER_FULL_DROPPED,   ctx->metrics.backpressure_drop_cnt         );
 
-  FD_MGAUGE_SET( BUNDLE, RTT_SAMPLE_NANOS,   (ulong)ctx->rtt->latest_rtt   );
-  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED_NANOS, (ulong)ctx->rtt->smoothed_rtt );
-  FD_MGAUGE_SET( BUNDLE, RTT_VARIANCE_NANOS, (ulong)ctx->rtt->var_rtt      );
+  FD_MGAUGE_SET( BUNDLE, LAST_RTT_NANOS,      (ulong)ctx->rtt->latest_rtt   );
+  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED_NANOS,  (ulong)ctx->rtt->smoothed_rtt );
+  FD_MGAUGE_SET( BUNDLE, RTT_DEVIATION_NANOS, (ulong)ctx->rtt->var_rtt      );
 
   FD_MHIST_COPY( BUNDLE, MESSAGE_RX_DELAY_NANOS, ctx->metrics.msg_rx_delay );
 
@@ -114,14 +119,14 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( !fd_wksp_usage( wksp, &free_tag, 1UL, usage ) ) ) {
     FD_LOG_ERR(( "fd_wksp_usage failed" )); /* unreachable */
   }
-  FD_MGAUGE_SET( BUNDLE, HEAP_SIZE_BYTES, usage->total_sz );
-  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
+  FD_MGAUGE_SET( BUNDLE, HEAP_CAPACITY_BYTES, usage->total_sz );
+  FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES,     usage->free_sz  );
 
   int status = fd_bundle_client_status( ctx );
   ulong state = (ulong)status;
   if( FD_UNLIKELY( ctx->sleep_mode ) ) state = FD_BUNDLE_STATE_SLEEPING;
 
-  FD_MGAUGE_SET( BUNDLE, STATE, state );
+  FD_MGAUGE_SET( BUNDLE, CONN_STATE, state );
   ctx->bundle_status_recent = (uchar)state;
 }
 

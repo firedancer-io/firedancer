@@ -131,7 +131,7 @@ throttle_remaining_ns( fd_policy_t * policy, fd_forest_t const * forest, fd_fore
   double elapsed_ms = (double)(fd_tickcount() - ele->first_shred_ts) / fd_tempo_tick_per_ns( NULL ) * 1e-6;
   double deadline   = first_ms + (double)DEFER_REPAIR_MS;
   if( elapsed_ms >= deadline ) {
-    FD_MCNT_INC( REPAIR, EAGER_THRESHOLD_EXCEEDED, 1 );
+    FD_MCNT_INC( REPAIR, TURBINE_GRACE_ELAPSED, 1 );
     return 0L;
   }
   return (long)( (deadline - elapsed_ms) * 1e6 );

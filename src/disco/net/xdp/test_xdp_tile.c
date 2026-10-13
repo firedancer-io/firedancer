@@ -492,25 +492,25 @@ main( int     argc,
   /* TX routes to non-XDP or non-Ethernet interfaces count as
      unsupported_interface */
   {
-    ulong * fail_cnt = ctx->net.metrics.tx_route_fail_cnt;
-    ulong   before   = fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ];
+    ulong * fail_cnt = ctx->net.metrics.tx_drop_cnt;
+    ulong   before   = fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
 
     ctx->if_virt = IF_IDX_ETH0;
     FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
-    FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
 
     ctx->if_virt = IF_IDX_ETH1;
     fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
     eth1->dev_type = ARPHRD_NONE;
     FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
-    FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before+2UL );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+2UL );
     eth1->dev_type = ARPHRD_ETHER;
 
     ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ] = {0};
     volatile ulong * saved_metrics = fd_metrics_tl;
     fd_metrics_tl = metrics;
     metrics_write( ctx );
-    FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_NET_PKT_TX_ROUTE_FAIL_UNSUPPORTED_INTERFACE_OFF ]==before+2UL );
+    FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_NET_PKT_TX_DROPPED_UNSUPPORTED_INTERFACE_OFF ]==before+2UL );
     fd_metrics_tl = saved_metrics;
   }
 
@@ -518,8 +518,8 @@ main( int     argc,
      count it as unsupported_interface, while tile 0 must if it lacks
      the loopback XSK. */
   {
-    ulong * fail_cnt = ctx->net.metrics.tx_route_fail_cnt;
-    ulong   before   = fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ];
+    ulong * fail_cnt = ctx->net.metrics.tx_drop_cnt;
+    ulong   before   = fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
     FD_TEST( ctx->xsk_cnt==1U );
 
     ctx->net.tile_cnt = 2UL;
@@ -531,11 +531,11 @@ main( int     argc,
 
     ctx->net.kind_id = 1UL;
     FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
-    FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before );
 
     ctx->net.kind_id = 0UL;
     FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
-    FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
 
     ctx->net.tile_cnt = 1UL;
   }
@@ -938,17 +938,17 @@ main( int     argc,
       fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)( (uchar *)ctx->tx_op.frame + ip_off );
       ip4->verihl = FD_IP4_VERIHL( 4,10 );
       uint  tx_prod_before    = xsk->ring_tx.cached_prod;
-      ulong tx_invalid_before = ctx->net.metrics.tx_invalid_cnt;
+      ulong tx_invalid_before = ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ];
       after_frag( ctx, 0, tx_seq, 0, during_frag_src_sz, 0, 0, NULL );
       FD_TEST( xsk->ring_tx.cached_prod==tx_prod_before );
-      FD_TEST( ctx->net.metrics.tx_invalid_cnt==tx_invalid_before+1UL );
+      FD_TEST( ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]==tx_invalid_before+1UL );
       during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0 );
 
       /* Reject GRE over the outer MTU, then accept the exact boundary. */
       ctx->net.tx_route.mtu = (ushort)(after_frag_expected_sz-sizeof(fd_eth_hdr_t)-1UL);
       after_frag( ctx, 0, tx_seq, 0, during_frag_src_sz, 0, 0, NULL );
       FD_TEST( xsk->ring_tx.cached_prod==tx_prod_before );
-      FD_TEST( ctx->net.metrics.tx_invalid_cnt==tx_invalid_before+2UL );
+      FD_TEST( ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]==tx_invalid_before+2UL );
       during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0 );
       ctx->net.tx_route.mtu++;
     }
@@ -968,7 +968,7 @@ main( int     argc,
   }
 
   /* GRE packets from invalid source dropped before decapsulation */
-  ulong gre_invalid_before = ctx->net.metrics.rx_gre_invalid_cnt;
+  ulong gre_invalid_before = ctx->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_GRE_INVALID_IDX ];
   ulong seq_before         = stem->seqs[0];
 
   FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
@@ -986,13 +986,13 @@ main( int     argc,
 
   int charge_busy = 1;
   before_credit( ctx, stem, &charge_busy );
-  FD_TEST( ctx->net.metrics.rx_gre_invalid_cnt==gre_invalid_before+1UL );
+  FD_TEST( ctx->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_GRE_INVALID_IDX ]==gre_invalid_before+1UL );
   FD_TEST( stem->seqs[0]==seq_before );
 
   /* GRE packets whose inner IP total length overruns the frame are
      dropped after decapsulation */
   {
-    ulong malformed_before = ctx->net.metrics.rx_malformed_cnt;
+    ulong malformed_before = ctx->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ];
     seq_before             = stem->seqs[0];
 
     FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
@@ -1009,7 +1009,7 @@ main( int     argc,
     xdp_rx_ring_prod++;
 
     before_credit( ctx, stem, &charge_busy );
-    FD_TEST( ctx->net.metrics.rx_malformed_cnt==malformed_before+1UL );
+    FD_TEST( ctx->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==malformed_before+1UL );
     FD_TEST( stem->seqs[0]==seq_before );
 
     rx_pkt_gre.inner_ip4.net_tot_len = fd_ushort_bswap( 31 );
@@ -1052,7 +1052,7 @@ main( int     argc,
 
   for( uint test_case=NET_LEN_TOO_SHORT; test_case<INVALIDS_CNT; test_case++ ) {
 
-    ulong malformed_before = ctx->net.metrics.rx_malformed_cnt;
+    ulong malformed_before = ctx->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ];
     ulong seq_before       = stem->seqs[0];
 
     /* Pop frame off FILL ring */
@@ -1074,7 +1074,7 @@ main( int     argc,
     before_credit( ctx, stem, &charge_busy );
 
     /* Verify packet was dropped */
-    FD_TEST( ctx->net.metrics.rx_malformed_cnt == malformed_before + 1 );
+    FD_TEST( ctx->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ] == malformed_before + 1 );
     FD_TEST( stem->seqs[0] == seq_before );  /* No sequence advancement */
   }
 
@@ -1157,11 +1157,10 @@ main( int     argc,
   metrics_write( ctx );
   FD_TEST( FD_MCNT_GET( NET, PKT_RX             )==ctx->net.metrics.rx_pkt_cnt         );
   FD_TEST( FD_MCNT_GET( NET, PKT_RX_BYTES       )==ctx->net.metrics.rx_bytes_total     );
-  FD_TEST( FD_MCNT_GET( NET, PKT_RX_MALFORMED   )==ctx->net.metrics.rx_malformed_cnt   );
-  FD_TEST( FD_MCNT_GET( NET, PKT_RX_ROUTE_FAIL  )==ctx->net.metrics.rx_route_fail_cnt  );
+  for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) {
+    FD_TEST( fd_metrics_tl[ MIDX( COUNTER, NET, PKT_RX_DROPPED )+r ]==ctx->net.metrics.rx_drop_cnt[ r ] );
+  }
   FD_TEST( FD_MCNT_GET( NET, GRE_PKT_RX         )==ctx->net.metrics.rx_gre_cnt         );
-  FD_TEST( FD_MCNT_GET( NET, GRE_PKT_RX_INVALID )==ctx->net.metrics.rx_gre_invalid_cnt );
-  FD_TEST( FD_MCNT_GET( NET, GRE_PKT_RX_IGNORED )==ctx->net.metrics.rx_gre_ignored_cnt );
   fd_metrics_tl = saved_metrics;
 
   /* Recycle the last UMEM frame with XDP_PACKET_HEADROOM. */

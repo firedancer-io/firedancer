@@ -3702,7 +3702,7 @@ explicitly mentioned, skipped slots are not included.
 | pack_already_executed | `number` | Transactions dropped from pack because they were already executed (in either the replay or leader pipeline) |
 | pack_retained         | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
 | pack_leader_slow      | `number` | Transactions were dropped while leader because the bank tiles could not execute them quickly enough, pack will drop the lowest priority transactions first |
-| pack_wait_full        | `number` | Transactions were dropped while we were waiting for our leader slot because we ran out of memory to store them. All incoming transactions are dropped without regard for the priority |
+| pack_wait_full        | `number` | Deprecated, always 0. Pack no longer drops every incoming transaction when full: a higher priority arrival evicts the lowest priority pending transaction (counted in pack_expired), and a lower priority arrival is rejected (counted in pack_leader_slow) |
 | bank_invalid          | `number` | Transactions were dropped because a bank tile could not execute them enough to charge fees. Failed transactions can still pay fees and be included in a block, but invalid transactions do not make it to a block. Reasons can include insufficient fee payer balance, or invalid address lookup tables |
 | block_success         | `number` | Transactions made it into a block, and execution succeeded |
 | block_fail            | `number` | Transactions made it into a block, but execution failed |

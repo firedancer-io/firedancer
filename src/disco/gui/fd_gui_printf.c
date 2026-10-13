@@ -933,7 +933,7 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
       jsonp_ulong( gui->http, "pack_expired",        cur->out.pack_expired        - prev->out.pack_expired );
       jsonp_ulong( gui->http, "pack_already_executed", cur->out.pack_already_executed - prev->out.pack_already_executed );
       jsonp_ulong( gui->http, "pack_retained",       cur->out.pack_retained );
-      jsonp_ulong( gui->http, "pack_wait_full",      cur->out.pack_wait_full      - prev->out.pack_wait_full );
+      jsonp_ulong( gui->http, "pack_wait_full",      0UL );
       jsonp_ulong( gui->http, "pack_leader_slow",    cur->out.pack_leader_slow    - prev->out.pack_leader_slow );
       jsonp_ulong( gui->http, "bank_invalid",        cur->out.bank_invalid        - prev->out.bank_invalid );
       jsonp_ulong( gui->http, "bank_nonce_already_advanced", cur->out.bank_nonce_already_advanced - prev->out.bank_nonce_already_advanced );
@@ -1111,7 +1111,7 @@ fd_gui_printf_tile_metrics( fd_gui_t *                        gui,
       jsonp_null( gui->http, NULL );
     } else {
       jsonp_open_array( gui->http, NULL );
-        for( ulong j=0UL; j<FD_METRICS_ENUM_CPU_REGIME_CNT; j++ ) {
+        for( ulong j=0UL; j<FD_METRICS_ENUM_THREAD_REGIME_CNT; j++ ) {
           jsonp_centi( gui->http, NULL, packed[ t ].sched_timers[ j ] );
         }
       jsonp_close_array( gui->http );
@@ -1243,12 +1243,12 @@ fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
     fd_topo_tile_t const * execrp = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
     volatile ulong const * metrics = fd_metrics_tile( execrp->metrics );
 
-    insertions      += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILL          ) ];
-    insertion_bytes += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILL_BYTES     ) ];
-    evictions       += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTION      ) ];
-    eviction_bytes  += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTION_BYTES ) ];
-    spills          += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILL         ) ];
-    spill_bytes     += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILL_BYTES    ) ];
+    insertions      += fd_metrics_enum_group_sum( metrics+MIDX( COUNTER, EXECRP, PROGCACHE_INSERTED ), FD_METRICS_ENUM_PROGCACHE_CLASS_G_ALL_MASK );
+    insertion_bytes += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_INSERTED_BYTES ) ];
+    evictions       += fd_metrics_enum_group_sum( metrics+MIDX( COUNTER, EXECRP, PROGCACHE_EVICTED  ), FD_METRICS_ENUM_PROGCACHE_CLASS_G_ALL_MASK );
+    eviction_bytes  += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTED_BYTES  ) ];
+    spills          += fd_metrics_enum_group_sum( metrics+MIDX( COUNTER, EXECRP, PROGCACHE_SPILLED  ), FD_METRICS_ENUM_PROGCACHE_CLASS_G_ALL_MASK );
+    spill_bytes     += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILLED_BYTES  ) ];
   }
 
   ulong free_bytes = 0UL;
@@ -1257,8 +1257,8 @@ fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
   if( FD_LIKELY( replay_idx!=ULONG_MAX ) ) {
     volatile ulong const * m0 = fd_metrics_tile( topo->tiles[ replay_idx ].metrics );
     for( ulong c=0UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) {
-      ulong mx = m0[ MIDX( GAUGE, REPLAY, PROGCACHE_CLASS_MAX  ) + c ];
-      ulong us = m0[ MIDX( GAUGE, REPLAY, PROGCACHE_CLASS_USED ) + c ];
+      ulong mx = m0[ MIDX( GAUGE, REPLAY, PROGCACHE_CLASS_CAPACITY ) + c ];
+      ulong us = m0[ MIDX( GAUGE, REPLAY, PROGCACHE_CLASS_USED     ) + c ];
       size_bytes +=  mx       * fd_progcache_cache_slot_sz[ c ];
       free_bytes += (mx - us) * fd_progcache_cache_slot_sz[ c ];
     }
@@ -1398,11 +1398,11 @@ fd_gui_printf_health( fd_gui_t * gui ) {
 
   if( FD_LIKELY( diag_tile_idx!=ULONG_MAX ) ) {
     volatile ulong const * metrics = fd_metrics_tile( topo->tiles[ diag_tile_idx ].metrics );
-    bundle_status  = metrics[ MIDX( GAUGE, DIAG, BUNDLE_STATUS  ) ];
-    vote_status    = metrics[ MIDX( GAUGE, DIAG, VOTE_STATUS    ) ];
-    replay_status  = metrics[ MIDX( GAUGE, DIAG, REPLAY_STATUS  ) ];
-    turbine_status = metrics[ MIDX( GAUGE, DIAG, TURBINE_STATUS ) ];
-    builder_status = metrics[ MIDX( GAUGE, DIAG, BUILDER_STATUS ) ];
+    bundle_status  = metrics[ MIDX( GAUGE, DIAG, BUNDLE_STATE   ) ];
+    vote_status    = metrics[ MIDX( GAUGE, DIAG, VOTE_STATE     ) ];
+    replay_status  = metrics[ MIDX( GAUGE, DIAG, REPLAY_STATE   ) ];
+    turbine_status = metrics[ MIDX( GAUGE, DIAG, TURBINE_STATE  ) ];
+    builder_status = metrics[ MIDX( GAUGE, DIAG, BUILDER_STATE  ) ];
   }
 
   if( FD_UNLIKELY( !gui->summary.is_full_client ) ) {
@@ -2579,10 +2579,10 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
             default: FD_LOG_ERR(( "unreachable" ));
           }
           jsonp_open_array( gui->http, "slot_schedule_counts" );
-            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, scheduler_stats->block_results[ i ] );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT; i++ ) jsonp_ulong( gui->http, NULL, scheduler_stats->block_results[ i ] );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "end_slot_schedule_counts" );
-            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT; i++ ) jsonp_ulong( gui->http, NULL, scheduler_stats->end_block_results[ i ] );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT; i++ ) jsonp_ulong( gui->http, NULL, scheduler_stats->end_block_results[ i ] );
           jsonp_close_array( gui->http );
 
           fd_pack_smallest_t pending_smallest       = *scheduler_stats->pending_smallest;
@@ -3163,14 +3163,14 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
-          long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
-          long ref_egress_push_bps           = (long)ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
-          long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
-          long ref_ingress_push_bps          = (long)ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
-          long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
-          long ref_egress_pull_response_bps  = (long)ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
-          long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
-          long ref_ingress_pull_response_bps = (long)ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
+          long ref_egress_push_bps           = (long)ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
+          long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
+          long ref_ingress_push_bps          = (long)ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
+          long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long ref_egress_pull_response_bps  = (long)ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long ref_ingress_pull_response_bps = (long)ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
 
           if( FD_UNLIKELY( ref->valid && cur_ingress_pull_response_bps!=ref_ingress_pull_response_bps ) ) {
             jsonp_open_object( peers->http, NULL );
@@ -3247,10 +3247,10 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
           FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
           jsonp_string( peers->http, "IP Addr", peer_addr );
 
-          long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
-          long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value;
-          long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
-          long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long cur_egress_push_bps           = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
+          long cur_ingress_push_bps          = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value;
+          long cur_egress_pull_response_bps  = (long)cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
+          long cur_ingress_pull_response_bps = (long)cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value;
 
           jsonp_long  ( peers->http, "Ingress Pull", cur_ingress_pull_response_bps );
           jsonp_long  ( peers->http, "Ingress Push", cur_ingress_push_bps );
@@ -3341,27 +3341,27 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
         jsonp_ulong( peers->http, "expired_count", cur->storage_expired_cnt );
         jsonp_ulong( peers->http, "evicted_count", cur->storage_evicted_cnt );
         jsonp_open_array( peers->http, "count" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_active_cnt[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_active_cnt[ i ] );
         jsonp_close_array( peers->http );
         jsonp_open_array( peers->http, "count_tx" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_cnt_tx[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_cnt_tx[ i ] );
         jsonp_close_array( peers->http );
         jsonp_open_array( peers->http, "bytes_tx" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_bytes_tx[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->storage_bytes_tx[ i ] );
         jsonp_close_array( peers->http );
       jsonp_close_object( peers->http );
       jsonp_open_object( peers->http, "messages" );
         jsonp_open_array( peers->http, "num_bytes_rx" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_bytes_rx[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_bytes_rx[ i ] );
         jsonp_close_array( peers->http );
         jsonp_open_array( peers->http, "num_bytes_tx" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_bytes_tx[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_bytes_tx[ i ] );
         jsonp_close_array( peers->http );
         jsonp_open_array( peers->http, "num_messages_rx" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_count_rx[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_count_rx[ i ] );
         jsonp_close_array( peers->http );
         jsonp_open_array( peers->http, "num_messages_tx" );
-          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_count_tx[ i ] );
+          for( ulong i = 0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT; i++ ) jsonp_ulong( peers->http, NULL, cur->messages_count_tx[ i ] );
         jsonp_close_array( peers->http );
       jsonp_close_object( peers->http );
     jsonp_close_object( peers->http );

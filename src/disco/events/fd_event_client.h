@@ -24,7 +24,7 @@
 #define FD_EVENT_CLIENT_STATE_DISCONNECTED    (0)
 #define FD_EVENT_CLIENT_STATE_CONNECTING      (1)
 #define FD_EVENT_CLIENT_STATE_AUTHENTICATING  (2)
-#define FD_EVENT_CLIENT_STATE_CONNECTED       (4)
+#define FD_EVENT_CLIENT_STATE_CONNECTED       (3)
 
 struct fd_event_client;
 typedef struct fd_event_client fd_event_client_t;

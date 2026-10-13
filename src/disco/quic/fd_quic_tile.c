@@ -148,55 +148,58 @@ next_deadline( fd_quic_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_quic_ctx_t * ctx ) {
-  FD_MCNT_SET  ( QUIC, TXN_RX_UDP,             ctx->metrics.txns_received_udp );
-  FD_MCNT_SET  ( QUIC, TXN_RX_QUIC_FAST,       ctx->metrics.txns_received_quic_fast );
-  FD_MCNT_SET  ( QUIC, TXN_RX_QUIC_FRAG,       ctx->metrics.txns_received_quic_frag );
-  FD_MCNT_SET  ( QUIC, FRAG_RX,                ctx->metrics.frag_ok_cnt );
-  FD_MCNT_SET  ( QUIC, FRAG_GAP,               ctx->metrics.frag_gap_cnt );
-  FD_MCNT_SET  ( QUIC, FRAG_DUPLICATE,         ctx->metrics.frag_dup_cnt );
-  FD_MCNT_SET  ( QUIC, TXN_OVERRUN,            ctx->metrics.reasm_overrun );
-  FD_MCNT_SET  ( QUIC, TXN_ABANDONED,          ctx->metrics.reasm_abandoned );
-  FD_MCNT_SET  ( QUIC, TXN_REASSEMBLY_STARTED, ctx->metrics.reasm_started );
-  FD_MGAUGE_SET( QUIC, TXN_REASSEMBLY_ACTIVE,  (ulong)fd_long_max( ctx->metrics.reasm_active, 0L ) );
+  FD_MCNT_SET  ( QUIC, TXN_RX_UDP,                       ctx->metrics.txns_received_udp );
+  FD_MCNT_SET  ( QUIC, TXN_RX_QUIC_FAST,                 ctx->metrics.txns_received_quic_fast );
+  FD_MCNT_SET  ( QUIC, TXN_RX_QUIC_FRAG,                 ctx->metrics.txns_received_quic_frag );
+  FD_MCNT_SET  ( QUIC, TXN_REASSEMBLY_CHUNK_RX,          ctx->metrics.frag_ok_cnt );
+  FD_MCNT_SET  ( QUIC, TXN_REASSEMBLY_GAP_DROPPED,       ctx->metrics.frag_gap_cnt );
+  FD_MCNT_SET  ( QUIC, TXN_REASSEMBLY_DUPLICATE_DROPPED, ctx->metrics.frag_dup_cnt );
+  FD_MCNT_SET  ( QUIC, TXN_REASSEMBLY_EVICTED,           ctx->metrics.reasm_overrun );
+  FD_MCNT_SET  ( QUIC, TXN_REASSEMBLY_ABANDONED,         ctx->metrics.reasm_abandoned );
+  FD_MCNT_SET  ( QUIC, TXN_REASSEMBLY_STARTED,           ctx->metrics.reasm_started );
+  FD_MGAUGE_SET( QUIC, TXN_REASSEMBLY_PENDING,           (ulong)fd_long_max( ctx->metrics.reasm_active, 0L ) );
 
-  FD_MCNT_SET( QUIC, LEGACY_TXN_UNDERSIZE, ctx->metrics.udp_pkt_too_small );
-  FD_MCNT_SET( QUIC, LEGACY_TXN_OVERSIZE,  ctx->metrics.udp_pkt_too_large );
-  FD_MCNT_SET( QUIC, TXN_UNDERSIZE,        ctx->metrics.quic_txn_too_small );
-  FD_MCNT_SET( QUIC, TXN_OVERSIZE,         ctx->metrics.quic_txn_too_large );
+  FD_MCNT_SET( QUIC, UDP_TXN_UNDERSIZE_DROPPED, ctx->metrics.udp_pkt_too_small );
+  FD_MCNT_SET( QUIC, UDP_TXN_OVERSIZE_DROPPED,  ctx->metrics.udp_pkt_too_large );
+  FD_MCNT_SET( QUIC, TXN_UNDERSIZE_DROPPED,     ctx->metrics.quic_txn_too_small );
+  FD_MCNT_SET( QUIC, TXN_OVERSIZE_DROPPED,      ctx->metrics.quic_txn_too_large );
 
   FD_MCNT_SET(   QUIC, PKT_RX,           ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, PKT_RX_BYTES,     ctx->quic->metrics.net_rx_byte_cnt );
   FD_MCNT_SET(   QUIC, PKT_TX,           ctx->quic->metrics.net_tx_pkt_cnt );
   FD_MCNT_SET(   QUIC, PKT_TX_BYTES,     ctx->quic->metrics.net_tx_byte_cnt );
-  FD_MCNT_SET(   QUIC, PKT_TX_RETRY,     ctx->quic->metrics.retry_tx_cnt );
-
-  FD_MGAUGE_ENUM_COPY( QUIC, CONN_STATE, ctx->quic->metrics.conn_state_cnt );
-  FD_MGAUGE_SET( QUIC, CONN_IN_USE,  ctx->quic->metrics.conn_alloc_cnt );
-  FD_MCNT_SET(   QUIC, CONN_CREATED, ctx->quic->metrics.conn_created_cnt );
-  FD_MCNT_SET(   QUIC, CONN_CLOSED,  ctx->quic->metrics.conn_closed_cnt );
-  FD_MCNT_SET(   QUIC, CONN_ABORTED, ctx->quic->metrics.conn_aborted_cnt );
+  FD_MCNT_SET(   QUIC, RETRY_PKT_TX,     ctx->quic->metrics.retry_tx_cnt );
+  FD_MGAUGE_ENUM_COPY( QUIC, CONN_USED, (ctx->quic->metrics.conn_state_cnt+1) ); /* skip FD_QUIC_CONN_STATE_INVALID (free slots) */
+  FD_MGAUGE_SET( QUIC, CONN_FREE,     ctx->quic->limits.conn_cnt-ctx->quic->metrics.conn_alloc_cnt );
+  FD_MGAUGE_SET( QUIC, CONN_CAPACITY, ctx->quic->limits.conn_cnt );
+  FD_MCNT_SET(   QUIC, CONN_CREATED,  ctx->quic->metrics.conn_created_cnt );
+  FD_MCNT_SET(   QUIC, CONN_CLOSED,   ctx->quic->metrics.conn_closed_cnt );
+  FD_MCNT_SET(   QUIC, CONN_ABORTED,  ctx->quic->metrics.conn_aborted_cnt );
   FD_MCNT_SET(   QUIC, CONN_TIMED_OUT, ctx->quic->metrics.conn_timeout_cnt );
   FD_MCNT_SET(   QUIC, CONN_RETRIED, ctx->quic->metrics.conn_retry_cnt );
 
-  FD_MCNT_SET(   QUIC, CONN_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
-  FD_MCNT_SET(   QUIC, CONN_ERROR_RETRY_FAILED, ctx->quic->metrics.conn_err_retry_fail_cnt );
+  FD_MCNT_SET(   QUIC, CONN_NO_SLOT_REJECTED, ctx->quic->metrics.conn_err_no_slots_cnt );
+  FD_MCNT_SET(   QUIC, CONN_RETRY_REJECTED,   ctx->quic->metrics.conn_err_retry_fail_cnt );
 
-  FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED,   ctx->quic->metrics.pkt_decrypt_fail_cnt );
-  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,          ctx->quic->metrics.pkt_no_key_cnt );
-  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_CONN,         ctx->quic->metrics.pkt_no_conn_cnt );
-  FD_MCNT_SET(       QUIC, PKT_SRC_INVALID,     ctx->quic->metrics.pkt_wrong_src_cnt );
-  FD_MCNT_ENUM_COPY( QUIC, FRAME_META_ACQUIRED,        ctx->quic->metrics.frame_tx_alloc_cnt );
-  FD_MCNT_SET(       QUIC, PKT_NET_HEADER_INVALID,  ctx->quic->metrics.pkt_net_hdr_err_cnt );
-  FD_MCNT_SET(       QUIC, PKT_HEADER_INVALID, ctx->quic->metrics.pkt_quic_hdr_err_cnt );
-  FD_MCNT_SET(       QUIC, PKT_UNDERSIZE,       ctx->quic->metrics.pkt_undersz_cnt );
-  FD_MCNT_SET(       QUIC, PKT_OVERSIZE,        ctx->quic->metrics.pkt_oversz_cnt );
-  FD_MCNT_SET(       QUIC, PKT_RX_VERSION_NEGOTIATION, ctx->quic->metrics.pkt_verneg_cnt );
-  FD_MCNT_ENUM_COPY( QUIC, PKT_TX_RETRANSMITTED,   ctx->quic->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_DECRYPT_FAILED,  ctx->quic->metrics.pkt_decrypt_fail_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY_DROPPED,  ctx->quic->metrics.pkt_no_key_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_CONN_DROPPED, ctx->quic->metrics.pkt_no_conn_cnt );
+  ulong pkt_drop[ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_CNT ] = {
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_UNDERSIZE_IDX            ] = ctx->quic->metrics.pkt_undersz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_OVERSIZE_IDX             ] = ctx->quic->metrics.pkt_oversz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_SRC_IP_MISMATCH_IDX      ] = ctx->quic->metrics.pkt_wrong_src_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX       ] = ctx->quic->metrics.pkt_quic_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX   ] = ctx->quic->metrics.pkt_net_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX  ] = ctx->quic->metrics.pkt_verneg_cnt,
+  };
+  FD_MCNT_ENUM_COPY( QUIC, PKT_DROPPED, pkt_drop );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_META_ACQUIRE_ATTEMPTED,        ctx->quic->metrics.frame_tx_alloc_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_RETRANSMITTED,   ctx->quic->metrics.pkt_retransmissions_cnt );
   FD_MCNT_ENUM_COPY( QUIC, INITIAL_PKT_RX, ctx->quic->metrics.initial_token_len_cnt );
 
-  FD_MCNT_SET(   QUIC, HANDSHAKE_CREATED,          ctx->quic->metrics.hs_created_cnt );
-  FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
-  FD_MCNT_SET(   QUIC, HANDSHAKE_EVICTED,          ctx->quic->metrics.hs_evicted_cnt );
+  FD_MCNT_SET(   QUIC, HANDSHAKE_CREATED,            ctx->quic->metrics.hs_created_cnt );
+  FD_MCNT_SET(   QUIC, HANDSHAKE_POOL_FULL_REJECTED, ctx->quic->metrics.hs_err_alloc_fail_cnt );
+  FD_MCNT_SET(   QUIC, HANDSHAKE_EVICTED,            ctx->quic->metrics.hs_evicted_cnt );
 
   FD_MCNT_SET(  QUIC, STREAM_RX,       ctx->quic->metrics.stream_rx_event_cnt );
   FD_MCNT_SET(  QUIC, STREAM_RX_BYTES, ctx->quic->metrics.stream_rx_byte_cnt );
@@ -204,10 +207,10 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( QUIC, FRAME_RX,  ctx->quic->metrics.frame_rx_cnt );
   FD_MCNT_SET      ( QUIC, FRAME_PARSE_FAILED, ctx->quic->metrics.frame_rx_err_cnt );
 
-  FD_MCNT_ENUM_COPY( QUIC, ACK_TX, ctx->quic->metrics.ack_tx );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_ACK_PROCESSED, ctx->quic->metrics.ack_tx );
 
-  FD_MHIST_COPY( QUIC, SERVICE_DURATION_SECONDS, ctx->quic->metrics.service_duration );
-  FD_MHIST_COPY( QUIC, RX_DURATION_SECONDS, ctx->quic->metrics.receive_duration );
+  FD_MHIST_COPY( QUIC, SERVICE_DURATION_NANOS, ctx->quic->metrics.service_duration );
+  FD_MHIST_COPY( QUIC, PKT_RX_DURATION_NANOS, ctx->quic->metrics.receive_duration );
 }
 
 static int
@@ -639,8 +642,8 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   /* Call new/join here rather than in fd_quic so min/max can differ across uses */
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.service_duration, FD_MHIST_EDGES_NS( QUIC, SERVICE_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.receive_duration, FD_MHIST_EDGES_NS( QUIC, RX_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.service_duration, FD_MHIST_EDGES_NS( QUIC, SERVICE_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.receive_duration, FD_MHIST_EDGES_NS( QUIC, PKT_RX_DURATION_NANOS ) ) );
 }
 
 static ulong

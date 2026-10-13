@@ -7,6 +7,7 @@
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
+#include "../../disco/fd_clock_tile.h"
 
 /* Microblocks per slot at the production shred limit; scaled with
    max_shreds_per_block at runtime. */
@@ -542,7 +543,8 @@ fd_block_footer_t const *
 fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx );
 
 void
-fd_sched_metrics_write( fd_sched_t * sched );
+fd_sched_metrics_write( fd_sched_t *            sched,
+                        fd_clock_tile_t const * clock );
 
 /* Serialize the current state as a cstr to the returned buffer.  Caller
    may read from the buffer until the next invocation of any fd_sched
