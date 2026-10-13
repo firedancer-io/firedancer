@@ -13,6 +13,7 @@
 #include "../../discof/fd_startup.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/events/fd_event_runtime.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include <time.h>
@@ -117,6 +118,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
   l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  if( tile->execle.report_runtime_diffs ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_event_runtime_bundle_t), sizeof(fd_event_runtime_bundle_t) );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -556,7 +560,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
     if( failed_idx!=ULONG_MAX ) continue;
 
+    int is_bundle_captured = fd_event_runtime_bundle_captured( txn_in );
+    if( FD_UNLIKELY( is_bundle_captured ) ) fd_event_runtime_bundle_txn_prepare( txn_in, txn_out );
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
+    if( FD_UNLIKELY( is_bundle_captured ) ) fd_event_runtime_bundle_txn_capture( txn_in, txn_out, bank );
 
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) failed_idx = i;
@@ -783,6 +790,10 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
   void * pc_scratch      = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  fd_event_runtime_bundle_t * event_capture = NULL;
+  if( tile->execle.report_runtime_diffs ) {
+    event_capture = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_runtime_bundle_t), sizeof(fd_event_runtime_bundle_t) );
+  }
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -817,7 +828,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->accdb );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
-    ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
+    ctx->txn_in[ i ].bundle.prev_txn_cnt  = i;
+    ctx->txn_in[ i ].bundle.event_capture = event_capture;
     for( ulong j=0UL; j<i; j++ ) ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
   }
 

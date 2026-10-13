@@ -21,7 +21,63 @@
 
 extern FD_TL fd_event_reporter_t * fd_event_runtime_diff_tl;
 
+#define FD_EVENT_RUNTIME_BUNDLE_DIFF_MAX (64UL)
+
+struct fd_event_runtime_bundle_stake {
+  fd_pubkey_t      pubkey;
+  int              remove;
+  fd_stake_state_t state;
+};
+typedef struct fd_event_runtime_bundle_stake fd_event_runtime_bundle_stake_t;
+
+struct fd_event_runtime_bundle_carry {
+  fd_txn_out_t * owner;
+  ulong          owner_idx;
+  ulong          idx;
+  uchar          touched;
+};
+typedef struct fd_event_runtime_bundle_carry fd_event_runtime_bundle_carry_t;
+
+struct fd_event_runtime_bundle_txn {
+  fd_txn_out_t const *                 txn_out;
+  ulong                                diff_cnt;
+  fd_event_runtime_txn_account_diffs_t diff[ FD_EVENT_RUNTIME_BUNDLE_DIFF_MAX ];
+  ulong                                stake_cnt;
+  fd_event_runtime_bundle_stake_t      stake[ MAX_TX_ACCOUNT_LOCKS ];
+  ulong                                carry_cnt;
+  fd_event_runtime_bundle_carry_t      carry[ MAX_TX_ACCOUNT_LOCKS ];
+};
+typedef struct fd_event_runtime_bundle_txn fd_event_runtime_bundle_txn_t;
+
+struct fd_event_runtime_bundle_acct {
+  fd_acc_t const * acc;
+  int              has_delegation;
+  uchar            hash[ 32 ];
+};
+typedef struct fd_event_runtime_bundle_acct fd_event_runtime_bundle_acct_t;
+
+struct fd_event_runtime_bundle {
+  fd_event_runtime_bundle_txn_t  txn[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  ulong                          acct_cnt;
+  fd_event_runtime_bundle_acct_t acct[ FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS ];
+};
+typedef struct fd_event_runtime_bundle fd_event_runtime_bundle_t;
+
 FD_PROTOTYPES_BEGIN
+
+static inline int
+fd_event_runtime_bundle_captured( fd_txn_in_t const * txn_in ) {
+  return txn_in->bundle.is_bundle && !!txn_in->bundle.event_capture;
+}
+
+void
+fd_event_runtime_bundle_txn_prepare( fd_txn_in_t  const * txn_in,
+                                     fd_txn_out_t const * txn_out );
+
+void
+fd_event_runtime_bundle_txn_capture( fd_txn_in_t const * txn_in,
+                                     fd_txn_out_t *      txn_out,
+                                     fd_bank_t   const * bank );
 
 static inline int
 fd_event_txn_err_from_txn_err( int err ) {

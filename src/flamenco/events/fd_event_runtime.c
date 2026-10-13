@@ -21,6 +21,12 @@ FD_STATIC_ASSERT( sizeof(fd_event_runtime_vote_write_t      )<=FD_EVENT_RUNTIME_
     fd_event_tl = _tl;                                                \
   } while(0)
 
+static void
+stake_delegation_txn_emit( fd_txn_in_t      const * txn_in,
+                           fd_bank_t        const * bank,
+                           fd_pubkey_t      const * pubkey,
+                           fd_stake_state_t const * stake_state );
+
 void
 fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
                            fd_txn_out_t const * txn_out,
@@ -89,30 +95,47 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
 
   /* account_diffs: the accounts this transaction stores */
+  fd_event_runtime_bundle_txn_t * bundle_txn = NULL;
+  if( FD_UNLIKELY( fd_event_runtime_bundle_captured( txn_in ) ) ) {
+    bundle_txn = &txn_in->bundle.event_capture->txn[ txn_in->bundle.prev_txn_cnt ];
+    if( FD_UNLIKELY( bundle_txn->txn_out!=txn_out ) ) bundle_txn = NULL;
+  }
   ulong diff_cnt = 0UL;
-  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    if( diff_cnt>=64UL ) break;
-    fd_acc_t const * acc = txn_out->accounts.account[ i ];
-    if( FD_UNLIKELY( !acc ) ) continue;
-    if( !txn_out->accounts.is_writable[ i ] ) continue;
+  if( FD_UNLIKELY( bundle_txn ) ) {
+    if( FD_LIKELY( txn_out->err.is_committable && !txn_out->err.txn_err ) ) {
+      for( ulong j=0UL; j<bundle_txn->stake_cnt; j++ ) {
+        fd_event_runtime_bundle_stake_t const * st = &bundle_txn->stake[ j ];
+        stake_delegation_txn_emit( txn_in, bank, &st->pubkey, st->remove ? NULL : &st->state );
+      }
+    }
+    diff_cnt = bundle_txn->diff_cnt;
+    fd_memcpy( ev.account_diffs, bundle_txn->diff, diff_cnt*sizeof(fd_event_runtime_txn_account_diffs_t) );
+    bundle_txn->txn_out = NULL;
+  } else {
+    for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
+      if( diff_cnt>=64UL ) break;
+      fd_acc_t const * acc = txn_out->accounts.account[ i ];
+      if( FD_UNLIKELY( !acc ) ) continue;
+      if( !txn_out->accounts.is_writable[ i ] ) continue;
 
-    if( !acc->commit ) continue;
-    if( !txn_out->err.txn_err && !txn_out->accounts.touched[ i ] ) continue;
-    if( !acc->lamports && !acc->prior_lamports ) continue;
+      if( !acc->commit ) continue;
+      if( !txn_out->err.txn_err && !txn_out->accounts.touched[ i ] ) continue;
+      if( !acc->lamports && !acc->prior_lamports ) continue;
 
-    fd_event_runtime_txn_account_diffs_t * d = &ev.account_diffs[ diff_cnt++ ];
-    fd_memcpy( d->pubkey,     txn_out->accounts.keys[ i ].uc, 32UL );
-    fd_memcpy( d->owner,      acc->owner,                     32UL );
-    fd_memcpy( d->prev_owner, acc->prior_owner,               32UL );
-    d->lamports      = acc->lamports;
-    d->prev_lamports = acc->prior_lamports;
-    d->data_sz       = acc->data_len;
-    d->prev_data_sz  = acc->prior_data_len;
-    d->is_executable   = !!acc->executable;
-    d->is_stake_update = !!txn_out->accounts.stake_update[ i ];
-    d->is_vote_update  = !!txn_out->accounts.vote_update [ i ];
-    d->is_new_vote     = !!txn_out->accounts.new_vote    [ i ];
-    d->is_rm_vote      = !!txn_out->accounts.rm_vote     [ i ];
+      fd_event_runtime_txn_account_diffs_t * d = &ev.account_diffs[ diff_cnt++ ];
+      fd_memcpy( d->pubkey,     txn_out->accounts.keys[ i ].uc, 32UL );
+      fd_memcpy( d->owner,      acc->owner,                     32UL );
+      fd_memcpy( d->prev_owner, acc->prior_owner,               32UL );
+      d->lamports      = acc->lamports;
+      d->prev_lamports = acc->prior_lamports;
+      d->data_sz       = acc->data_len;
+      d->prev_data_sz  = acc->prior_data_len;
+      d->is_executable   = !!acc->executable;
+      d->is_stake_update = !!txn_out->accounts.stake_update[ i ];
+      d->is_vote_update  = !!txn_out->accounts.vote_update [ i ];
+      d->is_new_vote     = !!txn_out->accounts.new_vote    [ i ];
+      d->is_rm_vote      = !!txn_out->accounts.rm_vote     [ i ];
+    }
   }
   ev.account_diffs_cnt = diff_cnt;
 
@@ -148,11 +171,190 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   fd_event_report_runtime_txn( &ev );
 }
 
+FD_STATIC_ASSERT( FD_EVENT_RUNTIME_BUNDLE_DIFF_MAX==sizeof(((fd_event_runtime_txn_t *)0)->account_diffs)/sizeof(fd_event_runtime_txn_account_diffs_t), bundle_diff_max );
+
+static int
+bundle_has_delegation( ulong         lamports,
+                       uchar const * owner,
+                       uchar const * data,
+                       ulong         data_len ) {
+  if( !lamports || memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) ) return 0;
+  fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_len );
+  return stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE;
+}
+
+static void
+bundle_acct_hash( uchar *       hash,
+                  ulong         lamports,
+                  int           executable,
+                  ulong         data_len,
+                  uchar const * owner,
+                  uchar const * data ) {
+  fd_blake3_t b3[1];
+  fd_blake3_init( b3 );
+  fd_blake3_append( b3, &lamports,   sizeof(ulong) );
+  fd_blake3_append( b3, &executable, sizeof(int)   );
+  fd_blake3_append( b3, &data_len,   sizeof(ulong) );
+  fd_blake3_append( b3, owner,       32UL          );
+  fd_blake3_append( b3, data,        data_len      );
+  fd_blake3_fini( b3, hash );
+}
+
+#define BUNDLE_STAKE_NONE   (0)
+#define BUNDLE_STAKE_UPSERT (1)
+#define BUNDLE_STAKE_REMOVE (2)
+
+static int
+bundle_stake_action( fd_bank_t const *        bank,
+                     fd_stake_state_t const * stake_state,
+                     int                      prior_has_delegation,
+                     int                      account_changed ) {
+  if( !stake_state || stake_state->stake_type!=FD_STAKE_STATE_STAKE ) {
+    return prior_has_delegation ? BUNDLE_STAKE_REMOVE : BUNDLE_STAKE_NONE;
+  }
+  if( prior_has_delegation && !account_changed ) return BUNDLE_STAKE_NONE;
+
+  if( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) ) {
+    fd_stake_history_t         stake_history_[1];
+    fd_stake_history_t const * stake_history     = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+    int                        use_fp_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
+    ulong                      warmup_epoch      = bank->f.warmup_cooldown_rate_epoch;
+    fd_delegation_t const *    delegation        = &stake_state->stake.stake.delegation;
+    if( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &warmup_epoch, use_fp_stake_math ) &&
+        fd_delegation_is_inactive( delegation, fd_ulong_sat_sub( bank->f.epoch, 1UL ), stake_history, &warmup_epoch, use_fp_stake_math ) ) {
+      return BUNDLE_STAKE_REMOVE;
+    }
+  }
+
+  return BUNDLE_STAKE_UPSERT;
+}
+
 void
-fd_event_runtime_stake_delegation_emit( fd_txn_in_t      const * txn_in,
-                                        fd_bank_t        const * bank,
-                                        fd_pubkey_t      const * pubkey,
-                                        fd_stake_state_t const * stake_state ) {
+fd_event_runtime_bundle_txn_prepare( fd_txn_in_t  const * txn_in,
+                                     fd_txn_out_t const * txn_out ) {
+  fd_event_runtime_bundle_t * capture = txn_in->bundle.event_capture;
+  ulong                       idx     = txn_in->bundle.prev_txn_cnt;
+  FD_TEST( capture && idx<FD_PACK_MAX_TXN_PER_BUNDLE );
+  if( !idx ) capture->acct_cnt = 0UL;
+
+  fd_event_runtime_bundle_txn_t * t = &capture->txn[ idx ];
+  t->txn_out   = NULL;
+  t->diff_cnt  = 0UL;
+  t->stake_cnt = 0UL;
+  t->carry_cnt = 0UL;
+
+  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
+    for( ulong p=idx; p>0UL; p-- ) {
+      fd_txn_out_t * owner = txn_in->bundle.prev_txn_outs[ p-1UL ];
+      ulong k = 0UL;
+      while( k<owner->accounts.cnt &&
+             !( owner->accounts.account_acquired[ k ] && fd_pubkey_eq( &owner->accounts.keys[ k ], &txn_out->accounts.keys[ i ] ) ) ) k++;
+      if( k==owner->accounts.cnt ) continue;
+
+      fd_event_runtime_bundle_carry_t * c = &t->carry[ t->carry_cnt++ ];
+      c->owner     = owner;
+      c->owner_idx = k;
+      c->idx       = i;
+      c->touched   = owner->accounts.touched[ k ];
+      owner->accounts.touched[ k ] = 0;
+      break;
+    }
+  }
+}
+
+void
+fd_event_runtime_bundle_txn_capture( fd_txn_in_t const * txn_in,
+                                     fd_txn_out_t *      txn_out,
+                                     fd_bank_t   const * bank ) {
+  fd_event_runtime_bundle_t *     capture = txn_in->bundle.event_capture;
+  fd_event_runtime_bundle_txn_t * t       = &capture->txn[ txn_in->bundle.prev_txn_cnt ];
+  t->txn_out = txn_out;
+
+  if( FD_LIKELY( !txn_out->err.txn_err && txn_out->err.is_committable ) ) {
+    for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
+      fd_acc_t const * acc = txn_out->accounts.account[ i ];
+      if( FD_UNLIKELY( !acc ) ) continue;
+      if( !txn_out->accounts.is_writable[ i ] || !txn_out->accounts.touched[ i ] ) continue;
+
+      int is_stake = !memcmp( acc->owner, fd_solana_stake_program_id.uc, 32UL );
+      int is_vote  = !is_stake && !memcmp( acc->owner, fd_solana_vote_program_id.uc, 32UL );
+
+      ulong prior_lamports = txn_out->accounts.starting_lamports[ i ];
+      if( t->diff_cnt<FD_EVENT_RUNTIME_BUNDLE_DIFF_MAX && ( acc->lamports || prior_lamports ) ) {
+        fd_event_runtime_txn_account_diffs_t * d = &t->diff[ t->diff_cnt++ ];
+        fd_memcpy( d->pubkey,     txn_out->accounts.keys[ i ].uc,           32UL );
+        fd_memcpy( d->owner,      acc->owner,                               32UL );
+        fd_memcpy( d->prev_owner, txn_out->accounts.starting_owner[ i ].uc, 32UL );
+        d->lamports        = acc->lamports;
+        d->prev_lamports   = prior_lamports;
+        d->data_sz         = acc->data_len;
+        d->prev_data_sz    = txn_out->accounts.starting_data_len[ i ];
+        d->is_executable   = !!acc->executable;
+        d->is_stake_update = is_stake;
+        d->is_vote_update  = is_vote;
+        d->is_new_vote     = !!txn_out->accounts.new_vote[ i ];
+        d->is_rm_vote      = !!txn_out->accounts.rm_vote [ i ];
+      }
+
+      fd_event_runtime_bundle_acct_t * prior = NULL;
+      for( ulong j=0UL; j<capture->acct_cnt; j++ ) {
+        if( capture->acct[ j ].acc==acc ) { prior = &capture->acct[ j ]; break; }
+      }
+
+      if( is_stake ) {
+        int   prior_has_delegation;
+        uchar prior_hash[ 32 ];
+        if( prior ) {
+          prior_has_delegation = prior->has_delegation;
+          fd_memcpy( prior_hash, prior->hash, 32UL );
+        } else {
+          prior_has_delegation = bundle_has_delegation( acc->prior_lamports, acc->prior_owner, acc->prior_data, acc->prior_data_len );
+          if( prior_has_delegation ) {
+            bundle_acct_hash( prior_hash, acc->prior_lamports, acc->prior_executable, acc->prior_data_len, acc->prior_owner, acc->prior_data );
+          }
+        }
+
+        fd_stake_state_t const * stake_state = fd_stakes_get_state( acc );
+        int account_changed = 1;
+        if( prior_has_delegation && stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
+          uchar hash[ 32 ];
+          bundle_acct_hash( hash, acc->lamports, acc->executable, acc->data_len, acc->owner, acc->data );
+          account_changed = !!memcmp( hash, prior_hash, 32UL );
+        }
+
+        int action = bundle_stake_action( bank, stake_state, prior_has_delegation, account_changed );
+        if( action!=BUNDLE_STAKE_NONE ) {
+          fd_event_runtime_bundle_stake_t * st = &t->stake[ t->stake_cnt++ ];
+          st->pubkey = txn_out->accounts.keys[ i ];
+          st->remove = action==BUNDLE_STAKE_REMOVE;
+          if( !st->remove ) st->state = *stake_state;
+        }
+      }
+
+      if( !prior ) {
+        FD_TEST( capture->acct_cnt<sizeof(capture->acct)/sizeof(capture->acct[0]) );
+        prior      = &capture->acct[ capture->acct_cnt++ ];
+        prior->acc = acc;
+      }
+      prior->has_delegation = bundle_has_delegation( acc->lamports, acc->owner, acc->data, acc->data_len );
+      if( prior->has_delegation ) {
+        bundle_acct_hash( prior->hash, acc->lamports, acc->executable, acc->data_len, acc->owner, acc->data );
+      }
+    }
+  }
+
+  for( ulong j=0UL; j<t->carry_cnt; j++ ) {
+    fd_event_runtime_bundle_carry_t const * c = &t->carry[ j ];
+    c->owner->accounts.touched[ c->owner_idx ] = c->touched;
+    if( !c->owner->accounts.account_acquired[ c->owner_idx ] ) txn_out->accounts.touched[ c->idx ] |= c->touched;
+  }
+}
+
+static void
+stake_delegation_txn_emit( fd_txn_in_t      const * txn_in,
+                           fd_bank_t        const * bank,
+                           fd_pubkey_t      const * pubkey,
+                           fd_stake_state_t const * stake_state ) {
   if( FD_LIKELY( !fd_event_tl ) ) return;
   if( FD_UNLIKELY( !txn_in || !txn_in->txn || !bank ) ) return;
 
@@ -181,6 +383,15 @@ fd_event_runtime_stake_delegation_emit( fd_txn_in_t      const * txn_in,
   }
 
   fd_event_report_runtime_stake_delegation( &ev );
+}
+
+void
+fd_event_runtime_stake_delegation_emit( fd_txn_in_t      const * txn_in,
+                                        fd_bank_t        const * bank,
+                                        fd_pubkey_t      const * pubkey,
+                                        fd_stake_state_t const * stake_state ) {
+  if( FD_UNLIKELY( txn_in && fd_event_runtime_bundle_captured( txn_in ) ) ) return;
+  stake_delegation_txn_emit( txn_in, bank, pubkey, stake_state );
 }
 
 static void
