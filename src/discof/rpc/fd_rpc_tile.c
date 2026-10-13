@@ -3269,8 +3269,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb_join, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
 
-  fd_histf_join( fd_histf_new( ctx->request_duration, FD_MHIST_SECONDS_MIN( RPC, REQUEST_DURATION_SECONDS ),
-                                                      FD_MHIST_SECONDS_MAX( RPC, REQUEST_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->request_duration, FD_MHIST_EDGES_NS( RPC, REQUEST_DURATION_SECONDS ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

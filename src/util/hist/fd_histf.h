@@ -42,6 +42,29 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST static inline ulong fd_histf_align    ( void ) { return FD_HISTF_ALIGN;     }
 FD_FN_CONST static inline ulong fd_histf_footprint( void ) { return FD_HISTF_FOOTPRINT; }
 
+/* fd_histf_new_edges is fd_histf_new with caller supplied bucket
+   edges.  edges[i] is the left edge of bucket i+1, so bucket 0 is
+   [ 0, edges[0] ) and bucket 15 is [ edges[14], inf ).  Edges must be
+   nonzero and strictly increasing.  Returns NULL on bad edges. */
+
+static inline void *
+fd_histf_new_edges( void *      mem,
+                    ulong const edges[ FD_HISTF_BUCKET_CNT-1UL ] ) {
+  if( FD_UNLIKELY( !edges[ 0 ] ) ) return NULL;
+  for( ulong i=1UL; i<(FD_HISTF_BUCKET_CNT-1UL); i++ ) {
+    if( FD_UNLIKELY( edges[ i ]<=edges[ i-1UL ] ) ) return NULL;
+  }
+
+  fd_histf_t * hist = (fd_histf_t*)mem;
+  fd_memset( hist->counts, 0, FD_HISTF_BUCKET_CNT*sizeof(ulong) );
+  hist->sum = 0UL;
+  hist->left_edge[ 0 ] = (long)(0UL - (1UL<<63));
+  for( ulong i=0UL; i<(FD_HISTF_BUCKET_CNT-1UL); i++ ) hist->left_edge[ i+1UL ] = (long)(edges[ i ] - (1UL<<63));
+  hist->left_edge[ FD_HISTF_BUCKET_CNT ] = LONG_MAX;
+
+  return (void*)hist;
+}
+
 /* fd_histf_new takes ownership of the memory region pointed to by mem
    (which is assumed to be non-NULL with the appropriate alignment and
    footprint) and formats it as a fd_hist.  The histogram will be
@@ -99,10 +122,7 @@ fd_histf_new( void * mem,
   min_value = fd_ulong_max( min_value, 1UL );
   max_value = fd_ulong_max( max_value, min_value + FD_HISTF_BUCKET_CNT - 2UL );
 
-  fd_histf_t * hist = (fd_histf_t*)mem;
-  fd_memset( hist->counts, 0, FD_HISTF_BUCKET_CNT*sizeof(ulong) );
-  hist->sum = 0UL;
-  ulong left_edge[ FD_HISTF_BUCKET_CNT ]; /* without the -2^63 shift */
+  ulong left_edge[ FD_HISTF_BUCKET_CNT ];
   left_edge[ 0 ] = 0;
   left_edge[ 1 ] = min_value;
   for( ulong i=2UL; i<(FD_HISTF_BUCKET_CNT-1UL); i++ ) {
@@ -116,10 +136,7 @@ fd_histf_new( void * mem,
   }
   left_edge[ FD_HISTF_BUCKET_CNT - 1UL ] = max_value;
 
-  for( ulong i=0UL; i<FD_HISTF_BUCKET_CNT; i++ ) hist->left_edge[ i ] = (long)(left_edge[ i ] - (1UL<<63));
-  hist->left_edge[ FD_HISTF_BUCKET_CNT ] = LONG_MAX;
-
-  return (void*)hist;
+  return fd_histf_new_edges( mem, left_edge+1UL );
 }
 
 static inline fd_histf_t * fd_histf_join  ( void       * _hist ) { return (fd_histf_t *)_hist; }

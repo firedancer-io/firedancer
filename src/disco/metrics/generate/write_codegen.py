@@ -40,6 +40,18 @@ def _write_off_enum(f: TextIO, metrics: List[Metric], prefix: str, start_expr: s
 
     f.write('};\n\n')
 
+def _histogram_edges_ns(metric: HistogramMetric) -> List[int]:
+    """Bucket edges in nanoseconds for a seconds histogram, spaced like
+    fd_histf_new.  Fixed at build time so every node buckets the same."""
+    lo = max(round(float(metric.min) * 1e9), 1)
+    hi = max(round(float(metric.max) * 1e9), lo + 14)
+    edges = [lo]
+    for i in range(2, 15):
+        e = int(0.5 + edges[-1] * pow(hi / edges[-1], 1.0 / (16 - i)))
+        edges.append(max(e, edges[-1] + 1))
+    edges.append(hi)
+    return edges
+
 def _write_metric(f: TextIO, metric: Metric, prefix: str):
     full_name = camel2snake(metric.name)
     description = ' '.join([line.strip() for line in metric.description.split('\n')]).strip()
@@ -59,14 +71,11 @@ def _write_metric(f: TextIO, metric: Metric, prefix: str):
 
     if isinstance(metric, HistogramMetric):
         if metric.converter == HistogramConverter.SECONDS:
-            min_str = str(float(metric.min))
-            max_str = str(float(metric.max))
+            edges = ', '.join(f'{e}UL' for e in _histogram_edges_ns(metric))
+            f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_EDGES_NS  {{ {edges} }}\n')
         else:
-            min_str = str(int(metric.min)) + "UL"
-            max_str = str(int(metric.max)) + "UL"
-
-        f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MIN  ({min_str})\n')
-        f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MAX  ({max_str})\n')
+            f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MIN  ({int(metric.min)}UL)\n')
+            f.write(f'#define FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_MAX  ({int(metric.max)}UL)\n')
 
     f.write('\n')
 

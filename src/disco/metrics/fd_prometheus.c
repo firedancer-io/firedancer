@@ -80,7 +80,7 @@ render_histogram( fd_prom_render_t *        r,
 
   fd_histf_t hist[1];
   if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_SECONDS ) )
-    FD_TEST( fd_histf_new( hist, fd_metrics_convert_seconds_to_ticks( metric->histogram.seconds.min ), fd_metrics_convert_seconds_to_ticks ( metric->histogram.seconds.max ) ) );
+    FD_TEST( fd_histf_new_edges( hist, metric->histogram.seconds.edges_ns ) );
   else if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_NONE ) )
     FD_TEST( fd_histf_new( hist, metric->histogram.none.min, metric->histogram.none.max ) );
   else FD_LOG_ERR(( "unknown converter %i", metric->converter ));
@@ -96,7 +96,7 @@ render_histogram( fd_prom_render_t *        r,
     else {
       ulong edge = fd_histf_right( hist, k );
       if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_SECONDS ) ) {
-        double edgef = fd_metrics_convert_ticks_to_seconds( edge-1 );
+        double edgef = (double)(edge-1UL) / 1e9;
         FD_TEST( fd_cstr_printf_check( le_str, sizeof( le_str ), NULL, "%.17g", edgef ) );
       } else {
         FD_TEST( fd_cstr_printf_check( le_str, sizeof( le_str ), NULL, "%lu", edge-1 ) );

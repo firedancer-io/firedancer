@@ -97,6 +97,35 @@ main( int     argc,
   test_sample_boundaries( 4UL,   5UL );
   test_sample_boundaries( 1UL, ULONG_MAX );
 
+  FD_LOG_NOTICE(( "Testing new_edges" ));
+
+  do {
+    ulong edges[ FD_HISTF_BUCKET_CNT-1UL ];
+    for( ulong i=0UL; i<FD_HISTF_BUCKET_CNT-1UL; i++ ) edges[ i ] = 10UL*(i+1UL);
+    fd_histf_t eh[1];
+    FD_TEST( fd_histf_new_edges( eh, edges )==eh );
+    FD_TEST( fd_histf_left ( eh, 0UL )==0UL );
+    for( ulong b=1UL; b<FD_HISTF_BUCKET_CNT; b++ ) FD_TEST( fd_histf_left( eh, b )==edges[ b-1UL ] );
+    FD_TEST( fd_histf_right( eh, FD_HISTF_BUCKET_CNT-1UL )==ULONG_MAX );
+    for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) {
+      ulong left = fd_histf_left( eh, b );
+      if( left ) assert_sample( eh, left-1UL );
+      assert_sample( eh, left );
+      assert_sample( eh, left+1UL );
+    }
+    assert_sample( eh, ULONG_MAX );
+
+    /* fd_histf_new is fd_histf_new_edges on its computed edges */
+    fd_histf_t mh[1];
+    FD_TEST( fd_histf_new( mh, 1UL, 100UL )==mh );
+    for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT-1UL; b++ ) edges[ b ] = fd_histf_left( mh, b+1UL );
+    FD_TEST( fd_histf_new_edges( eh, edges )==eh );
+    for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) FD_TEST( fd_histf_left( eh, b )==fd_histf_left( mh, b ) );
+
+    edges[ 0 ] = 0UL;                           FD_TEST( !fd_histf_new_edges( eh, edges ) );
+    edges[ 0 ] = 1UL; edges[ 5 ] = edges[ 4 ]; FD_TEST( !fd_histf_new_edges( eh, edges ) );
+  } while(0);
+
   for( ulong i=0; i<16UL; i++ ) FD_TEST( fd_histf_cnt( hist, i )==0UL );
 
   fd_histf_sample( hist, 0U );

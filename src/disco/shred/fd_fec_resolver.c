@@ -371,8 +371,7 @@ fd_fec_resolver_new( void                    * shmem,
   if( FD_UNLIKELY( !done_heap_new       ( _done_heap, done_depth                  ) ) ) { FD_LOG_WARNING(( "done_heap_new fail"     )); return NULL; }
   if( FD_UNLIKELY( !fd_ed25519_cache_new( _ed_cache, ED25519_CACHE_ENT_CNT, seed4 ) ) ) { FD_LOG_WARNING(( "ed25519_cache_new fail" )); return NULL; }
 
-  fd_histf_join( fd_histf_new( resolver->completion_lag_hist, FD_MHIST_SECONDS_MIN( SHRED, REPAIR_COMPLETION_LAG_SECONDS ),
-                                                              FD_MHIST_SECONDS_MAX( SHRED, REPAIR_COMPLETION_LAG_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( resolver->completion_lag_hist, FD_MHIST_EDGES_NS( SHRED, REPAIR_COMPLETION_LAG_SECONDS ) ) );
 
   set_ctx_t * ctx_pool = (set_ctx_t *)_ctx_pool;
   fd_memset( ctx_pool, '\0', sizeof(set_ctx_t)*depth_sum );

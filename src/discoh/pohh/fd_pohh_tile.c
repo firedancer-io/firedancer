@@ -2497,15 +2497,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   if( FD_UNLIKELY( ctx->reset_slot==ULONG_MAX ) ) FD_LOG_ERR(( "PoH was not initialized by Agave client" ));
 
-  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POHH, BEGIN_LEADER_DELAY_SECONDS ),
-                                                        FD_MHIST_SECONDS_MAX( POHH, BEGIN_LEADER_DELAY_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POHH, FIRST_MICROBLOCK_DELAY_SECONDS  ),
-                                                            FD_MHIST_SECONDS_MAX( POHH, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
-  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POHH, SLOT_DONE_DELAY_SECONDS  ),
-                                                     FD_MHIST_SECONDS_MAX( POHH, SLOT_DONE_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->begin_leader_delay, FD_MHIST_EDGES_NS( POHH, BEGIN_LEADER_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->first_microblock_delay, FD_MHIST_EDGES_NS( POHH, FIRST_MICROBLOCK_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->slot_done_delay, FD_MHIST_EDGES_NS( POHH, SLOT_DONE_DELAY_SECONDS ) ) );
 
-  fd_histf_join( fd_histf_new( ctx->bundle_init_delay, FD_MHIST_SECONDS_MIN( POHH, BUNDLE_INITIALIZE_DELAY_SECONDS  ),
-                                                       FD_MHIST_SECONDS_MAX( POHH, BUNDLE_INITIALIZE_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->bundle_init_delay, FD_MHIST_EDGES_NS( POHH, BUNDLE_INITIALIZE_DELAY_SECONDS ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
