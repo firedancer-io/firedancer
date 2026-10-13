@@ -1,0 +1,60 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+# ledger_fd:  file descriptor of the ledger file that shreds are
+#             replayed from.
+# disk_fd:    file descriptor for the store's on-disk spill file.
+uint logfile_fd, uint ledger_fd, uint disk_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# ledger: read shreds from the ledger file
+#
+# arg 0 is the file descriptor to read from.
+read: (eq (arg 0) ledger_fd)
+
+# ledger: the stdio stream queries and rewinds its file position
+#
+# arg 0 is the file descriptor to seek.
+lseek: (eq (arg 0) ledger_fd)
+
+# disk store: pwrite64 writes spilled FEC payload pages.
+pwrite64: (eq (arg 0) disk_fd)
+
+# disk store: reclaim released spill pages without changing file size.
+fallocate: (and (eq (arg 0) disk_fd)
+                (eq (arg 1) 3))
+
+# shutdown: exit is called on shutdown, when the replay is complete
+exit: (eq (arg 0) 0)
+
+# power saving: sleep when there is no work to do
+#
+# In the efficient scheduler mode, an idle tile parks on its sleep word
+# with futex_wait until a producer has work for it or its next deadline
+# passes.
+#
+# arg 1 is the futex op, always FUTEX_WAIT_BITSET so the timeout is an
+# absolute deadline.  arg 2 is the expected value of the word, always 0
+# (parked).
+futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
+            (eq (arg 2) 0))
+
+# power saving: resume an interrupted sleep
+#
+# A signal delivered to a parked tile interrupts its futex_wait, and the
+# kernel resumes the wait with the remaining timeout via restart_syscall
+# when the tile next runs.
+restart_syscall

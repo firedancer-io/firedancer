@@ -13,8 +13,8 @@
 #define _GNU_SOURCE
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/configure/configure.h"
-#include "../../shared/commands/run/run.h" /* initialize_workspaces */
-#include "../../shared/commands/watch/watch.h"
+#include "../../shared/commands/run/run.h" /* run_cmd_perm */
+#include "../../shared_dev/commands/dev.h"
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared/fd_config_json.h"
 #include "../../../disco/topo/fd_topob.h"
@@ -36,13 +36,9 @@
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
 
-#include <errno.h>
 #include <stdlib.h> /* getenv */
-#include <unistd.h>
-#include <fcntl.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
-fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 backtest_cmd_args( int *    pargc,
@@ -54,8 +50,7 @@ backtest_cmd_args( int *    pargc,
 static void
 backtest_topo( config_t * config ) {
 
-  config->development.sandbox  = 0;
-  config->development.no_clone = 1;
+  if( FD_UNLIKELY( !config->development.sandbox ) ) config->development.no_clone = 1;
 
   config->firedancer.layout.resolv_tile_count = 0;
 
@@ -103,6 +98,8 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "backt" );
   fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", NEXT_CPU, 0, 0, 0, 0 );
+  backt_tile->allow_shutdown = 1;
+  backt_tile->shutdown_app   = 1;
 
   fd_topob_wksp( topo, "replay" );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", NEXT_CPU, 0, 1, 0, 0 );
@@ -141,6 +138,7 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "execrp" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
   FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", NEXT_CPU, 0, 0, 0, 0 );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /**********************************************************************/
   /* Add the capture tile to topo                                       */
@@ -462,7 +460,17 @@ backtest_topo( config_t * config ) {
     }
   }
 
-  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
+  if( FD_LIKELY( telemetry_enabled ) ) {
+    wire_event_links( topo );
+
+    /* backtest tile needs to check the event tiles in order to make
+       sure that they are drained before shutting down. */
+    fd_topo_tile_t const * event_tile = &topo->tiles[ fd_topo_find_tile( topo, "event", 0UL ) ];
+    for( ulong i=0UL; i<event_tile->in_cnt; i++ ) {
+      fd_topo_link_t const * link = &topo->links[ event_tile->in_link_id[ i ] ];
+      fd_topob_tile_uses( topo, backt_tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    }
+  }
 
   // fd_topob_auto_layout( topo, 0 );
   if( FD_UNLIKELY( !is_auto_affinity ) ) {
@@ -534,35 +542,7 @@ backtest_cmd_fn( args_t *   args,
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 
-  initialize_workspaces( config );
-  initialize_stacks( config );
-  initialize_accdb_fd( config );
-  initialize_epoch_credits_fd( config );
-  initialize_cost_tracker_fd( config );
-  initialize_stake_delegations_fd( config );
-  initialize_store_fds( config );
-  initialize_snapshot_fds( config );
-
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-  fd_topo_fill( &config->topo );
-
-  args_t watch_args;
-  int pipefd[2];
-  if( !args->backtest.no_watch ) {
-    if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-    watch_args.watch.drain_output_fd = pipefd[0];
-    watch_args.watch.full = 1;
-    if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
-  if( args->backtest.no_watch ) {
-    for(;;) pause();
-  } else {
-    watch_cmd_fn( &watch_args, config );
-  }
+  run_firedancer_dev( config, -1, 1, 0, !args->backtest.no_watch, 1, NULL );
 }
 
 action_t fd_action_backtest = {

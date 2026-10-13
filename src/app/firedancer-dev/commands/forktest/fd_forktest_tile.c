@@ -7,6 +7,8 @@
 #include "../../../../ballet/shred/fd_shred.h"
 #include "../../../../util/net/fd_net_headers.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h> /* exit */
 
 #define IN_KIND_REPLAY_EPOCH (0)
@@ -268,8 +270,13 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_forkt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_forkt_tile_t), sizeof(fd_forkt_tile_t) );
   fd_memset( ctx, 0, sizeof(fd_forkt_tile_t) );
 
+  int ledger_fd = open( tile->forktest.ledger_path, O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( ledger_fd<0 ) )
+    FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->forktest.ledger_path, errno, fd_io_strerror( errno ) ));
+
   struct fd_backtest_src_opts src_opts = {
     .path        = tile->forktest.ledger_path,
+    .fd          = ledger_fd,
     .format      = tile->forktest.ledger_format,
     .code_shreds = 1
   };

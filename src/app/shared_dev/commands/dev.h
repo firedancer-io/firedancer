@@ -16,6 +16,19 @@ dev_cmd_perm( args_t *         args,
               fd_cap_chk_t *   chk,
               config_t const * config );
 
+/* run_firedancer_dev runs the topology in config, as tile processes or
+   as tile threads if [development.no_clone] is set.  If watch, the
+   output is shown by the watch command.  Does not return. */
+
+void
+run_firedancer_dev( config_t * config,
+                    int        parent_pipefd,
+                    int        init_workspaces,
+                    int        check_configure,
+                    int        watch,
+                    int        full_watch,
+                    void ( * agave_main )( config_t const * ) );
+
 void
 dev_cmd_fn( args_t *   args,
             config_t * config,

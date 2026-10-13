@@ -59,8 +59,13 @@ forktest_perm( args_t *         args FD_PARAM_UNUSED,
 
 static ushort
 forktest_recover_expected_shred_version( config_t const * config ) {
+  char const * path = config->firedancer.development.ledger_input.path;
+  int fd = open( path, O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
   fd_backtest_src_opts_t opts = {
-    .path   = config->firedancer.development.ledger_input.path,
+    .path   = path,
+    .fd     = fd,
     .format = config->firedancer.development.ledger_input.format,
   };
 

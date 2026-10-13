@@ -55,7 +55,8 @@ run_firedancer_init( config_t * config,
 void
 run_firedancer( config_t * config,
                 int        parent_pipefd,
-                int        init_workspaces );
+                int        init_workspaces,
+                int        check_configure );
 
 void run_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 void run_cmd_fn  ( args_t * args, config_t * config );
