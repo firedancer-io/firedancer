@@ -28,30 +28,13 @@ VERBOSE=0
 # contrib/test/gen_unit_test_pages.sh regenerates it.
 declare -A TEST_GIGANTIC_PAGES=(
   [test_vinyl_req]=8
-  [test_vat_refresh_vote_accounts]=6
-  [test_vm_syscalls]=5
-  [test_vm_syscall_hash]=5
-  [test_vm_syscall_curve]=5
-  [test_vm_interp]=5
-  [test_bpf_loader_program]=5
-  [test_tower_tile]=4
-  [test_log_collector]=4
+  [test_tower_tile]=3
   [test_ssmanifest_parser]=2
+  [test_snapin_tile]=2
   [test_replay_tile]=2
   [test_repair_tile]=2
-  [test_quic_streams]=2
   [test_quic_server]=2
-  [test_quic_retx]=2
-  [test_quic_pkt_meta_lifecycle]=2
-  [test_quic_keep_alive]=2
-  [test_quic_hs]=2
-  [test_quic_conn]=2
-  [test_quic_conformance]=2
-  [test_quic_concurrency]=2
-  [test_quic_bw]=2
-  [test_progcache]=2
   [test_groove_volume]=2
-  [test_snapin_tile]=3
 )
 
 # Read command-line args
