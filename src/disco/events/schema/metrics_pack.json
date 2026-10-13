@@ -1,0 +1,404 @@
+{
+    "name": "metrics_pack",
+    "id": 30,
+    "description": "Metrics of one pack tile instance, one row per sweep",
+    "local": true,
+    "fields": {
+        "sample_id":                      { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":                  { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":                    { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":            { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":               { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":                { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":                        { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "pid":                            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
+        "tid":                            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
+        "last_cpu_index":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
+        "context_switch_involuntary":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
+        "context_switch_voluntary":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
+        "page_fault_major":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
+        "page_fault_minor":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
+        "state": {
+            "type": "LowCardinality(String)",
+            "description": "Tile lifecycle state: 0=booting, 1=running, 2=shutdown",
+            "variants": {
+                "booting":  { "description": "Booting" },
+                "running":  { "description": "Running" },
+                "shutdown": { "description": "Shutdown" }
+            }
+        },
+        "heartbeat_time":                 { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
+        "is_backpressured":               { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
+        "backpressure":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
+        "regime_duration_nanos": {
+            "type": "Tuple",
+            "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "fields": {
+                "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
+                "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
+                "backpressure_housekeeping": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Housekeeping" },
+                "caught_up_prefrag":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Prefrag" },
+                "processing_prefrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Prefrag" },
+                "backpressure_prefrag":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Prefrag" },
+                "caught_up_postfrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Postfrag" },
+                "processing_postfrag":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Postfrag" },
+                "caught_up_sleeping":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Sleeping" },
+                "backpressure_sleeping":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Sleeping" }
+            }
+        },
+        "thread_duration_nanos": {
+            "type": "Tuple",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "fields": {
+                "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
+                "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
+                "user":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "User (task was scheduled and executing in user mode)" },
+                "system":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "System (task was scheduled and executing in kernel mode)" },
+                "interrupt": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" }
+            }
+        },
+        "park_attempted": {
+            "type": "Tuple",
+            "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "fields": {
+                "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
+                "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
+                "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
+            }
+        },
+        "device_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "tlb_shootdown":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "timer_irq":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "microblock_schedule_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of scheduling one microblock",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 32) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[32, 101) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[101, 319) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[319, 1008) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1008, 3185) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3185, 10064) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10064, 31800) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31800, 100480) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100480, 317492) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[317492, 1003197) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1003197, 3169857) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3169857, 10015972) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10015972, 31648020) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31648020, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "microblock_schedule_empty_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of discovering that no transaction is schedulable",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 32) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[32, 101) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[101, 319) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[319, 1008) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1008, 3185) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3185, 10064) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10064, 31800) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31800, 100480) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100480, 317492) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[317492, 1003197) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1003197, 3169857) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3169857, 10015972) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10015972, 31648020) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31648020, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "txn_insert_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of inserting one transaction into the pending pool",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 32) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[32, 101) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[101, 319) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[319, 1008) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1008, 3185) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3185, 10064) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10064, 31800) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31800, 100480) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100480, 317492) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[317492, 1003197) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1003197, 3169857) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3169857, 10015972) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10015972, 31648020) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31648020, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "microblock_complete_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of marking one microblock as complete",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 32) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[32, 101) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[101, 319) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[319, 1008) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1008, 3185) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3185, 10064) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10064, 31800) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31800, 100480) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100480, 317492) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[317492, 1003197) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1003197, 3169857) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3169857, 10015972) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10015972, 31648020) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31648020, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "txn_per_microblock": {
+            "type": "Tuple",
+            "description": "Transactions in a scheduled microblock, including both votes and non-votes",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 3)" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3, 4)" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4, 5)" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5, 6)" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[6, 8)" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8, 10)" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 13)" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13, 17)" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[17, 22)" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[22, 29)" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[29, 38)" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[38, 49)" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[49, 64)" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[64, inf)" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
+            }
+        },
+        "vote_per_microblock": {
+            "type": "Tuple",
+            "description": "Simple vote transactions in a scheduled microblock",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 3)" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3, 4)" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4, 5)" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5, 6)" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[6, 8)" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8, 10)" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 13)" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13, 17)" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[17, 22)" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[22, 29)" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[29, 38)" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[38, 49)" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[49, 64)" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[64, inf)" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
+            }
+        },
+        "txn_rx":                         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions received from resolv, including bundle members" },
+        "txn_insert_attempted": {
+            "type": "Tuple",
+            "description": "Insert attempts, by result; bundle members are counted individually with the bundle's result",
+            "fields": {
+                "instr_too_many_accounts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction has an instruction that references too many accounts" },
+                "nonce_conflict":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle with two conflicting durable nonce transactions" },
+                "account_blocklisted":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction uses an account on the account blocklist" },
+                "bundle_blocklisted":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction is a vote in a bundle or uses an account on the bundle blocklist" },
+                "invalid_nonce":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction is an invalid durable nonce transaction" },
+                "write_sysvar":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction tries to write to a sysvar" },
+                "estimation_failed":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Estimating compute cost or fee failed" },
+                "duplicate_account":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction included an account address twice" },
+                "too_many_accounts":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction tried to load too many accounts" },
+                "too_many_cu":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction requests too many CUs" },
+                "expired":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction already expired" },
+                "lut_unsupported":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction loads accounts from a lookup table, which is not supported here" },
+                "unaffordable":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Fee payer's balance below transaction fee" },
+                "duplicate":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack aware of transaction with same signature" },
+                "nonce_priority_too_low":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction's fee was too low given its compute unit requirement and another competing transactions that uses the same durable nonce" },
+                "priority_too_low":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction's fee was too low given its compute unit requirement and other competing transactions" },
+                "nonvote_add":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction that was not a simple vote added to pending transactions" },
+                "vote_add":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Simple vote transaction was added to pending transactions" },
+                "nonvote_replace":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction that was not a simple vote replaced a lower priority transaction" },
+                "vote_replace":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Simple vote transaction replaced a lower priority transaction" },
+                "nonce_nonvote_add":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Durable nonce transaction added to pending transactions" },
+                "unused":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never produced: durable nonce transactions can't be simple votes" },
+                "nonce_nonvote_replace":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce" }
+            }
+        },
+        "schedule_regime_duration_nanos": {
+            "type": "Tuple",
+            "description": "Time pack spent, by scheduling regime",
+            "fields": {
+                "none":                         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: not leader, no transactions, no available execle" },
+                "txn":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: not leader, transactions available, no available execle" },
+                "execle":                       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: not leader, no transactions, execle available" },
+                "txn_execle":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: not leader, transactions available, execle available" },
+                "leader":                       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: leader, no transactions, no available execle" },
+                "txn_leader":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: leader, transactions available, no available execle" },
+                "execle_leader":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: leader, no transactions, execle available" },
+                "txn_execle_leader":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: leader, transactions available, execle available (all conflicting)" },
+                "microblock":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Scheduled a microblock: not leader, no transactions, no available execle" },
+                "txn_microblock":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Scheduled a microblock: not leader, transactions available, no available execle" },
+                "execle_microblock":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Scheduled a microblock: not leader, no transactions, execle available" },
+                "txn_execle_microblock":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Scheduled a microblock: not leader, transactions available, execle available" },
+                "leader_microblock":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Scheduled a microblock: leader, no transactions, no available execle" },
+                "txn_leader_microblock":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Scheduled a microblock: leader, transactions available, no available execle" },
+                "execle_leader_microblock":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Scheduled a microblock: leader, no transactions, execle available" },
+                "txn_execle_leader_microblock": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Scheduled a microblock: leader, transactions available, execle available" }
+            }
+        },
+        "txn_dropped": {
+            "type": "Tuple",
+            "description": "Transactions dropped from pack after insertion, by reason",
+            "fields": {
+                "expired":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TTL expired" },
+                "already_executed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Already executed in the replay or leader pipeline" },
+                "partial_bundle":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Part of a partial bundle" }
+            }
+        },
+        "txn_evicted":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions evicted from pack to make room for others, including the bundle initializer transaction removed when a leader slot ends" },
+        "txn_pending_used": {
+            "type": "Tuple",
+            "description": "Pending transactions in pack's pool, by type",
+            "fields": {
+                "regular":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "Non-votes in the main treap" },
+                "vote":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "Simple votes" },
+                "conflicting": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Non-votes that write to a hotly-contended account" },
+                "bundle":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that are part of a bundle" }
+            }
+        },
+        "txn_pending_capacity":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum pending transactions pack can hold" },
+        "txn_pending_smallest_cost":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Lower bound on the cost of the cheapest pending non-vote transaction, 0 if none pending" },
+        "block_microblock_limit_reached": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times pack did not schedule a microblock because the block microblock limit was reached" },
+        "block_byte_limit_reached":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times pack did not schedule a microblock because the block byte limit was reached" },
+        "txn_schedule_attempted": {
+            "type": "Tuple",
+            "description": "Times a pending transaction was considered for a microblock, by outcome; one transaction may be considered many times",
+            "fields": {
+                "taken":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack included the transaction in the microblock" },
+                "cu_limit":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack skipped the transaction because it would have exceeded the block CU limit" },
+                "conflict_fast":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack skipped the transaction because of an account conflict found by the fast bitvector check" },
+                "byte_limit":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack skipped the transaction because it would have exceeded the block data size limit" },
+                "alloc_limit":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack skipped the transaction because it would have exceeded the data allocation limit" },
+                "write_cost":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" },
+                "conflict_slow":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack skipped the transaction because of an account conflict found by the full check" },
+                "write_cost_deferred": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack skipped the transaction because it exceeded the per-account block write cost limit too many times before" }
+            }
+        },
+        "bundle_crank_attempted": {
+            "type": "Tuple",
+            "description": "Times pack checked whether the bundle tip state needed cranking, by outcome",
+            "fields": {
+                "up_to_date":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "On-chain state was already up to date" },
+                "inserted":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Inserted an initializer bundle to update the on-chain state" },
+                "creation_failed":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Tried to insert an initializer bundle to update the on-chain state, but creation failed" },
+                "insertion_failed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Tried to insert an initializer bundle to update the on-chain state, but insertion failed" }
+            }
+        },
+        "block_cost":                     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Cost units used in the current block, 0 if not packing a block" },
+        "cost_scheduled_per_block": {
+            "type": "Tuple",
+            "description": "Cost units scheduled for each block pack produced; can exceed the block limit because of rebates",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1000000)" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000000, 1479160)" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1479160, 2187914)" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2187914, 3236274)" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3236274, 4786966)" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4786966, 7080688)" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7080688, 10473469)" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10473469, 15491934)" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[15491934, 22915046)" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[22915046, 33895014)" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[33895014, 50136141)" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[50136141, 74159362)" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[74159362, 109693545)" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[109693545, 162254278)" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[162254278, 240000000)" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[240000000, inf)" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
+            }
+        },
+        "cu_rebated_per_block": {
+            "type": "Tuple",
+            "description": "Compute units rebated for each block pack produced. Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1000000)" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000000, 1479160)" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1479160, 2187914)" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2187914, 3236274)" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3236274, 4786966)" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4786966, 7080688)" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7080688, 10473469)" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10473469, 15491934)" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[15491934, 22915046)" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[22915046, 33895014)" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[33895014, 50136141)" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[50136141, 74159362)" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[74159362, 109693545)" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[109693545, 162254278)" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[162254278, 240000000)" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[240000000, inf)" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
+            }
+        },
+        "cost_net_per_block": {
+            "type": "Tuple",
+            "description": "Net cost units (scheduled minus rebated) in each block pack produced",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1000000)" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000000, 1389495)" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1389495, 1930697)" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1930697, 2682695)" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2682695, 3727593)" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3727593, 5179474)" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5179474, 7196856)" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7196856, 9999999)" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[9999999, 13894954)" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13894954, 19306976)" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19306976, 26826957)" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[26826957, 37275936)" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[37275936, 51794746)" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[51794746, 71968567)" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[71968567, 100000000)" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf)" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
+            }
+        },
+        "cost_per_block_pct": {
+            "type": "Tuple",
+            "description": "Percent of max_cost_per_block used by each block pack produced",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1) pct" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2) pct" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 3) pct" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3, 4) pct" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4, 5) pct" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5, 7) pct" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7, 9) pct" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[9, 12) pct" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[12, 16) pct" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[16, 22) pct" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[22, 30) pct" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[30, 41) pct" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[41, 55) pct" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[55, 74) pct" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[74, 100) pct" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, inf) pct" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (pct)" }
+            }
+        }
+    }
+}

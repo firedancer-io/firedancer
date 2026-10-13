@@ -21,7 +21,7 @@ import os
 
 INDENT = "    "
 
-ATTRS = ( "type", "compression", "description", "max_len", "dynamic" )
+ATTRS = ( "type", "compression", "description", "max_len", "dynamic", "field_number", "deprecated" )
 NESTED = ( "element", "variants", "fields" )
 
 
@@ -51,6 +51,10 @@ def inline_body( obj, type_w, comp_w ):
     out += f'"description": {jstr(obj["description"])}'
     if "max_len" in obj:
         out += f', "max_len": {obj["max_len"]}'
+    if "field_number" in obj:
+        out += f', "field_number": {obj["field_number"]}'
+    if obj.get( "deprecated" ):
+        out += ', "deprecated": true'
     return out + " }"
 
 
@@ -120,6 +124,10 @@ def render( doc ):
     lines.append( f'{INDENT}"name": {jstr(doc["name"])},' )
     lines.append( f'{INDENT}"id": {doc["id"]},' )
     lines.append( f'{INDENT}"description": {jstr(doc["description"])},' )
+    if doc.get( "local" ):
+        lines.append( f'{INDENT}"local": true,' )
+    if doc.get( "deprecated" ):
+        lines.append( f'{INDENT}"deprecated": true,' )
     lines.append( f'{INDENT}"fields": {{' )
     lines.extend( block( doc[ "fields" ], 2, blanks=doc.get( "_blanks" ) ) )
     lines.append( f"{INDENT}}}" )

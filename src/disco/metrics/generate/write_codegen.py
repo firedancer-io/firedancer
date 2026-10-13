@@ -26,7 +26,10 @@ def _write_off_enum(f: TextIO, metrics: List[Metric], prefix: str, start_expr: s
 
         if isinstance(metric, (CounterEnumMetric, GaugeEnumMetric)):
             for idx, value in enumerate(metric.enum.values):
-                val_off_name = f'FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{camel2snake(value.name)}_OFF'
+                # A deprecated value keeps its slot under a placeholder name
+                # so later offsets never shift
+                val = camel2snake(value.name) + ('_DEPRECATED' if value.deprecated else '')
+                val_off_name = f'FD_METRICS_{metric.type.name.upper()}_{prefix.upper()}_{full_name}_{val}_OFF'
                 if idx == 0:
                     f.write(f'  {val_off_name} = {off_name},\n')
                 else:
@@ -85,10 +88,10 @@ def _write_metric_descriptor(f, full_name, metric: Metric):
     elif isinstance(metric, GaugeMetric):
         f.write(f'    DECLARE_METRIC( {full_name}, GAUGE ),\n')
     elif isinstance(metric, CounterEnumMetric):
-        for value in metric.enum.values:
+        for value in metric.enum.live():
             f.write(f'    DECLARE_METRIC_ENUM( {full_name}, COUNTER, {camel2snake(metric.enum.name)}, {camel2snake(value.name)} ),\n')
     elif isinstance(metric, GaugeEnumMetric):
-        for value in metric.enum.values:
+        for value in metric.enum.live():
             f.write(f'    DECLARE_METRIC_ENUM( {full_name}, GAUGE, {camel2snake(metric.enum.name)}, {camel2snake(value.name)} ),\n')
     elif isinstance(metric, HistogramMetric):
         if metric.converter == HistogramConverter.NANOSECONDS:
@@ -126,8 +129,10 @@ def _write_common(metrics: Metrics):
         for metric in metrics.common:
             _write_metric(f, metric, "tile")
 
+        # _TOTAL counts descriptors (deprecated enum values have none); the
+        # storage width, with their slots, is FD_METRICS_TILE_OFF
         offset = sum([int(metric.footprint()/8) for metric in metrics.common])
-        f.write(f'\n#define FD_METRICS_ALL_TOTAL ({offset}UL)\n')
+        f.write(f'\n#define FD_METRICS_ALL_TOTAL ({sum(m.count() for m in metrics.common)}UL)\n')
         f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL[FD_METRICS_ALL_TOTAL];\n')
         f.write(f'\n#define FD_METRICS_ALL_LINK_IN_TOTAL ({len(metrics.link_in)}UL)\n')
         f.write(f'extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOTAL];\n')
@@ -228,11 +233,12 @@ def _write_enums(enums: List[MetricEnum], common_offset: int):
             f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_NAME "{camel2snake(enum.name).lower()}"\n')
             f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_CNT ({len(enum.values)}UL)\n')
             for idx, enum_value in enumerate(enum.values):
+                if enum_value.deprecated: continue   # keeps its index, no name
                 f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_V_{camel2snake(enum_value.name)}_IDX  {idx}\n')
                 tag = camel2snake(enum_value.name).lower()
                 f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_V_{camel2snake(enum_value.name)}_NAME "{tag}"\n')
             if len(enum.values) <= 64:
-                f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_G_ALL_MASK (0x{(1<<len(enum.values))-1:x}UL)\n')
+                f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_G_ALL_MASK (0x{enum.group_mask(EnumGroup("All", enum.live())):x}UL)\n')
             for group in enum.groups:
                 f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_G_{camel2snake(group.name)}_MASK (0x{enum.group_mask(group):x}UL)\n')
             f.write('\n')

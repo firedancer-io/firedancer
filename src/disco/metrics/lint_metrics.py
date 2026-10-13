@@ -69,8 +69,13 @@ PROSE_CAMEL = { 'WebSocket', 'ShredStream', 'TowerSync', 'BlockEngine', 'ParentF
 SUMMARY_BANNED = ( 'Number of ', 'How many ', 'Total ', 'The ' )
 SUMMARY_BANNED_ANY = ( 'in seconds', 'in nanoseconds', 'in bytes', '1 or 0', '0 or 1', 'either 1', '-1 ' )
 
-RESERVED_COLUMNS = { 'kind_id', 'sample_id', 'sample_reason', 'sample_slot', 'sample_snapct_state',
-                     'sample_tile_cnt', 'timestamp', 'identity', 'instance_id' }
+# Columns every metrics table already has: the sample fields
+# (write_schemas.py) and the event server's common columns.
+RESERVED_COLUMNS = { 'kind_id', 'sample_id', 'sample_reason', 'sample_slot', 'sample_snapct_state', 'sample_caught_up',
+                     'sample_tile_cnt', 'tile', 'link', 'link_idx', 'timestamp', 'server_timestamp',
+                     'client_ip', 'action', 'identity', 'version', 'commit_hash', 'genesis_hash',
+                     'shred_version', 'instance_id', 'machine_id', 'boot_id', 'event_id', 'link_seq',
+                     'unparsed', 'cluster' }
 
 def words( name ):
     return re.findall( r'[A-Z][a-z0-9]*', name )
@@ -104,7 +109,7 @@ class Linter:
             self.err( where, 'length', f'snake_case name is {len( snake( name ) )} chars (max 48)', el )
         if section not in ( 'common', 'linkin' ) and w and w[ 0 ].lower() == section.lower():
             self.err( where, 'tile-prefix', f'name repeats the tile name "{w[ 0 ]}"', el )
-        if snake( name ) in RESERVED_COLUMNS:
+        if snake( name ) in RESERVED_COLUMNS and el.attrib.get( 'telemetry' ) != 'false':
             self.err( where, 'collision', 'name collides with a reserved ClickHouse column', el )
         for x in w[ :-1 ] + ( [ w[ -1 ] ] if w and w[ -1 ] not in UNITS else [] ):
             if x.endswith( 's' ) and len( x ) > 3 and x not in PLURAL_OK and not x.endswith( 'ss' ):
@@ -221,7 +226,7 @@ class Linter:
                 self.err( where, 'enum', f'every value starts with "{first[ 0 ]}"', el )
         if name not in used_as:
             self.err( where, 'enum', 'enum is not used by any metric', el )
-        nums = sorted( int( v.attrib[ 'value' ] ) for v in el.findall( 'int' ) )
+        nums = sorted( int( v.attrib[ 'value' ] ) for v in el.findall( 'int' ) )   # a deprecated value keeps its slot
         if nums and nums!=list( range( nums[ 0 ], nums[ 0 ]+len( nums ) ) ):
             self.err( where, 'enum', f'values are not contiguous: {nums}', el )
 
@@ -319,7 +324,7 @@ def lint_writers( text, root: Path ):
         if el.tag not in ( 'tile', 'common', 'linkin' ): continue
         group = { 'common': 'TILE', 'linkin': 'LINK' }.get( el.tag ) or el.attrib[ 'name' ].upper()
         for m in el:
-            if m.tag not in METRIC_TAGS or 'writer' in m.attrib.get( 'lint-allow', '' ).split(): continue
+            if m.tag not in METRIC_TAGS or 'writer' in m.attrib.get( 'lint-allow', '' ).split() or m.attrib.get( 'deprecated' ) == 'true': continue
             n = snake( m.attrib[ 'name' ] )
             if any( ( g==group and ( i==n or i.startswith( n+'_' ) ) ) or ( g=='OFF' and ( i==f'{group}_{n}' or i.startswith( f'{group}_{n}_' ) ) ) for g, i in ids ):
                 continue

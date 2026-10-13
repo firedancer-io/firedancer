@@ -1,0 +1,43 @@
+{
+    "MetricsSampleReason": {
+        "type": "LowCardinality(String)",
+        "description": "Why a metrics sweep was taken",
+        "variants": {
+            "periodic":         { "description": "Periodic sweep" },
+            "leader_start":     { "description": "Our leader slot started" },
+            "leader_end":       { "description": "Our leader slot ended" },
+            "leader_end_start": { "description": "Our leader slot ended and the next one started" },
+            "snapct_state":     { "description": "Snapshot load changed state" },
+            "replay_ready":     { "description": "Replay finished loading and started processing" },
+            "caught_up":        { "description": "Replay caught up to the cluster tip" }
+        }
+    },
+    "MetricsSnapctLoadState": {
+        "type": "LowCardinality(String)",
+        "description": "Snapshot load state",
+        "variants": {
+            "init":                            { "description": "Initializing" },
+            "waiting_for_peers":               { "description": "Waiting for peers" },
+            "waiting_for_peers_incremental":   { "description": "Waiting for peers (incremental)" },
+            "collecting_peers":                { "description": "Collecting peers" },
+            "collecting_peers_incremental":    { "description": "Collecting peers (incremental)" },
+            "reading_full_file":               { "description": "Reading full snapshot file" },
+            "flushing_full_file_fini":         { "description": "Full file read, draining downstream" },
+            "flushing_full_file_done":         { "description": "Full file loaded, draining downstream" },
+            "flushing_full_file_reset":        { "description": "Full file load aborted, resetting downstream" },
+            "reading_incremental_file":        { "description": "Reading incremental snapshot file" },
+            "flushing_incremental_file_fini":  { "description": "Incremental file read, draining downstream" },
+            "flushing_incremental_file_done":  { "description": "Incremental file loaded, draining downstream" },
+            "flushing_incremental_file_reset": { "description": "Incremental file load aborted, resetting downstream" },
+            "reading_full_http":               { "description": "Downloading full snapshot" },
+            "flushing_full_http_fini":         { "description": "Full download read, draining downstream" },
+            "flushing_full_http_done":         { "description": "Full download loaded, draining downstream" },
+            "flushing_full_http_reset":        { "description": "Full download aborted, resetting downstream" },
+            "reading_incremental_http":        { "description": "Downloading incremental snapshot" },
+            "flushing_incremental_http_fini":  { "description": "Incremental download read, draining downstream" },
+            "flushing_incremental_http_done":  { "description": "Incremental download loaded, draining downstream" },
+            "flushing_incremental_http_reset": { "description": "Incremental download aborted, resetting downstream" },
+            "shutdown":                        { "description": "Snapshot load complete" }
+        }
+    }
+}
