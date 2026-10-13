@@ -50,7 +50,7 @@ $(call make-unit-test,test_borrowed_account,test_borrowed_account,fd_flamenco fd
 $(call run-unit-test,test_borrowed_account)
 
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco_test fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco_test fd_flamenco fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_bundle_exec)
 
 $(call make-unit-test,test_programdata_delayvis,test_programdata_delayvis,fd_flamenco_test fd_flamenco fd_ballet fd_util)

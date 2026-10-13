@@ -14,6 +14,8 @@
 #include "../accdb/fd_accdb.h"
 #include "../features/fd_features.h"
 #include "../../disco/fd_txn_p.h"
+#include "../../disco/events/fd_event_report.h"
+#include "../events/fd_event_runtime.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 
 #define TEST_SLOTS_PER_EPOCH         (32UL)
@@ -47,6 +49,60 @@ create_test_account( fd_accdb_t *        accdb,
   else        memset( acc.owner, 0,          32UL );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
+}
+
+#define TEST_EVENT_DEPTH (64UL)
+
+static uchar               test_event_mem[ 4UL<<20 ] __attribute__((aligned(4096UL)));
+static fd_event_reporter_t test_event_reporter[1];
+static uchar *             test_event_dcache;
+
+static void
+test_event_sink_open( void ) {
+  ulong mtu     = fd_ulong_max( sizeof(fd_event_runtime_txn_t), sizeof(fd_event_runtime_stake_delegation_t) );
+  ulong data_sz = fd_dcache_req_data_sz( mtu, TEST_EVENT_DEPTH, 1UL, 1 );
+
+  FD_SCRATCH_ALLOC_INIT( l, test_event_mem );
+  void * mcache_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_mcache_align(), fd_mcache_footprint( TEST_EVENT_DEPTH, 0UL ) );
+  void * dcache_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_dcache_align(), fd_dcache_footprint( data_sz, 0UL ) );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, 1UL )<=(ulong)test_event_mem+sizeof(test_event_mem) );
+
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( mcache_mem, TEST_EVENT_DEPTH, 0UL, 0UL ) );
+  uchar *          dcache = fd_dcache_join( fd_dcache_new( dcache_mem, data_sz, 0UL ) );
+  FD_TEST( mcache && dcache );
+  test_event_dcache = dcache;
+
+  fd_event_reporter_t * r = test_event_reporter;
+  memset( r, 0, sizeof(fd_event_reporter_t) );
+  r->mcache    = mcache;
+  r->depth     = TEST_EVENT_DEPTH;
+  r->seq       = 0UL;
+  r->seq_store = fd_mcache_seq_laddr( mcache );
+  r->mem       = (fd_wksp_t *)test_event_mem;
+  r->chunk0    = fd_dcache_compact_chunk0( test_event_mem, dcache );
+  r->wmark     = fd_dcache_compact_wmark ( test_event_mem, dcache, mtu );
+  r->chunk     = r->chunk0;
+  r->mtu       = mtu;
+  fd_event_tl  = r;
+}
+
+static void
+test_event_sink_close( void ) {
+  fd_event_tl = NULL;
+  fd_mcache_delete( fd_mcache_leave( test_event_reporter->mcache ) );
+  fd_dcache_delete( fd_dcache_leave( test_event_dcache ) );
+}
+
+static ulong
+test_event_next( ulong *       rd_seq,
+                 void const ** data ) {
+  fd_event_reporter_t * r = test_event_reporter;
+  if( *rd_seq==r->seq ) return 0UL;
+  fd_frag_meta_t const * meta = r->mcache + fd_mcache_line_idx( *rd_seq, r->depth );
+  FD_TEST( meta->seq==*rd_seq );
+  *data = fd_chunk_to_laddr_const( r->mem, meta->chunk );
+  (*rd_seq)++;
+  return FD_EVENT_SIG_SZ( meta->sig );
 }
 
 static fd_stake_delegations_t *
@@ -1449,6 +1505,141 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[2] );
 
     FD_LOG_NOTICE(( "test untouched account commit skipped... ok" ));
+  }
+
+  {
+    static fd_event_runtime_bundle_t   capture[1];
+    static fd_event_runtime_txn_t      txn_ev  [2][3];
+    fd_event_runtime_stake_delegation_t stake_ev[2][4];
+    ulong                               stake_ev_cnt[2] = {0};
+
+    fd_pubkey_t stake_acct = { .ul[0] = 0x4556454E54534B31UL };
+    fd_pubkey_t vote_acct  = { .ul[0] = 0x4556454E54564F31UL };
+    fd_pubkey_t ev_keys[4] = { pubkey1, pubkey2, pubkey3, stake_acct };
+    ulong const ev_key_cnt[3] = { 4UL, 4UL, 2UL };
+
+    test_event_sink_open();
+    ulong rd_seq = 0UL;
+
+    for( ulong follower=0UL; follower<2UL; follower++ ) {
+      reset_world();
+      env->mini->banks->report_runtime_diffs = 1;
+
+      uchar sdata[ FD_STAKE_STATE_SZ ] = {0};
+      FD_STORE( fd_stake_state_t, sdata, ((fd_stake_state_t){
+        .stake_type = FD_STAKE_STATE_STAKE,
+        .stake = { .meta = { .staker = stake_acct, .withdrawer = stake_acct },
+                   .stake = { .delegation = { .voter_pubkey = vote_acct, .stake = 5UL,
+                                              .activation_epoch = 0UL, .deactivation_epoch = ULONG_MAX,
+                                              .warmup_cooldown_rate = 0.25 } } } }) );
+      create_test_account( env->mini->runtime->accdb, env->fork_id, &stake_acct, 2000000000UL,
+                           (uint)FD_STAKE_STATE_SZ, sdata, &fd_solana_stake_program_id );
+      fd_stake_delegations_root_update( fd_banks_stake_delegations_root_query( env->mini->banks ),
+                                        &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
+                                        2000000000UL, (uint)FD_STAKE_STATE_SZ );
+
+      if( !follower ) bundle_acquire_repr( ev_keys, 4UL, 3UL );
+
+      fd_txn_p_t  ev_txn[3]; memset( ev_txn, 0, sizeof(ev_txn) );
+      fd_txn_in_t ev_in [3]; memset( ev_in,  0, sizeof(ev_in)  );
+      for( ulong i=0UL; i<3UL; i++ ) {
+        serialize_bundle_txn( &ev_txn[i], ev_keys, ev_key_cnt[i], 0UL );
+        ev_in[i].txn                  = &ev_txn[i];
+        ev_in[i].index_in_slot        = i;
+        ev_in[i].bundle.is_bundle     = !follower;
+        ev_in[i].bundle.prev_txn_cnt  = follower ? 0UL : i;
+        ev_in[i].bundle.event_capture = follower ? NULL : capture;
+        for( ulong j=0UL; j<i; j++ ) ev_in[i].bundle.prev_txn_outs[j] = &env->txn_out[j];
+
+        fd_txn_out_t * out = &env->txn_out[i];
+        if( !follower ) fd_event_runtime_bundle_txn_prepare( &ev_in[i], out );
+        fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &ev_in[i], out );
+        FD_TEST( out->err.is_committable );
+        FD_TEST( out->err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+
+        fd_acc_t * x = out->accounts.account[1];
+        if( i==0UL ) {
+          x->lamports += 1000UL;                        out->accounts.touched[1] = 1;
+          out->accounts.account[2]->lamports += 7UL;    out->accounts.touched[2] = 1;
+          fd_acc_t * sa = out->accounts.account[3];
+          fd_stake_state_t st = FD_LOAD( fd_stake_state_t, sa->data );
+          st.stake.stake.delegation.stake = 6UL;
+          FD_STORE( fd_stake_state_t, sa->data, st );   out->accounts.touched[3] = 1;
+        } else if( i==1UL ) {
+          x->data[0] = (uchar)~x->data[0];              out->accounts.touched[1] = 1;
+          out->accounts.touched[3] = 1;
+        } else {
+          x->lamports -= 500UL;                         out->accounts.touched[1] = 1;
+        }
+
+        if( follower ) fd_runtime_commit_txn( env->runtime, env->bank, &ev_in[i], out );
+        else           fd_event_runtime_bundle_txn_capture( &ev_in[i], out, env->bank );
+      }
+      if( !follower ) {
+        for( ulong i=0UL; i<3UL; i++ ) fd_runtime_commit_txn( env->runtime, env->bank, &ev_in[i], &env->txn_out[i] );
+        fd_runtime_fini_bundle( env->runtime );
+      }
+      FD_TEST( fd_accdb_lamports( env->mini->runtime->accdb, env->fork_id, pubkey2.uc )==1000500UL );
+      FD_TEST( fd_accdb_lamports( env->mini->runtime->accdb, env->fork_id, pubkey3.uc )==1000007UL );
+
+      ulong txn_ev_cnt = 0UL;
+      void const * data;
+      for( ulong sz; (sz=test_event_next( &rd_seq, &data )); ) {
+        if( sz==sizeof(fd_event_runtime_txn_t) ) {
+          FD_TEST( txn_ev_cnt<3UL );
+          fd_memcpy( &txn_ev[follower][txn_ev_cnt++], data, sz );
+        } else {
+          FD_TEST( sz==sizeof(fd_event_runtime_stake_delegation_t) );
+          FD_TEST( stake_ev_cnt[follower]<4UL );
+          fd_memcpy( &stake_ev[follower][stake_ev_cnt[follower]++], data, sz );
+        }
+      }
+      FD_TEST( txn_ev_cnt==3UL );
+    }
+
+    ulong const expect_diff_cnt[3] = { 4UL, 3UL, 2UL };
+    for( ulong i=0UL; i<3UL; i++ ) {
+      fd_event_runtime_txn_t const * l = &txn_ev[0][i];
+      fd_event_runtime_txn_t const * f = &txn_ev[1][i];
+      FD_TEST( l->index_in_slot==i && f->index_in_slot==i );
+      FD_TEST( l->account_diffs_cnt==expect_diff_cnt[i] );
+      FD_TEST( f->account_diffs_cnt==expect_diff_cnt[i] );
+      for( ulong j=0UL; j<l->account_diffs_cnt; j++ ) {
+        fd_event_runtime_txn_account_diffs_t const * a = &l->account_diffs[j];
+        fd_event_runtime_txn_account_diffs_t const * b = &f->account_diffs[j];
+        FD_TEST( !memcmp( a->pubkey,     b->pubkey,     32UL ) );
+        FD_TEST( !memcmp( a->owner,      b->owner,      32UL ) );
+        FD_TEST( !memcmp( a->prev_owner, b->prev_owner, 32UL ) );
+        FD_TEST( a->lamports       ==b->lamports        );
+        FD_TEST( a->prev_lamports  ==b->prev_lamports   );
+        FD_TEST( a->data_sz        ==b->data_sz         );
+        FD_TEST( a->prev_data_sz   ==b->prev_data_sz    );
+        FD_TEST( a->is_executable  ==b->is_executable   );
+        FD_TEST( a->is_stake_update==b->is_stake_update );
+        FD_TEST( a->is_vote_update ==b->is_vote_update  );
+        FD_TEST( a->is_new_vote    ==b->is_new_vote     );
+        FD_TEST( a->is_rm_vote     ==b->is_rm_vote      );
+      }
+    }
+    FD_TEST( !memcmp( txn_ev[1][0].account_diffs[1].pubkey, pubkey2.uc, 32UL ) );
+    FD_TEST( txn_ev[1][0].account_diffs[1].lamports==txn_ev[1][0].account_diffs[1].prev_lamports+1000UL );
+    FD_TEST( !memcmp( txn_ev[1][1].account_diffs[2].pubkey, stake_acct.uc, 32UL ) );
+    FD_TEST( txn_ev[1][1].account_diffs[2].lamports==txn_ev[1][1].account_diffs[2].prev_lamports );
+    FD_TEST( txn_ev[1][2].account_diffs[1].lamports+500UL==txn_ev[1][2].account_diffs[1].prev_lamports );
+
+    FD_TEST( stake_ev_cnt[0]==1UL && stake_ev_cnt[1]==1UL );
+    for( ulong k=0UL; k<2UL; k++ ) {
+      fd_event_runtime_stake_delegation_t const * e = &stake_ev[k][0];
+      FD_TEST( e->kind==FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_UPSERT );
+      FD_TEST( e->index_in_slot==0UL );
+      FD_TEST( !memcmp( e->stake_account, stake_acct.uc, 32UL ) );
+      FD_TEST( !memcmp( e->vote_account,  vote_acct.uc,  32UL ) );
+      FD_TEST( e->stake==6UL );
+    }
+
+    env->mini->banks->report_runtime_diffs = 0;
+    test_event_sink_close();
+    FD_LOG_NOTICE(( "test bundle events match follower... ok" ));
   }
 }
 
