@@ -1,0 +1,329 @@
+{
+    "name": "metrics_replay",
+    "id": 34,
+    "description": "Metrics of one replay tile instance, one row per sweep",
+    "local": true,
+    "fields": {
+        "sample_id":                          { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":                      { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":                        { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":                { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":                   { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":                    { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":                            { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "pid":                                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
+        "tid":                                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
+        "last_cpu_index":                     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
+        "context_switch_involuntary":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
+        "context_switch_voluntary":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
+        "page_fault_major":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
+        "page_fault_minor":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
+        "state": {
+            "type": "LowCardinality(String)",
+            "description": "Tile lifecycle state: 0=booting, 1=running, 2=shutdown",
+            "variants": {
+                "booting":  { "description": "Booting" },
+                "running":  { "description": "Running" },
+                "shutdown": { "description": "Shutdown" }
+            }
+        },
+        "heartbeat_time":                     { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
+        "is_backpressured":                   { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
+        "backpressure":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
+        "regime_duration_nanos": {
+            "type": "Tuple",
+            "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "fields": {
+                "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
+                "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
+                "backpressure_housekeeping": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Housekeeping" },
+                "caught_up_prefrag":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Prefrag" },
+                "processing_prefrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Prefrag" },
+                "backpressure_prefrag":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Prefrag" },
+                "caught_up_postfrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Postfrag" },
+                "processing_postfrag":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Postfrag" },
+                "caught_up_sleeping":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Sleeping" },
+                "backpressure_sleeping":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Sleeping" }
+            }
+        },
+        "thread_duration_nanos": {
+            "type": "Tuple",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "fields": {
+                "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
+                "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
+                "user":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "User (task was scheduled and executing in user mode)" },
+                "system":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "System (task was scheduled and executing in kernel mode)" },
+                "interrupt": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" }
+            }
+        },
+        "park_attempted": {
+            "type": "Tuple",
+            "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "fields": {
+                "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
+                "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
+                "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
+            }
+        },
+        "device_irq":                         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "tlb_shootdown":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "timer_irq":                          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "identity_balance_lamports":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Identity account balance at the optimistically confirmed slot" },
+        "active_stake_lamports":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Our active stake at the optimistically confirmed slot" },
+        "cluster_active_stake_lamports":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Cluster active stake at the optimistically confirmed slot" },
+        "epoch_credits":                      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "gauge: current value, do not sum over time. Our vote account epoch credits at the optimistically confirmed slot" },
+        "is_vote_account_inadmissible":       { "type": "Bool",                                                           "description": "Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary" },
+        "last_rewarded_vote_slot":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower)" },
+        "store_query_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of ingesting one queried FEC set into the scheduler",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10, 23) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[23, 52) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[52, 118) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[118, 269) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[269, 612) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[612, 1392) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1392, 3167) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3167, 7206) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7206, 16396) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[16396, 37307) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[37307, 84887) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[84887, 193150) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[193150, 439488) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[439488, 1000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "store_fec_queried":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets queried from the store" },
+        "store_fec_query_missed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC set store queries that found no entry" },
+        "store_fec_spilled":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payloads spilled from the store RAM cache to disk" },
+        "store_fec_spilled_bytes":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payload bytes spilled from the store RAM cache to disk" },
+        "store_fec_spill_read":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Spilled FEC payloads read from disk" },
+        "store_fec_spill_read_bytes":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Spilled FEC payload bytes read from disk" },
+        "store_fec_cache_used":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC payload slots in use in the store RAM cache" },
+        "store_fec_cache_capacity":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC payload capacity of the store RAM cache" },
+        "store_fec_cache_pinned":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "gauge: current value, do not sum over time. FEC payload views currently pinned against eviction" },
+        "is_caught_up":                       { "type": "Bool",                                                           "description": "Whether replay has caught up to the cluster tip; set once per run, never cleared" },
+        "root_slot":                          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Most recent consensus root, 0 if none" },
+        "root_slot_distance":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slots between the current reset slot and our root" },
+        "leader_slot":                        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot at which we are currently leader, or 0 if none" },
+        "next_leader_slot":                   { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" },
+        "reset_slot":                         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease" },
+        "bank_capacity":                      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum number of banks we can have alive" },
+        "bank_used":                          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Banks we currently have alive" },
+        "reassembly_free":                    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Free FEC sets in the reassembly queue" },
+        "last_reassembly_dequeued_slot":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none" },
+        "last_reassembly_dequeued_fec_index": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC set index of the FEC set most recently dequeued from reassembly for replay; read with LastReassemblyDequeuedSlot" },
+        "sched_active_bank_index":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bank pool index the replay scheduler is dispatching work for, ULONG_MAX if none" },
+        "sched_last_dispatch_bank_index":     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bank pool index the replay scheduler last dispatched work for, ULONG_MAX if none" },
+        "sched_last_dispatch_time":           { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Wall-clock time the replay scheduler last dispatched work, 0 if never" },
+        "sched_staging_lane_used":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Staging lanes currently occupied in the replay scheduler. Up to four staging lanes can be occupied at once" },
+        "sched_staging_lane_peak":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "High watermark of staging lanes that were at one point occupied in the replay scheduler" },
+        "sched_staging_lane_head_bank_index": {
+            "type": "Tuple",
+            "description": "Bank pool index at the head of each replay staging lane, ULONG_MAX if the lane is empty",
+            "fields": {
+                "lane0": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Staging lane 0" },
+                "lane1": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Staging lane 1" },
+                "lane2": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Staging lane 2" },
+                "lane3": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Staging lane 3" }
+            }
+        },
+        "sched_txn_pool_used":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction pool entries held by the replay scheduler, from parse until release" },
+        "sched_txn_pool_capacity":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum transactions the replay scheduler can hold" },
+        "sched_microblock_pool_used":         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Microblocks available to be scheduled in the replay scheduler" },
+        "sched_microblock_pool_capacity":     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum microblocks the replay scheduler can hold" },
+        "sched_block_pool_used":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Blocks alive in the replay scheduler" },
+        "sched_block_pool_capacity":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum blocks the replay scheduler can track" },
+        "sched_block_added": {
+            "type": "Tuple",
+            "description": "Blocks added to the replay scheduler, by staging state",
+            "fields": {
+                "staged":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Added as staged" },
+                "unstaged": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Added as unstaged" },
+                "dead":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Added as the dead child of a dead block, never dispatched" }
+            }
+        },
+        "sched_block_replayed":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks the replay scheduler considers fully replayed" },
+        "sched_block_abandoned":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks the replay scheduler abandoned for any reason" },
+        "sched_block_rejected":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks the replay scheduler found invalid while parsing or verifying PoH; also counted in SchedBlockAbandoned once drained; replay-tile verdicts not counted" },
+        "sched_block_promoted":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks the replay scheduler promoted from unstaged to a staging lane" },
+        "sched_block_demoted":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks the replay scheduler demoted from a staging lane to unstaged" },
+        "sched_block_deactivated": {
+            "type": "Tuple",
+            "description": "Times the replay scheduler stopped dispatching a block, by reason",
+            "fields": {
+                "no_child":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block fully replayed and there was no child block available yet" },
+                "no_work":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A partially replayed block ran out of work to dispatch" },
+                "abandoned":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block was abandoned, other than by minority fork pruning" },
+                "minority_fork": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block was pruned for being on a minority fork (not also counted as Abandoned)" }
+            }
+        },
+        "sched_lane_switched":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler switched the lane it is dispatching from" },
+        "sched_lane_promoted":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler promoted one or more blocks onto a staging lane" },
+        "sched_lane_demoted":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler demoted one or more blocks from a staging lane" },
+        "sched_fork_observed":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Forks the replay scheduler has observed" },
+        "sched_txn_lut_resolve_attempted": {
+            "type": "Tuple",
+            "description": "Transactions with address lookup tables the replay scheduler tried to resolve, by result",
+            "fields": {
+                "success": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Address lookup tables expanded successfully" },
+                "failed":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Address lookup table expansion failed" }
+            }
+        },
+        "sched_txn_parsed_abandoned":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions that were parsed but ended up being in abandoned blocks" },
+        "sched_txn_executed_abandoned":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions that were executed but ended up being in abandoned blocks" },
+        "sched_txn_done_abandoned":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions that were fully replayed but ended up being in abandoned blocks" },
+        "sched_txn_in_flight_integral_nanos": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Integral of in-flight transactions over time (transaction-nanoseconds); divide by SchedTxnBusyDurationNanos for the average in-flight count" },
+        "sched_txn_busy_duration_nanos":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time the replay scheduler had at least one transaction in flight" },
+        "sched_txn_idle_duration_nanos":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time the replay scheduler had no transaction in flight" },
+        "sched_txn_parsed":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions the replay pipeline has parsed" },
+        "sched_txn_executed":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions the replay pipeline has executed" },
+        "sched_txn_signature_verified":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions the replay pipeline has sigverified" },
+        "sched_txn_poh_mixed":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions the replay pipeline has performed PoH mixin on" },
+        "sched_txn_done":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions that were fully replayed" },
+        "sched_microblock_parsed":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Microblocks the replay pipeline has parsed" },
+        "sched_microblock_hashed":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Microblocks the replay pipeline has fully hashed" },
+        "sched_microblock_done":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Microblocks that were fully replayed" },
+        "sched_ingested_bytes":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes the replay scheduler has ingested" },
+        "sched_trailing_skipped_bytes":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Trailing bytes of a block the replay scheduler ingested but did not parse" },
+        "sched_dropped_bytes":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes the replay scheduler refused to ingest because the block was abandoned" },
+        "sched_fec_ingested":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets the replay scheduler has been given" },
+        "bank_frozen":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks frozen, including our own leader blocks" },
+        "chain_txn_height":                   { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "gauge: current value, do not sum over time. Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch" },
+        "fec_poll_skipped": {
+            "type": "Tuple",
+            "description": "Replay loop iterations that processed no FEC set, by reason",
+            "fields": {
+                "sched_full":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The scheduler was full" },
+                "reassembly_empty":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The reassembly queue was empty" },
+                "leader_freeze_wait": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Waiting for PoH to end our leader block" },
+                "bank_full":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank pool was full" }
+            }
+        },
+        "fec_parent_missing_dropped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past" },
+        "root_advance_deferred":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the storage root could not advance to the consensus root yet" },
+        "progcache_rooted":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache entries rooted" },
+        "progcache_class_used": {
+            "type": "Tuple",
+            "description": "Program cache value slots in use, by size class",
+            "fields": {
+                "le128_kib": { "type": "UInt64", "compression": "T64, ZSTD", "description": "0-128 KiB" },
+                "le512_kib": { "type": "UInt64", "compression": "T64, ZSTD", "description": "128-512 KiB" },
+                "le1_mib":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "512 KiB-1 MiB" },
+                "le2_mib":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "1-2 MiB" },
+                "le4_mib":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "2-4 MiB" },
+                "le11_mib":  { "type": "UInt64", "compression": "T64, ZSTD", "description": "4-11 MiB" }
+            }
+        },
+        "progcache_class_capacity": {
+            "type": "Tuple",
+            "description": "Program cache value capacity, by size class",
+            "fields": {
+                "le128_kib": { "type": "UInt64", "compression": "T64, ZSTD", "description": "0-128 KiB" },
+                "le512_kib": { "type": "UInt64", "compression": "T64, ZSTD", "description": "128-512 KiB" },
+                "le1_mib":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "512 KiB-1 MiB" },
+                "le2_mib":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "1-2 MiB" },
+                "le4_mib":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "2-4 MiB" },
+                "le11_mib":  { "type": "UInt64", "compression": "T64, ZSTD", "description": "4-11 MiB" }
+            }
+        },
+        "accdb_account_readonly_acquired": {
+            "type": "Tuple",
+            "description": "Readonly accounts acquired from the account database, by cache size class of the account's current data size",
+            "fields": {
+                "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
+                "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
+                "le2_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "513 B-2 KiB" },
+                "le8_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-8 KiB" },
+                "le32_kib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "8-32 KiB" },
+                "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "32-128 KiB" },
+                "le1_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128 KiB-1 MiB" },
+                "le10_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "1-10 MiB" }
+            }
+        },
+        "accdb_account_writable_acquired": {
+            "type": "Tuple",
+            "description": "Writable accounts acquired from the account database, by cache size class of the account's current data size",
+            "fields": {
+                "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
+                "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
+                "le2_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "513 B-2 KiB" },
+                "le8_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-8 KiB" },
+                "le32_kib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "8-32 KiB" },
+                "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "32-128 KiB" },
+                "le1_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128 KiB-1 MiB" },
+                "le10_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "1-10 MiB" }
+            }
+        },
+        "accdb_account_evicted": {
+            "type": "Tuple",
+            "description": "Accounts evicted from the account database cache to make space, by cache size class",
+            "fields": {
+                "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
+                "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
+                "le2_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "513 B-2 KiB" },
+                "le8_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-8 KiB" },
+                "le32_kib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "8-32 KiB" },
+                "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "32-128 KiB" },
+                "le1_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128 KiB-1 MiB" },
+                "le10_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "1-10 MiB" }
+            }
+        },
+        "accdb_account_new_committed": {
+            "type": "Tuple",
+            "description": "New account versions committed to the index, by destination cache size class",
+            "fields": {
+                "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
+                "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
+                "le2_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "513 B-2 KiB" },
+                "le8_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-8 KiB" },
+                "le32_kib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "8-32 KiB" },
+                "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "32-128 KiB" },
+                "le1_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128 KiB-1 MiB" },
+                "le10_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "1-10 MiB" }
+            }
+        },
+        "accdb_account_overwrite_committed": {
+            "type": "Tuple",
+            "description": "Account versions committed over an existing version of the same fork and generation, by destination cache size class",
+            "fields": {
+                "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
+                "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
+                "le2_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "513 B-2 KiB" },
+                "le8_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-8 KiB" },
+                "le32_kib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "8-32 KiB" },
+                "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "32-128 KiB" },
+                "le1_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128 KiB-1 MiB" },
+                "le10_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "1-10 MiB" }
+            }
+        },
+        "accdb_account_cache_missed": {
+            "type": "Tuple",
+            "description": "Accounts not found in the account database cache and read from disk, by cache size class",
+            "fields": {
+                "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
+                "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
+                "le2_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "513 B-2 KiB" },
+                "le8_kib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-8 KiB" },
+                "le32_kib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "8-32 KiB" },
+                "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "32-128 KiB" },
+                "le1_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128 KiB-1 MiB" },
+                "le10_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "1-10 MiB" }
+            }
+        },
+        "accdb_account_waited":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Accounts that had to wait for another reader to finish loading them into the cache" },
+        "accdb_batch_acquired":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Batch acquire calls made by this tile" },
+        "accdb_cache_reserve_retried":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Spin retries while waiting to reserve cache lines for a transaction" },
+        "accdb_disk_read_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes read from the account database file" },
+        "accdb_disk_read":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Reads from the account database file" },
+        "accdb_disk_written_bytes":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
+        "accdb_disk_written":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
+        "accdb_copied_bytes":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" },
+        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" }
+    }
+}

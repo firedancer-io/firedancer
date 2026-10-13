@@ -1,0 +1,27 @@
+{
+    "name": "metrics_link",
+    "id": 61,
+    "description": "Input link metrics of one consumer tile instance, one row per link per sweep",
+    "local": true,
+    "fields": {
+        "sample_id":            { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":        { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":          { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":  { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":     { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":      { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":              { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "tile":                 { "type": "LowCardinality(String)",                                         "description": "Consumer tile kind" },
+        "link":                 { "type": "LowCardinality(String)",                                         "description": "Input link name" },
+        "link_idx":             { "type": "UInt64",                                                         "description": "Index of the input link on the consumer tile" },
+        "frag_consumed":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Fragments consumed by the link reader" },
+        "frag_consumed_bytes":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes read by the link consumer" },
+        "frag_filtered":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Fragments filtered and not consumed" },
+        "frag_filtered_bytes":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes read by the link consumer that were filtered" },
+        "link_polling_overrun": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the link was overrun while polling" },
+        "frag_polling_overrun": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Fragments not processed because the link was overrun while polling" },
+        "link_reading_overrun": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the link was overrun while reading metadata" },
+        "frag_reading_overrun": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Fragments not processed because the link was overrun while reading" },
+        "backpressure_blamed":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Producer housekeeping intervals in which the producer was backpressured and this reliable consumer had the least credit across its outs; sampled, not an event count" }
+    }
+}

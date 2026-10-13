@@ -1143,6 +1143,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
                    ctx->catch_up_tip_advance_cnt>=12UL &&
                    ctx->catch_up_max_fec_slot<slot+3UL ) ) {
     ctx->caught_up = 1;
+    FD_MGAUGE_SET( REPLAY, IS_CAUGHT_UP, 1UL );
     double boot_secs = (double)(fd_log_wallclock()-ctx->boot_timestamp_nanos)/1e9;
     FD_LOG_NOTICE(( "caught up to cluster at slot %s%lu%s %s(%.1f seconds since boot)%s",
                     fd_log_style_bold(), slot, fd_log_style_normal(),
@@ -2439,6 +2440,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->identity_vote_rooted = 1;
 
   ctx->caught_up = 1;
+  FD_MGAUGE_SET( REPLAY, IS_CAUGHT_UP, 1UL );
 
   ctx->hard_fork_cnt = 0UL;
 

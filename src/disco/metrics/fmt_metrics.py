@@ -23,7 +23,7 @@ from pathlib import Path
 INDENT = '    '
 TOP    = ( 'enum', 'tile', 'common', 'linkin' )
 ORDER  = ( 'value', 'name', 'telemetry', 'enum', 'states', 'values',
-           'min', 'max', 'source', 'ambiguous-kind', 'label', 'summary', 'lint-allow' )
+           'min', 'max', 'source', 'ambiguous-kind', 'renamed_from', 'deprecated', 'label', 'summary', 'lint-allow' )
 
 ATTR_RE = re.compile( r'([\w:-]+)\s*=\s*"([^"]*)"' )
 

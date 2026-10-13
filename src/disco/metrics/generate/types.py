@@ -85,10 +85,12 @@ def _source_converter(metric: ET.Element) -> 'HistogramConverter':
     return HistogramConverter.NANOSECONDS
 
 class EnumValue:
-    def __init__(self, value: int, name: str, label: str):
+    def __init__(self, value: int, name: str, label: str, renamed_from: Optional[str] = None, deprecated: bool = False):
         self.value = value
         self.name = name
         self.label = label
+        self.renamed_from = renamed_from
+        self.deprecated = deprecated
 
 class EnumGroup:
     def __init__(self, name: str, values: List[EnumValue]):
@@ -101,6 +103,9 @@ class MetricEnum:
         self.values = values
         self.groups = groups or []
 
+    def live(self) -> List[EnumValue]:
+        return [ v for v in self.values if not v.deprecated ]
+
     def group_mask(self, group: EnumGroup) -> int:
         return sum(1 << self.values.index(v) for v in group.values)
 
@@ -111,6 +116,7 @@ class Metric:
         self.tile = tile
         self.description = description
         self.offset = 0
+        self.telemetry = True
 
     def footprint(self) -> int:
         return 8
@@ -152,7 +158,7 @@ class CounterEnumMetric(Metric):
         return 8 * len(self.enum.values)
 
     def count(self) -> int:
-        return len(self.enum.values)
+        return len(self.enum.live())
 
 class GaugeEnumMetric(Metric):
     def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum, is_bool: bool = False):
@@ -165,7 +171,7 @@ class GaugeEnumMetric(Metric):
         return 8 * len(self.enum.values)
 
     def count(self) -> int:
-        return len(self.enum.values)
+        return len(self.enum.live())
 
 class Metrics:
     def __init__(self, common: List[Metric], tiles: Dict[Tile, List[Metric]], link_in: List[Metric], enums: List[MetricEnum], tiles_no_telemetry: set = None):
@@ -207,6 +213,9 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
     elif 'summary' in metric.attrib:
         description = metric.attrib['summary']
 
+    if metric.attrib.get('telemetry', 'false') != 'false':
+        raise Exception(f'{name}: telemetry= only takes "false"')
+
     if 'ambiguous-kind' in metric.attrib and ( metric.tag not in ( 'counter', 'gauge' ) or metric.attrib['ambiguous-kind']!='true' ):
         raise Exception(f'{name}: ambiguous-kind="true" is only for <counter> and <gauge>')
 
@@ -226,7 +235,7 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
             def state_str(v):
                 tag = re.sub(r'(?<!^)(?=[A-Z])', '_', v.name).lower()
                 return f'{v.value}={tag}' if v.label.lower() == tag.replace('_', ' ') else f'{v.value}={tag} ({v.label})'
-            description += ': ' + ', '.join(state_str(v) for v in states.values)
+            description += ': ' + ', '.join(state_str(v) for v in states.live())
             return GaugeMetric(name, tile, description, states=states)
         else:
             return GaugeMetric(name, tile, description)
@@ -246,16 +255,26 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
     else:
         raise Exception(f'Unknown metric type: {metric.tag}')
 
+def is_deprecated(el: ET.Element) -> bool:
+    """deprecated="true" removes a metric or enum value everywhere except the
+    ClickHouse schema, which keeps it as a tombstone so later field
+    positions never shift."""
+    d = el.attrib.get('deprecated')
+    if d not in (None, 'true'): raise Exception(f'{el.attrib.get("name")}: deprecated= only takes "true"')
+    return d == 'true'
+
 def _parse_enum(enum: ET.Element) -> MetricEnum:
     values = [
         EnumValue(
             value=int(value.attrib['value']),
             name=value.attrib['name'],
             label=value.attrib['label'],
+            renamed_from=value.attrib.get('renamed_from'),
+            deprecated=is_deprecated(value),
         )
         for value in enum.findall('int')
     ]
-    by_name = { v.name: v for v in values }
+    by_name = { v.name: v for v in values if not v.deprecated }
     groups = []
     for g in enum.findall('group'):
         gname = g.attrib['name']
@@ -263,10 +282,22 @@ def _parse_enum(enum: ET.Element) -> MetricEnum:
         if gname=='All': raise Exception(f'{enum.attrib["name"]}: group All is implicit')
         members = g.attrib['values'].split()
         for m in members:
-            if m not in by_name: raise Exception(f'{enum.attrib["name"]}: group {gname} names unknown value {m}')
+            if m not in by_name:
+                if m in { v.name for v in values }: raise Exception(f'{enum.attrib["name"]}: group {gname} names deprecated value {m}; drop it from the group')
+                raise Exception(f'{enum.attrib["name"]}: group {gname} names unknown value {m}')
         groups.append(EnumGroup(gname, [by_name[m] for m in members]))
     if groups and len(values) > 64: raise Exception(f'{enum.attrib["name"]}: groups need at most 64 values')
     return MetricEnum(name=enum.attrib['name'], values=values, groups=groups)
+
+def _parse_section(tile: Optional[Tile], section: ET.Element, enums: Dict[str, MetricEnum]) -> List[Metric]:
+    """Live metrics of a <tile>, <common> or <linkin>, with telemetry= applied."""
+    out = []
+    for el in section:
+        if is_deprecated(el): continue
+        m = parse_metric(tile, el, enums)
+        m.telemetry = el.attrib.get('telemetry') != 'false'
+        out.append(m)
+    return out
 
 def parse_metrics(xml_data: str) -> Metrics:
     root = ET.fromstring(xml_data)
@@ -278,18 +309,20 @@ def parse_metrics(xml_data: str) -> Metrics:
 
     common = root.find('common')
     assert common is not None
-    common = [parse_metric(None, metric, enums) for metric in common]
+    common = _parse_section(None, common, enums)
 
     tiles = {}
     tiles_no_telemetry = set()
     for tile in root.findall('tile'):
         tile_enum = Tile[tile.attrib['name'].upper()]
-        tiles[tile_enum] = [parse_metric(tile_enum, metric, enums) for metric in tile]
+        tiles[tile_enum] = _parse_section(tile_enum, tile, enums)
+        if tile.attrib.get('telemetry', 'false') != 'false':
+            raise Exception(f'tile {tile.attrib["name"]}: telemetry= only takes "false"')
         if tile.attrib.get('telemetry') == 'false':
             tiles_no_telemetry.add(tile_enum)
 
     link_in = root.find('linkin')
     assert link_in is not None
-    link_in = [parse_metric(None, metric, enums) for metric in link_in]
+    link_in = _parse_section(None, link_in, enums)
 
     return Metrics(common=common, tiles=tiles, link_in=link_in, enums=enums, tiles_no_telemetry=tiles_no_telemetry)

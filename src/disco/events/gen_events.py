@@ -94,6 +94,7 @@ class ClickHouseType(Enum):
 @dataclass
 class Variant:
     description: str
+    deprecated: bool = False
 
 @dataclass
 class Field:
@@ -107,6 +108,10 @@ class Field:
     dynamic: bool = False  # Array only: stored at the end of the C struct and
                            # shipped to the event tile at its used length
                            # rather than max_len capacity
+    field_number: Optional[int] = None  # provisional number of an addition;
+                                        # fields are otherwise positional
+    deprecated: bool = False  # kept in place so later positions never shift;
+                              # never encoded, absent from the C struct
 
 @dataclass
 class Schema:
@@ -114,8 +119,17 @@ class Schema:
     id: int
     description: str
     fields: Dict[str, Field]
+    local: bool = False       # rendered by the event tile, never sent over a frag
+    deprecated: bool = False  # no longer sent; proto message and server table stay
 
-_FIELD_KEYS = {"type", "description", "variants", "fields", "element", "max_len", "dynamic", "compression"}
+_FIELD_KEYS = {"type", "description", "variants", "fields", "element", "max_len", "dynamic", "compression", "field_number", "deprecated"}
+
+# Event ids of frag-reported schemas fit the 8-bit type of FD_EVENT_SIG.
+# Local schemas use any protobuf field number; ids at or above
+# EVENT_ID_PROVISIONAL are generated for schemas not yet committed on main.
+PB_FIELD_NUMBER_MAX  = (1<<29)-1
+PB_RESERVED          = range(19000, 20000)
+EVENT_ID_PROVISIONAL = 1<<28
 
 def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
     unknown = set(f) - _FIELD_KEYS
@@ -123,7 +137,8 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
         raise ValueError(f"Unknown field keys (typo?): {sorted(unknown)}")
     if f["type"].startswith("ref:"):
         field = parse_field(shared_types[f["type"][4:]], shared_types)
-        field.shared_name = f["type"][4:]
+        field.shared_name  = f["type"][4:]
+        field.field_number = f.get("field_number")
         return field
 
     fields = None
@@ -157,17 +172,52 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
     return Field(
         chtype=ClickHouseType.from_str(f["type"]),
         description=f["description"],
-        variants={k: Variant(v["description"]) for k, v in f.get("variants", {}).items()} or None,
+        variants={k: Variant(v["description"], bool(v.get("deprecated"))) for k, v in f.get("variants", {}).items()} or None,
         fields=fields,
         element=element,
         max_len=f.get("max_len"),
         dynamic=bool(f.get("dynamic")),
+        field_number=f.get("field_number"),
+        deprecated=bool(f.get("deprecated")),
     )
 
 def parse_schema(path: Path, shared_types: Dict[str, dict]) -> Schema:
     data = json.loads(path.read_text())
     fields = {k: parse_field(v, shared_types) for k, v in data["fields"].items()}
-    return Schema(data["name"], data["id"], data["description"], fields)
+    return Schema(data["name"], data["id"], data["description"], fields, bool(data.get("local")), bool(data.get("deprecated")))
+
+def live(fields: Dict[str, Field]) -> Dict[str, Field]:
+    """Fields still sent.  Deprecated ones keep their position in the proto
+    (callers that number fields enumerate all of them) but get no C member
+    and are never encoded."""
+    return {k: f for k, f in fields.items() if not f.deprecated}
+
+def has_provisional(fields: Dict[str, Field]) -> bool:
+    for f in fields.values():
+        if f.field_number is not None: return True
+        inner = f.element if f.chtype == ClickHouseType.Array else f
+        if inner.fields and has_provisional(inner.fields): return True
+    return False
+
+def check_field_numbers(where: str, fields: Dict[str, Field]) -> None:
+    """Fields are numbered by position.  An explicit field_number is only a
+    provisional number (an addition not yet landed), trailing every
+    positional field so it shifts no position."""
+    seen: Dict[int, str] = {}
+    for name, f in fields.items():
+        n = f.field_number
+        if n is None:
+            if seen:
+                raise SystemExit(f"ERROR: {where}.{name}: positional field after a provisional one")
+        else:
+            if not (EVENT_ID_PROVISIONAL <= n <= PB_FIELD_NUMBER_MAX) or n in PB_RESERVED:
+                raise SystemExit(f"ERROR: {where}.{name}: explicit field_number {n} must be a provisional number (>= {EVENT_ID_PROVISIONAL})")
+            if n in seen:
+                raise SystemExit(f"ERROR: {where}: field_number {n} used by both {seen[n]} and {name}")
+            seen[n] = name
+        inner = f.element if f.chtype == ClickHouseType.Array else f
+        if inner.fields:
+            check_field_numbers(f"{where}.{name}", inner.fields)
 
 def collect_nested_messages(fields: Dict[str, Field], prefix: str = "") -> List[tuple]:
     msgs = []
@@ -191,7 +241,8 @@ def generate_message_fields(fields: Dict[str, Field], prefix: str = "") -> List[
         else:
             proto_type = inner.chtype.to_protobuf_type()
         label = "repeated " if f.chtype == ClickHouseType.Array else ""
-        lines += [f"  // {f.description}", f"  {label}{proto_type} {name} = {i};"]
+        opt   = " [deprecated = true]" if f.deprecated else ""
+        lines += [f"  // {f.description}", f"  {label}{proto_type} {name} = {f.field_number or i}{opt};"]
 
     return lines
 
@@ -208,7 +259,8 @@ def generate_enums(fields: Dict[str, Field], prefix: str, generated: set) -> Lis
             ep = to_screaming_snake_case(enum)
             lines += [f"// {inner.description}", f"enum {enum} {{", f"  {ep}_UNSPECIFIED = 0;"]
             for i, (vn, v) in enumerate(inner.variants.items(), 1):
-                lines.append(f"  {ep}_{to_screaming_snake_case(vn)} = {i};  // {v.description}")
+                opt = " [deprecated = true]" if v.deprecated else ""
+                lines.append(f"  {ep}_{to_screaming_snake_case(vn)} = {i}{opt};  // {v.description}")
             lines += ["}", ""]
         if inner.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
             nested_prefix = inner.shared_name or f"{prefix}{to_pascal_case(name)}"
@@ -235,7 +287,8 @@ def generate_protobuf(schemas: List[Schema]) -> str:
 
     for s in schemas:
         schema_prefix = to_pascal_case(s.name)
-        lines += [f"// {s.description}", f"message {schema_prefix} {{"] + generate_message_fields(s.fields, schema_prefix) + ["}", ""]
+        opt = ["  option deprecated = true;"] if s.deprecated else []
+        lines += [f"// {s.description}", f"message {schema_prefix} {{"] + opt + generate_message_fields(s.fields, schema_prefix) + ["}", ""]
 
     lines += ["// Combined event type", "message Event {", "  oneof event {"]
     for s in schemas:
@@ -293,7 +346,9 @@ def field_is_supported(f: Field) -> bool:
     return True  # scalar or fixed-byte type
 
 def schema_is_supported(s: Schema) -> bool:
-    return all(field_is_supported(f) for f in s.fields.values())
+    """Local schemas are encoded by the event tile directly and get no
+    report macro, struct, or serialize-by-type case."""
+    return not s.local and not s.deprecated and all(field_is_supported(f) for f in live(s.fields).values())
 
 # Protobuf wire-format max sizes (mirrors src/ballet/pb/fd_pb_wire.h).
 _PB_TAG_MAX     = 5   # fd_pb_varint32_sz_max (a tag is a varint32)
@@ -317,7 +372,7 @@ def scalar_max_encoded_sz(f: Field) -> int:
     if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
         return _PB_TAG_MAX + _PB_VARINT32 + f.max_len
     if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
-        body = sum(scalar_max_encoded_sz(sf) for sf in f.fields.values())
+        body = sum(scalar_max_encoded_sz(sf) for sf in live(f.fields).values())
         return _PB_TAG_MAX + _PB_LP_RESERVE + body
     suffix = _SCALAR_C[f.chtype][1]
     if suffix == "bool":                    return _PB_TAG_MAX + _PB_BOOL
@@ -340,7 +395,7 @@ def event_buf_max(s: Schema) -> int:
     # Two submessage openers (Event, then the specific event): each is a
     # tag plus a reserved length-prefix.
     submsgs = 2 * (_PB_TAG_MAX + _PB_LP_RESERVE)
-    fields = sum(field_max_encoded_sz(f) for f in s.fields.values())
+    fields = sum(field_max_encoded_sz(f) for f in live(s.fields).values())
     return envelope + submsgs + fields + _PB_ENCODER_SLACK
 
 def event_buf_max_define(s: Schema) -> str:
@@ -366,7 +421,7 @@ def gen_tuple_struct( schema_name: str, field_name: str, flds: Dict[str, Field],
     types (no nested arrays/bytes), which covers current schemas."""
     tn = c_tuple_name( schema_name, field_name )
     members = []
-    for sn, sf in flds.items():
+    for sn, sf in live(flds).items():
         if sf.variants:
             ctype, decl = "int", sn
         elif sf.chtype in _FIXED_BYTE_SZ:
@@ -427,24 +482,25 @@ def generate_c_header(schemas: List[Schema]) -> str:
         # numbered from 1); the proto's mandatory _UNSPECIFIED=0 sentinel is
         # not emitted on the C side.
         enum_fields = []
-        for name, f in s.fields.items():
+        for name, f in live(s.fields).items():
             enum_fields.append((name, f))
             tflds = tuple_fields_of( f )
             if tflds is not None:
-                enum_fields += [(f"{name}_{sn}", sf) for sn, sf in tflds.items()]
+                enum_fields += [(f"{name}_{sn}", sf) for sn, sf in live(tflds).items()]
         for name, f in enum_fields:
             if not f.variants:
                 continue
-            names = [c_enum_value(s.name, name, vn) for vn in f.variants]
+            names = [c_enum_value(s.name, name, vn) for vn, v in f.variants.items() if not v.deprecated]
             w = max(len(n) for n in names)
             lines.append(f"/* {f.description} */")
             for i, (vn, v) in enumerate(f.variants.items(), 1):
+                if v.deprecated: continue   # keeps its number, no C name
                 lines.append(f"#define {c_enum_value(s.name, name, vn):<{w}} ({i}) /* {v.description} */")
             lines += [""]
 
         # Nested Tuple element structs (emitted before the main struct that
         # references them).
-        for name, f in s.fields.items():
+        for name, f in live(s.fields).items():
             tflds = tuple_fields_of( f )
             if tflds is not None:
                 inner = f.element if f.chtype == ClickHouseType.Array else f
@@ -471,8 +527,8 @@ def generate_c_header(schemas: List[Schema]) -> str:
 
         members     = []  # (ctype, decl, desc) prefix members
         dyn_members = []  # (ctype, decl, desc) trailing dynamic arrays
-        dyn_names   = [n for n, f in s.fields.items() if f.dynamic]
-        for name, f in s.fields.items():
+        dyn_names   = [n for n, f in live(s.fields).items() if f.dynamic]
+        for name, f in live(s.fields).items():
             if f.dynamic:
                 ectype, decl = array_elem_decl( name, f )
                 members.append(("ulong", f"{name}_cnt", f"Number of {name} entries (<= {f.max_len})"))
@@ -590,7 +646,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
     # array) via the gather variant, so typical events consume only their
     # actual footprint of dcache rather than max_len capacity.
     for s in eligible:
-        dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        dyn_names = [n for n, f in live(s.fields).items() if f.dynamic]
         if not dyn_names:
             lines += [
                 f"/* Report a {s.name} event ({to_pascal_case(s.name)}, id {s.id}) to the event tile via",
@@ -614,7 +670,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
                 "static inline void",
                 f"fd_event_report_{s.name}( fd_event_{s.name}_t const * msg ) {{",
             ] + [
-                f"  FD_TEST( msg->{dn}_cnt<={f.max_len}UL );" for dn, f in s.fields.items() if f.dynamic
+                f"  FD_TEST( msg->{dn}_cnt<={f.max_len}UL );" for dn, f in live(s.fields).items() if f.dynamic
             ] + [
                 "  fd_event_report_iov_t iov[] = {",
             ] + iovs + [
@@ -649,6 +705,7 @@ def encode_tuple( f: Field, field_id: int, acc: str, ind: str ) -> List[str]:
     accessor for the tuple struct (e.g. 'msg->x' or 'msg->arr[ k ]')."""
     out = [f"{ind}ok &= !!fd_pb_submsg_open( encoder, {field_id}U );"]
     for j, (sn, sf) in enumerate(f.fields.items(), 1):
+        if sf.deprecated: continue
         out += encode_scalar( sf, j, f"{acc}.{sn}", ind, omit_default=True )
     out += [f"{ind}ok &= !!fd_pb_submsg_close( encoder );"]
     return out
@@ -707,7 +764,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
         # capacity before any encoder loop dereferences them, so a caller that
         # sets *_len / *_cnt above capacity is caught rather than reading OOB.
         bound_checks = []
-        for name, f in s.fields.items():
+        for name, f in live(s.fields).items():
             if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
                 bound_checks.append(f"  FD_TEST( msg->{name}_len<={f.max_len}UL );")
             elif f.chtype == ClickHouseType.Array:
@@ -718,7 +775,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
         # helper): compute their base pointers by walking from the prefix end
         # in declaration order.  Also works for a full in-memory struct only
         # if it was packed first; serializers only ever see packed events.
-        dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        dyn_names = [n for n, f in live(s.fields).items() if f.dynamic]
         if dyn_names:
             up = s.name.upper()
             lines += [f"  uchar const * _dyn = (uchar const *)msg + FD_EVENT_{up}_PREFIX_SZ;"]
@@ -751,6 +808,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
         # meaningful content, not the empty `bytes` default).  Dynamic arrays
         # are accessed via the packed-tail locals declared above.
         for i, (name, f) in enumerate(s.fields.items(), 1):
+            if f.deprecated: continue   # keeps its number, never encoded
             acc = name if f.dynamic else f"msg->{name}"
             lines += encode_field( f, i, name, acc, "  " )
         lines += [
@@ -775,7 +833,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
         "  switch( type ) {",
     ]
     for s in eligible:
-        dyn_names = [n for n, f in s.fields.items() if f.dynamic]
+        dyn_names = [n for n, f in live(s.fields).items() if f.dynamic]
         if not dyn_names:
             lines += [
                 f"  case {s.id}UL:",
@@ -792,7 +850,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
                 f"    FD_TEST( ev_sz>=FD_EVENT_{up}_PREFIX_SZ );",
                 f"    fd_event_{s.name}_t const * msg = (fd_event_{s.name}_t const *)ev;",
             ] + [
-                f"    FD_TEST( msg->{dn}_cnt<={f.max_len}UL );" for dn, f in s.fields.items() if f.dynamic
+                f"    FD_TEST( msg->{dn}_cnt<={f.max_len}UL );" for dn, f in live(s.fields).items() if f.dynamic
             ] + [
                 f"    FD_TEST( ev_sz==fd_event_{s.name}_footprint( msg ) );",
                 f"    fd_event_{s.name}_serialize( circq, client, timestamp_nanos, link_seq, msg );",
@@ -832,7 +890,7 @@ def fill_field( f: Field, acc: str, ind: str ) -> List[str]:
                 f"{ind}{acc}_len = {f.max_len}UL;"]
     if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
         out = []
-        for sn, sf in f.fields.items():
+        for sn, sf in live(f.fields).items():
             out += fill_scalar( sf, f"{acc}.{sn}", ind )
         return out
     if f.chtype == ClickHouseType.Array:
@@ -840,7 +898,7 @@ def fill_field( f: Field, acc: str, ind: str ) -> List[str]:
         out = [f"{ind}{acc}_cnt = {f.max_len}UL;",
                f"{ind}for( ulong k=0UL; k<{f.max_len}UL; k++ ) {{"]
         if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
-            for sn, sf in el.fields.items():
+            for sn, sf in live(el.fields).items():
                 out += fill_scalar( sf, f"{acc}[ k ].{sn}", ind + "  " )
         else:
             out += fill_scalar( el, f"{acc}[ k ]", ind + "  " )
@@ -871,7 +929,7 @@ def generate_c_test_header(schemas: List[Schema]) -> str:
             f"fd_event_{s.name}_fill_max( fd_event_{s.name}_t * msg ) {{",
             "  fd_memset( msg, 0, sizeof(*msg) );",
         ]
-        for name, f in s.fields.items():
+        for name, f in live(s.fields).items():
             lines += fill_field( f, f"msg->{name}", "  " )
         lines += [
             "}",
@@ -924,6 +982,7 @@ def check_breaking_changes(schema_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate protobuf from JSON schemas")
     parser.add_argument("--skip-check", action="store_true", help="Skip buf breaking changes check")
+    parser.add_argument("--no-provisional", action="store_true", help="Fail if a local schema still has a provisional id")
     args = parser.parse_args()
 
     schema_dir = Path(__file__).parent / "schema"
@@ -936,8 +995,13 @@ def main() -> None:
     seen_ids: Dict[int, str] = {}
     seen_names: Dict[str, int] = {}
     for s in schemas:
-        if not (1 <= s.id <= 255):
+        if not s.local and not (1 <= s.id <= 255):
             raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) must fit the 8-bit event type of FD_EVENT_SIG (1..255)")
+        if s.local and ( not (1 <= s.id <= PB_FIELD_NUMBER_MAX) or s.id in PB_RESERVED ):
+            raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) is not a valid protobuf field number")
+        if args.no_provisional and ( s.id >= EVENT_ID_PROVISIONAL or has_provisional(s.fields) ):
+            raise SystemExit(f"ERROR: schema {s.name} has a provisional id or field number; run `make -C src/disco/metrics metrics-assign` and regenerate before landing")
+        check_field_numbers(s.name, s.fields)
         if s.id in seen_ids:
             raise SystemExit(f"ERROR: duplicate schema id {s.id}: {seen_ids[s.id]} and {s.name}")
         if s.name in seen_names:
@@ -954,9 +1018,11 @@ def main() -> None:
     (gen_dir / "fd_event_gen.c").write_text(generate_c_source(schemas))
     (gen_dir / "fd_event_gen_test.h").write_text(generate_c_test_header(schemas))
     eligible = [s.name for s in schemas if schema_is_supported(s)]
-    skipped  = [s.name for s in schemas if not schema_is_supported(s)]
+    skipped  = [s.name for s in schemas if not schema_is_supported(s) and not s.local]
+    local    = [s.name for s in schemas if s.local]
     print(f"C structs/serializers generated for fixed-length schemas: {eligible}")
     print(f"  (skipped variable-length schemas: {skipped})")
+    print(f"  (local schemas, encoded by the event tile: {len(local)})")
 
     if not args.skip_check:
         check_breaking_changes(schema_dir)

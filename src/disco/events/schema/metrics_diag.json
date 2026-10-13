@@ -1,0 +1,147 @@
+{
+    "name": "metrics_diag",
+    "id": 47,
+    "description": "Metrics of one diag tile instance, one row per sweep",
+    "local": true,
+    "fields": {
+        "sample_id":                  { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":              { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":                { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":        { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":           { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":            { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":                    { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "pid":                        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
+        "tid":                        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
+        "last_cpu_index":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
+        "context_switch_involuntary": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
+        "context_switch_voluntary":   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
+        "page_fault_major":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
+        "page_fault_minor":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
+        "state": {
+            "type": "LowCardinality(String)",
+            "description": "Tile lifecycle state: 0=booting, 1=running, 2=shutdown",
+            "variants": {
+                "booting":  { "description": "Booting" },
+                "running":  { "description": "Running" },
+                "shutdown": { "description": "Shutdown" }
+            }
+        },
+        "heartbeat_time":             { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
+        "is_backpressured":           { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
+        "backpressure":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
+        "regime_duration_nanos": {
+            "type": "Tuple",
+            "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "fields": {
+                "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
+                "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
+                "backpressure_housekeeping": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Housekeeping" },
+                "caught_up_prefrag":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Prefrag" },
+                "processing_prefrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Prefrag" },
+                "backpressure_prefrag":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Prefrag" },
+                "caught_up_postfrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Postfrag" },
+                "processing_postfrag":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Postfrag" },
+                "caught_up_sleeping":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Sleeping" },
+                "backpressure_sleeping":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Sleeping" }
+            }
+        },
+        "thread_duration_nanos": {
+            "type": "Tuple",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "fields": {
+                "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
+                "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
+                "user":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "User (task was scheduled and executing in user mode)" },
+                "system":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "System (task was scheduled and executing in kernel mode)" },
+                "interrupt": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" }
+            }
+        },
+        "park_attempted": {
+            "type": "Tuple",
+            "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "fields": {
+                "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
+                "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
+                "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
+            }
+        },
+        "device_irq":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "tlb_shootdown":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "timer_irq":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "bundle_state": {
+            "type": "LowCardinality(String)",
+            "description": "Bundle subsystem state: 0=disconnected (All bundle tiles disconnected), 1=connecting (At least one bundle tile connecting, none connected or sleeping), 2=connected (At least one bundle tile connected), 3=sleeping (At least one bundle tile sleeping, none connected), 4=disabled (No bundle tiles configured)",
+            "variants": {
+                "disconnected": { "description": "All bundle tiles disconnected" },
+                "connecting":   { "description": "At least one bundle tile connecting, none connected or sleeping" },
+                "connected":    { "description": "At least one bundle tile connected" },
+                "sleeping":     { "description": "At least one bundle tile sleeping, none connected" },
+                "disabled":     { "description": "No bundle tiles configured" }
+            }
+        },
+        "vote_state": {
+            "type": "LowCardinality(String)",
+            "description": "Vote subsystem state: 0=disabled (Non-voting or no tower tile), 1=not_started (Tower tile not running or no votes cast yet), 2=delinquent (Vote distance exceeds threshold or vote stalled), 3=voting (Voting normally), 4=inadmissible (Voting, but the vote account fails the validator admission ticket filter)",
+            "variants": {
+                "disabled":     { "description": "Non-voting or no tower tile" },
+                "not_started":  { "description": "Tower tile not running or no votes cast yet" },
+                "delinquent":   { "description": "Vote distance exceeds threshold or vote stalled" },
+                "voting":       { "description": "Voting normally" },
+                "inadmissible": { "description": "Voting, but the vote account fails the validator admission ticket filter" }
+            }
+        },
+        "replay_state": {
+            "type": "LowCardinality(String)",
+            "description": "Replay subsystem state: 0=disabled (No replay tile), 1=not_started (Replay tile not running or slots are zero), 2=behind (Replay lagging behind turbine or reset slot stalled), 3=running (Replay keeping up)",
+            "variants": {
+                "disabled":    { "description": "No replay tile" },
+                "not_started": { "description": "Replay tile not running or slots are zero" },
+                "behind":      { "description": "Replay lagging behind turbine or reset slot stalled" },
+                "running":     { "description": "Replay keeping up" }
+            }
+        },
+        "turbine_state": {
+            "type": "LowCardinality(String)",
+            "description": "Turbine subsystem state: 0=disabled (No shred or replay tiles), 1=not_started (Tiles not all running or turbine slot is zero), 2=stalled (Turbine slot not advancing), 3=repair_outpacing (Repair byte throughput exceeds turbine), 4=running (Turbine receiving normally)",
+            "variants": {
+                "disabled":         { "description": "No shred or replay tiles" },
+                "not_started":      { "description": "Tiles not all running or turbine slot is zero" },
+                "stalled":          { "description": "Turbine slot not advancing" },
+                "repair_outpacing": { "description": "Repair byte throughput exceeds turbine" },
+                "running":          { "description": "Turbine receiving normally" }
+            }
+        },
+        "builder_state": {
+            "type": "LowCardinality(String)",
+            "description": "External block builder subsystem state: 0=disabled (No block builder configured), 1=disconnected (Block builder disconnected), 2=connecting (Block builder connection in progress), 3=unhealthy (Connected, but the block builder is not in a usable state), 4=connected (Block builder connected and healthy)",
+            "variants": {
+                "disabled":     { "description": "No block builder configured" },
+                "disconnected": { "description": "Block builder disconnected" },
+                "connecting":   { "description": "Block builder connection in progress" },
+                "unhealthy":    { "description": "Connected, but the block builder is not in a usable state" },
+                "connected":    { "description": "Block builder connected and healthy" }
+            }
+        },
+        "system_device_irq":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs across all CPUs" },
+        "device_irq_on_tile_cpu":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on CPUs dedicated to pinned tiles; subset of SystemDeviceIrq" },
+        "system_softirq": {
+            "type": "Tuple",
+            "description": "counter: cumulative since tile start, query deltas. Soft-IRQs across all CPUs, by softirq type",
+            "fields": {
+                "net":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "NET_TX, NET_RX" },
+                "disk":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "BLOCK" },
+                "other": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ..." }
+            }
+        },
+        "softirq_on_tile_cpu": {
+            "type": "Tuple",
+            "description": "counter: cumulative since tile start, query deltas. Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq",
+            "fields": {
+                "net":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "NET_TX, NET_RX" },
+                "disk":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "BLOCK" },
+                "other": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ..." }
+            }
+        }
+    }
+}

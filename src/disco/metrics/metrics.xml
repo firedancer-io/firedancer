@@ -14,7 +14,13 @@ Exported as:
               table; <linkin> in a link table keyed by kind, kind_id,
               link_kind, link_kind_id.  Column <snake_name>, enum
               metrics one column per value.  <bool> is Bool, <time>
-              DateTime64(9), states= LowCardinality.
+              DateTime64(9), states= LowCardinality.  gen_metrics.py
+              writes the schemas (events/schema/metrics_*.json) in
+              their committed field order, additions at the end with
+              provisional numbers until `make metrics-assign`.  Remove
+              a landed metric or <int> with deprecated="true" (it stays
+              a schema tombstone); rename with renamed_from="OldName".
+              telemetry="false" keeps a metric out of ClickHouse.
 Durations are integer nanoseconds everywhere, so a name is the same in
 every backend.  Once exported, names are permanent: deprecate and add.
 
@@ -425,7 +431,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktRetransmitted" enum="QuicEncryptionLevel" summary="QUIC packets retransmitted, by encryption level" />
 </tile>
 
-<tile name="txsend">
+<tile name="txsend" telemetry="false">
     <!-- QUIC packet metrics -->
     <counter name="PktRx" summary="QUIC packets received" />
     <counter name="PktRxBytes" summary="Bytes received via QUIC" />
@@ -899,7 +905,7 @@ deliberate exception with lint-allow="<rule id>")
     </histogram>
 </tile>
 
-<tile name="poh">
+<tile name="poh" telemetry="false">
 </tile>
 
 <enum name="ShredProcessResult">
@@ -1054,6 +1060,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="StoreFecCacheCapacity" summary="FEC payload capacity of the store RAM cache" />
     <gauge name="StoreFecCachePinned" ambiguous-kind="true" summary="FEC payload views currently pinned against eviction" />
 
+    <bool name="IsCaughtUp" summary="Whether replay has caught up to the cluster tip; set once per run, never cleared" />
     <gauge name="RootSlot" summary="Most recent consensus root, 0 if none" />
     <gauge name="RootSlotDistance" summary="Slots between the current reset slot and our root" />
     <gauge name="LeaderSlot" summary="Slot at which we are currently leader, or 0 if none" />
@@ -1170,7 +1177,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="SignatureFailed" label="Signature did not verify" />
 </enum>
 
-<tile name="repair">
+<tile name="repair" telemetry="false">
     <counter name="PktTx" summary="Network packets sent, including reqs, pings, pongs, etc" />
     <counter name="RequestTx" enum="RepairRequestType" summary="Repair requests sent, by type" />
     <gauge name="HighestRepairedSlot" summary="Highest slot on the repair frontier, 0 if none; its ancestors are complete, the slot itself may not be" />
@@ -1738,7 +1745,7 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <tile name="ipecho">
-    <gauge name="ShredVersion" summary="Shred version used by the validator" />
+    <gauge name="ShredVersion" telemetry="false" summary="Shred version used by the validator" />
     <gauge name="ConnOpen" summary="Open connections to the ipecho service" />
     <counter name="ConnClosed" enum="ConnCloseResult" summary="Connections to the ipecho service made and closed, by outcome" />
     <counter name="ConnRxBytes" summary="Bytes received on connections to the ipecho service" />
@@ -1892,7 +1899,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="Invalid" label="Failed validation" />
 </enum>
 
-<tile name="tower">
+<tile name="tower" telemetry="false">
     <!-- Replay slot completed -->
 
     <counter name="PrunedForkSlotIgnored" summary="replay_slot_completed frags we ignored" />

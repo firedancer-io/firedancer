@@ -7,7 +7,7 @@ def camel2snake(str):
 
 def _write_metric(f: TextIO, metric: Metric, prefix: str):
     if isinstance(metric, CounterEnumMetric) or isinstance(metric, GaugeEnumMetric):
-        for value in metric.enum.values:
+        for value in metric.enum.live():
             full_name = prefix + "_" + camel2snake(metric.name)
             tag = camel2snake(value.name)
             tag = '<span class="metrics-enum">' + tag + '</span>'
