@@ -123,7 +123,7 @@ struct fd_configf {
 
   struct {
     ulong max_live_slots;
-    ulong max_stake_delegations;
+    ulong stake_delegation_cache_cnt;
     ulong program_cache_size_mib;
     ulong bank_cache_cnt;
   } runtime;
