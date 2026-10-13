@@ -34,7 +34,12 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
   txn_in.txn = txn_p;
 
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
-  fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
+  fd_memset( &txn_out->err,     0, sizeof(txn_out->err)     );
+  fd_memset( &txn_out->details, 0, sizeof(txn_out->details) );
+  txn_out->accounts.is_setup       = 0;
+  txn_out->accounts.is_bundle      = 0;
+  txn_out->accounts.cnt            = 0UL;
+  txn_out->accounts.executable_cnt = 0UL;
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
   txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
   txn_out->details.is_simple_vote = fd_txn_is_simple_vote_transaction( TXN( txn_p ), txn_p->payload );
