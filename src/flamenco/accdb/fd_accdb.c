@@ -4044,12 +4044,8 @@ preevict_flush( fd_accdb_t *             accdb,
 
   fd_racesan_hook( "preevict:pre_synth" );
 
-  /* Swap every old offset to FD_ACCDB_OFF_INVAL before the write so
-     that a concurrent compaction CAS (old_offset -> dest_offset)
-     cannot succeed between our read and our later store of the new
-     offset.  Otherwise compaction could relocate a record and our
-     plain store would overwrite the relocated offset, leaving the
-     compaction destination as unreachable dead space. */
+  /* Invalidate the records so compaction does not relocate them while
+     we are evicting. */
   ulong freed = 0UL;
   for( ulong i=0UL; i<pend_cnt; i++ ) {
     fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ pend_line[ i ]->acc_idx ];
