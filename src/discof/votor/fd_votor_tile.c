@@ -163,6 +163,7 @@ typedef struct vote_history_file vote_history_file_t;
 struct reward_vote {
   ulong            slot; /* ULONG_MAX if free */
   long             retry_ts;
+  long             backoff;
   ulong            tx_cnt;
   fd_quic_conn_t * conn; /* conn the pkt_nums were sent on */
   ulong            pkt_num[ QUIC_K_PACKET_THRESHOLD+1UL ]; /* QUIC considers packets at kPacketThreshold (3), so we overwrite the oldest packet number after 3 */
@@ -1752,7 +1753,8 @@ after_credit( fd_votor_tile_t *   ctx,
     rv->tx_cnt++;
     report_alpenglow_vote( ctx, NULL, &rv->vote, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, 0L, broadcast_start_time, peer );
     long pto     = (long)( peer->tx_conn->rtt->smoothed_rtt + fmaxf( 4.0f*peer->tx_conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + peer->tx_conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
-    rv->retry_ts = now + fd_long_max( REWARD_VOTE_RTT_MIN_NS, fd_long_min( pto, REWARD_VOTE_RTT_MAX_NS ) ); /* clamp between RTT_MIN, RTT_MAX  */
+    rv->backoff  = fd_long_min( fd_long_max( fd_long_max( 2L*rv->backoff, pto ), REWARD_VOTE_RTT_MIN_NS ), REWARD_VOTE_RTT_MAX_NS ); /* double per unacked send, clamp between RTT_MIN, RTT_MAX */
+    rv->retry_ts = now + rv->backoff;
     *charge_busy = 1;
   }
 
@@ -1914,6 +1916,7 @@ after_credit( fd_votor_tile_t *   ctx,
         reward_vote_t * rv = &ctx->reward_votes[ vote_slot%REWARD_VOTE_MAX ];
         rv->slot     = vote_slot;
         rv->retry_ts = now;
+        rv->backoff  = 0L;
         rv->tx_cnt   = 0UL;
         rv->conn     = NULL;
         rv->vote     = ctx->scratch.vote;
