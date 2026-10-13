@@ -106,7 +106,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  accounts.cache_size_gib                             );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
-  CFG_POP      ( ulong,  runtime.max_stake_delegations                       );
+  CFG_POP      ( ulong,  runtime.stake_delegation_cache_cnt                  );
 
   CFG_POP      ( ulong,  runtime.program_cache_size_mib                      );
 
