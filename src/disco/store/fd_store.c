@@ -334,6 +334,7 @@ fd_store_new( void       * shmem,
   if( FD_UNLIKELY( !fec_data_max ) ) { FD_LOG_WARNING(( "fec_data_max must be non-zero" )); return NULL; }
   if( FD_UNLIKELY( fec_data_max>UINT_MAX ) ) { FD_LOG_WARNING(( "fec_data_max must fit in uint" )); return NULL; }
   if( FD_UNLIKELY( !max_shreds_per_block || max_shreds_per_block>FD_SHREDB_HINT_VALID ) ) { FD_LOG_WARNING(( "bad max_shreds_per_block (%lu)", max_shreds_per_block )); return NULL; }
+  if( FD_UNLIKELY( alpenglow && !shred_tile_cnt ) ) { FD_LOG_WARNING(( "alpenglow needs a slot_to_fecs partition per shred tile" )); return NULL; }
   if( FD_UNLIKELY( shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ) ) {
     FD_LOG_ERR(( "shred database size limit is %lu GiB, but the maximum supported size is %lu GiB",
                  shred_storage_gib, FD_SHREDB_MAX_SIZE_GIB ));
@@ -346,7 +347,7 @@ fd_store_new( void       * shmem,
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "shmem must be part of a workspace" )); return NULL; }
 
   ulong chain_cnt       = fd_store_map_chain_cnt_est( fec_max );
-  ulong part_cnt        = alpenglow ? 1UL+shred_tile_cnt : 0UL;
+  ulong part_cnt        = alpenglow ? shred_tile_cnt : 0UL;
   ulong slot_chain_cnt  = fd_store_slot_to_fecs_chain_cnt_est( fec_max );
   ulong slot_to_fecs_sz = fd_ulong_align_up( fd_store_slot_to_fecs_footprint( slot_chain_cnt ), fd_store_slot_to_fecs_align() );
   ulong payload_slot_sz = fd_store_payload_slot_sz( fec_data_max );
@@ -826,7 +827,7 @@ fd_store_insert( fd_store_t *       store,
     fd_rwlock_unwrite( &store->cache_lock );
 
     if( FD_LIKELY( store->alpenglow ) ) {
-      FD_TEST( part<=store->shred_tile_cnt );
+      FD_TEST( part<store->shred_tile_cnt );
       new_fec->slot = (uint)fd_ulong_max( slot, store->root );
       ulong lo = atomic_load_explicit( &store->slot_lo, memory_order_relaxed );
       while( new_fec->slot<lo && !atomic_compare_exchange_weak_explicit( &store->slot_lo, &lo, new_fec->slot, memory_order_relaxed, memory_order_relaxed ) );
@@ -873,7 +874,7 @@ fd_store_publish( fd_store_t *     store,
   ulong            cnt  = 0UL;
   fd_rwlock_write( &store->fec_lock );
   ulong            lo   = atomic_load_explicit( &store->slot_lo, memory_order_relaxed );
-  for( ulong part=0UL; store->alpenglow && part<=store->shred_tile_cnt; part++ ) {
+  for( ulong part=0UL; store->alpenglow && part<store->shred_tile_cnt; part++ ) {
     fd_store_slot_to_fecs_t * slot_to_fecs = fd_store_slot_to_fecs_join( slot_to_fecs_laddr( store, part ) );
     for( ulong slot=lo; slot<root; slot++ ) {
       uint key = (uint)slot;
