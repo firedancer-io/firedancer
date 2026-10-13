@@ -1407,6 +1407,12 @@ test_park( void ) {
   FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, timeout-1000L ) );
   reconn_prq_remove_min( ctx->reconn_prq );
 
+  /* A dirty reward cert waiting out its republish rate moves the park up
+     to when it may be republished. */
+  ctx->reward_certs[ 0 ] = (reward_cert_t){ .slot = 0UL, .dirty = 1, .publish_ts = timeout-2000L-REWARD_REPUBLISH_NS };
+  FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, timeout-2000L ) );
+  ctx->reward_certs[ 0 ] = (reward_cert_t){ .slot = ULONG_MAX };
+
   /* A fruitless pass before the timer does not charge busy (the stem
      parks) and leaves the deadline where it was. */
   charge_busy = 0;
@@ -1795,6 +1801,105 @@ test_write_vote_history( void ) {
   FD_LOG_NOTICE(( "pass: test_write_vote_history" ));
 }
 
+static uchar reward_out_mem   [ 1UL<<20 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static uchar reward_mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+
+/* reward_vote_sig returns the signature of the voter at rank over the
+   vote of kind for slot and hash. */
+
+static fd_bls_sig_t
+reward_vote_sig( ag_epoch_info_t const * epoch_info,
+                 ulong                   rank,
+                 uint                    kind,
+                 ulong                   slot,
+                 uchar const *           hash ) {
+  uchar        msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong        msg_sz = ag_vote_signing_ser( kind, slot, hash, 1, msg );
+  fd_bls_sec_t sec;     voter_sec( &sec, (ulong)epoch_info->validators[ rank ].id_key[ 0 ]-1UL );
+  fd_bls_sig_t sig;     fd_bls_sec_sign( &sec, msg, msg_sz, &sig );
+  return sig;
+}
+
+/* A leader's reward certs, published again after later votes, include
+   the voters that verify. */
+
+static void
+test_reward_certs( void ) {
+  static fd_votor_tile_t ctx;
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 4UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 4UL );
+  ctx.curr_epoch_info = epoch_info;
+  ctx.curr_epoch_slot = 0UL;
+  ctx.next_epoch_slot = ULONG_MAX;
+  ctx.shred_version   = 1;
+  ctx.pool            = test_pool( epoch_info, 0UL );
+  ctx.peers           = peers_join( peers_new( peers_mem ) );
+  FD_TEST( ctx.peers );
+  fd_clock_tile_init( ctx.clock );
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx.reward_certs[ i ].slot = ULONG_MAX;
+
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( reward_mcache_mem, 128UL, 0UL, 0UL ) );
+  FD_TEST( mcache );
+  ctx.votor_out_mem    = reward_out_mem;
+  ctx.votor_out_chunk0 = 0UL;
+  ctx.votor_out_chunk  = 0UL;
+  ctx.votor_out_wmark  = fd_dcache_compact_wmark( reward_out_mem, reward_out_mem, sizeof(fd_votor_msg_t) );
+  fd_frag_meta_t *  mcaches[1]      = { mcache };
+  ulong             seqs[1]         = { 0UL };
+  ulong             depths[1]       = { 128UL };
+  ulong             cr_avail[1]     = { ULONG_MAX };
+  ulong             min_cr_avail[1] = { ULONG_MAX };
+  int               reliable[1]     = { 0 };
+  fd_stem_context_t stem[1]         = {{ .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = min_cr_avail, .out_reliable = reliable }};
+
+  ulong           slot = 2UL;
+  ag_block_hash_t hash; memset( hash, 9, sizeof(ag_block_hash_t) );
+  ag_vote_t       vote = { .kind = AG_VOTE_KIND_NOTAR, .notar = { .slot = slot, .rank = 0, .shred_version = 1 } };
+  memcpy( vote.notar.block_hash, hash, sizeof(ag_block_hash_t) );
+  vote.notar.sig = reward_vote_sig( epoch_info, 0UL, AG_VOTE_KIND_NOTAR, slot, hash );
+  uchar quorum;
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==1UL );
+  fd_frag_meta_t const *    meta   = mcache+fd_mcache_line_idx( 0UL, 128UL );
+  fd_votor_reward_t const * reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( meta->sig==FD_VOTOR_SIG_REWARD && reward->slot==slot && fd_bls_set_cnt( reward->agg_notar.set )==1UL );
+  FD_TEST( ctx.reward_certs[ slot%AG_SLOTS_PER_WINDOW ].slot==slot && !ctx.reward_certs[ slot%AG_SLOTS_PER_WINDOW ].dirty );
+
+  /* A late vote failing verify is left out and its voter banned.  A late
+     vote that verifies is included. */
+
+  vote.notar.rank = 3;
+  vote.notar.sig  = reward_vote_sig( epoch_info, 2UL, AG_VOTE_KIND_NOTAR, slot, hash );
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  fd_pubkey_t bad_id; memcpy( bad_id.uc, epoch_info->validators[3].id_key, sizeof(fd_pubkey_t) );
+  peer_t * bad_peer = peers_insert( ctx.peers, bad_id );
+  bad_peer->ban_ts  = LONG_MIN;
+  bad_peer->tx_conn = NULL;
+  bad_peer->rx_conn = NULL;
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==2UL && bad_peer->ban_ts!=LONG_MIN );
+  meta   = mcache+fd_mcache_line_idx( 1UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==1UL && fd_bls_set_test( reward->agg_notar.set, 0UL ) );
+
+  vote.kind = AG_VOTE_KIND_SKIP;
+  vote.skip = (ag_vote_skip_t){ .slot = slot, .rank = 1, .shred_version = 1, .sig = reward_vote_sig( epoch_info, 1UL, AG_VOTE_KIND_SKIP, slot, NULL ) };
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==3UL );
+  meta   = mcache+fd_mcache_line_idx( 2UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==1UL && fd_bls_set_cnt( reward->agg_skip.set )==1UL && fd_bls_set_test( reward->agg_skip.set, 1UL ) );
+
+  peers_delete( peers_leave( ctx.peers ) );
+  ag_pool_delete( ag_pool_leave( ctx.pool ) );
+  FD_LOG_NOTICE(( "pass: test_reward_certs" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1823,6 +1928,7 @@ main( int     argc,
   test_park();
   test_standstill();
   test_write_vote_history();
+  test_reward_certs();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

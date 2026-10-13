@@ -82,6 +82,7 @@
 #define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
 #define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
 #define REWARD_VOTE_RTT_MAX_NS (200000000L)                               /* retry a reward vote no later than 200ms */
+#define REWARD_REPUBLISH_NS    (50000000L)                                /* republish a reward cert no sooner than 50ms, each publish verifies its aggregates */
 
 #define STANDSTILL_TX_INTERVAL_NS    (50000000L)   /* 20 standstill messages a second, Agave's STANDSTILL_REFRESH_BATCH_SIZE per STANDSTILL_REFRESH_INTERVAL */
 #define STANDSTILL_CYCLE_INTERVAL_NS (1000000000L) /* pause between standstill cycles, Agave's STANDSTILL_REFRESH_INTERVAL */
@@ -188,6 +189,16 @@ struct reward_vote {
   ag_vote_t        vote;
 };
 typedef struct reward_vote reward_vote_t;
+
+/* reward_cert tracks whether we've obtained a better reward cert for a
+   given slot, marking it dirty to be republished. */
+
+struct reward_cert {
+  ulong slot; /* ULONG_MAX if free */
+  int   dirty;
+  long  publish_ts;
+};
+typedef struct reward_cert reward_cert_t;
 
 #define AUTH_VTR_LG_SLOT_CNT (5) /* identity plus 16 authorized voters, fill ratio 0.53 */
 
@@ -321,6 +332,7 @@ struct fd_votor_tile {
   reconn_t *         reconn_prq;
   ulong              conn_ahead_slot; /* next_epoch_slot we last queued connects ahead of */
   reward_vote_t      reward_votes[ REWARD_VOTE_MAX ]; /* our reward votes awaiting an ACK from the leader for the reward slot.  circ buf indexed by slot%REWARD_VOTE_MAX */
+  reward_cert_t      reward_certs[ AG_SLOTS_PER_WINDOW ]; /* reward certs published for our leader window.  circ buf indexed by slot%AG_SLOTS_PER_WINDOW */
 
   /* Links */
 
@@ -549,11 +561,12 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
 }
 
 static void
-publish_reward_certs( fd_votor_tile_t *   ctx,
-                      fd_stem_context_t * stem,
-                      ulong               reward_slot ) {
+publish_reward_cert( fd_votor_tile_t *   ctx,
+                     fd_stem_context_t * stem,
+                     ulong               reward_slot ) {
   fd_votor_msg_t *    chunk  = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
   fd_votor_reward_t * reward = &chunk->reward;
+  ctx->reward_certs[ reward_slot%AG_SLOTS_PER_WINDOW ] = (reward_cert_t){ .slot = reward_slot, .publish_ts = fd_clock_tile_now( ctx->clock ) };
 
   reward->slot     = reward_slot;
   reward->block_id = (fd_hash_t){ 0 };
@@ -597,36 +610,9 @@ publish_reward_certs( fd_votor_tile_t *   ctx,
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 }
 
-static int
-become_leader( fd_votor_tile_t *   ctx,
-               fd_stem_context_t * stem,
-               long                now ) {
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return 0; /* never will be leader */
-
-  ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
-  while( FD_UNLIKELY( ctx->next_leader_slot<=finalized_slot ) ) {
-    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
-    if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return 0; /* schedule exhausted */
-  }
-
-  ag_block_id_t parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
-  if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) return 0; /* the pool has not granted parent ready yet */
-
-  fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
-  chunk->leader = (fd_votor_leader_t){ .slot = ctx->next_leader_slot, .parent_slot = parent.slot, .parent_block_id = FD_LOAD( fd_hash_t, parent.hash ), .parent_ready_ns = now };
-  fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
-
-  ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
-  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, stem, reward_slot+i );
-
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
-  return 1;
-}
-
 static peer_t const *
-reward_leader( fd_votor_tile_t const * ctx,
-               reward_vote_t const *   rv ) {
+query_reward_leader( fd_votor_tile_t const * ctx,
+                     reward_vote_t const *   rv ) {
   fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
   peer_t const *      peer   = leader ? peers_query_const( ctx->peers, *leader, NULL ) : NULL;
   if( FD_UNLIKELY( !peer || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return NULL;
@@ -926,6 +912,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     }
     report_alpenglow_vote( ctx, conn, vote, kind, result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, aggregation_start_time, 0L, NULL );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
+    reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
+    if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( vote->kind==AG_VOTE_KIND_NOTAR || vote->kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
     return;
   }
   case AG_CERT_SERDE_TAG_FINAL:
@@ -1588,18 +1576,24 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     if( FD_UNLIKELY( fd_seq_lt( ctx->replay_in_seq, fd_keyswitch_param_query( ctx->id_keyswitch ) ) ) ) return;
+
     /* Halt signing at first by removing our BLS keys from votor. */
+
     if( !ctx->halt_signing ) {
       ctx->halt_signing = 1;
       ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
       ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
       for( ulong i=0UL; i<3UL; i++ ) if( FD_LIKELY( epoch_infos[ i ] ) ) ag_votor_set_bls_key( ctx->votor, epoch_slots[ i ], NULL );
     }
+
     /* If votes and pool events drained close quic conns and update
        leader tracking. */
+
     if( FD_LIKELY( !ag_votor_metrics( ctx->votor ).vote_events_cnt && !ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) {
+
       /* Save the votes drained since the halt as the old identity.  The
          admin tile switches the sign tile only after this completes. */
+
       if( FD_UNLIKELY( ctx->vote_history_pending ) ) write_vote_history( ctx );
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
       ctx->wait_to_vote_slot = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL ) ? FD_LOAD( ulong, ctx->id_keyswitch->bytes+40UL ) : 0UL;
@@ -1614,9 +1608,11 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
           peer->tx_conn = NULL;
         }
       }
+
       /* Keep established server conns, which identify the peer, not us.
          Close handshakes in progress, which are not yet rx_conns and
          would complete as the old identity. */
+
       fd_quic_state_t * server_state = fd_quic_get_state( ctx->quic_server );
       for( ulong i=0UL; i<ctx->quic_server->limits.conn_cnt; i++ ) {
         fd_quic_conn_t * conn = fd_quic_conn_at_idx( server_state, i );
@@ -1625,9 +1621,12 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
         fd_quic_conn_close( conn, 0U );
       }
       for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+      for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ] = (reward_cert_t){ .slot = ULONG_MAX };
+
       /* Skip the window in progress, it may already have a leader, and
          those below the vote history file's floor, which the identity
          may have led on another machine. */
+
       ulong next_window = ag_first_slot_in_window( ctx->highest_parent_ready_slot )+AG_SLOTS_PER_WINDOW;
       ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, next_window ), ctx->wait_to_vote_slot ), &ctx->id_key );
       fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -1636,6 +1635,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
 
   /* Once we can resume signing load auth voters and reconn to peers.
      Votor signs nothing in slots it already voted in. */
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
     load_keys( ctx, ctx->auth_vtr_path_cnt );
@@ -1663,7 +1663,11 @@ next_deadline( fd_votor_tile_t * ctx ) {
     for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
       reward_vote_t const * rv = &ctx->reward_votes[ i ];
       if( FD_LIKELY( rv->slot==ULONG_MAX || rv->retry_ts>=next ) ) continue;
-      if( FD_LIKELY( reward_leader( ctx, rv ) ) ) next = rv->retry_ts;
+      if( FD_LIKELY( query_reward_leader( ctx, rv ) ) ) next = rv->retry_ts;
+    }
+    for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
+      reward_cert_t const * rc = &ctx->reward_certs[ i ];
+      if( FD_LIKELY( rc->dirty ) ) next = fd_long_min( next, rc->publish_ts+REWARD_REPUBLISH_NS );
     }
   }
   return next==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
@@ -1698,13 +1702,14 @@ metrics_write( fd_votor_tile_t * ctx ) {
 }
 
 /* after_credit is the tile's event loop.  Each step handles at most
-   one item per pass, at most 8 votor_out frags in all:
+   one item per pass, at most 9 votor_out frags in all:
 
    1. notify if we can become leader
    2. retry un-acked reward votes
-   3. poll pool, repair, timeout events (can result in new votes, one per tile loop)
-   6. broadcast new votes (one per tile loop)
-   7. standstill re-broadcast */
+   3. republish reward certs new votes widened (one per tile loop)
+   4. poll pool, repair, timeout events (can result in new votes, one per tile loop)
+   5. broadcast new votes (one per tile loop)
+   6. standstill re-broadcast */
 
 static inline void
 after_credit( fd_votor_tile_t *   ctx,
@@ -1746,14 +1751,30 @@ after_credit( fd_votor_tile_t *   ctx,
 
   /* 1. Notify if we can become leader. */
 
-  if( FD_UNLIKELY( become_leader( ctx, stem, now ) ) ) *charge_busy = 1;
+  while( FD_UNLIKELY( ctx->next_leader_slot!=ULONG_MAX && ctx->next_leader_slot<=ag_pool_finalized_slot( ctx->pool ) ) ) {
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+  }
+  ag_block_id_t parent = { .slot = ULONG_MAX }; /* never will be leader, schedule exhausted, or the pool has not granted parent ready yet */
+  if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
+  if( FD_UNLIKELY( parent.slot!=ULONG_MAX ) ) {
+    fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+    chunk->leader = (fd_votor_leader_t){ .slot = ctx->next_leader_slot, .parent_slot = parent.slot, .parent_block_id = FD_LOAD( fd_hash_t, parent.hash ), .parent_ready_ns = now };
+    fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+
+    ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
+    for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_cert( ctx, stem, reward_slot+i );
+
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+    *charge_busy = 1;
+  }
 
   /* 2. Retry un-acked reward votes. */
 
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
     reward_vote_t * rv = &ctx->reward_votes[ i ];
     if( FD_LIKELY( rv->slot==ULONG_MAX || now<rv->retry_ts ) ) continue;
-    peer_t const * peer = reward_leader( ctx, rv );
+    peer_t const * peer = query_reward_leader( ctx, rv );
     if( FD_UNLIKELY( !peer ) ) continue;
     long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
     ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
@@ -1776,7 +1797,18 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  /* 3. Poll pool events. */
+  /* 3. Republish reward certs new votes widened. */
+
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
+    reward_cert_t * rc = &ctx->reward_certs[ i ];
+    if( FD_LIKELY( !rc->dirty || now<rc->publish_ts+REWARD_REPUBLISH_NS ) ) continue;
+    if( FD_UNLIKELY( ctx->highest_parent_ready_slot>=ag_first_slot_in_window( rc->slot+AG_REWARD_SLOT_DELTA )+AG_SLOTS_PER_WINDOW ) ) { rc->slot = ULONG_MAX; rc->dirty = 0; continue; } /* our leader window is over */
+    publish_reward_cert( ctx, stem, rc->slot );
+    *charge_busy = 1;
+    break;
+  }
+
+  /* 4a. Poll pool events. */
 
   int pool_event = ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event );
   if( FD_UNLIKELY( pool_event ) ) {
@@ -1883,7 +1915,7 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  /* 4. Poll repair events. */
+  /* 4b. Poll repair events. */
 
   int repair_event = ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event );
   if( FD_UNLIKELY( repair_event ) ) {
@@ -1896,7 +1928,7 @@ after_credit( fd_votor_tile_t *   ctx,
   }
 
 
-  /* 5. Poll skip timeouts. */
+  /* 4c. Poll skip timeouts. */
 
   ulong timeout_slot;
   if( FD_UNLIKELY( ag_votor_poll_skip_timeout( ctx->votor, now, &timeout_slot ) ) ) { /* a timeout we set on ParentReady */
@@ -1905,7 +1937,7 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  /* 6. Broadcast new votes. */
+  /* 5. Broadcast new votes. */
 
   uchar reason;
   if( FD_UNLIKELY( !pool_event && !repair_event && ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) ) ) {
@@ -1918,6 +1950,8 @@ after_credit( fd_votor_tile_t *   ctx,
       uchar quorum_reached;
       int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad, &quorum_reached );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
+      reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
+      if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( ctx->scratch.vote.kind==AG_VOTE_KIND_NOTAR || ctx->scratch.vote.kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
 
       ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
@@ -1964,7 +1998,7 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  /* 7. Standstill re-broadcast. */
+  /* 6. Standstill re-broadcast. */
 
   ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
   if( FD_UNLIKELY( finalized_slot>ctx->standstill_slot ) ) {
@@ -2223,6 +2257,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->mleaders );
 
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ] = (reward_cert_t){ .slot = ULONG_MAX };
 
   ctx->init                      = 0;
   ctx->net_tx_cnt                = 0UL;
