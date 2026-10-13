@@ -50,7 +50,7 @@
         "fec_sets": {
             "type": "Array",
             "description": "Per-FEC-set reception detail, one entry per FEC set in block order: which pieces made up the block, how each arrived, and when. Summed, the counts may reconcile with the block-level shred counts on this row, except in the case of equivocation where FEC sets may be shared between versions of the slot. Best-effort for pruned incomplete blocks: empty does not mean the block had no FEC sets, but that the FEC may have been pruned before it was able to be reported.",
-            "max_len": 1024,
+            "max_len": 512,
             "dynamic": true,
             "element": {
                 "type": "Tuple",

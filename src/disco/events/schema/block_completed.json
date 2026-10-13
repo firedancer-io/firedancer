@@ -139,7 +139,7 @@
         "txn_timing": {
             "type": "Array",
             "description": "Per-transaction timestamps, one entry per transaction in block order. Replayed blocks: stamped by the replay scheduler. Leader blocks: stamped by the production pipeline. Columns exclusive to the other path are 0. Empty on dead and abandoned replay rows; an abandoned leader block reports the transactions mixed into the block before production was abandoned. Otherwise best-effort: empty when no capture slot was free (more than 16 blocks replaying at once) or the production timing table was unavailable. Empty does not mean the block had no transactions.",
-            "max_len": 98039,
+            "max_len": 49019,
             "dynamic": true,
             "element": {
                 "type": "Tuple",

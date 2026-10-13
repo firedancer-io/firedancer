@@ -1953,17 +1953,17 @@ test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
 /* test_buffered_idx_oob
 
    fd_forest_data_shred_insert used to OOB read on the idxs bitmap when
-   buffered_idx reaches FD_SHRED_BLK_MAX - 1 (32767).
+   buffered_idx reaches FD_SHRED_BLK_MAX - 1 (16383).
 
    The while loop:
      while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) )
        ele->buffered_idx++;
 
    Could end up testing into the in merkle_roots array.  If that memory
-   has bit 0 set, buffered_idx advances to 32768 or beyond, corrupting
+   has bit 0 set, buffered_idx advances to 16384 or beyond, corrupting
    the slot.
 
-   Trigger: fill a slot to max capacity (32768 shreds across 1024 FEC
+   Trigger: fill a slot to max capacity (16384 shreds across 512 FEC
    sets), then insert an equivocating data shred.  The equivocation sets
    merkle_roots[0].mr = invalid_mr = {ULONG_MAX, ...}, whose bit 0 is
    set, causing the OOB read to return true. */
@@ -2069,7 +2069,7 @@ test_fec_insert_reject_oob_after_verify( fd_wksp_t * wksp ) {
   FD_TEST( ele->lowest_verified_fec == 0 );
 
   /* Attacker sends a FEC with the max possible fec_set_idx.
-     complete_idx == 63, attacker's fec_set_idx == (1023*32) >> 63.
+     complete_idx == 63, attacker's fec_set_idx == (511*32) >> 63.
      This must be rejected (return NULL). */
   uint    attack_fec_set_idx = (FD_FEC_BLK_MAX - 1) * 32;
   uint    attack_last_shred  = attack_fec_set_idx + 31;
@@ -2276,8 +2276,8 @@ test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
    accepts a block that fills every extra FEC set, and rejects shred
    idxs / fec_set_idxs at or beyond shred_max instead of aborting.  Also
    checks the production footprint equals the pre-side-array layout
-   (blk 256 B + idxs 4 KiB + code 4 KiB + mroots 64 KiB + recv 2 KiB
-   = 76032 B/blk). */
+   (blk 256 B + idxs 2 KiB + code 2 KiB + mroots 32 KiB + recv 1 KiB
+   = 38144 B/blk). */
 
 static void
 test_shred_max_runtime( fd_wksp_t * wksp ) {
@@ -2288,7 +2288,7 @@ test_shred_max_runtime( fd_wksp_t * wksp ) {
   ulong fp_prod = fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX );
   ulong fp_big  = fd_forest_footprint( ele_max, shred_max );
   FD_TEST( sizeof(fd_forest_blk_t)==256UL );
-  FD_TEST( fp_big-fp_prod==ele_max*3UL*(4096UL+4096UL+65536UL+2048UL) );
+  FD_TEST( fp_big-fp_prod==ele_max*3UL*(2048UL+2048UL+32768UL+1024UL) );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fp_big, 1UL );
   FD_TEST( mem );

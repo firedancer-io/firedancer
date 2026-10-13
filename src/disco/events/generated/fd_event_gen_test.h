@@ -256,8 +256,8 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
   msg->pack_data_bytes = ULONG_MAX;
   msg->pack_end_reason = INT_MAX;
   msg->bundle_txn_count = ULONG_MAX;
-  msg->txn_timing_cnt = 98039UL;
-  for( ulong k=0UL; k<98039UL; k++ ) {
+  msg->txn_timing_cnt = 49019UL;
+  for( ulong k=0UL; k<49019UL; k++ ) {
     msg->txn_timing[ k ].received_time = ULONG_MAX;
     msg->txn_timing[ k ].parsed_time = ULONG_MAX;
     msg->txn_timing[ k ].dispatched_time = ULONG_MAX;
@@ -404,8 +404,8 @@ fd_event_runtime_block_fill_max( fd_event_runtime_block_t * msg ) {
     msg->other_diffs[ k ].is_executable = 1;
   }
   msg->fec_count = ULONG_MAX;
-  msg->fec_merkle_roots_cnt = 1024UL;
-  for( ulong k=0UL; k<1024UL; k++ ) {
+  msg->fec_merkle_roots_cnt = 512UL;
+  for( ulong k=0UL; k<512UL; k++ ) {
     fd_memset( msg->fec_merkle_roots[ k ], 0xFF, 32UL );
   }
 }
@@ -632,8 +632,8 @@ fd_event_block_received_fill_max( fd_event_block_received_t * msg ) {
   msg->repair_request_shred_for_block_id_count = UINT_MAX;
   msg->repair_request_parent_fec_count = UINT_MAX;
   msg->repair_request_fec_root_count = UINT_MAX;
-  msg->fec_sets_cnt = 1024UL;
-  for( ulong k=0UL; k<1024UL; k++ ) {
+  msg->fec_sets_cnt = 512UL;
+  for( ulong k=0UL; k<512UL; k++ ) {
     fd_memset( msg->fec_sets[ k ].merkle_root, 0xFF, 32UL );
     msg->fec_sets[ k ].index = UINT_MAX;
     msg->fec_sets[ k ].data_shreds_received_mask = UINT_MAX;

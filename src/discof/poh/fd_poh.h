@@ -349,10 +349,10 @@ fd_poh_max_microblocks_per_slot( ulong ticks_per_slot,
    to store the hashes.  (Eg, if epoch T only had a published slot in
    position 0 and epoch T+1 only had a published slot right at the end).
 
-   There is a tighter bound: the block data limit of mainnet-beta is
-   currently FD_PACK_MAX_DATA_PER_BLOCK, or 27,332,342 bytes per slot.
+   There is a tighter bound: the block data limit at the 200ms slot
+   params is FD_PACK_MAX_DATA_PER_BLOCK, or 7,810,880 bytes per slot.
    At 48 bytes per tick, it is not possible to publish a slot that skips
-   569,424 or more prior slots. */
+   162,727 or more prior slots. */
 #define MAX_SKIPPED_TICKS (1UL+(FD_PACK_MAX_DATA_PER_BLOCK/48UL))
 
 /* Per-transaction lifecycle timing for a leader block, captured by poh

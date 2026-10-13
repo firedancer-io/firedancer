@@ -23,18 +23,18 @@ test_bucket_cnt( void ) {
   FD_TEST( fd_txncache_bucket_cnt( 1UL )==1UL );
   FD_TEST( fd_txncache_bucket_cnt( 8UL )==1UL );
   FD_TEST( fd_txncache_bucket_cnt( 9UL )==2UL );
-  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==24510UL );
+  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==12255UL );
 }
 
 static void
 test_page_sizing( void ) {
   ulong const max_active_slots = 2199UL;
-  ulong const max_txn_per_slot = 196078UL;
+  ulong const max_txn_per_slot = FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
 
-  FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot )==32118UL );
-  FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot )==32118UL );
-  FD_TEST( fd_txncache_txnpage_idx_sz( 32118UL )==sizeof(ushort) );
-  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot )==8251646976UL ); /* production, ushort page indices */
+  FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot )==17158UL );
+  FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot )==17158UL );
+  FD_TEST( fd_txncache_txnpage_idx_sz( 17158UL )==sizeof(ushort) );
+  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot )==4401349504UL ); /* production, ushort page indices */
 
   /* development.bench.max_cost_per_block = 540M: 2*529,411 txns per
      slot.  The pool exceeds the ushort range, so page indices widen to

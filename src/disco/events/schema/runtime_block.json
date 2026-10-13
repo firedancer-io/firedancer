@@ -104,8 +104,8 @@
         "fec_count":                 { "type": "UInt64", "compression": "T64, ZSTD",         "description": "Total number of FEC sets observed while assembling this block (not capped by fec_merkle_roots)" },
         "fec_merkle_roots": {
             "type": "Array",
-            "description": "Merkle roots of the FEC sets observed while assembling this block, in order. Truncated to the first 1024 roots — exact for fixed-size FECs (a block has at most 1024), a prefix for legacy variable-size FECs when fec_count exceeds 1024. Under Tower the last entry equals block_id; under Alpenglow block_id is the separate DMR and is not present in this list",
-            "max_len": 1024,
+            "description": "Merkle roots of the FEC sets observed while assembling this block, in order. Truncated to the first 512 roots — exact for fixed-size FECs (a block has at most 512), a prefix for legacy variable-size FECs when fec_count exceeds 512. Under Tower the last entry equals block_id; under Alpenglow block_id is the separate DMR and is not present in this list",
+            "max_len": 512,
             "element": { "type": "Hash", "description": "FEC merkle root" }
         }
     }

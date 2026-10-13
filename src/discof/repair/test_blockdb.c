@@ -222,7 +222,7 @@ main( int     argc,
   /* Proofs, including odd leaf counts, powers of two, and the maximum */
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 42U, 0UL ) );
-  uint const cnts[] = { 1U, 2U, 3U, 4U, 5U, 7U, 8U, 31U, 32U, 33U, 63U, 64U, 511U, 1023U, FD_FEC_BLK_MAX };
+  uint const cnts[] = { 1U, 2U, 3U, 4U, 5U, 7U, 8U, 31U, 32U, 33U, 63U, 64U, 255U, 511U, FD_FEC_BLK_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) test_proofs( db, rng, cnts[ i ] );
   fd_rng_delete( fd_rng_leave( rng ) );
 

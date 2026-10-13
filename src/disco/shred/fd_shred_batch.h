@@ -102,17 +102,17 @@ FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_CHAINE
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_RESIGNED + FD_POH_SHRED_MTU + FD_SHRED_BATCH_RESIGNED_WMARK_REGRESSION ), FD_SHRED_BATCH_RAW_BUF_SZ );
 
 /* FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX is a conservative compile-time
-   bound on entry bytes in a 32k-shred block (1024 chained FEC sets).
-   It subtracts worst-case padding of about half the payload, plus
-   last-batch resigned-size regression and 8-byte batch headers.
-   Pack does not use this as its per-slot cap; that is
-   fd_shred_batch_pack_data_max at become-leader.  This macro is the
-   pre-leader default (FD_PACK_MAX_DATA_PER_BLOCK) and sizes skipped-
-   tick buffers. */
+   bound on entry bytes in a FD_SHRED_BLK_MAX-shred block
+   (FD_FEC_BLK_MAX chained FEC sets).  It subtracts worst-case padding
+   of about half the payload, plus last-batch resigned-size regression
+   and 8-byte batch headers.  Pack does not use this as its per-slot
+   cap; that is fd_shred_batch_pack_data_max at become-leader.  This
+   macro is the pre-leader default (FD_PACK_MAX_DATA_PER_BLOCK) and
+   sizes skipped-tick buffers. */
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_MAX ) == ( 4UL ), FD_SHRED_BATCH_FEC_SETS_MAX );
-#define FD_SHRED_BATCH_BLOCK_DATA_OHEAD  (  512UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ + 8192UL + 8192UL )
-FD_STATIC_ASSERT( ( FD_SHRED_BATCH_BLOCK_DATA_OHEAD ) < ( 1024UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ ), FD_SHRED_BATCH_BLOCK_DATA_OHEAD );
-#define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX ( (1024UL-2UL) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHRED_BATCH_BLOCK_DATA_OHEAD )
+#define FD_SHRED_BATCH_BLOCK_DATA_OHEAD  ( (FD_FEC_BLK_MAX/2UL) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ + 8192UL + 8192UL )
+FD_STATIC_ASSERT( ( FD_SHRED_BATCH_BLOCK_DATA_OHEAD ) < ( FD_FEC_BLK_MAX * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ ), FD_SHRED_BATCH_BLOCK_DATA_OHEAD );
+#define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX ( (FD_FEC_BLK_MAX-2UL) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHRED_BATCH_BLOCK_DATA_OHEAD )
 
 /* fd_shred_batch_pack_data_max: how many entry bytes (microblock
    headers + txn payloads, excluding empty ticks) pack can emit in a
