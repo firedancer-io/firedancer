@@ -1,0 +1,268 @@
+{
+    "name": "metrics_gossip",
+    "id": 37,
+    "description": "Metrics of one gossip tile instance, one row per sweep",
+    "local": true,
+    "fields": {
+        "sample_id":                                     { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":                                 { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":                                   { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":                           { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":                              { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":                               { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":                                       { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "pid":                                           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
+        "tid":                                           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
+        "last_cpu_index":                                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
+        "context_switch_involuntary":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
+        "context_switch_voluntary":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
+        "page_fault_major":                              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
+        "page_fault_minor":                              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
+        "state": {
+            "type": "LowCardinality(String)",
+            "description": "Tile lifecycle state: 0=booting, 1=running, 2=shutdown",
+            "variants": {
+                "booting":  { "description": "Booting" },
+                "running":  { "description": "Running" },
+                "shutdown": { "description": "Shutdown" }
+            }
+        },
+        "heartbeat_time":                                { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
+        "is_backpressured":                              { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
+        "backpressure":                                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
+        "regime_duration_nanos": {
+            "type": "Tuple",
+            "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "fields": {
+                "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
+                "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
+                "backpressure_housekeeping": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Housekeeping" },
+                "caught_up_prefrag":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Prefrag" },
+                "processing_prefrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Prefrag" },
+                "backpressure_prefrag":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Prefrag" },
+                "caught_up_postfrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Postfrag" },
+                "processing_postfrag":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Postfrag" },
+                "caught_up_sleeping":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Sleeping" },
+                "backpressure_sleeping":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Sleeping" }
+            }
+        },
+        "thread_duration_nanos": {
+            "type": "Tuple",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "fields": {
+                "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
+                "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
+                "user":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "User (task was scheduled and executing in user mode)" },
+                "system":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "System (task was scheduled and executing in kernel mode)" },
+                "interrupt": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" }
+            }
+        },
+        "park_attempted": {
+            "type": "Tuple",
+            "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "fields": {
+                "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
+                "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
+                "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
+            }
+        },
+        "device_irq":                                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "tlb_shootdown":                                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "timer_irq":                                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "ping_peer_count": {
+            "type": "Tuple",
+            "description": "Peers tracked for ping/pong, by state",
+            "fields": {
+                "unpinged":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "Peer is known but has not been pinged yet" },
+                "awaiting_pong": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Peer was pinged but has not yet responded, or responded with an invalid pong" },
+                "valid":         { "type": "UInt64", "compression": "T64, ZSTD", "description": "Peer was pinged and is currently valid" },
+                "refreshing":    { "type": "UInt64", "compression": "T64, ZSTD", "description": "Peer was pinged and is currently valid, and is being refreshed with a new ping" }
+            }
+        },
+        "pong_processed": {
+            "type": "Tuple",
+            "description": "Pongs processed, by result",
+            "fields": {
+                "accepted":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong accepted" },
+                "staked":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ignored because the peer is staked and needs no ping" },
+                "untracked":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ignored because the peer has no outstanding ping" },
+                "address_mismatch": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ignored because it came from a different address than the one pinged" },
+                "token_mismatch":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ignored because the token did not match" }
+            }
+        },
+        "ping_peer_evicted":                             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers evicted from the ping tracker to make room for new ones" },
+        "ping_peer_added":                               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers added to the ping tracker" },
+        "ping_peer_staked_removed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers removed from the ping tracker because they became staked" },
+        "ping_peer_address_changed":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Tracked peers whose gossip address changed; pong invalidated and reset to unpinged" },
+        "sign_queue_full_dropped":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Messages dropped because the maximum number of sign requests were in flight" },
+        "crds_capacity":                                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Capacity of the data store" },
+        "crds_used": {
+            "type": "Tuple",
+            "description": "Entries in the data store",
+            "fields": {
+                "contact_info_v1":               { "type": "UInt64", "compression": "T64, ZSTD", "description": "Contact Info V1" },
+                "vote":                          { "type": "UInt64", "compression": "T64, ZSTD", "description": "Vote" },
+                "lowest_slot":                   { "type": "UInt64", "compression": "T64, ZSTD", "description": "Lowest Slot" },
+                "snapshot_hashes":               { "type": "UInt64", "compression": "T64, ZSTD", "description": "Snapshot Hashes" },
+                "accounts_hashes":               { "type": "UInt64", "compression": "T64, ZSTD", "description": "Accounts Hashes" },
+                "epoch_slots":                   { "type": "UInt64", "compression": "T64, ZSTD", "description": "Epoch Slots" },
+                "version_v1":                    { "type": "UInt64", "compression": "T64, ZSTD", "description": "Version V1" },
+                "version_v2":                    { "type": "UInt64", "compression": "T64, ZSTD", "description": "Version V2" },
+                "node_instance":                 { "type": "UInt64", "compression": "T64, ZSTD", "description": "Node Instance" },
+                "duplicate_shred":               { "type": "UInt64", "compression": "T64, ZSTD", "description": "Duplicate Shred" },
+                "incremental_snapshot_hashes":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "Incremental Snapshot Hashes" },
+                "contact_info_v2":               { "type": "UInt64", "compression": "T64, ZSTD", "description": "Contact Info V2" },
+                "restart_last_voted_fork_slots": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Restart Last Voted Fork Slots" },
+                "restart_heaviest_fork":         { "type": "UInt64", "compression": "T64, ZSTD", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_expired":                                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Entries expired from the data store due to age" },
+        "crds_evicted":                                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Entries evicted from the data store to make space for new entries" },
+        "crds_peer_capacity":                            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Capacity for storing peers in the data store" },
+        "crds_peer_count": {
+            "type": "Tuple",
+            "description": "Peers in the data store, by stake class",
+            "fields": {
+                "staked":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "Peer has stake" },
+                "unstaked": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Peer has no stake" }
+            }
+        },
+        "crds_peer_stake_lamports":                      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Stake of peers in the data store" },
+        "crds_peer_evicted":                             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers evicted from the data store to make space for new peers" },
+        "crds_purged_capacity":                          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Capacity of the list of purged data store entries" },
+        "crds_purged_used":                              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Purged data store entries" },
+        "crds_purged_expired":                           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Purged entries expired from the purged list due to age" },
+        "crds_purged_evicted":                           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Entries evicted from the purged list to make room" },
+        "crds_upserted": {
+            "type": "Tuple",
+            "description": "Verified CRDS values offered to the data store, by result",
+            "fields": {
+                "inserted_pull_response":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (upserted)" },
+                "inserted_push":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (upserted)" },
+                "stale_pull_response":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (newer entry already present in table)" },
+                "duplicate_pull_response": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (duplicate)" },
+                "stale_push":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (newer entry already present in table)" },
+                "duplicate_push":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (duplicate)" }
+            }
+        },
+        "message_tx": {
+            "type": "Tuple",
+            "description": "Gossip messages sent, by message type",
+            "fields": {
+                "pull_request":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Request" },
+                "pull_response": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response" },
+                "push":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push" },
+                "prune":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Prune" },
+                "ping":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ping" },
+                "pong":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong" }
+            }
+        },
+        "message_tx_bytes": {
+            "type": "Tuple",
+            "description": "Wire bytes sent in gossip messages, by message type",
+            "fields": {
+                "pull_request":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Request" },
+                "pull_response": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response" },
+                "push":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push" },
+                "prune":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Prune" },
+                "ping":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ping" },
+                "pong":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong" }
+            }
+        },
+        "crds_push_tx": {
+            "type": "Tuple",
+            "description": "CRDS values sent in push messages, by value type",
+            "fields": {
+                "contact_info_v1":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V1" },
+                "vote":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote" },
+                "lowest_slot":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Lowest Slot" },
+                "snapshot_hashes":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Snapshot Hashes" },
+                "accounts_hashes":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts Hashes" },
+                "epoch_slots":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Epoch Slots" },
+                "version_v1":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version V1" },
+                "version_v2":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version V2" },
+                "node_instance":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Node Instance" },
+                "duplicate_shred":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Duplicate Shred" },
+                "incremental_snapshot_hashes":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Incremental Snapshot Hashes" },
+                "contact_info_v2":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V2" },
+                "restart_last_voted_fork_slots": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Restart Last Voted Fork Slots" },
+                "restart_heaviest_fork":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_push_tx_bytes": {
+            "type": "Tuple",
+            "description": "Wire bytes of CRDS values sent in push messages, by value type",
+            "fields": {
+                "contact_info_v1":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V1" },
+                "vote":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote" },
+                "lowest_slot":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Lowest Slot" },
+                "snapshot_hashes":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Snapshot Hashes" },
+                "accounts_hashes":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts Hashes" },
+                "epoch_slots":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Epoch Slots" },
+                "version_v1":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version V1" },
+                "version_v2":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version V2" },
+                "node_instance":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Node Instance" },
+                "duplicate_shred":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Duplicate Shred" },
+                "incremental_snapshot_hashes":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Incremental Snapshot Hashes" },
+                "contact_info_v2":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V2" },
+                "restart_last_voted_fork_slots": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Restart Last Voted Fork Slots" },
+                "restart_heaviest_fork":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_pull_response_tx": {
+            "type": "Tuple",
+            "description": "CRDS values sent in pull response messages, by value type",
+            "fields": {
+                "contact_info_v1":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V1" },
+                "vote":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote" },
+                "lowest_slot":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Lowest Slot" },
+                "snapshot_hashes":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Snapshot Hashes" },
+                "accounts_hashes":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts Hashes" },
+                "epoch_slots":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Epoch Slots" },
+                "version_v1":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version V1" },
+                "version_v2":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version V2" },
+                "node_instance":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Node Instance" },
+                "duplicate_shred":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Duplicate Shred" },
+                "incremental_snapshot_hashes":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Incremental Snapshot Hashes" },
+                "contact_info_v2":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V2" },
+                "restart_last_voted_fork_slots": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Restart Last Voted Fork Slots" },
+                "restart_heaviest_fork":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_pull_response_tx_bytes": {
+            "type": "Tuple",
+            "description": "Wire bytes of CRDS values sent in pull response messages, by value type",
+            "fields": {
+                "contact_info_v1":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V1" },
+                "vote":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote" },
+                "lowest_slot":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Lowest Slot" },
+                "snapshot_hashes":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Snapshot Hashes" },
+                "accounts_hashes":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts Hashes" },
+                "epoch_slots":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Epoch Slots" },
+                "version_v1":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version V1" },
+                "version_v2":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version V2" },
+                "node_instance":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Node Instance" },
+                "duplicate_shred":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Duplicate Shred" },
+                "incremental_snapshot_hashes":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Incremental Snapshot Hashes" },
+                "contact_info_v2":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V2" },
+                "restart_last_voted_fork_slots": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Restart Last Voted Fork Slots" },
+                "restart_heaviest_fork":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "wait_for_supermajority_staked_peer_online":     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Staked peers with recent gossip activity" },
+        "wait_for_supermajority_staked_peer_count":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Staked peers tracked while waiting for supermajority" },
+        "wait_for_supermajority_stake_online_lamports":  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Stake from peers with recent gossip activity" },
+        "wait_for_supermajority_stake_tracked_lamports": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "gauge: current value, do not sum over time. Stake tracked while waiting for supermajority" },
+        "wait_for_supermajority_state": {
+            "type": "LowCardinality(String)",
+            "description": "Wait-for-supermajority progress: 0=unset (Not started), 1=loading_stakes (Loading stakes from the snapshot), 2=waiting_for_stake (Waiting for enough stake to come online), 3=publishing (Publishing our contact info to start), 4=done_or_disabled (Done, or wait-for-supermajority is disabled)",
+            "variants": {
+                "unset":             { "description": "Not started" },
+                "loading_stakes":    { "description": "Loading stakes from the snapshot" },
+                "waiting_for_stake": { "description": "Waiting for enough stake to come online" },
+                "publishing":        { "description": "Publishing our contact info to start" },
+                "done_or_disabled":  { "description": "Done, or wait-for-supermajority is disabled" }
+            }
+        }
+    }
+}

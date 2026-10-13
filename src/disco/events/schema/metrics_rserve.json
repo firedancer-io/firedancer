@@ -1,0 +1,212 @@
+{
+    "name": "metrics_rserve",
+    "id": 36,
+    "description": "Metrics of one rserve tile instance, one row per sweep",
+    "local": true,
+    "fields": {
+        "sample_id":                      { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":                  { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":                    { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":            { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":               { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":                { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":                        { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "pid":                            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
+        "tid":                            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
+        "last_cpu_index":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
+        "context_switch_involuntary":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
+        "context_switch_voluntary":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
+        "page_fault_major":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
+        "page_fault_minor":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
+        "state": {
+            "type": "LowCardinality(String)",
+            "description": "Tile lifecycle state: 0=booting, 1=running, 2=shutdown",
+            "variants": {
+                "booting":  { "description": "Booting" },
+                "running":  { "description": "Running" },
+                "shutdown": { "description": "Shutdown" }
+            }
+        },
+        "heartbeat_time":                 { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
+        "is_backpressured":               { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
+        "backpressure":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
+        "regime_duration_nanos": {
+            "type": "Tuple",
+            "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "fields": {
+                "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
+                "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
+                "backpressure_housekeeping": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Housekeeping" },
+                "caught_up_prefrag":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Prefrag" },
+                "processing_prefrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Prefrag" },
+                "backpressure_prefrag":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Prefrag" },
+                "caught_up_postfrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Postfrag" },
+                "processing_postfrag":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Postfrag" },
+                "caught_up_sleeping":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Sleeping" },
+                "backpressure_sleeping":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Sleeping" }
+            }
+        },
+        "thread_duration_nanos": {
+            "type": "Tuple",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "fields": {
+                "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
+                "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
+                "user":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "User (task was scheduled and executing in user mode)" },
+                "system":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "System (task was scheduled and executing in kernel mode)" },
+                "interrupt": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" }
+            }
+        },
+        "park_attempted": {
+            "type": "Tuple",
+            "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "fields": {
+                "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
+                "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
+                "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
+            }
+        },
+        "device_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "tlb_shootdown":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "timer_irq":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "request_rx": {
+            "type": "Tuple",
+            "description": "Requests with a supported tag and correct size (pongs on tag alone), by type, before identity, signature and ping checks",
+            "fields": {
+                "pong":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong" },
+                "window_index":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index" },
+                "highest_window_index":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Highest shred at or above an index" },
+                "orphan":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ancestors of an orphan slot" },
+                "parent_fec_set_count":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Parent and FEC set count of a block (Alpenglow)" },
+                "fec_set_root":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Merkle root of a FEC set (Alpenglow)" },
+                "window_index_for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index of a specific block (Alpenglow)" }
+            }
+        },
+        "request_rx_bytes":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes of incoming repair request payloads" },
+        "request_malformed": {
+            "type": "Tuple",
+            "description": "Packets dropped before parsing, by reason",
+            "fields": {
+                "too_small":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Packet shorter than a message tag" },
+                "unsupported_ping":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ping sent to the repair server port" },
+                "unknown_tag":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Unknown or unsupported message tag" },
+                "wrong_size":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Message size does not match its tag" },
+                "unsupported_ancestor_hashes": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ancestor hashes request, which is not served" }
+            }
+        },
+        "request_dropped": {
+            "type": "Tuple",
+            "description": "Requests dropped during validation, by reason",
+            "fields": {
+                "signature_failed":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Signature failed to verify" },
+                "from_self":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sent by our own identity" },
+                "wrong_recipient":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Addressed to another identity" },
+                "timestamp_skew":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Timestamp outside the accepted window" },
+                "pong_token_invalid":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong token outdated or invalid" },
+                "shred_index_invalid":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred index past the end of a block" },
+                "fec_set_index_invalid": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "FEC set index unaligned or past the end of the block" }
+            }
+        },
+        "request_unanswered": {
+            "type": "Tuple",
+            "description": "Valid requests that could not be answered, by type",
+            "fields": {
+                "pong":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong" },
+                "window_index":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index" },
+                "highest_window_index":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Highest shred at or above an index" },
+                "orphan":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ancestors of an orphan slot" },
+                "parent_fec_set_count":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Parent and FEC set count of a block (Alpenglow)" },
+                "fec_set_root":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Merkle root of a FEC set (Alpenglow)" },
+                "window_index_for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index of a specific block (Alpenglow)" }
+            }
+        },
+        "pkt_tx":                         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Network packets sent, including pings and responses" },
+        "response_tx": {
+            "type": "Tuple",
+            "description": "Response packets sent, by type; Orphan sends up to 11 per request",
+            "fields": {
+                "ping":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ping sent to a requester not yet in the ping cache" },
+                "window_index":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index" },
+                "highest_window_index":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Highest shred at or above an index" },
+                "orphan":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred from an ancestor of an orphan slot" },
+                "parent_fec_set_count":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Parent and FEC set count of a block (Alpenglow)" },
+                "fec_set_root":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Merkle root of a FEC set (Alpenglow)" },
+                "window_index_for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index of a specific block (Alpenglow)" }
+            }
+        },
+        "response_tx_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Payload bytes sent in response packets" },
+        "disk_read_attempted": {
+            "type": "Tuple",
+            "description": "Store reads for repair responses, by result",
+            "fields": {
+                "success":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Read served from the store" },
+                "miss":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Not in the store" },
+                "busy":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Index binding or ring cell changed during the read" },
+                "scan_limit": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Cached highest-shred bound was no longer readable" }
+            }
+        },
+        "disk_read_bytes":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Shred bytes read from the store for repair responses" },
+        "shred_used":                     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Shreds currently in the shreds database" },
+        "shred_capacity":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Shreds the shreds database can hold" },
+        "disk_used_bytes":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Logical bytes occupied by live wire shreds and spilled FEC payloads" },
+        "disk_peak_bytes":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Logical wire-ring high-water plus spill pages high-water" },
+        "disk_write_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of persisting one accepted data shred",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, 268) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[268, 719) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[719, 1929) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1929, 5175) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5175, 13884) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13884, 37250) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[37250, 99939) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[99939, 268129) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[268129, 719371) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[719371, 1930022) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1930022, 5178115) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5178115, 13892523) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13892523, 37272675) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[37272675, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "disk_shred_written":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Data shreds persisted to the repair store" },
+        "disk_shred_write_failed":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Data shreds rejected by the repair store API" },
+        "disk_shred_written_bytes":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written by persisted data shreds" },
+        "store_fec_preevict_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of preevicting one FEC payload from the store RAM cache",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, 268) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[268, 719) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[719, 1929) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1929, 5175) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5175, 13884) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13884, 37250) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[37250, 99939) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[99939, 268129) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[268129, 719371) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[719371, 1930022) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1930022, 5178115) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5178115, 13892523) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13892523, 37272675) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[37272675, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "store_fec_preevicted":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payloads preevicted from the store RAM cache to disk" },
+        "store_fec_preevicted_bytes":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payload bytes preevicted from the store RAM cache to disk" },
+        "store_fec_cache_free":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Immediately available FEC payload cache entries" },
+        "store_fec_cache_capacity":       { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC payload cache capacity" },
+        "store_fec_cache_free_target":    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Free entries background preeviction tries to restore" },
+        "store_fec_cache_free_low_water": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Free entry count below which background preeviction starts" },
+        "ping_cache_used":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Active entries in the ping cache" },
+        "ping_cache_capacity":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Ping cache entry capacity" },
+        "ping_cache_evicted":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Ping cache entries evicted for a new peer (cache full); TTL expiries not counted" }
+    }
+}
