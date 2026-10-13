@@ -56,6 +56,18 @@ struct ag_pool_metrics {
 };
 typedef struct ag_pool_metrics ag_pool_metrics_t;
 
+struct ag_pool_standstill_iter {
+  ulong finalized;
+  ulong slot; /* ULONG_MAX when done */
+  ulong idx;
+  int   is_vote;
+  union {
+    ag_cert_t cert;
+    ag_vote_t vote;
+  };
+};
+typedef struct ag_pool_standstill_iter ag_pool_standstill_iter_t;
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -146,8 +158,16 @@ ag_pool_slot_state( ag_pool_t const * self,
 
 /* Section 4.1. Pool::recover_from_standstill */
 
-void
-ag_pool_recover_from_standstill( ag_pool_t * self );
+ag_pool_standstill_iter_t *
+ag_pool_standstill_iter_init( ag_pool_standstill_iter_t * iter,
+                              ag_pool_t const *           self );
+
+ag_pool_standstill_iter_t *
+ag_pool_standstill_iter_next( ag_pool_standstill_iter_t * iter,
+                              ag_pool_t const *           self );
+
+FD_FN_PURE int
+ag_pool_standstill_iter_done( ag_pool_standstill_iter_t const * iter );
 
 /* Definition 14. Pool::finalized_slot */
 
@@ -157,8 +177,7 @@ ag_pool_finalized_slot( ag_pool_t const * self );
 FD_FN_PURE uchar const *
 ag_pool_finalized_block_hash( ag_pool_t const * self );
 
-/* Definition 15. Pool::parents_ready.  Writes up to out_max ready
-   parents of slot to out and returns how many are ready. */
+/* Definition 15. Pool::parents_ready. */
 
 ulong
 ag_pool_parents_ready( ag_pool_t const * self,
@@ -166,7 +185,7 @@ ag_pool_parents_ready( ag_pool_t const * self,
                        ag_block_id_t *   out,
                        ulong             out_max );
 
-/* Definition 15. Pool::wait_for_parent_ready; slot ULONG_MAX is the pending receiver */
+/* Definition 15. Pool::wait_for_parent_ready. */
 
 ag_block_id_t
 ag_pool_wait_for_parent_ready( ag_pool_t * self,

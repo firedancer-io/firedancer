@@ -91,6 +91,14 @@ ag_block_id_eq( ag_block_id_t const * a,
   return a->slot==b->slot && !memcmp( a->hash, b->hash, sizeof(ag_block_hash_t) );
 }
 
+/* Definition 4. BlockId <, ordered by (slot, hash) */
+
+FD_FN_PURE static inline int
+ag_block_id_lt( ag_block_id_t const * a,
+                ag_block_id_t const * b ) {
+  return a->slot<b->slot || ( a->slot==b->slot && 0>memcmp( a->hash, b->hash, sizeof(ag_block_hash_t) ) );
+}
+
 FD_PROTOTYPES_END
 
 #endif
