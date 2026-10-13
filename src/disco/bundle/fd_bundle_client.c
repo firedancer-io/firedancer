@@ -300,6 +300,8 @@ fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                                                                : ctx->keepalive->ts_next_tx );
   if( FD_LIKELY( ctx->builder_info_avail & !ctx->builder_info_wait ) )
     deadline = fd_long_min( deadline, ctx->builder_info_valid_until );
+  if( FD_LIKELY( ctx->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT ) )
+    deadline = fd_long_min( deadline, fd_long_min( ctx->auther.refresh_at, ctx->auther.reauth_at ) );
   if( FD_UNLIKELY( ctx->backoff_until>now ) )
     deadline = fd_long_min( deadline, ctx->backoff_until );
   return deadline;
@@ -313,7 +315,18 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
     fd_bundle_auther_poll( &ctx->auther, ctx->grpc_client, ctx->keyguard_client );
     return 1;
   }
-  if( FD_UNLIKELY( ctx->auther.state!=FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) return 0;
+  if( FD_UNLIKELY( ctx->auther.state<FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) return 0;
+  if( ctx->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT ) {
+    if( FD_UNLIKELY( now>=ctx->auther.reauth_at ) ) {
+      FD_LOG_INFO(( "Re-authenticating with bundle server" ));
+      fd_bundle_auther_reset( &ctx->auther );
+      return 1;
+    }
+    if( FD_UNLIKELY( now>=ctx->auther.refresh_at ) ) {
+      fd_bundle_auther_refresh( &ctx->auther );
+      return 1;
+    }
+  }
 
   /* Request block builder info */
   int const builder_info_expired = ( ctx->builder_info_valid_until - now )<0;
@@ -856,7 +869,13 @@ fd_bundle_client_grpc_rx_msg(
     }
     break;
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
-    if( FD_UNLIKELY( !fd_bundle_auther_handle_tokens_resp( &ctx->auther, protobuf, protobuf_sz ) ) ) {
+    if( FD_UNLIKELY( !fd_bundle_auther_handle_tokens_resp( &ctx->auther, protobuf, protobuf_sz, fd_bundle_now( ctx ) ) ) ) {
+      ctx->metrics.decode_fail_cnt++;
+      fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
+    }
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Auth_RefreshAccessToken:
+    if( FD_UNLIKELY( !fd_bundle_auther_handle_refresh_resp( &ctx->auther, protobuf, protobuf_sz, fd_bundle_now( ctx ) ) ) ) {
       ctx->metrics.decode_fail_cnt++;
       fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     }
@@ -882,6 +901,7 @@ fd_bundle_client_request_failed( fd_bundle_tile_t * ctx,
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
+  case FD_BUNDLE_CLIENT_REQ_Auth_RefreshAccessToken:
     fd_bundle_auther_handle_request_fail( &ctx->auther );
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
@@ -1015,7 +1035,7 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
     return FD_BUNDLE_STATE_CONNECTING; /* connection is not ready */
   }
 
-  if( FD_UNLIKELY( ctx->auther.state != FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) {
+  if( FD_UNLIKELY( ctx->auther.state<FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) {
     return FD_BUNDLE_STATE_CONNECTING; /* not authenticated */
   }
 
@@ -1048,6 +1068,8 @@ fd_bundle_request_ctx_cstr( ulong request_ctx ) {
     return "GenerateAuthChallenge";
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
     return "GenerateAuthTokens";
+  case FD_BUNDLE_CLIENT_REQ_Auth_RefreshAccessToken:
+    return "RefreshAccessToken";
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
     return "SubscribePackets";
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
