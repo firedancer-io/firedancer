@@ -466,7 +466,7 @@ perf_test( void ) {
 
 static void
 perf_test2( void ) {
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 1UL, 0UL, "perf_test2", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 1UL, fd_log_cpu_id(), "perf_test2", 0UL );
 
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "wksp allocation failed. skipping." )); return; }
 

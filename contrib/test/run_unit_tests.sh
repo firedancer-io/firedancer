@@ -26,7 +26,6 @@ declare -A TEST_GIGANTIC_PAGES=(
 
 # Read command-line args
 
-TEST_OPTS="$*"  # for the Make indirection below
 while [[ $# -gt 0 ]]; do
 
   FLAG="$1"
@@ -72,14 +71,10 @@ while [[ $# -gt 0 ]]; do
 
 done
 
-if [[ -z "$TESTS" && -z "${RECURSE_GUARD:-}" ]]; then
-  # No tests given, so indirect test execution through Make and retry.
-  # This ensures that we select the correct build dir for the current
-  # environment ($CC, $MACHINE, etc).
-  # Make then re-executes this file with the proper parameters.
-
-  export RECURSE_GUARD=1
-  exec make run-unit-test TEST_OPTS="$TEST_OPTS"
+if [[ -z "$TESTS" ]]; then
+  # No tests given, so run the automatic tests of the build dir that Make
+  # selects for the current environment ($CC, $MACHINE, etc).
+  TESTS="$(make --silent --no-print-directory objdir)/unit-test/automatic.txt"
 fi
 
 # Parse command-line args
