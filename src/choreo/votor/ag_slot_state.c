@@ -105,7 +105,7 @@ verify_subtract_votes( ag_slot_state_t *     self,
   ag_slot_votes_t *       votes      = &self->votes;
 
   fd_bls_sig_t const * sigs;
-  fd_bls_sig_t         nf_sig[ AG_VAT_MAX ];
+  fd_bls_sig_t         nf_sig[ AG_SLOT_STATE_VAT_MAX ];
   switch( kind ) {
   case AG_VOTE_KIND_NOTAR:         sigs = votes->notar_sig;         break;
   case AG_VOTE_KIND_SKIP:          sigs = votes->skip_sig;          break;

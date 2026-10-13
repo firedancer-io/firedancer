@@ -21,14 +21,29 @@
 #define AG_SLOT_STATE_OUT_EVENT_MAX  (3UL)
 #define AG_SLOT_STATE_OUT_REPAIR_MAX (3UL)
 
+/* AG_SLOT_STATE_VAT_MAX is how many validators a slot state has room
+   for.  It defaults to AG_VAT_MAX; a build with a small fixed validator
+   set (e.g. a fuzz harness) can lower it to save memory.  It only sizes
+   storage: protocol limits still use AG_VAT_MAX, and
+   ag_pool_advance_epoch rejects an epoch that does not fit. */
+
+#ifndef AG_SLOT_STATE_VAT_MAX
+#define AG_SLOT_STATE_VAT_MAX AG_VAT_MAX
+#endif
+FD_STATIC_ASSERT( AG_SLOT_STATE_VAT_MAX<=AG_VAT_MAX, slot_state_vat_max );
+
+#ifndef AG_NOTAR_MAP_LG_SLOT_CNT
 #define AG_NOTAR_MAP_LG_SLOT_CNT            (11)
+#endif
 #define AG_NOTAR_MAP_SLOT_CNT               (1UL<<AG_NOTAR_MAP_LG_SLOT_CNT)
 #define AG_NOTAR_MAP_USED_WORD_CNT          ((AG_NOTAR_MAP_SLOT_CNT+63UL)>>6)
+#ifndef AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT
 #define AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT   (13)
+#endif
 #define AG_NOTAR_FALLBACK_MAP_SLOT_CNT      (1UL<<AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT)
 #define AG_NOTAR_FALLBACK_MAP_USED_WORD_CNT ((AG_NOTAR_FALLBACK_MAP_SLOT_CNT+63UL)>>6)
-FD_STATIC_ASSERT( AG_NOTAR_MAP_SLOT_CNT         >AG_VAT_MAX,                            notar_map          );
-FD_STATIC_ASSERT( AG_NOTAR_FALLBACK_MAP_SLOT_CNT>AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX, notar_fallback_map ); /* TODO tighten further */
+FD_STATIC_ASSERT( AG_NOTAR_MAP_SLOT_CNT         >AG_SLOT_STATE_VAT_MAX,                            notar_map          );
+FD_STATIC_ASSERT( AG_NOTAR_FALLBACK_MAP_SLOT_CNT>AG_SLOT_STATE_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX, notar_fallback_map ); /* TODO tighten further */
 
 struct ag_slot_voted_stake_hash {
   ag_block_hash_key_t hash;
@@ -53,20 +68,20 @@ struct ag_slot_votes {
   ag_slot_voted_stake_hash_t notar_stake_map [ AG_NOTAR_MAP_SLOT_CNT ];
   ulong                      notar_stake_used[ AG_NOTAR_MAP_USED_WORD_CNT ];
   fd_bls_set_t               notar_set       [ fd_bls_set_word_cnt ];
-  fd_bls_sig_t               notar_sig       [ AG_VAT_MAX ];
+  fd_bls_sig_t               notar_sig       [ AG_SLOT_STATE_VAT_MAX ];
   ag_slot_voted_stake_hash_t notar_fallback_stake_map [ AG_NOTAR_FALLBACK_MAP_SLOT_CNT ];
   ulong                      notar_fallback_stake_used[ AG_NOTAR_FALLBACK_MAP_USED_WORD_CNT ];
-  fd_bls_sig_t               notar_fallback_sig       [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
-  ag_block_hash_t            notar_fallback_sig_hash  [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
-  uchar                      notar_fallback_sig_cnt   [ AG_VAT_MAX ];
+  fd_bls_sig_t               notar_fallback_sig       [ AG_SLOT_STATE_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
+  ag_block_hash_t            notar_fallback_sig_hash  [ AG_SLOT_STATE_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
+  uchar                      notar_fallback_sig_cnt   [ AG_SLOT_STATE_VAT_MAX ];
   ulong                      skip_stake;
-  fd_bls_sig_t               skip_sig[ AG_VAT_MAX ];
+  fd_bls_sig_t               skip_sig[ AG_SLOT_STATE_VAT_MAX ];
   fd_bls_agg_t               skip_agg;
   ulong                      skip_fallback_stake;
-  fd_bls_sig_t               skip_fallback_sig[ AG_VAT_MAX ];
+  fd_bls_sig_t               skip_fallback_sig[ AG_SLOT_STATE_VAT_MAX ];
   fd_bls_agg_t               skip_fallback_agg;
   ulong                      finalize_stake;
-  fd_bls_sig_t               finalize_sig[ AG_VAT_MAX ];
+  fd_bls_sig_t               finalize_sig[ AG_SLOT_STATE_VAT_MAX ];
   fd_bls_agg_t               finalize_agg;
   ulong                      notar_or_skip_stake;
   ulong                      top_notar_stake;

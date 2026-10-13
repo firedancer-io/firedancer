@@ -450,6 +450,7 @@ ag_pool_advance_epoch( ag_pool_t *             self,
                        ag_epoch_info_t const * epoch_info,
                        ulong                   epoch_rank,
                        ulong                   epoch_slot ) {
+  FD_TEST( epoch_info->validator_cnt<=AG_SLOT_STATE_VAT_MAX ); /* slot states index votes by rank */
   if( FD_UNLIKELY( !self->curr_epoch_info ) ) {
     self->curr_epoch_info = epoch_info;
     self->curr_epoch_rank = epoch_rank;
