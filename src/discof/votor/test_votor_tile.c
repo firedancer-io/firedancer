@@ -86,6 +86,18 @@ test_quic_client_ack_range( void ) {
   quic_client_ack_range( &ack_conn[ 0 ], 0UL, 20UL, ctx );
   FD_TEST( rv->slot==ULONG_MAX );
 
+  /* Every send is matched, the first as well as the last of a full
+     window. */
+
+  for( ulong k=0UL; k<2UL; k++ ) {
+    rv->slot   = 100UL;
+    rv->tx_cnt = REWARD_VOTE_TX_MAX;
+    for( ulong j=0UL; j<REWARD_VOTE_TX_MAX; j++ ) rv->pkt_num[ j ] = 100UL+j;
+    ulong acked = k ? 100UL+REWARD_VOTE_TX_MAX-1UL : 100UL;
+    quic_client_ack_range( &ack_conn[ 0 ], acked, acked, ctx );
+    FD_TEST( rv->slot==ULONG_MAX );
+  }
+
   /* A new vote in the same entry does not inherit the stale sends. */
 
   rv->slot   = 100UL+REWARD_VOTE_MAX;
@@ -1480,6 +1492,14 @@ test_park( void ) {
   FD_TEST( rv->retry_ts>=pass+REWARD_VOTE_RTT_MIN_NS && rv->retry_ts<=fd_clock_tile_now( ctx->clock )+REWARD_VOTE_RTT_MIN_NS );
   FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, rv->retry_ts ) );
   FD_TEST( rv->slot==5UL );
+
+  /* A reward vote that used up its sends is dropped when its next
+     retry comes due, without sending. */
+
+  rv->tx_cnt = REWARD_VOTE_TX_MAX;
+  fd_clock_tile_set( ctx->clock, fd_long_max( rv->retry_ts, fd_clock_tile_now( ctx->clock ) ) );
+  after_credit( ctx, NULL, &poll_in, &charge_busy );
+  FD_TEST( rv->slot==ULONG_MAX );
 
   reconn_prq_delete( reconn_prq_leave( ctx->reconn_prq ) );
   free( park_pool_mem );
