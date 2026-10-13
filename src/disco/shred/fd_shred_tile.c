@@ -1078,10 +1078,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
 
     fd_hash_t const * mr = fd_type_pun_const( merkle_root );
 
-    /* The payload is filled before the FEC is linked: fd_store_publish
-       in Alpenglow
-       may remove a linked FEC at any time, so it must never see one
-       mid-write.  fd_store_insert still decides. */
+    /* The payload is filled before the FEC is linked */
 
     if( FD_UNLIKELY( fd_store_query( ctx->map_join, mr ) ) ) {
       again = 1;
