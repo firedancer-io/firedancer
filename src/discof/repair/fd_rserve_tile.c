@@ -846,12 +846,8 @@ unprivileged_init( fd_topo_t      const * topo,
   FD_TEST( ctx->keyswitch );
 
   fd_memset( ctx->metrics, 0, sizeof(ctx->metrics) );
-  fd_histf_join( fd_histf_new( ctx->metrics->disk_write_timing,
-                               FD_MHIST_SECONDS_MIN( RSERVE, DISK_WRITE_SECONDS ),
-                               FD_MHIST_SECONDS_MAX( RSERVE, DISK_WRITE_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics->fec_preevict_timing,
-                               FD_MHIST_SECONDS_MIN( RSERVE, FEC_PREEVICT_WRITE_SECONDS ),
-                               FD_MHIST_SECONDS_MAX( RSERVE, FEC_PREEVICT_WRITE_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->disk_write_timing, FD_MHIST_EDGES_NS( RSERVE, DISK_WRITE_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->fec_preevict_timing, FD_MHIST_EDGES_NS( RSERVE, FEC_PREEVICT_WRITE_SECONDS ) ) );
   FD_MGAUGE_SET( RSERVE, SHREDS_MAX, ctx->store ? ctx->store->disk_max_shreds : 0UL );
 
   ctx->halt_signing = 0;

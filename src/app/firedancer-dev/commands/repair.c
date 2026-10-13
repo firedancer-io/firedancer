@@ -516,18 +516,17 @@ static void
 print_histogram_buckets( volatile ulong * metrics,
                          ulong offset,
                          int converter,
-                         double histmin,
-                         double histmax,
+                         ulong const * edges_ns,
+                         ulong histmin,
+                         ulong histmax,
                          char * title ) {
   fd_histf_t hist[1];
 
   /* Create histogram structure only to get bucket edges for display */
   if( FD_LIKELY( converter == FD_METRICS_CONVERTER_SECONDS ) ) {
-    /* For SLOT_COMPLETE_TIME: min=0.2, max=2.0 seconds */
-    FD_TEST( fd_histf_new( hist, fd_metrics_convert_seconds_to_ticks( histmin ), fd_metrics_convert_seconds_to_ticks( histmax ) ) );
+    FD_TEST( fd_histf_new_edges( hist, edges_ns ) );
   } else if( FD_LIKELY( converter == FD_METRICS_CONVERTER_NONE ) ) {
-    /* For non-time histograms, we'd need the actual min/max values */
-    FD_TEST( fd_histf_new( hist, (ulong)histmin, (ulong)histmax ) );
+    FD_TEST( fd_histf_new( hist, histmin, histmax ) );
   } else {
     FD_LOG_ERR(( "unknown converter %i", converter ));
   }
@@ -553,7 +552,7 @@ print_histogram_buckets( volatile ulong * metrics,
     } else {
       ulong edge = fd_histf_right( hist, k );
       if( FD_LIKELY( converter == FD_METRICS_CONVERTER_SECONDS ) ) {
-        double edgef = fd_metrics_convert_ticks_to_seconds( edge - 1 );
+        double edgef = (double)(edge - 1) / 1e9;
         FD_TEST( fd_cstr_printf_check( le_buf, sizeof( le_buf ), NULL, "%.3f", edgef ) );
       } else {
         FD_TEST( fd_cstr_printf_check( le_buf, sizeof( le_buf ), NULL, "%.3f", (double)(edge - 1) / 1000000.0 ) );
@@ -767,6 +766,7 @@ print_tile_metrics( volatile ulong * shred_metrics,
   print_histogram_buckets( repair_metrics,
                             MIDX( HISTOGRAM, REPAIR, RESPONSE_LATENCY_NANOS ),
                             FD_METRICS_CONVERTER_NONE,
+                            NULL,
                             FD_METRICS_HISTOGRAM_REPAIR_RESPONSE_LATENCY_NANOS_MIN,
                             FD_METRICS_HISTOGRAM_REPAIR_RESPONSE_LATENCY_NANOS_MAX,
                             "Response Latency" );
@@ -777,8 +777,9 @@ print_tile_metrics( volatile ulong * shred_metrics,
   print_histogram_buckets( repair_metrics,
                           MIDX( HISTOGRAM, REPAIR, SLOT_COMPLETE_DURATION_SECONDS ),
                           FD_METRICS_CONVERTER_SECONDS,
-                          FD_METRICS_HISTOGRAM_REPAIR_SLOT_COMPLETE_DURATION_SECONDS_MIN,
-                          FD_METRICS_HISTOGRAM_REPAIR_SLOT_COMPLETE_DURATION_SECONDS_MAX,
+                          FD_MHIST_EDGES_NS( REPAIR, SLOT_COMPLETE_DURATION_SECONDS ),
+                          0UL, /* unused with edges */
+                          0UL,
                           "Slot Complete Time" );
 
 #define DIFFX(METRIC) repair_metrics[ MIDX( COUNTER, TILE, METRIC ) ] - repair_metrics_prev[ MIDX( COUNTER, TILE, METRIC ) ]
