@@ -16,6 +16,25 @@
 #define QUEUE_T    ag_block_id_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
+/* Protocol bounds (< 20% byzantine stake) on what burst adds push onto
+   queues drained to empty before the next add:
+
+   - IMPLICITLY_FINALIZED / SKIPPED: once per slot of the window
+   - SAFE_TO_NOTAR of waiting children: 3 hashes per child slot (stake
+     arithmetic), and correct nodes notar a child only at its parent's
+     slot+1 or a window start, for each of up to burst certified
+     parents
+   - PARENT_READY: once per window start (ready flag), plus one per add
+     moving the window
+   - per add: 4 of CERT_CREATED, SAFE_TO_NOTAR and SAFE_TO_SKIP
+   - repair: 4 block ids per add (3 created certs, 1 missing block) */
+
+#define POOL_EVENT_MAX(slot_max,burst) ( (slot_max)                                                                 \
+                                       + 3UL*( ((slot_max)+AG_SLOTS_PER_WINDOW-1UL)/AG_SLOTS_PER_WINDOW + (burst) ) \
+                                       +     ( ((slot_max)+AG_SLOTS_PER_WINDOW-1UL)/AG_SLOTS_PER_WINDOW + (burst) ) \
+                                       + 4UL*(burst) )
+#define REPAIR_EVENT_MAX(burst)        ( 4UL*(burst) )
+
 struct slot_state_ele {
   ulong           slot;
   ulong           next;
@@ -103,13 +122,16 @@ ag_pool_align( void ) {
 }
 
 ulong
-ag_pool_footprint( ulong slot_max ) {
+ag_pool_footprint( ulong slot_max,
+                   ulong burst ) {
   if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA ) ) return 0UL;
 
   ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
   ulong s2n_max        = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
   ulong s2n_chain_cnt  = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
   ulong ready_max      = slot_max + AG_SLOTS_PER_WINDOW + 1UL; /* [root-AG_REWARD_SLOT_DELTA-AG_SLOTS_PER_WINDOW, root+slot_max-AG_REWARD_SLOT_DELTA] */
+  ulong event_max      = POOL_EVENT_MAX( slot_max, burst );
+  ulong repair_max     = REPAIR_EVENT_MAX( burst );
 
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -136,8 +158,8 @@ ag_pool_footprint( ulong slot_max ) {
       alignof(s2n_waiting_parent_cert_t),   sizeof(s2n_waiting_parent_cert_t)                       ),
       s2n_waiting_parent_cert_pool_align(), s2n_waiting_parent_cert_pool_footprint( s2n_max )       ),
       s2n_waiting_parent_cert_map_align(),  s2n_waiting_parent_cert_map_footprint ( s2n_chain_cnt ) ),
-      pool_events_align(),                  pool_events_footprint( 2UL*slot_max )                   ),
-      repair_events_align(),                repair_events_footprint( slot_max )                     ),
+      pool_events_align(),                  pool_events_footprint( event_max )                      ),
+      repair_events_align(),                repair_events_footprint( repair_max )                   ),
       alignof(ag_parent_ready_t),           sizeof(ag_parent_ready_t) * slot_max                    ),
       alignof(ag_block_id_t),               sizeof(ag_block_id_t)     * slot_max                    ),
       alignof(ulong),                       sizeof(ulong)             * slot_max                    ),
@@ -147,6 +169,7 @@ ag_pool_footprint( ulong slot_max ) {
 void *
 ag_pool_new( void * mem,
              ulong  slot_max,
+             ulong  burst,
              ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -156,7 +179,7 @@ ag_pool_new( void * mem,
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
-  ulong footprint = ag_pool_footprint( slot_max );
+  ulong footprint = ag_pool_footprint( slot_max, burst );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "bad slot_max (%lu)", slot_max ));
     return NULL;
@@ -167,6 +190,8 @@ ag_pool_new( void * mem,
   ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
   ulong s2n_chain_cnt  = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
   ulong ready_max      = slot_max + AG_SLOTS_PER_WINDOW + 1UL;
+  ulong event_max      = POOL_EVENT_MAX( slot_max, burst );
+  ulong repair_max     = REPAIR_EVENT_MAX( burst );
 
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -179,8 +204,8 @@ ag_pool_new( void * mem,
   void *      s2n_waiting_parent_cert      = FD_SCRATCH_ALLOC_APPEND( l, alignof(s2n_waiting_parent_cert_t),   sizeof(s2n_waiting_parent_cert_t)                       );
   void *      s2n_waiting_parent_cert_pool = FD_SCRATCH_ALLOC_APPEND( l, s2n_waiting_parent_cert_pool_align(), s2n_waiting_parent_cert_pool_footprint( s2n_max )       );
   void *      s2n_waiting_parent_cert_map  = FD_SCRATCH_ALLOC_APPEND( l, s2n_waiting_parent_cert_map_align(),  s2n_waiting_parent_cert_map_footprint ( s2n_chain_cnt ) );
-  void *      pool_events                  = FD_SCRATCH_ALLOC_APPEND( l, pool_events_align(),                  pool_events_footprint( 2UL*slot_max )                   );
-  void *      repair_events                = FD_SCRATCH_ALLOC_APPEND( l, repair_events_align(),                repair_events_footprint( slot_max )                     );
+  void *      pool_events                  = FD_SCRATCH_ALLOC_APPEND( l, pool_events_align(),                  pool_events_footprint( event_max )                      );
+  void *      repair_events                = FD_SCRATCH_ALLOC_APPEND( l, repair_events_align(),                repair_events_footprint( repair_max )                   );
   void *      parent_ready_scratch         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_parent_ready_t),           sizeof(ag_parent_ready_t) * slot_max                    );
   void *      implicitly_finalized_scratch = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_block_id_t),               sizeof(ag_block_id_t)     * slot_max                    );
   void *      implicitly_skipped_scratch   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                       sizeof(ulong)             * slot_max                    );
@@ -208,8 +233,8 @@ ag_pool_new( void * mem,
   pool->s2n_waiting_parent_cert->pool = s2n_waiting_parent_cert_pool_join( s2n_waiting_parent_cert_pool_new( s2n_waiting_parent_cert_pool, s2n_max                            ) );
   pool->s2n_waiting_parent_cert->map  = s2n_waiting_parent_cert_map_join ( s2n_waiting_parent_cert_map_new ( s2n_waiting_parent_cert_map,  s2n_chain_cnt, seed ) );
 
-  pool->pool_events   = pool_events_join  ( pool_events_new  ( pool_events,   2UL*slot_max ) );
-  pool->repair_events = repair_events_join( repair_events_new( repair_events, slot_max ) );
+  pool->pool_events   = pool_events_join  ( pool_events_new  ( pool_events,   event_max  ) );
+  pool->repair_events = repair_events_join( repair_events_new( repair_events, repair_max ) );
 
   pool->slot_max = slot_max;
 

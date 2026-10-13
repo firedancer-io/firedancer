@@ -117,6 +117,7 @@ drain_events( ag_pool_t * pool ) {
 #define NV               (11UL)
 
 #define TEST_SLOT_MAX    (64UL)
+#define TEST_BURST       (9UL)
 
 #define TEST_SHRED_VERSION ((ushort)0x5a5a)
 
@@ -221,8 +222,8 @@ static ag_pool_t *
 setup_pool( void ) {
   create_validators();
   ulong slot_max = TEST_SLOT_MAX;
-  FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
-  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
+  FD_TEST( ag_pool_footprint( slot_max, TEST_BURST )<=sizeof(scratch) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, TEST_BURST, 42UL ) );
   FD_TEST( pool );
   ag_pool_init( pool, &(ag_block_id_t){ .slot = 0UL } );
 
@@ -1629,8 +1630,8 @@ setup_two_epoch_pool( ag_epoch_info_t ** out_a,
   create_validators();
   ulong slot_max = TEST_SLOT_MAX;
 
-  FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
-  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
+  FD_TEST( ag_pool_footprint( slot_max, TEST_BURST )<=sizeof(scratch) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, TEST_BURST, 42UL ) );
   FD_TEST( pool );
   ag_pool_init( pool, &(ag_block_id_t){ .slot = 0UL } );
 
