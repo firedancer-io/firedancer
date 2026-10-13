@@ -7,7 +7,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT_SHRED */
 #include "../../disco/fd_txn_p.h"
-#include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
+#include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_ticks_to_nanoseconds and etc. */
 #include "../../disco/pack/fd_chkdup.h"
 #include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */

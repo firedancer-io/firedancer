@@ -868,10 +868,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->txsend_out_seq      = 0UL;
   ctx->halt_net_frags = 0;
 
-  fd_histf_join( fd_histf_new( ctx->quic->metrics.service_duration, FD_MHIST_SECONDS_MIN( TXSEND, SERVICE_DURATION_SECONDS ),
-                                                                    FD_MHIST_SECONDS_MAX( TXSEND, SERVICE_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( TXSEND, RX_DURATION_SECONDS ),
-                                                                    FD_MHIST_SECONDS_MAX( TXSEND, RX_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.service_duration, FD_MHIST_EDGES_NS( TXSEND, SERVICE_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.receive_duration, FD_MHIST_EDGES_NS( TXSEND, RX_DURATION_SECONDS ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

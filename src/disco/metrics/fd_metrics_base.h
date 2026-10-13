@@ -54,8 +54,7 @@
     .converter = FD_METRICS_HISTOGRAM_##MEASUREMENT##_CVT, \
     .histogram = {                                         \
       .seconds = {                                         \
-        .min = FD_METRICS_HISTOGRAM_##MEASUREMENT##_MIN,   \
-        .max = FD_METRICS_HISTOGRAM_##MEASUREMENT##_MAX,   \
+        .edges_ns = (ulong const[])FD_METRICS_HISTOGRAM_##MEASUREMENT##_EDGES_NS, \
       },                                                   \
     },                                                     \
   }
@@ -80,8 +79,7 @@ typedef struct {
         } none;
 
         struct {
-          double min;
-          double max;
+          ulong const * edges_ns; /* FD_HISTF_BUCKET_CNT-1 right edges */
         } seconds;
       };
     } histogram;

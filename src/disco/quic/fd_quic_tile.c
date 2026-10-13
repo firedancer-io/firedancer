@@ -639,10 +639,8 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   /* Call new/join here rather than in fd_quic so min/max can differ across uses */
-  fd_histf_join( fd_histf_new( ctx->quic->metrics.service_duration, FD_MHIST_SECONDS_MIN( QUIC, SERVICE_DURATION_SECONDS ),
-                                                                    FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RX_DURATION_SECONDS ),
-                                                                    FD_MHIST_SECONDS_MAX( QUIC, RX_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.service_duration, FD_MHIST_EDGES_NS( QUIC, SERVICE_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.receive_duration, FD_MHIST_EDGES_NS( QUIC, RX_DURATION_SECONDS ) ) );
 }
 
 static ulong

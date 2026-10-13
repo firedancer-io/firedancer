@@ -424,8 +424,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
   FD_TEST( tile->in_cnt<=MAX_IN );
   FD_TEST( tile->in_cnt==tile->out_cnt );
 
-  fd_histf_join( fd_histf_new( ctx->sign_duration, FD_MHIST_SECONDS_MIN( SIGN, SIGN_DURATION_SECONDS ),
-                                                   FD_MHIST_SECONDS_MAX( SIGN, SIGN_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->sign_duration, FD_MHIST_EDGES_NS( SIGN, SIGN_DURATION_SECONDS ) ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   derive_fields( ctx );
