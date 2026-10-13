@@ -1940,6 +1940,7 @@ after_credit( fd_votor_tile_t *   ctx,
         rv->vote     = ctx->scratch.vote;
       }
 
+      if( FD_LIKELY( reward_leader && reward_leader->tx_conn && reward_leader->tx_conn->state==FD_QUIC_CONN_STATE_ACTIVE ) ) quic_client_datagram_tx( ctx, stem, reward_leader->tx_conn, ctx->scratch.ser, ser_sz );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
         peer_t const * peer = &ctx->peers[ slot ];
         if( FD_LIKELY(    peers_key_inval( peer->id_key )
