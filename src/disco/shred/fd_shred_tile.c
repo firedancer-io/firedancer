@@ -1081,7 +1081,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     /* The payload is filled before the FEC is linked: fd_store_publish
        in Alpenglow
        may remove a linked FEC at any time, so it must never see one
-       mid-write.  insert_ready still decides. */
+       mid-write.  fd_store_insert still decides. */
 
     if( FD_UNLIKELY( fd_store_query( ctx->map_join, mr ) ) ) {
       again = 1;
@@ -1110,7 +1110,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
       }
       _mm_sfence();
       fd_store_fec_t * fec;
-      again = fd_store_insert_ready( ctx->store, ctx->map_join, mr, last->slot, ctx->round_robin_id, data_idx, data_sz, shred_sz, &fec )==FD_MAP_ERR_KEY;
+      again = fd_store_insert( ctx->store, ctx->map_join, mr, last->slot, ctx->round_robin_id, data_idx, data_sz, shred_sz, &fec )==FD_MAP_ERR_KEY;
     }
     replay_fwd = !again || ctx->alpenglow;
   }

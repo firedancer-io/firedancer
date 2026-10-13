@@ -272,8 +272,8 @@ FD_PROTOTYPES_BEGIN
 /* Store contains a Merkle-root keyed FEC map, a payload cache, and an
    on-disk shred ring.
 
-   Shred reserves a payload, fills it, inserts the FEC ready, and then
-   notifies Replay.  The corresponding reassembly node owns the FEC until
+   Shred reserves a payload, fills it, inserts the FEC, and then notifies
+   Replay.  The corresponding reassembly node owns the FEC until
    removal.
    Removal waits for payload users, then returns the payload and metadata
    synchronously.  fec_max therefore covers reassembly and complete-FEC
@@ -416,13 +416,6 @@ fd_store_map_ljoin( fd_store_t const * store,
                             store->fec_max );
 }
 
-/* Writable RAM buffer between data_acquire and data_publish. */
-
-FD_FN_PURE static inline uchar *
-fd_store_fec_data( fd_store_t const *     store,
-                   fd_store_fec_t const * fec ) {
-  return (uchar *)( (ulong)store - store->store_gaddr + store->cache_data_gaddr + (ulong)fec->data_idx*store->payload_slot_sz );
-}
 
 struct fd_store_fec_data_view {
   uchar          * data;
@@ -446,31 +439,10 @@ struct fd_store_fec_cache_stats {
 };
 typedef struct fd_store_fec_cache_stats fd_store_fec_cache_stats_t;
 
-/* Reserves a payload.  Fill it, data_sz, and shred_sz, then publish.
-   The _ex form also reports synchronous fallback spills.  fec stays
-   linked while it is filled, so nothing may remove it meanwhile, which
-   fd_store_publish does not honor: under Alpenglow use
-   fd_store_fec_data_reserve and fd_store_insert_ready instead. */
-
-uchar *
-fd_store_fec_data_acquire( fd_store_t     * store,
-                           int              disk_fd,
-                           fd_store_fec_t * fec );
-
-uchar *
-fd_store_fec_data_acquire_ex( fd_store_t                  * store,
-                              int                           disk_fd,
-                              fd_store_fec_t              * fec,
-                              fd_store_fec_spill_stats_t * spill );
-
-void
-fd_store_fec_data_publish( fd_store_t     * store,
-                           fd_store_fec_t * fec );
-
 /* Reserves a RAM payload not yet bound to any FEC and returns it, with
    its cache slot in *data_idx, or NULL if nothing can be spilled to
-   make room.  Fill it, then hand data_idx to fd_store_insert_ready,
-   which takes ownership of the slot.  spill is optional and reports
+   make room.  Fill it, then hand data_idx to fd_store_insert, which
+   takes ownership of the slot.  spill is optional and reports
    synchronous fallback spills. */
 
 uchar *
@@ -507,9 +479,12 @@ fd_store_fec_data_view_release( fd_store_t *               store,
 
 /* Atomically inserts merkle_root, a FEC set of slot, into the caller's
    slot_to_fecs partition part (shred tile part, or replay at
-   shred_tile_cnt) under Alpenglow.  Returns FD_MAP_SUCCESS with the new
-   FEC, or FD_MAP_ERR_KEY with *fec==NULL if present.  Pool exhaustion
-   is a topology invariant violation. */
+   shred_tile_cnt) under Alpenglow.  The new FEC takes the payload
+   reserved by fd_store_fec_data_reserve at data_idx, data_sz bytes
+   split by shred_sz, and is RAM_READY when linked.  Returns
+   FD_MAP_SUCCESS with the new FEC, or FD_MAP_ERR_KEY with *fec==NULL if
+   present, in which case the cache slot is freed. Pool exhaustion is a
+   topology invariant violation. */
 
 int
 fd_store_insert( fd_store_t *       store,
@@ -517,24 +492,10 @@ fd_store_insert( fd_store_t *       store,
                  fd_hash_t const *  merkle_root,
                  ulong              slot,
                  ulong              part,
+                 uint               data_idx,
+                 uint               data_sz,
+                 ushort const       shred_sz[ FD_FEC_SHRED_CNT ],
                  fd_store_fec_t **  fec );
-
-/* Like fd_store_insert, but the new FEC takes the payload reserved by
-   fd_store_fec_data_reserve at data_idx, data_sz bytes split by
-   shred_sz, and is RAM_READY when linked.  A FEC is never visible
-   mid-write, so fd_store_publish can remove it as soon as it is
-   inserted.  On FD_MAP_ERR_KEY the cache slot is freed. */
-
-int
-fd_store_insert_ready( fd_store_t *       store,
-                       fd_store_map_t *   map,
-                       fd_hash_t const *  merkle_root,
-                       ulong              slot,
-                       ulong              part,
-                       uint               data_idx,
-                       uint               data_sz,
-                       ushort const       shred_sz[ FD_FEC_SHRED_CNT ],
-                       fd_store_fec_t **  fec );
 
 /* Lockless lookup; returns NULL if absent.  The returned pointer is
    borrowed.  Retain the corresponding reassembly node or otherwise
