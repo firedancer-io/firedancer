@@ -169,16 +169,25 @@ struct fd_rotor_replay_fec {
    /* known_id.  This is not the same as slot_complete = 1. known_id
       should be set always to 1 if the block id was known from the
       start, i.e. these FECs were recovered through block_id repair of a
-      votor event. known_id should be 0 for blocks that were received
-      through turbine, until the last FEC is received, which should
-      complete knowledge of the block_id.
+      votor event. known_id should be 0 always for blocks that were received
+      through turbine.
 
       In other words, known_id is a keying instruction, not a statement about whether the block id is known:
       - known_id set: Replay keys the block by {slot, block_id} starting at FEC 0 and looks up its parent element by that key for every later FEC.
       - known_id clear: the block is a turbine version. Replay keys it by {slot, 0} until it processes the slot-complete FEC, then re-keys it to {slot, dmr}.
                         This holds for every FEC of the block, including redelivered copies, so all FECs of one block always resolve to the same element.
 
-      Redelivery from root never changes known_id. It only affects block_id */
+      This exists currently because replay keys incoming FECs by {slot,
+      block_id} to lookup its parent element. For blocks where known_id
+      is 1 (block_id) known from the beginning, it must always use the
+      block_id key. Otherwise, for a turbine block whose known_id is 0,
+      it should always lookup by {slot, 0}.
+
+      Redelivery from root never changes known_id. It only affects
+      block_id. Neither does a merge: when a turbine copy completes as
+      a block whose repaired copy is also delivering, the surviving
+      turbine copy keeps known_id 0, and replay keeps building its
+      {slot, 0} bank, abandoning the notarized copy's bank. */
    int       known_id;
    fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
 
