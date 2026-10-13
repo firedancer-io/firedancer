@@ -1089,40 +1089,38 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
 
     fd_hash_t const * mr = fd_type_pun_const( merkle_root );
 
-    fd_store_fec_t * fec;
-    int insert_err = fd_store_insert( ctx->store, ctx->map_join, mr, last->slot, ctx->round_robin_id, &fec );
-    if( FD_UNLIKELY( insert_err==FD_MAP_ERR_KEY ) ) {
-      replay_fwd = ctx->alpenglow;
-      again      = 1;
-    } else {
-      FD_TEST( !insert_err && fec );
+    /* The payload is filled before the FEC is linked */
 
+    if( FD_UNLIKELY( fd_store_query( ctx->map_join, mr ) ) ) {
+      again = 1;
+    } else {
       fd_store_fec_spill_stats_t spill[1];
-      uchar * fec_data = fd_store_fec_data_acquire_ex( ctx->store, ctx->disk_fd, fec, spill );
+      uint    data_idx;
+      uchar * fec_data = fd_store_fec_data_reserve( ctx->store, ctx->disk_fd, &data_idx, spill );
       if( FD_UNLIKELY( spill->write_cnt ) ) {
         fd_histf_sample( ctx->metrics->fec_fallback_write_timing, spill->write_ticks );
         ctx->metrics->fec_fallback_write_cnt   += spill->write_cnt;
         ctx->metrics->fec_fallback_write_bytes += spill->write_bytes;
       }
-      if( FD_UNLIKELY( !fec_data ) )
-        FD_LOG_CRIT(( "Store could not allocate a FEC payload" ));
+      if( FD_UNLIKELY( !fec_data ) ) FD_LOG_CRIT(( "Store could not allocate a FEC payload" ));
+      uint   data_sz = 0U;
+      ushort shred_sz[ FD_FEC_SHRED_CNT ];
       for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
         fd_shred_t * data_shred = set->data_shreds[i].s;
         ulong        payload_sz = fd_shred_payload_sz( data_shred );
-        if( FD_UNLIKELY( fec->data_sz + payload_sz > ctx->store->fec_data_max ) ) {
-
-          FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
+        if( FD_UNLIKELY( data_sz + payload_sz > ctx->store->fec_data_max ) ) {
+          FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, data_sz + payload_sz, ctx->store->fec_data_max ));
         }
-        fd_memcpy_nt_nofence( fec_data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
-        fec->data_sz += (uint)payload_sz;
-        if( FD_LIKELY( i<FD_FEC_SHRED_CNT ) ) {
-          FD_TEST( payload_sz<=USHORT_MAX );
-          fec->shred_sz[ i ] = (ushort)payload_sz;
-        }
+        fd_memcpy_nt_nofence( fec_data + data_sz, fd_shred_data_payload( data_shred ), payload_sz );
+        data_sz += (uint)payload_sz;
+        FD_TEST( payload_sz<=USHORT_MAX );
+        shred_sz[ i ] = (ushort)payload_sz;
       }
       _mm_sfence();
-      fd_store_fec_data_publish( ctx->store, fec );
+      fd_store_fec_t * fec;
+      again = fd_store_insert( ctx->store, ctx->map_join, mr, last->slot, ctx->round_robin_id, data_idx, data_sz, shred_sz, &fec )==FD_MAP_ERR_KEY;
     }
+    replay_fwd = !again || ctx->alpenglow;
   }
 
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) { /* firedancer-only */
