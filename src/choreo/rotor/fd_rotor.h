@@ -95,7 +95,6 @@ struct fd_rotor_blk {
   uchar highest_req  : 1; /* tile: a HIGHEST req was made */
   uchar orphan_req   : 1; /* tile: an ORPHAN req was made */
   schar connected    : 2; /* 1 if the root or parent is connected, 0 if not, -1 if stale: relinked by connect_ancestors until connect_descendants */
-  uchar known_id     : 1; /* replay keys its FEC sets by dmr, see fd_rotor_replay_fec_t: set for a notar blk, clear for an eager blk unless dedup gave it notar's */
 
   ulong fecs[FD_FEC_BLK_MAX]; /* fec_pool idx of each FEC set, null if none */
 

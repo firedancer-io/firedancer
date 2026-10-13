@@ -184,10 +184,10 @@ struct fd_rotor_replay_fec {
       it should be able to fallback to query by {slot, 0}.
 
       Redelivery from root never changes known_id. It only affects
-      block_id. When a turbine copy completes as a block its repaired
-      copy already delivered further, the surviving turbine copy takes
-      the repaired copy's known_id, so its remaining FECs land on the
-      same element. */
+      block_id. Neither does a merge: when a turbine copy completes as
+      a block whose repaired copy is also delivering, the surviving
+      turbine copy keeps known_id 0, and replay keeps building its
+      {slot, 0} bank, abandoning the repaired copy's bank. */
    int       known_id;
    fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
 

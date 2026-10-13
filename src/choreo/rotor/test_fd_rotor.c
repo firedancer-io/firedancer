@@ -531,20 +531,19 @@ test_notarized_shreds_build_eager( void ) {
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
-  FD_TEST( !e1->known_id ); /* both versions delivered FEC set 0, the turbine one stays keyed by slot */
 }
 
 /* Slot 1 equivocates, so slot 2's turbine version, linked under slot
    1's unfinished turbine version, cannot be delivered.  Slot 2's
    repaired version, linked under slot 1's repaired version, delivers
-   FEC set 0 keyed by block id.  When slot 2's turbine version then
-   completes as the same block, it survives the merge and delivers the
-   rest of the block keyed by block id too: keyed by slot, its FEC set
-   0 would be skipped as replayed under the block id, and its FEC set 1
-   would find no bank keyed by slot. */
+   FEC set 0.  When slot 2's turbine version then completes as the same
+   block, it survives the merge as the slot's turbine blk (replay keys
+   it by slot) and delivers the whole block from FEC set 0 under its
+   new parent: replay builds it on a bank of its own and abandons the
+   repaired version's. */
 
 static void
-test_twin_merge_known_id( void ) {
+test_twin_merge_ahead( void ) {
   fd_mr32_t root = hash( 0xEE );
   fd_mr32_t m10  = hash( 0x11 ), m20 = hash( 0x21 ), m21 = hash( 0x22 );
   fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
@@ -565,12 +564,12 @@ test_twin_merge_known_id( void ) {
   shred0( rotor, 2UL, 1UL, &d1, &m20 );
   fd_rotor_blk_t * e1 = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   fd_rotor_blk_t * e2 = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ two % rotor->slot_max ].eager );
-  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && !e2->known_id );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
 
   fd_rotor_blk_t * n2 = fd_rotor_blk_notarized( rotor, 2UL, &d2 );
   fd_rotor_blk_t * n1 = fd_rotor_blk_parented( rotor, 2UL, &d2, 1UL, &d1, 2U, 0L );
-  FD_TEST( n1 && n2->known_id && n1->known_id );
+  FD_TEST( n1 );
   fd_rotor_blk_parented ( rotor, 1UL, &d1, 0UL, &root, 1U, 0L );
   fd_rotor_fec_notarized( rotor, 1UL, &d1, 0U, &k10, 0L );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
@@ -587,7 +586,7 @@ test_twin_merge_known_id( void ) {
   FD_TEST( !memcmp( &e2->dmr, &d2, sizeof(fd_mr32_t) ) );
   FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool )==e2 && !fd_rotor_blk_map_ele_next_const( e2, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
   FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
-  FD_TEST( e2->known_id );
+  FD_TEST( is_eager( rotor, e2 ) && e2->cons_fec_cnt==2U );
   expect( rotor, e2, 0U ); expect( rotor, e2, 1U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
@@ -2187,7 +2186,7 @@ main( int     argc,
   test_blk_treap_order();
   test_eager_bit();
   test_twin_merge();
-  test_twin_merge_known_id();
+  test_twin_merge_ahead();
   test_telemetry();
   test_telemetry_cancelled();
   test_telemetry_meta();

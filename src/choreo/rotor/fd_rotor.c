@@ -53,7 +53,6 @@ blk_insert( fd_rotor_t *      rotor,
   blk->meta_req      = 0;
   blk->highest_req   = 0;
   blk->orphan_req    = 0;
-  blk->known_id      = !!memcmp( dmr, &hash_null, sizeof(fd_mr32_t) );
   memset( &blk->telemetry, 0, sizeof(blk->telemetry) );
   blk->telemetry.last_cmpl_fec_idx = UINT_MAX;
   blk->rcvd_fec_ts   = 0L;
@@ -283,7 +282,10 @@ prune( fd_rotor_t *     rotor,
    - eager inherits notar's children
    - eager replaces with notar's parent if its own parent has no DMR yet
      (unfinished), as same DMR implies same parent
-   - eager takes notar's known_id if notar delivered more FEC sets. */
+
+   Two banks may replay the same block until then: eager keeps its own
+   known_id, so replay keeps building eager's bank even where notar's
+   got further, and abandons notar's once eager's completes. */
 
 static void
 dedup( fd_rotor_t *     rotor,
@@ -315,9 +317,7 @@ dedup( fd_rotor_t *     rotor,
     connect_descendants( rotor, fd_rotor_blk_pool_ele( pool, c ) );
   }
   notar->child = null;
-  if( FD_UNLIKELY(    notar->parent!=null
-                   && (    eager->parent==null
-                        || !memcmp( &fd_rotor_blk_pool_ele( pool, eager->parent )->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) ) {
+  if( FD_UNLIKELY( notar->parent!=null && ( eager->parent==null || !memcmp( &fd_rotor_blk_pool_ele( pool, eager->parent )->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) ) {
     if( FD_LIKELY( eager->parent!=null ) ) {
       ulong * link = &fd_rotor_blk_pool_ele( pool, eager->parent )->child;
       while( *link!=idx ) link = &fd_rotor_blk_pool_ele( pool, *link )->sibling;
@@ -328,7 +328,6 @@ dedup( fd_rotor_t *     rotor,
     fd_rotor_blk_pool_ele( pool, notar->parent )->child = idx;
     connect_descendants( rotor, eager );
   }
-  if( FD_UNLIKELY( notar->cons_fec_cnt>eager->cons_fec_cnt ) ) eager->known_id = notar->known_id;
   blk_treap_remove( rotor, notar );
   if( FD_UNLIKELY( meta->final==fd_rotor_blk_pool_idx( pool, notar ) ) ) { meta->final = null; promote( rotor, eager, &meta->final ); }
   if( FD_UNLIKELY( meta->notar==fd_rotor_blk_pool_idx( pool, notar ) ) ) { meta->notar = null; promote( rotor, eager, &meta->notar ); }
@@ -461,7 +460,6 @@ fd_rotor_init( fd_rotor_t *         rotor,
   fd_rotor_slot_meta( rotor, root )->final = fd_rotor_blk_pool_idx( rotor->blk_pool, blk );
   fd_rotor_slot_meta( rotor, root )->eager = fd_rotor_blk_pool_idx_null( rotor->blk_pool ); /* the genesis root has a null dmr, but is not turbine's */
   blk->eager     = 0;
-  blk->known_id  = 1;
   blk->connected = 1;
   rotor->root         = root;
   rotor->root_blk     = blk;
