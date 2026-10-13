@@ -3,6 +3,8 @@
 #include "fd_sol_compat.h"
 #include "../../capture/fd_solcap_writer.h"
 #include "fd_gossip_harness.h"
+#include "fd_votor_harness.h"
+#include "generated/votor.pb.h"
 
 #include "generated/block.pb.h"
 #include "generated/instr.pb.h"
@@ -355,3 +357,27 @@ sol_compat_shred_parse_v1( uchar *       out,
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
+
+int
+sol_compat_votor_receive_v1( uchar *       out,
+                             ulong *       out_sz,
+                             uchar const * in,
+                             ulong         in_sz ) {
+  fd_exec_test_votor_receive_context_t input[1] = {0};
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_votor_receive_context_t_msg );
+  if( FD_UNLIKELY( !res ) ) return 0;
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_votor_receive_run );
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_votor_receive_effects_t_msg );
+  }
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_votor_receive_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
+}
+

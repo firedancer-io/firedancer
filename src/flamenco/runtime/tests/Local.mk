@@ -8,20 +8,20 @@ $(call add-hdrs,fd_dump_pb.h)
 $(call add-objs,fd_dump_pb,fd_flamenco)
 endif
 
-$(call add-hdrs,fd_instr_harness.h fd_txn_harness.h fd_bundle_harness.h fd_gossip_harness.h)
-$(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_bundle_harness fd_cost_harness fd_harness_common fd_vm_harness fd_gossip_harness fd_shred_harness,fd_flamenco_test)
+$(call add-hdrs,fd_instr_harness.h fd_txn_harness.h fd_bundle_harness.h fd_gossip_harness.h fd_votor_harness.h)
+$(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_bundle_harness fd_cost_harness fd_harness_common fd_vm_harness fd_gossip_harness fd_shred_harness fd_votor_harness,fd_flamenco_test)
 $(call add-objs,fd_block_harness,fd_flamenco_test)
 $(call add-objs,fd_sol_compat,fd_flamenco_test)
 
-$(call add-hdrs,generated/context.pb.h generated/instr.pb.h generated/txn.pb.h generated/bundle.pb.h generated/block.pb.h generated/vm.pb.h generated/vm_serialization.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h generated/elf.pb.h generated/shred.pb.h)
+$(call add-hdrs,generated/context.pb.h generated/instr.pb.h generated/txn.pb.h generated/bundle.pb.h generated/block.pb.h generated/vm.pb.h generated/vm_serialization.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h generated/elf.pb.h generated/shred.pb.h generated/votor.pb.h)
 $(call add-objs,generated/context.pb generated/instr.pb generated/txn.pb generated/block.pb generated/vm.pb generated/metadata.pb,fd_flamenco)
 # harness-only messages
-$(call add-objs,generated/bundle.pb generated/vm_serialization.pb generated/gossip.pb generated/cost.pb generated/elf.pb generated/shred.pb,fd_flamenco_test)
+$(call add-objs,generated/bundle.pb generated/vm_serialization.pb generated/gossip.pb generated/cost.pb generated/elf.pb generated/shred.pb generated/votor.pb,fd_flamenco_test)
 
 ifdef FD_HAS_HOSTED
 SOL_COMPAT_FLAGS:=-Wl,--version-script=src/flamenco/runtime/tests/libfd_exec_sol_compat.map
-$(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_discof fd_choreo fd_flamenco fd_disco fd_reedsol fd_tango fd_ballet fd_util_test fd_util)
-$(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_discof fd_choreo fd_flamenco fd_disco fd_reedsol fd_tango fd_ballet fd_util_test fd_util,$(SOL_COMPAT_FLAGS))
+$(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_discof fd_choreo fd_flamenco fd_disco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_test fd_util)
+$(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_discof fd_choreo fd_flamenco fd_disco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_test fd_util,$(SOL_COMPAT_FLAGS))
 $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)
 endif
 
