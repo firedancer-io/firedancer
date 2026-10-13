@@ -74,6 +74,12 @@ struct fd_backt_tile {
   ulong prev_fec_set_idx;
   ulong out_fec_set_idx;
 
+  /* The FEC set in progress, inserted into store once complete. */
+  uchar * fec_data;
+  uint    fec_data_idx;
+  uint    fec_data_sz;
+  ushort  fec_shred_sz[ FD_FEC_SHRED_CNT ];
+
   ulong start_slot;
   ulong end_slot;
 
@@ -239,26 +245,28 @@ after_credit( fd_backt_tile_t *   ctx,
      ledgers which may not have merkle roots or chained merkle roots. */
   fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
   if( FD_UNLIKELY( begins_fec_set ) ) {
-    fd_store_fec_t * new_fec;
-    FD_TEST( !fd_store_insert( ctx->store, ctx->map_join, &mr, shred->slot, 0UL, &new_fec ) && new_fec );
-    FD_TEST( fd_store_fec_data_acquire( ctx->store, ctx->store_disk_fd, new_fec ) );
+    ctx->fec_data    = fd_store_fec_data_reserve( ctx->store, ctx->store_disk_fd, &ctx->fec_data_idx, NULL );
+    ctx->fec_data_sz = 0U;
+    memset( ctx->fec_shred_sz, 0, sizeof(ctx->fec_shred_sz) );
+    FD_TEST( ctx->fec_data );
   }
 
-  fd_store_fec_t * fec = fd_store_query( ctx->map_join, &mr );
-  if( FD_UNLIKELY( !fec->data_sz ) ) memset( fec->shred_sz, 0, sizeof(fec->shred_sz) );
-  if( FD_UNLIKELY( fec->data_sz+fd_shred_payload_sz( shred )>ctx->store->fec_data_max ) ) {
-    FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
-                 fec->data_sz+fd_shred_payload_sz( shred ), ctx->store->fec_data_max ));
-  }
   ulong payload_sz = fd_shred_payload_sz( shred );
-  fd_memcpy( fd_store_fec_data( ctx->store, fec ) + fec->data_sz, fd_shred_data_payload( shred ), payload_sz );
-  fec->data_sz += (uint)payload_sz;
+  if( FD_UNLIKELY( ctx->fec_data_sz+payload_sz>ctx->store->fec_data_max ) ) {
+    FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
+                 ctx->fec_data_sz+payload_sz, ctx->store->fec_data_max ));
+  }
+  fd_memcpy( ctx->fec_data + ctx->fec_data_sz, fd_shred_data_payload( shred ), payload_sz );
+  ctx->fec_data_sz += (uint)payload_sz;
   ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
   if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) {
     FD_TEST( payload_sz<=USHORT_MAX );
-    fec->shred_sz[ shred_idx ] = (ushort)payload_sz;
+    ctx->fec_shred_sz[ shred_idx ] = (ushort)payload_sz;
   }
-  if( FD_UNLIKELY( completes_fec_set ) ) fd_store_fec_data_publish( ctx->store, fec );
+  if( FD_UNLIKELY( completes_fec_set ) ) {
+    fd_store_fec_t * fec;
+    FD_TEST( !fd_store_insert( ctx->store, ctx->map_join, &mr, shred->slot, 0UL, ctx->fec_data_idx, ctx->fec_data_sz, ctx->fec_shred_sz, &fec ) && fec );
+  }
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
   ctx->shreds_cnt--;
