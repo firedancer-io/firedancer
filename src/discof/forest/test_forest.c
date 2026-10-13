@@ -229,6 +229,7 @@ test_publish_incremental( fd_wksp_t * wksp ){
   FD_TEST( !fd_forest_query( forest, 10 ) );
   FD_TEST( !fd_forest_query( forest, 11 ) );
   FD_TEST( !fd_forest_query( forest, 14 ) );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 #define SORT_NAME        sort
 #define SORT_KEY_T       ulong
@@ -422,6 +423,7 @@ test_forks( fd_wksp_t * wksp ){
 
   fd_forest_print( forest );
 
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -454,6 +456,7 @@ test_print_tree( fd_wksp_t *wksp ){
                                                                                                                        └── [330091004, 330091007] ── [330091010, 330091048]
                                                                         └── [330090852, 330090855]*/
 
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -500,6 +503,7 @@ test_large_print_tree( fd_wksp_t * wksp ){
   FD_TEST( !fd_forest_verify( forest ) );
   fd_forest_print( forest );
 
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 struct iter_order {
@@ -544,6 +548,7 @@ test_linear_forest_iterator( fd_wksp_t * wksp ) {
     FD_TEST( iter.shred_idx == expected[i].idx  );
   }
   FD_LOG_DEBUG(("success"));
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 /* The word-at-a-time iterator yields exactly what a bit-at-a-time scan
@@ -696,6 +701,7 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
       fd_forest_blk_data_shred_insert( forest, 3, 1, 3, 0, 1, 1 );
     }
   }
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -724,6 +730,7 @@ test_frontier( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   FD_TEST(  fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &frontier_slot_idx, NULL, fd_forest_conspool( forest ) ) );
   FD_TEST( !fd_forest_ancestry_ele_query( fd_forest_ancestry( forest ), &frontier_slot, NULL, fd_forest_pool( forest ) ) );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -781,6 +788,7 @@ test_invalid_frontier_insert( fd_wksp_t * wksp ) {
 
   fd_forest_print( forest );
 
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -829,6 +837,7 @@ test_fec_clear( fd_wksp_t * wksp ) {
   fd_forest_blk_fec_insert( forest, 2, 1, 5, 3, 1 );
   FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
   FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_2, NULL, fd_forest_conspool( forest ) ) );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -935,6 +944,7 @@ test_iter_publish( fd_wksp_t * wksp ) {
   FD_TEST( forest->iter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
   fd_forest_iter_next( &forest->iter, forest );
   FD_TEST( idx_slot( forest, forest->iter.ele_idx ) == 8 );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -968,6 +978,7 @@ test_iter_subtree( fd_wksp_t * wksp ) {
     else         FD_TEST( idx_slot( forest, forest->orphiter.ele_idx ) == 8 );
     FD_TEST( forest->orphiter.shred_idx == (uint)i % 10 );
   }
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -993,6 +1004,7 @@ test_orphan_requests( fd_wksp_t * wksp ) {
   FD_TEST( forest->orphiter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
   fd_forest_iter_next( &forest->orphiter, forest );
   FD_TEST( forest->orphiter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -1094,6 +1106,7 @@ test_slot_clear( fd_wksp_t * wksp ) {
            \                     ->         \
             3                                3
      */
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 void
 print_orphan_requests( fd_forest_t * forest ) {
@@ -1159,6 +1172,7 @@ test_verify_orphans( fd_wksp_t * wksp ) {
   FD_TEST( ele->lowest_verified_fec == 32/32 );
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
   /* orphans verify */
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -1223,6 +1237,7 @@ test_eviction_simple( fd_wksp_t * wksp ) {
   fd_forest_print( forest );
   FD_TEST( fd_forest_blk_insert( forest, 18, 16, &evicted ) );
   fd_forest_print( forest );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -1281,6 +1296,7 @@ test_eviction_confirmations( fd_wksp_t * wksp ) {
    /* an older orphan contributes to the awesomeness */
   FD_TEST( fd_forest_blk_insert( forest, 25, 24, &evicted ) );
   FD_TEST( !fd_forest_query    ( forest, 22     ) ); /* 22 gets evicted. */
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -1478,6 +1494,7 @@ test_eviction_deep( fd_wksp_t * wksp ) {
   }
   FD_TEST( fd_forest_query( forest, 8095 ) );
   fd_forest_print( forest );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -1502,6 +1519,7 @@ test_sentinel_blocks( fd_wksp_t * wksp ) {
   FD_TEST( fd_forest_blk_insert( forest, 2, 1, NULL ) );
   FD_TEST( fd_forest_query( forest, 2 )->parent_slot == 0 ); /* parent slot should not change */
   FD_TEST( !fd_forest_verify( forest ) );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -1598,6 +1616,7 @@ test_parent_update( fd_wksp_t * wksp ) {
   FD_TEST( fd_forest_query( forest, 9 )->parent_slot == 5 );
   FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_9, NULL, fd_forest_pool( forest ) ) );
   FD_TEST( !fd_forest_verify( forest ) );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -1636,6 +1655,7 @@ test_eqvoc_blk_wrong_parent( fd_wksp_t * wksp ) {
   fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_32_, &mr_3_0_, fd_tickcount() );
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ ) );
   FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == 0UL );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 void
@@ -2030,6 +2050,7 @@ test_buffered_idx_oob( fd_wksp_t * wksp ) {
 
   /* no longer blocks consumed-frontier advancement and FEC chain verification. */
   FD_TEST( blk->buffered_idx == blk->complete_idx );
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
 
@@ -2330,8 +2351,8 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                      );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "normal"                 );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 16384UL                  );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
@@ -2372,6 +2393,7 @@ main( int argc, char ** argv ) {
   test_data_shred_insert_reject_oob_confirmed_complete( wksp );
   test_sentinel_parent_update_orphreqs_leak( wksp );
 
+  fd_wksp_delete_anonymous( wksp );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
