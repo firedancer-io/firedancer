@@ -401,7 +401,6 @@ struct fd_pohh_tile {
   /* Consensus-critical slot cost limits. */
   struct {
     ulong slot_max_cost;
-    ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
     ulong slot_max_allocated_data_per_block;
     ulong slot_max_data_shreds;
@@ -1097,7 +1096,6 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   leader->block_height            = block_height;
 
   leader->limits.slot_max_cost                     = ctx->limits.slot_max_cost;
-  leader->limits.slot_max_vote_cost                = ctx->limits.slot_max_vote_cost;
   leader->limits.slot_max_write_cost_per_acct      = ctx->limits.slot_max_write_cost_per_acct;
   leader->limits.slot_max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
   leader->limits.slot_max_data_shreds              = ctx->limits.slot_max_data_shreds;
@@ -1154,6 +1152,8 @@ fd_ext_poh_begin_leader( void const * bank,
                          ulong        cus_account_cost_limit,
                          ulong        cus_allocated_data_size_limit,
                          ulong        max_data_shreds ) {
+  (void)cus_vote_cost_limit;
+
   fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   FD_TEST( !ctx->current_leader_bank );
@@ -1214,7 +1214,6 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->cus_used                = 0UL;
 
   ctx->limits.slot_max_cost                     = cus_block_limit;
-  ctx->limits.slot_max_vote_cost                = cus_vote_cost_limit;
   ctx->limits.slot_max_write_cost_per_acct      = cus_account_cost_limit;
   ctx->limits.slot_max_allocated_data_per_block = cus_allocated_data_size_limit;
   ctx->limits.slot_max_data_shreds              = max_data_shreds;
@@ -1223,10 +1222,6 @@ fd_ext_poh_begin_leader( void const * bank,
   if( FD_UNLIKELY( ctx->limits.slot_max_cost > FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND ) ) {
     FD_LOG_WARNING(( "Underutilizing protocol slot CU limit. protocol_limit=%lu validator_limit=%lu", ctx->limits.slot_max_cost, FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND ));
     ctx->limits.slot_max_cost = FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND;
-  }
-  if( FD_UNLIKELY( ctx->limits.slot_max_vote_cost > FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ) ) {
-    FD_LOG_WARNING(( "Underutilizing protocol vote CU limit. protocol_limit=%lu validator_limit=%lu", ctx->limits.slot_max_vote_cost, FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ));
-    ctx->limits.slot_max_vote_cost = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
   }
   if( FD_UNLIKELY( ctx->limits.slot_max_write_cost_per_acct > FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ) ) {
     FD_LOG_WARNING(( "Underutilizing protocol write CU limit. protocol_limit=%lu validator_limit=%lu", ctx->limits.slot_max_write_cost_per_acct, FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ));

@@ -875,9 +875,9 @@ EXAMPLES
 
 <enum name="AvailableTxnType">
   <int value="0" name="All" label="All transactions in any treap" />
-  <int value="1" name="Regular" label="Non-votes in the main treap" />
-  <int value="2" name="Votes" label="Simple votes" />
-  <int value="3" name="Conflicting" label="Non-votes that write to a hotly-contended account" />
+  <int value="1" name="Regular" label="Transactions in the main treap, including simple votes" />
+  <int value="2" name="Votes" label="Deprecated: simple votes are no longer kept in a separate treap, so this is always 0" />
+  <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account, including simple votes" />
   <int value="4" name="Bundles" label="Transactions that are part of a bundle" />
 </enum>
 
@@ -922,7 +922,7 @@ EXAMPLES
     <gauge name="TxnAvailable" enum="AvailableTxnType" summary="Pending transactions in pack's pool that are available to be scheduled" />
     <gauge name="TxnPendingCapacity" summary="Maximum number of pending transactions that pack can consider. Fixed at Firedancer startup but a useful reference for TxnAvailable" />
 
-    <gauge name="TxnPendingSmallestCu" summary="Lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" />
+    <gauge name="TxnPendingSmallestCu" summary="Lower bound on the smallest transaction (in cost units) that is immediately available for scheduling" />
 
     <counter name="MicroblockPerBlockLimitReached" summary="Times pack did not pack a microblock because the microblocks-per-block limit had been reached" />
     <counter name="DataPerBlockLimitReached" summary="Times pack did not pack a microblock because it reached the data per block limit at the start of trying to schedule a microblock" />

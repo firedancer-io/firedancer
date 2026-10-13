@@ -129,7 +129,6 @@ main( int     argc,
   FD_TEST(      0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
   FD_TEST( SZ(13UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==2810000UL );
-  FD_TEST( report.rebate->vote_cost_rebate     ==0UL       );
   FD_TEST( report.rebate->data_bytes_rebate    ==222UL     );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL       );
   FD_TEST( report.rebate->ib_result            ==0         );
@@ -145,7 +144,6 @@ main( int     argc,
   FD_TEST(      0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
   FD_TEST( SZ(13UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==5620000UL );
-  FD_TEST( report.rebate->vote_cost_rebate     ==0UL       );
   FD_TEST( report.rebate->data_bytes_rebate    ==444UL     );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL       );
   FD_TEST( report.rebate->ib_result            ==0         );
@@ -164,7 +162,6 @@ main( int     argc,
 
   FD_TEST( SZ(0UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==7100UL );
-  FD_TEST( report.rebate->vote_cost_rebate     ==3100UL );
   FD_TEST( report.rebate->data_bytes_rebate    ==222UL  );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL    );
   FD_TEST( report.rebate->ib_result            ==0      );
