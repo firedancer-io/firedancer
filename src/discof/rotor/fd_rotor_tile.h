@@ -179,15 +179,15 @@ struct fd_rotor_replay_fec {
 
       This exists currently because replay keys incoming FECs by {slot,
       block_id} to lookup its parent element. For blocks where known_id
-      is 1 (block_id) known from the beginning, it can always use the
+      is 1 (block_id) known from the beginning, it must always use the
       block_id key. Otherwise, for a turbine block whose known_id is 0,
-      it should be able to fallback to query by {slot, 0}.
+      it should always lookup by {slot, 0}.
 
       Redelivery from root never changes known_id. It only affects
       block_id. Neither does a merge: when a turbine copy completes as
       a block whose repaired copy is also delivering, the surviving
       turbine copy keeps known_id 0, and replay keeps building its
-      {slot, 0} bank, abandoning the repaired copy's bank. */
+      {slot, 0} bank, abandoning the notarized copy's bank. */
    int       known_id;
    fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
 
