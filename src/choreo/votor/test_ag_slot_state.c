@@ -5,6 +5,9 @@
 
 #include <stdlib.h>
 
+/* Does not account for other slot state sizes */
+FD_STATIC_ASSERT( AG_SLOT_STATE_VAT_MAX==AG_VAT_MAX, test_needs_default_sizes );
+
 #define VAT_MAX 64UL /* smaller for tests */
 
 static ag_slot_state_t slot_state_mem;
@@ -602,12 +605,12 @@ test_map_capacity( void ) {
   void * em; ag_epoch_info_t * epoch_info = make_epoch( n, &em );
   ag_slot_state_t * ss = make_state( 5UL, epoch_info );
 
-  for( ulong i=0UL; i<AG_SLOT_STATE_VAT_MAX; i++ ) {
+  for( ulong i=0UL; i<AG_VAT_MAX; i++ ) {
     ag_block_hash_t hash; random_hash( hash );
     FD_TEST( notar_stake_insert( &ss->votes, FD_LOAD( ag_block_hash_key_t, hash ) ) );
     FD_TEST( notar_map_query   ( ss->votes.notar_stake_map, FD_LOAD( ag_block_hash_key_t, hash ), NULL ) );
   }
-  for( ulong i=0UL; i<AG_SLOT_STATE_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX; i++ ) {
+  for( ulong i=0UL; i<AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX; i++ ) {
     ag_block_hash_t hash; random_hash( hash );
     FD_TEST( notar_fallback_stake_insert( &ss->votes, FD_LOAD( ag_block_hash_key_t, hash ) ) );
     FD_TEST( notar_fallback_map_query   ( ss->votes.notar_fallback_stake_map, FD_LOAD( ag_block_hash_key_t, hash ), NULL ) );
@@ -917,7 +920,7 @@ test_notar_fallback_stake_tally( void ) {
    keys that wrap around the end of the map, and require identical maps
    and used bits covering every occupied slot. */
 
-#define CLEAR_KEY_CNT ((AG_NOTAR_MAP_SLOT_CNT/2UL)<48UL ? (AG_NOTAR_MAP_SLOT_CNT/2UL) : 48UL) /* at most half full, so inserts find a free slot */
+#define CLEAR_KEY_CNT (48UL)
 #define CLEAR_WIN     (8UL)  /* keys home in the last and first CLEAR_WIN slots */
 
 static ag_slot_voted_stake_hash_t clear_ref_notar[ AG_NOTAR_MAP_SLOT_CNT          ];
