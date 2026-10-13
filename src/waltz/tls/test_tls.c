@@ -1281,6 +1281,7 @@ test_tls_client_rsa_cert_verify( fd_rng_t * rng ) {
   for( ulong i=0UL; i<sizeof(vec)/sizeof(vec[0]); i++ ) {
     /* CertificateVerify: msg hdr || alg || sig len || sig */
     uchar msg[ 4+4+FD_TLS_CV_SIG_SZ_MAX ];
+    FD_TEST( vec[i].sig_len<=FD_TLS_CV_SIG_SZ_MAX );
     ulong msg_sz = 4UL+vec[i].sig_len;
     msg[0] = FD_TLS_MSG_CERT_VERIFY;
     msg[1] = 0; msg[2] = (uchar)( msg_sz>>8 ); msg[3] = (uchar)msg_sz;
