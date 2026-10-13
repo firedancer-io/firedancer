@@ -3114,12 +3114,21 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
      fully replayed block is always keyed by {slot, block_id_real}; a
      turbine block still in flight is keyed by {slot, 0}.  Rotor fills
      in block_id on redelivered FECs whenever it knows it, so try the id
-     key first and fall back to the slot key for a turbine version. */
+     key first and fall back to the slot key for a turbine version.
+
+     A turbine FEC only counts a {slot, block_id} hit if that block is
+     complete.  An incomplete one is the repaired copy of the same
+     block, a different stream that may be ahead of or behind the
+     turbine copy: rotor merges the two copies into the turbine one
+     without changing its known_id, so the turbine copy keeps building
+     its own {slot, 0} bank, and the repaired one is abandoned once the
+     turbine bank completes and takes its {slot, block_id} key. */
   {
     fd_block_id_ele_t * self = NULL;
     if( FD_LIKELY( !fd_hash_check_zero( &fec->block_id ) ) ) {
       ag_block_id_t self_key = ag_block_id( fec->slot, fec->block_id.uc );
       self = live_block_id_ele( ctx, fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &self_key, NULL, ctx->block_id_arr ) );
+      if( FD_UNLIKELY( self && !self->block_id_seen && !fec->known_id ) ) self = NULL;
     }
     if( FD_LIKELY( !self && !fec->known_id ) ) {
       ag_block_id_t self_key = { .slot = fec->slot };

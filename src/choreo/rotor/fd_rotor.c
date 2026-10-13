@@ -283,8 +283,9 @@ prune( fd_rotor_t *     rotor,
    - eager replaces with notar's parent if its own parent has no DMR yet
      (unfinished), as same DMR implies same parent
 
-   Two banks may replay the same block until then; fine, since the notar
-   one never completes. */
+   Two banks may replay the same block until then: eager keeps its own
+   known_id, so replay keeps building eager's bank even where notar's
+   got further, and abandons notar's once eager's completes. */
 
 static void
 dedup( fd_rotor_t *     rotor,
@@ -316,9 +317,7 @@ dedup( fd_rotor_t *     rotor,
     connect_descendants( rotor, fd_rotor_blk_pool_ele( pool, c ) );
   }
   notar->child = null;
-  if( FD_UNLIKELY(    notar->parent!=null
-                   && (    eager->parent==null
-                        || !memcmp( &fd_rotor_blk_pool_ele( pool, eager->parent )->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) ) {
+  if( FD_UNLIKELY( notar->parent!=null && ( eager->parent==null || !memcmp( &fd_rotor_blk_pool_ele( pool, eager->parent )->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) ) {
     if( FD_LIKELY( eager->parent!=null ) ) {
       ulong * link = &fd_rotor_blk_pool_ele( pool, eager->parent )->child;
       while( *link!=idx ) link = &fd_rotor_blk_pool_ele( pool, *link )->sibling;
