@@ -50,7 +50,7 @@ before_credit( fd_waker_tile_t *   ctx,
     if( FD_LIKELY( errno==EINTR ) ) return;
     FD_LOG_ERR(( "epoll_pwait() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  FD_MCNT_INC( WAKER, EPOLL_WAIT_DISPATCHED, 1UL );
+  FD_MCNT_INC( WAKER, EPOLL_WAIT_RETURNED, 1UL );
   if( FD_LIKELY( !n ) ) return;
 
   *charge_busy = 1;

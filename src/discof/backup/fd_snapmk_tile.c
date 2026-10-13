@@ -54,6 +54,7 @@
 #include <stdatomic.h>
 
 #include "fd_snapmk_tile.h"
+
 #include "fd_backup.h"
 #include "fd_snap_pool.h"
 #include "fd_backup_cache.h"
@@ -73,6 +74,28 @@
 
 #include <time.h> /* CLOCK_REALTIME */
 #include "generated/fd_snapmk_tile_seccomp.h"
+
+/* Raw state values exported by the metrics (states= enums) */
+FD_STATIC_ASSERT( SNAPMK_STATE_IDLE==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_IDLE_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_START==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_START_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_TAR_HEADERS==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_TAR_HEADERS_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_MANIFEST==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_MANIFEST_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_CACHE==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_CACHE_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_CACHE_FLUSH==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_CACHE_FLUSH_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_CACHE_FINISH==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_CACHE_FINISH_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_DISK==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_DISK_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_DISK_FLUSH==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_DISK_FLUSH_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_DISK_FINISH==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_DISK_FINISH_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_DELTA==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_DELTA_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_DELTA_FLUSH==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_DELTA_FLUSH_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_ACCDB_DELTA_FINISH==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_ACCDB_DELTA_FINISH_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_STATUS_CACHE==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_STATUS_CACHE_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_EOF_MARKER==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_EOF_MARKER_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_DONE==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_DONE_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_FAIL==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_FAIL_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_SLEEP==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_SLEEP_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_STARTUP==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_STARTUP_IDX, metrics_state );
+FD_STATIC_ASSERT( SNAPMK_STATE_STARTUP_BURST==FD_METRICS_ENUM_SNAPMK_JOB_STATE_V_STARTUP_BURST_IDX, metrics_state );
 
 #define RAW_BUF_SZ   (32UL<<20)
 #define COMP_BUF_SZ  ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
@@ -247,8 +270,8 @@ struct fd_snapmk {
   ulong             startup_pool_idx;
 
   struct {
-    ulong snapshots_created_full;
-    ulong snapshots_created_incremental;
+    ulong snapshots_started[ FD_METRICS_ENUM_SNAP_TYPE_CNT ];
+    ulong snapshots_finished[ FD_METRICS_ENUM_SNAP_TYPE_CNT ];
     ulong last_snapshot_slot_started_full;
     ulong last_snapshot_slot_started_incremental;
     ulong last_snapshot_slot_finished_full;
@@ -774,11 +797,13 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
     inode->full_slot = ctx->base_slot;
     inode->incr_slot = ctx->bank->f.slot;
     ctx->metrics.last_snapshot_slot_finished_incremental = ctx->bank->f.slot;
+    ctx->metrics.snapshots_finished[ FD_METRICS_ENUM_SNAP_TYPE_V_INCREMENTAL_IDX ]++;
   } else {
     inode->full_slot = ctx->bank->f.slot;
     inode->incr_slot = ULONG_MAX;
     ctx->base_slot   = ctx->bank->f.slot;
     ctx->metrics.last_snapshot_slot_finished_full = ctx->bank->f.slot;
+    ctx->metrics.snapshots_finished[ FD_METRICS_ENUM_SNAP_TYPE_V_FULL_IDX ]++;
   }
 
   ctx->snap_fd = -1;
@@ -1821,10 +1846,10 @@ snap_start( fd_snapmk_t *                  ctx,
   ctx->disk_out_idx       = -1;
   ctx->disk_batch_pending = 0;
   if( FD_UNLIKELY( incremental ) ) {
-    ctx->metrics.snapshots_created_incremental++;
+    ctx->metrics.snapshots_started[ FD_METRICS_ENUM_SNAP_TYPE_V_INCREMENTAL_IDX ]++;
     ctx->metrics.last_snapshot_slot_started_incremental = ctx->bank->f.slot;
   } else {
-    ctx->metrics.snapshots_created_full++;
+    ctx->metrics.snapshots_started[ FD_METRICS_ENUM_SNAP_TYPE_V_FULL_IDX ]++;
     ctx->metrics.last_snapshot_slot_started_full = ctx->bank->f.slot;
   }
   broadcast_prepare( ctx );
@@ -2018,28 +2043,28 @@ metrics_write( fd_snapmk_t * ctx ) {
     disk_alloc_bytes += fd_ulong_sat_sub( file_off, ctx->pool_sz[ ctx->snap_idx ] );
   }
 
-  FD_MGAUGE_SET( SNAPMK, STATE,                                   ctx->state                                           );
-  FD_MCNT_SET  ( SNAPMK, SNAPSHOTS_CREATED_FULL,                  ctx->metrics.snapshots_created_full                  );
-  FD_MCNT_SET  ( SNAPMK, SNAPSHOTS_CREATED_INCREMENTAL,           ctx->metrics.snapshots_created_incremental           );
-  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_STARTED_FULL,         ctx->metrics.last_snapshot_slot_started_full         );
-  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_STARTED_INCREMENTAL,  ctx->metrics.last_snapshot_slot_started_incremental  );
-  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_FINISHED_FULL,        ctx->metrics.last_snapshot_slot_finished_full        );
-  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_SLOT_FINISHED_INCREMENTAL, ctx->metrics.last_snapshot_slot_finished_incremental );
+  FD_MGAUGE_SET    ( SNAPMK, JOB_STATE,                      ctx->state                                                     );
+  FD_MCNT_ENUM_COPY( SNAPMK, SNAPSHOT_STARTED,               ctx->metrics.snapshots_started                                 );
+  FD_MCNT_ENUM_COPY( SNAPMK, SNAPSHOT_FINISHED,              ctx->metrics.snapshots_finished                                );
+  FD_MGAUGE_SET    ( SNAPMK, LAST_STARTED_SLOT_FULL,         ctx->metrics.last_snapshot_slot_started_full                   );
+  FD_MGAUGE_SET    ( SNAPMK, LAST_STARTED_SLOT_INCREMENTAL,  ctx->metrics.last_snapshot_slot_started_incremental            );
+  FD_MGAUGE_SET    ( SNAPMK, LAST_FINISHED_SLOT_FULL,        ctx->metrics.last_snapshot_slot_finished_full                  );
+  FD_MGAUGE_SET    ( SNAPMK, LAST_FINISHED_SLOT_INCREMENTAL, ctx->metrics.last_snapshot_slot_finished_incremental           );
 
-  FD_MCNT_SET  ( SNAPMK, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed );
-  FD_MCNT_SET  ( SNAPMK, BYTES_WRITTEN,               ctx->metrics.bytes_written    );
+  FD_MCNT_SET  ( SNAPMK, COMPRESS_CONSUMED_BYTES,     ctx->metrics.bytes_compressed );
+  FD_MCNT_SET  ( SNAPMK, DISK_WRITTEN_BYTES,          ctx->metrics.bytes_written    );
 
-  FD_MGAUGE_SET( SNAPMK, CACHE_PROGRESS_BYTES,         fd_backup_cache_scanned_bytes( ctx->acc_cache ) );
-  FD_MGAUGE_SET( SNAPMK, CACHE_TOTAL_BYTES,            fd_backup_cache_total_bytes  ( ctx->acc_cache ) );
-  FD_MGAUGE_SET( SNAPMK, INCREMENTAL_ACCOUNT_PROGRESS, ctx->delta.ele_cnt   );
-  FD_MGAUGE_SET( SNAPMK, INCREMENTAL_ACCOUNT_TOTAL,    ctx->delta.ele_total );
+  FD_MGAUGE_SET    ( SNAPMK, CACHE_PROGRESS_BYTES,           fd_backup_cache_scanned_bytes( ctx->acc_cache )                );
+  FD_MGAUGE_SET    ( SNAPMK, CACHE_EXPECTED_BYTES,           fd_backup_cache_total_bytes  ( ctx->acc_cache )                );
+  FD_MGAUGE_SET    ( SNAPMK, INCREMENTAL_ACCOUNT_PROGRESS,   ctx->delta.ele_cnt                                             );
+  FD_MGAUGE_SET    ( SNAPMK, INCREMENTAL_ACCOUNT_EXPECTED,   ctx->delta.ele_total                                           );
 
-  FD_MCNT_SET  ( SNAPMK, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks );
-  FD_MCNT_SET  ( SNAPMK, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks   );
-  FD_MGAUGE_SET( SNAPMK, DISK_ALLOCATED_BYTES,        disk_alloc_bytes );
+  FD_MCNT_SET  ( SNAPMK, IO_BLOCKED_DURATION_NANOS,      ctx->metrics.io_blocked_ticks );
+  FD_MCNT_SET  ( SNAPMK, COMPRESS_DURATION_NANOS,        ctx->metrics.compress_ticks   );
+  FD_MGAUGE_SET    ( SNAPMK, DISK_ALLOCATED_BYTES,           disk_alloc_bytes                                               );
 
-  FD_MGAUGE_SET( SNAPMK, INCREMENTAL_ACCOUNT_COUNT,    __atomic_load_n( &ctx->accdb_shmem->delta.head, __ATOMIC_RELAXED ) );
-  FD_MGAUGE_SET( SNAPMK, INCREMENTAL_ACCOUNT_CAPACITY, ctx->accdb_shmem->delta.ele_max );
+  FD_MGAUGE_SET    ( SNAPMK, INCREMENTAL_ACCOUNT_USED,       __atomic_load_n( &ctx->accdb_shmem->delta.head, __ATOMIC_RELAXED ) );
+  FD_MGAUGE_SET    ( SNAPMK, INCREMENTAL_ACCOUNT_CAPACITY,   ctx->accdb_shmem->delta.ele_max                                );
 }
 
 #define STEM_BURST SNAPMK_STEM_BURST
@@ -2052,6 +2077,7 @@ metrics_write( fd_snapmk_t * ctx ) {
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #include "../../disco/stem/fd_stem.c"
+
 
 /* snapmk_run contains a bunch of boilerplate to hijack flow control
    away from stem. */
@@ -2101,7 +2127,7 @@ snapmk_run( fd_topo_t *      topo,
           cons_out [ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
-          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_SLOW_OFF;
+          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_BACKPRESSURE_BLAMED_OFF;
           reliable_cons_cnt++;
           FD_TEST( reliable_cons_cnt<FD_TOPO_MAX_LINKS );
         }

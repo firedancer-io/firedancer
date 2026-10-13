@@ -29,8 +29,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_verify_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( VERIFY, TXN_RESULT, ctx->metrics.verify_tile_result );
-  FD_MCNT_SET( VERIFY, VOTE_GOSSIP_RX,  ctx->metrics.gossiped_votes_cnt );
+  FD_MCNT_ENUM_COPY( VERIFY, TXN_PROCESSED,  ctx->metrics.verify_tile_result );
+  FD_MCNT_SET      ( VERIFY, VOTE_GOSSIP_RX, ctx->metrics.gossiped_votes_cnt );
+  FD_MCNT_SET      ( VERIFY, OWN_VOTE_RX,    ctx->metrics.own_votes_cnt      );
 }
 
 static int
@@ -108,7 +109,8 @@ after_frag( fd_verify_ctx_t *   ctx,
   (void)sz;
   (void)_tspub;
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_TXSEND ) ) ctx->metrics.gossiped_votes_cnt++;
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) ctx->metrics.gossiped_votes_cnt++;
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TXSEND ) ) ctx->metrics.own_votes_cnt++;
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
@@ -125,13 +127,13 @@ after_frag( fd_verify_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( is_bundle & (!!ctx->bundle_failed) ) ) {
-    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_BUNDLE_PEER_FAILURE_IDX ]++;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_BUNDLE_PEER_FAILED_IDX ]++;
     return;
   }
 
   if( FD_UNLIKELY( !txnm->txn_t_sz ) ) {
     if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
-    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_PARSE_FAILURE_IDX ]++;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_PARSE_FAILED_IDX ]++;
     return;
   }
 
@@ -146,8 +148,8 @@ after_frag( fd_verify_ctx_t *   ctx,
   if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
     if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
 
-    if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_DEDUP_FAILURE_IDX ]++;
-    else                                        ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_VERIFY_FAILURE_IDX ]++;
+    if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_DUPLICATE_IDX ]++;
+    else                                        ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SIGNATURE_FAILED_IDX ]++;
 
     return;
   }
@@ -157,7 +159,7 @@ after_frag( fd_verify_ctx_t *   ctx,
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 
-  ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_SUCCESS_IDX ]++;
+  ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SUCCESS_IDX ]++;
 }
 
 static void

@@ -188,7 +188,6 @@ metrics_record_cmd_fn( args_t *      args,
       ulong value = *metrics[ i ].value;
       switch( metrics[ i ].meta->converter ) {
         case FD_METRICS_CONVERTER_NANOSECONDS: value = fd_metrics_convert_ticks_to_nanoseconds( value ); break;
-        case FD_METRICS_CONVERTER_SECONDS:     value = (ulong)(fd_metrics_convert_ticks_to_seconds( value ) + 0.5); /* round, not truncate */ break;
         case FD_METRICS_CONVERTER_NONE: break;
         default: FD_LOG_ERR(( "unknown converter %i", metrics[ i ].meta->converter ));
       }
@@ -223,7 +222,7 @@ metrics_record_args_help( fd_action_help_t * help ) {
                                                         "Similarly, a tile kind id can be given (only if tile_kind is also\n"
                                                         "given) to limit to a particular tile instance.  If these tile kind\n"
                                                         "filters are not given, all matching metrics will be recorded.\n"
-                                                        "Examples: tile_pid; tile_backpressure_count,gossip; tile_status,net,1" );
+                                                        "Examples: tile_pid; tile_backpressure,gossip; tile_state,net,1" );
 }
 
 action_t fd_action_metrics_record = {

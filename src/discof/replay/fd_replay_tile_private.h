@@ -598,8 +598,6 @@ struct fd_replay_tile {
     fd_histf_t store_query_work[1];
     ulong      store_query_cnt;
     ulong      store_query_missing_cnt;
-    ulong      store_query_mr;
-    ulong      store_query_missing_mr;
 
     ulong slots_total;
     ulong transactions_total;

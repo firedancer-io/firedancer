@@ -266,7 +266,7 @@ next_deadline( fd_snapld_tile_t * ctx ) {
 
 static void
 metrics_write( fd_snapld_tile_t * ctx ) {
-  FD_MGAUGE_SET( SNAPLD, STATE,            (ulong)(ctx->state) );
+  FD_MGAUGE_SET( SNAPLD, STREAM_STATE,     (ulong)(ctx->state) );
 }
 
 static void

@@ -18,7 +18,7 @@ enum {
 
 #define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_NAME "benchs_txn_dropped"
 #define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_DESC "Benchmark transactions dropped because the QUIC connection had no stream available"
+#define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_DESC "Benchmark transactions dropped because no QUIC connection was established or it had no free stream"
 #define FD_METRICS_COUNTER_BENCHS_TXN_DROPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_BENCHS_TOTAL (2UL)

@@ -247,7 +247,7 @@ struct ctx {
   ulong manifest_slot;
   struct {
     ulong send_pkt_cnt;
-    ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_CNT];
+    ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT];
     ulong current_slot;
     ulong old_shred;
     ulong last_requested_slot;

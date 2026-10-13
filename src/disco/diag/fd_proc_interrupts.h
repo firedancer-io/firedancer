@@ -54,7 +54,7 @@ fd_proc_stat_irq_ticks( int   fd,
 
 ulong
 fd_proc_softirqs_sum( int   fd,
-                      ulong per_cpu[ FD_METRICS_ENUM_SOFTIRQ_CNT ][ FD_TILE_MAX ] );
+                      ulong per_cpu[ FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT ][ FD_TILE_MAX ] );
 
 #endif /* FD_HAS_HOSTED */
 

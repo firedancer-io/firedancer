@@ -1,3 +1,4 @@
+import re
 from enum import Enum
 from typing import Dict, List, Optional
 import xml.etree.ElementTree as ET
@@ -71,20 +72,37 @@ class MetricType(Enum):
 
 class HistogramConverter(Enum):
     NONE = 0
-    SECONDS = 1
     NANOSECONDS = 2
 
+def _source_converter(metric: ET.Element) -> 'HistogramConverter':
+    """source="ticks": the tile stores fd_tickcount() deltas, converted to
+    nanoseconds on export."""
+    name = metric.attrib['name']
+    source = metric.attrib.get('source')
+    if source is None: return HistogramConverter.NONE
+    if source != 'ticks': raise Exception(f'{name}: unknown source "{source}"')
+    if not name.endswith('Nanos'): raise Exception(f'{name}: source="ticks" needs a *Nanos name')
+    return HistogramConverter.NANOSECONDS
+
 class EnumValue:
-    def __init__(self, value: int, name: str, label: str, normalize: bool = True):
+    def __init__(self, value: int, name: str, label: str):
         self.value = value
         self.name = name
         self.label = label
-        self.normalize = normalize
 
-class MetricEnum:
+class EnumGroup:
     def __init__(self, name: str, values: List[EnumValue]):
         self.name = name
         self.values = values
+
+class MetricEnum:
+    def __init__(self, name: str, values: List[EnumValue], groups: Optional[List[EnumGroup]] = None):
+        self.name = name
+        self.values = values
+        self.groups = groups or []
+
+    def group_mask(self, group: EnumGroup) -> int:
+        return sum(1 << self.values.index(v) for v in group.values)
 
 class Metric:
     def __init__(self, type: MetricType, name: str, tile: Optional[Tile], description: str):
@@ -106,8 +124,11 @@ class CounterMetric(Metric):
         self.converter = converter
 
 class GaugeMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str):
+    def __init__(self, name: str, tile: Optional[Tile], description: str, states: Optional['MetricEnum'] = None, is_bool: bool = False, is_time: bool = False):
         super().__init__(MetricType.GAUGE, name, tile, description)
+        self.states  = states  # gauge holds one value of this enum (ClickHouse LowCardinality(String))
+        self.is_bool = is_bool # <bool>: always 0 or 1 (ClickHouse Bool)
+        self.is_time = is_time # <time>: wall-clock UNIX nanoseconds, 0 if never (ClickHouse DateTime64(9))
 
 class HistogramMetric(Metric):
     def __init__(self, name: str, tile: Optional[Tile], description: str, converter: HistogramConverter, min: str, max: str):
@@ -134,10 +155,11 @@ class CounterEnumMetric(Metric):
         return len(self.enum.values)
 
 class GaugeEnumMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum):
+    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum, is_bool: bool = False):
         super().__init__(MetricType.GAUGE, name, tile, description)
 
-        self.enum = enum
+        self.enum    = enum
+        self.is_bool = is_bool # <bool enum=...>: each value is 0 or 1
 
     def footprint(self) -> int:
         return 8 * len(self.enum.values)
@@ -185,28 +207,37 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
     elif 'summary' in metric.attrib:
         description = metric.attrib['summary']
 
-    if metric.tag == 'counter':
-        converter = HistogramConverter.NONE
-        if 'converter' in metric.attrib:
-            converter_str = metric.attrib['converter'].upper()
-            if converter_str in HistogramConverter.__members__:
-                converter = HistogramConverter[converter_str]
+    if 'ambiguous-kind' in metric.attrib and ( metric.tag not in ( 'counter', 'gauge' ) or metric.attrib['ambiguous-kind']!='true' ):
+        raise Exception(f'{name}: ambiguous-kind="true" is only for <counter> and <gauge>')
 
+    if metric.tag == 'counter':
+        converter = _source_converter(metric)
         if 'enum' in metric.attrib:
             return CounterEnumMetric(name, tile, description, enums[metric.attrib['enum']], converter)
         else:
             return CounterMetric(name, tile, description, converter)
+    elif metric.tag in ('gauge', 'bool', 'time') and 'source' in metric.attrib:
+        raise Exception(f'{name}: source= is only supported on <counter> and <histogram>')
     elif metric.tag == 'gauge':
         if 'enum' in metric.attrib:
             return GaugeEnumMetric(name, tile, description, enums[metric.attrib['enum']])
+        elif 'states' in metric.attrib:
+            states = enums[metric.attrib['states']]
+            def state_str(v):
+                tag = re.sub(r'(?<!^)(?=[A-Z])', '_', v.name).lower()
+                return f'{v.value}={tag}' if v.label.lower() == tag.replace('_', ' ') else f'{v.value}={tag} ({v.label})'
+            description += ': ' + ', '.join(state_str(v) for v in states.values)
+            return GaugeMetric(name, tile, description, states=states)
         else:
             return GaugeMetric(name, tile, description)
+    elif metric.tag == 'bool':
+        if 'enum' in metric.attrib:
+            return GaugeEnumMetric(name, tile, description, enums[metric.attrib['enum']], is_bool=True)
+        return GaugeMetric(name, tile, description, is_bool=True)
+    elif metric.tag == 'time':
+        return GaugeMetric(name, tile, description, is_time=True)
     elif metric.tag == 'histogram':
-        converter = None
-        if 'converter' in metric.attrib:
-            converter = HistogramConverter[metric.attrib['converter'].upper()]
-        else:
-            converter = HistogramConverter.NONE
+        converter = _source_converter(metric)
 
         min = metric.attrib['min']
         max = metric.attrib['max']
@@ -215,22 +246,33 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
     else:
         raise Exception(f'Unknown metric type: {metric.tag}')
 
+def _parse_enum(enum: ET.Element) -> MetricEnum:
+    values = [
+        EnumValue(
+            value=int(value.attrib['value']),
+            name=value.attrib['name'],
+            label=value.attrib['label'],
+        )
+        for value in enum.findall('int')
+    ]
+    by_name = { v.name: v for v in values }
+    groups = []
+    for g in enum.findall('group'):
+        gname = g.attrib['name']
+        if gname in by_name: raise Exception(f'{enum.attrib["name"]}: group {gname} collides with a value')
+        if gname=='All': raise Exception(f'{enum.attrib["name"]}: group All is implicit')
+        members = g.attrib['values'].split()
+        for m in members:
+            if m not in by_name: raise Exception(f'{enum.attrib["name"]}: group {gname} names unknown value {m}')
+        groups.append(EnumGroup(gname, [by_name[m] for m in members]))
+    if groups and len(values) > 64: raise Exception(f'{enum.attrib["name"]}: groups need at most 64 values')
+    return MetricEnum(name=enum.attrib['name'], values=values, groups=groups)
+
 def parse_metrics(xml_data: str) -> Metrics:
     root = ET.fromstring(xml_data)
 
     enums = {
-        enum.attrib['name']: MetricEnum(
-            name=enum.attrib['name'],
-            values=[
-                EnumValue(
-                    value=int(value.attrib['value']),
-                    name=value.attrib['name'],
-                    label=value.attrib['label'],
-                    normalize=(enum.attrib.get('normalize', 'true').lower() == 'true')
-                )
-                for value in enum.findall('int')
-            ]
-        )
+        enum.attrib['name']: _parse_enum(enum)
         for enum in root.findall('enum')
     }
 

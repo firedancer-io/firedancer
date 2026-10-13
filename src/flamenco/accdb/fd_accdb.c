@@ -4478,14 +4478,11 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
 
 void
 fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
-                                 ulong *      target_used,
-                                 ulong *      low_water_used ) {
+                                 ulong *      free_target,
+                                 ulong *      free_low_water ) {
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    ulong max_c    = accdb->shmem->cache_class_max     [ c ];
-    ulong free_tgt = accdb->shmem->cache_free_target   [ c ];
-    ulong free_lwm = accdb->shmem->cache_free_low_water[ c ];
-    target_used   [ c ] = max_c>free_tgt ? max_c-free_tgt : 0UL;
-    low_water_used[ c ] = max_c>free_lwm ? max_c-free_lwm : 0UL;
+    free_target   [ c ] = accdb->shmem->cache_free_target   [ c ];
+    free_low_water[ c ] = accdb->shmem->cache_free_low_water[ c ];
   }
 }
 

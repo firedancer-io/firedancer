@@ -66,19 +66,19 @@ static inline void
 metrics_write( fd_ipecho_tile_ctx_t * ctx ) {
   fd_ipecho_server_metrics_t * metrics = fd_ipecho_server_metrics( ctx->server );
 
-  FD_MGAUGE_SET( IPECHO, CONN_ACTIVE,         metrics->connection_cnt           );
-  FD_MCNT_SET(   IPECHO, BYTES_READ,               metrics->bytes_read               );
-  FD_MCNT_SET(   IPECHO, BYTES_WRITTEN,            metrics->bytes_written            );
+  FD_MGAUGE_SET( IPECHO, CONN_OPEN,         metrics->connection_cnt           );
+  FD_MCNT_SET(   IPECHO, CONN_RX_BYTES,            metrics->bytes_read               );
+  FD_MCNT_SET(   IPECHO, CONN_TX_BYTES,            metrics->bytes_written            );
   ulong conn_closed[ FD_METRICS_ENUM_CONN_CLOSE_RESULT_CNT ];
-  conn_closed[ FD_METRICS_ENUM_CONN_CLOSE_RESULT_V_OK_IDX    ] = metrics->connections_closed_ok;
-  conn_closed[ FD_METRICS_ENUM_CONN_CLOSE_RESULT_V_ERROR_IDX ] = metrics->connections_closed_error;
+  conn_closed[ FD_METRICS_ENUM_CONN_CLOSE_RESULT_V_ACCEPTED_IDX ] = metrics->connections_closed_ok;
+  conn_closed[ FD_METRICS_ENUM_CONN_CLOSE_RESULT_V_ERROR_IDX    ] = metrics->connections_closed_error;
   FD_MCNT_ENUM_COPY( IPECHO, CONN_CLOSED, conn_closed );
 
   fd_ipecho_server_port_check_metrics_t * pc_metrics = fd_ipecho_server_port_check_metrics(
     fd_ipecho_server_port_check( ctx->server ) );
-  FD_MCNT_SET(       IPECHO, PORT_CHECK_UDP_SENT,   pc_metrics->udp_sent );
-  FD_MCNT_ENUM_COPY( IPECHO, PORT_CHECK_TCP,        pc_metrics->tcp      );
-  FD_MGAUGE_SET(     IPECHO, PORT_CHECK_TCP_ACTIVE, pc_metrics->active   );
+  FD_MCNT_SET(       IPECHO, PORT_CHECK_UDP_TX,        pc_metrics->udp_sent );
+  FD_MCNT_ENUM_COPY( IPECHO, PORT_CHECK_TCP_ATTEMPTED, pc_metrics->tcp      );
+  FD_MGAUGE_SET(     IPECHO, PORT_CHECK_TCP_IN_FLIGHT, pc_metrics->active   );
 }
 
 static inline void
@@ -96,7 +96,7 @@ poll_client( fd_ipecho_tile_ctx_t * ctx,
     }
 
     FD_LOG_INFO(( "retrieved shred version %hu from entrypoint", shred_version ));
-    FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, shred_version );
+    FD_MGAUGE_SET( IPECHO, SHRED_VERSION, shred_version );
     fd_stem_publish( stem, 0UL, shred_version, 0UL, 0UL, 0UL, 0UL, 0UL );
     fd_ipecho_server_set_shred_version( ctx->server, shred_version );
     ctx->retrieving = 0;
@@ -164,7 +164,7 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
     ushort shred_version = compute_shred_version( genesis_meta->genesis_hash.uc, NULL, 0UL );
     FD_TEST( shred_version );
 
-    FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, shred_version );
+    FD_MGAUGE_SET( IPECHO, SHRED_VERSION, shred_version );
     fd_stem_publish( stem, 0UL, shred_version, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
     fd_ipecho_server_set_shred_version( ctx->server, shred_version );
     ctx->retrieving = 0;
@@ -219,7 +219,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_ipecho_tile_ctx_t ), sizeof( fd_ipecho_tile_ctx_t )       );
 
-  FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, tile->ipecho.expected_shred_version );
+  FD_MGAUGE_SET( IPECHO, SHRED_VERSION, tile->ipecho.expected_shred_version );
 
   FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
   ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );

@@ -388,15 +388,13 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   pending |= STEM_CALLBACK_SHOULD_SHUTDOWN( ctx );
 #endif
 
-  FD_MCNT_INC( TILE, PARK, 1UL );
-
   if( FD_UNLIKELY( pending ) ) {
     FD_VOLATILE( word[0] ) = 1UL;
     if( FD_LIKELY( parked ) ) {
       __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
       if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_and( &sleep->shmem->credit_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
     }
-    FD_MCNT_INC( TILE, UNPARK_PENDING, 1UL );
+    FD_MCNT_INC( TILE, PARK_ATTEMPTED_PENDING, 1UL );
     return backpressured ? -1 : 0;
   }
 
@@ -416,8 +414,8 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
     if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_and( &sleep->shmem->credit_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
   }
-  if( FD_LIKELY( cause==FD_SLEEP_UNPARK_RING ) ) FD_MCNT_INC( TILE, UNPARK_RING,     1UL );
-  else                                           FD_MCNT_INC( TILE, UNPARK_DEADLINE, 1UL );
+  if( FD_LIKELY( cause==FD_SLEEP_UNPARK_RING ) ) FD_MCNT_INC( TILE, PARK_ATTEMPTED_RING,     1UL );
+  else                                           FD_MCNT_INC( TILE, PARK_ATTEMPTED_DEADLINE, 1UL );
   return 1;
 }
 
@@ -712,7 +710,7 @@ STEM_(run)( fd_topo_t *      topo,
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
-          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_SLOW_OFF;
+          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_BACKPRESSURE_BLAMED_OFF;
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
              you could construct a topology which has more than this

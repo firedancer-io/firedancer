@@ -244,7 +244,6 @@ typedef struct {
 
   struct {
     ulong rx_fill_blocked_cnt;
-    ulong rx_backp_cnt;
     long  rx_busy_cnt;
     long  rx_idle_cnt;
 
@@ -293,31 +292,25 @@ static void
 metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET(   NET, PKT_RX,                ctx->net.metrics.rx_pkt_cnt         );
   FD_MCNT_SET(   NET, PKT_RX_BYTES,          ctx->net.metrics.rx_bytes_total     );
-  FD_MCNT_SET(   NET, PKT_RX_MALFORMED,      ctx->net.metrics.rx_malformed_cnt   );
-  FD_MCNT_SET(   NET, PKT_RX_ROUTE_FAIL,     ctx->net.metrics.rx_route_fail_cnt  );
+  FD_MCNT_ENUM_COPY( NET, PKT_RX_DROPPED,  ctx->net.metrics.rx_drop_cnt        );
   FD_MCNT_SET(   NET, GRE_PKT_RX,            ctx->net.metrics.rx_gre_cnt         );
-  FD_MCNT_SET(   NET, GRE_PKT_RX_INVALID,    ctx->net.metrics.rx_gre_invalid_cnt );
-  FD_MCNT_SET(   NET, GRE_PKT_RX_IGNORED,    ctx->net.metrics.rx_gre_ignored_cnt );
-  FD_MCNT_SET(   NET, PKT_RX_FILL_RING_FULL, ctx->metrics.rx_fill_blocked_cnt    );
-  FD_MCNT_SET(   NET, PKT_RX_BACKPRESSURE,   ctx->metrics.rx_backp_cnt           );
-  FD_MGAUGE_SET( NET, RX_BUFFER_BUSY, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, RX_BUFFER_IDLE, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, TX_BUFFER_BUSY, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, TX_BUFFER_IDLE, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
+  FD_MCNT_SET(   NET, RX_FILL_RING_STALLED,  ctx->metrics.rx_fill_blocked_cnt    );
+  FD_MGAUGE_SET( NET, RX_BUFFER_USED, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, RX_BUFFER_FREE, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, TX_BUFFER_USED, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, TX_BUFFER_FREE, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
 
   FD_MCNT_SET( NET, PKT_TX_SUBMITTED,        ctx->metrics.tx_submit_cnt         );
   FD_MCNT_SET( NET, PKT_TX_COMPLETED,        ctx->net.metrics.tx_pkt_cnt        );
-  FD_MCNT_SET( NET, PKT_TX_BYTES,            ctx->net.metrics.tx_bytes_total    );
-  FD_MCNT_ENUM_COPY( NET, PKT_TX_ROUTE_FAIL, ctx->net.metrics.tx_route_fail_cnt );
-  FD_MCNT_SET( NET, PKT_TX_INVALID,          ctx->net.metrics.tx_invalid_cnt    );
-  FD_MCNT_SET( NET, PKT_TX_NO_NEIGHBOR,      ctx->metrics.tx_neigh_fail_cnt     );
-  FD_MCNT_SET( NET, PKT_TX_RING_FULL,        ctx->metrics.tx_full_fail_cnt      );
+  FD_MCNT_SET( NET, PKT_TX_SUBMITTED_BYTES,  ctx->net.metrics.tx_bytes_total    );
+  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_NEIGHBOR_IDX ] = ctx->metrics.tx_neigh_fail_cnt;
+  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_full_fail_cnt;
+  FD_MCNT_ENUM_COPY( NET, PKT_TX_DROPPED,    ctx->net.metrics.tx_drop_cnt       );
 
   FD_MCNT_SET( NET, XSK_SYSCALL_TX,          ctx->metrics.xsk_tx_wakeup_cnt );
   FD_MCNT_SET( NET, XSK_SYSCALL_RX,          ctx->metrics.xsk_rx_wakeup_cnt );
 
   FD_MCNT_SET( NET, GRE_PKT_TX_SUBMITTED,    ctx->net.metrics.tx_gre_cnt            );
-  FD_MCNT_SET( NET, GRE_PKT_TX_NO_ROUTE,     ctx->net.metrics.tx_gre_route_fail_cnt );
   /* fd_fib4_cnt includes the synthetic throw route at index zero. */
   FD_MGAUGE_SET( NET, ROUTE_COUNT_LOCAL, fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_local ), 1UL ) );
   FD_MGAUGE_SET( NET, ROUTE_COUNT_MAIN,  fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_main  ), 1UL ) );
@@ -359,12 +352,12 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
     stats.tx_ring_empty_descs      += sub_stats.tx_ring_empty_descs;
   }
 
-  FD_MCNT_SET( NET, XDP_RX_OTHER_DROPPED,         stats.rx_dropped               );
-  FD_MCNT_SET( NET, XDP_RX_INVALID_DESCRIPTOR,    stats.rx_invalid_descs         );
-  FD_MCNT_SET( NET, XDP_TX_INVALID_DESCRIPTOR,    stats.tx_invalid_descs         );
-  FD_MCNT_SET( NET, XDP_RX_RING_FULL,             stats.rx_ring_full             );
-  FD_MCNT_SET( NET, XDP_RX_FILL_RING_EMPTY,       stats.rx_fill_ring_empty_descs );
-  FD_MCNT_SET( NET, XDP_TX_RING_EMPTY,            stats.tx_ring_empty_descs      );
+  FD_MCNT_SET( NET, XDP_RX_OTHER_DROPPED,                 stats.rx_dropped               );
+  FD_MCNT_SET( NET, XDP_RX_INVALID_DESCRIPTOR_DROPPED,    stats.rx_invalid_descs         );
+  FD_MCNT_SET( NET, XDP_TX_INVALID_DESCRIPTOR_DROPPED,    stats.tx_invalid_descs         );
+  FD_MCNT_SET( NET, XDP_RX_RING_FULL_DROPPED,             stats.rx_ring_full             );
+  FD_MCNT_SET( NET, XDP_RX_FILL_RING_EMPTY,               stats.rx_fill_ring_empty_descs );
+  FD_MCNT_SET( NET, XDP_TX_RING_EMPTY,                    stats.tx_ring_empty_descs      );
 }
 
 /* net_is_fatal_xdp_error returns 1 if the given errno returned by an
@@ -537,15 +530,15 @@ net_tx_route( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
     uint reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
-        FD_METRICS_ENUM_ROUTE_FAIL_V_NO_ROUTE_IDX,
-        FD_METRICS_ENUM_ROUTE_FAIL_V_ROUTE_TYPE_IDX );
-    ctx->net.metrics.tx_route_fail_cnt[ reason ]++;
+        FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_ROUTE_IDX,
+        FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_ROUTE_IDX );
+    ctx->net.metrics.tx_drop_cnt[ reason ]++;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INTERFACE_MISSING_IDX ]++;
     return 0;
   }
 
@@ -572,12 +565,12 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
   ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
@@ -651,19 +644,17 @@ before_frag( fd_net_ctx_t * ctx,
   if( is_gre_inf ) {
     uint inner_src_ip = route->src_ip;
     if( FD_UNLIKELY( !inner_src_ip ) ) {
-      ctx->net.metrics.tx_gre_route_fail_cnt++;
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
     }
     /* Find the MAC addrs for the eth hdr, and src ip for outer ip4 hdr if not found in netdev tbl */
     route->src_ip = 0;
     is_gre_inf    = 0;
-    if( FD_UNLIKELY( !net_tx_route( ctx, route->gre_outer_dst_ip, &is_gre_inf ) ) ) {
-      ctx->net.metrics.tx_gre_route_fail_cnt++;
-      return 1;
-    }
+    /* net_tx_route counts its own drop reason */
+    if( FD_UNLIKELY( !net_tx_route( ctx, route->gre_outer_dst_ip, &is_gre_inf ) ) ) return 1;
     if( is_gre_inf ) {
       /* Only one layer of tunnelling supported */
-      ctx->net.metrics.tx_gre_route_fail_cnt++;
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
     }
     if( !route->gre_outer_src_ip ) {
@@ -682,7 +673,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
     /* Packet does not route to an XDP interface */
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 1;
   }
 

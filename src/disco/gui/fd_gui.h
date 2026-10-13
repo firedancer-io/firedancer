@@ -383,7 +383,7 @@ struct fd_gui_tile_timers {
   long   sample_time_nanos; /* wallclock ns this sample was taken; identical across the per-tile records. */
   ulong  tile_idx;          /* global tile index into topo->tiles. */
   ulong timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
-  ulong sched_timers[ FD_METRICS_ENUM_CPU_REGIME_CNT ];
+  ulong sched_timers[ FD_METRICS_ENUM_THREAD_REGIME_CNT ];
 
   int    in_backp;
   ushort last_cpu;
@@ -409,7 +409,7 @@ struct fd_gui_tile_timers_hist {
   uchar  alive;
   uchar  in_backp;
   ushort timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
-  ushort sched_timers[ FD_METRICS_ENUM_CPU_REGIME_CNT ];
+  ushort sched_timers[ FD_METRICS_ENUM_THREAD_REGIME_CNT ];
   ushort idle_ratio;
   ushort last_cpu;
   ulong  backp_msgs;
@@ -737,7 +737,6 @@ struct fd_gui_txn_waterfall {
     ulong pack_expired;
     ulong pack_already_executed;
     ulong pack_retained;
-    ulong pack_wait_full;
     ulong pack_leader_slow;
     ulong bank_invalid;
     ulong bank_nonce_already_advanced;

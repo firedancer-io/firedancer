@@ -47,6 +47,13 @@
 #define FD_SNAPIN_WRITE_BUF_MAX     (FD_SNAPIN_WRITE_BUF_SZ-sizeof(fd_accdb_disk_meta_t))
 
 FD_STATIC_ASSERT( FD_SNAPIN_WRITE_BUF_SZ%FD_SNAPIN_DIRECT_ALIGN==0UL, write_buf_align );
+
+/* Raw state values exported by the metrics (states= enums) */
+FD_STATIC_ASSERT( FD_SNAPSHOT_STATE_IDLE==FD_METRICS_ENUM_SNAPSHOT_STREAM_STATE_V_IDLE_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPSHOT_STATE_PROCESSING==FD_METRICS_ENUM_SNAPSHOT_STREAM_STATE_V_PROCESSING_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPSHOT_STATE_FINISHING==FD_METRICS_ENUM_SNAPSHOT_STREAM_STATE_V_FINISHING_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPSHOT_STATE_ERROR==FD_METRICS_ENUM_SNAPSHOT_STREAM_STATE_V_ERROR_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPSHOT_STATE_SHUTDOWN==FD_METRICS_ENUM_SNAPSHOT_STREAM_STATE_V_SHUTDOWN_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_MAX, write_buf );
 FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
 
@@ -404,14 +411,14 @@ static void
 metrics_write( fd_snapin_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
-  FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
-  FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
-  FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
-  FD_MCNT_SET  ( SNAPIN, DISK_BYTES_WRITTEN,     ctx->metrics.disk_bytes_written );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNT_LOADED,         ctx->metrics.accounts_loaded );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNT_REPLACED,       ctx->metrics.accounts_replaced );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNT_IGNORED,        ctx->metrics.accounts_ignored );
-  FD_MCNT_SET  ( SNAPIN, ACCOUNT_PROCESSED,       ctx->metrics.total_accounts_processed );
+  FD_MGAUGE_SET( SNAPIN, STREAM_STATE,                     (ulong)ctx->state                    );
+  FD_MGAUGE_SET( SNAPIN, PARSE_PROGRESS_BYTES_FULL,        ctx->metrics.full_bytes_read         );
+  FD_MGAUGE_SET( SNAPIN, PARSE_PROGRESS_BYTES_INCREMENTAL, ctx->metrics.incremental_bytes_read  );
+  FD_MCNT_SET  ( SNAPIN, DISK_WRITTEN_BYTES,               ctx->metrics.disk_bytes_written      );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_PROGRESS_NEW,             ctx->metrics.accounts_loaded         );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_PROGRESS_REPLACED,        ctx->metrics.accounts_replaced       );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_PROGRESS_IGNORED,         ctx->metrics.accounts_ignored        );
+  FD_MCNT_SET  ( SNAPIN, ACCOUNT_PROCESSED,       ctx->metrics.total_accounts_processed        );
   FD_MCNT_SET  ( SNAPIN, ACCOUNT_BATCH_PROCESSED, ctx->metrics.total_account_batches_processed );
 }
 

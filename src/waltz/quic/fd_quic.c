@@ -3049,13 +3049,13 @@ fd_quic_conn_can_acquire_pkt_meta( fd_quic_conn_t             * conn,
   ulong pool_free = fd_quic_pkt_meta_pool_free( tracker->pool );
   if( !pool_free || conn->used_pkt_meta >= state->max_inflight_frame_cnt_conn ) {
     if( !pool_free ) {
-      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_EMPTY_POOL_IDX]++;
+      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_POOL_EMPTY_IDX]++;
     } else {
-      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_CONNECTION_MAX_IDX]++;
+      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_CONN_LIMIT_IDX]++;
     }
     return 0;
   }
-  metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_SUCCESS_IDX]++;
+  metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_SUCCESS_IDX]++;
 
   return 1;
 }

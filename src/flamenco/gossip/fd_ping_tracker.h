@@ -31,6 +31,7 @@
 
 #include "fd_gossip_message.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../disco/metrics/generated/fd_metrics_enums.h"
 
 #define FD_PING_TRACKER_ALIGN (128UL)
 
@@ -53,7 +54,7 @@ struct fd_ping_tracker_metrics {
   ulong stake_changed_cnt;
   ulong address_changed_cnt;
 
-  ulong pong_result[ 6UL ];
+  ulong pong_result[ FD_METRICS_ENUM_PONG_RESULT_CNT ];
 };
 
 typedef struct fd_ping_tracker_metrics fd_ping_tracker_metrics_t;

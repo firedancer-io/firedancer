@@ -799,7 +799,7 @@ void
 fd_pack_metrics_write( fd_pack_t const * pack );
 
 /* fd_pack_get_sched_metrics: copies the current
-   FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT counters to metrics */
+   FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_CNT counters to metrics */
 void
 fd_pack_get_sched_metrics( fd_pack_t const * pack, ulong * metrics );
 

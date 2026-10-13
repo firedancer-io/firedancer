@@ -60,11 +60,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static void
-metrics_write( fd_mwaitx_tile_t * ctx ) {
-  FD_MCNT_SET( MWAITX, NAP,           ctx->metrics_nap      );
-  FD_MCNT_SET( MWAITX, WAKE_ISSUED,   ctx->metrics_wake     );
-  FD_MCNT_SET( MWAITX, DEADLINE_WAKE, ctx->metrics_deadline );
-  FD_MCNT_SET( MWAITX, SWEEP_WAKE,    ctx->metrics_sweep    );
+metrics_write( fd_mwaitx_tile_t * ctx        ) {
+  FD_MCNT_SET( MWAITX, NAP_TAKEN,            ctx->metrics_nap                                           );
+  FD_MCNT_SET( MWAITX, WAKE_ISSUED_DOORBELL, ctx->metrics_wake-ctx->metrics_deadline-ctx->metrics_sweep );
+  FD_MCNT_SET( MWAITX, WAKE_ISSUED_DEADLINE, ctx->metrics_deadline                                      );
+  FD_MCNT_SET( MWAITX, WAKE_ISSUED_SWEEP,    ctx->metrics_sweep                                         );
 }
 
 static inline int

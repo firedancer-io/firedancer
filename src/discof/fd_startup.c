@@ -35,7 +35,7 @@ replay_status_laddr( fd_topo_t const * topo ) {
   if( FD_UNLIKELY( !replay_metrics ) ) FD_LOG_ERR(( "Cannot access replay:0 metrics" ));
 
   ulong volatile const * replay_tile_metrics = fd_metrics_tile( replay_metrics );
-  return &replay_tile_metrics[ MIDX( GAUGE, REPLAY, RUNTIME_STATUS ) ];
+  return &replay_tile_metrics[ MIDX( GAUGE, REPLAY, IS_RUNTIME_LOADED ) ];
 }
 
 void

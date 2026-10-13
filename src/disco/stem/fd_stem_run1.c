@@ -165,7 +165,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
   if( FD_UNLIKELY( !async_min ) ) FD_LOG_ERR(( "bad lazy %lu %lu", (ulong)lazy, event_cnt ));
 
   FD_LOG_INFO(( "Running stem, cr_max = %lu", cr_max ));
-  FD_MGAUGE_SET( TILE, STATUS, 1UL );
+  FD_MGAUGE_SET( TILE, STATE, 1UL );
   long then = fd_tickcount();
   long now  = then;
 
@@ -244,8 +244,8 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
 
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
-        FD_MGAUGE_SET( TILE, HEARTBEAT_TIMESTAMP_NANOS,           (ulong)fd_log_wallclock() );
-        FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
+        FD_MGAUGE_SET( TILE, HEARTBEAT_TIME,            (ulong)fd_log_wallclock() );
+        FD_MGAUGE_SET( TILE, IS_BACKPRESSURED,          metric_in_backp );
         FD_MCNT_INC  ( TILE, BACKPRESSURE,              metric_backp_cnt );
         FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
 #ifdef STEM_CALLBACK_METRICS_WRITE

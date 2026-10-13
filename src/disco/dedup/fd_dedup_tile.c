@@ -58,7 +58,7 @@ typedef struct {
   ulong       hashmap_seed;
 
   struct {
-    ulong dedup_tile_result[ FD_METRICS_ENUM_DEDUP_TILE_RESULT_CNT ];
+    ulong dedup_tile_result[ FD_METRICS_ENUM_DEDUP_RESULT_CNT ];
   } metrics;
 } fd_dedup_ctx_t;
 
@@ -77,7 +77,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_dedup_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( DEDUP, TXN_RESULT, ctx->metrics.dedup_tile_result );
+  FD_MCNT_ENUM_COPY( DEDUP, TXN_PROCESSED, ctx->metrics.dedup_tile_result );
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -190,7 +190,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
   }
 
   if( FD_UNLIKELY( txnm->block_engine.bundle_id && ctx->bundle_failed ) ) {
-    ctx->metrics.dedup_tile_result[ FD_METRICS_ENUM_DEDUP_TILE_RESULT_V_BUNDLE_PEER_FAILURE_IDX ]++;
+    ctx->metrics.dedup_tile_result[ FD_METRICS_ENUM_DEDUP_RESULT_V_BUNDLE_PEER_FAILED_IDX ]++;
     return;
   }
 
@@ -236,7 +236,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
   if( FD_LIKELY( is_dup ) ) {
     if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
 
-    ctx->metrics.dedup_tile_result[ FD_METRICS_ENUM_DEDUP_TILE_RESULT_V_DEDUP_FAILURE_IDX ]++;
+    ctx->metrics.dedup_tile_result[ FD_METRICS_ENUM_DEDUP_RESULT_V_DUPLICATE_IDX ]++;
   } else {
     ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
@@ -246,7 +246,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
     fd_stem_publish( stem, 0UL, out_sig, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 
-    ctx->metrics.dedup_tile_result[ FD_METRICS_ENUM_DEDUP_TILE_RESULT_V_SUCCESS_IDX ]++;
+    ctx->metrics.dedup_tile_result[ FD_METRICS_ENUM_DEDUP_RESULT_V_SUCCESS_IDX ]++;
   }
 }
 

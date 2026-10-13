@@ -371,7 +371,7 @@ fd_fec_resolver_new( void                    * shmem,
   if( FD_UNLIKELY( !done_heap_new       ( _done_heap, done_depth                  ) ) ) { FD_LOG_WARNING(( "done_heap_new fail"     )); return NULL; }
   if( FD_UNLIKELY( !fd_ed25519_cache_new( _ed_cache, ED25519_CACHE_ENT_CNT, seed4 ) ) ) { FD_LOG_WARNING(( "ed25519_cache_new fail" )); return NULL; }
 
-  fd_histf_join( fd_metrics_histf_new_ns( resolver->completion_lag_hist, FD_MHIST_EDGES_NS( SHRED, REPAIR_COMPLETION_LAG_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( resolver->completion_lag_hist, FD_MHIST_EDGES_NS( SHRED, REPAIR_LEAD_DELAY_NANOS ) ) );
 
   set_ctx_t * ctx_pool = (set_ctx_t *)_ctx_pool;
   fd_memset( ctx_pool, '\0', sizeof(set_ctx_t)*depth_sum );
@@ -695,7 +695,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       ctx_list_ele_push_tail ( free_list, victim_ctx, ctx_pool );
       resolver->free_list_cnt++;
 
-      FD_MCNT_INC( SHRED, FEC_SPILLED, 1UL );
+      FD_MCNT_INC( SHRED, FEC_INCOMPLETE_EVICTED, 1UL );
     }
     /* Now we know |free_list|>partial_depth */
 
@@ -717,14 +717,14 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       if( FD_UNLIKELY( !rv ) ) {
         ctx_list_ele_push_head( free_list, ctx, ctx_pool );
         resolver->free_list_cnt++;
-        FD_MCNT_INC( SHRED, SHRED_INITIAL_REJECTED, 1UL );
+        FD_MCNT_INC( SHRED, INITIAL_REJECTED, 1UL );
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
 
       if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify_cached( _root->hash, 32UL, shred->signature, leader_pubkey, sha512, resolver->ed25519_cache ) ) ) {
         ctx_list_ele_push_head( free_list, ctx, ctx_pool );
         resolver->free_list_cnt++;
-        FD_MCNT_INC( SHRED, SHRED_INITIAL_REJECTED, 1UL );
+        FD_MCNT_INC( SHRED, INITIAL_REJECTED, 1UL );
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
     }

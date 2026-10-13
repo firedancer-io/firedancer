@@ -73,15 +73,15 @@ typedef void (*fd_gossip_sign_fn)( void *         ctx,
 #define FD_GOSSIP_SIGN_PEND_MAX (128UL)
 
 struct fd_gossip_metrics {
-  ulong crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_CNT ];
+  ulong crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_CNT ];
 
   ulong sign_pend_full_cnt;
 
-  ulong message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  ulong message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
 
-  ulong crds_tx_pull_response[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong crds_tx_pull_response_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong crds_tx_pull_response[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
+  ulong crds_tx_pull_response_bytes[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
 };
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;

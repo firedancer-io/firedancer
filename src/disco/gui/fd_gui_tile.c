@@ -40,7 +40,7 @@
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 
-FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_CNT==FD_GUI_HIST_CNT, gui_db_enum );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_TYPE_CNT==FD_GUI_HIST_CNT, gui_db_enum );
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
 #define IN_KIND_PACK_POH      ( 3UL)
@@ -210,14 +210,14 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_gui_ctx_t * ctx ) {
-  FD_MGAUGE_SET( GUI, CONN_ACTIVE, ctx->gui_server->metrics.connection_cnt );
-  FD_MGAUGE_SET( GUI, WEBSOCKET_CONN_ACTIVE, ctx->gui_server->metrics.ws_connection_cnt );
+  FD_MGAUGE_SET( GUI, CONN_OPEN,           ctx->gui_server->metrics.connection_cnt    );
+  FD_MGAUGE_SET( GUI, WEBSOCKET_CONN_OPEN, ctx->gui_server->metrics.ws_connection_cnt );
 
-  FD_MCNT_SET( GUI, WEBSOCKET_FRAME_TX,     ctx->gui_server->metrics.frames_written );
-  FD_MCNT_SET( GUI, WEBSOCKET_FRAME_RX, ctx->gui_server->metrics.frames_read );
+  FD_MCNT_SET( GUI, WEBSOCKET_FRAME_TX, ctx->gui_server->metrics.frames_written );
+  FD_MCNT_SET( GUI, WEBSOCKET_FRAME_RX, ctx->gui_server->metrics.frames_read    );
 
-  FD_MCNT_SET( GUI, BYTES_WRITTEN, ctx->gui_server->metrics.bytes_written );
-  FD_MCNT_SET( GUI, BYTES_READ,    ctx->gui_server->metrics.bytes_read );
+  FD_MCNT_SET( GUI, CONN_TX_BYTES, ctx->gui_server->metrics.bytes_written );
+  FD_MCNT_SET( GUI, CONN_RX_BYTES, ctx->gui_server->metrics.bytes_read    );
 
   FD_MGAUGE_SET( GUI, DISK_ALLOCATED_BYTES, fd_gui_store_file_sz( ctx->db ) );
 
@@ -240,28 +240,27 @@ metrics_write( fd_gui_ctx_t * ctx ) {
                              &cap_slots[ i ],  &free_slots[ i ] );
   }
 
-  FD_MGAUGE_ENUM_COPY( GUI, DB_USED_BYTES,       used_bytes );
-  FD_MGAUGE_ENUM_COPY( GUI, DB_CAPACITY_BYTES,   cap_bytes  );
-  FD_MGAUGE_ENUM_COPY( GUI, DB_FREE_BYTES,       free_bytes );
-  FD_MGAUGE_ENUM_COPY( GUI, DB_RECORD_USED,      used_slots );
-  FD_MGAUGE_ENUM_COPY( GUI, DB_RECORD_CAPACITY,  cap_slots  );
-  FD_MGAUGE_ENUM_COPY( GUI, DB_RECORD_FREE,      free_slots );
+  FD_MGAUGE_ENUM_COPY( GUI, DB_USED_BYTES,        used_bytes      );
+  FD_MGAUGE_ENUM_COPY( GUI, DB_ALLOCATED_BYTES,   cap_bytes       );
+  FD_MGAUGE_SET      ( GUI, DB_FREE_BYTES,        free_bytes[ 0 ] ); /* shared by every ring */
+  FD_MGAUGE_ENUM_COPY( GUI, DB_RECORD_USED,       used_slots      );
+  FD_MGAUGE_ENUM_COPY( GUI, DB_RECORD_ALLOCATED,  cap_slots       );
 
   fd_gui_store_metrics_t const * dm = fd_gui_store_metrics( ctx->db );
-  FD_MCNT_ENUM_COPY( GUI, DB_KV_QUERIED,         dm->kv_lookups      );
-  FD_MCNT_ENUM_COPY( GUI, DB_TS_RECORD_APPENDED, dm->ts_appends      );
-  FD_MCNT_ENUM_COPY( GUI, DB_TS_SCANNED,         dm->ts_reads        );
-  FD_MCNT_ENUM_COPY( GUI, DB_TS_RECORD_READ,     dm->ts_read_records );
-  FD_MCNT_ENUM_COPY( GUI, DB_RECORD_EVICTED,     dm->evict_records   );
-  FD_MCNT_ENUM_COPY( GUI, DB_EVICTION,           dm->evicts          );
-  FD_MCNT_ENUM_COPY( GUI, DB_REGION_CLAIMED,     dm->region_grows    );
   fd_gui_hist_metrics_t const * hist = fd_gui_hist_metrics( ctx->gui );
   static ulong const zero_hist_metrics[ FD_GUI_HIST_CNT ] = { 0UL };
   ulong const * hist_map_full = hist ? hist->map_full : zero_hist_metrics;
   ulong const * hist_reserves = hist ? hist->reserves  : zero_hist_metrics;
-  FD_MCNT_ENUM_COPY( GUI, DB_REGION_RECLAIMED,   dm->region_reclaims );
-  FD_MCNT_ENUM_COPY( GUI, DB_MAP_FULL,           hist_map_full );
-  FD_MCNT_ENUM_COPY( GUI, DB_FORCED_EVICTION,    hist_reserves );
+  FD_MCNT_ENUM_COPY( GUI, DB_KV_QUERIED,                   dm->kv_lookups      );
+  FD_MCNT_ENUM_COPY( GUI, DB_TIME_SERIES_RECORD_APPENDED,  dm->ts_appends      );
+  FD_MCNT_ENUM_COPY( GUI, DB_TIME_SERIES_SCANNED,          dm->ts_reads        );
+  FD_MCNT_ENUM_COPY( GUI, DB_TIME_SERIES_RECORD_READ,      dm->ts_read_records );
+  FD_MCNT_ENUM_COPY( GUI, DB_RECORD_EVICTED,               dm->evict_records   );
+  FD_MCNT_ENUM_COPY( GUI, DB_EVICTION_PASS_COMPLETED,      dm->evicts          );
+  FD_MCNT_ENUM_COPY( GUI, DB_REGION_CLAIMED,               dm->region_grows    );
+  FD_MCNT_ENUM_COPY( GUI, DB_REGION_RELEASED,              dm->region_reclaims );
+  FD_MCNT_ENUM_COPY( GUI, DB_RECORD_DROPPED,               hist_map_full       );
+  FD_MCNT_ENUM_COPY( GUI, DB_FORCED_EVICT_WRITE_COMPLETED, hist_reserves       );
 }
 
 static inline void

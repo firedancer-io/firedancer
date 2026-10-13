@@ -173,16 +173,23 @@ fd_metrics_histf_new_ns( void *      mem,
   return fd_histf_new_edges( mem, edges );
 }
 
-static inline double
-fd_metrics_convert_ticks_to_seconds( ulong ticks ) {
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  return (double)ticks / (tick_per_ns * 1e9);
-}
-
 static inline ulong
 fd_metrics_convert_ticks_to_nanoseconds( ulong ticks ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   return (ulong)((double)ticks / tick_per_ns);
+}
+
+/* fd_metrics_enum_group_sum sums the values of an enum metric whose
+   index bit is set in mask (FD_METRICS_ENUM_<E>_G_<GROUP>_MASK).
+   values points at the metric's first value, e.g.
+   metrics+MIDX(COUNTER,TILE,REGIME_DURATION_NANOS). */
+
+static inline ulong
+fd_metrics_enum_group_sum( volatile ulong const * values,
+                           ulong                  mask ) {
+  ulong sum = 0UL;
+  for( ; mask; mask=fd_ulong_pop_lsb( mask ) ) sum += values[ fd_ulong_find_lsb( mask ) ];
+  return sum;
 }
 
 static inline ulong * fd_metrics_join  ( void * mem ) { return mem; }

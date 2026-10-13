@@ -587,7 +587,7 @@ fd_mlx5_tile_poll_rx( fd_mlx5_tile_t *    ctx,
   for( uint i=0U; i<(uint)comp_cnt; i++ ) {
     ulong freed_chunk;
     if( FD_UNLIKELY( comp[ i ].opcode==FD_MLX5_CQE_OP_RX_ERR ) ) {
-      ctx->net.metrics.rx_malformed_cnt++;
+      ctx->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
       freed_chunk = comp[ i ].chunk;
     } else {
       fd_net_rx_pkt( &ctx->net, stem, comp[ i ].chunk, comp[ i ].byte_len, tspub, &freed_chunk );
@@ -848,10 +848,14 @@ before_frag( fd_mlx5_tile_t * ctx,
     uint const outer_src_ip = route->gre_outer_src_ip;
     uint const outer_dst_ip = route->gre_outer_dst_ip;
 
-    if( FD_UNLIKELY( !inner_src_ip || !outer_dst_ip ||
-                     !fd_net_tx_route( &ctx->router, &ctx->net, outer_dst_ip, &outer_route ) ||
-                     outer_route.use_gre || outer_route.use_loopback ) ) {
-      ctx->net.metrics.tx_gre_route_fail_cnt++;
+    if( FD_UNLIKELY( !inner_src_ip || !outer_dst_ip ) ) {
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
+      return 1;
+    }
+    /* fd_net_tx_route counts its own drop reason */
+    if( FD_UNLIKELY( !fd_net_tx_route( &ctx->router, &ctx->net, outer_dst_ip, &outer_route ) ) ) return 1;
+    if( FD_UNLIKELY( outer_route.use_gre || outer_route.use_loopback ) ) {
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
       return 1;
     }
     *route                  = outer_route;
@@ -944,13 +948,13 @@ after_frag( fd_mlx5_tile_t *    ctx,
                      (fd_ushort_bswap( ip4->net_frag_off ) & ~FD_IP4_HDR_FRAG_OFF_DF) ||
                      ip_sz<ip_hdr_sz+sizeof(fd_udp_hdr_t) ||
                      ip_sz>frame_sz-sizeof(fd_eth_hdr_t) ) ) {
-      ctx->net.metrics.tx_invalid_cnt++;
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]++;
       return;
     }
     fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)((uchar const *)ip4+ip_hdr_sz);
     ulong const udp_sz = fd_ushort_bswap( udp->net_len );
     if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) || udp_sz>ip_sz-ip_hdr_sz ) ) {
-      ctx->net.metrics.tx_invalid_cnt++;
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]++;
       return;
     }
 
@@ -1001,24 +1005,19 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
 
   FD_MCNT_SET(   MLX5, PKT_RX,             ctx->net.metrics.rx_pkt_cnt           );
   FD_MCNT_SET(   MLX5, PKT_RX_BYTES,       ctx->net.metrics.rx_bytes_total       );
-  FD_MCNT_SET(   MLX5, PKT_RX_MALFORMED,   ctx->net.metrics.rx_malformed_cnt     );
-  FD_MCNT_SET(   MLX5, PKT_RX_ROUTE_FAIL,  ctx->net.metrics.rx_route_fail_cnt    );
+  FD_MCNT_ENUM_COPY( MLX5, PKT_RX_DROPPED, ctx->net.metrics.rx_drop_cnt        );
   FD_MCNT_SET(   MLX5, GRE_PKT_RX,         ctx->net.metrics.rx_gre_cnt           );
-  FD_MCNT_SET(   MLX5, GRE_PKT_RX_INVALID, ctx->net.metrics.rx_gre_invalid_cnt   );
-  FD_MCNT_SET(   MLX5, GRE_PKT_RX_IGNORED, ctx->net.metrics.rx_gre_ignored_cnt   );
-  FD_MGAUGE_SET( MLX5, RX_BUFFER_BUSY,     rx_buffer_busy_cnt                    );
-  FD_MGAUGE_SET( MLX5, RX_BUFFER_IDLE,     rx_buffer_idle_cnt                    );
+  FD_MGAUGE_SET( MLX5, RX_BUFFER_USED,     rx_buffer_busy_cnt                    );
+  FD_MGAUGE_SET( MLX5, RX_BUFFER_FREE,     rx_buffer_idle_cnt                    );
 
-  FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED,      ctx->net.metrics.tx_pkt_cnt            );
-  FD_MCNT_SET(   MLX5, PKT_TX_BYTES,          ctx->net.metrics.tx_bytes_total        );
-  FD_MCNT_SET(   MLX5, PKT_TX_NO_BUFFER,      ctx->metrics.tx_no_buffer_cnt          );
-  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_ROUTE_FAIL, ctx->net.metrics.tx_route_fail_cnt     );
-  FD_MCNT_SET(   MLX5, PKT_TX_INVALID,        ctx->net.metrics.tx_invalid_cnt        );
-  FD_MCNT_SET(   MLX5, PKT_TX_NO_NEIGHBOR,    ctx->router.metrics.tx_neigh_fail_cnt  );
-  FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,  ctx->net.metrics.tx_gre_cnt            );
-  FD_MCNT_SET(   MLX5, GRE_PKT_TX_NO_ROUTE,   ctx->net.metrics.tx_gre_route_fail_cnt );
-  FD_MGAUGE_SET( MLX5, TX_BUFFER_BUSY,        tx_buffer_busy_cnt                     );
-  FD_MGAUGE_SET( MLX5, TX_BUFFER_IDLE,        tx_buffer_idle_cnt                     );
+  FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED,       ctx->net.metrics.tx_pkt_cnt            );
+  FD_MCNT_SET(   MLX5, PKT_TX_COMPLETED_BYTES, ctx->net.metrics.tx_bytes_total        );
+  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_NO_NEIGHBOR_IDX ] = ctx->router.metrics.tx_neigh_fail_cnt;
+  ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_no_buffer_cnt;
+  FD_MCNT_ENUM_COPY( MLX5, PKT_TX_DROPPED,     ctx->net.metrics.tx_drop_cnt           );
+  FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,   ctx->net.metrics.tx_gre_cnt            );
+  FD_MGAUGE_SET( MLX5, TX_BUFFER_USED,         tx_buffer_busy_cnt                     );
+  FD_MGAUGE_SET( MLX5, TX_BUFFER_FREE,         tx_buffer_idle_cnt                     );
 }
 
 static inline void

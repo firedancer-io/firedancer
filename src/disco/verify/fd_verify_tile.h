@@ -59,8 +59,9 @@ typedef struct {
   ulong       hashmap_seed;
 
   struct {
-    ulong verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_CNT ];
+    ulong verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_CNT ];
     ulong gossiped_votes_cnt;
+    ulong own_votes_cnt;
   } metrics;
 } fd_verify_ctx_t;
 

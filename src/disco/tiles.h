@@ -165,8 +165,8 @@ struct fd_done_packing {
   fd_pack_limits_usage_t limits_usage[ 1 ];
   fd_pack_limits_t limits[ 1 ];
 
-  ulong block_results    [ FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT ];
-  ulong end_block_results[ FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT ];
+  ulong block_results    [ FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT ];
+  ulong end_block_results[ FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT ];
 
   fd_pack_smallest_t pending_smallest[ 1 ];
   fd_pack_smallest_t pending_votes_smallest[ 1 ];

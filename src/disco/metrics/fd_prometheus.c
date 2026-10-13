@@ -79,8 +79,8 @@ render_histogram( fd_prom_render_t *        r,
   render_header( r, metric );
 
   fd_histf_t hist[1];
-  if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_SECONDS ) )
-    FD_TEST( fd_histf_new_edges( hist, metric->histogram.seconds.edges_ns ) );
+  if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_NANOSECONDS ) )
+    FD_TEST( fd_histf_new_edges( hist, metric->histogram.ticks.edges_ns ) );
   else if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_NONE ) )
     FD_TEST( fd_histf_new( hist, metric->histogram.none.min, metric->histogram.none.max ) );
   else FD_LOG_ERR(( "unknown converter %i", metric->converter ));
@@ -95,12 +95,7 @@ render_histogram( fd_prom_render_t *        r,
     if( FD_UNLIKELY( k==FD_HISTF_BUCKET_CNT-1UL ) ) le = "+Inf";
     else {
       ulong edge = fd_histf_right( hist, k );
-      if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_SECONDS ) ) {
-        double edgef = (double)(edge-1UL) / 1e9;
-        FD_TEST( fd_cstr_printf_check( le_str, sizeof( le_str ), NULL, "%.17g", edgef ) );
-      } else {
-        FD_TEST( fd_cstr_printf_check( le_str, sizeof( le_str ), NULL, "%lu", edge-1 ) );
-      }
+      FD_TEST( fd_cstr_printf_check( le_str, sizeof( le_str ), NULL, "%lu", edge-1 ) );
       le = le_str;
     }
 
@@ -109,12 +104,9 @@ render_histogram( fd_prom_render_t *        r,
   }
 
   char sum_str[ 64 ];
-  if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_SECONDS ) ) {
-    double sumf = fd_metrics_convert_ticks_to_seconds( *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT) );
-    FD_TEST( fd_cstr_printf_check( sum_str, sizeof( sum_str ), NULL, "%.17g", sumf ) );
-  } else {
-    FD_TEST( fd_cstr_printf_check( sum_str, sizeof( sum_str ), NULL, "%lu", *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT) ));
-  }
+  ulong sum = *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT);
+  if( FD_LIKELY( metric->converter==FD_METRICS_CONVERTER_NANOSECONDS ) ) sum = fd_metrics_convert_ticks_to_nanoseconds( sum );
+  FD_TEST( fd_cstr_printf_check( sum_str, sizeof( sum_str ), NULL, "%lu", sum ) );
 
   fd_http_server_printf( r->http, "%s_sum{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, sum_str );
   fd_http_server_printf( r->http, "%s_count{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, value_str );
@@ -136,9 +128,6 @@ render_counter( fd_prom_render_t *        r,
   switch( metric->converter ) {
   case FD_METRICS_CONVERTER_NANOSECONDS:
     fd_http_server_printf( r->http, "} %lu\n", fd_metrics_convert_ticks_to_nanoseconds( raw_value ) );
-    break;
-  case FD_METRICS_CONVERTER_SECONDS:
-    fd_http_server_printf( r->http, "} %e\n", fd_metrics_convert_ticks_to_seconds( raw_value ) );
     break;
   case FD_METRICS_CONVERTER_NONE:
     fd_http_server_printf( r->http, "} %lu\n", raw_value );

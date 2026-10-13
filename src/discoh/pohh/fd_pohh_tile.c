@@ -1032,7 +1032,7 @@ publish_became_leader( fd_pohh_tile_t * ctx,
                        ulong            epoch,
                        ulong            block_height ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+  fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)*tick_per_ns) );
 
   if( FD_UNLIKELY( ctx->lagged_consecutive_leader_start || ctx->reset_slot!=slot ) ) {
     /* If we are mirroring Agave behavior, the wall clock gets reset
@@ -1929,10 +1929,10 @@ during_housekeeping( fd_pohh_tile_t * ctx ) {
 
 static inline void
 metrics_write( fd_pohh_tile_t * ctx ) {
-  FD_MHIST_COPY( POHH, BEGIN_LEADER_DELAY_SECONDS,      ctx->begin_leader_delay     );
-  FD_MHIST_COPY( POHH, FIRST_MICROBLOCK_DELAY_SECONDS,  ctx->first_microblock_delay );
-  FD_MHIST_COPY( POHH, SLOT_DONE_DELAY_SECONDS,         ctx->slot_done_delay        );
-  FD_MHIST_COPY( POHH, BUNDLE_INITIALIZE_DELAY_SECONDS, ctx->bundle_init_delay      );
+  FD_MHIST_COPY( POHH, BEGIN_LEADER_DELAY_NANOS,        ctx->begin_leader_delay     );
+  FD_MHIST_COPY( POHH, FIRST_MICROBLOCK_DELAY_NANOS,    ctx->first_microblock_delay );
+  FD_MHIST_COPY( POHH, SLOT_DONE_DELAY_NANOS,           ctx->slot_done_delay        );
+  FD_MHIST_COPY( POHH, BUNDLE_INITIALIZE_DELAY_NANOS,   ctx->bundle_init_delay      );
 }
 
 static int
@@ -2154,7 +2154,7 @@ after_frag( fd_pohh_tile_t *    ctx,
 
   if( FD_UNLIKELY( !ctx->microblocks_lower_bound ) ) {
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-    fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+    fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)*tick_per_ns) );
   }
 
   ulong target_slot = fd_disco_execle_sig_slot( sig );
@@ -2497,11 +2497,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   if( FD_UNLIKELY( ctx->reset_slot==ULONG_MAX ) ) FD_LOG_ERR(( "PoH was not initialized by Agave client" ));
 
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->begin_leader_delay, FD_MHIST_EDGES_NS( POHH, BEGIN_LEADER_DELAY_SECONDS ) ) );
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->first_microblock_delay, FD_MHIST_EDGES_NS( POHH, FIRST_MICROBLOCK_DELAY_SECONDS ) ) );
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->slot_done_delay, FD_MHIST_EDGES_NS( POHH, SLOT_DONE_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->begin_leader_delay, FD_MHIST_EDGES_NS( POHH, BEGIN_LEADER_DELAY_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->first_microblock_delay, FD_MHIST_EDGES_NS( POHH, FIRST_MICROBLOCK_DELAY_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->slot_done_delay, FD_MHIST_EDGES_NS( POHH, SLOT_DONE_DELAY_NANOS ) ) );
 
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->bundle_init_delay, FD_MHIST_EDGES_NS( POHH, BUNDLE_INITIALIZE_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->bundle_init_delay, FD_MHIST_EDGES_NS( POHH, BUNDLE_INITIALIZE_DELAY_NANOS ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];

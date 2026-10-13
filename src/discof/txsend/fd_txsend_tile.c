@@ -127,39 +127,40 @@ metrics_write( fd_txsend_tile_t * ctx ) {
 
   FD_MCNT_SET(         TXSEND, PKT_TX,                      ctx->quic->metrics.net_tx_pkt_cnt          );
   FD_MCNT_SET(         TXSEND, PKT_TX_BYTES,                ctx->quic->metrics.net_tx_byte_cnt         );
-  FD_MCNT_SET(         TXSEND, PKT_TX_RETRY,                ctx->quic->metrics.retry_tx_cnt            );
-  FD_MCNT_ENUM_COPY(   TXSEND, ACK_TX,                      ctx->quic->metrics.ack_tx                  );
-
-  FD_MGAUGE_ENUM_COPY( TXSEND, CONN_STATE,                  ctx->quic->metrics.conn_state_cnt          );
-  FD_MGAUGE_SET(       TXSEND, CONN_IN_USE,                 ctx->quic->metrics.conn_alloc_cnt          );
+  FD_MCNT_ENUM_COPY(   TXSEND, PKT_ACK_PROCESSED,           ctx->quic->metrics.ack_tx                  );
+  FD_MGAUGE_ENUM_COPY( TXSEND, CONN_USED, (ctx->quic->metrics.conn_state_cnt+1) ); /* skip FD_QUIC_CONN_STATE_INVALID (free slots) */
+  FD_MGAUGE_SET( TXSEND, CONN_FREE,     ctx->quic->limits.conn_cnt-ctx->quic->metrics.conn_alloc_cnt );
+  FD_MGAUGE_SET( TXSEND, CONN_CAPACITY, ctx->quic->limits.conn_cnt );
   FD_MCNT_SET(         TXSEND, CONN_CREATED,                ctx->quic->metrics.conn_created_cnt        );
   FD_MCNT_SET(         TXSEND, CONN_CLOSED,                 ctx->quic->metrics.conn_closed_cnt         );
   FD_MCNT_SET(         TXSEND, CONN_ABORTED,                ctx->quic->metrics.conn_aborted_cnt        );
   FD_MCNT_SET(         TXSEND, CONN_TIMED_OUT,              ctx->quic->metrics.conn_timeout_cnt        );
-  FD_MCNT_SET(         TXSEND, CONN_RETRIED,                ctx->quic->metrics.conn_retry_cnt          );
-  FD_MCNT_SET(         TXSEND, CONN_ERROR_NO_SLOTS,         ctx->quic->metrics.conn_err_no_slots_cnt   );
-  FD_MCNT_SET(         TXSEND, CONN_ERROR_RETRY_FAILED,     ctx->quic->metrics.conn_err_retry_fail_cnt );
+  FD_MCNT_SET(         TXSEND, CONN_NO_SLOT_REJECTED,       ctx->quic->metrics.conn_err_no_slots_cnt   );
+  FD_MCNT_SET(         TXSEND, CONN_RETRY_REJECTED,         ctx->quic->metrics.conn_err_retry_fail_cnt );
 
-  FD_MCNT_ENUM_COPY(   TXSEND, PKT_CRYPTO_FAILED,           ctx->quic->metrics.pkt_decrypt_fail_cnt    );
-  FD_MCNT_ENUM_COPY(   TXSEND, PKT_NO_KEY,                  ctx->quic->metrics.pkt_no_key_cnt          );
-  FD_MCNT_ENUM_COPY(   TXSEND, PKT_NO_CONN,                 ctx->quic->metrics.pkt_no_conn_cnt         );
-  FD_MCNT_SET(         TXSEND, PKT_SRC_INVALID,             ctx->quic->metrics.pkt_wrong_src_cnt       );
-  FD_MCNT_ENUM_COPY(   TXSEND, FRAME_META_ACQUIRED,         ctx->quic->metrics.frame_tx_alloc_cnt      );
-  FD_MCNT_SET(         TXSEND, PKT_NET_HEADER_INVALID,      ctx->quic->metrics.pkt_net_hdr_err_cnt     );
-  FD_MCNT_SET(         TXSEND, PKT_HEADER_INVALID,          ctx->quic->metrics.pkt_quic_hdr_err_cnt    );
-  FD_MCNT_SET(         TXSEND, PKT_UNDERSIZE,               ctx->quic->metrics.pkt_undersz_cnt         );
-  FD_MCNT_SET(         TXSEND, PKT_OVERSIZE,                ctx->quic->metrics.pkt_oversz_cnt          );
-  FD_MCNT_SET(         TXSEND, PKT_RX_VERSION_NEGOTIATION,  ctx->quic->metrics.pkt_verneg_cnt          );
-  FD_MCNT_ENUM_COPY(   TXSEND, PKT_TX_RETRANSMITTED,        ctx->quic->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_ENUM_COPY(   TXSEND, PKT_DECRYPT_FAILED,          ctx->quic->metrics.pkt_decrypt_fail_cnt    );
+  FD_MCNT_ENUM_COPY(   TXSEND, PKT_NO_KEY_DROPPED,          ctx->quic->metrics.pkt_no_key_cnt          );
+  FD_MCNT_ENUM_COPY(   TXSEND, PKT_NO_CONN_DROPPED,         ctx->quic->metrics.pkt_no_conn_cnt         );
+  ulong pkt_drop[ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_CNT ] = {
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_UNDERSIZE_IDX            ] = ctx->quic->metrics.pkt_undersz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_OVERSIZE_IDX             ] = ctx->quic->metrics.pkt_oversz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_SRC_IP_MISMATCH_IDX      ] = ctx->quic->metrics.pkt_wrong_src_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX       ] = ctx->quic->metrics.pkt_quic_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX   ] = ctx->quic->metrics.pkt_net_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX  ] = ctx->quic->metrics.pkt_verneg_cnt,
+  };
+  FD_MCNT_ENUM_COPY( TXSEND, PKT_DROPPED, pkt_drop );
+  FD_MCNT_ENUM_COPY(   TXSEND, PKT_META_ACQUIRE_ATTEMPTED,  ctx->quic->metrics.frame_tx_alloc_cnt      );
+  FD_MCNT_ENUM_COPY(   TXSEND, PKT_RETRANSMITTED,           ctx->quic->metrics.pkt_retransmissions_cnt );
 
-  FD_MCNT_SET(         TXSEND, HANDSHAKE_CREATED,           ctx->quic->metrics.hs_created_cnt          );
-  FD_MCNT_SET(         TXSEND, HANDSHAKE_ERROR_ALLOC_FAIL,  ctx->quic->metrics.hs_err_alloc_fail_cnt   );
-  FD_MCNT_SET(         TXSEND, HANDSHAKE_EVICTED,           ctx->quic->metrics.hs_evicted_cnt          );
+  FD_MCNT_SET(         TXSEND, HANDSHAKE_CREATED,             ctx->quic->metrics.hs_created_cnt        );
+  FD_MCNT_SET(         TXSEND, HANDSHAKE_POOL_FULL_REJECTED,  ctx->quic->metrics.hs_err_alloc_fail_cnt );
+  FD_MCNT_SET(         TXSEND, HANDSHAKE_EVICTED,             ctx->quic->metrics.hs_evicted_cnt        );
 
   FD_MCNT_SET(         TXSEND, FRAME_PARSE_FAILED,          ctx->quic->metrics.frame_rx_err_cnt        );
 
-  FD_MHIST_COPY(       TXSEND, SERVICE_DURATION_SECONDS,    ctx->quic->metrics.service_duration        );
-  FD_MHIST_COPY(       TXSEND, RX_DURATION_SECONDS,         ctx->quic->metrics.receive_duration        );
+  FD_MHIST_COPY(       TXSEND, SERVICE_DURATION_NANOS,      ctx->quic->metrics.service_duration        );
+  FD_MHIST_COPY(       TXSEND, PKT_RX_DURATION_NANOS,       ctx->quic->metrics.receive_duration        );
 }
 
 static void
@@ -868,8 +869,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->txsend_out_seq      = 0UL;
   ctx->halt_net_frags = 0;
 
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.service_duration, FD_MHIST_EDGES_NS( TXSEND, SERVICE_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.receive_duration, FD_MHIST_EDGES_NS( TXSEND, RX_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.service_duration, FD_MHIST_EDGES_NS( TXSEND, SERVICE_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic->metrics.receive_duration, FD_MHIST_EDGES_NS( TXSEND, PKT_RX_DURATION_NANOS ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

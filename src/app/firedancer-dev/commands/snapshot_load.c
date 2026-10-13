@@ -548,15 +548,15 @@ snapshot_load_cmd_fn( args_t *   args,
 
   long next = start+1000L*1000L*1000L;
   for(;;) {
-    ulong snapct_status = FD_VOLATILE_CONST( snapct_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
-    ulong snapld_status = FD_VOLATILE_CONST( snapld_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
+    ulong snapct_status = FD_VOLATILE_CONST( snapct_metrics[ MIDX( GAUGE, TILE, STATE ) ] );
+    ulong snapld_status = FD_VOLATILE_CONST( snapld_metrics[ MIDX( GAUGE, TILE, STATE ) ] );
     int snapin_shutdown = 1;
     for( ulong i=0UL; i<snapin_tile_cnt; i++ ) {
-      snapin_shutdown &= FD_VOLATILE_CONST( snapin_all_metrics[ i ][ MIDX( GAUGE, TILE, STATUS ) ] )==2UL;
+      snapin_shutdown &= FD_VOLATILE_CONST( snapin_all_metrics[ i ][ MIDX( GAUGE, TILE, STATE ) ] )==2UL;
     }
     int snapdc_shutdown = 1;
     for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
-      snapdc_shutdown &= FD_VOLATILE_CONST( snapdc_metrics[ i ][ MIDX( GAUGE, TILE, STATUS ) ] )==2UL;
+      snapdc_shutdown &= FD_VOLATILE_CONST( snapdc_metrics[ i ][ MIDX( GAUGE, TILE, STATE ) ] )==2UL;
     }
 
     if( FD_UNLIKELY( snapct_status==2UL && snapld_status==2UL && snapdc_shutdown && snapin_shutdown ) ) break;
@@ -568,13 +568,13 @@ snapshot_load_cmd_fn( args_t *   args,
       continue;
     }
 
-    ulong total_off    = snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] +
-                         snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ];
+    ulong total_off    = snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_PROGRESS_BYTES_FULL ) ] +
+                         snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_PROGRESS_BYTES_INCREMENTAL ) ];
     ulong decomp_off   = 0UL;
     ulong snapdc_wait[ FD_TOPO_MAX_TILE_IN_LINKS ];
     for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
-      decomp_off += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ] +
-                    snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
+      decomp_off += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_FULL ) ] +
+                    snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_INCREMENTAL ) ];
       snapdc_wait[ i ] = snapdc_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ]
                        + snapdc_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_SLEEPING ) ]
                        + snapdc_metrics[ i ][ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ]
@@ -593,31 +593,31 @@ snapshot_load_cmd_fn( args_t *   args,
                        + metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_SLEEPING ) ]
                        + metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ]
                        + metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_SLEEPING ) ];
-      acc_cnt += metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) ];
+      acc_cnt += metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_PROGRESS_NEW ) ];
     }
 
-    char const * phase = phase_cstr( snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ] );
+    char const * phase = phase_cstr( snapct_metrics[ MIDX( GAUGE, SNAPCT, LOAD_STATE ) ] );
     ulong consumed, dc_in, dc_out, size_bytes;
     if( FD_UNLIKELY( !strcmp( phase, "incr" ) ) ) {
       consumed   = ULONG_MAX;
-      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ] );
+      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, PARSE_PROGRESS_BYTES_INCREMENTAL ) ] );
       dc_in      = 0UL;
       dc_out     = 0UL;
       for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
-        dc_in  += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ];
-        dc_out += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        dc_in  += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, COMPRESSED_PROGRESS_BYTES_INCREMENTAL ) ];
+        dc_out += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_INCREMENTAL ) ];
       }
-      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ];
+      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_EXPECTED_BYTES_INCREMENTAL ) ];
     } else {
       consumed   = ULONG_MAX;
-      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ] );
+      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) consumed = fd_ulong_min( consumed, snapin_all_metrics[ i ][ MIDX( GAUGE, SNAPIN, PARSE_PROGRESS_BYTES_FULL ) ] );
       dc_in      = 0UL;
       dc_out     = 0UL;
       for( ulong i=0UL; i<snapdc_tile_cnt; i++ ) {
-        dc_in  += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ];
-        dc_out += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        dc_in  += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, COMPRESSED_PROGRESS_BYTES_FULL ) ];
+        dc_out += snapdc_metrics[ i ][ MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_FULL ) ];
       }
-      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
+      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_EXPECTED_BYTES_FULL ) ];
     }
     double done_comp = dc_out ? (double)dc_in*( (double)consumed/(double)dc_out ) : 0.0;
     double progress  = size_bytes ? clamp_pct( 100.0*done_comp/(double)size_bytes ) : 0.0;

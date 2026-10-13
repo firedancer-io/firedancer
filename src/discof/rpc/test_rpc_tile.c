@@ -624,8 +624,8 @@ main( int     argc,
   FD_TEST( ctx->ws_subscribers_slot_cnt==1UL );
   FD_TEST( ctx->ws_subscribers_slot[ 0 ]==0UL );
   metrics_write( ctx );
-  FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_SLOT )==1UL );
-  FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_VOTE )==0UL );
+  FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_SLOT )==1UL );
+  FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_VOTE )==0UL );
   /* an unimplemented method over ws is -32601, not a closed socket */
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"getBlockTime\",\"params\":[1]}",
@@ -682,8 +682,8 @@ main( int     argc,
   FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
   FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
   metrics_write( ctx );
-  FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_SLOT )==0UL );
-  FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_VOTE )==1UL );
+  FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_SLOT )==0UL );
+  FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_VOTE )==1UL );
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"voteSubscribe\"}",
       "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":2}"

@@ -18,7 +18,7 @@
 struct fd_gui_gossip_bw_rec {
   uint   ip4;  /* net order */
   ushort port; /* net order */
-  ushort tag;  /* in [0,FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT) */
+  ushort tag;  /* in [0,FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT) */
   ulong  sz;   /* sum of gossip payload bytes */
 };
 
@@ -33,7 +33,7 @@ typedef struct fd_gui_gossip_bw_rec fd_gui_gossip_bw_rec_t;
 #define FD_GUI_GOSSIP_BW_MAGIC (0xf17eda2c37b0b500UL) /* firedancer gui bw ver 0 */
 
 /* Pending byte counts, keyed by ip4 | port<<32 | tag<<48 (tag is
-   below FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT, so no key is ULONG_MAX). */
+   below FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT, so no key is ULONG_MAX). */
 
 struct fd_gui_gossip_bw_ele {
   ulong key;
@@ -101,7 +101,7 @@ fd_gui_gossip_bw_add( fd_gui_gossip_bw_t * bw,
                       long                 now ) {
   if( FD_UNLIKELY( payload_sz<sizeof(uint) ) ) return 0;
   uint tag = FD_LOAD( uint, payload );
-  if( FD_UNLIKELY( tag>=FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ) ) return 0;
+  if( FD_UNLIKELY( tag>=FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ) ) return 0;
 
   ulong key = (ulong)ip4 | ((ulong)port<<32) | ((ulong)tag<<48);
   fd_gui_gossip_bw_ele_t * ele = fd_gui_gossip_bw_map_query( bw->map, key, NULL );

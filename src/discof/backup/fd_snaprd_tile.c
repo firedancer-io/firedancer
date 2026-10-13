@@ -313,10 +313,10 @@ after_credit( fd_snaprd_t *       ctx,
 
 static void
 metrics_write( fd_snaprd_t * ctx ) {
-  FD_MCNT_SET  ( SNAPRD, BYTES_READ,                  ctx->metrics.bytes_read             );
+  FD_MCNT_SET  ( SNAPRD, DISK_READ_BYTES,             ctx->metrics.bytes_read             );
   FD_MGAUGE_SET( SNAPRD, EXPORT_PROGRESS_BYTES,       ctx->metrics.export_progress_bytes );
-  FD_MGAUGE_SET( SNAPRD, EXPORT_TOTAL_BYTES,          ctx->metrics.export_total_bytes    );
-  FD_MCNT_SET  ( SNAPRD, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks      );
+  FD_MGAUGE_SET( SNAPRD, EXPORT_EXPECTED_BYTES,       ctx->metrics.export_total_bytes    );
+  FD_MCNT_SET  ( SNAPRD, IO_BLOCKED_DURATION_NANOS,   ctx->metrics.io_blocked_ticks      );
 }
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snaprd_t

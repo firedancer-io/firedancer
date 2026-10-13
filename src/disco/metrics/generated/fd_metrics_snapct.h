@@ -7,67 +7,55 @@
 #include "fd_metrics_enums.h"
 
 enum {
-  FD_METRICS_GAUGE_SNAPCT_STATE_OFF = FD_METRICS_TILE_OFF,
-  FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_READ_OFF,
-  FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_WRITTEN_OFF,
-  FD_METRICS_GAUGE_SNAPCT_FULL_SIZE_BYTES_OFF,
-  FD_METRICS_GAUGE_SNAPCT_FULL_RETRY_OFF,
-  FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_READ_OFF,
-  FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_WRITTEN_OFF,
-  FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_SIZE_BYTES_OFF,
-  FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_RETRY_OFF,
-  FD_METRICS_GAUGE_SNAPCT_PREDICTED_SLOT_OFF,
+  FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_OFF = FD_METRICS_TILE_OFF,
+  FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_OFF,
+  FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_FULL_OFF = FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_OFF,
+  FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_INCREMENTAL_OFF,
+  FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_OFF,
+  FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_FULL_OFF = FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_OFF,
+  FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_INCREMENTAL_OFF,
+  FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_OFF,
+  FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_FULL_OFF = FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_OFF,
+  FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_INCREMENTAL_OFF,
+  FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_OFF,
+  FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_FULL_OFF = FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_OFF,
+  FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_INCREMENTAL_OFF,
+  FD_METRICS_GAUGE_SNAPCT_PREDICTED_INCREMENTAL_SLOT_OFF,
 };
 
-#define FD_METRICS_GAUGE_SNAPCT_STATE_NAME "snapct_state"
-#define FD_METRICS_GAUGE_SNAPCT_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_STATE_DESC "0=init, 1=waiting for peers, 2=waiting for peers (incremental), 3=collecting peers, 4=collecting peers (incremental), 5=reading full file, 6=flushing full file fini, 7=flushing full file done, 8=flushing full file reset, 9=reading incremental file, 10=flushing incremental file fini, 11=flushing incremental file done, 12=flushing incremental file reset, 13=reading full http, 14=flushing full http fini, 15=flushing full http done, 16=flushing full http reset, 17=reading incremental http, 18=flushing incremental http fini, 19=flushing incremental http done, 20=flushing incremental http reset, 21=shutdown"
-#define FD_METRICS_GAUGE_SNAPCT_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_NAME "snapct_load_state"
+#define FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_DESC "Snapshot load controller state: 0=init (Initializing), 1=waiting_for_peers, 2=waiting_for_peers_incremental (Waiting for peers (incremental)), 3=collecting_peers, 4=collecting_peers_incremental (Collecting peers (incremental)), 5=reading_full_file (Reading full snapshot file), 6=flushing_full_file_fini (Full file read, draining downstream), 7=flushing_full_file_done (Full file loaded, draining downstream), 8=flushing_full_file_reset (Full file load aborted, resetting downstream), 9=reading_incremental_file (Reading incremental snapshot file), 10=flushing_incremental_file_fini (Incremental file read, draining downstream), 11=flushing_incremental_file_done (Incremental file loaded, draining downstream), 12=flushing_incremental_file_reset (Incremental file load aborted, resetting downstream), 13=reading_full_http (Downloading full snapshot), 14=flushing_full_http_fini (Full download read, draining downstream), 15=flushing_full_http_done (Full download loaded, draining downstream), 16=flushing_full_http_reset (Full download aborted, resetting downstream), 17=reading_incremental_http (Downloading incremental snapshot), 18=flushing_incremental_http_fini (Incremental download read, draining downstream), 19=flushing_incremental_http_done (Incremental download loaded, draining downstream), 20=flushing_incremental_http_reset (Incremental download aborted, resetting downstream), 21=shutdown (Snapshot load complete)"
+#define FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_READ_NAME "snapct_full_bytes_read"
-#define FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_READ_DESC "Bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_NAME "snapct_read_progress_bytes"
+#define FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_DESC "Snapshot file bytes read (download or local file) in the current attempt, by type; resets on retry"
+#define FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_CNT  (2UL)
 
-#define FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_WRITTEN_NAME "snapct_full_bytes_written"
-#define FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_WRITTEN_DESC "Bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPCT_FULL_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_NAME "snapct_read_expected_bytes"
+#define FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_DESC "Size of each snapshot file being loaded; may change if the load restarts"
+#define FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPCT_READ_EXPECTED_BYTES_CNT  (2UL)
 
-#define FD_METRICS_GAUGE_SNAPCT_FULL_SIZE_BYTES_NAME "snapct_full_size_bytes"
-#define FD_METRICS_GAUGE_SNAPCT_FULL_SIZE_BYTES_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_FULL_SIZE_BYTES_DESC "Total size of the full snapshot file. Might change if snapshot load is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPCT_FULL_SIZE_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_NAME "snapct_save_progress_bytes"
+#define FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_DESC "Bytes of each downloaded snapshot saved to the snapshot directory so far; resets if the load restarts"
+#define FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPCT_SAVE_PROGRESS_BYTES_CNT  (2UL)
 
-#define FD_METRICS_GAUGE_SNAPCT_FULL_RETRY_NAME "snapct_full_retry"
-#define FD_METRICS_GAUGE_SNAPCT_FULL_RETRY_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_FULL_RETRY_DESC "Retries of the full snapshot download so far because the peer was too slow"
-#define FD_METRICS_GAUGE_SNAPCT_FULL_RETRY_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_NAME "snapct_load_retried"
+#define FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_DESC "Snapshot downloads retried, by snapshot type"
+#define FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_COUNTER_SNAPCT_LOAD_RETRIED_CNT  (2UL)
 
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_READ_NAME "snapct_incremental_bytes_read"
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_READ_DESC "Bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
-
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_WRITTEN_NAME "snapct_incremental_bytes_written"
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_WRITTEN_DESC "Bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
-
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_SIZE_BYTES_NAME "snapct_incremental_size_bytes"
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_SIZE_BYTES_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_SIZE_BYTES_DESC "Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_SIZE_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
-
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_RETRY_NAME "snapct_incremental_retry"
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_RETRY_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_RETRY_DESC "Retries of the incremental snapshot download so far because the peer was too slow"
-#define FD_METRICS_GAUGE_SNAPCT_INCREMENTAL_RETRY_CVT  (FD_METRICS_CONVERTER_NONE)
-
-#define FD_METRICS_GAUGE_SNAPCT_PREDICTED_SLOT_NAME "snapct_predicted_slot"
-#define FD_METRICS_GAUGE_SNAPCT_PREDICTED_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPCT_PREDICTED_SLOT_DESC "Predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPCT_PREDICTED_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPCT_PREDICTED_INCREMENTAL_SLOT_NAME "snapct_predicted_incremental_slot"
+#define FD_METRICS_GAUGE_SNAPCT_PREDICTED_INCREMENTAL_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPCT_PREDICTED_INCREMENTAL_SLOT_DESC "Slot of the incremental snapshot replay is predicted to start from, 0 if none chosen; may change if the load restarts"
+#define FD_METRICS_GAUGE_SNAPCT_PREDICTED_INCREMENTAL_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_SNAPCT_TOTAL (10UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPCT[FD_METRICS_SNAPCT_TOTAL];

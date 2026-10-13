@@ -42,7 +42,7 @@ typedef struct metrics_src metrics_src_t;
 struct metrics_snap {
   long  ts;
 
-  ulong req[ FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_CNT ];
+  ulong req[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT ];
   ulong pkt_tx;
   ulong rerequest;
   ulong meta_failed;   /* shred_block_id + fec_root + parent_fec_count verify failures */
@@ -153,32 +153,32 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
   memset( s, 0, sizeof(*s) );
   s->ts = fd_log_wallclock();
 
-  for( ulong i=0UL; i<FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_CNT; i++ ) s->req[ i ] = r[ MIDX( COUNTER, ROTOR, REQUEST_TX )+i ];
+  for( ulong i=0UL; i<FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT; i++ ) s->req[ i ] = r[ MIDX( COUNTER, ROTOR, REQUEST_TX )+i ];
   s->pkt_tx      = r[ MIDX( COUNTER, ROTOR, PKT_TX ) ];
   /* The rotor tile does not produce SHRED_REREQUESTED. */
   s->rerequest   = 0UL;
-  s->shred_old   = r[ MIDX( COUNTER, ROTOR, SHRED_OLD ) ];
-  s->meta_failed = r[ MIDX( COUNTER, ROTOR, SHRED_RX_UNMATCHED ) ] + r[ MIDX( COUNTER, ROTOR, FEC_SET_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_AND_FEC_SET_COUNT_FAILED ) ];
+  s->shred_old   = r[ MIDX( COUNTER, ROTOR, SHRED_OLD_IGNORED ) ];
+  s->meta_failed = r[ MIDX( COUNTER, ROTOR, SHRED_RX_UNMATCHED ) ] + r[ MIDX( COUNTER, ROTOR, FEC_SET_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_FEC_SET_COUNT_FAILED ) ];
   for( ulong k=0UL; k<FD_HISTF_BUCKET_CNT; k++ ) s->resp_cnt += r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+k ];
   s->resp_sum_ns = r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+FD_HISTF_BUCKET_CNT ];
 
-  s->inflight              = r[ MIDX( GAUGE, ROTOR, PENDING_CNT ) ];
-  s->slot_current          = r[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_RECEIVED ) ];
-  s->slot_highest_repaired = r[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_DELIVERED ) ];
-  /* Nor SLOT_LAST_REQUESTED, ORPHAN_LAST_REQUESTED, PEER_REQUESTED. */
+  s->inflight              = r[ MIDX( GAUGE, ROTOR, REQUEST_IN_FLIGHT ) ];
+  s->slot_current          = r[ MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT ) ];
+  s->slot_highest_repaired = r[ MIDX( GAUGE, ROTOR, HIGHEST_DELIVERED_SLOT ) ];
+  /* Nor SLOT_LAST_REQUESTED, ORPHAN_LAST_REQUESTED, PEER_USED. */
   s->slot_last_requested   = 0UL;
   s->orphan_last_requested = 0UL;
   s->peers                 = 0UL;
 
   for( ulong i=0UL; i<src->shred_cnt; i++ ) {
     volatile ulong * m = src->shred[ i ];
-    s->shred_repair_rx  += m[ MIDX( COUNTER, SHRED, SHRED_REPAIR_RX ) ];
-    s->shred_turbine_rx += m[ MIDX( COUNTER, SHRED, SHRED_TURBINE_RX ) ];
-    s->shred_okay       += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_OKAY ) ];
-    s->shred_dup        += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_DUPLICATE ) ];
-    s->shred_bad_slot   += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_BAD_SLOT ) ];
-    s->shred_ignored    += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_IGNORED ) ];
-    s->shred_completes  += m[ MIDX( COUNTER, SHRED, SHRED_PROCESSED_COMPLETES ) ];
+    s->shred_repair_rx  += m[ MIDX( COUNTER, SHRED, REPAIR_RX ) ];
+    s->shred_turbine_rx += m[ MIDX( COUNTER, SHRED, TURBINE_RX ) ];
+    s->shred_okay       += m[ MIDX( COUNTER, SHRED, PROCESSED_ACCEPTED ) ];
+    s->shred_dup        += m[ MIDX( COUNTER, SHRED, PROCESSED_DUPLICATE ) ];
+    s->shred_bad_slot   += m[ MIDX( COUNTER, SHRED, PROCESSED_LEADER_UNKNOWN ) ];
+    s->shred_ignored    += m[ MIDX( COUNTER, SHRED, PROCESSED_IGNORED ) ];
+    s->shred_completes  += m[ MIDX( COUNTER, SHRED, PROCESSED_COMPLETED ) ];
   }
 
   metrics_snap_regime( src->rotor, &s->regime[ 0 ].total, &s->regime[ 0 ].busy, &s->regime[ 0 ].backp );
@@ -194,18 +194,16 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
     case 0: /* xdp */
       s->net_rx      += m[ MIDX( COUNTER, NET, PKT_RX ) ];
       s->net_tx      += m[ MIDX( COUNTER, NET, PKT_TX_SUBMITTED ) ];
-      s->net_rx_drop += m[ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL ) ] + m[ MIDX( COUNTER, NET, PKT_RX_BACKPRESSURE ) ]
-                      + m[ MIDX( COUNTER, NET, XDP_RX_RING_FULL ) ]      + m[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED ) ]
-                      + m[ MIDX( COUNTER, NET, PKT_RX_MALFORMED ) ]      + m[ MIDX( COUNTER, NET, PKT_RX_ROUTE_FAIL ) ];
-      s->net_tx_drop += m[ MIDX( COUNTER, NET, PKT_TX_RING_FULL ) ]      + m[ MIDX( COUNTER, NET, PKT_TX_NO_NEIGHBOR ) ]
-                      + m[ MIDX( COUNTER, NET, PKT_TX_ROUTE_FAIL ) ]      + m[ MIDX( COUNTER, NET, PKT_TX_INVALID ) ];
+      s->net_rx_drop += m[ MIDX( COUNTER, NET, RX_FILL_RING_STALLED ) ]
+                      + m[ MIDX( COUNTER, NET, XDP_RX_RING_FULL_DROPPED ) ]      + m[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED ) ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) s->net_rx_drop += m[ MIDX( COUNTER, NET, PKT_RX_DROPPED )+r ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT; r++ ) s->net_tx_drop += m[ MIDX( COUNTER, NET, PKT_TX_DROPPED )+r ];
       break;
     case 1: /* mlx5 */
       s->net_rx      += m[ MIDX( COUNTER, MLX5, PKT_RX ) ];
       s->net_tx      += m[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED ) ];
-      s->net_rx_drop += m[ MIDX( COUNTER, MLX5, PKT_RX_MALFORMED ) ]     + m[ MIDX( COUNTER, MLX5, PKT_RX_ROUTE_FAIL ) ];
-      s->net_tx_drop += m[ MIDX( COUNTER, MLX5, PKT_TX_NO_BUFFER ) ]     + m[ MIDX( COUNTER, MLX5, PKT_TX_NO_NEIGHBOR ) ]
-                      + m[ MIDX( COUNTER, MLX5, PKT_TX_ROUTE_FAIL ) ]     + m[ MIDX( COUNTER, MLX5, PKT_TX_INVALID ) ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) s->net_rx_drop += m[ MIDX( COUNTER, MLX5, PKT_RX_DROPPED )+r ];
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT; r++ ) s->net_tx_drop += m[ MIDX( COUNTER, MLX5, PKT_TX_DROPPED )+r ];
       break;
     default: /* sock */
       s->net_rx      += m[ MIDX( COUNTER, SOCK, PKT_RX ) ];
@@ -259,8 +257,8 @@ metrics_snap_print( metrics_snap_t const * s,
      hide what the tiles are doing right now. */
 
   ulong req_tot = 0UL;
-  for( ulong i=0UL; i<FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_CNT; i++ ) {
-    if( i==FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_PONG_IDX ) continue;
+  for( ulong i=0UL; i<FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT; i++ ) {
+    if( i==FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PONG_IDX ) continue;
     req_tot += s->req[ i ];
   }
   double resp_pct  = req_tot ? 100.0*(double)s->resp_cnt /(double)req_tot : 0.0;
@@ -286,14 +284,14 @@ metrics_snap_print( metrics_snap_t const * s,
   printf( "\n\n" );
 
   printf( "  requests     " );
-  col( "window",     Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_WINDOW_INDEX_IDX               ) );
-  col( "highest",    Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_HIGHEST_WINDOW_INDEX_IDX       ) );
-  col( "orphan",     Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_ORPHAN_IDX                     ) );
-  col( "parent_fec", Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_PARENT_AND_FEC_SET_COUNT_IDX   ) );
+  col( "window",     Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_IDX              ) );
+  col( "highest",    Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_HIGHEST_WINDOW_INDEX_IDX      ) );
+  col( "orphan",     Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_ORPHAN_IDX                    ) );
+  col( "parent_fec", Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX      ) );
   printf( "\n               " );
-  col( "fec_root",   Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX               ) );
-  col( "shred_bid",  Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX  ) );
-  col( "pong",       Q( FD_METRICS_ENUM_ROTOR_REQUEST_TYPE_V_PONG_IDX                  ) );
+  col( "fec_root",   Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX              ) );
+  col( "shred_bid",  Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ) );
+  col( "pong",       Q( FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PONG_IDX                  ) );
   printf( "\n               " );
   col( "total",      (double)req_tot );
   col_pct( "rerequest", T( rerequest ), rereq_pct ); printf( "   " );

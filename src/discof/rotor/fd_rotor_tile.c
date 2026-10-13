@@ -243,10 +243,7 @@ struct fd_rotor_tile {
     ulong      slot_current;
     ulong      fec_delivered;
     ulong      shred_old;
-    ulong      shred_rx;
-    ulong      shred_rx_block_id;
-    ulong      shred_rx_positional;
-    ulong      shred_rx_unmatched;
+    ulong      shred_rx[ FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_CNT ];
     ulong      meta_rx;
     ulong      meta_malformed;
     ulong      meta_unsolicited;
@@ -524,8 +521,7 @@ handle_shred( fd_rotor_tile_t * ctx,
       if( FD_LIKELY( fd_rnonce_ss_compute( ctx->rnonce_ss, normal, slot, shred->idx, pending->ts )!=msg->rnonce ) ) continue;
       fd_rotor_strat_request_done( ctx->strat, &pending->peer, now-pending->ts );
       fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-pending->ts ) );
-      ctx->metrics->shred_rx_block_id   += (ulong)( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
-      ctx->metrics->shred_rx_positional += (ulong)( pending->tag!=FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
+      ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
       fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
       while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
       if( FD_LIKELY( blk && ( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX || pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID ) ) ) {
@@ -537,8 +533,7 @@ handle_shred( fd_rotor_tile_t * ctx,
       pending_pool_ele_release   ( ctx->pending_pool,  pending );
       break;
     }
-    ctx->metrics->shred_rx           += (ulong)reply;
-    ctx->metrics->shred_rx_unmatched += (ulong)( reply && !pending );
+    ctx->metrics->shred_rx[ FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_UNMATCHED_IDX ] += (ulong)( reply && !pending );
 
     if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->rotor->root ) ) return; /* parent is the slot itself, or below the root */
 
@@ -867,47 +862,44 @@ metrics_write( fd_rotor_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, REQUEST_TX_WINDOW_INDEX,              ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_WINDOW_INDEX ]              );
   FD_MCNT_SET( ROTOR, REQUEST_TX_HIGHEST_WINDOW_INDEX,      ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX ]      );
   FD_MCNT_SET( ROTOR, REQUEST_TX_ORPHAN,                    ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_ORPHAN ]                    );
-  FD_MCNT_SET( ROTOR, REQUEST_TX_PARENT_AND_FEC_SET_COUNT,  ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT ]  );
+  FD_MCNT_SET( ROTOR, REQUEST_TX_PARENT_FEC_SET_COUNT,      ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT ]  );
   FD_MCNT_SET( ROTOR, REQUEST_TX_FEC_SET_ROOT,              ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_FEC_SET_ROOT ]              );
   FD_MCNT_SET( ROTOR, REQUEST_TX_WINDOW_INDEX_FOR_BLOCK_ID, ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID ] );
   FD_MCNT_SET( ROTOR, REQUEST_TX_PONG,                      ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_PONG ]                      );
-  FD_MCNT_SET( ROTOR, PING_TX,                              ctx->metrics->ping_tx                                                    );
+  FD_MCNT_SET( ROTOR, PING_PROBE_TX,                        ctx->metrics->ping_tx                                                    );
 
-  FD_MGAUGE_SET( ROTOR, SLOT_HIGHEST_DELIVERED, ctx->metrics->slot_highest_repaired                );
-  FD_MGAUGE_SET( ROTOR, SLOT_HIGHEST_RECEIVED,  ctx->metrics->slot_current                         );
-  FD_MGAUGE_SET( ROTOR, SLOT_TURBINE_FIRST,     ctx->turbine_slot0                                 );
-  FD_MGAUGE_SET( ROTOR, BLK_TREAP_CNT,          queued                                             );
-  FD_MGAUGE_SET( ROTOR, PENDING_CNT,            pending_pool_used( ctx->pending_pool )             );
-  FD_MGAUGE_SET( ROTOR, TIMEOUT_CNT,            waiting                                            );
+  FD_MGAUGE_SET( ROTOR, HIGHEST_DELIVERED_SLOT, ctx->metrics->slot_highest_repaired                );
+  FD_MGAUGE_SET( ROTOR, HIGHEST_RECEIVED_SLOT,  ctx->metrics->slot_current                         );
+  FD_MGAUGE_SET( ROTOR, FIRST_TURBINE_SLOT,     ctx->turbine_slot0                                 );
+  FD_MGAUGE_SET( ROTOR, BLOCK_PENDING,          queued                                             );
+  FD_MGAUGE_SET( ROTOR, REQUEST_IN_FLIGHT,      pending_pool_used( ctx->pending_pool )             );
+  FD_MGAUGE_SET( ROTOR, TIMEOUT_PENDING,        waiting                                            );
   FD_MGAUGE_SET( ROTOR, EAGER_DELAY_NANOS,      (ulong)fd_rotor_strat_eager_ns( ctx->strat, NULL ) );
-  FD_MGAUGE_SET( ROTOR, SIGN_CNT,               sign_pool_used( ctx->sign_pool )                   );
+  FD_MGAUGE_SET( ROTOR, SIGN_REQUEST_PENDING,   sign_pool_used( ctx->sign_pool )                   );
 
-  FD_MCNT_SET( ROTOR, FEC_DELIVERED,     ctx->metrics->fec_delivered );
-  FD_MCNT_SET( ROTOR, TIMEOUT_CANCELLED, ctx->metrics->req_cancelled );
-  FD_MCNT_SET( ROTOR, TIMEOUT_NO_PEER,   ctx->metrics->req_no_peer   );
-  FD_MCNT_SET( ROTOR, REQUEST_HEDGED,    ctx->metrics->req_hedged    );
-  FD_MCNT_SET( ROTOR, REQUEST_EXPIRED,   ctx->metrics->req_expired   );
+  FD_MCNT_SET( ROTOR, FEC_DELIVERED,            ctx->metrics->fec_delivered );
+  FD_MCNT_SET( ROTOR, TIMEOUT_CANCELLED,        ctx->metrics->req_cancelled );
+  FD_MCNT_SET( ROTOR, TIMEOUT_NO_PEER_DEFERRED, ctx->metrics->req_no_peer   );
+  FD_MCNT_SET( ROTOR, REQUEST_HEDGED,           ctx->metrics->req_hedged    );
+  FD_MCNT_SET( ROTOR, REQUEST_EXPIRED,          ctx->metrics->req_expired   );
 
-  FD_MCNT_SET( ROTOR, SHRED_OLD,           ctx->metrics->shred_old           );
-  FD_MCNT_SET( ROTOR, SHRED_RX,            ctx->metrics->shred_rx            );
-  FD_MCNT_SET( ROTOR, SHRED_RX_FOR_BLOCK_ID,   ctx->metrics->shred_rx_block_id   );
-  FD_MCNT_SET( ROTOR, SHRED_RX_POSITIONAL, ctx->metrics->shred_rx_positional );
-  FD_MCNT_SET( ROTOR, SHRED_RX_UNMATCHED,  ctx->metrics->shred_rx_unmatched  );
+  FD_MCNT_SET      ( ROTOR, SHRED_OLD_IGNORED, ctx->metrics->shred_old );
+  FD_MCNT_ENUM_COPY( ROTOR, SHRED_RX,          ctx->metrics->shred_rx  );
 
-  FD_MCNT_SET( ROTOR, META_RX,                 ctx->metrics->meta_rx                 );
-  FD_MCNT_SET( ROTOR, META_MALFORMED,          ctx->metrics->meta_malformed          );
-  FD_MCNT_SET( ROTOR, META_UNSOLICITED,        ctx->metrics->meta_unsolicited        );
-  FD_MCNT_SET( ROTOR, PARENT_AND_FEC_SET_COUNT_OK,     ctx->metrics->parent_fec_count_ok     );
-  FD_MCNT_SET( ROTOR, PARENT_AND_FEC_SET_COUNT_FAILED, ctx->metrics->parent_fec_count_failed );
-  FD_MCNT_SET( ROTOR, FEC_SET_ROOT_OK,             ctx->metrics->fec_root_ok             );
+  FD_MCNT_SET( ROTOR, META_RX,                          ctx->metrics->meta_rx                 );
+  FD_MCNT_SET( ROTOR, META_MALFORMED_REJECTED,          ctx->metrics->meta_malformed          );
+  FD_MCNT_SET( ROTOR, META_UNSOLICITED_REJECTED,        ctx->metrics->meta_unsolicited        );
+  FD_MCNT_SET( ROTOR, PARENT_FEC_SET_COUNT_ACCEPTED,     ctx->metrics->parent_fec_count_ok     );
+  FD_MCNT_SET( ROTOR, PARENT_FEC_SET_COUNT_FAILED,       ctx->metrics->parent_fec_count_failed );
+  FD_MCNT_SET( ROTOR, FEC_SET_ROOT_ACCEPTED,       ctx->metrics->fec_root_ok             );
   FD_MCNT_SET( ROTOR, FEC_SET_ROOT_FAILED,         ctx->metrics->fec_root_failed         );
 
-  FD_MCNT_SET( ROTOR, REPLAY_ROOT_ADVANCED, ctx->metrics->replay_root_advanced );
-  FD_MCNT_SET( ROTOR, REPLAY_MISSING_FEC,   ctx->metrics->replay_missing_fec   );
+  FD_MCNT_SET( ROTOR, REPLAY_ROOT_ADVANCED_RX, ctx->metrics->replay_root_advanced );
+  FD_MCNT_SET( ROTOR, REPLAY_MISSING_FEC_RX,   ctx->metrics->replay_missing_fec   );
 
-  FD_MCNT_SET( ROTOR, PING_MALFORMED,        ctx->metrics->ping_malformed        );
-  FD_MCNT_SET( ROTOR, PING_UNKNOWN_PEER,     ctx->metrics->ping_unknown_peer     );
-  FD_MCNT_SET( ROTOR, PING_SIGNATURE_FAILED, ctx->metrics->ping_signature_failed );
+  FD_MCNT_SET( ROTOR, PING_REJECTED_MALFORMED,        ctx->metrics->ping_malformed        );
+  FD_MCNT_SET( ROTOR, PING_REJECTED_UNKNOWN_PEER,     ctx->metrics->ping_unknown_peer     );
+  FD_MCNT_SET( ROTOR, PING_REJECTED_SIGNATURE_FAILED, ctx->metrics->ping_signature_failed );
 
   FD_MHIST_COPY( ROTOR, RESPONSE_LATENCY_NANOS, ctx->metrics->response_latency );
   FD_MHIST_COPY( ROTOR, RETRY_DELAY_NANOS,      ctx->metrics->retry_delay      );

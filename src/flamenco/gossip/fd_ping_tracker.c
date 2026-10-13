@@ -354,22 +354,22 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           uchar const *       pong_token,
                           long                now ) {
   if( FD_UNLIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) {
-    ping_tracker->metrics->pong_result[ 0UL ]++;
+    ping_tracker->metrics->pong_result[ FD_METRICS_ENUM_PONG_RESULT_V_STAKED_IDX ]++;
     return;
   }
 
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
   if( FD_UNLIKELY( !peer ) ) {
-    ping_tracker->metrics->pong_result[ 2UL ]++;
+    ping_tracker->metrics->pong_result[ FD_METRICS_ENUM_PONG_RESULT_V_UNTRACKED_IDX ]++;
     return;
   }
 
   if( FD_UNLIKELY( peer_address.addr!=peer->address.addr || peer_address.port!=peer->address.port ) ) {
-    ping_tracker->metrics->pong_result[ 3UL ]++;
+    ping_tracker->metrics->pong_result[ FD_METRICS_ENUM_PONG_RESULT_V_ADDRESS_MISMATCH_IDX ]++;
     return;
   }
   if( FD_UNLIKELY( memcmp( pong_token, peer->expected_pong_hash, 32UL ) ) ) {
-    ping_tracker->metrics->pong_result[ 4UL ]++;
+    ping_tracker->metrics->pong_result[ FD_METRICS_ENUM_PONG_RESULT_V_TOKEN_MISMATCH_IDX ]++;
     return;
   }
 
@@ -389,7 +389,7 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
   peer->state = FD_PING_TRACKER_STATE_VALID;
   ping_tracker->metrics->valid_cnt++;
   waiting_list_ele_push_tail( ping_tracker->waiting, peer, ping_tracker->pool );
-  ping_tracker->metrics->pong_result[ 5UL ]++;
+  ping_tracker->metrics->pong_result[ FD_METRICS_ENUM_PONG_RESULT_V_ACCEPTED_IDX ]++;
 }
 
 int

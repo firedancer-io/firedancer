@@ -36,6 +36,12 @@
 /* The largest event, compressed in the worst case, has to fit the
    gRPC send buffer. */
 FD_STATIC_ASSERT( FD_EVENT_CLIENT_FITS( FD_EVENT_BLOCK_COMPLETED_BUF_MAX, GRPC_BUF_MAX ), event_fits_grpc_tx_buf );
+
+/* Raw state values exported by the metrics (states= enums) */
+FD_STATIC_ASSERT( FD_EVENT_CLIENT_STATE_DISCONNECTED==FD_METRICS_ENUM_EVENT_CONN_STATE_V_DISCONNECTED_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_EVENT_CLIENT_STATE_CONNECTING==FD_METRICS_ENUM_EVENT_CONN_STATE_V_CONNECTING_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_EVENT_CLIENT_STATE_AUTHENTICATING==FD_METRICS_ENUM_EVENT_CONN_STATE_V_AUTHENTICATING_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_EVENT_CLIENT_STATE_CONNECTED==FD_METRICS_ENUM_EVENT_CONN_STATE_V_CONNECTED_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_EVENT_CLIENT_FITS( FD_EVENT_BOOT_BUF_MAX, GRPC_BUF_MAX ), boot_event_fits_grpc_tx_buf );
 
 /* Sized so the event workspace (circq + ~144 MiB client/ctx) fits in one
@@ -163,23 +169,23 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_event_tile_t * ctx ) {
-  FD_MGAUGE_SET( EVENT, QUEUE_DEPTH, ctx->circq->cnt );
-  FD_MGAUGE_SET( EVENT, QUEUE_UNSENT, fd_circq_unsent_cnt( ctx->circq ) );
-  FD_MCNT_SET( EVENT, QUEUE_DROPPED, ctx->circq->metrics.drop_cnt );
-  FD_MGAUGE_SET( EVENT, QUEUE_BYTES_USED, fd_circq_bytes_used( ctx->circq ) );
-  FD_MGAUGE_SET( EVENT, QUEUE_BYTES_CAPACITY, ctx->circq->size );
+  FD_MGAUGE_SET( EVENT, QUEUE_USED, ctx->circq->cnt );
+  FD_MGAUGE_SET( EVENT, QUEUE_UNSENT_COUNT, fd_circq_unsent_cnt( ctx->circq ) );
+  FD_MCNT_SET( EVENT, QUEUE_EVICTED, ctx->circq->metrics.drop_cnt );
+  FD_MGAUGE_SET( EVENT, QUEUE_USED_BYTES, fd_circq_bytes_used( ctx->circq ) );
+  FD_MGAUGE_SET( EVENT, QUEUE_CAPACITY_BYTES, ctx->circq->size );
 
   fd_event_client_metrics_t const * metrics = fd_event_client_metrics( ctx->client );
-  FD_MCNT_SET( EVENT, SENT,          metrics->events_sent );
-  FD_MCNT_SET( EVENT, ACKED,         metrics->events_acked );
-  FD_MGAUGE_SET( EVENT, LAST_ACKED_ID, metrics->last_acked_id );
-  FD_MCNT_SET( EVENT, BYTES_WRITTEN,       metrics->bytes_written );
-  FD_MCNT_SET( EVENT, BYTES_READ,          metrics->bytes_read );
-  FD_MCNT_SET( EVENT, AUTH_FAILED,         metrics->auth_fail_cnt );
-  FD_MCNT_SET( EVENT, INVALID_MESSAGE,     metrics->invalid_msg_cnt );
-  FD_MCNT_SET( EVENT, CONN_ATTEMPT,        metrics->connect_attempt_cnt );
-  FD_MCNT_SET( EVENT, HANDSHAKE_TIMEOUT,   metrics->handshake_timeout_cnt );
-  FD_MCNT_SET( EVENT, CREDIT_STALL,        metrics->credit_stall_cnt );
+  FD_MCNT_SET( EVENT, EVENT_TX,      metrics->events_sent );
+  FD_MCNT_SET( EVENT, ACK_RX,        metrics->events_acked );
+  FD_MGAUGE_SET( EVENT, LAST_ACKED_NONCE, metrics->last_acked_id );
+  FD_MCNT_SET( EVENT, STREAM_TX_BYTES,               metrics->bytes_written );
+  FD_MCNT_SET( EVENT, STREAM_RX_BYTES,               metrics->bytes_read );
+  FD_MCNT_SET( EVENT, AUTH_FAILED,                   metrics->auth_fail_cnt );
+  FD_MCNT_SET( EVENT, RESPONSE_MALFORMED_REJECTED,   metrics->invalid_msg_cnt );
+  FD_MCNT_SET( EVENT, CONN_ATTEMPTED,                metrics->connect_attempt_cnt );
+  FD_MCNT_SET( EVENT, HANDSHAKE_TIMED_OUT,           metrics->handshake_timeout_cnt );
+  FD_MCNT_SET( EVENT, CREDIT_STALLED,                metrics->credit_stall_cnt );
 
   FD_MGAUGE_SET( EVENT, CONN_STATE,        fd_event_client_state( ctx->client ) );
 }

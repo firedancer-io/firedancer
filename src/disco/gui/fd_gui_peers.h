@@ -157,8 +157,8 @@ struct fd_gui_peers_row {
   fd_gossip_contact_info_t contact_info;
   char name[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
 
-  fd_gui_peers_metric_rate_t gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  fd_gui_peers_metric_rate_t gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  fd_gui_peers_metric_rate_t gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  fd_gui_peers_metric_rate_t gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
   fd_gui_peers_metric_rate_t gossvf_rx_sum; /* sum of gossvf_rx */
   fd_gui_peers_metric_rate_t gossip_tx_sum; /* sum of gossip_tx */
 
@@ -249,17 +249,17 @@ struct fd_gui_peers_gossip_stats {
   ulong storage_capacity;
   ulong storage_expired_cnt;
   ulong storage_evicted_cnt;
-  ulong storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong storage_cnt_tx    [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong storage_bytes_tx  [ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+  ulong storage_active_cnt[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
+  ulong storage_cnt_tx    [ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
+  ulong storage_bytes_tx  [ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
   ulong messages_push_rx_cnt;
   ulong messages_push_tx_cnt;
   ulong messages_pull_response_rx_cnt;
   ulong messages_pull_response_tx_cnt;
-  ulong messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
-  ulong messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
+  ulong messages_bytes_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  ulong messages_count_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  ulong messages_bytes_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
+  ulong messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_CNT ];
 };
 typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 
@@ -334,10 +334,10 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
   LIVE_TABLE_COL_ENTRY( "Name",         row.name,                                                                     live_table_col_name_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Country",      row.country_code_idx,                                                         live_table_col_uchar_lt  ), \
   LIVE_TABLE_COL_ENTRY( "IP Addr",      row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), )
+  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PUSH_IDX ].rate_ema.value,          live_table_col_double_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_TYPE_V_PULL_RESPONSE_IDX ].rate_ema.value, live_table_col_double_lt ), )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })

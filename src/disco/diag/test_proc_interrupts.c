@@ -188,7 +188,7 @@ test_softirqs_example( void ) {
   FD_TEST( 0==close( memfd ) );
 
   FD_TEST( cpu_cnt==64 );
-  for( ulong i=0UL; i<FD_METRICS_ENUM_SOFTIRQ_CNT; i++ ) {
+  for( ulong i=0UL; i<FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT; i++ ) {
     for( ulong c=0UL; c<cpu_cnt; c++ ) {
       FD_TEST( per_cpu[ i ][ c ]==example_softirqs_counters[ i ][ c ] );
     }

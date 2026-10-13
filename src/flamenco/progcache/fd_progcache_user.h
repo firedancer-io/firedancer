@@ -96,26 +96,22 @@ struct fd_progcache {
 
 /* Writes every progcache counter for a tile. */
 
-#define FD_PROGCACHE_METRICS_WRITE( TILE, m ) do {                                        \
-    fd_progcache_metrics_t const * _m = (m);                                              \
-    FD_MCNT_SET( TILE, PROGCACHE_LOOKUP,                _m->lookup_cnt     );             \
-    FD_MCNT_SET( TILE, PROGCACHE_HIT,                   _m->hit_cnt        );             \
-    FD_MCNT_SET( TILE, PROGCACHE_MISS,                  _m->miss_cnt       );             \
-    FD_MCNT_SET( TILE, PROGCACHE_HIT_LOADING,           _m->hit_loading_cnt );            \
-    FD_MCNT_SET( TILE, PROGCACHE_CLASS_FULL,            _m->class_full_cnt );             \
-    FD_MCNT_SET( TILE, PROGCACHE_FILL,                  _m->fill_cnt       );             \
-    FD_MCNT_SET( TILE, PROGCACHE_FILL_BYTES,            _m->fill_tot_sz    );             \
-    FD_MCNT_SET( TILE, PROGCACHE_SPILL,                 _m->spill_cnt      );             \
-    FD_MCNT_SET( TILE, PROGCACHE_SPILL_BYTES,           _m->spill_tot_sz   );             \
-    FD_MCNT_SET( TILE, PROGCACHE_EVICTION,              _m->evict_cnt      );             \
-    FD_MCNT_SET( TILE, PROGCACHE_EVICTION_BYTES,        _m->evict_tot_sz   );             \
-    FD_MCNT_SET( TILE, PROGCACHE_DURATION_SECONDS,      _m->cum_pull_ticks );             \
-    FD_MCNT_SET( TILE, PROGCACHE_LOAD,                  _m->load_cnt       );             \
-    FD_MCNT_SET( TILE, PROGCACHE_LOAD_DURATION_SECONDS, _m->cum_load_ticks );             \
-    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_HIT,      _m->hit_per_class   );             \
-    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_FILL,     _m->fill_per_class  );             \
-    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_EVICTION, _m->evict_per_class );             \
-    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_CLASS_SPILL,    _m->spill_per_class );             \
+#define FD_PROGCACHE_METRICS_WRITE( TILE, m ) do {                                          \
+    fd_progcache_metrics_t const * _m = (m);                                                \
+    FD_MCNT_SET      ( TILE, PROGCACHE_LOOKED_UP,                _m->lookup_cnt      );     \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_HIT,                      _m->hit_per_class   );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_MISS,                     _m->miss_cnt        );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_WAITED,                   _m->hit_loading_cnt );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_INSERT_RETRIED,           _m->class_full_cnt  );     \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_INSERTED,                 _m->fill_per_class  );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_INSERTED_BYTES,           _m->fill_tot_sz     );     \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_SPILLED,                  _m->spill_per_class );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_SPILLED_BYTES,            _m->spill_tot_sz    );     \
+    FD_MCNT_ENUM_COPY( TILE, PROGCACHE_EVICTED,                  _m->evict_per_class );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_EVICTED_BYTES,            _m->evict_tot_sz    );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_DURATION_NANOS,           _m->cum_pull_ticks  );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_LOADED,                   _m->load_cnt        );     \
+    FD_MCNT_SET      ( TILE, PROGCACHE_LOAD_DURATION_NANOS,      _m->cum_load_ticks  );     \
   } while(0)
 
 FD_PROTOTYPES_BEGIN

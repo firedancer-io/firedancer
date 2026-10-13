@@ -292,18 +292,16 @@ metrics_write( fd_replay_tile_t * ctx ) {
     store_fec_cache_used = store_fec_cache_max - store_fec_cache_free;
   }
 
-  FD_MHIST_COPY( REPLAY, STORE_QUERY_WORK_SECONDS, ctx->metrics.store_query_work         );
-  FD_MCNT_SET  ( REPLAY, STORE_QUERIED,              ctx->metrics.store_query_cnt          );
-  FD_MCNT_SET  ( REPLAY, STORE_QUERY_MISSING,      ctx->metrics.store_query_missing_cnt  );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILLED,        store_fec_spilled                      );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_BYTES,    store_fec_spill_bytes                  );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_READS,    store_fec_spill_reads                  );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_READ_BYTES,  store_fec_spill_read_bytes          );
-  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_USED,     store_fec_cache_used                   );
-  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_MAX,      store_fec_cache_max                    );
-  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_PINNED,   store_fec_cache_pinned                 );
-  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MERKLE_ROOT_SAMPLE,         ctx->metrics.store_query_mr           );
-  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MERKLE_ROOT_SAMPLE, ctx->metrics.store_query_missing_mr   );
+  FD_MHIST_COPY( REPLAY, STORE_QUERY_DURATION_NANOS,     ctx->metrics.store_query_work        );
+  FD_MCNT_SET  ( REPLAY, STORE_FEC_QUERIED,              ctx->metrics.store_query_cnt         );
+  FD_MCNT_SET  ( REPLAY, STORE_FEC_QUERY_MISSED,        ctx->metrics.store_query_missing_cnt );
+  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILLED,          store_fec_spilled                    );
+  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILLED_BYTES,      store_fec_spill_bytes                );
+  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_READ,       store_fec_spill_reads                );
+  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_READ_BYTES, store_fec_spill_read_bytes           );
+  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_USED,       store_fec_cache_used                 );
+  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_CAPACITY,   store_fec_cache_max                  );
+  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_PINNED,     store_fec_cache_pinned               );
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
   ulong leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot : 0UL;
@@ -317,29 +315,29 @@ metrics_write( fd_replay_tile_t * ctx ) {
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
   if( FD_UNLIKELY( ctx->alpenglow && ctx->reset_slot!=ULONG_MAX && ctx->consensus_root_slot!=ULONG_MAX ) ) {
-    FD_MGAUGE_SET( REPLAY, ROOT_DISTANCE, fd_ulong_sat_sub( ctx->reset_slot, ctx->consensus_root_slot ) ); /* no tower_slot_done */
+    FD_MGAUGE_SET( REPLAY, ROOT_SLOT_DISTANCE, fd_ulong_sat_sub( ctx->reset_slot, ctx->consensus_root_slot ) ); /* no tower_slot_done */
   }
-  FD_MGAUGE_SET( REPLAY, VOTE_SLOT_LAST_REWARDED, ctx->metrics.voted_slot );
+  FD_MGAUGE_SET( REPLAY, LAST_REWARDED_VOTE_SLOT, fd_ulong_if( ctx->metrics.voted_slot==ULONG_MAX, 0UL, ctx->metrics.voted_slot ) );
 
-  FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
+  FD_MGAUGE_SET( REPLAY, BANK_USED, fd_banks_pool_used_cnt( ctx->banks ) );
 
   ulong reasm_free = ctx->reasm ? fd_reasm_free( ctx->reasm ) : 0UL;
   FD_MGAUGE_SET( REPLAY, REASSEMBLY_FREE, reasm_free );
 
-  FD_MCNT_SET( REPLAY, SLOT_REPLAYED, ctx->metrics.slots_total );
-  FD_MCNT_SET( REPLAY, TXN_PROCESSED, ctx->metrics.transactions_total );
+  FD_MCNT_SET( REPLAY, BANK_FROZEN, ctx->metrics.slots_total );
+  FD_MGAUGE_SET( REPLAY, CHAIN_TXN_HEIGHT, ctx->metrics.transactions_total );
 
-  FD_MGAUGE_SET( REPLAY, REASSEMBLY_LATEST_SLOT,      ctx->metrics.reasm_latest_slot );
-  FD_MGAUGE_SET( REPLAY, REASSEMBLY_LATEST_FEC_INDEX, ctx->metrics.reasm_latest_fec_idx );
+  FD_MGAUGE_SET( REPLAY, LAST_REASSEMBLY_DEQUEUED_SLOT,      ctx->metrics.reasm_latest_slot );
+  FD_MGAUGE_SET( REPLAY, LAST_REASSEMBLY_DEQUEUED_FEC_INDEX, ctx->metrics.reasm_latest_fec_idx );
 
-  fd_sched_metrics_write( ctx->sched );
+  fd_sched_metrics_write( ctx->sched, ctx->clock );
 
-  FD_MCNT_SET( REPLAY, FEC_SCHED_FULL,          ctx->metrics.sched_full );
-  FD_MCNT_SET( REPLAY, FEC_REASSEMBLY_EMPTY,    ctx->metrics.reasm_empty );
-  FD_MCNT_SET( REPLAY, FEC_LEADER_BID_WAIT,     ctx->metrics.leader_bid_wait );
-  FD_MCNT_SET( REPLAY, FEC_BANK_FULL,           ctx->metrics.banks_full );
-  FD_MCNT_SET( REPLAY, FEC_PARENT_UNAVAILABLE,  ctx->metrics.parent_unavailable );
-  FD_MCNT_SET( REPLAY, STORAGE_ROOT_BEHIND, ctx->metrics.storage_root_behind );
+  FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_SCHED_FULL,          ctx->metrics.sched_full );
+  FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_REASSEMBLY_EMPTY,    ctx->metrics.reasm_empty );
+  FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_LEADER_FREEZE_WAIT,  ctx->metrics.leader_bid_wait );
+  FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_BANK_FULL,           ctx->metrics.banks_full );
+  FD_MCNT_SET( REPLAY, FEC_PARENT_MISSING_DROPPED,           ctx->metrics.parent_unavailable );
+  FD_MCNT_SET( REPLAY, ROOT_ADVANCE_DEFERRED,               ctx->metrics.storage_root_behind );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED, pcm->root_cnt );
@@ -348,8 +346,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
   ulong pc_class_used[ FD_PROGCACHE_CACHE_CLASS_CNT ];
   ulong pc_class_max [ FD_PROGCACHE_CACHE_CLASS_CNT ];
   fd_progcache_cache_class_occupancy( ctx->progcache, pc_class_used, pc_class_max );
-  FD_MGAUGE_ENUM_COPY( REPLAY, PROGCACHE_CLASS_USED, pc_class_used );
-  FD_MGAUGE_ENUM_COPY( REPLAY, PROGCACHE_CLASS_MAX,  pc_class_max  );
+  FD_MGAUGE_ENUM_COPY( REPLAY, PROGCACHE_CLASS_USED,     pc_class_used );
+  FD_MGAUGE_ENUM_COPY( REPLAY, PROGCACHE_CLASS_CAPACITY, pc_class_max  );
 
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -2149,7 +2147,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   fd_rewards_recalculate_partitioned_rewards( bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx );
 
   /* Signals fd_startup_gate */
-  FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
+  FD_MGAUGE_SET( REPLAY, IS_RUNTIME_LOADED, 1UL );
 }
 
 static inline int
@@ -3262,11 +3260,10 @@ insert_fec_set( fd_replay_tile_t *  ctx,
      This means we shouldn't have a bank for the corresponding block so
      we should just ignore and discard the FEC set. */
 
-  ulong work = (ulong)fd_clock_tile_now( ctx->clock );
+  long work = fd_tickcount();
 
   fd_store_fec_t * store_fec = fd_store_query( ctx->map_join, &reasm_fec->key );
   ctx->metrics.store_query_cnt++;
-  ctx->metrics.store_query_mr = reasm_fec->key.ul[0];
   if( FD_UNLIKELY( !store_fec && !reasm_fec->is_leader ) ) {
     /* The only case in which a FEC is not found in the store is either
        if the FEC is from our own leader block or after repair has
@@ -3275,10 +3272,9 @@ insert_fec_set( fd_replay_tile_t *  ctx,
        because it is no longer relevant.  If the FEC is from our own
        leader block, process the FEC so we can unbecome leader. */
     ctx->metrics.store_query_missing_cnt++;
-    ctx->metrics.store_query_missing_mr = reasm_fec->key.ul[0];
     FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
     FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
-    fd_histf_sample( ctx->metrics.store_query_work, (ulong)fd_clock_tile_now( ctx->clock ) - work );
+    fd_histf_sample( ctx->metrics.store_query_work, (ulong)( fd_tickcount() - work ) );
     return 1;
   }
 
@@ -3401,7 +3397,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     return 1;
   }
 
-  fd_histf_sample( ctx->metrics.store_query_work, (ulong)fd_clock_tile_now( ctx->clock ) - work );
+  fd_histf_sample( ctx->metrics.store_query_work, (ulong)( fd_tickcount() - work ) );
   return 0;
 }
 
@@ -4273,7 +4269,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     distance++;
   }
 
-  FD_MGAUGE_SET( REPLAY, ROOT_DISTANCE, distance );
+  FD_MGAUGE_SET( REPLAY, ROOT_SLOT_DISTANCE, distance );
 
 }
 
@@ -4383,7 +4379,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     return;
   }
 
-  ulong work = (ulong)fd_log_wallclock();
+  long work = fd_tickcount();
 
   fd_store_fec_data_view_t data_view[1];
   fd_rwlock_read( &ctx->store->fec_lock );
@@ -4399,7 +4395,6 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
      unlink the key only after the view has pinned the pool element. */
   if( FD_UNLIKELY( !store_fec || view_err ) ) {
     ctx->metrics.store_query_missing_cnt++;
-    ctx->metrics.store_query_missing_mr = fec->mr.ul[0];
     FD_BASE58_ENCODE_32_BYTES( fec->mr.key, key_b58 );
     FD_LOG_INFO(( "store fec for slot: %lu unavailable (pruned by publish); abandoning slice. root: %lu. merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
     return;
@@ -4517,7 +4512,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     return;
   }
 
-  fd_histf_sample( ctx->metrics.store_query_work, (ulong)fd_log_wallclock() - work );
+  fd_histf_sample( ctx->metrics.store_query_work, (ulong)( fd_tickcount() - work ) );
   ctx->execrp_idle_cnt = 0UL;
   return;
 }
@@ -4641,8 +4636,8 @@ update_metric_vote_account( fd_replay_tile_t *  ctx,
   }
   fd_accdb_unread_one( ctx->accdb, &ro );
 
-  FD_MGAUGE_SET( REPLAY, EPOCH_CREDITS,             epoch_credits                          );
-  FD_MGAUGE_SET( REPLAY, VOTE_ACCOUNT_INADMISSIBLE, (ulong)ctx->vote_account_inadmissible );
+  FD_MGAUGE_SET( REPLAY, EPOCH_CREDITS,                epoch_credits                         );
+  FD_MGAUGE_SET( REPLAY, IS_VOTE_ACCOUNT_INADMISSIBLE, (ulong)ctx->vote_account_inadmissible );
 }
 
 static void
@@ -5396,7 +5391,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->wait_info = NULL;
   }
 
-  FD_MGAUGE_SET( REPLAY, BANK_LIVE_MAX, fd_banks_pool_max_cnt( ctx->banks ) );
+  FD_MGAUGE_SET( REPLAY, BANK_CAPACITY, fd_banks_pool_max_cnt( ctx->banks ) );
 
   ctx->delinquent_known              = 0;
   ctx->delinquent_sample_slot        = 0UL;
@@ -5703,7 +5698,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics.store_query_work,   FD_MHIST_EDGES_NS( REPLAY, STORE_QUERY_WORK_SECONDS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics.store_query_work,   FD_MHIST_EDGES_NS( REPLAY, STORE_QUERY_DURATION_NANOS ) ) );
 
   /* Ensure precompiles are available, crash fast otherwise */
   fd_precompiles();

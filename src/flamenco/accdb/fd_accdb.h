@@ -656,7 +656,9 @@ fd_accdb_flush_metrics( fd_accdb_t * accdb );
    of which must have FD_ACCDB_CACHE_CLASS_CNT entries.  used[c] is the
    number of slots in class c that currently hold a cache acc (i.e.
    slots that have been allocated lazily and are not sitting in the
-   free list).  max[c] is the total slot capacity of class c.  Reads
+   free list).  max[c] is the total slot capacity of class c.
+   reserved[c] is the slots reserved by in-flight acquires, ULONG_MAX
+   when reservation tracking is disabled for the class.  Reads
    are done with relaxed (volatile) loads and may be momentarily
    inconsistent with each other under contention. */
 
@@ -667,41 +669,39 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
                                 ulong *      reserved );
 
 /* fd_accdb_cache_class_thresholds returns the per-size-class preeviction
-   thresholds, expressed as used-slot counts (so they're directly
-   comparable to occupancy.used and occupancy.max).  Each output array
-   must have FD_ACCDB_CACHE_CLASS_CNT entries.  target_used[c] is the
-   used count the background preevict pass tries to drive towards (max -
-   cache_free_target).  low_water_used[c] is the used count at which the
-   preevict pass starts firing (max - cache_free_low_water).  Both are
-   set once at init and are stable for the lifetime of the cache. */
+   thresholds as free-slot counts.  Each output array must have
+   FD_ACCDB_CACHE_CLASS_CNT entries.  free_target[c] is the free count
+   the background preevict pass tries to restore.  free_low_water[c] is
+   the free count below which the preevict pass starts.  Both are set
+   once at init and are stable for the lifetime of the cache. */
 
 void
 fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
-                                 ulong *      target_used,
-                                 ulong *      low_water_used );
+                                 ulong *      free_target,
+                                 ulong *      free_low_water );
 
 /* FD_ACCDB_METRICS_WRITE publishes the per-joiner accdb runtime metrics
    for tile prefix TILE.  TILE must be a tile that declares the
-   AccdbAccountAcquired/... counters in metrics.xml (e.g. EXECLE,
+   AccdbAccountReadonlyAcquired/... counters in metrics.xml (e.g. EXECLE,
    EXECRP, REPLAY, TOWER, ACCDB).  m must be a fd_accdb_metrics_t const *
    for the joiner whose counters should be published. */
 
 #define FD_ACCDB_METRICS_WRITE( TILE, m ) do {                                              \
     fd_accdb_metrics_t const * _m = (m);                                                    \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_ACQUIRED,          _m->accounts_acquired_per_class          ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_READONLY_ACQUIRED, _m->accounts_acquired_per_class          ); \
     FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_WRITABLE_ACQUIRED, _m->writable_accounts_acquired_per_class ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_EVICTED,        _m->accounts_evicted_per_class        ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_COMMITTED_NEW,       _m->accounts_committed_new_per_class       ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_COMMITTED_OVERWRITE, _m->accounts_committed_overwrite_per_class ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_NOT_FOUND,   _m->accounts_not_found_per_class ); \
-    FD_MCNT_SET( TILE, ACCDB_ACCOUNT_WAITED,             _m->accounts_waited            ); \
-    FD_MCNT_SET( TILE, ACCDB_BATCH_ACQUIRED,             _m->acquire_calls              ); \
-    FD_MCNT_SET( TILE, ACCDB_ACQUIRE_FAILED,             _m->acquire_failed             ); \
-    FD_MCNT_SET( TILE, ACCDB_BYTES_READ,                 _m->bytes_read                 ); \
-    FD_MCNT_SET( TILE, ACCDB_READ_OPERATION,             _m->read_ops                   ); \
-    FD_MCNT_SET( TILE, ACCDB_BYTES_WRITTEN,              _m->bytes_written              ); \
-    FD_MCNT_SET( TILE, ACCDB_WRITE_OPERATION,            _m->write_ops                  ); \
-    FD_MCNT_SET( TILE, ACCDB_BYTES_COPIED,               _m->bytes_copied               ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_EVICTED,             _m->accounts_evicted_per_class             ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_NEW_COMMITTED,       _m->accounts_committed_new_per_class       ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_OVERWRITE_COMMITTED, _m->accounts_committed_overwrite_per_class ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_CACHE_MISSED,        _m->accounts_not_found_per_class           ); \
+    FD_MCNT_SET      ( TILE, ACCDB_ACCOUNT_WAITED,              _m->accounts_waited                        ); \
+    FD_MCNT_SET      ( TILE, ACCDB_BATCH_ACQUIRED,              _m->acquire_calls                          ); \
+    FD_MCNT_SET      ( TILE, ACCDB_CACHE_RESERVE_RETRIED,       _m->acquire_failed                         ); \
+    FD_MCNT_SET      ( TILE, ACCDB_DISK_READ_BYTES,             _m->bytes_read                             ); \
+    FD_MCNT_SET      ( TILE, ACCDB_DISK_READ,                   _m->read_ops                               ); \
+    FD_MCNT_SET      ( TILE, ACCDB_DISK_WRITTEN_BYTES,          _m->bytes_written                          ); \
+    FD_MCNT_SET      ( TILE, ACCDB_DISK_WRITTEN,                _m->write_ops                              ); \
+    FD_MCNT_SET      ( TILE, ACCDB_COPIED_BYTES,                _m->bytes_copied                           ); \
   } while(0)
 
 /* FD_ACCDB_METRICS_WRITE_RO is the read-only joiner subset of
@@ -709,15 +709,14 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
    fd_accdb_read_one_nocache touches; tiles that join readonly
    (e.g. RPC) declare only this subset of counters in metrics.xml. */
 
-#define FD_ACCDB_METRICS_WRITE_RO( TILE, m ) do {                                           \
-    fd_accdb_metrics_t const * _m = (m);                                                    \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_ACQUIRED,  _m->accounts_acquired_per_class  ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_NOT_FOUND, _m->accounts_not_found_per_class ); \
-    FD_MCNT_SET( TILE, ACCDB_ACCOUNT_WAITED,    _m->accounts_waited   ); \
-    FD_MCNT_SET( TILE, ACCDB_BATCH_ACQUIRED,    _m->acquire_calls     ); \
-    FD_MCNT_SET( TILE, ACCDB_BYTES_READ,        _m->bytes_read        ); \
-    FD_MCNT_SET( TILE, ACCDB_READ_OPERATION,    _m->read_ops          ); \
-    FD_MCNT_SET( TILE, ACCDB_BYTES_COPIED,      _m->bytes_copied      ); \
+#define FD_ACCDB_METRICS_WRITE_RO( TILE, m ) do {                                                 \
+    fd_accdb_metrics_t const * _m = (m);                                                          \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_READONLY_ACQUIRED, _m->accounts_acquired_per_class  ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_CACHE_MISSED,      _m->accounts_not_found_per_class ); \
+    FD_MCNT_SET      ( TILE, ACCDB_ACCOUNT_WAITED,            _m->accounts_waited              ); \
+    FD_MCNT_SET      ( TILE, ACCDB_DISK_READ_BYTES,           _m->bytes_read                   ); \
+    FD_MCNT_SET      ( TILE, ACCDB_DISK_READ,                 _m->read_ops                     ); \
+    FD_MCNT_SET      ( TILE, ACCDB_COPIED_BYTES,              _m->bytes_copied                 ); \
   } while(0)
 
 FD_PROTOTYPES_END

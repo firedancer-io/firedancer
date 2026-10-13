@@ -390,14 +390,14 @@ finish( fd_backt_tile_t * ctx,
       for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
         if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
       }
-      drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ];
+      drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ];
       if( FD_LIKELY( drained ) ) break;
       if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
-        FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+        FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ] ));
         break;
       }
       if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
-        FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+        FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ] ));
         break;
       }
       FD_SPIN_PAUSE();
@@ -738,7 +738,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->source_exhausted = 1;
   }
   FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
-  FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot   );
+  FD_MGAUGE_SET( BACKT, END_SLOT,   fd_ulong_if( ctx->end_slot==ULONG_MAX, 0UL, ctx->end_slot ) );
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );

@@ -289,7 +289,7 @@ typedef struct fd_guih_validator_info fd_guih_validator_info_t;
 
 struct fd_guih_tile_timers {
   ulong timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
-  ulong sched_timers[ FD_METRICS_ENUM_CPU_REGIME_CNT ];
+  ulong sched_timers[ FD_METRICS_ENUM_THREAD_REGIME_CNT ];
 
   int    in_backp;
   ushort last_cpu;
@@ -509,7 +509,6 @@ struct fd_guih_txn_waterfall {
     ulong pack_expired;
     ulong pack_already_executed;
     ulong pack_retained;
-    ulong pack_wait_full;
     ulong pack_leader_slow;
     ulong bank_invalid;
     ulong bank_nonce_already_advanced;

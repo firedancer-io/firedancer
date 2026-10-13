@@ -764,7 +764,7 @@ FD_UNIT_TEST( quic_pktmeta_pktnum_skip ) {
   }
 
   ulong * metrics_alloc_fail_cnt =
-      &metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_EMPTY_POOL_IDX];
+      &metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_POOL_EMPTY_IDX];
   FD_TEST(( *metrics_alloc_fail_cnt == 0UL ));
 
   /* trigger a few pings

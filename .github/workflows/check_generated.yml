@@ -10,6 +10,8 @@ on:
       - 'src/disco/metrics/metrics.xml'
       - 'src/disco/metrics/Makefile'
       - 'src/disco/metrics/gen_metrics.py'
+      - 'src/disco/metrics/fmt_metrics.py'
+      - 'src/disco/metrics/lint_metrics.py'
       - 'src/disco/metrics/generate/**'
       - 'src/disco/metrics/generated/**'
       - 'book/api/metrics-generated.md'

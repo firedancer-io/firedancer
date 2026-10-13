@@ -529,7 +529,7 @@ test_count_vote_txn( void ) {
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
     FD_TEST( ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_BAD_TOWER_IDX      ]==0 );
-    FD_TEST( ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_UNKNOWN_BLOCK_ID_IDX ]==1 );
+    FD_TEST( ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_NULL_BLOCK_ID_IDX ]==1 );
   }
 
   /* 2. confirmation_count > FD_TOWER_VOTE_MAX. */

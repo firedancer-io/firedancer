@@ -62,10 +62,7 @@ typedef struct {
   struct {
     ulong txn_load_address_lookup_tables[ 6 ];
     ulong transaction_result[ 41 ];
-    ulong processing_failed;
-    ulong fee_only;
-    ulong exec_failed;
-    ulong success;
+    ulong landing[ FD_METRICS_ENUM_TXN_LANDING_RESULT_CNT ];
   } metrics;
 } fd_bank_ctx_t;
 
@@ -88,15 +85,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_bank_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( BANK, TXN_LOAD_ADDRESS_TABLE, ctx->metrics.txn_load_address_lookup_tables );
-  FD_MCNT_ENUM_COPY( BANK, TXN_RESULT,  ctx->metrics.transaction_result );
-
-  FD_MCNT_SET( BANK, TXN_PROCESSING_FAILED,        ctx->metrics.processing_failed );
-  FD_MCNT_SET( BANK, TXN_FEE_ONLY,                 ctx->metrics.fee_only          );
-  ulong txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_CNT ];
-  txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_V_SUCCESS_IDX ] = ctx->metrics.success;
-  txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_V_FAILED_IDX  ] = ctx->metrics.exec_failed;
-  FD_MCNT_ENUM_COPY( BANK, TXN_EXECUTED, txn_executed );
+  FD_MCNT_ENUM_COPY( BANK, TXN_LUT_RESOLVE_ATTEMPTED, ctx->metrics.txn_load_address_lookup_tables );
+  FD_MCNT_ENUM_COPY( BANK, TXN_PROCESSED,             ctx->metrics.transaction_result             );
+  FD_MCNT_ENUM_COPY( BANK, TXN_PROCESSED_BY_LANDING,  ctx->metrics.landing                        );
 }
 
 static inline void
@@ -244,7 +235,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
-    ctx->metrics.txn_load_address_lookup_tables[ (ulong)((long)FD_METRICS_COUNTER_BANK_TXN_LOAD_ADDRESS_TABLE_CNT+result-1L) ]++;
+    ctx->metrics.txn_load_address_lookup_tables[ (ulong)((long)FD_METRICS_COUNTER_BANK_TXN_LUT_RESOLVE_ATTEMPTED_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
@@ -298,7 +289,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     ctx->metrics.transaction_result[ transaction_err   [ sanitized_idx-1UL ] ]++;
 
-    ctx->metrics.processing_failed += (ulong)(processing_results[ sanitized_idx-1UL ]==0                         );
+    ctx->metrics.landing[ FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ] += (ulong)(processing_results[ sanitized_idx-1UL ]==0);
 
     if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_LANDED) ) ) continue;
 
@@ -315,7 +306,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       FD_LOG_WARNING(( "FeesOnly txn actual CUs (%u+%u) exceed requested (%u), dropping",
                        actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus ));
       skip_commit = 1;
-      ctx->metrics.processing_failed++;
+      ctx->metrics.landing[ FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]++;
       continue;
     }
 
@@ -331,7 +322,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    _sig_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus ));
     }
 
-    ctx->metrics.fee_only += (ulong)(processing_results[ sanitized_idx-1UL ]==FD_BANK_TRANSACTION_LANDED);
+    ctx->metrics.landing[ FD_METRICS_ENUM_TXN_LANDING_RESULT_V_FEES_ONLY_IDX ] += (ulong)(processing_results[ sanitized_idx-1UL ]==FD_BANK_TRANSACTION_LANDED);
 
     txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
     txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
@@ -343,8 +334,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_EXECUTED) ) ) continue;
 
-    if( transaction_err[ sanitized_idx-1UL ] ) ctx->metrics.exec_failed++;
-    else                                       ctx->metrics.success++;
+    if( transaction_err[ sanitized_idx-1UL ] ) ctx->metrics.landing[ FD_METRICS_ENUM_TXN_LANDING_RESULT_V_FAILED_IDX  ]++;
+    else                                       ctx->metrics.landing[ FD_METRICS_ENUM_TXN_LANDING_RESULT_V_SUCCESS_IDX ]++;
   }
 
   if( FD_UNLIKELY( skip_commit ) ) {
@@ -449,7 +440,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
-    ctx->metrics.txn_load_address_lookup_tables[  (ulong)((long)FD_METRICS_COUNTER_BANK_TXN_LOAD_ADDRESS_TABLE_CNT+result-1L) ]++;
+    ctx->metrics.txn_load_address_lookup_tables[  (ulong)((long)FD_METRICS_COUNTER_BANK_TXN_LUT_RESOLVE_ATTEMPTED_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
       execution_success = 0;
       continue;
@@ -462,7 +453,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   }
 
   int  transaction_err     [ MAX_TXN_PER_MICROBLOCK ];
-  for( ulong i=0UL; i<txn_cnt; i++ ) transaction_err[ i ] = FD_METRICS_ENUM_TRANSACTION_ERROR_V_BUNDLE_PEER_IDX;
+  for( ulong i=0UL; i<txn_cnt; i++ ) transaction_err[ i ] = FD_METRICS_ENUM_BANK_TXN_RESULT_V_BUNDLE_PEER_IDX;
 
   uint actual_execution_cus [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   uint actual_acct_data_cus [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
@@ -476,8 +467,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   }
 
   if( FD_LIKELY( execution_success ) ) {
-    ctx->metrics.success += txn_cnt;
-    ctx->metrics.transaction_result[ FD_METRICS_ENUM_TRANSACTION_ERROR_V_SUCCESS_IDX ] += txn_cnt;
+    ctx->metrics.landing[ FD_METRICS_ENUM_TXN_LANDING_RESULT_V_SUCCESS_IDX ] += txn_cnt;
+    ctx->metrics.transaction_result[ FD_METRICS_ENUM_BANK_TXN_RESULT_V_SUCCESS_IDX ] += txn_cnt;
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
       txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU); /* Clear error bits to indicate success */
@@ -493,7 +484,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
       txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)transaction_err[ i ]<<24);
-      ctx->metrics.processing_failed++;
+      ctx->metrics.landing[ FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]++;
       ctx->metrics.transaction_result[ transaction_err[ i ] ]++;
     }
   }

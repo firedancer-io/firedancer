@@ -336,23 +336,23 @@ fd_guih_tile_timers_snap( fd_guih_t * gui ) {
     cur[ i ].timers[ FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX        ] = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_SLEEPING )        ];
     cur[ i ].timers[ FD_METRICS_ENUM_TILE_REGIME_V_BACKPRESSURE_SLEEPING_IDX     ] = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_SLEEPING )     ];
 
-    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_WAIT_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_WAIT )   ];
-    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_USER_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_USER )   ];
-    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_SYSTEM_IDX ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_SYSTEM ) ];
-    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_IDLE_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_IDLE )   ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_THREAD_REGIME_V_WAIT_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, THREAD_DURATION_NANOS_WAIT )   ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_THREAD_REGIME_V_USER_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, THREAD_DURATION_NANOS_USER )   ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_THREAD_REGIME_V_SYSTEM_IDX ] = tile_metrics[ MIDX( COUNTER, TILE, THREAD_DURATION_NANOS_SYSTEM ) ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_THREAD_REGIME_V_IDLE_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, THREAD_DURATION_NANOS_IDLE )   ];
 
-    cur[ i ].in_backp  = (int)tile_metrics[ MIDX(GAUGE, TILE, IN_BACKPRESSURE) ];
-    cur[ i ].status    = (uchar)tile_metrics[ MIDX( GAUGE, TILE, STATUS ) ];
-    cur[ i ].heartbeat = tile_metrics[ MIDX( GAUGE, TILE, HEARTBEAT_TIMESTAMP_NANOS ) ];
+    cur[ i ].in_backp  = (int)tile_metrics[ MIDX(GAUGE, TILE, IS_BACKPRESSURED) ];
+    cur[ i ].status    = (uchar)tile_metrics[ MIDX( GAUGE, TILE, STATE ) ];
+    cur[ i ].heartbeat = tile_metrics[ MIDX( GAUGE, TILE, HEARTBEAT_TIME ) ];
     cur[ i ].backp_cnt = tile_metrics[ MIDX( COUNTER, TILE, BACKPRESSURE ) ];
     cur[ i ].nvcsw     = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_VOLUNTARY ) ];
     cur[ i ].nivcsw    = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_INVOLUNTARY ) ];
     cur[ i ].minflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MINOR ) ];
     cur[ i ].majflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MAJOR ) ];
-    cur[ i ].last_cpu  = (ushort)tile_metrics[ MIDX( GAUGE, TILE, LAST_CPU ) ];
-    cur[ i ].interrupts     = tile_metrics[ MIDX( COUNTER, TILE, IRQ_PREEMPTED ) ];
+    cur[ i ].last_cpu  = (ushort)tile_metrics[ MIDX( GAUGE, TILE, LAST_CPU_INDEX ) ];
+    cur[ i ].interrupts     = tile_metrics[ MIDX( COUNTER, TILE, DEVICE_IRQ ) ];
     cur[ i ].tlb_shootdowns = tile_metrics[ MIDX( COUNTER, TILE, TLB_SHOOTDOWN ) ];
-    cur[ i ].timer_ticks    = tile_metrics[ MIDX( COUNTER, TILE, TIMER_TICK ) ];
+    cur[ i ].timer_ticks    = tile_metrics[ MIDX( COUNTER, TILE, TIMER_IRQ ) ];
   }
 }
 
@@ -369,10 +369,10 @@ fd_guih_scheduler_counts_snap( fd_guih_t * gui, long now ) {
 
   cur->sample_time_ns = now;
 
-  cur->regular     = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_REGULAR ) ];
-  cur->votes       = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_VOTES ) ];
-  cur->conflicting = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_CONFLICTING ) ];
-  cur->bundles     = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_BUNDLES ) ];
+  cur->regular     = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_REGULAR ) ];
+  cur->votes       = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_VOTE ) ];
+  cur->conflicting = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_CONFLICTING ) ];
+  cur->bundles     = pack_metrics[ MIDX( GAUGE, PACK, TXN_PENDING_USED_BUNDLE ) ];
 }
 
 static void
@@ -434,7 +434,7 @@ fd_guih_network_stats_snap( fd_guih_t *               gui,
 
   cur->in.gossip   = fd_guih_metrics_gossip_total_ingress_bytes( topo, gossvf_tile_cnt );
   cur->out.gossip  = fd_guih_metrics_gossip_total_egress_bytes( topo, gossip_tile_cnt );
-  cur->in.turbine  = fd_guih_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_TURBINE_RX_BYTES ) );
+  cur->in.turbine  = fd_guih_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, TURBINE_RX_BYTES ) );
 
   cur->out.turbine = 0UL;
   cur->out.repair  = 0UL;
@@ -443,7 +443,7 @@ fd_guih_network_stats_snap( fd_guih_t *               gui,
   fd_guih_network_stats_snap_egress( topo, "net",  cur );
   fd_guih_network_stats_snap_egress( topo, "mlx5", cur );
 
-  cur->in.repair = fd_guih_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_REPAIR_RX_BYTES ) );
+  cur->in.repair = fd_guih_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, REPAIR_RX_BYTES ) );
   ulong repair_tile_idx = fd_topo_find_tile( topo, "repair", 0UL );
   if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
     fd_topo_tile_t const * repair = &topo->tiles[ repair_tile_idx ];
@@ -477,8 +477,8 @@ fd_guih_network_stats_snap( fd_guih_t *               gui,
   if( FD_LIKELY( metric_tile_idx!=ULONG_MAX ) ) {
     fd_topo_tile_t const * metric = &topo->tiles[ metric_tile_idx ];
     volatile ulong * metric_metrics = fd_metrics_tile( metric->metrics );
-    cur->in.metric  = metric_metrics[ MIDX( COUNTER, METRIC, BYTES_READ ) ];
-    cur->out.metric = metric_metrics[ MIDX( COUNTER, METRIC, BYTES_WRITTEN ) ];
+    cur->in.metric  = metric_metrics[ MIDX( COUNTER, METRIC, CONN_RX_BYTES ) ];
+    cur->out.metric = metric_metrics[ MIDX( COUNTER, METRIC, CONN_TX_BYTES ) ];
   } else {
     cur->in.metric  = 0UL;
     cur->out.metric = 0UL;
@@ -596,21 +596,21 @@ fd_guih_txn_waterfall_snap( fd_guih_t *               gui,
     fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
 
     volatile ulong const * bank_metrics = fd_metrics_tile( bank->metrics );
-    cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, TXN_EXECUTED_SUCCESS ) ];
+    cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_SUCCESS ) ];
 
     cur->out.block_fail +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_EXECUTED_FAILED ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_FEE_ONLY        ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_FAILED    ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_FEES_ONLY ) ];
 
     cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_ACCOUNT_UNINITIALIZED ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_ACCOUNT_NOT_FOUND ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_INVALID_ACCOUNT_OWNER ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_INVALID_ACCOUNT_DATA ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_INVALID_LOOKUP_INDEX  ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_UNINITIALIZED ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_NOT_FOUND ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_OWNER ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_DATA ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_LOOKUP_INDEX  ) ];
 
     cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSING_FAILED ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_DROPPED ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.execle_tile_cnt; i++ ) {
@@ -618,15 +618,15 @@ fd_guih_txn_waterfall_snap( fd_guih_t *               gui,
 
     volatile ulong const * execle_metrics = fd_metrics_tile( execle->metrics );
 
-    cur->out.block_success += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_LANDED_LANDED_SUCCESS ) ];
+    cur->out.block_success += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING_SUCCESS ) ];
     cur->out.block_fail    +=
-        execle_metrics[ MIDX( COUNTER, EXECLE, TXN_LANDED_LANDED_FEES_ONLY ) ]
-      + execle_metrics[ MIDX( COUNTER, EXECLE, TXN_LANDED_LANDED_FAILED ) ];
-    cur->out.bank_invalid  += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_LANDED_UNLANDED ) ];
+        execle_metrics[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING_FEES_ONLY ) ]
+      + execle_metrics[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING_FAILED ) ];
+    cur->out.bank_invalid  += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING_DROPPED ) ];
 
-    cur->out.bank_nonce_already_advanced += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_RESULT_NONCE_ALREADY_ADVANCED ) ];
-    cur->out.bank_nonce_advance_failed   += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_RESULT_NONCE_ADVANCE_FAILED ) ];
-    cur->out.bank_nonce_wrong_blockhash  += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_RESULT_NONCE_WRONG_BLOCKHASH ) ];
+    cur->out.bank_nonce_already_advanced += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_NONCE_ALREADY_ADVANCED ) ];
+    cur->out.bank_nonce_advance_failed   += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_NONCE_ADVANCE_FAILED ) ];
+    cur->out.bank_nonce_wrong_blockhash  += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_NONCE_WRONG_BLOCKHASH ) ];
   }
 
   ulong pack_tile_idx = fd_topo_find_tile( topo, "pack", 0UL );
@@ -635,68 +635,60 @@ fd_guih_txn_waterfall_snap( fd_guih_t *               gui,
     volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
 
     cur->out.pack_invalid_bundle =
-        pack_metrics[ MIDX( COUNTER, PACK, TXN_PARTIAL_BUNDLE ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_INSERTION_FAILED ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_CREATION_FAILED ) ];
+        pack_metrics[ MIDX( COUNTER, PACK, TXN_DROPPED_PARTIAL_BUNDLE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_INSERTION_FAILED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_CREATION_FAILED ) ];
 
     cur->out.pack_invalid =
-        pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_INSTR_ACCT_CNT ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_NONCE_CONFLICT ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_BUNDLE_BLACKLIST ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_INVALID_NONCE ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_WRITE_SYSVAR ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_ESTIMATION_FAIL ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_DUPLICATE_ACCOUNT ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_TOO_MANY_ACCOUNTS ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_TOO_LARGE ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_ADDR_LUT ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_UNAFFORDABLE ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_DUPLICATE ) ]
-      - pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_INSERTION_FAILED ) ]; /* so we don't double count this, since its already accounted for in invalid_bundle */
+        pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_INSTR_TOO_MANY_ACCOUNTS ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_NONCE_CONFLICT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_BUNDLE_BLOCKLISTED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_INVALID_NONCE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_WRITE_SYSVAR ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_ESTIMATION_FAILED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_DUPLICATE_ACCOUNT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_TOO_MANY_ACCOUNTS ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_TOO_MANY_CU ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_LUT_UNSUPPORTED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_UNAFFORDABLE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_DUPLICATE ) ]
+      - pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_INSERTION_FAILED ) ]; /* so we don't double count this, since its already accounted for in invalid_bundle */
 
-    cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_EXPIRED ) ] +
-                            pack_metrics[ MIDX( COUNTER, PACK, TXN_EXPIRED ) ] +
-                            pack_metrics[ MIDX( COUNTER, PACK, TXN_DELETED ) ] +
-                            pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_NONCE_PRIORITY ) ];
+    cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_EXPIRED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TXN_DROPPED_EXPIRED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TXN_EVICTED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_NONCE_PRIORITY_TOO_LOW ) ];
 
-    cur->out.pack_already_executed = pack_metrics[ MIDX( COUNTER, PACK, TXN_ALREADY_EXECUTED ) ];
+    cur->out.pack_already_executed = pack_metrics[ MIDX( COUNTER, PACK, TXN_DROPPED_ALREADY_EXECUTED ) ];
 
-    cur->out.pack_leader_slow = pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_PRIORITY ) ];
+    cur->out.pack_leader_slow = pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERT_ATTEMPTED_PRIORITY_TOO_LOW ) ];
 
-    cur->out.pack_wait_full =
-        pack_metrics[ MIDX( COUNTER, PACK, TXN_EXTRA_DROPPED ) ];
-
-    cur->out.pack_retained = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE ) ];
-
-    ulong inserted_to_extra = pack_metrics[ MIDX( COUNTER, PACK, TXN_EXTRA_INSERTED ) ];
-    ulong inserted_from_extra = pack_metrics[ MIDX( COUNTER, PACK, TXN_EXTRA_RETRIEVED ) ]
-                                + pack_metrics[ MIDX( COUNTER, PACK, TXN_EXTRA_DROPPED ) ];
-    cur->out.pack_retained += fd_ulong_if( inserted_to_extra>=inserted_from_extra, inserted_to_extra-inserted_from_extra, 0UL );
+    cur->out.pack_retained = fd_metrics_enum_group_sum( pack_metrics+MIDX( GAUGE, PACK, TXN_PENDING_USED ), FD_METRICS_ENUM_PENDING_TXN_TYPE_G_ALL_MASK );
 
     cur->in.pack_cranked =
-        pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_INSERTED ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_INSERTION_FAILED ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_CREATION_FAILED ) ];
+        pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_INSERTED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_INSERTION_FAILED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_CREATION_FAILED ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.resolh_tile_cnt; i++ ) {
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolh", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_NO_BANK ) ];
-    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLH, BLOCKHASH_EXPIRED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_BUNDLE_PEER_FAILED  ) ];
-    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
-    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_OVERRUN ) ];
+    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_DROPPED_NO_BANK ) ];
+    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_DROPPED_BLOCKHASH_EXPIRED  ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_DROPPED_BUNDLE_PEER_FAILED ) ];
+    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_NOT_FOUND ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_OWNER ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_DATA ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_UNINITIALIZED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_LOOKUP_INDEX ) ];
+    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_REMOVED_EVICTED ) ];
 
-    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_INSERTED ) ];
-    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_OVERRUN ) ]
-                              + resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_PUBLISHED ) ]
-                              + resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_OPERATION_REMOVED ) ];
+    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_INSERTED ) ];
+    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_REMOVED_EVICTED ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_REMOVED_PUBLISHED ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_REMOVED_FAILED ) ];
     cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
   }
 
@@ -704,20 +696,20 @@ fd_guih_txn_waterfall_snap( fd_guih_t *               gui,
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_NO_BANK ) ];
-    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_BUNDLE_PEER_FAILED  ) ];
-    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
-    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ];
+    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_DROPPED_NO_BANK ) ];
+    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_DROPPED_BLOCKHASH_EXPIRED  ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_DROPPED_BUNDLE_PEER_FAILED ) ];
+    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_NOT_FOUND ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_OWNER ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_DATA ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_UNINITIALIZED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_LOOKUP_INDEX ) ];
+    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_TXN_REMOVED_EVICTED ) ];
 
-    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_INSERTED ) ];
-    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ]
-                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_PUBLISHED ) ]
-                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_REMOVED ) ];
+    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_TXN_INSERTED ) ];
+    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_TXN_REMOVED_EVICTED ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_TXN_REMOVED_PUBLISHED ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_TXN_REMOVED_FAILED ) ];
     cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
   }
 
@@ -726,8 +718,8 @@ fd_guih_txn_waterfall_snap( fd_guih_t *               gui,
     fd_topo_tile_t const * dedup = &topo->tiles[ dedup_tile_idx ];
     volatile ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
 
-    cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TXN_RESULT_DEDUP_FAILURE ) ]
-                             + dedup_metrics[ MIDX( COUNTER, DEDUP, TXN_RESULT_BUNDLE_PEER_FAILURE ) ];
+    cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TXN_PROCESSED_DUPLICATE ) ]
+                             + dedup_metrics[ MIDX( COUNTER, DEDUP, TXN_PROCESSED_BUNDLE_PEER_FAILED ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
@@ -740,28 +732,28 @@ fd_guih_txn_waterfall_snap( fd_guih_t *               gui,
       cur->out.verify_overrun += fd_metrics_link_in( verify->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_READING_OVERRUN_OFF ];
     }
 
-    cur->out.verify_failed    += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_RESULT_VERIFY_FAILURE ) ] +
-                                 verify_metrics[ MIDX( COUNTER, VERIFY, TXN_RESULT_BUNDLE_PEER_FAILURE ) ];
-    cur->out.verify_parse     += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_RESULT_PARSE_FAILURE ) ];
-    cur->out.verify_duplicate += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_RESULT_DEDUP_FAILURE ) ];
+    cur->out.verify_failed    += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_PROCESSED_SIGNATURE_FAILED ) ] +
+                                 verify_metrics[ MIDX( COUNTER, VERIFY, TXN_PROCESSED_BUNDLE_PEER_FAILED ) ];
+    cur->out.verify_parse     += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_PROCESSED_PARSE_FAILED ) ];
+    cur->out.verify_duplicate += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_PROCESSED_DUPLICATE ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, LEGACY_TXN_UNDERSIZE   ) ];
-    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, LEGACY_TXN_OVERSIZE    ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_UNDERSIZE          ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_OVERSIZE           ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERSIZE           ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_CRYPTO_FAILED      ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NO_CONN            ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_SRC_INVALID        ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NET_HEADER_INVALID ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_HEADER_INVALID     ) ];
-    cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_ABANDONED          ) ];
-    cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERRUN            ) ];
+    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, UDP_TXN_UNDERSIZE_DROPPED ) ];
+    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, UDP_TXN_OVERSIZE_DROPPED  ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_DROPPED               )+FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_UNDERSIZE_IDX ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_DROPPED               )+FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_OVERSIZE_IDX ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERSIZE_DROPPED      ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_DECRYPT_FAILED        ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NO_CONN_DROPPED       ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_DROPPED               )+FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_SRC_IP_MISMATCH_IDX ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_DROPPED               )+FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_DROPPED               )+FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX ];
+    cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_REASSEMBLY_ABANDONED  ) ];
+    cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_REASSEMBLY_EVICTED    ) ];
 
     for( ulong j=0UL; j<gui->summary.sock_tile_cnt+gui->summary.net_tile_cnt+gui->summary.mlx5_tile_cnt; j++ ) {
       /* TODO: Not precise... net frags that were skipped might not have been destined for QUIC tile */
@@ -775,7 +767,7 @@ fd_guih_txn_waterfall_snap( fd_guih_t *               gui,
     fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
     volatile ulong * net_metrics = fd_metrics_tile( net->metrics );
 
-    cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL ) ];
+    cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL_DROPPED ) ];
     cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED ) ];
     cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_FILL_RING_EMPTY ) ];
   }
@@ -826,7 +818,7 @@ fd_guih_tile_stats_snap( fd_guih_t *                     gui,
     volatile ulong * net_metrics = fd_metrics_tile( net->metrics );
 
     stats->net_in_rx_bytes  += net_metrics[ MIDX( COUNTER, NET, PKT_RX_BYTES ) ];
-    stats->net_out_tx_bytes += net_metrics[ MIDX( COUNTER, NET, PKT_TX_BYTES ) ];
+    stats->net_out_tx_bytes += net_metrics[ MIDX( COUNTER, NET, PKT_TX_SUBMITTED_BYTES ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.sock_tile_cnt; i++ ) {
@@ -842,14 +834,14 @@ fd_guih_tile_stats_snap( fd_guih_t *                     gui,
     volatile ulong * mlx5_metrics = fd_metrics_tile( mlx5->metrics );
 
     stats->net_in_rx_bytes  += mlx5_metrics[ MIDX( COUNTER, MLX5, PKT_RX_BYTES ) ];
-    stats->net_out_tx_bytes += mlx5_metrics[ MIDX( COUNTER, MLX5, PKT_TX_BYTES ) ];
+    stats->net_out_tx_bytes += mlx5_metrics[ MIDX( COUNTER, MLX5, PKT_TX_COMPLETED_BYTES ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    stats->quic_conn_cnt += quic_metrics[ MIDX( GAUGE, QUIC, CONN_IN_USE ) ];
+    for( ulong s=0UL; s<FD_METRICS_ENUM_QUIC_CONN_STATE_CNT; s++ ) stats->quic_conn_cnt += quic_metrics[ MIDX( GAUGE, QUIC, CONN_USED )+s ];
   }
 
   ulong bundle_tile_idx = fd_topo_find_tile( topo, "bundle", 0UL );
@@ -886,7 +878,7 @@ fd_guih_tile_stats_snap( fd_guih_t *                     gui,
   if( pack_tile_idx!=ULONG_MAX ) {
     fd_topo_tile_t const * pack  = &topo->tiles[ pack_tile_idx ];
     volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
-    stats->pack_buffer_cnt      = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE ) ];
+    stats->pack_buffer_cnt      = fd_metrics_enum_group_sum( pack_metrics+MIDX( GAUGE, PACK, TXN_PENDING_USED ), FD_METRICS_ENUM_PENDING_TXN_TYPE_G_ALL_MASK );
     stats->pack_buffer_capacity = pack->pack.max_pending_transactions;
   }
 
@@ -1008,7 +1000,7 @@ fd_guih_poll( fd_guih_t * gui, long now ) {
     ulong bundle_tile_idx = fd_topo_find_tile( gui->topo, "bundle", 0UL );
     if( FD_LIKELY( bundle_tile_idx!=ULONG_MAX ) ) {
       volatile ulong const * bundle_metrics = fd_metrics_tile( gui->topo->tiles[ bundle_tile_idx ].metrics );
-      int cur_state = (int)bundle_metrics[ MIDX( GAUGE, BUNDLE, STATE ) ];
+      int cur_state = (int)bundle_metrics[ MIDX( GAUGE, BUNDLE, CONN_STATE ) ];
       if( FD_UNLIKELY( cur_state != gui->block_engine.status ) ) {
         gui->block_engine.status = cur_state;
         fd_guih_printf_block_engine( gui );
@@ -1032,7 +1024,7 @@ fd_guih_poll( fd_guih_t * gui, long now ) {
     if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
       fd_topo_tile_t const * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
       volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-      ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
+      ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, HIGHEST_REPAIRED_SLOT ) ];
       fd_guih_handle_repair_slot( gui, slot, now );
     }
 
