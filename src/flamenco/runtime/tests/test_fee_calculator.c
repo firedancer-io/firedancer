@@ -215,6 +215,10 @@ execute_txn( fd_svm_mini_t * mini,
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, &txn_in, txn_out );
 }
 
+/* fd_txn_out_t is large; cases run sequentially and zero it before
+   use, so they share one instance. */
+static fd_txn_out_t txn_out[1];
+
 /* AdvanceNonceAccount: nonce fee_calculator comes from the blockhash
    queue entry, not bank->rbh_lamports_per_sig. */
 
@@ -254,7 +258,7 @@ test_advance_nonce_fee( fd_svm_mini_t * mini ) {
   txn_serialize( &txn_p, 1UL, 2UL, 4UL, tx_keys, &durable_nonce, instrs, 1 );
   FD_TEST( fd_txn_parse( txn_p.payload, txn_p.payload_sz, TXN( &txn_p ), NULL ) );
 
-  static fd_txn_out_t txn_out[1]; fd_memset( txn_out, 0, sizeof(*txn_out) );
+  fd_memset( txn_out, 0, sizeof(*txn_out) );
   execute_txn( mini, env.bank, &txn_p, txn_out );
 
   FD_TEST( txn_out->err.is_committable );
@@ -304,7 +308,7 @@ test_initialize_nonce_fee( fd_svm_mini_t * mini ) {
   txn_serialize( &txn_p, 1UL, 3UL, 5UL, tx_keys, &blockhash, instrs, 1 );
   FD_TEST( fd_txn_parse( txn_p.payload, txn_p.payload_sz, TXN( &txn_p ), NULL ) );
 
-  static fd_txn_out_t txn_out[1]; fd_memset( txn_out, 0, sizeof(*txn_out) );
+  fd_memset( txn_out, 0, sizeof(*txn_out) );
   execute_txn( mini, env.bank, &txn_p, txn_out );
 
   FD_TEST( txn_out->err.is_committable );
@@ -415,7 +419,7 @@ test_advance_nonce_already_advanced( fd_svm_mini_t * mini ) {
   txn_serialize( &txn_p, 1UL, 2UL, 4UL, tx_keys, &durable_nonce, instrs, 1 );
   FD_TEST( fd_txn_parse( txn_p.payload, txn_p.payload_sz, TXN( &txn_p ), NULL ) );
 
-  static fd_txn_out_t txn_out[1]; fd_memset( txn_out, 0, sizeof(*txn_out) );
+  fd_memset( txn_out, 0, sizeof(*txn_out) );
   execute_txn( mini, env.bank, &txn_p, txn_out );
 
   FD_TEST( !txn_out->err.is_committable );

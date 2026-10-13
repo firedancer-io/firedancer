@@ -30,6 +30,8 @@ struct test_env {
 };
 typedef struct test_env test_env_t;
 
+static test_env_t env[1];
+
 static void
 create_test_account( fd_accdb_t *        accdb,
                      fd_accdb_fork_id_t  fork_id,
@@ -290,10 +292,6 @@ bundle_acquire( test_env_t * env, fd_txn_p_t * representative_txn, ulong txn_cnt
 
 static void
 test_execute_bundles( fd_svm_mini_t * mini ) {
-  /* env contains fd_txn_out_t which has a 10MB nonce_rollback_data
-     buffer — must not be on the stack. */
-  static test_env_t env_storage[1];
-  test_env_t * env = env_storage;
   setup_env( env, mini );
 
   fd_pubkey_t system  = {0};
@@ -1454,9 +1452,6 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
 static void
 test_inactive_stake_update( fd_svm_mini_t * mini ) {
-  static test_env_t env_storage[1];
-  test_env_t * env = env_storage;
-
   struct {
     ulong activation_epoch;
     ulong deactivation_epoch;

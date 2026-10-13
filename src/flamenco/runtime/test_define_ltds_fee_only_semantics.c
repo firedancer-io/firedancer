@@ -343,6 +343,10 @@ build_separate_nonce_with_limit_txn( fd_pubkey_t const * fee_payer,
   txn_in->txn              = txn_p;
 }
 
+/* fd_txn_out_t is large; cases run sequentially and each build_*
+   helper zeroes it before use, so they share one instance. */
+static fd_txn_out_t txn_out[1];
+
 /* CASE 1 — feature OFF, no nonce: expects fee_payer.dlen (= 0). */
 static void
 test_off_no_nonce_bad_program( fd_svm_mini_t * mini ) {
@@ -353,7 +357,6 @@ test_off_no_nonce_bad_program( fd_svm_mini_t * mini ) {
 
   fd_txn_p_t   txn_p[1];
   fd_txn_in_t  txn_in[1];
-  static fd_txn_out_t txn_out[1];
   build_minimal_fees_only_txn( bank, &fee_payer, &bad_program, txn_p, txn_in, txn_out );
 
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, txn_in, txn_out );
@@ -374,7 +377,6 @@ test_on_no_nonce_bad_program( fd_svm_mini_t * mini ) {
 
   fd_txn_p_t   txn_p[1];
   fd_txn_in_t  txn_in[1];
-  static fd_txn_out_t txn_out[1];
   build_minimal_fees_only_txn( bank, &fee_payer, &bad_program, txn_p, txn_in, txn_out );
 
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, txn_in, txn_out );
@@ -399,7 +401,6 @@ test_off_no_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
 
   fd_txn_p_t   txn_p[1];
   fd_txn_in_t  txn_in[1];
-  static fd_txn_out_t txn_out[1];
   build_limit_exceeded_txn( bank, &fee_payer, &large_acct, 200U, txn_p, txn_in, txn_out );
 
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, txn_in, txn_out );
@@ -423,7 +424,6 @@ test_on_no_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
 
   fd_txn_p_t   txn_p[1];
   fd_txn_in_t  txn_in[1];
-  static fd_txn_out_t txn_out[1];
   uint const limit = 200U;
   build_limit_exceeded_txn( bank, &fee_payer, &large_acct, limit, txn_p, txn_in, txn_out );
 
@@ -450,7 +450,6 @@ test_off_separate_nonce_bad_program( fd_svm_mini_t * mini ) {
 
   fd_txn_p_t   txn_p[1];
   fd_txn_in_t  txn_in[1];
-  static fd_txn_out_t txn_out[1];
   build_separate_nonce_txn( &fee_payer, &nonce_key, &bad_program, &durable_nonce,
                             txn_p, txn_in, txn_out );
 
@@ -478,7 +477,6 @@ test_off_same_nonce_bad_program( fd_svm_mini_t * mini ) {
 
   fd_txn_p_t   txn_p[1];
   fd_txn_in_t  txn_in[1];
-  static fd_txn_out_t txn_out[1];
   build_same_nonce_txn( &fee_payer, &bad_program, &durable_nonce, txn_p, txn_in, txn_out );
 
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, txn_in, txn_out );
@@ -507,7 +505,6 @@ test_on_separate_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
 
   fd_txn_p_t   txn_p[1];
   fd_txn_in_t  txn_in[1];
-  static fd_txn_out_t txn_out[1];
   uint const limit = 100U;
   build_separate_nonce_with_limit_txn( &fee_payer, &nonce_key, &bad_program, &durable_nonce,
                                        limit, txn_p, txn_in, txn_out );
