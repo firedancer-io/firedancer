@@ -226,7 +226,7 @@ static fd_keyswitch_t id_keyswitch_mem[1];
 
 #define TEST_POOL_SLOT_MAX (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)
 
-static uchar pool_scratch[ 160UL<<20 ] __attribute__((aligned(128))); /* ag_pool_footprint( TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST ) is ~134 MiB, mostly untouched */
+static uchar pool_scratch[ 160UL<<20 ] __attribute__((aligned(128))); /* ag_pool_footprint( TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST ) is ~31 MiB, mostly untouched */
 
 /* Returns a pool holding epoch_info from slot 0, in which we are rank. */
 
@@ -888,7 +888,8 @@ test_sign_bls_request( void ) {
       FD_TEST( request->sig==request_sig );
       FD_TEST( request->sz==payload_sz );
       FD_TEST( !memcmp( request_data, payload, payload_sz ) );
-      FD_TEST( fd_bls_agg_verify( payload, payload_sz, &pubs[i], &sig ) );
+      blst_p2 one; blst_p2_from_affine( &one, &sig );
+      FD_TEST( fd_bls_agg_verify( payload, payload_sz, &pubs[i], &one ) );
     }
   }
 }
@@ -897,7 +898,7 @@ static peer_t         peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
 static contact_info_t contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
 static uchar          reconn_prq_mem   [ 1UL<<19 ] __attribute__((aligned(128)));
 static uchar          quic_mem         [ 1UL<<24 ] __attribute__((aligned(FD_QUIC_ALIGN)));
-static uchar          pool_mem         [ (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)*sizeof(ag_slot_state_t)+(4UL<<20) ] __attribute__((aligned(128)));
+static uchar          pool_mem         [ (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)*(sizeof(ag_slot_state_t)+AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX*sizeof(fd_bls_sig_ele_t)+(AG_VAT_MAX+AG_NOTAR_FALLBACK_HASH_MAX)*(sizeof(ag_vote_stake_ele_t)+sizeof(ulong))+1024UL)+(4UL<<20) ] __attribute__((aligned(128)));
 
 static peer_t *
 test_peer( fd_votor_tile_t * ctx,

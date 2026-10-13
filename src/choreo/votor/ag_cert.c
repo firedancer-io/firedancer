@@ -49,7 +49,7 @@ pair_verify( fd_bls_pub_t const * pub,
              fd_bls_pub_t const * pub_fb,
              uchar const *        msg_fb,
              ulong                msg_fb_sz,
-             fd_bls_sig_t const * sig ) {
+             blst_p2 const *      sig ) {
   if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p1_is_inf( pub_fb ) || blst_p2_is_inf( sig ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
 
   blst_p1_affine a[3];
@@ -97,7 +97,7 @@ check_sig_pair( fd_bls_agg_t const *    agg,
                 ushort                  shred_version ) {
   fd_bls_pub_t pub[1], pub_fb[1];
   if( FD_UNLIKELY( pub_sum( pub, agg->set, epoch_info ) || pub_sum( pub_fb, agg_fb->set, epoch_info ) ) ) return 0;
-  fd_bls_sig_t sig[1];
+  blst_p2 sig[1];
   blst_p2_add_or_double( sig, &agg->sig, &agg_fb->sig );
   if( FD_UNLIKELY( !blst_p2_in_g2( sig ) ) ) return 0;
   uchar buf   [ AG_VOTE_SIGNING_SER_MAX ]; ulong sz    = ag_vote_signing_ser( kind,    slot, block_hash, shred_version, buf    );

@@ -55,7 +55,7 @@ agg_add( fd_bls_agg_t *       agg,
          ulong                rank,
          fd_bls_sig_t const * sig ) {
   fd_bls_set_insert( agg->set, rank );
-  blst_p2_add_or_double( &agg->sig, &agg->sig, sig );
+  blst_p2_add_or_double_affine( &agg->sig, &agg->sig, sig );
 }
 
 static inline int
