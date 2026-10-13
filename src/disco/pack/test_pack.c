@@ -780,7 +780,7 @@ void performance_test( int extra_bench ) {
   payload_sz[ 0 ] = txnp_scratch[ 0 ].payload_sz;
   payload_sz[ 1 ] = txnp_scratch[ 1 ].payload_sz;
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL, "test_pack", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "test_pack", 0UL );
 
   /* Above 8192, we start running into MAX_WRITE_COST_PER_ACCT.
      Obviously, calling end_block fixes that, but it muddies the
@@ -952,7 +952,7 @@ void performance_test( int extra_bench ) {
 }
 
 void performance_end_block( void ) {
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL, "test_pack", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, fd_log_cpu_id(), "test_pack", 0UL );
 
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_NOTICE(( "TEST END BLOCK PERFORMANCE skipped" ));

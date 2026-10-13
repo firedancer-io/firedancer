@@ -1388,7 +1388,6 @@ static uchar          peers_mem        [ 1UL<<20 ] __attribute__((aligned(128)))
 static uchar          contact_infos_mem[ 1UL<<22 ] __attribute__((aligned(128)));
 static uchar          reconn_prq_mem   [ 1UL<<19 ] __attribute__((aligned(128)));
 static uchar          quic_mem         [ 1UL<<24 ] __attribute__((aligned(FD_QUIC_ALIGN)));
-static uchar          pool_mem         [ (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)*(sizeof(ag_slot_state_t)+AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX*sizeof(fd_bls_sig_ele_t)+(AG_VAT_MAX+AG_NOTAR_FALLBACK_HASH_MAX)*(sizeof(ag_vote_stake_ele_t)+sizeof(ulong))+1024UL)+(4UL<<20) ] __attribute__((aligned(128)));
 
 static peer_t *
 test_peer( fd_votor_tile_t * ctx,
@@ -1440,8 +1439,8 @@ test_ctx_new( fd_votor_tile_t * ctx,
   ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
   FD_TEST( reconn_prq_footprint( RECONN_MAX )<=sizeof(reconn_prq_mem) );
   ctx->reconn_prq    = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
-  FD_TEST( ag_pool_footprint( AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST )<=sizeof(pool_mem) );
-  ctx->pool          = ag_pool_join( ag_pool_new( pool_mem, AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL ) );
+  FD_TEST( ag_pool_footprint( AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST )<=sizeof(pool_scratch) );
+  ctx->pool          = ag_pool_join( ag_pool_new( pool_scratch, AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL ) );
   FD_TEST( ctx->peers && ctx->contact_infos && ctx->reconn_prq && ctx->pool );
   ag_pool_from_genesis( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
   fd_clock_tile_init( ctx->clock );

@@ -1,7 +1,9 @@
+#define _GNU_SOURCE /* MAP_ANONYMOUS */
 #include "fd_resolv_tile.c"
 #include "../../flamenco/runtime/tests/fd_svm_mini.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../util/tmpl/fd_unit_test.c"
+#include <sys/mman.h>
 
 #define TOPO_TAG 2UL
 #define TEST_MAX_LIVE_SLOTS 32UL
@@ -12,6 +14,7 @@ static uchar           metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribut
 
 struct test_env {
   void *            tile_mem;
+  ulong             tile_sz;
   fd_svm_mini_t *   mini;
   fd_resolv_ctx_t * ctx;
 
@@ -177,11 +180,13 @@ test_env_create( test_env_t * env ) {
 
   fd_topo_tile_t tile = {0};
   tile.resolv.max_live_slots = TEST_MAX_LIVE_SLOTS;
-  env->tile_mem = fd_wksp_alloc_laddr( mini->wksp, scratch_align(), scratch_footprint( &tile ), TOPO_TAG );
-  FD_TEST( env->tile_mem );
+  /* Fresh anonymous pages read as zero, so the blockhash rings that
+     dominate the context only become resident where a case uses them. */
+  env->tile_sz  = scratch_footprint( &tile );
+  env->tile_mem = mmap( NULL, env->tile_sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( env->tile_mem!=MAP_FAILED );
   FD_SCRATCH_ALLOC_INIT( l, env->tile_mem );
   env->ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_resolv_ctx_t), sizeof(fd_resolv_ctx_t) );
-  fd_memset( env->ctx, 0, sizeof(fd_resolv_ctx_t) );
   env->ctx->startup_gate->started = 1;
 
   ulong map_chain_cnt = 2UL*map_chain_cnt_est( BLOCKHASH_RING_LEN );
@@ -217,7 +222,7 @@ test_env_create( test_env_t * env ) {
 
 static void
 test_env_destroy( test_env_t * env ) {
-  fd_wksp_free_laddr( env->tile_mem );
+  FD_TEST( !munmap( env->tile_mem, env->tile_sz ) );
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( env->out_mcache[i] ) ) );
     fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( env->out_dcache[i] ) ) );
