@@ -1289,8 +1289,7 @@ fd_topo_initialize( config_t * config ) {
 
       Without Alpenglow, this value is derived by first multiplying
       max_live_slots by the maximum number of FEC sets per slot.  Fixed
-      32-data-shred sets need 1024; legacy variable sets can contain one
-      data shred and need up to 32768.
+      32-data-shred sets need 512.
 
       However, the downstream structure reasm also has the same bound.
       Replay relies on the guarantee that if a FEC set is present in

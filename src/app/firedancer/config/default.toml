@@ -2234,15 +2234,15 @@ telemetry = true
         # validator and the rest of the network.
         max_cost_per_block = 0
 
-        # Solana has a consensus-agreed-upon limit of 32,768 data shreds
-        # (and as many parity shreds) per block.  This limit prevents a
-        # malicious (or mistaken) validator from slowing down the
-        # network by producing a huge block.  When benchmarking, this
-        # limit can be the bottleneck of the whole system, so this
-        # option is provided to raise the limit.  0 keeps the consensus
-        # limit; any other value is the raised number of data shreds per
-        # block, which must be a multiple of 32,768, and the block data
-        # byte limit scales with it.
+        # Solana has a consensus-agreed-upon limit of 16,384 data shreds
+        # (and as many parity shreds) per block with 200ms slots.  This
+        # limit prevents a malicious (or mistaken) validator from
+        # slowing down the network by producing a huge block.  When
+        # benchmarking, this limit can be the bottleneck of the whole
+        # system, so this option is provided to raise the limit.  0
+        # keeps the consensus limit; any other value is the raised
+        # number of data shreds per block, which must be a multiple of
+        # 16,384, and the block data byte limit scales with it.
         #
         # This option should not be used in a production network, since
         # it would cause consensus violations between the validator and

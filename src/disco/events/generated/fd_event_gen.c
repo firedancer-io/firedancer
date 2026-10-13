@@ -352,7 +352,7 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
   ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
   ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-  FD_TEST( msg->txn_timing_cnt<=98039UL );
+  FD_TEST( msg->txn_timing_cnt<=49019UL );
 
   uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ;
   fd_event_block_completed_txn_timing_t const * txn_timing = (fd_event_block_completed_txn_timing_t const *)_dyn;
@@ -595,7 +595,7 @@ fd_event_runtime_block_serialize( fd_circq_t *                     circq,
   FD_TEST( msg->recent_blockhashes_sysvar_cnt<=150UL );
   FD_TEST( msg->sysvar_diffs_cnt<=16UL );
   FD_TEST( msg->other_diffs_cnt<=32UL );
-  FD_TEST( msg->fec_merkle_roots_cnt<=1024UL );
+  FD_TEST( msg->fec_merkle_roots_cnt<=512UL );
 
   ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
   ok &= !!fd_pb_submsg_open( encoder, 13U ); /* RuntimeBlock */
@@ -1086,7 +1086,7 @@ fd_event_block_received_serialize( fd_circq_t *                      circq,
   ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
   ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-  FD_TEST( msg->fec_sets_cnt<=1024UL );
+  FD_TEST( msg->fec_sets_cnt<=512UL );
 
   uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ;
   fd_event_block_received_fec_sets_t const * fec_sets = (fd_event_block_received_fec_sets_t const *)_dyn;
@@ -1182,7 +1182,7 @@ fd_event_serialize_by_type( ulong               type,
   case 9UL: {
     FD_TEST( ev_sz>=FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ );
     fd_event_block_completed_t const * msg = (fd_event_block_completed_t const *)ev;
-    FD_TEST( msg->txn_timing_cnt<=98039UL );
+    FD_TEST( msg->txn_timing_cnt<=49019UL );
     FD_TEST( ev_sz==fd_event_block_completed_footprint( msg ) );
     fd_event_block_completed_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;
@@ -1238,7 +1238,7 @@ fd_event_serialize_by_type( ulong               type,
   case 21UL: {
     FD_TEST( ev_sz>=FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
     fd_event_block_received_t const * msg = (fd_event_block_received_t const *)ev;
-    FD_TEST( msg->fec_sets_cnt<=1024UL );
+    FD_TEST( msg->fec_sets_cnt<=512UL );
     FD_TEST( ev_sz==fd_event_block_received_footprint( msg ) );
     fd_event_block_received_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;

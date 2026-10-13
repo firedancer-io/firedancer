@@ -17,10 +17,10 @@ static void
 test_sched_footprint( void ) {
   /* Retain the savings from compact shred lengths and 4992-byte
      transactions under the default scheduler sizing. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1761648896UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1694540032UL );
   /* Only the shred length array scales with the shred limit. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1761648896UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1761648896UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1694540032UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1694540032UL );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
@@ -586,6 +586,11 @@ run_ag_structure_cases( void ) {
    declaring hash_cnt 1, except that microblock bad_idx (if not
    ULONG_MAX) declares bad_hash_cnt.  Transactions keep the microblocks
    from being ticks, which would reset the cumulative count. */
+/* More than FD_RUNTIME_MAX_HASHES_PER_TICK entries, each with one
+   transaction, exceed the production limits. */
+#define MANY_ENTRIES_MAX_SHREDS (2UL*FD_SHRED_BLK_MAX)
+#define MANY_ENTRIES_MAX_TXN    (2UL*FD_MAX_TXN_PER_SLOT)
+
 static void
 run_many_entries_case( int   alpenglow,
                        ulong entry_cnt,
@@ -595,12 +600,12 @@ run_many_entries_case( int   alpenglow,
                        int   expect_dead_reason ) {
   ulong depth         = 1UL<<17;
   ulong block_cnt_max = 4UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, MANY_ENTRIES_MAX_SHREDS, MANY_ENTRIES_MAX_TXN );
   void * mem          = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, alpenglow ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, MANY_ENTRIES_MAX_SHREDS, MANY_ENTRIES_MAX_TXN, TEST_EXEC_CNT, alpenglow ) );
   FD_TEST( sched );
   fd_sched_set_bypass_poh_verify( sched, 1 );
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
@@ -680,7 +685,7 @@ static void
 run_many_entries_cases( void ) {
   ulong lim = FD_RUNTIME_MAX_HASHES_PER_TICK;
   FD_TEST( FD_SCHED_MAX_MBLK_PER_SLOT>lim+1000UL );
-  FD_TEST( FD_MAX_TXN_PER_SLOT>90000UL );
+  FD_TEST( MANY_ENTRIES_MAX_TXN>90000UL );
 
   /* Vanilla: exactly the limit is fine, one more is rejected at
      ingest.  This is the boundary the Alpenglow exemption must not

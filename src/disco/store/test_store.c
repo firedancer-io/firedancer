@@ -1132,7 +1132,7 @@ test_disk_lazy_highest( fd_wksp_t * wksp ) {
   int disk_fd = store_file_open( store, O_RDWR );
   FD_TEST( disk_fd>=0 );
   uchar buf[ FD_SHRED_MAX_SZ ];
-  uint idxs[3] = { 30000U, 0U, 0U };
+  uint idxs[3] = { 15000U, 0U, 0U };
   ulong slots[3] = { 7UL, 7UL, 8UL };
   for( ulong i=0UL; i<3UL; i++ ) {
     fd_memset( buf, 0, sizeof(buf) );

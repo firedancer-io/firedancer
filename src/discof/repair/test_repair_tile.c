@@ -644,7 +644,7 @@ test_after_tower_confirmed_eviction( fd_wksp_t * wksp ) {
 
      1. We receive 64 contiguous shreds (FEC 0 and FEC 1, shreds 0-63),
         no slot_complete.
-     2. The attacker sends the maximum FEC set (fec_set_idx=1023*32)
+     2. The attacker sends the maximum FEC set (fec_set_idx=511*32)
         with slot_complete.  complete_idx is now at a very high shred
         index, but buffered_idx stays at 63 because there's a huge gap.
 

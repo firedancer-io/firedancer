@@ -178,7 +178,10 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 #define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
 
-#define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      (100000000UL) /* simd 0286 */
+/* The 200ms slot params with raise_block_limits_to_100m (simd 0286,
+   simd 0525).  Clusters with a larger block cost limit are not
+   supported. */
+#define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      ( 50000000UL)
 #define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ( 36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND * 4UL / 10UL ) /* simd 0306 */
 

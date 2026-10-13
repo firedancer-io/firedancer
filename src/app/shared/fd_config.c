@@ -684,8 +684,8 @@ fd_config_validate( fd_config_t const * config ) {
      match what the Firedancer side used to hardcode for them. */
   if( FD_UNLIKELY( !config->is_firedancer && bench_cost && bench_cost!=18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND ) )
     FD_LOG_ERR(( "invalid [development.bench.max_cost_per_block]: Frankendancer supports 0 or %lu", 18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND ));
-  if( FD_UNLIKELY( !config->is_firedancer && bench_shreds && bench_shreds!=32UL*FD_SHRED_BLK_MAX ) )
-    FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: Frankendancer supports 0 or %lu", 32UL*FD_SHRED_BLK_MAX ));
+  if( FD_UNLIKELY( !config->is_firedancer && bench_shreds && bench_shreds!=32UL*FD_SHRED_PROTOCOL_BLK_MAX ) )
+    FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: Frankendancer supports 0 or %lu", 32UL*FD_SHRED_PROTOCOL_BLK_MAX ));
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
