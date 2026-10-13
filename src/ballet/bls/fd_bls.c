@@ -14,8 +14,10 @@ fd_bls_sec_sign( fd_bls_sec_t const * sk,
                  ulong                msg_sz,
                  fd_bls_sig_t *       sig ) {
   blst_p2 hash[1];
+  blst_p2 p[1];
   blst_hash_to_g2( hash, msg, msg_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
-  blst_sign_pk_in_g1( sig, hash, sk );
+  blst_sign_pk_in_g1( p, hash, sk );
+  blst_p2_to_affine( sig, p );
 }
 
 void
@@ -29,18 +31,14 @@ fd_bls_sec_derive( fd_bls_sec_t * sk,
 void
 fd_bls_sig_ser( fd_bls_sig_t const * sig,
                 uchar                buf[ static FD_BLS_SIG_SZ ] ) {
-  blst_p2_affine a[1];
-  blst_p2_to_affine( a, sig );
-  blst_p2_affine_serialize( buf, a );
+  blst_p2_affine_serialize( buf, sig );
 }
 
 int
 fd_bls_sig_de( fd_bls_sig_t * sig,
                uchar const    buf[ static FD_BLS_SIG_SZ ] ) {
-  blst_p2_affine a[1];
-  if( FD_UNLIKELY( blst_p2_deserialize( a, buf )!=BLST_SUCCESS ) ) return -1;
-  if( FD_UNLIKELY( !blst_p2_affine_in_g2( a ) ) )                 return -1;
-  blst_p2_from_affine( sig, a );
+  if( FD_UNLIKELY( blst_p2_deserialize( sig, buf )!=BLST_SUCCESS ) ) return -1;
+  if( FD_UNLIKELY( !blst_p2_affine_in_g2( sig ) ) )                  return -1;
   return 0;
 }
 
@@ -75,7 +73,7 @@ fd_bls_pub_de( fd_bls_pub_t * pub,
 fd_bls_agg_t *
 fd_bls_agg_null( fd_bls_agg_t * agg ) {
   fd_memset( &agg->pub, 0, sizeof(fd_bls_pub_t) );
-  fd_memset( &agg->sig, 0, sizeof(fd_bls_sig_t) );
+  fd_memset( &agg->sig, 0, sizeof(blst_p2) );
   fd_bls_set_null( agg->set );
   return agg;
 }
@@ -90,7 +88,7 @@ fd_bls_agg_construct( fd_bls_agg_t *       agg,
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( set, rank ) ) {
     blst_p1_add_or_double( &agg->pub, &agg->pub, pub+rank );
-    blst_p2_add_or_double( &agg->sig, &agg->sig, sig+rank );
+    blst_p2_add_or_double_affine( &agg->sig, &agg->sig, sig+rank );
   }
   return agg;
 }
@@ -132,7 +130,7 @@ fd_bls_hash_msg( uchar const *    msg,
 int
 fd_bls_agg_verify_hashed( blst_p2_affine const * h,
                           fd_bls_pub_t const *   pub,
-                          fd_bls_sig_t const *   sig ) {
+                          blst_p2 const *        sig ) {
   if( FD_UNLIKELY( blst_p2_affine_is_inf( h ) || blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
 
   blst_p1_affine a[2];
@@ -153,7 +151,7 @@ int
 fd_bls_agg_verify( uchar const *        msg,
                    ulong                msg_sz,
                    fd_bls_pub_t const * pub,
-                   fd_bls_sig_t const * sig ) {
+                   blst_p2 const *      sig ) {
   if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0;
   blst_p2_affine h[1];
   fd_bls_hash_msg( msg, msg_sz, h );
@@ -170,7 +168,9 @@ verify_linear_hashed( fd_bls_agg_t const *   agg,
   for( ulong rank = fd_bls_set_const_iter_init( agg->set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( agg->set, rank ) ) {
-    if( FD_UNLIKELY( !fd_bls_agg_verify_hashed( h, pub+rank, sig+rank ) ) ) fd_bls_set_insert( bad, rank );
+    blst_p2 one;
+    blst_p2_from_affine( &one, sig+rank );
+    if( FD_UNLIKELY( !fd_bls_agg_verify_hashed( h, pub+rank, &one ) ) ) fd_bls_set_insert( bad, rank );
   }
   return bad;
 }
@@ -190,7 +190,7 @@ verify_bisect_hashed( fd_bls_agg_t const *   agg,
     for( ulong rank = fd_bls_set_const_iter_init( key.set );
                      !fd_bls_set_const_iter_done( rank );
                rank = fd_bls_set_const_iter_next( key.set, rank ) ) {
-      if( FD_LIKELY( mid++<cnt/2UL ) ) { fd_bls_set_insert( lo.set, rank ); blst_p1_add_or_double( &lo.pub, &lo.pub, pub+rank ); blst_p2_add_or_double( &lo.sig, &lo.sig, sig+rank ); }
+      if( FD_LIKELY( mid++<cnt/2UL ) ) { fd_bls_set_insert( lo.set, rank ); blst_p1_add_or_double( &lo.pub, &lo.pub, pub+rank ); blst_p2_add_or_double_affine( &lo.sig, &lo.sig, sig+rank ); }
       else                             { fd_bls_set_insert( hi.set, rank ); }
     }
     hi.pub = lo.pub; blst_p1_cneg( &hi.pub, 1 ); blst_p1_add_or_double( &hi.pub, &hi.pub, &key.pub );

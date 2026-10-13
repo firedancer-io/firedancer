@@ -579,19 +579,21 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     return;
   }
-  ag_epoch_info_t const * epoch_info = state->epoch_info;
-  ag_slot_votes_t const * votes      = &state->votes;
+  ag_slot_states_t const * states     = ag_pool_slot_states( ctx->pool );
+  ag_epoch_info_t const *  epoch_info = fd_ptr_if( reward_slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( reward_slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
+  ag_slot_votes_t const *  votes      = &state->votes;
+  fd_bls_sig_t             sigs[ AG_VAT_MAX ];
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz;
   int   err;
 
   uchar const *        hash  = votes->top_notar_hash;
-  fd_bls_agg_t const * notar = ag_slot_state_notar_reward_agg( state );
+  fd_bls_agg_t const * notar = ag_slot_state_notar_reward_agg( state, states, &reward->agg_notar );
   if( FD_LIKELY( notar ) ) {
-    reward->agg_notar = *notar;
+    ag_slot_state_sigs( state, states, AG_VOTE_KIND_NOTAR, hash, reward->agg_notar.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, reward_slot, hash, ctx->shred_version, msg );
-    err    = fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, votes->notar_sig, ctx->scratch.bad );
+    err    = fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_notar );
     else                     memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) );
@@ -600,8 +602,9 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
   fd_bls_agg_t const * skip = ag_slot_state_skip_reward_agg( state );
   if( FD_LIKELY( skip ) ) {
     reward->agg_skip = *skip;
+    ag_slot_state_sigs( state, states, AG_VOTE_KIND_SKIP, NULL, reward->agg_skip.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, reward_slot, NULL, ctx->shred_version, msg );
-    err    = fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, votes->skip_sig, ctx->scratch.bad );
+    err    = fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_skip );
   }
@@ -1348,7 +1351,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( msg->start_slot, ctx->wait_to_vote_slot ), &ctx->id_key );
 
-  ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
+  ctx->init = !!ctx->next_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
 }
 
 static void
@@ -1420,7 +1423,7 @@ handle_replay( fd_votor_tile_t *           ctx,
       ctx->standstill_slot = block_id.slot;
       ctx->standstill_ts   = fd_clock_tile_now( ctx->clock )+AG_DELTA_STANDSTILL_NS;
       if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, &block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_vote, ctx );
-      ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
+      ctx->init = !!ctx->next_epoch_info && !!ctx->shred_version;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, block_id.slot );
@@ -2105,7 +2108,7 @@ after_frag( fd_votor_tile_t *   ctx,
     FD_TEST( sig && sig<=USHORT_MAX );
     if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, &ctx->boot_block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, (ushort)sig, sign_vote, ctx );
     ctx->shred_version = (ushort)sig;
-    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
+    ctx->init = !!ctx->next_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
     break;
   case IN_KIND_NET: {
     if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) break;
