@@ -159,7 +159,7 @@ fd_gui_new( void *                   shmem,
   gui->tile_cnt    = tile_cnt;
 
   gui->db   = db;
-  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, (fd_gui_store_t const *)db ) );
+  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, (fd_gui_store_t const *)db, tile_cnt ) );
   if( FD_UNLIKELY( !gui->hist ) ) {
     FD_LOG_WARNING(( "fd_gui_hist_new failed" ));
     return NULL;
@@ -287,6 +287,11 @@ fd_gui_new( void *                   shmem,
     gui->ag.slot[ i ].slot     = ULONG_MAX;
     gui->ag.slot[ i ].bank_seq = ULONG_MAX;
   }
+
+  memset( gui->cpu_util.total, 0, sizeof(gui->cpu_util.total) );
+  memset( gui->cpu_util.idle,  0, sizeof(gui->cpu_util.idle)  );
+  gui->cpu_util.last_slot      = ULONG_MAX;
+  gui->cpu_util.frame_start_ns = LONG_MAX;
 
   memset( gui->summary.skip_rate, 0, sizeof(gui->summary.skip_rate) );
   gui->summary.skip_rate[ 0 ].epoch = ULONG_MAX;
@@ -736,6 +741,48 @@ fd_gui_tile_timers_snap( fd_gui_t * gui, long now ) {
     cur[ i ].tile_idx = i;
     fd_gui_tile_timers_diff( &gui->summary.tile_timers_packed[ i ], &gui->summary.tile_timers_reference[ i ], &cur[ i ], i, now );
   }
+}
+
+static void fd_gui_timeline_cpu_util( fd_gui_t * gui, long start_ns, uchar const * util, long now );
+
+void
+fd_gui_cpu_util_snap( fd_gui_t * gui, long now ) {
+  if( FD_UNLIKELY( now<FD_GUI_CPU_UTIL_SAMPLE_NS ) ) return;
+  ulong slot = (ulong)now/(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS - 1UL;
+  if( FD_UNLIKELY( gui->cpu_util.last_slot!=ULONG_MAX && slot<=gui->cpu_util.last_slot ) ) return;
+  gui->cpu_util.last_slot = slot;
+
+  long start_ns = (long)( slot/FD_GUI_CPU_UTIL_FRAME_SAMPLES*FD_GUI_CPU_UTIL_FRAME_SAMPLES*(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS );
+  if( FD_UNLIKELY( start_ns!=gui->cpu_util.frame_start_ns ) ) {
+    if( FD_LIKELY( gui->cpu_util.frame_start_ns!=LONG_MAX ) ) {
+      fd_gui_cpu_util_frame_t * frame = fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_CPU_UTIL, gui->cpu_util.frame_start_ns );
+      if( FD_LIKELY( frame ) ) fd_memcpy( frame->util, gui->cpu_util.frame, FD_GUI_CPU_UTIL_FRAME_SAMPLES*gui->tile_cnt );
+    }
+    gui->cpu_util.frame_start_ns = start_ns;
+    memset( gui->cpu_util.frame, FD_GUI_CPU_UTIL_UNKNOWN, FD_GUI_CPU_UTIL_FRAME_SAMPLES*gui->tile_cnt );
+  }
+
+  uchar * util = gui->cpu_util.frame + ( slot%FD_GUI_CPU_UTIL_FRAME_SAMPLES )*gui->tile_cnt;
+  for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &gui->topo->tiles[ i ];
+    if( FD_UNLIKELY( !tile->metrics ) ) continue;
+    volatile ulong const * timers = fd_metrics_tile( tile->metrics ) + MIDX( COUNTER, TILE, REGIME_DURATION_NANOS );
+    ulong total = fd_metrics_enum_group_sum( timers, (1UL<<FD_METRICS_ENUM_TILE_REGIME_CNT)-1UL );
+    ulong idle  = fd_metrics_enum_group_sum( timers, FD_METRICS_ENUM_TILE_REGIME_G_IDLE_MASK | FD_METRICS_ENUM_TILE_REGIME_G_BACKPRESSURE_MASK );
+    ulong dt    = total - gui->cpu_util.total[ i ];
+    ulong di    = idle  - gui->cpu_util.idle [ i ];
+    /* A tile that has not published since the last sample keeps its
+       reference, so its next sample covers the whole gap.  The first
+       published timers only set the reference. */
+    if( FD_UNLIKELY( !dt ) ) continue;
+    int has_ref = !!gui->cpu_util.total[ i ];
+    gui->cpu_util.total[ i ] = total;
+    gui->cpu_util.idle [ i ] = idle;
+    if( FD_UNLIKELY( !has_ref ) ) continue;
+    ulong busy = dt - fd_ulong_min( di, dt );
+    util[ i ] = (uchar)( ( busy*FD_GUI_CPU_UTIL_MAX + dt/2UL )/dt );
+  }
+  fd_gui_timeline_cpu_util( gui, (long)( slot*(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS ), util, now );
 }
 
 static void
@@ -1861,6 +1908,7 @@ fd_gui_next_deadline( fd_gui_t const * gui ) {
   due = fd_long_min( due, gui->next_sample_100millis );
   due = fd_long_min( due, gui->next_sample_50millis  );
   due = fd_long_min( due, gui->next_sample_40millis  );
+  due = fd_long_min( due, gui->next_sample_25millis  );
   due = fd_long_min( due, gui->next_sample_10millis  );
   return due+1L; /* the samplers fire on now>next */
 }
@@ -1991,6 +2039,12 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     }
 
     gui->next_sample_40millis += 40L*1000L*1000L;
+    return 1;
+  }
+
+  if( FD_LIKELY( now>gui->next_sample_25millis ) ) {
+    fd_gui_cpu_util_snap( gui, now );
+    gui->next_sample_25millis += 25L*1000L*1000L;
     return 1;
   }
 
@@ -2227,6 +2281,7 @@ fd_gui_request_timeline( fd_gui_t *   gui,
   long start_ns = 0L; int has_start = 0;
   long end_ns   = 0L; int has_end   = 0;
   char name[ 32UL ] = {0};
+  ulong tiles[ FD_TOPO_MAX_TILES ]; ulong tile_cnt = 0UL;
   fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
   fd_jtok_str_t member;
   fd_jtok_obj_enter( j );
@@ -2239,6 +2294,12 @@ fd_gui_request_timeline( fd_gui_t *   gui,
       has_end = 1;
     } else if( fd_jtok_str_eq( &member, "granularity" ) ) {
       fd_jtok_cstr( j, name, sizeof(name) );
+    } else if( fd_jtok_str_eq( &member, "tiles" ) ) {
+      fd_jtok_arr_enter( j );
+      while( fd_jtok_arr_next( j ) ) {
+        if( FD_UNLIKELY( tile_cnt>=FD_TOPO_MAX_TILES ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+        fd_jtok_ulong( j, &tiles[ tile_cnt++ ] );
+      }
     }
   }
   if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_start || !has_end || end_ns<=start_ns ) ) {
@@ -2266,7 +2327,8 @@ fd_gui_request_timeline( fd_gui_t *   gui,
     ulong reference = first*ns;
     ulong count     = ((ulong)end_ns-1UL)/ns - first + 1UL;
     if( FD_UNLIKELY( count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || count*ns>=(ulong)LONG_MAX-reference ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    err = fd_gui_printf_timeline_query_agg( gui, key, name, g, (long)reference, count, id );
+    if( !strcmp( key, "query_agg_cpu" ) ) err = fd_gui_printf_timeline_query_agg_cpu( gui, name, g, (long)reference, count, tiles, tile_cnt, id );
+    else                                   err = fd_gui_printf_timeline_query_agg( gui, key, name, g, (long)reference, count, id );
   }
   if( FD_UNLIKELY( err ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -2319,7 +2381,8 @@ fd_gui_ws_message( fd_gui_t *    gui,
        fd_jtok_str_eq( &key, "query_agg_shreds" ) ||
        fd_jtok_str_eq( &key, "query_agg_compute" ) ||
        fd_jtok_str_eq( &key, "query_agg_revenue" ) ||
-       fd_jtok_str_eq( &key, "query_agg_txn" )) ) ) {
+       fd_jtok_str_eq( &key, "query_agg_txn" ) ||
+       fd_jtok_str_eq( &key, "query_agg_cpu" )) ) ) {
     if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
     char name[ 32UL ];
     if( FD_UNLIKELY( fd_jtok_str_decode( &key, name, sizeof(name) )<0L ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
@@ -3112,6 +3175,9 @@ fd_gui_timeline_day_create( fd_gui_t * gui,
   fd_gui_timeline_day_t * seed = fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, end_time_ns );
   if( FD_UNLIKELY( !seed ) ) return NULL;
   memset( seed, 0xFF, sizeof(fd_gui_timeline_day_t) );
+  /* CPU sums and counts start empty. */
+  ulong cpu_off = fd_gui_timeline_cpu_off( gui->tile_cnt, FD_GUI_TIMELINE_GRANULARITY_2S, 0 );
+  memset( (uchar *)seed+cpu_off, 0, fd_gui_timeline_day_footprint( gui->tile_cnt )-cpu_off );
   /* Duration totals start empty; all-ones is reserved for sticky overflow. */
 #define DURATION_INIT(tier) do { \
   memset( seed->bucket_##tier.duration_sum, 0, sizeof(seed->bucket_##tier.duration_sum) ); \
@@ -3216,6 +3282,19 @@ fd_gui_timeline_mine_add( fd_gui_t * gui,
                                day_ns/fd_gui_timeline_stored_granularity_ns[ g ], 1UL );
   }
   return 1;
+}
+
+static void
+fd_gui_timeline_cpu_util( fd_gui_t *    gui,
+                          long          start_ns,
+                          uchar const * util,
+                          long          now ) {
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, (ulong)start_ns/(ulong)FD_GUI_TIMELINE_DAY_NS, now );
+  if( FD_UNLIKELY( !day ) ) return;
+  ulong day_ns = (ulong)start_ns % (ulong)FD_GUI_TIMELINE_DAY_NS;
+  for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
+    if( util[ i ]<=FD_GUI_CPU_UTIL_MAX ) fd_gui_timeline_cpu_add( day, gui->tile_cnt, day_ns, i, util[ i ] );
+  }
 }
 
 static void

@@ -4378,6 +4378,151 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
   return 0;
 }
 
+/* fd_gui_tile_from_ordinal is the inverse of fd_gui_tile_ordinal,
+   returning ULONG_MAX for an ordinal past the reported tiles. */
+
+static ulong
+fd_gui_tile_from_ordinal( fd_gui_t * gui,
+                          ulong      ordinal ) {
+  for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
+    ulong idx = gui->summary.tile[ i ];
+    if( FD_UNLIKELY( !strncmp( gui->topo->tiles[ idx ].name, "bench", 5UL ) ) ) continue;
+    if( !ordinal-- ) return idx;
+  }
+  return ULONG_MAX;
+}
+
+/* fd_gui_timeline_cpu_frame folds the samples of one raw frame into the
+   requested tiles' buckets. */
+
+static void
+fd_gui_timeline_cpu_frame( fd_gui_t *    gui,
+                           long          start_ns,
+                           uchar const * util,
+                           ulong const * tiles,
+                           ulong         tile_cnt,
+                           ulong         reference,
+                           ulong         count,
+                           ulong         ns ) {
+  ulong end = reference + count*ns;
+  for( ulong s=0UL; s<FD_GUI_CPU_UTIL_FRAME_SAMPLES; s++ ) {
+    ulong ts = (ulong)start_ns + s*(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS;
+    if( ts<reference || ts>=end ) continue;
+    ulong b = (ts-reference)/ns;
+    for( ulong t=0UL; t<tile_cnt; t++ ) {
+      uchar v = util[ s*gui->tile_cnt + tiles[ t ] ];
+      if( v>FD_GUI_CPU_UTIL_MAX ) continue;
+      gui->timeline_scratch.cpu[ t*count + b ].sum += v;
+      gui->timeline_scratch.cpu[ t*count + b ].cnt++;
+    }
+  }
+}
+
+int
+fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
+                                      char const *  granularity,
+                                      ulong         g,
+                                      long          reference,
+                                      ulong         count,
+                                      ulong const * ordinals,
+                                      ulong         tile_cnt,
+                                      ulong         id ) {
+  if( FD_UNLIKELY( reference<0L || !count || count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || g>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
+  if( FD_UNLIKELY( !tile_cnt || tile_cnt>FD_TOPO_MAX_TILES ) ) return -1;
+  ulong tiles[ FD_TOPO_MAX_TILES ];
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    tiles[ t ] = fd_gui_tile_from_ordinal( gui, ordinals[ t ] );
+    if( FD_UNLIKELY( tiles[ t ]==ULONG_MAX ) ) return -1;
+  }
+
+  fd_gui_timeline_granularity_t const * desc = &fd_gui_timeline_granularities[ g ];
+  ulong ns  = fd_gui_timeline_granularity_ns( g );
+  /* Granularities up to 1s come from raw frames, coarser ones from the
+     day tiers (which start at 2s). */
+  int   raw = ns<=(ulong)FD_GUI_HIST_RES_1S_NS;
+  memset( gui->timeline_scratch.cpu, 0, count*tile_cnt*sizeof(gui->timeline_scratch.cpu[ 0 ]) );
+
+  long avail_start = 0L, avail_end = 0L;
+  int  avail;
+  if( raw ) {
+    ulong end = (ulong)reference + count*ns;
+    fd_gui_hist_iter_t it;
+    if( FD_LIKELY( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_CPU_UTIL, reference, (long)end-1L, NULL, NULL ) ) ) {
+      while( fd_gui_hist_range_next( &it ) ) {
+        fd_gui_cpu_util_frame_t const * frame = it.rec;
+        fd_gui_timeline_cpu_frame( gui, frame->start_ns, frame->util, tiles, tile_cnt, (ulong)reference, count, ns );
+      }
+      fd_gui_hist_range_end( &it );
+    }
+    long open = gui->cpu_util.frame_start_ns;
+    if( open!=LONG_MAX ) fd_gui_timeline_cpu_frame( gui, open, gui->cpu_util.frame, tiles, tile_cnt, (ulong)reference, count, ns );
+
+    long first, last;
+    avail = gui->db && fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_CPU_UTIL, &first, &last );
+    if( avail ) {
+      avail_start = first;
+      avail_end   = last+FD_GUI_HIST_RES_1S_NS;
+    }
+    if( open!=LONG_MAX ) {
+      avail_start = avail ? avail_start : open;
+      avail_end   = open+FD_GUI_HIST_RES_1S_NS;
+      avail       = 1;
+    }
+  } else {
+    ulong stored      = desc->stored_idx;
+    ulong step        = fd_gui_timeline_stored_granularity_ns[ stored ];
+    ulong cur_day_idx = ULONG_MAX;
+    fd_gui_timeline_day_t const * cur_day = NULL;
+    for( ulong i=0UL; i<count; i++ ) {
+      for( ulong j=0UL; j<desc->merge_cnt; j++ ) {
+        ulong ts      = (ulong)reference + i*ns + j*step;
+        ulong day_idx = ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
+        if( FD_UNLIKELY( day_idx!=cur_day_idx ) ) {
+          cur_day_idx = day_idx;
+          cur_day     = fd_gui_timeline_day_get( gui, day_idx );
+        }
+        if( FD_UNLIKELY( !cur_day ) ) continue;
+        ulong idx = (ts%(ulong)FD_GUI_TIMELINE_DAY_NS) / step;
+        for( ulong t=0UL; t<tile_cnt; t++ ) {
+          ulong sum, cnt;
+          fd_gui_timeline_cpu_get( cur_day, gui->tile_cnt, (int)stored, idx, tiles[ t ], &sum, &cnt );
+          gui->timeline_scratch.cpu[ t*count + i ].sum += (uint)sum;
+          gui->timeline_scratch.cpu[ t*count + i ].cnt += (uint)cnt;
+        }
+      }
+    }
+    avail = fd_gui_timeline_day_bounds( gui, &avail_start, &avail_end );
+  }
+
+  jsonp_open_envelope( gui->http, "timeline", "query_agg_cpu" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  jsonp_string( gui->http, "granularity", granularity );
+  jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
+  if( FD_LIKELY( avail ) ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", avail_start );
+    jsonp_long_as_str( gui->http, "available_end_ns", avail_end );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+  jsonp_open_array( gui->http, "utilization" );
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    jsonp_open_array( gui->http, NULL );
+    for( ulong i=0UL; i<count; i++ ) {
+      ulong sum = gui->timeline_scratch.cpu[ t*count + i ].sum;
+      ulong cnt = gui->timeline_scratch.cpu[ t*count + i ].cnt;
+      if( !cnt ) jsonp_null( gui->http, NULL );
+      else jsonp_ulong( gui->http, NULL, (sum + cnt/2UL)/cnt );
+    }
+    jsonp_close_array( gui->http );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
 void
 fd_gui_peers_printf_wfs_add( fd_gui_peers_ctx_t * peers,
                              ulong const *        idxs,

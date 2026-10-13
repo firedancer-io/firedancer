@@ -95,8 +95,9 @@ typedef struct fd_gui_store_private fd_gui_store_t;
    their metadata in the value), so FD_GUI_STORE_MAX_REC_SZ is the whole
    region size.  Callers that know their record types at compile time
    should static-assert sizeof(their largest record) <=
-   FD_GUI_STORE_MAX_REC_SZ. */
-#define FD_GUI_STORE_REGION_SZ  (40UL<<20)
+   FD_GUI_STORE_MAX_REC_SZ.  80 MiB fits the GUI's timeline day record
+   with per-tile CPU aggregates for FD_TOPO_MAX_TILES tiles. */
+#define FD_GUI_STORE_REGION_SZ  (80UL<<20)
 #define FD_GUI_STORE_MAX_REC_SZ (FD_GUI_STORE_REGION_SZ)
 
 /* Each ring has a protected rolling base.  Unclaimed base regions are

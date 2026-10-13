@@ -20,7 +20,8 @@ FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_txn_t)<=FD_GUI_STORE_MAX_REC_SZ, re
 FD_STATIC_ASSERT( sizeof(fd_gui_slot_t            )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_leader_slot_t     )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_epoch_t           )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
-FD_STATIC_ASSERT( sizeof(fd_gui_timeline_day_t    )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+/* Each CPU tier array adds at most 7 bytes of alignment padding. */
+FD_STATIC_ASSERT( sizeof(fd_gui_timeline_day_t)+FD_TOPO_MAX_TILES*FD_GUI_TIMELINE_CPU_TILE_SZ+16UL*8UL<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_store_slot_duration_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_store_slot_duration_t)==32UL, slot_duration_size );
 
@@ -55,6 +56,7 @@ fd_gui_hist_dbi_ts_off( int dbi ) {
     case FD_GUI_HIST_REPLAY_TXN_BATCH:  return offsetof( fd_gui_store_replay_txn_batch_t, insert_time_ns );
     case FD_GUI_HIST_TIMELINE_DAY:     return offsetof( fd_gui_timeline_day_t,     end_time_ns       );
     case FD_GUI_HIST_SLOT_DURATION:    return offsetof( fd_gui_store_slot_duration_t, insert_time_ns );
+    case FD_GUI_HIST_CPU_UTIL:         return offsetof( fd_gui_cpu_util_frame_t,   start_ns          );
     default:                           return 0UL;
   }
 }
@@ -77,6 +79,7 @@ fd_gui_hist_keyshape( int dbi ) {
     case FD_GUI_HIST_REPLAY_TXN:
     case FD_GUI_HIST_REPLAY_TXN_BATCH:
     case FD_GUI_HIST_SLOT_DURATION:
+    case FD_GUI_HIST_CPU_UTIL:
     case FD_GUI_HIST_TIMELINE_DAY:     return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_SLOT:
     case FD_GUI_HIST_LEADER_SLOT:      return FD_GUI_HIST_KEYSHAPE_SLOT_BANK;
@@ -157,7 +160,8 @@ fd_gui_hist_fec_key_cmp( void const * a,
 }
 
 static inline ulong
-fd_gui_hist_rec_sz( int dbi ) {
+fd_gui_hist_rec_sz( int   dbi,
+                    ulong tile_cnt ) {
   switch( dbi ) {
     case FD_GUI_HIST_SHRED_EVENTS:     return sizeof(fd_gui_shred_batch_t);
     case FD_GUI_HIST_TILE_TIMERS:      return sizeof(fd_gui_tile_timers_hist_t);
@@ -173,8 +177,9 @@ fd_gui_hist_rec_sz( int dbi ) {
     case FD_GUI_HIST_SLOT:             return sizeof(fd_gui_slot_t);
     case FD_GUI_HIST_LEADER_SLOT:      return sizeof(fd_gui_leader_slot_t);
     case FD_GUI_HIST_EPOCH:            return sizeof(fd_gui_epoch_t);
-    case FD_GUI_HIST_TIMELINE_DAY:     return sizeof(fd_gui_timeline_day_t);
+    case FD_GUI_HIST_TIMELINE_DAY:     return fd_gui_timeline_day_footprint( tile_cnt );
     case FD_GUI_HIST_SLOT_DURATION:    return sizeof(fd_gui_store_slot_duration_t);
+    case FD_GUI_HIST_CPU_UTIL:         return fd_gui_cpu_util_frame_footprint( tile_cnt );
     default:                           return 0UL;
   }
 }
@@ -225,29 +230,32 @@ static inline int
    the value), so the stride is just the align-padded record. */
 static inline ulong
 fd_gui_hist_kv_stride( int dbi ) {
-  return fd_ulong_align_up( fd_gui_hist_rec_sz( dbi ), 8UL );
+  return fd_ulong_align_up( fd_gui_hist_rec_sz( dbi, 0UL ), 8UL ); /* KV records are not per-tile */
 }
 
 fd_gui_store_desc_t const *
-fd_gui_hist_db_descs( ulong store_bytes ) {
+fd_gui_hist_db_descs( ulong store_bytes,
+                      ulong tile_cnt ) {
   static char const * const names[ FD_GUI_HIST_CNT ] = {
     "scheduler_counts", "tile_timers", "shred_events", "txn_start",
     "txn_end", "slot", "leader_slot", "epoch", "tile_stats",
     "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch",
-    "fec_events", "fec_completions", "slot_duration"
+    "fec_events", "fec_completions", "slot_duration", "cpu_util"
   };
   static fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
   static ulong built_for = 0UL; /* store_bytes the table was built for (0 = unbuilt) */
+  static ulong built_tile_cnt;
 
-  if( FD_UNLIKELY( built_for && built_for!=store_bytes ) )
-    FD_LOG_ERR(( "fd_gui_hist_db_descs: called with %lu after %lu", store_bytes, built_for ));
+  if( FD_UNLIKELY( tile_cnt>FD_TOPO_MAX_TILES ) ) FD_LOG_ERR(( "fd_gui_hist_db_descs: tile_cnt %lu too large", tile_cnt ));
+  if( FD_UNLIKELY( built_for && ( built_for!=store_bytes || built_tile_cnt!=tile_cnt ) ) )
+    FD_LOG_ERR(( "fd_gui_hist_db_descs: called with (%lu, %lu) after (%lu, %lu)", store_bytes, tile_cnt, built_for, built_tile_cnt ));
 
   if( FD_UNLIKELY( !built_for ) ) {
     ulong shared = fd_ulong_sat_sub( store_bytes, fd_gui_store_min_size( FD_GUI_HIST_CNT ) ) / FD_GUI_STORE_REGION_SZ;
 
     for( int i=0; i<FD_GUI_HIST_CNT; i++ ) {
       int   ts     = fd_gui_hist_is_timeseries( i );
-      ulong rec_sz = fd_gui_hist_rec_sz( i );
+      ulong rec_sz = fd_gui_hist_rec_sz( i, tile_cnt );
       ulong key_sz = ts ? 0UL : fd_gui_hist_key_sz( i ); /* TS DBs have no key (0) */
       ulong val_sz = ts ? fd_ulong_max( rec_sz, 1UL ) : rec_sz;
       ulong max_records = 0UL;
@@ -276,7 +284,8 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
       descs[ i ].max_records = max_records;
     }
     FD_COMPILER_MFENCE();
-    built_for = store_bytes;
+    built_tile_cnt = tile_cnt;
+    built_for      = store_bytes;
   }
   return descs;
 }
@@ -286,6 +295,7 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
 
 struct fd_gui_hist_private {
   ulong magic;          /* ==FD_GUI_HIST_MAGIC after fd_gui_hist_new */
+  ulong tile_cnt;       /* per-tile records are sized for this many tiles */
   long  last_ts[ FD_GUI_HIST_CNT ];
   int   has_last_ts[ FD_GUI_HIST_CNT ];
 
@@ -306,7 +316,8 @@ fd_gui_hist_footprint( void ) {
 
 void *
 fd_gui_hist_new( void *                 mem,
-                 fd_gui_store_t const * db ) {
+                 fd_gui_store_t const * db,
+                 ulong                  tile_cnt ) {
   if( FD_UNLIKELY( !mem ) ) { FD_LOG_WARNING(( "fd_gui_hist_new: null mem" )); return NULL; }
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_gui_hist_align() ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_new: misaligned mem" )); return NULL; }
   if( FD_UNLIKELY( !db ) ) { FD_LOG_WARNING(( "fd_gui_hist_new: null db" )); return NULL; }
@@ -322,6 +333,8 @@ fd_gui_hist_new( void *                 mem,
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_gui_hist_t * hist = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_hist_align(), sizeof(fd_gui_hist_t) );
   FD_SCRATCH_ALLOC_FINI( l, fd_gui_hist_align() );
+
+  hist->tile_cnt = tile_cnt;
 
   FD_COMPILER_MFENCE();
   hist->magic = FD_GUI_HIST_MAGIC;
@@ -417,7 +430,7 @@ fd_gui_hist_ts_emplace( fd_gui_t * gui,
   if( FD_UNLIKELY( !fd_gui_hist_is_timeseries( dbi ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_emplace: dbi %d is not time-series", dbi )); return NULL; }
   fd_gui_store_t * db = fd_gui_hist_db( gui );
 
-  ulong rec_sz = fd_gui_hist_rec_sz( dbi );
+  ulong rec_sz = fd_gui_hist_rec_sz( dbi, fd_gui_hist( gui )->tile_cnt );
   if( FD_UNLIKELY( !rec_sz ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_emplace: dbi %d has no record type", dbi )); return NULL; }
 
   fd_gui_hist_t * hist = fd_gui_hist( gui );
@@ -453,7 +466,7 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
                        void const * val ) {
   if( FD_UNLIKELY( dbi<0 || dbi>=FD_GUI_HIST_CNT ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: bad dbi %d", dbi )); return -1; }
   if( FD_UNLIKELY( !fd_gui_hist_is_timeseries( dbi ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d is not time-series", dbi )); return -1; }
-  ulong rec_sz = fd_gui_hist_rec_sz( dbi );
+  ulong rec_sz = fd_gui_hist_rec_sz( dbi, fd_gui_hist( gui )->tile_cnt );
   if( FD_UNLIKELY( !rec_sz ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d has no record type", dbi )); return -1; }
   long stored_ts;
   fd_memcpy( &stored_ts, (uchar const *)val + fd_gui_hist_dbi_ts_off( dbi ), sizeof(stored_ts) );
@@ -496,7 +509,7 @@ fd_gui_hist_range_begin( fd_gui_t *                   gui,
   ulong window_hi = fd_gui_hist_window( hi_ns, res_ns );
 
   iter->_dbi        = dbi;
-  iter->rec_sz      = fd_gui_hist_rec_sz( dbi );
+  iter->rec_sz      = fd_gui_hist_rec_sz( dbi, fd_gui_hist( gui )->tile_cnt );
   iter->_filter     = filter;
   iter->_filter_ctx = filter_ctx;
 

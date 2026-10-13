@@ -232,15 +232,15 @@ main( int argc, char ** argv ) {
   memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
   char path[128];
   fd_cstr_printf_check( path, sizeof(path), NULL, "/tmp/fd_gui_timeline_txn.%i", (int)getpid() );
-  ulong bytes = 3UL<<30;
-  fd_gui_store_desc_t const * descs = fd_gui_hist_db_descs( bytes );
+  ulong bytes = 5UL<<30;
+  fd_gui_store_desc_t const * descs = fd_gui_hist_db_descs( bytes, 1UL );
   void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_store_footprint( bytes, FD_GUI_HIST_CNT, descs ), fd_gui_store_align() ) );
   FD_TEST( db_mem );
   gui->db = fd_gui_store_join( fd_gui_store_new( db_mem, path, bytes, FD_GUI_HIST_CNT, 0UL, descs ) );
   FD_TEST( gui->db );
   void * hist_mem = aligned_alloc( fd_gui_hist_align(), fd_ulong_align_up( fd_gui_hist_footprint(), fd_gui_hist_align() ) );
   FD_TEST( hist_mem );
-  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, gui->db ) );
+  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, gui->db, 1UL ) );
   FD_TEST( gui->hist );
   fd_http_server_params_t params = {
     .max_connection_cnt=1UL, .max_ws_connection_cnt=1UL, .max_request_len=1024UL,

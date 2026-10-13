@@ -398,14 +398,14 @@ test_shreds_window( void ) {
   FD_TEST( gui );
   memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
 
-  ulong map_bytes = 3UL<<30;
-  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( map_bytes ) ), fd_gui_store_align() ) );
+  ulong map_bytes = 5UL<<30;
+  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( map_bytes, 1UL ) ), fd_gui_store_align() ) );
   FD_TEST( db_mem );
-  gui->db = fd_gui_store_join( fd_gui_store_new( db_mem, path, map_bytes, fd_gui_hist_db_cnt(), 0x0123456789abcdefUL, fd_gui_hist_db_descs( map_bytes ) ) );
+  gui->db = fd_gui_store_join( fd_gui_store_new( db_mem, path, map_bytes, fd_gui_hist_db_cnt(), 0x0123456789abcdefUL, fd_gui_hist_db_descs( map_bytes, 1UL ) ) );
   FD_TEST( gui->db );
   void * hist_mem = aligned_alloc( fd_gui_hist_align(), fd_ulong_align_up( fd_gui_hist_footprint(), fd_gui_hist_align() ) );
   FD_TEST( hist_mem );
-  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, gui->db ) );
+  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, gui->db, 1UL ) );
   FD_TEST( gui->hist );
 
   fd_gui_shred_scratch_t * sc = malloc( FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
@@ -488,14 +488,14 @@ test_exec_done_dedupe( void ) {
   fd_gui_t * gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL, 1UL ) );
   FD_TEST( gui );
   memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
-  ulong map_bytes = 3UL<<30;
-  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( map_bytes ) ), fd_gui_store_align() ) );
+  ulong map_bytes = 5UL<<30;
+  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( map_bytes, 1UL ) ), fd_gui_store_align() ) );
   FD_TEST( db_mem );
-  gui->db = fd_gui_store_join( fd_gui_store_new( db_mem, path, map_bytes, fd_gui_hist_db_cnt(), 0x0123456789abcdefUL, fd_gui_hist_db_descs( map_bytes ) ) );
+  gui->db = fd_gui_store_join( fd_gui_store_new( db_mem, path, map_bytes, fd_gui_hist_db_cnt(), 0x0123456789abcdefUL, fd_gui_hist_db_descs( map_bytes, 1UL ) ) );
   FD_TEST( gui->db );
   void * hist_mem = aligned_alloc( fd_gui_hist_align(), fd_ulong_align_up( fd_gui_hist_footprint(), fd_gui_hist_align() ) );
   FD_TEST( hist_mem );
-  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, gui->db ) );
+  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, gui->db, 1UL ) );
   FD_TEST( gui->hist );
   gui->exec_done.ts = malloc( FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
   FD_TEST( gui->exec_done.ts );

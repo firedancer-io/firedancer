@@ -3159,10 +3159,10 @@ non-negative. Both references are `null` when the arrays are empty.
 |-----------|---------------|---------|
 | *Request* | `TimelineAgg` | below   |
 
-Five methods share the following parameters and common response fields:
+Six methods share the following parameters and common response fields:
 `timeline.query_agg_slots`, `timeline.query_agg_shreds`,
-`timeline.query_agg_compute`, `timeline.query_agg_revenue`, and
-`timeline.query_agg_txn`.
+`timeline.query_agg_compute`, `timeline.query_agg_revenue`,
+`timeline.query_agg_txn`, and `timeline.query_agg_cpu`.
 
 Compute, revenue, and transaction aggregates include locally produced
 blocks, at both fine and coarse resolutions. Transactions are bucketed
@@ -3172,7 +3172,7 @@ by commit time.
 |-------------|----------|-------------|
 | start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns      | `string` | Exclusive upper bound |
-| granularity | `string` | Required; one of the granularities below, supported by all five methods |
+| granularity | `string` | Required; one of the granularities below, supported by all six methods |
 
 | resolution | granularities |
 |------------|---------------|
@@ -3233,8 +3233,8 @@ calendar-day aggregates retained independently of the detailed history.
 Exact duplicate completions contribute only once. If a new completion
 cannot be admitted after safe reclamation, both its detail and its coarse
 aggregate contribution are dropped, and the completion drop counter is
-incremented. Each FEC collection is capped at 1,048,576 live records and
-two 40 MiB data regions; these limits do not promise a retention duration.
+incremented. Each FEC collection is capped at 1,048,576 live records;
+this limit does not promise a retention duration.
 Reclamation stops at the first record whose slot is not permanently closed.
 
 `slot_duration` is independent of FEC counts. Every replayed block completion
@@ -3356,6 +3356,67 @@ counted here.
         "failed_nonvote_transactions": [12, 9, null, 15],
         "success_vote_transactions": [640, 655, null, 648],
         "failed_vote_transactions": [0, 1, null, 0]
+    }
+}
+```
+
+:::
+
+##### `timeline.query_agg_cpu`
+| param | type       | description |
+|-------|------------|-------------|
+| tiles | `number[]` | Required; non-empty list of tile indices into `summary.tiles`, at most 256 |
+
+| field       | type                 | description |
+|-------------|----------------------|-------------|
+| utilization | `(number\|null)[][]` | One array per requested tile, in request order, of per-bucket utilization from `0` (idle) to `250` (busy) |
+
+Each tile's utilization is sampled every 25ms from its regime timers,
+using the same idle/backpressure split as `summary.live_tile_timers`:
+`1 - idle` maps to `[0, 250]`, rounded to the nearest integer. A bucket
+holds the mean of the samples whose 25ms interval starts inside it,
+rounded to the nearest integer, and is `null` when it has none. A sample
+is unknown when the tile has no metrics, or did not publish timers since
+the previous sample; its next sample then covers the gap.
+
+Unlike the other methods, granularities up to `1s` are computed from
+raw samples, and `available_start_ns` / `available_end_ns` describe the
+raw sample history. Coarser granularities use calendar-day aggregates
+of exact sample sums and counts. Granularities finer than `25ms` mostly
+return `null`.
+
+An unknown tile index closes the connection.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_cpu",
+    "id": 51,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657044000000000",
+        "granularity": "1s",
+        "tiles": [12, 3]
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_cpu",
+    "id": 51,
+    "value": {
+        "granularity": "1s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739656000000000000",
+        "available_end_ns": "1739657100000000000",
+        "utilization": [
+            [212, 250, 198, null],
+            [3, 4, 2, null]
+        ]
     }
 }
 ```

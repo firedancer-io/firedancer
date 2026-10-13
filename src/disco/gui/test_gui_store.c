@@ -135,7 +135,7 @@ static void
 test_entity_open_wipe( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
 
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
   FD_TEST( fd_gui_store_cnt( db )==DB_CNT );
 
   ulong k = 7UL;
@@ -146,7 +146,7 @@ test_entity_open_wipe( void ) {
   db_close( db );
 
   /* reopen: the store is wiped on open (see fd_gui_store_new) */
-  db = db_open( path, 512UL<<20 );
+  db = db_open( path, 1UL<<30 );
   FD_TEST( fd_gui_store_kv_get( db, DB_ENT8, &k )==NULL );
   db_close( db );
 
@@ -157,7 +157,7 @@ test_entity_open_wipe( void ) {
 static void
 test_entity_upsert_get( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* upsert several times; a later upsert of the same key modifies in
      place (last writer wins) */
@@ -183,7 +183,7 @@ test_entity_upsert_get( void ) {
 static void
 test_entity_get_any( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* two-ulong keys (slot, bank_seq); insert (5,2),(5,7),(9,0) */
   FD_TEST( ent16_put( db, 5UL, 2UL, 1000UL )==FD_GUI_STORE_SUCCESS );
@@ -216,7 +216,7 @@ test_entity_get_any( void ) {
 static void
 test_entity_iter( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* Three forks of slot 5 (out of bank_seq order on insert) plus a slot 9. */
   FD_TEST( ent16_put( db, 5UL, 7UL, 2000UL )==FD_GUI_STORE_SUCCESS );
@@ -262,7 +262,7 @@ test_entity_iter( void ) {
 static void
 test_entity_evict( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* (slot, bank_seq) keys for slots 0..9, bank_seq 0 */
   for( ulong i=0UL; i<10UL; i++ ) {
@@ -309,7 +309,7 @@ test_kv_index_footprint( void ) {
     .val_align   = alignof(ent8_val_t),
     .max_records = 1UL<<20,
   };
-  ulong fp = fd_gui_store_footprint( 256UL<<20, 1UL, &kv_desc );
+  ulong fp = fd_gui_store_footprint( 512UL<<20, 1UL, &kv_desc );
   FD_TEST( fp && fp<(40UL<<20) );
 
   FD_LOG_NOTICE(( "test_kv_index_footprint: ok" ));
@@ -327,23 +327,23 @@ test_ts_index_footprint( void ) {
     .ts_off      = 0UL,
     .granularity = 1UL,
   };
-  ulong ts_fp = fd_gui_store_footprint( 256UL<<20, 1UL, &ts_desc );
+  ulong ts_fp = fd_gui_store_footprint( 512UL<<20, 1UL, &ts_desc );
   FD_TEST( ts_fp && ts_fp<(48UL<<20) );
 
   fd_gui_store_desc_t const mixed_descs[] = {
     ts_desc,
     { .name="kv", .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL, .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp, .val_sz=sizeof(ent8_val_t), .val_align=alignof(ent8_val_t), .max_records=1UL },
   };
-  ulong mixed_fp = fd_gui_store_footprint( 256UL<<20, 2UL, mixed_descs );
+  ulong mixed_fp = fd_gui_store_footprint( 512UL<<20, 2UL, mixed_descs );
   FD_TEST( mixed_fp && mixed_fp-ts_fp<(1UL<<20) );
 
   fd_gui_store_desc_t const kv_desc = mixed_descs[ 1 ];
-  ulong kv_fp = fd_gui_store_footprint( 256UL<<20, 1UL, &kv_desc );
+  ulong kv_fp = fd_gui_store_footprint( 512UL<<20, 1UL, &kv_desc );
   FD_TEST( kv_fp && kv_fp<(1UL<<20) );
   char path[ 128 ]; mk_path( path, sizeof(path) );
   void * mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( kv_fp, fd_gui_store_align() ) );
   FD_TEST( mem );
-  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, 256UL<<20, 1UL, TEST_SEED, &kv_desc ) );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, 512UL<<20, 1UL, TEST_SEED, &kv_desc ) );
   FD_TEST( db );
   db_close( db );
   cleanup( path );
@@ -354,7 +354,7 @@ test_ts_index_footprint( void ) {
 static void
 test_ts_append_scan( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* append 3 records to window 1, 2 to window 2, 1 to window 5 */
   ulong seq = 0UL;
@@ -455,7 +455,7 @@ test_ts_append_scan( void ) {
 static void
 test_ts_live_timestamp_bounds( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   long first_ts;
   long last_ts;
@@ -572,7 +572,7 @@ even_filter( void const * rec, void * ctx ) {
 static void
 test_ts_filter_and_evict( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* values 0..9 across windows 0..9 (one each) */
   for( ulong i=0UL; i<10UL; i++ ) {
@@ -671,13 +671,13 @@ test_space_accounting( void ) {
 static void
 test_region_grow_reclaim( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = 512UL<<20;
+  ulong size = 1UL<<30;
   fd_gui_store_t * db = db_open( path, size );
 
   ulong open_used = fd_gui_store_used_bytes( db );
 
   /* Insert enough 256-byte records to force at least three region claims. */
-  ulong const N = 400000UL;
+  ulong const N = 800000UL;
   for( ulong i=0UL; i<N; i++ ) {
     FD_TEST( entbig_put( db, i, (uchar)i )==FD_GUI_STORE_SUCCESS );
   }
@@ -732,7 +732,7 @@ static void
 test_kv_prefix_scan( void ) {
   char path[ 128 ];
   mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
   fd_gui_store_kv_scan_t it;
   fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
   FD_TEST( !it.append_capacity && !fd_gui_store_kv_scan_next( &it ) );

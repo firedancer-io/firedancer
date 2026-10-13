@@ -51,7 +51,8 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_FEC_EVENTS       (13) /* (FEC event key)      */
 #define FD_GUI_HIST_FEC_COMPLETIONS  (14) /* (FEC completion key) */
 #define FD_GUI_HIST_SLOT_DURATION    (15) /* (ts, ...)            */
-#define FD_GUI_HIST_CNT              (16)
+#define FD_GUI_HIST_CPU_UTIL         (16) /* (ts, ...)            */
+#define FD_GUI_HIST_CNT              (17)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */
@@ -118,12 +119,14 @@ fd_gui_hist_footprint( void );
 
 /* fd_gui_hist_new formats the workspace region `mem`
    (>= fd_gui_hist_footprint bytes, fd_gui_hist_align aligned) as the
-   history semantics layer over the store `db`. Returns `mem` on success
-   or NULL on failure (logged). */
+   history semantics layer over the store `db`, whose records were sized
+   for tile_cnt tiles. Returns `mem` on success or NULL on failure
+   (logged). */
 
 void *
 fd_gui_hist_new( void *                 mem,
-                 fd_gui_store_t const * db );
+                 fd_gui_store_t const * db,
+                 ulong                  tile_cnt );
 
 /* fd_gui_hist_join joins a region formatted by fd_gui_hist_new,
    returning a usable handle (mem may be NULL -> NULL). */
@@ -138,10 +141,12 @@ void *
 fd_gui_hist_delete( void * mem );
 
 /* fd_gui_hist_db_descs returns a pointer to a static array to be passed
-   to fd_gui_store_new. */
+   to fd_gui_store_new.  Per-tile records are sized for tile_cnt tiles
+   (at most FD_TOPO_MAX_TILES). */
 
 fd_gui_store_desc_t const *
-fd_gui_hist_db_descs( ulong store_bytes );
+fd_gui_hist_db_descs( ulong store_bytes,
+                      ulong tile_cnt );
 
 FD_FN_CONST static inline ulong
 fd_gui_hist_db_cnt( void ) { return FD_GUI_HIST_CNT; }
