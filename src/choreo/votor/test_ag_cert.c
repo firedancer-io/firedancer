@@ -536,7 +536,7 @@ check_cert_wire( char const *         name,
   FD_TEST( buf[ off ]==kind     ); off += 1UL;
   FD_TEST( FD_LOAD( ulong, buf+off )==slot ); off += 8UL;
   if( block_id ) { FD_TEST( !memcmp( buf+off, block_id, sizeof(ag_block_hash_t) ) ); off += sizeof(ag_block_hash_t); }
-  fd_bls_sig_t exp_sig[1]; *exp_sig = agg->sig;
+  blst_p2 exp_sig[1]; *exp_sig = agg->sig;
   if( agg2 ) blst_p2_add_or_double( exp_sig, exp_sig, &agg2->sig );
   uchar exp_bytes[ FD_BLS_SIG_SZ ];
   { blst_p2_affine a[1]; blst_p2_to_affine( a, exp_sig ); blst_p2_affine_serialize( exp_bytes, a ); }

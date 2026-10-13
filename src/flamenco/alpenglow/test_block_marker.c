@@ -747,7 +747,7 @@ test_ser_signature( void ) {
 
   fd_bls_agg_t agg[1];
   memset( agg, 0, sizeof(fd_bls_agg_t) );
-  fd_bls_set_insert( agg->set, 4UL ); agg->sig = sig;
+  fd_bls_set_insert( agg->set, 4UL ); blst_p2_from_affine( &agg->sig, &sig );
   fd_hash_t bid = hash_of( 0x77 );
 
   fd_block_marker_t marker[1];
@@ -787,7 +787,7 @@ test_ser_signature( void ) {
   FD_TEST( !fd_block_footer_cert_from_agg( &c, 1UL, NULL, agg ) );
 
   memset( agg, 0, sizeof(fd_bls_agg_t) );
-  fd_bls_set_insert( agg->set, 4UL ); agg->sig = sig;
+  fd_bls_set_insert( agg->set, 4UL ); blst_p2_from_affine( &agg->sig, &sig );
   fd_block_footer_cert_t rc;
   FD_TEST( fd_block_footer_cert_from_agg( &rc, 5UL, NULL, agg ) );
   FD_TEST( rc.slot==5UL && rc.nbits==5 && set_is_range( rc.signer_set, 4UL, 5UL ) );

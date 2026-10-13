@@ -32,7 +32,8 @@
 
 typedef struct ag_pool ag_pool_t;
 
-typedef struct ag_slot_state ag_slot_state_t;
+typedef struct ag_slot_state  ag_slot_state_t;
+typedef struct ag_slot_states ag_slot_states_t;
 
 struct ag_pool_event {
   int kind;
@@ -157,6 +158,9 @@ ag_pool_add_block( ag_pool_t *           self,
 ag_slot_state_t const *
 ag_pool_slot_state( ag_pool_t const * self,
                     ulong             slot );
+
+ag_slot_states_t const *
+ag_pool_slot_states( ag_pool_t const * self );
 
 /* Section 4.1. Pool::recover_from_standstill */
 

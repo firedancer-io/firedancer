@@ -34,7 +34,7 @@ check_base2( fd_bls_agg_t const * agg,
   FD_TEST( !memcmp( buf, exp, sz ) );
 
   fd_bls_agg_t back[1];
-  fd_memset( &back->sig, 0xAA, sizeof(fd_bls_sig_t) );
+  fd_memset( &back->sig, 0xAA, sizeof(back->sig) );
   ulong bit_cnt;
   FD_TEST( ag_bls_agg_de( back, &bit_cnt, buf, sz )==AG_BLS_DE_SUCCESS );
   FD_TEST( bit_cnt==fd_ulong_min( FD_BLS_SET_MAX, fd_bls_set_last( agg->set )+1UL ) );
@@ -42,7 +42,7 @@ check_base2( fd_bls_agg_t const * agg,
 
   /* a bitmap carries no signature, so decoding clears the one that was there */
   fd_bls_agg_t zero[1]; memset( zero, 0, sizeof(fd_bls_agg_t) );
-  FD_TEST( !memcmp( &back->sig, &zero->sig, sizeof(fd_bls_sig_t) ) );
+  FD_TEST( !memcmp( &back->sig, &zero->sig, sizeof(back->sig) ) );
 
   /* base2 is legal wherever a fallback partition could be: it says the
      fallback set is empty */
@@ -207,10 +207,11 @@ test_roundtrip( void ) {
     sk[i].b[0] = (uchar)( i+1UL );
     fd_bls_sec_to_pub( &sk[i], pk+i );
     fd_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
+    blst_p2 one; blst_p2_from_affine( &one, sig+i );
 
-    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, pk+i,         &sig[i] ) );
-    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, pk+(i+1UL)%N, &sig[i] ) );
-    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    pk+i,         &sig[i] ) );
+    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, pk+i,         &one ) );
+    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, pk+(i+1UL)%N, &one ) );
+    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    pk+i,         &one ) );
   }
 
   FD_LOG_NOTICE(( "blst sig round trip pass" ));
@@ -233,7 +234,8 @@ test_derive( void ) {
   uchar const * msg = (uchar const *)"derived key vote";
   ulong         msg_sz = 16UL;
   fd_bls_sig_t  sig; fd_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pk, &sig ) );
+  blst_p2       one; blst_p2_from_affine( &one, &sig );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pk, &one ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
