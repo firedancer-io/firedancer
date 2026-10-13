@@ -4471,6 +4471,58 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_rotor_fec_turbine_keying" ));
 }
 
+/* test_rotor_fec_merged_copies: rotor delivers a turbine copy (known_id
+   0) and a repaired copy (known_id 1) of block B, then merges them into
+   the turbine copy, which keeps known_id 0 and continues from its own
+   consumed count, carrying B (see dedup in fd_rotor.c).  Whichever copy
+   was ahead at the merge, the turbine copy's bank completes, takes
+   {5, B}, and a child attaches to it.  In particular a turbine FEC that
+   finds the repaired copy's incomplete bank under {5, B} is not
+   SKIPped against it: that bank is a different stream, and treating
+   it as this copy's progress stranded the block. */
+
+static void
+rotor_fec_merged_copies( fd_wksp_t * wksp,
+                         uint        n_cnt,     /* FEC sets the repaired copy delivered before the merge */
+                         uint        e_cnt ) {  /* FEC sets the turbine copy delivered before the merge */
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_ag_block_id_map( ctx, wksp, &parent_bid );
+
+  fd_hash_t     B      = { .ul = { 0x5150UL } }, zero = {0};
+  fd_hash_t     mr[3]  = { { .ul = { 501 } }, { .ul = { 502 } }, { .ul = { 503 } } };
+  ag_block_id_t key_id = ag_block_id( 5UL, B.uc );
+  ulong         out_idx = ctx->replay_out->idx;
+  ulong         seq0    = test_stem_seqs[ out_idx ];
+
+  for( uint k=0U; k<3U; k++ ) {
+    if( k<e_cnt ) FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, k*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &zero, &mr[ k ], 0, 0 )==0 );
+    if( k<n_cnt ) FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, k*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B,    &mr[ k ], 0, 1 )==0 );
+  }
+  for( uint k=e_cnt; k<3U; k++ ) FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, k*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr[ k ], k==2U, 0 )==0 );
+
+  fd_block_id_ele_t * ele = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key_id, NULL, ctx->block_id_arr );
+  FD_TEST( ele && ele->block_id_seen && ele->latest_fec_idx==2U*FD_FEC_SHRED_CNT );
+  FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
+
+  fd_hash_t mr6  = { .ul = { 601 } };
+  ulong     ing0 = mock_sched_fec_ingest_cnt;
+  FD_TEST( deliver_rotor_fec( ctx, 6UL, 0U, 5UL, &B, &mr6, 0, 0 )==0 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL );
+  FD_TEST( ctx->drain_rotor_fecs==0 );
+}
+
+static void
+test_rotor_fec_merged_copies( fd_wksp_t * wksp ) {
+  rotor_fec_merged_copies( wksp, 1U, 0U ); fd_wksp_reset( wksp, 42U ); /* repaired copy ahead */
+  rotor_fec_merged_copies( wksp, 2U, 0U ); fd_wksp_reset( wksp, 42U ); /* repaired copy further ahead */
+  rotor_fec_merged_copies( wksp, 1U, 1U ); fd_wksp_reset( wksp, 42U ); /* tie */
+  rotor_fec_merged_copies( wksp, 1U, 2U ); fd_wksp_reset( wksp, 42U ); /* turbine copy ahead */
+  rotor_fec_merged_copies( wksp, 0U, 2U );                              /* repaired copy delivered nothing */
+  FD_LOG_NOTICE(( "pass: test_rotor_fec_merged_copies" ));
+}
+
 /* test_dead_block_children_drop: what replay does around a block it
    ruled dead, as observed live with a block whose footer cert failed
    verification.  mark_bank_dead publishes SLOT_DEAD; the dead bank is
@@ -5121,6 +5173,7 @@ main( int     argc,
   test_drain_rotor_fecs_skip_wait_reentry( wksp );  fd_wksp_reset( wksp, 42U );
   test_process_rotor_fec_skip_replayed( wksp );     fd_wksp_reset( wksp, 42U );
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
+  test_rotor_fec_merged_copies( wksp );             fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 1 );      fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
