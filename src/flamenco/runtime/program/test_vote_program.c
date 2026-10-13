@@ -24,6 +24,8 @@ struct test_env {
 };
 typedef struct test_env test_env_t;
 
+static test_env_t env[1];
+
 static void
 create_account_raw( fd_accdb_t *        accdb,
                     fd_accdb_fork_id_t  fork_id,
@@ -401,7 +403,6 @@ setup_update_commission_collector_txn( test_env_t * env ) {
 
 static void
 test_account_initialize( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   setup_account_initialize_txn( env );
 
@@ -421,7 +422,6 @@ test_account_initialize( fd_svm_mini_t * mini ) {
 
 static void
 test_account_initialize_simd_0387( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   setup_account_initialize_txn( env );
 
@@ -438,7 +438,6 @@ test_account_initialize_simd_0387( fd_svm_mini_t * mini ) {
 
 static void
 test_account_initialize_v2_invalid_proof( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   setup_account_initialize_v2_txn( env );
 
@@ -457,7 +456,6 @@ test_account_initialize_v2_invalid_proof( fd_svm_mini_t * mini ) {
 
 static void
 test_account_initialize_v2_no_simd_0387( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   setup_account_initialize_v2_txn( env );
 
@@ -469,7 +467,6 @@ test_account_initialize_v2_no_simd_0387( fd_svm_mini_t * mini ) {
 
 static void
 test_update_commission_collector_feature_gate( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   setup_account_initialize_txn( env );
@@ -495,7 +492,6 @@ test_update_commission_collector_feature_gate( fd_svm_mini_t * mini ) {
    identity before SIMD-0232 and leaves it untouched after. */
 static void
 test_update_validator_identity_collector_sync( fd_svm_mini_t * mini, int feature_active ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   setup_account_initialize_txn( env );
@@ -565,7 +561,6 @@ test_update_validator_identity_collector_sync( fd_svm_mini_t * mini, int feature
    active. */
 static void
 test_update_commission_collector( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   setup_account_initialize_txn( env );
@@ -728,7 +723,6 @@ test_update_commission_collector( fd_svm_mini_t * mini ) {
    long as the vote account signs. */
 static void
 test_update_commission_collector_self_withdrawer( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -795,7 +789,6 @@ test_update_commission_collector_self_withdrawer( fd_svm_mini_t * mini ) {
    inflation bps). */
 static void
 test_update_commission_collector_v3_state( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -835,7 +828,6 @@ test_update_commission_collector_v3_state( fd_svm_mini_t * mini ) {
    BLS pubkey and the untouched collector are preserved. */
 static void
 test_update_commission_collector_bls_state( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -880,7 +872,6 @@ test_update_commission_collector_bls_state( fd_svm_mini_t * mini ) {
    voters. */
 static void
 test_update_commission_collector_bad_state( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
@@ -944,7 +935,6 @@ test_update_commission_collector_bad_state( fd_svm_mini_t * mini ) {
    UpdateCommissionBps) leave both collector fields untouched. */
 static void
 test_collectors_immutable( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_test( env, mini );
   enable_mainnet_features( env );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
