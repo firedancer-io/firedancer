@@ -2,7 +2,6 @@
 #define HEADER_fd_src_app_shared_fd_action_h
 
 #include "../platform/fd_cap_chk.h"
-#include "../../choreo/tower/fd_tower_file.h"
 
 /* FD_APP_NAME and FD_BINARY_NAME identify the control binary at run time
    (e.g. "Firedancer"/"firedancer").  They are defined once per binary
@@ -48,8 +47,6 @@ union fdctl_args {
     uchar const * keypair;
     char    name[ 64UL ];
     ulong   vote_history_slot;
-    uchar   tower_file[ FD_TOWER_FILE_MAX ];
-    ulong   tower_file_sz;
   } set_identity;
 
   struct {
