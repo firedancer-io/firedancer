@@ -2181,21 +2181,6 @@
 
 </div>
 
-## Guih Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">guih_&#8203;conn_&#8203;open</span> | gauge | Open HTTP connections to the GUI service, excluding connections upgraded to WebSocket |
-| <span class="metrics-name">guih_&#8203;websocket_&#8203;conn_&#8203;open</span> | gauge | Open WebSocket connections to the GUI service |
-| <span class="metrics-name">guih_&#8203;websocket_&#8203;frame_&#8203;tx</span> | counter | WebSocket frames sent to all connections to the GUI service |
-| <span class="metrics-name">guih_&#8203;websocket_&#8203;frame_&#8203;rx</span> | counter | WebSocket frames received from all connections to the GUI service |
-| <span class="metrics-name">guih_&#8203;conn_&#8203;tx_&#8203;bytes</span> | counter | Bytes written to all connections to the GUI service |
-| <span class="metrics-name">guih_&#8203;conn_&#8203;rx_&#8203;bytes</span> | counter | Bytes read from all connections to the GUI service |
-
-</div>
-
 ## Rotor Tile
 
 <div class="metrics">

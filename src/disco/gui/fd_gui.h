@@ -1005,7 +1005,6 @@ struct fd_gui_summary {
   char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
   char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
-  int          is_full_client;
   int          is_alpenglow;
   char const * version;
   char const * cluster;
@@ -1326,7 +1325,6 @@ fd_gui_new( void *                   shmem,
             uchar const *            identity_key,
             int                      has_vote_key,
             uchar const *            vote_key,
-            int                      is_full_client,
             int                      is_alpenglow,
             ulong                    max_live_slots,
             ulong                    max_txn_per_slot,

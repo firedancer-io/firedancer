@@ -766,22 +766,12 @@ cov-report: $(OBJDIR)/cov/html/index.html
 dist-cov-report: $(BASEDIR)/cov/html/index.html
 	$(LCOV) --summary $(BASEDIR)/cov/cov.lcov
 
-# Builds the frontend bundle and bakes it into the binary.  There are two
-# independent GUI binaries with their own frontend bundle:
-#
-#   FRONTEND_CLIENT=Firedancer -> src/disco/gui      (full client)
-#   FRONTEND_CLIENT=Frankendancer -> src/discoh/guih (frankendancer)
+# Builds the frontend bundle and bakes it into the binary (src/disco/gui)
 #
 # Each client has a single bundle, stored under its dist/ directory; there
 # are no longer per-channel (stable/alpha/dev) variants.
 FRONTEND_CLIENT := Firedancer
-ifeq ($(FRONTEND_CLIENT),Firedancer)
 FRONTEND_DIR := src/disco/gui
-else ifeq ($(FRONTEND_CLIENT),Frankendancer)
-FRONTEND_DIR := src/discoh/guih
-else
-$(error "unexpected FRONTEND_CLIENT (expected Firedancer or Frankendancer)")
-endif
 
 # Regenerates generated/http_import_dist.c from the committed dist/ tree.
 # Hermetic (no npm), so CI can diff it; C collation keeps the order
@@ -834,7 +824,6 @@ frontend-generated:
 	$(frontend-generated-recipe)
 
 frontend-clean:
-	rm -rf src/discoh/guih/dist_cmp
 	rm -rf src/disco/gui/dist_cmp
 
 objdir:
