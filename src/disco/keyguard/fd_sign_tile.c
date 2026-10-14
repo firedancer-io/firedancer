@@ -113,7 +113,7 @@ fd_keyguard_bls_key_derive( fd_keyguard_bls_key_t * key,
 
   fd_bls_pub_t public_key[1];
   fd_bls_sec_to_pub( &key->secret_key, public_key );
-  blst_p1_compress( key->public_key, public_key );
+  blst_p1_affine_compress( key->public_key, public_key );
 }
 
 static void FD_FN_SENSITIVE

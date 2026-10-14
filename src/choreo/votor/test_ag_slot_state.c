@@ -586,7 +586,7 @@ test_identity_partition( void ) {
   ulong n = 11UL;
   generate_validators( n );
   fd_bls_pub_t neg; FD_TEST( !fd_bls_pub_de( &neg, g_info[3].bls_key, sizeof(ag_bls_key_t) ) );
-  blst_p1_cneg( &neg, 1 ); blst_p1_compress( g_info[4].bls_key, &neg );
+  blst_fp_cneg( &neg.y, &neg.y, 1 ); blst_p1_affine_compress( g_info[4].bls_key, &neg );
   void * em; ag_epoch_info_t * epoch_info = make_epoch( n, &em );
   ulong slot = 5UL;
   ag_block_hash_t hash; random_hash( hash );

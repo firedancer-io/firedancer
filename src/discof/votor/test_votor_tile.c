@@ -33,7 +33,7 @@ build_stakes( fd_vote_stake_weight_t * out,
 
     fd_bls_sec_t sec; voter_sec( &sec, i );
     fd_bls_pub_t pub; fd_bls_sec_to_pub( &sec, &pub );
-    blst_p1_compress( out[i].bls_key, &pub );
+    blst_p1_affine_compress( out[i].bls_key, &pub );
   }
 }
 
@@ -126,7 +126,7 @@ test_rank_voters_bls_keys( void ) {
     uchar const * bls_key = stakes[ 2UL-rank ].bls_key;
     FD_TEST( !memcmp( epoch_info->validators[ rank ].bls_key, bls_key, sizeof(ag_bls_key_t) ) );
     fd_bls_pub_t pub; FD_TEST( !fd_bls_pub_de( &pub, bls_key, FD_BLS_PUB_COMPRESSED_SZ ) );
-    FD_TEST( blst_p1_is_equal( ag_epoch_info_pubkey( epoch_info, rank ), &pub ) );
+    FD_TEST( blst_p1_affine_is_equal( ag_epoch_info_pubkey( epoch_info, rank ), &pub ) );
   }
 }
 
@@ -140,7 +140,7 @@ build_bls_keys( ag_bls_key_t * bls_keys,
   for( ulong i=0UL; i<cnt; i++ ) {
     memset( &secs[i], (int)( i + 7UL ), sizeof(fd_bls_sec_t) );
     fd_bls_sec_to_pub( &secs[i], &pubs[i] );
-    blst_p1_compress( bls_keys[i], &pubs[i] );
+    blst_p1_affine_compress( bls_keys[i], &pubs[i] );
   }
 }
 
@@ -899,7 +899,8 @@ test_sign_bls_request( void ) {
       FD_TEST( request->sz==payload_sz );
       FD_TEST( !memcmp( request_data, payload, payload_sz ) );
       blst_p2 one; blst_p2_from_affine( &one, &sig );
-      FD_TEST( fd_bls_agg_verify( payload, payload_sz, &pubs[i], &one ) );
+      blst_p1 pub; blst_p1_from_affine( &pub, &pubs[i] );
+      FD_TEST( fd_bls_agg_verify( payload, payload_sz, &pub, &one ) );
     }
   }
 }

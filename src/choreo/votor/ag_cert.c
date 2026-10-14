@@ -31,25 +31,25 @@ check_threshold( ag_cert_t const *       self,
 /* TODO sum all the pubkeys on advance_epoch and subtract instead? */
 
 static int
-pub_sum( fd_bls_pub_t *          pub,
+pub_sum( blst_p1 *               pub,
          fd_bls_set_t const *    set,
          ag_epoch_info_t const * epoch_info ) {
-  memset( pub, 0, sizeof(fd_bls_pub_t) ); /* zero is the point at infinity */
+  memset( pub, 0, sizeof(blst_p1) ); /* zero is the point at infinity */
   for( ulong rank=fd_bls_set_const_iter_init( set ); !fd_bls_set_const_iter_done( rank ); rank=fd_bls_set_const_iter_next( set, rank ) ) {
     if( FD_UNLIKELY( rank>=epoch_info->validator_cnt ) ) return -1;
-    blst_p1_add_or_double( pub, pub, epoch_info->pubkeys+rank );
+    blst_p1_add_or_double_affine( pub, pub, epoch_info->pubkeys+rank );
   }
   return 0;
 }
 
 static int
-pair_verify( fd_bls_pub_t const * pub,
-             uchar const *        msg,
-             ulong                msg_sz,
-             fd_bls_pub_t const * pub_fb,
-             uchar const *        msg_fb,
-             ulong                msg_fb_sz,
-             blst_p2 const *      sig ) {
+pair_verify( blst_p1 const * pub,
+             uchar const *   msg,
+             ulong           msg_sz,
+             blst_p1 const * pub_fb,
+             uchar const *   msg_fb,
+             ulong           msg_fb_sz,
+             blst_p2 const * sig ) {
   if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p1_is_inf( pub_fb ) || blst_p2_is_inf( sig ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
 
   blst_p1_affine a[3];
@@ -78,7 +78,7 @@ check_sig_one( fd_bls_agg_t const *    agg,
                uchar const *           block_hash,
                ag_epoch_info_t const * epoch_info,
                ushort                  shred_version ) {
-  fd_bls_pub_t pub[1];
+  blst_p1 pub[1];
   if( FD_UNLIKELY( pub_sum( pub, agg->set, epoch_info ) ) ) return 0;
   uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
   ulong sz = ag_vote_signing_ser( kind, slot, block_hash, shred_version, buf );
@@ -95,7 +95,7 @@ check_sig_pair( fd_bls_agg_t const *    agg,
                 uchar const *           block_hash,
                 ag_epoch_info_t const * epoch_info,
                 ushort                  shred_version ) {
-  fd_bls_pub_t pub[1], pub_fb[1];
+  blst_p1 pub[1], pub_fb[1];
   if( FD_UNLIKELY( pub_sum( pub, agg->set, epoch_info ) || pub_sum( pub_fb, agg_fb->set, epoch_info ) ) ) return 0;
   blst_p2 sig[1];
   blst_p2_add_or_double( sig, &agg->sig, &agg_fb->sig );
