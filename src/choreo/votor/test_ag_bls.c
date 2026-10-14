@@ -2,17 +2,6 @@
 
 #include "../../third_party/blst/bindings/blst.h"
 
-/* Compressed public keys are only needed to exercise the compressed arm
-   of fd_bls_pub_de; ag_bls has no compressor of its own. */
-
-static void
-pub_compress( uchar                out[ FD_BLS_PUB_COMPRESSED_SZ ],
-              fd_bls_pub_t const * pub ) {
-  blst_p1_affine a[1];
-  blst_p1_to_affine( a, pub );
-  blst_p1_affine_compress( out, a );
-}
-
 /* Golden bitmap vectors.
 
    ag_bls_agg_ser and ag_bls_agg_de speak the solana_signer_store bitmap
@@ -208,10 +197,12 @@ test_roundtrip( void ) {
     fd_bls_sec_to_pub( &sk[i], pk+i );
     fd_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
     blst_p2 one; blst_p2_from_affine( &one, sig+i );
+    blst_p1 own; blst_p1_from_affine( &own, pk+i );
+    blst_p1 oth; blst_p1_from_affine( &oth, pk+(i+1UL)%N );
 
-    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, pk+i,         &one ) );
-    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, pk+(i+1UL)%N, &one ) );
-    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    pk+i,         &one ) );
+    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, &own, &one ) );
+    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, &oth, &one ) );
+    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    &own, &one ) );
   }
 
   FD_LOG_NOTICE(( "blst sig round trip pass" ));
@@ -235,7 +226,8 @@ test_derive( void ) {
   ulong         msg_sz = 16UL;
   fd_bls_sig_t  sig; fd_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
   blst_p2       one; blst_p2_from_affine( &one, &sig );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pk, &one ) );
+  blst_p1       pub; blst_p1_from_affine( &pub, &pk );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pub, &one ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
@@ -259,11 +251,10 @@ test_ref_api( void ) {
   }
 
   /* PublicKey::try_from_bytes -- compressed and affine both round trip */
-  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ];
-  pub_compress( comp, pk );
+  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_affine_compress ( comp, pk );
+  uchar aff [ FD_BLS_PUB_SZ ];            blst_p1_affine_serialize( aff,  pk );
   fd_bls_pub_t from_comp, from_aff;
   FD_TEST( !fd_bls_pub_de( &from_comp, comp,        sizeof(comp)     ) );
-  uchar aff[ FD_BLS_PUB_SZ ]; { blst_p1_affine a[1]; blst_p1_to_affine( a, pk ); blst_p1_affine_serialize( aff, a ); }
   FD_TEST( !fd_bls_pub_de( &from_aff,  aff,         FD_BLS_PUB_SZ    ) );
   FD_TEST( !memcmp( &from_comp, pk, sizeof(fd_bls_pub_t) ) );
   FD_TEST( !memcmp( &from_aff,  pk, sizeof(fd_bls_pub_t) ) );
@@ -276,17 +267,16 @@ test_ref_api( void ) {
 
 static void
 test_pub_sum( void ) {
-  ulong const    N = 64UL;
-  blst_p1_affine key[ 64 ];
-  fd_bls_sec_t   sk;
+  ulong const  N = 64UL;
+  fd_bls_pub_t key[ 64 ];
+  fd_bls_sec_t sk;
   for( ulong i=0UL; i<N; i++ ) {
     fd_memset( &sk, 0, FD_BLS_SEC_SZ );
     sk.b[0] = (uchar)( i+1UL ); sk.b[1] = (uchar)( i*7UL );
-    fd_bls_pub_t pk; fd_bls_sec_to_pub( &sk, &pk );
-    blst_p1_to_affine( key+i, &pk );
+    fd_bls_sec_to_pub( &sk, key+i );
   }
   fd_bls_set_t set[ fd_bls_set_word_cnt ];
-  fd_bls_pub_t full[1], bad[1];
+  blst_p1 full[1], bad[1];
   fd_bls_pub_sum( full, key, N, fd_bls_set_range( set, 0UL, N ), NULL );
   fd_bls_pub_sum( bad,  key, N, fd_bls_set_range( set, 1UL, N ), NULL );
 
@@ -294,8 +284,8 @@ test_pub_sum( void ) {
   for( ulong cnt=0UL; cnt<=N; cnt++ ) {
     fd_bls_set_null( set );
     while( fd_bls_set_cnt( set )<cnt ) fd_bls_set_insert( set, fd_rng_ulong_roll( rng, N ) );
-    fd_bls_pub_t exp[1], got[1], neg[1];
-    fd_memset( exp, 0, sizeof(fd_bls_pub_t) );
+    blst_p1 exp[1], got[1], neg[1];
+    fd_memset( exp, 0, sizeof(blst_p1) );
     for( ulong i=0UL; i<N; i++ ) if( fd_bls_set_test( set, i ) ) blst_p1_add_or_double_affine( exp, exp, key+i );
     fd_bls_pub_sum( got, key, N, set, full );
     FD_TEST( blst_p1_is_equal( got, exp ) );

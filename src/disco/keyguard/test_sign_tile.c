@@ -133,8 +133,9 @@ test_bls_request_signing( void ) {
       fd_bls_sig_t sig[1];
       FD_TEST( !fd_bls_sig_de( sig, signature ) );
       blst_p2 one[1]; blst_p2_from_affine( one, sig );
-      FD_TEST(  fd_bls_agg_verify( payload, payload_sz, &public_keys[i], one ) );
-      FD_TEST( !fd_bls_agg_verify( payload, payload_sz, &public_keys[1UL-i], one ) );
+      blst_p1 pub[2]; blst_p1_from_affine( pub, public_keys ); blst_p1_from_affine( pub+1, public_keys+1 );
+      FD_TEST(  fd_bls_agg_verify( payload, payload_sz, &pub[i], one ) );
+      FD_TEST( !fd_bls_agg_verify( payload, payload_sz, &pub[1UL-i], one ) );
     }
   }
   FD_TEST( !pthread_join( signer, NULL ) );
