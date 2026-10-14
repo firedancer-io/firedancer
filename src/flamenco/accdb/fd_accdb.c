@@ -4012,7 +4012,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
    for the batch write to finish. */
 
 #define PREEVICT_TICK_BUDGET (256UL)
-#define PREEVICT_BATCH_SZ    (1UL<<20)
+#define PREEVICT_BATCH_SZ    (256UL<<10)
 FD_STATIC_ASSERT( PREEVICT_BATCH_SZ<=FD_ACCDB_BOUNCE_SZ, batch_fits_bounce );
 
 /* cache_line_free invalidates a claimed line and returns it to its
