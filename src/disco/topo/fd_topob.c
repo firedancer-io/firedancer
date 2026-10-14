@@ -562,7 +562,6 @@ static char const * ALWAYS[] = {
   "store",  /* FRANK only */
   "plugin", /* FRANK only */
   "gui",    /* FIREDANCER only */
-  "guih",   /* FRANK only */
   "rpc",    /* FIREDANCER only */
   "gossvf", /* FIREDANCER only */
   "gossip", /* FIREDANCER only */
