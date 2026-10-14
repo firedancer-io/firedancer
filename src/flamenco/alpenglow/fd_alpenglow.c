@@ -395,6 +395,7 @@ struct vote_update {
   ulong current_epoch;
   int   event_kind;   /* FD_EVENT_RUNTIME_VOTE_WRITE_KIND_*, for the runtime_vote_write event */
   ulong cert_slot;    /* slot the certificate causing this write is for */
+  ulong stored_vote_slot; long stored_vote_ts; ulong stored_root_slot; /* values written, for the event */
 };
 typedef struct vote_update vote_update_t;
 
@@ -472,16 +473,25 @@ vote_update_apply_v5( fd_vote_state_v5_t *  v5,
 static void
 vote_update_apply( fd_vote_state_versioned_t * vs,
                    fd_acc_t *                  acc,
-                   vote_update_t const *       upd ) {
+                   vote_update_t *             upd ) {
   if( vote_account_is_v5( acc ) ) {
-    vote_update_apply_v5( fd_vote_account_v5( acc->data ), upd );
+    fd_vote_state_v5_t * v5 = fd_vote_account_v5( acc->data );
+    vote_update_apply_v5( v5, upd );
+    upd->stored_vote_slot = v5->latest_vote;
+    upd->stored_vote_ts   = v5->last_timestamp.timestamp;
+    upd->stored_root_slot = v5->root_slot;
     return;
   }
-  if( upd->update_votes ) vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
+  if( upd->update_votes ) {
+    vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
+    upd->stored_vote_slot = *fd_vsv_get_last_voted_slot( vs );
+    upd->stored_vote_ts   = fd_vsv_get_last_timestamp( vs )->timestamp;
+  }
   if( upd->update_root ) {
     ulong const * root = fd_vsv_get_root_slot( vs );
     ulong latest_root  = fd_ulong_max( root ? *root : upd->root_slot, upd->root_slot );
     fd_vsv_set_root_slot( vs, &latest_root );
+    upd->stored_root_slot = latest_root;
   }
   if( upd->credits ) credits_increment( fd_vsv_get_epoch_credits_mutable( vs ), upd->migration_epoch, upd->current_epoch, upd->credits );
 }
@@ -517,9 +527,9 @@ vote_account_store( fd_bank_t *                       bank,
       fd_event_runtime_vote_write_emit( bank, acc->pubkey, acc->owner, acc->lamports, acc->data_len,
                                         upd[ i ].event_kind, upd[ i ].cert_slot,
                                         upd[ i ].credits, epoch_credits_at( acc, vs, upd[ i ].current_epoch ),
-                                        upd[ i ].update_votes ? upd[ i ].vote_slot : 0UL,
-                                        upd[ i ].update_votes ? upd[ i ].vote_ts_ns/1000000000L : 0L,
-                                        upd[ i ].update_root  ? upd[ i ].root_slot : 0UL );
+                                        upd[ i ].update_votes ? upd[ i ].stored_vote_slot : 0UL,
+                                        upd[ i ].update_votes ? upd[ i ].stored_vote_ts   : 0L,
+                                        upd[ i ].update_root  ? upd[ i ].stored_root_slot : 0UL );
     }
   }
 
@@ -532,7 +542,7 @@ vote_account_modify( fd_bank_t *              bank,
                      fd_accdb_t *             accdb,
                      fd_capture_ctx_t *       capture_ctx,
                      fd_pubkey_t const *      pk,
-                     vote_update_t const *    upd,
+                     vote_update_t *          upd,
                      fd_footer_cache_memo_t * memo,
                      fd_vote_queue_t *        q ) {
   static FD_TL fd_vote_state_versioned_t vs[1];

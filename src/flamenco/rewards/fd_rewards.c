@@ -1250,6 +1250,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         stake_points_result,
         calculated_stake_rewards );
 
+    int has_commission_entry = 1;
     if( FD_UNLIKELY( err!=0 ) ) {
       /* Even if there is an error computing rewards for the stake
          account, there may be a required balance update for the stake
@@ -1264,6 +1265,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
           stake_delegation->lamports,
           fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
       if( !may_need_adjustment && !block_reward ) continue;
+      has_commission_entry = may_need_adjustment;
 
       *calculated_stake_rewards = (fd_calculated_stake_rewards_t){
         .success              = 1,
@@ -1289,7 +1291,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     runtime_stack->stakes.vote_ele[ idx ].vote_rewards += calculated_stake_rewards->voter_rewards;
-    runtime_stack->stakes.vote_ele[ idx ].has_commission_entry = 1;
+    runtime_stack->stakes.vote_ele[ idx ].has_commission_entry |= (uchar)has_commission_entry;
     runtime_stack->stakes.stake_rewards_cnt++;
   }
   fd_epoch_credits_view_fini( epoch_credits_view );
