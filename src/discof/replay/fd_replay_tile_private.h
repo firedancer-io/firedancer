@@ -18,7 +18,7 @@
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache.h"
-#include "../../flamenco/alpenglow/fd_footer_cache.h"
+#include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
@@ -539,6 +539,10 @@ struct fd_replay_tile {
   ulong ag_last_voted_epoch; /* ULONG_MAX before the first reward cert */
   ulong ag_last_settled;     /* highest settled slot observed */
   ulong ag_stamp_since;      /* first slot stamped into an empty table */
+
+  /* Signing payload of each exec tile's footer cert verify task */
+  uchar cert_payload   [ FD_SCHED_MAX_EXEC_TILE_CNT ][ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
+  ulong cert_payload_sz[ FD_SCHED_MAX_EXEC_TILE_CNT ];
 
   fd_keyswitch_t * keyswitch;
   int              halt_replay;

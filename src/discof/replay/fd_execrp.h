@@ -4,11 +4,13 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */
 #define FD_EXECRP_TT_TXN_SIGVERIFY (2UL) /* Transaction sigverify. */
 #define FD_EXECRP_TT_POH_HASH      (3UL) /* PoH hashing. */
+#define FD_EXECRP_TT_CERT_VERIFY   (6UL) /* Alpenglow footer cert verify. */
 
 /* Sent from the replay tile to the exec tiles.  These describe one of
    several types of tasks for an exec tile.  An idx to the bank in the
@@ -48,10 +50,22 @@ struct fd_execrp_poh_hash_msg {
 };
 typedef struct fd_execrp_poh_hash_msg fd_execrp_poh_hash_msg_t;
 
+struct fd_execrp_cert_verify_msg {
+  ulong                  bank_idx;
+  ulong                  quorum;        /* quorum numerator, 0 for a reward cert */
+  uint                   tag;           /* vote tag */
+  ushort                 shred_version;
+  int                    has_hm;        /* hm is the payload's H(m), from replay's memo */
+  blst_p2_affine         hm;
+  fd_block_footer_cert_t cert[ 1 ];
+};
+typedef struct fd_execrp_cert_verify_msg fd_execrp_cert_verify_msg_t;
+
 union fd_execrp_task_msg {
   fd_execrp_txn_exec_msg_t      txn_exec;
   fd_execrp_txn_sigverify_msg_t txn_sigverify;
   fd_execrp_poh_hash_msg_t      poh_hash;
+  fd_execrp_cert_verify_msg_t   cert_verify;
 };
 
 typedef union fd_execrp_task_msg fd_execrp_task_msg_t;
@@ -132,12 +146,20 @@ struct fd_execrp_poh_hash_done_msg {
 };
 typedef struct fd_execrp_poh_hash_done_msg fd_execrp_poh_hash_done_msg_t;
 
+struct fd_execrp_cert_verify_done_msg {
+  int            err;
+  int            has_hm; /* hm is the H(m) the tile hashed, for replay's memo */
+  blst_p2_affine hm;
+};
+typedef struct fd_execrp_cert_verify_done_msg fd_execrp_cert_verify_done_msg_t;
+
 struct fd_execrp_task_done_msg {
   ulong bank_idx;
   union {
     fd_execrp_txn_exec_done_msg_t      txn_exec[ 1 ];
     fd_execrp_txn_sigverify_done_msg_t txn_sigverify[ 1 ];
     fd_execrp_poh_hash_done_msg_t      poh_hash[ 1 ];
+    fd_execrp_cert_verify_done_msg_t   cert_verify[ 1 ];
   };
 };
 typedef struct fd_execrp_task_done_msg fd_execrp_task_done_msg_t;

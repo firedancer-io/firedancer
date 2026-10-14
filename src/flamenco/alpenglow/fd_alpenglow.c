@@ -28,7 +28,8 @@ vote_stakes_iter_kind_for_epoch( ulong fork_id,
 #define VOTE_TAG_SKIP  (3U) /* WireConsensusMessageKind::SkipVote     */
 
 #define VOTE_SIGNING_SER_MAX ( sizeof(uchar) + sizeof(ulong) + sizeof(fd_hash_t) + sizeof(ushort) )
-FD_STATIC_ASSERT( VOTE_SIGNING_SER_MAX<=FD_FOOTER_CACHE_MSG_MAX, footer_cache_msg_max );
+FD_STATIC_ASSERT( VOTE_SIGNING_SER_MAX<=FD_FOOTER_CACHE_MSG_MAX,       footer_cache_msg_max  );
+FD_STATIC_ASSERT( VOTE_SIGNING_SER_MAX==FD_ALPENGLOW_CERT_PAYLOAD_MAX, cert_payload_max      );
 
 static ulong
 vote_signing_ser( uint          tag,
@@ -114,13 +115,23 @@ validator_set_for_slot( validator_set_t * set,
   return 1;
 }
 
+ulong
+fd_alpenglow_cert_payload( fd_block_footer_cert_t const * cert,
+                           uint                           vote_tag,
+                           ushort                         shred_version,
+                           uchar                          payload[ static FD_ALPENGLOW_CERT_PAYLOAD_MAX ] ) {
+  return vote_signing_ser( vote_tag, cert->slot, vote_tag==VOTE_TAG_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
+}
+
 int
 fd_alpenglow_cert_verify( fd_bank_t const *              bank,
                           fd_block_footer_cert_t const * cert,
                           uint                           vote_tag,
                           ulong                          quorum_numer,
                           ushort                         shred_version,
-                          fd_footer_cache_t *            cache ) {
+                          fd_footer_cache_t *            cache,
+                          blst_p2_affine const *         hm,
+                          blst_p2_affine *               hm_out ) {
   ulong bank_slot = bank->f.slot;
   ulong cert_slot = cert->slot;
 
@@ -162,11 +173,16 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
   }
   blst_p2_from_affine( sig, sig_affine );
 
-  uchar payload[ VOTE_SIGNING_SER_MAX ];
-  ulong payload_sz = vote_signing_ser( vote_tag, cert_slot, vote_tag==VOTE_TAG_NOTAR ? cert->block_id.uc : NULL, shred_version, payload );
   blst_p2_affine h[1];
-  if( cache ) fd_footer_cache_hash_msg( cache, payload, payload_sz, h );
-  else        fd_bls_hash_msg( payload, payload_sz, h );
+  if( hm ) {
+    *h = *hm;
+  } else {
+    uchar payload[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
+    ulong payload_sz = fd_alpenglow_cert_payload( cert, vote_tag, shred_version, payload );
+    if( cache ) fd_footer_cache_hash_msg( cache, payload, payload_sz, h );
+    else        fd_bls_hash_msg( payload, payload_sz, h );
+    if( hm_out ) *hm_out = *h;
+  }
   if( FD_UNLIKELY( !fd_bls_agg_verify_hashed( h, pub, sig ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer (is_reward %d) cert for slot %lu failed signature verification", bank_slot, !quorum_numer, cert_slot ));
     return -1;
@@ -205,7 +221,7 @@ fd_alpenglow_footer_verify( fd_bank_t const *         bank,
   ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
   ulong                          cnt = fd_alpenglow_footer_certs( footer, cert, tag, quorum );
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( fd_alpenglow_cert_verify( bank, cert[ i ], tag[ i ], quorum[ i ], shred_version, cache ) ) ) return -1;
+    if( FD_UNLIKELY( fd_alpenglow_cert_verify( bank, cert[ i ], tag[ i ], quorum[ i ], shred_version, cache, NULL, NULL ) ) ) return -1;
   }
   return 0;
 }

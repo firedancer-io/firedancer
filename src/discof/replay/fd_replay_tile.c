@@ -1778,34 +1778,17 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   return 1;
 }
 
+/* replay_block_complete checks the footer's bank hash, then freezes and
+   publishes a finalized bank, whose footer certs all verified.  Returns
+   1 if it marked the bank dead. */
+
 static int
-replay_block_finalize( fd_replay_tile_t *  ctx,
-                       fd_stem_context_t * stem,
-                       fd_bank_t *         bank ) {
-  bank->last_transaction_finished_nanos = fd_clock_tile_now( ctx->clock );
-
-  /* Set poh hash in bank. */
-  fd_hash_t * poh = fd_sched_get_poh( ctx->sched, bank->idx );
-  bank->f.poh = *poh;
-
-  /* Set shred count in bank. */
-  bank->f.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->idx );
-
-  ulong execution_fees_pre_settle = bank->f.execution_fees;
-  ulong priority_fees_pre_settle  = bank->f.priority_fees;
-  ulong tips_pre_settle           = bank->f.tips;
-
-  fd_block_footer_t const * footer = NULL;
-  if( FD_UNLIKELY( ctx->alpenglow ) ) footer = fd_sched_get_footer( ctx->sched, bank->idx ); // guaranteed by sched
-
-  /* Do hashing and other end-of-block processing. */
-  if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version, ctx->footer_cache ) ) ) {
-    mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
-    return 1;
-  }
-
-  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
-
+replay_block_complete( fd_replay_tile_t *        ctx,
+                       fd_stem_context_t *       stem,
+                       fd_bank_t *               bank,
+                       fd_block_footer_t const * footer,
+                       ulong                     execution_fees_pre_settle,
+                       ulong                     priority_fees_pre_settle ) {
   if( FD_UNLIKELY( ctx->alpenglow ) ) {
     fd_hash_t const * footer_bank_hash = &footer->bank_hash;
     if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
@@ -1860,6 +1843,87 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
   return 0;
+}
+
+static int
+replay_block_finalize( fd_replay_tile_t *  ctx,
+                       fd_stem_context_t * stem,
+                       fd_bank_t *         bank ) {
+  bank->last_transaction_finished_nanos = fd_clock_tile_now( ctx->clock );
+
+  /* Set poh hash in bank. */
+  fd_hash_t * poh = fd_sched_get_poh( ctx->sched, bank->idx );
+  bank->f.poh = *poh;
+
+  /* Set shred count in bank. */
+  bank->f.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->idx );
+
+  ulong execution_fees_pre_settle = bank->f.execution_fees;
+  ulong priority_fees_pre_settle  = bank->f.priority_fees;
+  ulong tips_pre_settle           = bank->f.tips;
+
+  fd_block_footer_t const * footer = NULL;
+  if( FD_UNLIKELY( ctx->alpenglow ) ) footer = fd_sched_get_footer( ctx->sched, bank->idx );
+
+  /* Footer certs go to idle exec tiles as cert verify tasks, the rest
+     verify here, then finalize applies the footer while the tasks run.
+     The bank completes on its last cert task done. */
+  fd_block_footer_cert_t const * cert  [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+  uint                           tag   [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+  ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+
+  ulong cnt   = 0UL;
+  ulong tiles = 0UL;
+  if( footer && !ctx->capture_ctx && !ctx->report_runtime_diffs ) {
+    cnt = fd_alpenglow_footer_certs( footer, cert, tag, quorum );
+    tiles = fd_sched_cert_dispatch( ctx->sched, bank->idx, cnt );
+  }
+
+  if( FD_UNLIKELY( !tiles ) ) {
+    /* Nowhere to dispatch to ... just run cert verification here, now. */
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx, footer, ctx->shred_version, ctx->footer_cache ) ) ) goto bad_footer;
+  } else {
+    FD_TEST( ctx->shred_version );
+    ulong k = 0UL;
+    for( ; tiles; k++, tiles=fd_ulong_pop_lsb( tiles ) ) {
+      ulong t = (ulong)fd_ulong_find_lsb( tiles );
+
+      ctx->cert_payload_sz[ t ]  = fd_alpenglow_cert_payload( cert[ k ], tag[ k ], ctx->shred_version, ctx->cert_payload[ t ] );
+
+      blst_p2_affine const * hm = fd_footer_cache_hash_query( ctx->footer_cache, ctx->cert_payload[ t ], ctx->cert_payload_sz[ t ]  );
+
+      fd_replay_out_link_t * exec_out = &ctx->exec_out[ t ];
+      fd_execrp_cert_verify_msg_t * msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      msg->bank_idx      = bank->idx;
+      msg->quorum        = quorum[ k ];
+      msg->tag           = tag[ k ];
+      msg->shred_version = ctx->shred_version;
+      msg->has_hm        = !!hm;
+      if( hm ) msg->hm   = *hm;
+      *msg->cert         = *cert[ k ];
+
+      bank->refcnt++;
+
+      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_CERT_VERIFY<<32) | t, exec_out->chunk, sizeof(fd_execrp_cert_verify_msg_t), 0UL, 0UL, 0UL );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
+    }
+    bank->cert_task_cnt             = k;
+    bank->execution_fees_pre_settle = execution_fees_pre_settle;
+    bank->priority_fees_pre_settle  = priority_fees_pre_settle;
+    for( ulong i=k; i<cnt; i++ ) {
+      if( FD_UNLIKELY( fd_alpenglow_cert_verify( bank, cert[ i ], tag[ i ], quorum[ i ], ctx->shred_version, ctx->footer_cache, NULL, NULL ) ) ) goto bad_footer;
+    }
+    if( FD_UNLIKELY( fd_runtime_block_execute_finalize_unverified( bank, ctx->accdb, footer, ctx->footer_cache ) ) ) goto bad_footer;
+  }
+
+  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
+
+  if( FD_UNLIKELY( bank->cert_task_cnt ) ) return 0; /* completes on its last cert task done */
+  return replay_block_complete( ctx, stem, bank, footer, execution_fees_pre_settle, priority_fees_pre_settle );
+
+bad_footer:
+  mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+  return 1;
 }
 
 static int
@@ -4191,6 +4255,23 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       if( FD_UNLIKELY( res && bank->state!=FD_BANK_STATE_DEAD ) ) {
         mark_bank_dead( ctx, stem, bank->idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
       }
+      break;
+    }
+    case FD_EXECRP_TT_CERT_VERIFY: {
+      FD_TEST( bank->cert_task_cnt );
+      bank->cert_task_cnt--;
+      if( msg->cert_verify->has_hm ) fd_footer_cache_hash_insert( ctx->footer_cache, ctx->cert_payload[ exec_tile_idx ], ctx->cert_payload_sz[ exec_tile_idx ], &msg->cert_verify->hm );
+      if( FD_UNLIKELY( msg->cert_verify->err && bank->state!=FD_BANK_STATE_DEAD ) ) {
+        mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+        fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
+      }
+      /* Last one: freeze and publish, before sched can start its child */
+      if( !bank->cert_task_cnt && bank->state==FD_BANK_STATE_REPLAYABLE && !fd_sched_block_is_discarded( ctx->sched, bank->idx ) ) {
+        if( FD_UNLIKELY( replay_block_complete( ctx, stem, bank, fd_sched_get_footer( ctx->sched, bank->idx ), bank->execution_fees_pre_settle, bank->priority_fees_pre_settle ) ) ) {
+          fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
+        }
+      }
+      FD_TEST( !fd_sched_task_done( ctx->sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, exec_tile_idx, NULL ) );
       break;
     }
     default: FD_LOG_CRIT(( "unexpected sig 0x%lx", sig ));

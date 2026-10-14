@@ -147,6 +147,7 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
 #define FD_SCHED_TT_POH_HASH      (6UL) /* (e) PoH hashing. */
 #define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
+#define FD_SCHED_TT_CERT_VERIFY   (8UL) /* (e) Footer cert verify. */
 
 struct fd_sched_block_start {
   ulong bank_idx;        /* Same as in fd_sched_fec_t. */
@@ -341,6 +342,17 @@ fd_sched_is_drained( fd_sched_t * sched );
    next task next_ready returns for it is a BLOCK_START, 0 otherwise. */
 int
 fd_sched_block_start_pending( fd_sched_t * sched );
+
+/* fd_sched_cert_dispatch claims up to cnt idle exec tiles for footer
+   cert verify tasks of the active block, whose BLOCK_END is signaled
+   and not done yet.  Returns the claimed tiles (bit i for tile i).
+   Each completes with fd_sched_task_done( FD_SCHED_TT_CERT_VERIFY,
+   ULONG_MAX, i, NULL ), and the block is not done until all have. */
+
+ulong
+fd_sched_cert_dispatch( fd_sched_t * sched,
+                        ulong        bank_idx,
+                        ulong        cnt );
 
 /* Obtain a transaction eligible for execution.  This implies that all
    prior transactions with w-r or w-w conflicts have completed.

@@ -1006,6 +1006,84 @@ new_sched( fd_rng_t * rng, void ** mem_out, ulong block_cnt_max ) {
   return sched;
 }
 
+/* Footer cert verify tasks hold a block that reached BLOCK_END: the
+   claimed tiles stay busy, the block is not done, and its child does
+   not start until the last cert task is done.  An abandon while they
+   run drains the block on the last one. */
+static void
+run_cert_verify_case( int abandon ) {
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  void * mem; fd_sched_t * sched = new_sched( rng, &mem, 8UL );
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  fd_hash_t start_poh[ 1 ];
+  hash_from_seed( start_poh, 0x3c5a7e9b1d2f4086UL );
+  ulong tick_hashcnt[ 1 ] = { 4UL };
+  uchar encoded[ sizeof(ulong)+sizeof(fd_microblock_hdr_t) ];
+  ulong encoded_sz = 0UL;
+  encode_tick_block( encoded, &encoded_sz, start_poh, tick_hashcnt, 1UL );
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz       = (uint)encoded_sz;
+  store_fec->shred_sz[ 0 ] = (ushort)encoded_sz;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT+1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec,
+    .data              = encoded,
+    .shred_cnt         = 1U,
+    .is_last_in_batch  = 1U,
+    .is_last_in_block  = 1U,
+    .is_first_in_block = 1U
+  }};
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, tick_hashcnt[ 0 ], start_poh );
+
+  fd_sched_task_t task[ 1 ];
+  for(;;) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    FD_TEST( fd_sched_task_next_ready( sched, task ) );
+    if( task->task_type==FD_SCHED_TT_BLOCK_END ) break;
+    if( task->task_type==FD_SCHED_TT_BLOCK_START ) {
+      FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+      continue;
+    }
+    FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH );
+    fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+    msg->cnt = task->poh_hash->cnt;
+    for( ulong i=0UL; i<msg->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+  }
+  FD_TEST( fd_sched_pruned_block_next( sched )==2UL );
+
+  ulong tiles = fd_sched_cert_dispatch( sched, 2UL, 2UL );
+  FD_TEST( fd_ulong_popcnt( tiles )==2 );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
+  FD_TEST( add_live_block( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) ); /* child waits, no CRIT */
+  FD_TEST( !fd_sched_is_drained( sched ) );
+
+  if( abandon ) fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+  int t0 = fd_ulong_find_lsb( tiles );
+  int t1 = fd_ulong_find_msb( tiles );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, (ulong)t0, NULL ) );
+  FD_TEST( !fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, (ulong)t1, NULL ) );
+  if( abandon ) {
+    FD_TEST( fd_sched_pruned_block_next( sched )==3UL ); /* the child only, 2 released at BLOCK_END */
+    FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+    FD_TEST( !fd_sched_task_next_ready( sched, task ) );
+    FD_TEST( fd_sched_is_drained( sched ) );
+  } else {
+    FD_TEST( fd_sched_task_next_ready( sched, task ) );
+    FD_TEST( task->task_type==FD_SCHED_TT_BLOCK_START && task->block_start->bank_idx==3UL );
+  }
+  fd_sched_delete( fd_sched_leave( sched ) ); free( mem );
+}
+
 /* A block given up on without fault keeps a clean dead reason and
    raises the discarded flag, and blocks that later arrive under it
    inherit that flavor rather than looking ruled-invalid.  A block ruled
@@ -1447,6 +1525,8 @@ main( int     argc,
   run_late_ancestor_discard_case();
   run_runtime_limit_case();
   run_zero_hashcnt_mblk_case();
+  run_cert_verify_case( 0 );
+  run_cert_verify_case( 1 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
