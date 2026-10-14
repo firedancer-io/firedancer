@@ -55,7 +55,8 @@ struct fd_auto_feat {
   fd_auto_driver_rq_t  supported_drivers[ NET_DRIVER_CNT_MAX ];
 
   /* is_feat_auto() checks if feature is auto and sets the default */
-  int  (*is_feat_auto)( fd_config_t          * config );
+  int  (*is_feat_auto)( fd_config_t          * config,
+                        fd_auto_info_t const * info   );
   int  (*check       )( fd_config_t    const * config,
                         fd_auto_info_t const * info   );
   void (*apply       )( fd_config_t          * config );
@@ -119,7 +120,8 @@ xdp_apply( fd_config_t * config ) {
 }
 
 static int
-is_xdp_listen_gre_auto( fd_config_t * config ) {
+is_xdp_listen_gre_auto( fd_config_t *          config,
+                        fd_auto_info_t const * info FD_PARAM_UNUSED ) {
   if( 2!=config->net.xdp.listen_gre ) return 0;
   /* Set to default */
   config->net.xdp.listen_gre = 0;
@@ -138,7 +140,8 @@ xdp_listen_gre_apply( fd_config_t * config ) {
 }
 
 static int
-is_xdp_rss_queue_mode_auto( fd_config_t * config ) {
+is_xdp_rss_queue_mode_auto( fd_config_t *          config,
+                            fd_auto_info_t const * info FD_PARAM_UNUSED ) {
   if( strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) return 0;
   /* Set to default */
   fd_memcpy( config->net.xdp.rss_queue_mode, "simple", 7 );
@@ -164,7 +167,8 @@ xdp_rss_queue_mode_apply( fd_config_t * config ) {
 }
 
 static int
-is_xdp_native_bond_auto( fd_config_t * config ) {
+is_xdp_native_bond_auto( fd_config_t *          config,
+                         fd_auto_info_t const * info FD_PARAM_UNUSED ) {
   if( 2!=config->net.xdp.native_bond ) return 0;
   /* Set to default */
   config->net.xdp.native_bond = 0;
@@ -191,7 +195,8 @@ xdp_native_bond_apply( fd_config_t * config ) {
 }
 
 static int
-is_xdp_mode_auto( fd_config_t * config ) {
+is_xdp_mode_auto( fd_config_t *          config,
+                  fd_auto_info_t const * info FD_PARAM_UNUSED ) {
   if( strcmp( config->net.xdp.xdp_mode, "auto" ) ) return 0;
   /* Set to default */
   fd_memcpy( config->net.xdp.xdp_mode, "skb", 4 );
@@ -212,7 +217,8 @@ xdp_drv_apply( fd_config_t * config ) {
 }
 
 static int
-is_xdp_prefbusy_auto( fd_config_t * config ) {
+is_xdp_prefbusy_auto( fd_config_t *          config,
+                      fd_auto_info_t const * info FD_PARAM_UNUSED ) {
   if( strcmp( config->net.xdp.poll_mode, "auto" ) ) return 0;
   /* Set to default */
   fd_memcpy( config->net.xdp.poll_mode, "softirq", 8 );
@@ -232,7 +238,23 @@ xdp_prefbusy_apply( fd_config_t * config ) {
 }
 
 static int
-is_xdp_zc_auto( fd_config_t * config ) {
+is_xdp_zc_auto( fd_config_t *          config,
+                fd_auto_info_t const * info ) {
+  /* Check whether the user has set this parameter to "true" or "force"
+     while also running a known high risk setup. */
+  if( 0==strcmp( config->net.provider, "xdp" ) &&
+      ( 0==strcmp( info->driver, "i40e" ) || 0==strcmp( info->driver, "ice"  ) ) ) {
+    if( 1==config->net.xdp.xdp_zero_copy ) {
+      FD_LOG_ERR(( "net.xdp.xdp_zero_copy=\"true\" is blocked for driver %s due to kernel panic risks. "
+                   "Use \"false\", or \"force\" to proceed despite the high risk.",
+                   info->driver ));
+    } else if( 3==config->net.xdp.xdp_zero_copy ) {
+      FD_LOG_WARNING(( "net.xdp.xdp_zero_copy=\"force\" is not recommended for driver %s due to kernel panic risks. "
+                       "Continuing anyway due to forced enablement.",
+                       info->driver ));
+    }
+  }
+
   if( 2!=config->net.xdp.xdp_zero_copy ) return 0;
   /* Set to default */
   config->net.xdp.xdp_zero_copy = 0;
@@ -487,7 +509,7 @@ fd_auto_net_apply( fd_config_t          * config,
 
       /* Checks feature is set to "auto", if so replaces "auto" with
          default and goes onto the next checks */
-      if( !feat->is_feat_auto( config ) ) continue;
+      if( !feat->is_feat_auto( config, info ) ) continue;
 
       if( !is_chosen_provider ) continue;
 

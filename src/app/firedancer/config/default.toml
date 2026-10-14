@@ -1306,21 +1306,22 @@ telemetry = true
         # tiles (such as the quic tile).  This allows scaling ingress up
         # to 100 Gbps per net tile.
         #
-        # Only works when XDP is provided by the network driver (see
-        # the xdp_mode option above).  If set to "true" on kernel/hardware
-        # which does not support zero copy, `firedancer run` will fail to
-        # start up with "operation not supported".
-        #
         # xdp_zero_copy can be broken even when enabled on drivers/kernels
         # which supposedly support it.  Support varies wildly by exact Linux
         # version, with regressions being common.  Therefore we recommend
         # leaving this option set to "auto".
         #
+        # In some cases where there is a high risk of kernel panics with
+        # xdp_zero_copy enabled, Firedancer will not allow xdp_zero_copy
+        # to be set to "true" and will error. To carry on anyway even with
+        # a high risk of kernel panics, set this option to "force". Using
+        # "force" is strongly discouraged.
+        #
         # If "auto" is in use for xdp_mode or native_bond, do not manually set
         # xdp_zero_copy to "true", and instead leave as either "auto" or "false".
         #
         # Its possible values are:
-        #  "true", "false" or "auto" (default)
+        #  "true", "false", "force" or "auto" (default)
         xdp_zero_copy = "auto"
 
         # The poll_mode option determines how Firedancer polls NAPI (Linux's
