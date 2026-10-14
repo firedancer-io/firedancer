@@ -55,7 +55,6 @@ class Tile(Enum):
 
     BACKT = 105
     BENCHS = 106
-    GUIH = 107
 
     ROTOR = 108
     VOTOR = 109

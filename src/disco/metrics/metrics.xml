@@ -2115,17 +2115,6 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DbForcedEvictWriteCompleted" enum="GuiDbType" summary="Writes that evicted records before succeeding, by database" />
 </tile>
 
-<tile name="guih" telemetry="false">
-    <gauge name="ConnOpen" summary="Open HTTP connections to the GUI service, excluding connections upgraded to WebSocket" />
-    <gauge name="WebsocketConnOpen" summary="Open WebSocket connections to the GUI service" />
-
-    <counter name="WebsocketFrameTx" summary="WebSocket frames sent to all connections to the GUI service" />
-    <counter name="WebsocketFrameRx" summary="WebSocket frames received from all connections to the GUI service" />
-
-    <counter name="ConnTxBytes" summary="Bytes written to all connections to the GUI service" />
-    <counter name="ConnRxBytes" summary="Bytes read from all connections to the GUI service" />
-</tile>
-
 <enum name="GuiDbType">
     <int value="0" name="SchedulerCounts" label="scheduler_counts" />
     <int value="1" name="TileTimers" label="tile_timers" />

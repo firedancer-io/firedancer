@@ -81,7 +81,6 @@ fd_gui_new( void *                   shmem,
             uchar const *            identity_key,
             int                      has_vote_key,
             uchar const *            vote_key,
-            int                      is_full_client,
             int                      is_alpenglow,
             ulong                    max_live_slots,
             ulong                    max_txn_per_slot,
@@ -193,7 +192,6 @@ fd_gui_new( void *                   shmem,
     memset( gui->summary.vote_key_base58, 0, sizeof(gui->summary.vote_key_base58) );
   }
 
-  gui->summary.is_full_client                = is_full_client;
   gui->summary.is_alpenglow                  = is_alpenglow;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
@@ -467,7 +465,7 @@ void
 fd_gui_handle_diag_snapshot( fd_gui_t *   gui,
                              void const * data,
                              ulong        data_sz ) {
-  if( FD_UNLIKELY( !gui->summary.is_full_client || !data ) ) return;
+  if( FD_UNLIKELY( !data ) ) return;
 
   if( FD_UNLIKELY( data_sz!=sizeof(fd_diag_system_resources_t) ) ) return;
 
