@@ -342,7 +342,6 @@ join_isolation_cgroup( char const * app_name ) {
 
 void
 fd_topo_run_single_process( fd_topo_t *       topo,
-                            int               agave,
                             uint              uid,
                             uint              gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) ) {
@@ -352,15 +351,13 @@ fd_topo_run_single_process( fd_topo_t *       topo,
      queue on mmap_lock behind a cold-cache populate. */
   fd_topo_mlock_code();
 
-  if( FD_LIKELY( agave!=1 ) ) {
-    ulong waker_client_cnt = 0UL;
-    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-      ulong idx = topo->tiles[ i ].waker_client_idx;
-      if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
-    }
-    fd_waker_install( waker_client_cnt );
-    fd_sleep_eventfd_install( topo );
+  ulong waker_client_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    ulong idx = topo->tiles[ i ].waker_client_idx;
+    if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
   }
+  fd_waker_install( waker_client_cnt );
+  fd_sleep_eventfd_install( topo );
 
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );
@@ -383,19 +380,12 @@ fd_topo_run_single_process( fd_topo_t *       topo,
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !agave && tile->is_agave ) continue;
-    if( agave==1 && !tile->is_agave ) continue;
-
     fd_topo_run_tile_t run_tile = tile_run( tile );
     int floating_priority = ( any_floats && !strcmp( tile->name, "waker" ) ) ? -19 : save_priority; /* the waker delivers floaters' fd readiness: never behind them */
     run_tile_thread( topo, tile, run_tile, uid, gid, float_cpu_set, cpuless_cpu_set, floating_priority, &args[ i ] );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !agave && tile->is_agave ) continue;
-    if( agave==1 && !tile->is_agave ) continue;
-
     while( !FD_VOLATILE( args[ i ].copied ) ) FD_SPIN_PAUSE();
   }
 

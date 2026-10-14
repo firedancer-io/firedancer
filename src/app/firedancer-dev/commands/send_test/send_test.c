@@ -86,7 +86,7 @@ send_test_topo( config_t * config ) {
 
   /* Add send tile */
   fd_topob_wksp( topo, "txsend" );
-  fd_topob_tile( topo, "txsend", "txsend", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
+  fd_topob_tile( topo, "txsend", "txsend", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
   /* wksps for send links */
   fd_topob_wksp( topo, "txsend_net" );
@@ -148,7 +148,7 @@ send_test_topo( config_t * config ) {
   }
 
   /* Finish topology setup */
-  if( FD_UNLIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) fd_topob_auto_layout( topo );
   fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
@@ -269,7 +269,7 @@ send_test_cmd_fn( args_t *   args ,
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
 
   send_test_ctx_t ctx = {0};
   init( &ctx, config );

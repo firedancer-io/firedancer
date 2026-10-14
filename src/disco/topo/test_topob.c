@@ -9,11 +9,9 @@
      - a synthetic CPU topology  (physical cores × 2 with HT siblings)
      - a tile set                (tile names and counts)
      - a blocklist               (core indices to exclude)
-     - reserve_agave flag        (1 for Frankendancer, 0 for Firedancer)
      - an expected per-CPU array:
          expected[cpu] = tile name   →  tile assigned to that cpu
-         expected[cpu] = _A_         →  cpu reserved for Agave
-         expected[cpu] = NULL (__) →  cpu unassigned                   */
+         expected[cpu] = NULL (__)   →  cpu unassigned                 */
 
 #include "fd_topob.h"
 #include "fd_cpu_topo.c"
@@ -251,7 +249,7 @@ set_blocklist( fd_topo_t *   topo,
 }
 
 /* Build the per-CPU → label map from the layout result.
-   Tiles get their tile name, agave cores get "AGAVE", rest NULL. */
+   Tiles get their tile name, rest NULL. */
 static void
 build_cpu_map( fd_topo_t const * topo,
                ulong             cpu_cnt,
@@ -260,10 +258,6 @@ build_cpu_map( fd_topo_t const * topo,
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     ulong c = topo->tiles[ i ].cpu_idx;
     if( c != ULONG_MAX && c < cpu_cnt ) out[ c ] = topo->tiles[ i ].name;
-  }
-  for( ulong i=0UL; i<topo->agave_affinity_cnt; i++ ) {
-    ulong c = topo->agave_affinity_cpu_idx[ i ];
-    if( c < cpu_cnt ) out[ c ] = "AGAVE";
   }
 }
 
@@ -281,9 +275,8 @@ print_layout( fd_topo_t const * topo,
 
 /* ---- Test runner ------------------------------------------------------- */
 
-/* Verify the layout of tiles and agave cores matches expected[].
+/* Verify the layout of tiles matches expected[].
    expected[i] = tile name  →  tile should be assigned to cpu i
-   expected[i] = "AGAVE"  →  cpu should be in agave affinity set
    expected[i] = NULL       →  cpu unassigned (blocked / unused)
    Entries beyond expected_len must also be unassigned. */
 static void
@@ -293,7 +286,6 @@ run_layout( ulong                 physical_cores,
             int                   efficient,
             tile_spec_t const *   tiles,
             ulong const *         blocklist,      /* ULONG_MAX terminated */
-            int                   reserve_agave,
             ulong                 expected_len,
             char const * const *  expected ) {
   /* Build CPU topology */
@@ -311,9 +303,9 @@ run_layout( ulong                 physical_cores,
   topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX; /* fd_topob_sleep sets it in efficient mode */
 
   /* Run the layout algorithm */
-  fd_topob_auto_layout_cpus( topo, cpus, reserve_agave );
+  fd_topob_auto_layout_cpus( topo, cpus );
 
-  /* Build actual per-CPU map (tiles + agave) */
+  /* Build actual per-CPU map */
   char const * actual[ 1024 ];
   FD_TEST( cpu_cnt <= 1024UL );
   build_cpu_map( topo, cpu_cnt, actual );
@@ -344,10 +336,9 @@ static void
 run_test( ulong                 physical_cores,
           tile_spec_t const *   tiles,
           ulong const *         blocklist,      /* ULONG_MAX terminated */
-          int                   reserve_agave,
           ulong                 expected_len,
           char const * const *  expected ) {
-  run_layout( physical_cores, 0UL, NULL, 0, tiles, blocklist, reserve_agave, expected_len, expected );
+  run_layout( physical_cores, 0UL, NULL, 0, tiles, blocklist, expected_len, expected );
 }
 
 /* ======================================================================== */
@@ -385,23 +376,6 @@ static tile_spec_t const FIREDANCER_EFF_TILES[] = {
   { NULL, 0 }
 };
 
-/* --- Frankendancer default (from default.toml) ---------------------------
-   net=1, quic=1, verify=6, resolh=1, bank=4, shred=1
-   Fixed: dedup=1, pack=1, pohh=1, store=1, sign=1, plugin=1, gui=1
-   Total ordered tiles: 21                                               */
-
-static tile_spec_t const FRANKENDANCER_TILES[] = {
-  /* floating tiles */
-  { "netlnk", 1 },
-  { "metric", 1 }, { "diag",   1 },
-  /* ordered tiles (21) */
-  { "net",    1 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
-  { "resolh", 1 }, { "pack",   1 }, { "bank",   4 }, { "pohh",   1 },
-  { "shred",  1 }, { "store",  1 }, { "sign",   1 }, { "plugin", 1 },
-  { "guih",   1 },
-  { NULL, 0 }
-};
-
 /* ======================================================================== */
 /*  Blocklists                                                              */
 /* ======================================================================== */
@@ -414,11 +388,10 @@ static tile_spec_t const FRANKENDANCER_TILES[] = {
 /* ======================================================================== */
 /*  Expected results                                                        */
 /*                                                                          */
-/*  For each test, expected[cpu] = tile name, _A_ (Agave), or __ (unused). */
+/*  For each test, expected[cpu] = tile name or __ (unused).                */
 /* ======================================================================== */
 
 #define __ NULL
-#define _A_ "AGAVE"
 
 /* ---- Firedancer, skip-HT expected prefix (48/64/128 physical) ----------
    When enough physical cores, ALWAYS tiles on cores 1..21, then
@@ -496,21 +469,6 @@ static char const * const FD_48X2_L3_PERF[] = {
 };
 #define FD_48X2_L3_PERF_LEN (sizeof(FD_48X2_L3_PERF)/sizeof(FD_48X2_L3_PERF[0]))
 
-/* ---- Frankendancer, skip-HT tile prefix (shared by 48/64/128) ----------
-   Tiles on physical cores 1-21, core 0 blocked.
-   Used as prefix; each test adds _A_ for the agave region.               */
-
-static char const * const FRANK_SKIP_HT_PREFIX[] = {
-  /* phys cores 0-21 */
-  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "verify",  /*  7 */ "verify",
-  /*  8 */ "verify",  /*  9 */ "dedup",   /* 10 */ "resolh",  /* 11 */ "pack",
-  /* 12 */ "bank",    /* 13 */ "bank",    /* 14 */ "bank",    /* 15 */ "bank",
-  /* 16 */ "pohh",    /* 17 */ "sign",    /* 18 */ "shred",   /* 19 */ "store",
-  /* 20 */ "plugin",  /* 21 */ "guih",
-};
-#define FRANK_SKIP_HT_PREFIX_LEN (sizeof(FRANK_SKIP_HT_PREFIX)/sizeof(FRANK_SKIP_HT_PREFIX[0]))
-
 /* ---- Firedancer 24×2  (no skip HT, 36 tiles > 23 physical cores) ------
    13 cores shared: pack and poh alone, execrp:0..7 whole, replay, tower,
    shred and net:0 next to cold tiles.                                    */
@@ -552,54 +510,6 @@ static char const * const FD_32X2[] = {
 };
 #define FD_32X2_LEN (sizeof(FD_32X2)/sizeof(FD_32X2[0]))
 
-/* ---- Frankendancer 24×2  (no skip HT, 21 ordered tiles from default.toml)
-   Tiles on physical 1-12 and HT 25-29,31-32,34-35.
-   Critical siblings blocked: 30(pack),33(pohh).
-   Agave: physical 13-23, HT 36-47.                                       */
-
-static char const * const FRANK_24X2[] = {
-  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "verify",  /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "dedup",   /*  6 */ "pack",    /*  7 */ "bank",
-  /*  8 */ "bank",    /*  9 */ "pohh",    /* 10 */ "sign",    /* 11 */ "store",
-  /* 12 */ "guih",    /* 13 */ _A_,       /* 14 */ _A_,       /* 15 */ _A_,
-  /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
-  /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
-  /* --- HT siblings (24-47) --- */
-  /* 24 */ __,        /* 25 */ "quic",    /* 26 */ "verify",  /* 27 */ "verify",
-  /* 28 */ "verify",  /* 29 */ "resolh",  /* 30 */ __,        /* 31 */ "bank",
-  /* 32 */ "bank",    /* 33 */ __,        /* 34 */ "shred",   /* 35 */ "plugin",
-  /* 36 */ _A_,       /* 37 */ _A_,       /* 38 */ _A_,       /* 39 */ _A_,
-  /* 40 */ _A_,       /* 41 */ _A_,       /* 42 */ _A_,       /* 43 */ _A_,
-  /* 44 */ _A_,       /* 45 */ _A_,       /* 46 */ _A_,       /* 47 */ _A_,
-};
-#define FRANK_24X2_LEN (sizeof(FRANK_24X2)/sizeof(FRANK_24X2[0]))
-
-/* ---- Frankendancer 32×2  (no skip HT, 21 ordered tiles from default.toml)
-   Tiles on physical 1-12 and HT 33-37,39-40,42-43.
-   Critical siblings blocked: 38(pack),41(pohh).
-   Agave: physical 13-31, HT 44-63.                                       */
-
-static char const * const FRANK_32X2[] = {
-  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "verify",  /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "dedup",   /*  6 */ "pack",    /*  7 */ "bank",
-  /*  8 */ "bank",    /*  9 */ "pohh",    /* 10 */ "sign",    /* 11 */ "store",
-  /* 12 */ "guih",    /* 13 */ _A_,       /* 14 */ _A_,       /* 15 */ _A_,
-  /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
-  /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
-  /* 24 */ _A_,       /* 25 */ _A_,       /* 26 */ _A_,       /* 27 */ _A_,
-  /* 28 */ _A_,       /* 29 */ _A_,       /* 30 */ _A_,       /* 31 */ _A_,
-  /* --- HT siblings (32-63) --- */
-  /* 32 */ __,        /* 33 */ "quic",    /* 34 */ "verify",  /* 35 */ "verify",
-  /* 36 */ "verify",  /* 37 */ "resolh",  /* 38 */ __,        /* 39 */ "bank",
-  /* 40 */ "bank",    /* 41 */ __,        /* 42 */ "shred",   /* 43 */ "plugin",
-  /* 44 */ _A_,       /* 45 */ _A_,       /* 46 */ _A_,       /* 47 */ _A_,
-  /* 48 */ _A_,       /* 49 */ _A_,       /* 50 */ _A_,       /* 51 */ _A_,
-  /* 52 */ _A_,       /* 53 */ _A_,       /* 54 */ _A_,       /* 55 */ _A_,
-  /* 56 */ _A_,       /* 57 */ _A_,       /* 58 */ _A_,       /* 59 */ _A_,
-  /* 60 */ _A_,       /* 61 */ _A_,       /* 62 */ _A_,       /* 63 */ _A_,
-};
-#define FRANK_32X2_LEN (sizeof(FRANK_32X2)/sizeof(FRANK_32X2[0]))
-
 /* ---- Variation: Firedancer 32×2, fewer tiles → skip HT -----------------
    verify=2, execrp=4  →  26 tiles total, 31 available ≥ 26              */
 
@@ -627,43 +537,6 @@ static char const * const FD_32X2_FEWER[] = {
 };
 #define FD_32X2_FEWER_LEN (sizeof(FD_32X2_FEWER)/sizeof(FD_32X2_FEWER[0]))
 
-/* ---- Variation: Frankendancer 32×2, more bank tiles → still no skip HT --
-   bank=4, verify=6  →  23 ordered tiles, 2×23=46 > 31
-   Tiles on physical 1-13 and HT 33-38,40-41,43-44.
-   Critical siblings blocked: 39(pack),42(pohh).
-   Agave: physical 14-31, HT 45-63.                                       */
-
-static tile_spec_t const FRANK_MORE_BANK[] = {
-  { "netlnk", 1 },
-  { "metric", 1 }, { "diag",   1 },
-  { "net",    2 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
-  { "resolh", 1 }, { "pack",   1 }, { "bank",   4 }, { "pohh",   1 },
-  { "shred",  2 }, { "store",  1 }, { "sign",   1 }, { "plugin", 1 },
-  { "guih",   1 },
-  { NULL, 0 }
-};
-
-static char const * const FRANK_32X2_MORE_BANK[] = {
-  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolh",  /*  7 */ "pack",
-  /*  8 */ "bank",    /*  9 */ "bank",    /* 10 */ "pohh",    /* 11 */ "shred",
-  /* 12 */ "store",   /* 13 */ "guih",    /* 14 */ _A_,       /* 15 */ _A_,
-  /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
-  /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
-  /* 24 */ _A_,       /* 25 */ _A_,       /* 26 */ _A_,       /* 27 */ _A_,
-  /* 28 */ _A_,       /* 29 */ _A_,       /* 30 */ _A_,       /* 31 */ _A_,
-  /* --- HT siblings (32-63) --- */
-  /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
-  /* 36 */ "verify",  /* 37 */ "dedup",   /* 38 */ "bank",    /* 39 */ __,
-  /* 40 */ "bank",    /* 41 */ "sign",    /* 42 */ __,        /* 43 */ "shred",
-  /* 44 */ "plugin",  /* 45 */ _A_,       /* 46 */ _A_,       /* 47 */ _A_,
-  /* 48 */ _A_,       /* 49 */ _A_,       /* 50 */ _A_,       /* 51 */ _A_,
-  /* 52 */ _A_,       /* 53 */ _A_,       /* 54 */ _A_,       /* 55 */ _A_,
-  /* 56 */ _A_,       /* 57 */ _A_,       /* 58 */ _A_,       /* 59 */ _A_,
-  /* 60 */ _A_,       /* 61 */ _A_,       /* 62 */ _A_,       /* 63 */ _A_,
-};
-#define FRANK_32X2_MORE_BANK_LEN (sizeof(FRANK_32X2_MORE_BANK)/sizeof(FRANK_32X2_MORE_BANK[0]))
-
 /* ---- Variation: Firedancer 32×2, extra blocklist -----------------------
    blocklist = "0h,5h" → {0,32,5,37}. 30 phys avail. 36 tiles > 30.     */
 
@@ -685,16 +558,15 @@ static char const * const FD_32X2_EXTRA_BL[] = {
 #define FD_32X2_EXTRA_BL_LEN (sizeof(FD_32X2_EXTRA_BL)/sizeof(FD_32X2_EXTRA_BL[0]))
 
 #undef __
-#undef _A_
 
 /* ======================================================================== */
 /*  Test functions                                                          */
 /* ======================================================================== */
 
-/* --- Firedancer (no agave) ---------------------------------------------- */
+/* --- Firedancer --------------------------------------------------------- */
 
 FD_UNIT_TEST( test_firedancer_24x2 ) {
-  run_test( 24, FIREDANCER_TILES, BLOCKLIST_0H( 24 ), 0, FD_24X2_LEN, FD_24X2 );
+  run_test( 24, FIREDANCER_TILES, BLOCKLIST_0H( 24 ), FD_24X2_LEN, FD_24X2 );
 }
 
 /* Spare cores go to execrp in kind_id order: on 24x2 execrp:0..7 get a
@@ -709,7 +581,7 @@ FD_UNIT_TEST( test_execrp_dedicated_order ) {
   make_tiles( topo, FIREDANCER_TILES );
   set_blocklist( topo, BLOCKLIST_0H( 24 ) );
   topo->sleep_obj_id = ULONG_MAX;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
@@ -733,43 +605,43 @@ FD_UNIT_TEST( test_execrp_dedicated_half_cores ) {
   make_tiles( topo, FIREDANCER_TILES );
   set_blocklist( topo, (ulong const[]){ 0, 32, 24, 25, 26, 27, 28, 29, 30, 31, ULONG_MAX } );
   topo->sleep_obj_id = ULONG_MAX;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     if( !strcmp( topo->tiles[ i ].name, "execrp" ) ) FD_TEST( topo->tiles[ i ].cpu_idx!=ULONG_MAX );
   }
 }
 
 FD_UNIT_TEST( test_firedancer_32x2 ) {
-  run_test( 32, FIREDANCER_TILES, BLOCKLIST_0H( 32 ), 0, FD_32X2_LEN, FD_32X2 );
+  run_test( 32, FIREDANCER_TILES, BLOCKLIST_0H( 32 ), FD_32X2_LEN, FD_32X2 );
 }
 
 FD_UNIT_TEST( test_firedancer_48x2 ) {
-  run_test( 48, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+  run_test( 48, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), FD_SKIP_HT_LEN, FD_SKIP_HT );
 }
 
 FD_UNIT_TEST( test_firedancer_64x2 ) {
-  run_test( 64, FIREDANCER_TILES, BLOCKLIST_0H( 64 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+  run_test( 64, FIREDANCER_TILES, BLOCKLIST_0H( 64 ), FD_SKIP_HT_LEN, FD_SKIP_HT );
 }
 
 FD_UNIT_TEST( test_firedancer_128x2 ) {
-  run_test( 128, FIREDANCER_TILES, BLOCKLIST_0H( 128 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+  run_test( 128, FIREDANCER_TILES, BLOCKLIST_0H( 128 ), FD_SKIP_HT_LEN, FD_SKIP_HT );
 }
 
 /* --- Firedancer efficient mode ------------------------------------------ */
 
 /* Performance mode only places pack, poh and execle by L3 */
 FD_UNIT_TEST( test_firedancer_48x2_l3_performance ) {
-  run_layout( 48, 6, NULL, 0, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), 0, FD_48X2_L3_PERF_LEN, FD_48X2_L3_PERF );
+  run_layout( 48, 6, NULL, 0, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), FD_48X2_L3_PERF_LEN, FD_48X2_L3_PERF );
 }
 
 /* One L3 domain, or none known, keeps the sequential layout */
 FD_UNIT_TEST( test_firedancer_48x2_efficient_one_l3 ) {
-  run_layout( 48, 48, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
-  run_layout( 48,  0, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
+  run_layout( 48, 48, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
+  run_layout( 48,  0, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
 }
 
 FD_UNIT_TEST( test_firedancer_48x2_efficient_l3 ) {
-  run_layout( 48, 6, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_48X2_L3_LEN, FD_EFF_48X2_L3 );
+  run_layout( 48, 6, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), FD_EFF_48X2_L3_LEN, FD_EFF_48X2_L3 );
 }
 
 /* Too few cores to give every hot tile its own: sequential layout */
@@ -782,71 +654,26 @@ FD_UNIT_TEST( test_firedancer_32x2_efficient_l3 ) {
 
   fd_topo_cpus_t cpus[1];
   make_cpus( cpus, 32, 0 );
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   ulong expected[ FD_TOPO_MAX_TILES ];
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) expected[ i ] = topo->tiles[ i ].cpu_idx;
 
   make_cpus( cpus, 32, 6 );
   topo->sleep_obj_id = 0UL;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) FD_TEST( topo->tiles[ i ].cpu_idx==expected[ i ] );
-}
-
-/* --- Frankendancer (with agave visible in expected arrays) -------------- */
-
-FD_UNIT_TEST( test_frankendancer_24x2 ) {
-  run_test( 24, FRANKENDANCER_TILES, BLOCKLIST_0H( 24 ), 1,
-            FRANK_24X2_LEN, FRANK_24X2 );
-}
-
-FD_UNIT_TEST( test_frankendancer_32x2 ) {
-  run_test( 32, FRANKENDANCER_TILES, BLOCKLIST_0H( 32 ), 1,
-            FRANK_32X2_LEN, FRANK_32X2 );
-}
-
-/* For skip-HT Frankendancer (48/64/128): build the full expected array
-   from the shared tile prefix, then mark agave regions with AGAVE.
-   Tiles on physical 1-21, agave on physical 22..N-1 and HT N+22..2N-1. */
-
-FD_UNIT_TEST( test_frankendancer_48x2 ) {
-  char const * expected[96] = {0};
-  for( ulong i=0UL; i<FRANK_SKIP_HT_PREFIX_LEN; i++ ) expected[i] = FRANK_SKIP_HT_PREFIX[i];
-  for( ulong i=22; i<48;  i++ ) expected[i] = "AGAVE";  /* phys agave  */
-  for( ulong i=70; i<96;  i++ ) expected[i] = "AGAVE";  /* HT agave    */
-  run_test( 48, FRANKENDANCER_TILES, BLOCKLIST_0H( 48 ), 1, 96, expected );
-}
-
-FD_UNIT_TEST( test_frankendancer_64x2 ) {
-  char const * expected[128] = {0};
-  for( ulong i=0UL; i<FRANK_SKIP_HT_PREFIX_LEN; i++ ) expected[i] = FRANK_SKIP_HT_PREFIX[i];
-  for( ulong i=22; i<64;   i++ ) expected[i] = "AGAVE";  /* phys agave */
-  for( ulong i=86; i<128;  i++ ) expected[i] = "AGAVE";  /* HT agave   */
-  run_test( 64, FRANKENDANCER_TILES, BLOCKLIST_0H( 64 ), 1, 128, expected );
-}
-
-FD_UNIT_TEST( test_frankendancer_128x2 ) {
-  char const * expected[256] = {0};
-  for( ulong i=0UL; i<FRANK_SKIP_HT_PREFIX_LEN; i++ ) expected[i] = FRANK_SKIP_HT_PREFIX[i];
-  for( ulong i=22;  i<128; i++ ) expected[i] = "AGAVE";  /* phys agave */
-  for( ulong i=150; i<256; i++ ) expected[i] = "AGAVE";  /* HT agave   */
-  run_test( 128, FRANKENDANCER_TILES, BLOCKLIST_0H( 128 ), 1, 256, expected );
 }
 
 /* --- Variations on 32×2 ------------------------------------------------ */
 
 FD_UNIT_TEST( test_firedancer_32x2_fewer_tiles ) {
-  run_test( 32, FD_FEWER_TILES, BLOCKLIST_0H( 32 ), 0,
+  run_test( 32, FD_FEWER_TILES, BLOCKLIST_0H( 32 ),
             FD_32X2_FEWER_LEN, FD_32X2_FEWER );
-}
-
-FD_UNIT_TEST( test_frankendancer_32x2_more_bank ) {
-  run_test( 32, FRANK_MORE_BANK, BLOCKLIST_0H( 32 ), 1,
-            FRANK_32X2_MORE_BANK_LEN, FRANK_32X2_MORE_BANK );
 }
 
 FD_UNIT_TEST( test_firedancer_32x2_extra_blocklist ) {
   run_test( 32, FIREDANCER_TILES, (ulong[]){ 0, 32, 5, 37, ULONG_MAX },
-            0, FD_32X2_EXTRA_BL_LEN, FD_32X2_EXTRA_BL );
+            FD_32X2_EXTRA_BL_LEN, FD_32X2_EXTRA_BL );
 }
 
 /* --- Offline CPUs ------------------------------------------------------- */
@@ -866,7 +693,7 @@ layout_offline( ulong               physical_cores,
   make_tiles( topo, tiles );
   set_blocklist( topo, BLOCKLIST_0H( physical_cores ) );
   topo->sleep_obj_id = ULONG_MAX;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     ulong cpu = topo->tiles[ i ].cpu_idx;
     if( cpu!=ULONG_MAX ) FD_TEST( cpus->cpu[ cpu ].online );
@@ -898,11 +725,11 @@ FD_UNIT_TEST( test_offline_smt_off ) {
   ulong offline[ 49 ];
   for( ulong i=0UL; i<48UL; i++ ) offline[ i ] = 48UL+i;
   offline[ 48 ] = ULONG_MAX;
-  run_layout( 48, 0, offline, 0, FIREDANCER_TILES, (ulong const[]){ 0, ULONG_MAX }, 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+  run_layout( 48, 0, offline, 0, FIREDANCER_TILES, (ulong const[]){ 0, ULONG_MAX }, FD_SKIP_HT_LEN, FD_SKIP_HT );
 
   for( ulong i=0UL; i<32UL; i++ ) offline[ i ] = 32UL+i;
   offline[ 32 ] = ULONG_MAX;
-  run_layout( 32, 0, offline, 0, FD_FEWER_TILES, (ulong const[]){ 0, ULONG_MAX }, 0, FD_32X2_FEWER_LEN, FD_32X2_FEWER );
+  run_layout( 32, 0, offline, 0, FD_FEWER_TILES, (ulong const[]){ 0, ULONG_MAX }, FD_32X2_FEWER_LEN, FD_32X2_FEWER );
   layout_offline_fails( 32, offline, FIREDANCER_TILES );
 }
 
@@ -927,8 +754,7 @@ FD_UNIT_TEST( test_offline_skip_ht_threshold ) {
 
 /* Unused siblings of critical tiles taken offline change nothing */
 FD_UNIT_TEST( test_offline_critical_siblings ) {
-  run_layout( 48, 6, (ulong const[]){ 72, 84, ULONG_MAX }, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_48X2_L3_LEN, FD_EFF_48X2_L3 );
-  run_layout( 32, 0, (ulong const[]){ 38, 41, ULONG_MAX }, 0, FRANKENDANCER_TILES, BLOCKLIST_0H( 32 ), 1, FRANK_32X2_LEN, FRANK_32X2 );
+  run_layout( 48, 6, (ulong const[]){ 72, 84, ULONG_MAX }, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), FD_EFF_48X2_L3_LEN, FD_EFF_48X2_L3 );
 }
 
 /* --- Adjacent sibling enumeration (cpu i pairs with i^1) ---------------- */
@@ -947,7 +773,7 @@ FD_UNIT_TEST( test_adjacent_siblings ) {
     make_tiles( topo, efficient ? FIREDANCER_EFF_TILES : FIREDANCER_TILES );
     set_blocklist( topo, (ulong const[]){ 0, 1, ULONG_MAX } );
     topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX;
-    fd_topob_auto_layout_cpus( topo, cpus, 0 );
+    fd_topob_auto_layout_cpus( topo, cpus );
 
     /* 47 free cores fit every pinned tile on a whole core */
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -1177,7 +1003,7 @@ FD_UNIT_TEST( test_genesi_floats_l3_exact_fit ) {
   make_tiles( topo, FIREDANCER_SNAP_EFF_TILES );
   set_blocklist( topo, BLOCKLIST_0H( 38 ) );
   topo->sleep_obj_id = 0UL;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
     int floating = fd_topob_tile_priority_type( tile )==FD_TOPOB_PRIORITY_FLOATING;
@@ -1188,13 +1014,12 @@ FD_UNIT_TEST( test_genesi_floats_l3_exact_fit ) {
 
 /* Every class table row has exactly one phase */
 FD_UNIT_TEST( test_tile_class_phase ) {
-  char const * names[] = { "net", "snapin", "execrp", "genesi", "pack", "pohh", "motor", "l4swap", "bogus" };
+  char const * names[] = { "net", "snapin", "execrp", "genesi", "pack", "motor", "l4swap", "bogus" };
   uint const   exp  [] = { FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_STARTUP, FD_TOPOB_TILE_POSTSTART, FD_TOPOB_TILE_FLOATING,
-                           FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_POSTSTART, FD_TOPOB_TILE_FLOATING, 0U };
+                           FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_POSTSTART, FD_TOPOB_TILE_FLOATING, 0U };
   for( ulong i=0UL; i<sizeof(names)/sizeof(names[0]); i++ ) FD_TEST( ( fd_topob_tile_class( names[ i ] ) & FD_TOPOB_TILE_PHASE )==exp[ i ] );
   FD_TEST( fd_topob_tile_class( "pack"  ) & FD_TOPOB_TILE_SMT_CRITICAL );
   FD_TEST( fd_topob_tile_class( "poh"   ) & FD_TOPOB_TILE_SMT_CRITICAL );
-  FD_TEST( fd_topob_tile_class( "pohh"  ) & FD_TOPOB_TILE_SMT_CRITICAL );
   FD_TEST( fd_topob_tile_class( "motor" ) & FD_TOPOB_TILE_SMT_CRITICAL );
 }
 
@@ -1215,12 +1040,12 @@ FD_UNIT_TEST( test_isolated_floaters ) {
 
       fd_topo_cpus_t cpus[1];
       make_cpus( cpus, 48, l3 ? 6UL : 0UL );
-      fd_topob_auto_layout_cpus( topo, cpus, 0 );
+      fd_topob_auto_layout_cpus( topo, cpus );
       ulong before[ FD_TOPO_MAX_TILES ];
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) before[ i ] = topo->tiles[ i ].cpu_idx;
 
       for( ulong i=0UL; i<sizeof(iso)/sizeof(iso[0]); i++ ) cpus->cpu[ iso[ i ] ].isolated = 1;
-      fd_topob_auto_layout_cpus( topo, cpus, 0 );
+      fd_topob_auto_layout_cpus( topo, cpus );
       ulong moved = 0UL;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
@@ -1246,7 +1071,7 @@ FD_UNIT_TEST( test_isolated_pinned_first ) {
   make_cpus( cpus, 4UL, 0UL );
   cpus->cpu[ 3 ].isolated = 1;
   cpus->cpu[ 7 ].isolated = 1;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   FD_TEST( topo->tiles[ 0 ].cpu_idx==0UL && topo->tiles[ 3 ].cpu_idx==2UL );
   FD_TEST( topo->tiles[ 1 ].cpu_idx==3UL && topo->tiles[ 2 ].cpu_idx==1UL );
 }
@@ -1262,7 +1087,7 @@ FD_UNIT_TEST( test_isolated_l3_domain ) {
   fd_topo_cpus_t cpus[1];
   make_cpus( cpus, 4UL, 2UL );
   for( ulong c=0UL; c<2UL; c++ ) { cpus->cpu[ c ].isolated = 1; cpus->cpu[ c+4UL ].isolated = 1; }
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   FD_TEST( topo->tiles[ 0 ].cpu_idx==0UL );
   FD_TEST( topo->tiles[ 1 ].cpu_idx==2UL );
 }
@@ -1280,7 +1105,7 @@ FD_UNIT_TEST( test_isolated_floaters_half_core ) {
   make_cpus( cpus, 4UL, 0UL );
   ulong const iso[] = { 2UL, 3UL, 6UL, 7UL };
   for( ulong i=0UL; i<4UL; i++ ) cpus->cpu[ iso[ i ] ].isolated = 1;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) FD_TEST( !cpus->cpu[ topo->tiles[ i ].cpu_idx ].isolated );
   FD_TEST( topo->tiles[ 0 ].cpu_idx==0UL && topo->tiles[ 1 ].cpu_idx==4UL && topo->tiles[ 2 ].cpu_idx==1UL );
 }
@@ -1296,7 +1121,7 @@ FD_UNIT_TEST( test_isolated_l3_pinned_first ) {
   fd_topo_cpus_t cpus[1];
   make_cpus( cpus, 4UL, 2UL );
   for( ulong c=1UL; c<4UL; c++ ) { cpus->cpu[ c ].isolated = 1; cpus->cpu[ c+4UL ].isolated = 1; }
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   FD_TEST( topo->tiles[ 0 ].cpu_idx==2UL ); /* L3 1 has the most isolated cores */
   FD_TEST( topo->tiles[ 1 ].cpu_idx==0UL );
 }
@@ -1314,7 +1139,7 @@ FD_UNIT_TEST( test_isolated_dedicated_half_core ) {
   make_cpus( cpus, 4UL, 0UL );
   ulong const iso[] = { 2UL, 3UL, 6UL, 7UL };
   for( ulong i=0UL; i<4UL; i++ ) cpus->cpu[ iso[ i ] ].isolated = 1;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
     FD_TEST( tile->cpu_idx<cpus->cpu_cnt );
@@ -1336,7 +1161,7 @@ FD_UNIT_TEST( test_isolated_l3_floaters_half_core ) {
   make_cpus( cpus, 4UL, 2UL );
   ulong const iso[] = { 2UL, 3UL, 6UL, 7UL };
   for( ulong i=0UL; i<4UL; i++ ) cpus->cpu[ iso[ i ] ].isolated = 1;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   ulong const expected[] = { 0UL, 4UL, 1UL, 5UL };
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) FD_TEST( topo->tiles[ i ].cpu_idx==expected[ i ] );
 }
@@ -1360,7 +1185,7 @@ layout_isolated( ulong               physical_cores,
   fd_topo_cpus_t cpus[1];
   make_cpus( cpus, physical_cores, l3_cores );
   for( ulong const * p = iso; *p!=ULONG_MAX; p++ ) cpus->cpu[ *p ].isolated = 1;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     if( topo->tiles[ i ].cpu_idx!=expected[ i ] ) FD_LOG_ERR(( "tile %s:%lu on cpu %lu, expected %lu", topo->tiles[ i ].name, topo->tiles[ i ].kind_id, topo->tiles[ i ].cpu_idx, expected[ i ] ));
   }
@@ -1732,7 +1557,7 @@ layout_shape( fd_topo_cpus_t const * shape,
   make_tiles( topo, tiles );
   set_blocklist( topo, blocklist );
   topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
 
   /* SMT hosts short of whole cores keep at least main's whole execrp */
   ulong p2 = 0UL;
@@ -1837,7 +1662,7 @@ FD_UNIT_TEST( test_group_l3_bench_9474f ) {
     make_tiles( topo, BENCH_TILES );
     set_blocklist( topo, BLOCKLIST_0H( 48 ) );
     topo->sleep_obj_id = ULONG_MAX;
-    fd_topob_auto_layout_cpus( topo, cpus, 0 );
+    fd_topob_auto_layout_cpus( topo, cpus );
     check_layout_invariants( topo, cpus, 0, 0UL );
     check_group_l3( topo, cpus );
 
@@ -1881,7 +1706,7 @@ FD_UNIT_TEST( test_smt_budget_24x2_partners ) {
   make_tiles( topo, MAINNET_TILES );
   set_blocklist( topo, BLOCKLIST_0H( 24 ) );
   topo->sleep_obj_id = ULONG_MAX;
-  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus );
   check_layout_invariants( topo, cpus, 0, 7UL );
 
   char const * cold[] = { "gui", "rpc", "event", "rserve", "gossip", "gossvf", "sign", NULL };
@@ -1916,7 +1741,7 @@ FD_UNIT_TEST( test_startup_whole_cores ) {
     make_tiles( topo, MAINNET_TILES );
     set_blocklist( topo, (ulong const[]){ 0UL, cpus->cpu[ 0 ].sibling, ULONG_MAX } );
     topo->sleep_obj_id = ULONG_MAX;
-    fd_topob_auto_layout_cpus( topo, cpus, 0 );
+    fd_topob_auto_layout_cpus( topo, cpus );
 
     uchar load[ FD_TILE_MAX ] = {0};
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

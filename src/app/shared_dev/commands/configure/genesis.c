@@ -195,11 +195,10 @@ create_genesis( config_t const * config,
   }
 
   /* Firedancer only bootstraps Alpenglow clusters */
-  if( FD_UNLIKELY( config->is_firedancer && !config->firedancer.consensus.alpenglow ) )
+  if( FD_UNLIKELY( !config->firedancer.consensus.alpenglow ) )
     FD_LOG_ERR(( "creating a genesis requires [consensus.alpenglow]" ));
-  int alpenglow = config->is_firedancer;
-  options->alpenglow = alpenglow;
-  if( alpenglow ) options->hashes_per_tick = 0UL; /* PoH is in low power mode */
+  options->alpenglow = 1;
+  options->hashes_per_tick = 0UL; /* PoH is in low power mode */
 
   options->ticks_per_slot               = config->development.genesis.ticks_per_slot;
   options->target_tick_duration_micros  = config->development.genesis.target_tick_duration_micros;
@@ -220,7 +219,7 @@ create_genesis( config_t const * config,
   fd_features_disable_all( features );
   fd_features_enable_cleaned_up( features );
   default_enable_features( features );
-  if( alpenglow ) features->alpenglow = 0UL;
+  features->alpenglow = 0UL;
 
   options->features = features;
 
@@ -304,7 +303,7 @@ static configure_result_t
 check( config_t const * config,
        int              check_type FD_PARAM_UNUSED ) {
   if( FD_LIKELY( config->gossip.entrypoints_cnt ) ) {
-    if( FD_UNLIKELY( config->is_firedancer && strcmp( config->consensus.expected_genesis_hash, "" ) ) ) {
+    if( FD_UNLIKELY( strcmp( config->consensus.expected_genesis_hash, "" ) ) ) {
       uchar expected_genesis_hash[ 32 ];
       if( FD_UNLIKELY( !fd_base58_decode_32( config->consensus.expected_genesis_hash, expected_genesis_hash ) ) )
         FD_LOG_ERR(( "failed to decode [consensus.expected_genesis_hash] \"%s\" as base58", config->consensus.expected_genesis_hash ));
@@ -348,7 +347,7 @@ check( config_t const * config,
   if( FD_UNLIKELY( !fd_genesis_parse( _genesis, disk_bin, (ulong)st.st_size ) ) )
     FD_LOG_ERR(( "malformed genesis file at `%s`", genesis_path ));
 
-  if( FD_UNLIKELY( config->is_firedancer && !config->firedancer.consensus.alpenglow ) )
+  if( FD_UNLIKELY( !config->firedancer.consensus.alpenglow ) )
     PARTIALLY_CONFIGURED( "`%s` exists but [consensus.alpenglow] is disabled", genesis_path );
 
   static uchar fresh_bin[ GENESIS_BUF_MAX ];

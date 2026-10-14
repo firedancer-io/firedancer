@@ -18,8 +18,7 @@ dev_cmd_perm( args_t *         args,
 
 void
 dev_cmd_fn( args_t *   args,
-            config_t * config,
-            void ( * agave_main )( config_t const * ) );
+            config_t * config );
 
 FD_PROTOTYPES_END
 

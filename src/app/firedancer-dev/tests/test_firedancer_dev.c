@@ -99,13 +99,12 @@ firedancer_dev_dev( config_t * config,
     .dev.parent_pipefd      = pipefd,
     .dev.no_configure       = 1,
     .dev.no_init_workspaces = 1,
-    .dev.no_agave           = 0,
     .dev.no_watch           = 1,
   };
   fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
   dev_cmd_perm( &args, chk, config );
   FD_TEST( !fd_cap_chk_err_cnt( chk ) );
-  dev_cmd_fn( &args, config, NULL );
+  dev_cmd_fn( &args, config );
   return 0;
 }
 
@@ -242,7 +241,7 @@ firedancer_dev_test_run( int     argc,
       fd_log_thread_set( "supervisor" );
 
       static config_t config[1];
-      fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
+      fd_config_load( 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
       config->firedancer.consensus.alpenglow = 1;
 
       FD_TEST( config->firedancer.development.genesis.max_file_size_mib==16UL );
@@ -267,7 +266,6 @@ firedancer_dev_test_run( int     argc,
       FD_TEST( config->topo.tiles[ replay_idx ].replay.genesis_max_message_size==genesis_max_message_size );
 
       config->log.log_fd = fd_log_private_logfile_fd();
-      config->frankendancer.consensus.poh_speed_test = 0;
 
       return run( config );
     } else {
@@ -295,7 +293,7 @@ firedancer_dev_test_run( int     argc,
       NULL
     };
 
-    return fd_dev_main( argc, argv, 1, configs, fd_topo_initialize );
+    return fd_dev_main( argc, argv, configs, fd_topo_initialize );
   }
 
   return 0;
@@ -323,7 +321,7 @@ run_dev_main( char const * const * argv,
     for( int i=0; i<argc; i++ ) mut_argv[ i ] = (char *)argv[ i ];
     mut_argv[ argc ] = NULL;
 
-    int ret = fd_dev_main( argc, mut_argv, 1, configs, fd_topo_initialize );
+    int ret = fd_dev_main( argc, mut_argv, configs, fd_topo_initialize );
     fd_sys_util_exit_group( ret );
   }
 
@@ -399,7 +397,7 @@ main( int     argc,
   if( argc==2 && !strcmp( argv[ 1 ], "--topology-only" ) ) {
     fd_boot( &argc, &argv );
     static config_t config[ 1 ];
-    fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
+    fd_config_load( 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
     config->firedancer.consensus.alpenglow = 1;
     fd_topo_initialize( config );
     test_efficient_layout( config );

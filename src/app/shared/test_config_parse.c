@@ -63,7 +63,6 @@ vote_history_path_is_valid( char const * path ) {
     static uchar pod_mem[ 1UL<<16 ];
     static uchar scratch[ 4096 ];
     static config_t config[1];
-    config->is_firedancer = 1;
     uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
     FD_TEST( fd_toml_parse( toml, strlen( toml ), pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
     _exit( fd_config_extract_pod( pod, config )!=config ); /* exits 1 on an invalid path */
@@ -80,8 +79,7 @@ vote_history_path_is_valid( char const * path ) {
    so run it in a child. */
 
 static int
-consensus_is_valid( int          is_firedancer,
-                    ulong        wfs_slot,
+consensus_is_valid( ulong        wfs_slot,
                     char const * bank_hash,
                     ushort       shred_version,
                     int          leader_gate ) {
@@ -89,7 +87,6 @@ consensus_is_valid( int          is_firedancer,
   FD_TEST( pid>=0 );
   if( FD_UNLIKELY( !pid ) ) {
     static config_t config[1];
-    config->is_firedancer = is_firedancer;
     config->firedancer.consensus.wait_for_supermajority_at_slot = wfs_slot;
     fd_cstr_ncpy( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, bank_hash,
                   sizeof(config->firedancer.consensus.wait_for_supermajority_with_bank_hash) );
@@ -144,7 +141,6 @@ main( int     argc,
                                 endpoint, endpoint, endpoint+8UL, endpoint+8UL ) );
 
   memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_limits, cfg_str_limits_sz, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config )==config );
@@ -178,7 +174,6 @@ main( int     argc,
   /* The default config must parse fine */
 
   memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( firedancer_default_config, firedancer_default_config_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
@@ -190,7 +185,6 @@ main( int     argc,
 
   /* bzip2's avail_in and avail_out fields are uint. */
 
-  config->is_firedancer = 1;
   memset( &config->firedancer, 0, sizeof(config->firedancer) );
   config->firedancer.layout.sign_tile_count          = 2U;
   config->firedancer.layout.resolv_tile_count        = 1U;
@@ -241,7 +235,6 @@ main( int     argc,
   /* Parse runtime genesis limits */
 
   memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_5, sizeof(cfg_str_5)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
@@ -250,7 +243,6 @@ main( int     argc,
   /* Parse the vote history file options */
 
   memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = 1;
   config->tiles.tower.write_vote_history_file = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_vote_history, sizeof(cfg_str_vote_history)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
@@ -270,25 +262,25 @@ main( int     argc,
 
 # define HASH "7LSPxRVx5cX1cPVgeEDqB6o2YjMMnH21CxZywpeesWiC"
 
-  /* Firedancer, WFS fully configured: an explicit true deadlocks. */
-  FD_TEST( !consensus_is_valid( 1, 100UL, HASH, 1234, FD_BOOLAU_TRUE  ) );
-  FD_TEST(  consensus_is_valid( 1, 100UL, HASH, 1234, FD_BOOLAU_AUTO  ) );
-  FD_TEST(  consensus_is_valid( 1, 100UL, HASH, 1234, FD_BOOLAU_FALSE ) );
+  /* WFS fully configured: an explicit true deadlocks. */
+  FD_TEST( !consensus_is_valid( 100UL, HASH, 1234, FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 100UL, HASH, 1234, FD_BOOLAU_AUTO  ) );
+  FD_TEST(  consensus_is_valid( 100UL, HASH, 1234, FD_BOOLAU_FALSE ) );
 
-  /* Firedancer, WFS off: true is the normal setting and stays legal. */
-  FD_TEST(  consensus_is_valid( 1, 0UL, "", 0,    FD_BOOLAU_TRUE  ) );
-  FD_TEST(  consensus_is_valid( 1, 0UL, "", 1234, FD_BOOLAU_TRUE  ) );
-  FD_TEST(  consensus_is_valid( 1, 0UL, "", 0,    FD_BOOLAU_AUTO  ) );
+  /* WFS off: true is the normal setting and stays legal. */
+  FD_TEST(  consensus_is_valid( 0UL, "", 0,    FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 0UL, "", 1234, FD_BOOLAU_TRUE  ) );
+  FD_TEST(  consensus_is_valid( 0UL, "", 0,    FD_BOOLAU_AUTO  ) );
 
   /* Slot and bank hash are configured together or not at all, and a
      bank hash needs a shred version to classify against. */
-  FD_TEST( !consensus_is_valid( 1, 100UL, "",   1234, FD_BOOLAU_AUTO ) );
-  FD_TEST( !consensus_is_valid( 1, 0UL,   HASH, 1234, FD_BOOLAU_AUTO ) );
-  FD_TEST( !consensus_is_valid( 1, 100UL, HASH, 0,    FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 100UL, "",   1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 0UL,   HASH, 1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 100UL, HASH, 0,    FD_BOOLAU_AUTO ) );
 
   /* An all-zeros bank hash, and a slot no boot could ever match. */
-  FD_TEST( !consensus_is_valid( 1, 100UL, "11111111111111111111111111111111", 1234, FD_BOOLAU_AUTO ) );
-  FD_TEST( !consensus_is_valid( 1, ULONG_MAX, HASH, 1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( 100UL, "11111111111111111111111111111111", 1234, FD_BOOLAU_AUTO ) );
+  FD_TEST( !consensus_is_valid( ULONG_MAX, HASH, 1234, FD_BOOLAU_AUTO ) );
 
 # undef HASH
 

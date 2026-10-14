@@ -32,7 +32,6 @@ fd_topob_new( void * mem,
 
   topo->sleep_obj_id = ULONG_MAX;
 
-  topo->agave_affinity_cnt = 0;
   topo->blocklist_cores_cnt = 0;
 
   return topo;
@@ -160,7 +159,6 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_agave,
                int            uses_id_keyswitch,
                int            uses_av_keyswitch,
                int            is_waker_client ) {
@@ -178,7 +176,6 @@ fd_topob_tile( fd_topo_t *    topo,
   strncpy( tile->name, tile_name, sizeof(tile->name) );
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
-  tile->is_agave            = is_agave;
   tile->cpu_idx             = fd_ulong_if( cpu_idx<ULONG_MAX, cpu_idx & ~FD_TOPOB_CPU_SHARED, ULONG_MAX );
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
@@ -229,7 +226,7 @@ fd_topob_waker( fd_topo_t * topo ) {
       char const * metrics_wksp = topo->workspaces[ topo->objs[ client->metrics_obj_id ].wksp_id ].name;
       fd_topob_wksp( topo, "waker"       );
       fd_topob_wksp( topo, "waker_ready" );
-      waker_tile = fd_topob_tile( topo, "waker", "waker", metrics_wksp, ULONG_MAX, 0, 0, 0, 0 );
+      waker_tile = fd_topob_tile( topo, "waker", "waker", metrics_wksp, ULONG_MAX, 0, 0, 0 );
     }
     fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "waker_ready" );
     fd_topob_tile_uses( topo, client,     fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -247,7 +244,7 @@ fd_topob_sleep( fd_topo_t *  topo,
   fd_topob_wksp( topo, "mwaitx" );
   fd_topob_wksp( topo, "sleep"  );
   topo->sleep_obj_id = fd_topob_obj( topo, "sleep", "sleep" )->id;
-  fd_topob_tile( topo, "mwaitx", "mwaitx", metrics_wksp, mwaitx_cpu_idx, 0, 0, 0, 0 );
+  fd_topob_tile( topo, "mwaitx", "mwaitx", metrics_wksp, mwaitx_cpu_idx, 0, 0, 0 );
 }
 
 void

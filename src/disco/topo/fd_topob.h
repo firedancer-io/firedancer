@@ -102,7 +102,6 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_agave,
                int            uses_id_keyswitch,
                int            uses_av_keyswitch,
                int            is_waker_client );
