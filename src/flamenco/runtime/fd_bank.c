@@ -483,8 +483,9 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, 0UL );
 
   bank->state     = FD_BANK_STATE_FROZEN;
-  bank->refcnt    = 0UL;
-  bank->is_leader = 0;
+  bank->refcnt        = 0UL;
+  bank->cert_task_cnt = 0UL;
+  bank->is_leader     = 0;
 
   banks->root_idx = bank->idx;
   banks->curr_fork_width = 1UL;
@@ -810,6 +811,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->next        = null_idx;
   child_bank->state       = FD_BANK_STATE_INIT;
   child_bank->refcnt      = 0UL;
+  child_bank->cert_task_cnt = 0UL;
   child_bank->is_leader   = is_leader;
   fd_event_runtime_slot_diffs_reset( child_bank->idx );
   child_bank->f.block_id  = (fd_hash_t){0};

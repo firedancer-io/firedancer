@@ -376,6 +376,17 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    ushort                    shred_version,
                                    fd_footer_cache_t *       cache );
 
+/* fd_runtime_block_execute_finalize_unverified is
+   fd_runtime_block_execute_finalize for a follower bank's footer whose
+   cert signatures the caller checks itself, concurrently, discarding
+   the bank unless they pass.  No capture or runtime diffs. */
+
+int
+fd_runtime_block_execute_finalize_unverified( fd_bank_t *               bank,
+                                              fd_accdb_t *              accdb,
+                                              fd_block_footer_t const * footer,
+                                              fd_footer_cache_t *       cache );
+
 /* fd_runtime_fee_split computes the burned portion and the leader
    reward for a block's collected fees: half the execution fees burn,
    the rest plus all priority fees go to the leader.  Single source of
