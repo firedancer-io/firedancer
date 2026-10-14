@@ -46,10 +46,11 @@ $(call add-objs,fd_compute_budget_details,fd_flamenco)
 
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
+
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_borrowed_account,test_borrowed_account,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_borrowed_account)
 
-ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_bundle_exec)
 
