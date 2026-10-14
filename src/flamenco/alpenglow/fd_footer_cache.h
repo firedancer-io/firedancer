@@ -69,6 +69,17 @@ fd_footer_cache_hash_msg( fd_footer_cache_t * cache,
                           ulong               msg_sz,
                           blst_p2_affine *    h );
 
+blst_p2_affine const *
+fd_footer_cache_hash_query( fd_footer_cache_t const * cache,
+                            uchar const *             msg,
+                            ulong                     msg_sz );
+
+void
+fd_footer_cache_hash_insert( fd_footer_cache_t *    cache,
+                             uchar const *          msg,
+                             ulong                  msg_sz,
+                             blst_p2_affine const * h );
+
 fd_lthash_value_t const *
 fd_footer_cache_memo_query( fd_footer_cache_memo_t const * memo,
                             uchar const                    pubkey[ static FD_HASH_FOOTPRINT ],
