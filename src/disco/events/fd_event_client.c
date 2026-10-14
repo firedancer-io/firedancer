@@ -882,11 +882,13 @@ fd_event_client_grpc_ping_ack( void * app_ctx ) {
 static long
 pace_refill( fd_event_client_t * client,
              long                now ) {
-  long ns_per_byte = (long)1e9/client->tx_rate_bps;
-  long dt          = fd_long_max( now-client->tx_tokens_ns, 0L );
-  long grant       = fd_long_min( dt/ns_per_byte, FD_EVENT_CLIENT_TX_BURST-client->tx_tokens );
+  ulong   rate  = (ulong)client->tx_rate_bps;
+  long    dt    = fd_long_max( now-client->tx_tokens_ns, 0L );
+  uint128 avail = (uint128)(ulong)dt*rate/1000000000UL;
+  ulong   room  = (ulong)( FD_EVENT_CLIENT_TX_BURST-client->tx_tokens );
+  long    grant = (long)( avail<room ? (ulong)avail : room );
   client->tx_tokens   += grant;
-  client->tx_tokens_ns = client->tx_tokens==FD_EVENT_CLIENT_TX_BURST ? now : client->tx_tokens_ns+grant*ns_per_byte;
+  client->tx_tokens_ns = client->tx_tokens==FD_EVENT_CLIENT_TX_BURST ? now : client->tx_tokens_ns+(long)( ( (uint128)(ulong)grant*1000000000UL+rate-1UL )/rate );
   return client->tx_tokens;
 }
 
