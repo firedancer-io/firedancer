@@ -33,44 +33,38 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "bundle", ALWAYS                       },
   { "verify", ALWAYS|THRUPUT               },
   { "dedup",  ALWAYS                       },
-  { "resolh", ALWAYS                       }, /* FRANK only */
-  { "resolv", ALWAYS                       }, /* FIREDANCER only */
+  { "resolv", ALWAYS                       },
   { "pack",   ALWAYS|CRITICAL              },
-  { "bank",   ALWAYS                       }, /* FRANK only */
-  { "pohh",   ALWAYS|CRITICAL              }, /* FRANK only */
   { "sign",   ALWAYS                       },
   { "shred",  ALWAYS                       },
-  { "event",  ALWAYS                       }, /* FIREDANCER only */
-  { "store",  ALWAYS                       }, /* FRANK only */
-  { "plugin", ALWAYS                       }, /* FRANK only */
-  { "gui",    ALWAYS                       }, /* FIREDANCER only */
-  { "guih",   ALWAYS                       }, /* FRANK only */
-  { "rpc",    ALWAYS                       }, /* FIREDANCER only */
-  { "gossvf", ALWAYS                       }, /* FIREDANCER only */
-  { "gossip", ALWAYS                       }, /* FIREDANCER only */
-  { "repair", ALWAYS                       }, /* FIREDANCER only */
-  { "rotor",  ALWAYS                       }, /* FIREDANCER only */
-  { "rserve", ALWAYS                       }, /* FIREDANCER only */
-  { "replay", ALWAYS|THRUPUT               }, /* FIREDANCER only */
-  { "tower",  ALWAYS                       }, /* FIREDANCER only */
-  { "votor",  ALWAYS                       }, /* FIREDANCER only */
+  { "event",  ALWAYS                       },
+  { "gui",    ALWAYS                       },
+  { "rpc",    ALWAYS                       },
+  { "gossvf", ALWAYS                       },
+  { "gossip", ALWAYS                       },
+  { "repair", ALWAYS                       },
+  { "rotor",  ALWAYS                       },
+  { "rserve", ALWAYS                       },
+  { "replay", ALWAYS|THRUPUT               },
+  { "tower",  ALWAYS                       },
+  { "votor",  ALWAYS                       },
   { "pktgen", ALWAYS                       },
-  { "mwaitx", ALWAYS|PIN_EFF               }, /* FIREDANCER only */
+  { "mwaitx", ALWAYS|PIN_EFF               },
 
   /* Must shut down after snapshot load */
-  { "snapct", STARTUP                      }, /* FIREDANCER only */
-  { "snapld", STARTUP                      }, /* FIREDANCER only */
-  { "snapdc", STARTUP|THRUPUT              }, /* FIREDANCER only */
-  { "snapin", STARTUP|THRUPUT              }, /* FIREDANCER only */
+  { "snapct", STARTUP                      },
+  { "snapld", STARTUP                      },
+  { "snapdc", STARTUP|THRUPUT              },
+  { "snapin", STARTUP|THRUPUT              },
 
   /* Must sleep until snapshot load finishes */
-  { "accdb",  POSTSTART|THRUPUT            }, /* FIREDANCER only */
-  { "execle", POSTSTART|THRUPUT            }, /* FIREDANCER only */
-  { "poh",    POSTSTART|CRITICAL           }, /* FIREDANCER only */
-  { "motor",  POSTSTART|CRITICAL           }, /* FIREDANCER only */
-  { "execrp", POSTSTART|DEDICATED|THRUPUT  }, /* FIREDANCER only */
-  { "txsend", POSTSTART                    }, /* FIREDANCER only */
-  { "solcap", POSTSTART|PIN_EFF            }, /* FIREDANCER only */
+  { "accdb",  POSTSTART|THRUPUT            },
+  { "execle", POSTSTART|THRUPUT            },
+  { "poh",    POSTSTART|CRITICAL           },
+  { "motor",  POSTSTART|CRITICAL           },
+  { "execrp", POSTSTART|DEDICATED|THRUPUT  },
+  { "txsend", POSTSTART                    },
+  { "solcap", POSTSTART|PIN_EFF            },
 
   /* Yield to the kernel scheduler */
   { "netlnk", FLOATING                     },
@@ -79,13 +73,13 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "waker",  FLOATING                     },
   { "bencho", FLOATING                     },
   { "l4swap", FLOATING                     },
-  { "genesi", FLOATING                     }, /* FIREDANCER only */
-  { "ipecho", FLOATING                     }, /* FIREDANCER only */
-  { "admin",  FLOATING                     }, /* FIREDANCER only */
-  { "snapsv", FLOATING|PIN_EFF             }, /* FIREDANCER only */
-  { "snapmk", FLOATING                     }, /* FIREDANCER only */
-  { "snapzp", FLOATING                     }, /* FIREDANCER only */
-  { "snaprd", FLOATING                     }, /* FIREDANCER only */
+  { "genesi", FLOATING                     },
+  { "ipecho", FLOATING                     },
+  { "admin",  FLOATING                     },
+  { "snapsv", FLOATING|PIN_EFF             },
+  { "snapmk", FLOATING                     },
+  { "snapzp", FLOATING                     },
+  { "snaprd", FLOATING                     },
 };
 
 #undef ALWAYS
@@ -114,9 +108,9 @@ fd_topob_tile_class( char const * name ) {
    picks the NUMA node of the pool they run over, not an L3. */
 
 static char const * HOT_TILES[] = {
-  "mwaitx", /* FIREDANCER only */
-  "replay", /* FIREDANCER only */
-  "execrp", /* FIREDANCER only */
+  "mwaitx",
+  "replay",
+  "execrp",
   "mlx5",
   NULL
 };
@@ -844,8 +838,7 @@ auto_startup_cpus( fd_topo_t *            topo,
 
 void
 fd_topob_auto_layout_cpus( fd_topo_t *      topo,
-                           fd_topo_cpus_t * cpus,
-                           int              reserve_agave_cores ) {
+                           fd_topo_cpus_t * cpus ) {
   /* See the strategy in fd_topob_layout.h */
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -941,22 +934,19 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   ulong l3_floaters_to_assign = dem[ 2 ] + hot_post_start_floaters +
       fd_ulong_max( dem[ 5 ], dem[ 8 ]-hot_post_start_floaters );
   int efficient = topo->sleep_obj_id!=ULONG_MAX;
-  int l3_layout = efficient && !reserve_agave_cores && fd_topo_cpus_l3_complete( cpus ) &&
+  int l3_layout = efficient && fd_topo_cpus_l3_complete( cpus ) &&
                   available_physical>=l3_tiles_to_assign && available_floater>=l3_floaters_to_assign;
 
   /* If we have enough physical cores (excluding HT siblings) for all
      tiles that need assignment, exclude HT siblings so that no tile
-     gets scheduled on a hyperthread pair.
-     For Frankendancer, we reserve 2x cores so we have enough for Agave */
-  _Bool skip_ht_pairs = reserve_agave_cores
-    ? (available_physical>=2*tiles_to_assign) /* Frankendancer */
-    : (available_physical>=tiles_to_assign && ( !efficient || available_floater>=floaters_to_assign )); /* Firedancer */
+     gets scheduled on a hyperthread pair. */
+  _Bool skip_ht_pairs = available_physical>=tiles_to_assign && ( !efficient || available_floater>=floaters_to_assign );
 
   /* Otherwise spend the spare logical CPUs on whole cores for the
      dedicated tiles.  Each costs its sibling, like a critical tile.
      The L3 layout already places them on whole cores. */
   ulong spare_siblings = 0UL;
-  if( !skip_ht_pairs && !l3_layout && !reserve_agave_cores ) {
+  if( !skip_ht_pairs && !l3_layout ) {
     ulong free_logical = 0UL;
     for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) free_logical += !cpu_bv_test( cpu_assigned, i );
     ulong critical_cnt = 0UL;
@@ -970,7 +960,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   ulong  steady_partner[ FD_TOPO_MAX_TILES ];
   ulong  steady_cnt = 0UL;
   ulong  always_cnt = 0UL;
-  int    graded     = !skip_ht_pairs && !l3_layout && !reserve_agave_cores;
+  int    graded     = !skip_ht_pairs && !l3_layout;
   /* Efficient mode floaters avoid isolcpus=, which the plan ignores */
   for( ulong i=0UL; i<cpus->cpu_cnt && graded && efficient; i++ ) graded = cpu_bv_test( cpu_assigned, i ) || !cpus->cpu[ i ].isolated;
   cpu_bv_t numa_fence[ cpu_bv_word_cnt ]; cpu_bv_new( numa_fence );
@@ -980,7 +970,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
      the next L3.  The rest is planned around them, or without them if
      it then does not fit. */
   static char const * const GROUP[] = { "pack", "poh", "motor", "accdb", "execle", NULL };
-  int group = !efficient && !reserve_agave_cores && fd_topo_cpus_l3_complete( cpus );
+  int group = !efficient && fd_topo_cpus_l3_complete( cpus );
   cpu_bv_t base      [ cpu_bv_word_cnt ]; cpu_bv_copy( base, cpu_assigned );
   cpu_bv_t group_post[ cpu_bv_word_cnt ]; cpu_bv_new( group_post ); /* free during snapshot load */
   for( ulong attempt=0UL;; attempt++ ) {
@@ -1149,23 +1139,11 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     if( FD_UNLIKELY( !tile_is_floating( tile ) ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
-  topo->agave_affinity_cnt = 0UL;
-  if( FD_UNLIKELY( reserve_agave_cores ) ) {
-    for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
-      if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
-      if( FD_UNLIKELY( cpu_bv_test( cpu_assigned, cpu_ordering[ i ] ) ) ) continue;
-
-      if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
-        topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
-      }
-    }
-  }
 }
 
 void
-fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores ) {
+fd_topob_auto_layout( fd_topo_t * topo ) {
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
-  fd_topob_auto_layout_cpus( topo, cpus, reserve_agave_cores );
+  fd_topob_auto_layout_cpus( topo, cpus );
 }

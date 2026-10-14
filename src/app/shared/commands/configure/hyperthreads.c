@@ -76,7 +76,7 @@ check( config_t const * config,
   char  pairs[ 512 ] = "";
   ulong len = 0UL;
   ulong cnt = 0UL;
-  for( ulong i=0UL; i<topo->tile_cnt && config->is_firedancer; i++ ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
     int hot = 0;
     for( ulong k=0UL; k<sizeof(HOT)/sizeof(HOT[0]); k++ ) hot |= !strcmp( tile->name, HOT[ k ] );

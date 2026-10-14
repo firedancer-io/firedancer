@@ -134,7 +134,6 @@ struct fd_topo_tile {
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
 
   int   is_waker_client;        /* Tile has file descriptors which must be serviced by the external waker tile. */
-  int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
@@ -861,8 +860,6 @@ struct fd_topo {
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
 
-  ulong          agave_affinity_cnt;
-  ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
   ulong          blocklist_cores_cnt;
   ulong          blocklist_cores_cpu_idx[ FD_TILE_MAX ];
 
@@ -1290,21 +1287,13 @@ fd_topo_tile_stack_join( char const * app_name,
    calling thread will also switch to the provided UID and GID before
    it returns.
 
-   In production, when running with an Agave child process this is
-   used for spawning certain tiles inside the Agave address space.
-   It's also useful for tooling and debugging, but is not how the main
+   This is useful for tooling and debugging, but is not how the main
    production Firedancer process runs.  For production, each tile is run
    in its own address space with a separate process and full security
-   sandbox.
-
-   The agave argument determines which tiles are started.  If the
-   argument is 0 or 1, only non-agave (or only agave) tiles are started.
-   If the argument is any other value, all tiles in the topology are
-   started regardless of if they are Agave tiles or not. */
+   sandbox. */
 
 void
 fd_topo_run_single_process( fd_topo_t *       topo,
-                            int               agave,
                             uint              uid,
                             uint              gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) );

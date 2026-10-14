@@ -241,7 +241,7 @@ main( int     argc,
     NULL
   };
 
-  return fd_main( argc, argv, 1, configs, fd_topo_initialize );
+  return fd_main( argc, argv, configs, fd_topo_initialize );
 }
 
 /* Kind of a hack for now, we sometimes want to view bench generation
@@ -260,8 +260,7 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
-                uint         rpc_ip_addr,
-                int          reserve_agave_cores ) {
+                uint         rpc_ip_addr ) {
   (void)topo;
   (void)affinity;
   (void)benchg_tile_cnt;
@@ -275,5 +274,4 @@ add_bench_topo( fd_topo_t  * topo,
   (void)send_to_ip_addr;
   (void)rpc_port;
   (void)rpc_ip_addr;
-  (void)reserve_agave_cores;
 }

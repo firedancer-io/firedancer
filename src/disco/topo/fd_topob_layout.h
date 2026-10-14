@@ -28,9 +28,7 @@
    choice is checked to leave room for the tiles still to place, and
    preferences relax rather than fail.  On hosts with a complete cache
    topology and room to spare, the tiles that wake each other the most
-   are first packed onto whole cores in as few L3 domains as possible.
-
-   Frankendancer reserves the CPUs left over for Agave threads. */
+   are first packed onto whole cores in as few L3 domains as possible. */
 
 #include "fd_topo.h"
 #include "fd_cpu_topo.h"
@@ -88,13 +86,11 @@ fd_topob_tile_class( char const * name );
    for testing. */
 
 void
-fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores );
+fd_topob_auto_layout( fd_topo_t * topo );
 
 void
 fd_topob_auto_layout_cpus( fd_topo_t *      topo,
-                           fd_topo_cpus_t * cpus,
-                           int              reserve_agave_cores );
+                           fd_topo_cpus_t * cpus );
 
 /* Classify a tile into one of the FD_TOPOB_PRIORITY_* categories. */
 int

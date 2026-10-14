@@ -200,7 +200,6 @@ struct fd_config {
   uint uid;
   uint gid;
 
-  int is_firedancer;
   int is_dev;
   int has_user_config;
 
@@ -287,7 +286,6 @@ struct fd_config {
   struct {
     int sandbox;
     int no_clone;
-    int no_agave;
     int bootstrap;
 
     char core_dump[ 16 ];
@@ -512,8 +510,7 @@ FD_PROTOTYPES_BEGIN
    returned as a fully filled in, validated, and ready to use object. */
 
 void
-fd_config_load( int           is_firedancer,
-                int           is_local_cluster,
+fd_config_load( int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,
                 char const *  override_config,

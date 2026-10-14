@@ -55,7 +55,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   static fd_config_t config[1];
-  fd_config_load( 1, 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
+  fd_config_load( 0, default_config, strlen( default_config ), NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 );
   char expected_stake_delegations[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( expected_stake_delegations,
                                  sizeof(expected_stake_delegations),
