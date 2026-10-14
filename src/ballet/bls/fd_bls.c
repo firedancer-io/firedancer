@@ -242,6 +242,14 @@ verify_bisect_hashed( fd_bls_agg_t const *   agg,
                       fd_bls_sig_t const *   sig,
                       fd_bls_set_t *         bad ) {
   fd_bls_set_null( bad );
+  if( FD_UNLIKELY( fd_bls_set_is_null( agg->set ) ) ) return bad;
+
+  /* a valid aggregate, the common case */
+  blst_p1   p[1]; p[ 0 ] = agg->pub; /* consumed by the descent */
+  blst_p2   s[1]; s[ 0 ] = agg->sig;
+  blst_fp12 gt[1];
+  agg_pairing( gt, h, &agg->pub, &agg->sig );
+  if( FD_LIKELY( blst_fp12_is_one( gt ) ) ) return bad;
 
   ushort           ranks  [ FD_BLS_SET_MAX ];
   blst_p1 const *  pub_ptr[ FD_BLS_SET_MAX ];
@@ -251,12 +259,11 @@ verify_bisect_hashed( fd_bls_agg_t const *   agg,
   for( ulong rank = fd_bls_set_const_iter_init( agg->set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( agg->set, rank ) ) {
-    ranks[ cnt ]   = (ushort)rank;
+    ranks  [ cnt ] = (ushort)rank;
     pub_ptr[ cnt ] = pub+rank;
     sig_aff[ cnt ] = sig[ rank ];
     cnt++;
   }
-  if( FD_UNLIKELY( !cnt ) ) return bad;
 
   /* blst_p1s_to_affine cannot take a point at infinity. A signer with an
      infinity pub or sig cannot verify anyway, so fall back to the linear
@@ -267,12 +274,6 @@ verify_bisect_hashed( fd_bls_agg_t const *   agg,
   }
 
   blst_p1s_to_affine( pub_aff, pub_ptr, cnt );
-
-  blst_p1   p[1]; p[ 0 ] = agg->pub; /* consumed by the descent */
-  blst_p2   s[1]; s[ 0 ] = agg->sig;
-  blst_fp12 gt[1];
-  agg_pairing( gt, h, &agg->pub, &agg->sig );
-  if( FD_UNLIKELY( blst_fp12_is_one( gt ) ) ) return bad;
   verify_bisect_rec( h, pub_aff, sig_aff, ranks, 0, (ushort)cnt, p, s, gt, bad );
   return bad;
 }
