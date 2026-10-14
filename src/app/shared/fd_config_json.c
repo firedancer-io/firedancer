@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26576240UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26559640UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -141,11 +141,6 @@ static char const * const jw_redacted_keys[] = {
   "capture.dump_proto_dir",
   "capture.dump_syscall_name_filter",
   "capture.solcap_capture",
-  /* legacy aliases accepted by the extractor but not in default.toml */
-  "consensus.identity_path",
-  "consensus.vote_account_path",
-  "ledger.path",
-  "scratch_directory",
 };
 
 static char const * const jw_reported_keys[] = {
@@ -584,9 +579,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool ( &w, "use_consumed_cus",         config->tiles.pack.use_consumed_cus );
       jw_str  ( &w, "schedule_strategy",        config->tiles.pack.schedule_strategy );
       jw_str_arr( &w, "account_blocklist", config->tiles.pack.account_blocklist[ 0 ], sizeof(config->tiles.pack.account_blocklist[ 0 ]), config->tiles.pack.account_blocklist_cnt );
-    jw_obj_close( &w );
-    jw_obj_open( &w, "poh" );
-      jw_bool( &w, "lagged_consecutive_leader_start", config->tiles.pohh.lagged_consecutive_leader_start );
     jw_obj_close( &w );
     jw_obj_open( &w, "shred" );
       jw_ulong( &w, "max_pending_shred_sets", config->tiles.shred.max_pending_shred_sets );
