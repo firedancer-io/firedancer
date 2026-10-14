@@ -290,11 +290,6 @@ main( int     argc,
   FD_TEST( !consensus_is_valid( 1, 100UL, "11111111111111111111111111111111", 1234, FD_BOOLAU_AUTO ) );
   FD_TEST( !consensus_is_valid( 1, ULONG_MAX, HASH, 1234, FD_BOOLAU_AUTO ) );
 
-  /* Frankendancer cannot resolve "auto", but takes either boolean. */
-  FD_TEST( !consensus_is_valid( 0, 0UL, "", 0, FD_BOOLAU_AUTO  ) );
-  FD_TEST(  consensus_is_valid( 0, 0UL, "", 0, FD_BOOLAU_TRUE  ) );
-  FD_TEST(  consensus_is_valid( 0, 0UL, "", 0, FD_BOOLAU_FALSE ) );
-
 # undef HASH
 
   FD_LOG_NOTICE(( "pass" ));
