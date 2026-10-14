@@ -67,7 +67,7 @@ run_cmd_perm( args_t *         args,
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
-                                                                       "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
+                                                                       "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files" );
   fd_cap_chk_cap(          chk, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
   fd_cap_chk_cap(          chk, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
   if( fd_sandbox_requires_cap_sys_admin( config->uid, config->gid ) )

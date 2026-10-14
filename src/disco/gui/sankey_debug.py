@@ -33,8 +33,7 @@ def get_link_count(summed: Dict[Tuple[str, str, Optional[str]], int], metric: st
 def print_sankey(summed: Dict[Tuple[str, str, Optional[str]], int]):
     in_block_engine = get_link_count(summed, metric='bundle_txn_rx_total')
     in_gossip = get_link_count(summed, metric='verify_vote_gossip_rx_total') + \
-                get_link_count(summed, metric='verify_own_vote_rx_total') + \
-                get_link_count(summed, metric='dedup_vote_gossip_rx_total')
+                get_link_count(summed, metric='verify_own_vote_rx_total')
     in_udp = get_link_count(summed, metric='quic_txn_rx_total', link='udp')
     in_quic = get_link_count(summed, metric='quic_txn_rx_total', link='quic_fast') + get_link_count(summed, metric='quic_txn_rx_total', link='quic_frag')
 
@@ -48,7 +47,7 @@ def print_sankey(summed: Dict[Tuple[str, str, Optional[str]], int]):
 
     resolv_failed = 0
     resolv_retained = 0
-    for resolv in ('resolv', 'resolh'):
+    for resolv in ('resolv',):
         resolv_failed += get_link_count(summed, metric=f'{resolv}_txn_dropped_total', link='blockhash_expired') + \
                          get_link_count(summed, metric=f'{resolv}_txn_dropped_total', link='no_bank') + \
                          get_link_count(summed, metric=f'{resolv}_txn_dropped_total', link='bundle_peer_failed') + \

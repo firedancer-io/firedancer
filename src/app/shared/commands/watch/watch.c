@@ -1391,16 +1391,7 @@ write_gui( config_t const * config,
     bytes_read_s              = DIFF_BYTES( gui_name, COUNTER, GUI, CONN_RX_BYTES );
     bytes_written_s           = DIFF_BYTES( gui_name, COUNTER, GUI, CONN_TX_BYTES );
   } else {
-    gui_name = "guih";
-    gui_tile_idx = fd_topo_find_tile( &config->topo, gui_name, 0UL );
-    if( FD_UNLIKELY( gui_tile_idx==ULONG_MAX ) ) return 0U;
-    off_conn_active           = MIDX( GAUGE,   GUIH, CONN_OPEN             );
-    off_websocket_conn_active = MIDX( GAUGE,   GUIH, WEBSOCKET_CONN_OPEN   );
-    off_websocket_frame_tx    = MIDX( COUNTER, GUIH, WEBSOCKET_FRAME_TX    );
-    off_websocket_frame_rx    = MIDX( COUNTER, GUIH, WEBSOCKET_FRAME_RX    );
-
-    bytes_read_s              = DIFF_BYTES( gui_name, COUNTER, GUIH, CONN_RX_BYTES );
-    bytes_written_s           = DIFF_BYTES( gui_name, COUNTER, GUIH, CONN_TX_BYTES );
+    return 0U;
   }
 
   ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+off_conn_active ]+cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+off_websocket_conn_active ];

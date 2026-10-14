@@ -1919,7 +1919,7 @@ getClusterNodes( fd_rpc_tile_t *         ctx,
         case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB:        name = "pubsub"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR:      name = "serveRepair"; break;
         /* Even though Agave does not support "tpu" and "tpuForwards"
-           (hardcoded null), frankendacer/firedancer still support
+           (hardcoded null), Firedancer still supports
            UDP-TPU. */
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = "tpu"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = "tpuForwards"; break;

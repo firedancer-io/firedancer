@@ -21,7 +21,7 @@ jobs:
           compiler: clang
           machine: linux_clang_x86_64
           compiler-version: 15.0.6
-          targets: fddev firedancer-dev
+          targets: firedancer-dev
           extras: rpath
     env:
       MACHINE: ${{ matrix.machine }}
@@ -31,18 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/submodule-init
-
-      - uses: dtolnay/rust-toolchain@1.95.0
       - name: clean targets
         run: |
           make clean --silent >/dev/null
-      - uses: ./.github/actions/submodule
-        with:
-          machine: ${{ matrix.machine }}
-          compiler: ${{ matrix.compiler }}
-          compiler-version: ${{ matrix.compiler-version }}
-        if: ${{ contains(matrix.targets, 'fdctl') || contains(matrix.targets, 'fddev') }}
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:

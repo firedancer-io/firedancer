@@ -1,4 +1,4 @@
-# Frankendancer Filtering
+# Transaction Filtering
 
 The block diagram below illustrates the historical (ca 2023-Sep)
 transaction filtering pipeline for the block production.
@@ -56,13 +56,7 @@ transaction filtering pipeline for the block production.
                                        |
                                        | blocks
                                        v
-                               +---- wksp -----+                                       very deep, consider implementing as
-                               |  block store  |                                       MCACHE / DCACHE pair with Rust shims for use
-                               +---------------+                                       in Agave validator
-                                       |
-                                       v
-                              to Agave validator
-                             for block distribution
+                              to block distribution
                                  and execution
 ```
 
@@ -91,7 +85,7 @@ transaction filtering pipeline for the block production.
   implementation is single process with named workspaces with support
   for quick refactoring into multi-process model if useful.
 
-- Communications path from NIC(s) to Agave validator is reliable for
+- Communications path from NIC(s) to block packing is reliable for
   simplicity / reproducibility.
 
 - And, as such, these sub-components could potentially be moved (in part

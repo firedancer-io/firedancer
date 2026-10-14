@@ -34,8 +34,8 @@ static char const cfg_str_vote_history[] =
   "[tiles.tower]\n"
   "  write_vote_history_file = false";
 
-extern uchar const fdctl_default_config[];
-extern ulong const fdctl_default_config_sz;
+extern uchar const firedancer_default_config[];
+extern ulong const firedancer_default_config_sz;
 
 static int
 genesis_max_file_size_is_valid( config_t * config,
@@ -178,8 +178,9 @@ main( int     argc,
   /* The default config must parse fine */
 
   memset( config, 0, sizeof(config_t) );
+  config->is_firedancer = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
-  FD_TEST( fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_toml_parse( firedancer_default_config, firedancer_default_config_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   fd_config_validate( config );  /* exits process with code 1 on failure */
 
