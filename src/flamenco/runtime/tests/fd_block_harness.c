@@ -69,16 +69,17 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vo
 
     /* SIMD-0123 fields exist in v4 state only; older versions keep the
        100% default and no pending rewards. */
-    ushort block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
-    ulong  pending_delegator_rewards    = 0UL;
+    ushort              block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+    ulong               pending_delegator_rewards    = 0UL;
+    fd_pubkey_t const * inflation_collector          = NULL;
+    fd_pubkey_t const * block_collector              = NULL;
     if( vote_accounts[i].version == FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4 ) {
       block_revenue_commission_bps = (ushort)vote_accounts[i].block_revenue_commission_bps;
       pending_delegator_rewards    = vote_accounts[i].pending_delegator_rewards;
+      /* SIMD-0232 collectors; empty fields keep the vote/node defaults. */
+      if( vote_accounts[i].inflation_rewards_collector.size==32U ) inflation_collector = (fd_pubkey_t const *)vote_accounts[i].inflation_rewards_collector.bytes;
+      if( vote_accounts[i].block_revenue_collector.size    ==32U ) block_collector     = (fd_pubkey_t const *)vote_accounts[i].block_revenue_collector.bytes;
     }
-
-    /* SIMD-0232 collectors; empty fields keep the vote/node defaults. */
-    fd_pubkey_t const * inflation_collector = vote_accounts[i].inflation_rewards_collector.size==32U ? (fd_pubkey_t const *)vote_accounts[i].inflation_rewards_collector.bytes : NULL;
-    fd_pubkey_t const * block_collector     = vote_accounts[i].block_revenue_collector.size    ==32U ? (fd_pubkey_t const *)vote_accounts[i].block_revenue_collector.bytes     : NULL;
 
     uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
     if( use_t_1 ) fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls,
