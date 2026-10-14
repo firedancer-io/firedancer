@@ -2184,4 +2184,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="HttpTxBytes" summary="Bytes sent in responses from the snapshot service" />
 </tile>
 
+<tile name="motor">
+</tile>
+
+<tile name="solcap" telemetry="false">
+</tile>
+
 </metrics>

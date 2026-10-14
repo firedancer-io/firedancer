@@ -991,6 +991,14 @@ enum MetricsSnapsvState {
   METRICS_SNAPSV_STATE_SHUTDOWN = 3;  // Shutdown
 }
 
+// Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+enum MetricsMotorState {
+  METRICS_MOTOR_STATE_UNSPECIFIED = 0;
+  METRICS_MOTOR_STATE_BOOTING = 1;  // Booting
+  METRICS_MOTOR_STATE_RUNNING = 2;  // Running
+  METRICS_MOTOR_STATE_SHUTDOWN = 3;  // Shutdown
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -7049,6 +7057,54 @@ message MetricsSnapsvRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Times the tile tried to park while idle (efficient mode), by result
+message MetricsMotorParkAttempted {
+  // Woken by a doorbell ring
+  uint64 ring = 1;
+  // Deadline or park cap lapsed
+  uint64 deadline = 2;
+  // Pre-park recheck found work, did not park
+  uint64 pending = 3;
+}
+
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+message MetricsMotorThreadDurationNanos {
+  // Wait (task was runnable but not scheduled)
+  uint64 wait = 1;
+  // Idle (task was not runnable)
+  uint64 idle = 2;
+  // User (task was scheduled and executing in user mode)
+  uint64 user = 3;
+  // System (task was scheduled and executing in kernel mode)
+  uint64 system = 4;
+  // Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)
+  uint64 interrupt = 5;
+}
+
+// Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+message MetricsMotorRegimeDurationNanos {
+  // Caught up + Housekeeping
+  uint64 caught_up_housekeeping = 1;
+  // Processing + Housekeeping
+  uint64 processing_housekeeping = 2;
+  // Backpressure + Housekeeping
+  uint64 backpressure_housekeeping = 3;
+  // Caught up + Prefrag
+  uint64 caught_up_prefrag = 4;
+  // Processing + Prefrag
+  uint64 processing_prefrag = 5;
+  // Backpressure + Prefrag
+  uint64 backpressure_prefrag = 6;
+  // Caught up + Postfrag
+  uint64 caught_up_postfrag = 7;
+  // Processing + Postfrag
+  uint64 processing_postfrag = 8;
+  // Caught up + Sleeping
+  uint64 caught_up_sleeping = 9;
+  // Backpressure + Sleeping
+  uint64 backpressure_sleeping = 10;
+}
+
 // The validator received a verified, deduplicated transaction
 message Txn {
   // The source IP address of the transaction sender
@@ -9189,13 +9245,13 @@ message MetricsReplay {
   uint64 tlb_shootdown = 23;
   // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
   uint64 timer_irq = 24;
-  // Identity account balance at the optimistically confirmed slot
+  // Identity account balance at the optimistically confirmed slot, or the finalized slot under Alpenglow
   uint64 identity_balance_lamports = 25;
-  // Our active stake at the optimistically confirmed slot
+  // Our active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow
   uint64 active_stake_lamports = 26;
-  // Cluster active stake at the optimistically confirmed slot
+  // Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow
   uint64 cluster_active_stake_lamports = 27;
-  // gauge: current value, do not sum over time. Our vote account epoch credits at the optimistically confirmed slot
+  // gauge: current value, do not sum over time. Our vote account epoch credits at the optimistically confirmed slot, or the finalized slot under Alpenglow
   uint64 epoch_credits = 28;
   // Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary
   bool is_vote_account_inadmissible = 29;
@@ -11321,6 +11377,58 @@ message MetricsLink {
   uint64 backpressure_blamed = 19;
 }
 
+// Metrics of one motor tile instance, one row per sweep
+message MetricsMotor {
+  // Identifier shared by every row of one sweep
+  uint64 sample_id = 1;
+  // Why a metrics sweep was taken
+  MetricsSampleReason sample_reason = 2;
+  // Slot that triggered the sweep, 0 for periodic sweeps
+  uint64 sample_slot = 3;
+  // Snapshot load state
+  MetricsSnapctLoadState sample_snapct_state = 4;
+  // Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared
+  bool sample_caught_up = 5;
+  // Tile instances in the sweep, to detect partial sweeps
+  uint64 sample_tile_cnt = 6;
+  // Index of this tile instance among tiles of its kind
+  uint64 kind_id = 7;
+  // Process ID of the tile
+  uint64 pid = 8;
+  // Thread ID of the tile. Same as Pid in production, but might differ in development
+  uint64 tid = 9;
+  // CPU the tile last ran on
+  uint64 last_cpu_index = 10;
+  // counter: cumulative since tile start, query deltas. Involuntary context switches
+  uint64 context_switch_involuntary = 11;
+  // counter: cumulative since tile start, query deltas. Voluntary context switches
+  uint64 context_switch_voluntary = 12;
+  // counter: cumulative since tile start, query deltas. Major page faults
+  uint64 page_fault_major = 13;
+  // counter: cumulative since tile start, query deltas. Minor page faults
+  uint64 page_fault_minor = 14;
+  // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+  MetricsMotorState state = 15;
+  // Last wall-clock time the tile heartbeated
+  uint64 heartbeat_time = 16;
+  // Whether the tile is currently backpressured
+  bool is_backpressured = 17;
+  // counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing
+  uint64 backpressure = 18;
+  // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+  MetricsMotorRegimeDurationNanos regime_duration_nanos = 19;
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  MetricsMotorThreadDurationNanos thread_duration_nanos = 20;
+  // Times the tile tried to park while idle (efficient mode), by result
+  MetricsMotorParkAttempted park_attempted = 21;
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  uint64 device_irq = 22;
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  uint64 tlb_shootdown = 23;
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  uint64 timer_irq = 24;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -11385,5 +11493,6 @@ message Event {
     MetricsSnaprd metrics_snaprd = 59;
     MetricsSnapsv metrics_snapsv = 60;
     MetricsLink metrics_link = 61;
+    MetricsMotor metrics_motor = 62;
   }
 }

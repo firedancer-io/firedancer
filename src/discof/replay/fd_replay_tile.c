@@ -56,6 +56,7 @@
 #include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../disco/events/fd_event_report.h"
+#include "../../disco/metrics/fd_metrics_sample.h"
 
 /* Replay concepts:
 
@@ -350,6 +351,16 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_ENUM_COPY( REPLAY, PROGCACHE_CLASS_CAPACITY, pc_class_max  );
 
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
+}
+
+static void
+metrics_trigger( fd_replay_tile_t * ctx,
+                 uint               reason,
+                 ulong              slot ) {
+  FD_COMPILER_MFENCE();
+  metrics_write( ctx );
+  FD_COMPILER_MFENCE();
+  fd_event_metrics_trigger( reason, slot, ULONG_MAX );
 }
 
 /* Agave: delinquent once the last vote is this far behind.
@@ -1144,6 +1155,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
                    ctx->catch_up_max_fec_slot<slot+3UL ) ) {
     ctx->caught_up = 1;
     FD_MGAUGE_SET( REPLAY, IS_CAUGHT_UP, 1UL );
+    metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_CAUGHT_UP, slot );
     double boot_secs = (double)(fd_log_wallclock()-ctx->boot_timestamp_nanos)/1e9;
     FD_LOG_NOTICE(( "caught up to cluster at slot %s%lu%s %s(%.1f seconds since boot)%s",
                     fd_log_style_bold(), slot, fd_log_style_normal(),
@@ -1588,7 +1600,9 @@ publish_leader_footer( fd_replay_tile_t *        ctx,
 
 static inline int
 try_become_leader_ag( fd_replay_tile_t *  ctx,
-                      fd_stem_context_t * stem ) {
+                      fd_stem_context_t * stem,
+                      uint                reason,
+                      ulong               end_slot ) {
 
   /* Mirrors check from try_become_leader. */
 
@@ -1755,6 +1769,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
 
   publish_replay_out( ctx, stem, REPLAY_SIG_BECAME_LEADER, sizeof(fd_became_leader_t) );
+  metrics_trigger( ctx, reason, reason==FD_METRICS_SAMPLE_REASON_LEADER_START ? msg->slot : end_slot );
 
   ctx->leader_window_start_ns = ctx->votor_leader->parent_ready_ns;
   ctx->next_leader_slot       = ULONG_MAX;
@@ -1873,6 +1888,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
                    ctx->consensus_root_slot!=ULONG_MAX &&
                    ctx->consensus_root_slot>=ctx->leader_bank->f.slot ) ) {
     ulong bank_idx = ctx->leader_bank->idx;
+    metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_END, ctx->leader_bank->f.slot );
     ctx->leader_bank->refcnt--;
     ctx->leader_bank = NULL;
     ctx->recv_poh    = 0;
@@ -1948,9 +1964,10 @@ try_fini_leader( fd_replay_tile_t *  ctx,
       .parent_ready_ns = ctx->leader_window_start_ns
     };
     ctx->next_leader_slot = curr_slot+1UL;
-    try_become_leader_ag( ctx, stem );
+    if( try_become_leader_ag( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_END_START, curr_slot ) ) return 1;
   }
 
+  metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_END, curr_slot );
   return 1;
 }
 
@@ -2149,6 +2166,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
 
   /* Signals fd_startup_gate */
   FD_MGAUGE_SET( REPLAY, IS_RUNTIME_LOADED, 1UL );
+  metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_REPLAY_READY, bank->f.slot );
 }
 
 static inline int
@@ -2324,6 +2342,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   }
 
   publish_replay_out( ctx, stem, REPLAY_SIG_BECAME_LEADER, sizeof(fd_became_leader_t) );
+  metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_START, msg->slot );
 
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
@@ -2382,6 +2401,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
        block-complete entry was never emitted, so no slot-complete FEC
        (and thus no block id) will ever arrive. */
     ulong bank_idx = ctx->leader_bank->idx;
+    metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_END, slot_ended->slot );
     ctx->leader_bank->refcnt--;
     ctx->leader_bank = NULL;
     ctx->recv_poh    = 0;
@@ -2441,6 +2461,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   ctx->caught_up = 1;
   FD_MGAUGE_SET( REPLAY, IS_CAUGHT_UP, 1UL );
+  metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_CAUGHT_UP, 0UL );
 
   ctx->hard_fork_cnt = 0UL;
 
@@ -4001,7 +4022,7 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->alpenglow && try_become_leader_ag( ctx, stem ) ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow && try_become_leader_ag( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -5063,7 +5084,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         *ctx->votor_leader    = *leader;
         ctx->next_leader_slot = leader->slot;
-        try_become_leader_ag( ctx, stem );
+        try_become_leader_ag( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
       } else if( FD_LIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_certed_t *       fin    = ctx->votor_final;
@@ -5797,7 +5818,7 @@ static ulong
 max_event_sz( fd_topo_tile_t const * tile ) {
   /* replay always emits block_completed; runtime_block (the largest
      runtime event) is added when runtime diffs are on. */
-  ulong sz = sizeof(fd_event_block_completed_t);
+  ulong sz = fd_ulong_max( sizeof(fd_event_block_completed_t), sizeof(fd_event_metrics_trigger_t) );
   if( tile->replay.report_runtime_diffs && sizeof(fd_event_runtime_block_t)>sz ) sz = sizeof(fd_event_runtime_block_t);
   return sz;
 }

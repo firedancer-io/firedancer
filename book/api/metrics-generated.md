@@ -2363,3 +2363,21 @@
 | <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;skipped</span> | counter | Vote history writes skipped because the history was too large; the file is emptied until it fits |
 
 </div>
+
+## Motor Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+
+</div>
+
+## Solcap Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+
+</div>

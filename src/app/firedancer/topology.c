@@ -1480,7 +1480,14 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
-  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
+  if( FD_LIKELY( telemetry_enabled ) ) {
+    wire_event_links( topo );
+
+    fd_topo_tile_t * event_tile = &topo->tiles[ fd_topo_find_tile( topo, "event", 0UL ) ];
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topob_tile_uses( topo, event_tile, &topo->objs[ topo->tiles[ i ].metrics_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    }
+  }
 
   if( FD_LIKELY( telemetry_enabled ) ) {
     topo->resolved_config_json_len = fd_config_to_json( config, topo->resolved_config_json, sizeof(topo->resolved_config_json) );

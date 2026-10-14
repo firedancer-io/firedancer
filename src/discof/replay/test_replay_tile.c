@@ -169,6 +169,7 @@ static ulong mock_next_leader_slot_calls;
 static ulong mock_txncache_fork_id_next;
 static ulong mock_progcache_fork_id_next;
 static ushort mock_accdb_fork_id_next;
+static fd_accdb_metrics_t mock_accdb_metrics; /* metrics_write without an accdb */
 static int   mock_epoch_boundary_enabled;
 static ulong mock_epoch_boundary_fork_cnt;
 static ulong mock_epoch_boundary_fork_max;
@@ -257,6 +258,9 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
+#define fd_accdb_flush_metrics(a)            do { if( a ) (fd_accdb_flush_metrics)(a); } while(0)
+#define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
+#define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
 #define fd_sched_block_start_pending(s)      ( (s) ? (fd_sched_block_start_pending)(s) : 0 )
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
 #define fd_sysvar_cache_restore(bank,accdb)  (mock_snapshot_boot ? 1 : (fd_sysvar_cache_restore)(bank,accdb))
@@ -4786,13 +4790,13 @@ test_ag_set_identity_leader_slot( fd_wksp_t * wksp,
   FD_TEST( ctx->halt_replay && keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( keyswitch->result==7UL ); /* votor reads replay_slot */
   FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &new_identity ) );
-  FD_TEST( !try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
 
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
   during_housekeeping( ctx );
   FD_TEST( !ctx->halt_replay && keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
 
-  FD_TEST( try_become_leader_ag( ctx, test_stem )==same_identity );
+  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL )==same_identity );
   FD_TEST( ctx->is_leader==same_identity );
   if( !same_identity ) FD_TEST( ctx->next_leader_slot==ULONG_MAX );
 
@@ -4902,7 +4906,7 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   ctx->replay_out_seq = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->replay_out->idx ] );
   ctx->slot_out_seq   = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->slot_out->idx   ] );
 
-  FD_TEST( try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   fd_bank_t * leader = ctx->leader_bank;
   FD_TEST( ctx->is_leader && leader && leader->f.slot==2UL && leader->refcnt==1UL );
   ulong leader_idx = leader->idx;
@@ -5000,26 +5004,26 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
 
   ctx->votor_final->slot = 3UL;
-  FD_TEST( !try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
   ctx->votor_final->slot = ULONG_MAX;
 
   ctx->next_leader_slot    = 2UL;
   ctx->consensus_root_slot = 3UL;
   ctx->consensus_root      = id3;
-  FD_TEST( !try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
 
   ctx->next_leader_slot    = 2UL;
   ctx->consensus_root_slot = 1UL;
   ctx->consensus_root      = other1;
-  FD_TEST( !try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
 
   /* Rooted at the parent itself: lead. */
   ctx->next_leader_slot = 2UL;
   ctx->consensus_root   = id1;
-  FD_TEST( try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( ctx->is_leader && ctx->leader_bank->f.slot==2UL );
   fd_bank_t * leader = ctx->leader_bank;
 
@@ -5058,7 +5062,7 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   fd_hash_t id1     = { .ul = { 201UL } };
   fd_hash_t id2     = { .ul = { 202UL } };
   fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
-  FD_TEST( try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   fd_bank_t * leader = ctx->leader_bank;
 
   fd_bank_t * tip = b1;
@@ -5108,6 +5112,9 @@ main( int     argc,
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
+
+  static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) ); /* leader paths run metrics_write */
 
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
   test_leader_fec_payload_retained( wksp );          fd_wksp_reset( wksp, 42U );

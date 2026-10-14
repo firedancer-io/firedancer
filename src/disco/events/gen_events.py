@@ -995,8 +995,8 @@ def main() -> None:
     seen_ids: Dict[int, str] = {}
     seen_names: Dict[str, int] = {}
     for s in schemas:
-        if not s.local and not (1 <= s.id <= 255):
-            raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) must fit the 8-bit event type of FD_EVENT_SIG (1..255)")
+        if not s.local and not (1 <= s.id <= 254):
+            raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) must fit the 8-bit event type of FD_EVENT_SIG (1..254; 255 is FD_EVENT_TYPE_METRICS_TRIGGER)")
         if s.local and ( not (1 <= s.id <= PB_FIELD_NUMBER_MAX) or s.id in PB_RESERVED ):
             raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) is not a valid protobuf field number")
         if args.no_provisional and ( s.id >= EVENT_ID_PROVISIONAL or has_provisional(s.fields) ):
