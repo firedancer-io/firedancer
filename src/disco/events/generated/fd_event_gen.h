@@ -574,7 +574,7 @@ struct fd_event_runtime_block_sysvar_diffs {
   ulong data_sz;            /* Post-state data size in bytes */
   ulong prev_data_sz;       /* Pre-state data size in bytes */
   int   is_executable;      /* True if the post-state account is executable */
-};
+} __attribute__((aligned(8)));
 typedef struct fd_event_runtime_block_sysvar_diffs fd_event_runtime_block_sysvar_diffs_t;
 
 /* Post-state of an updated account */
@@ -587,7 +587,7 @@ struct fd_event_runtime_block_other_diffs {
   ulong data_sz;            /* Post-state data size in bytes */
   ulong prev_data_sz;       /* Pre-state data size in bytes */
   int   is_executable;      /* True if the post-state account is executable */
-};
+} __attribute__((aligned(8)));
 typedef struct fd_event_runtime_block_other_diffs fd_event_runtime_block_other_diffs_t;
 
 /* One row per block emitted with all the block-level diffs and results */
@@ -627,15 +627,37 @@ struct fd_event_runtime_block {
   ulong                                              total_activating_stake;              /* Stake activating during this slot's epoch */
   ulong                                              total_deactivating_stake;            /* Stake deactivating during this slot's epoch */
   ulong                                              total_epoch_stake;                   /* Total stake delegated to active vote accounts this epoch */
-  fd_event_runtime_block_sysvar_diffs_t              sysvar_diffs[ 16UL ];                /* Final per-account diff of every sysvar account written this block; repeated writes to the same sysvar (e.g. the stake history update then its rent-exemption top-up at an epoch boundary) are coalesced into one entry keeping the first pre-state and last post-state. Ordinary slots carry ~4 entries (Clock, SlotHashes, RecentBlockhashes, SlotHistory; LastRestartSlot only when it changes), boundary/PER slots 5-6. Overflow past the 16-account bound drops the entry with a validator log warning */
   ulong                                              sysvar_diffs_cnt;                    /* Number of sysvar_diffs entries (<= 16) */
-  fd_event_runtime_block_other_diffs_t               other_diffs[ 32UL ];                 /* Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites (see runtime_vote_write). Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning */
   ulong                                              other_diffs_cnt;                     /* Number of other_diffs entries (<= 32) */
   ulong                                              fec_count;                           /* Total number of FEC sets observed while assembling this block (not capped by fec_merkle_roots) */
-  uchar                                              fec_merkle_roots[ 1024UL ][ 32UL ];  /* Merkle roots of the FEC sets observed while assembling this block, in order. Truncated to the first 1024 roots — exact for fixed-size FECs (a block has at most 1024), a prefix for legacy variable-size FECs when fec_count exceeds 1024. Under Tower the last entry equals block_id; under Alpenglow block_id is the separate DMR and is not present in this list */
   ulong                                              fec_merkle_roots_cnt;                /* Number of fec_merkle_roots entries (<= 1024) */
+  fd_event_runtime_block_sysvar_diffs_t              sysvar_diffs[ 16UL ];                /* Final per-account diff of every sysvar account written this block; repeated writes to the same sysvar (e.g. the stake history update then its rent-exemption top-up at an epoch boundary) are coalesced into one entry keeping the first pre-state and last post-state. Ordinary slots carry ~4 entries (Clock, SlotHashes, RecentBlockhashes, SlotHistory; LastRestartSlot only when it changes), boundary/PER slots 5-6. Overflow past the 16-account bound drops the entry with a validator log warning (dynamic: stored at end, shipped at used length) */
+  fd_event_runtime_block_other_diffs_t               other_diffs[ 32UL ];                 /* Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites (see runtime_vote_write). Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning (dynamic: stored at end, shipped at used length) */
+  uchar                                              fec_merkle_roots[ 1024UL ][ 32UL ];  /* Merkle roots of the FEC sets observed while assembling this block, in order. Truncated to the first 1024 roots — exact for fixed-size FECs (a block has at most 1024), a prefix for legacy variable-size FECs when fec_count exceeds 1024. Under Tower the last entry equals block_id; under Alpenglow block_id is the separate DMR and is not present in this list (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_runtime_block fd_event_runtime_block_t;
+
+#define FD_EVENT_RUNTIME_BLOCK_PREFIX_SZ (offsetof(fd_event_runtime_block_t, sysvar_diffs))
+
+#define FD_EVENT_RUNTIME_BLOCK_SYSVAR_DIFFS_MAX (16UL)
+#define FD_EVENT_RUNTIME_BLOCK_OTHER_DIFFS_MAX (32UL)
+#define FD_EVENT_RUNTIME_BLOCK_FEC_MERKLE_ROOTS_MAX (1024UL)
+
+FD_STATIC_ASSERT( sizeof(((fd_event_runtime_block_t *)0)->sysvar_diffs[0])%8UL==0UL, runtime_block_sysvar_diffs_align );
+FD_STATIC_ASSERT( sizeof(((fd_event_runtime_block_t *)0)->other_diffs[0])%8UL==0UL, runtime_block_other_diffs_align );
+FD_STATIC_ASSERT( sizeof(((fd_event_runtime_block_t *)0)->fec_merkle_roots[0])%8UL==0UL, runtime_block_fec_merkle_roots_align );
+
+/* Packed (wire) footprint of a runtime_block event: prefix plus used
+   dynamic array entries.  msg may point at a full struct or at a
+   packed event's prefix. */
+static inline ulong
+fd_event_runtime_block_footprint( fd_event_runtime_block_t const * msg ) {
+  return FD_EVENT_RUNTIME_BLOCK_PREFIX_SZ
+       + msg->sysvar_diffs_cnt*sizeof(((fd_event_runtime_block_t *)0)->sysvar_diffs[0])
+       + msg->other_diffs_cnt*sizeof(((fd_event_runtime_block_t *)0)->other_diffs[0])
+       + msg->fec_merkle_roots_cnt*sizeof(((fd_event_runtime_block_t *)0)->fec_merkle_roots[0])
+       ;
+}
 
 /* Worst-case encoded size of a runtime_block event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
@@ -1343,10 +1365,21 @@ fd_event_report_admin_command( fd_event_admin_command_t const * msg ) {
 }
 
 /* Report a runtime_block event (RuntimeBlock, id 13) to the event tile via
-   the thread-local reporter (no-op when the tile has no event link). */
+   the thread-local reporter (no-op when the tile has no event link).
+   The event travels packed: fixed prefix followed by the used entries
+   of each dynamic array. */
 static inline void
 fd_event_report_runtime_block( fd_event_runtime_block_t const * msg ) {
-  fd_event_report_( 13UL, msg, sizeof(fd_event_runtime_block_t) );
+  FD_TEST( msg->sysvar_diffs_cnt<=16UL );
+  FD_TEST( msg->other_diffs_cnt<=32UL );
+  FD_TEST( msg->fec_merkle_roots_cnt<=1024UL );
+  fd_event_report_iov_t iov[] = {
+    { (void const *)msg, FD_EVENT_RUNTIME_BLOCK_PREFIX_SZ },
+    { (void const *)msg->sysvar_diffs, msg->sysvar_diffs_cnt*sizeof(msg->sysvar_diffs[0]) },
+    { (void const *)msg->other_diffs, msg->other_diffs_cnt*sizeof(msg->other_diffs[0]) },
+    { (void const *)msg->fec_merkle_roots, msg->fec_merkle_roots_cnt*sizeof(msg->fec_merkle_roots[0]) },
+  };
+  fd_event_report_gather_( 13UL, iov, sizeof(iov)/sizeof(iov[0]) );
 }
 
 /* Report a runtime_reward event (RuntimeReward, id 14) to the event tile via
