@@ -14,6 +14,10 @@
 
    The link is written directly via fd_mcache_publish (outside fd_stem); it
    is unreliable, so events are dropped if the event tile falls behind.
+   A tile may also have a second link, deeper with a smaller mtu, which
+   takes every event that fits its mtu (fd_event_tl_diff).  Replay has
+   one when reporting runtime diffs, so its bursts of small runtime
+   events are not limited by a main link sized for block_completed.
    When a tile has no event link (telemetry off / max_event_sz==0),
    fd_event_tl is NULL and reporting is a no-op. */
 
@@ -32,7 +36,7 @@ struct fd_event_reporter {
   ulong            chunk;   /* current write chunk */
   ulong            chunk0;  /* first chunk */
   ulong            wmark;   /* wrap watermark */
-  ulong            mtu;     /* link mtu (== max_event_sz) */
+  ulong            mtu;     /* link mtu (max_event_sz on the main link) */
 
   fd_sleep_t *     sleep;
   ulong            link_id;
@@ -42,18 +46,21 @@ struct fd_event_reporter {
 
 typedef struct fd_event_reporter fd_event_reporter_t;
 
-/* The thread-local reporter for the currently running tile, or NULL if the
-   tile has no event link. */
+/* The thread-local reporters for the currently running tile's event link
+   and diff link, each NULL if the tile has no such link. */
 
 extern FD_TL fd_event_reporter_t * fd_event_tl;
+extern FD_TL fd_event_reporter_t * fd_event_tl_diff;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_event_register sets up fd_event_tl for the calling tile.  If the tile
-   has an event link (tile->event_link_id != ULONG_MAX) it joins the link's
-   mcache/dcache; otherwise fd_event_tl is left NULL and reporting is a
-   no-op.  Must be called once, after the tile's tango objects are joined
-   (i.e. after fd_topo_fill_tile), before the run loop. */
+/* fd_event_register sets up fd_event_tl and fd_event_tl_diff for the
+   calling tile.  For each link the tile has (tile->event_link_id and
+   tile->event_diff_link_id != ULONG_MAX) it joins the link's
+   mcache/dcache; otherwise the reporter is left NULL.  Without an event
+   link reporting is a no-op.  Must be called once, after the tile's
+   tango objects are joined (i.e. after fd_topo_fill_tile), before the
+   run loop. */
 
 void
 fd_event_register( fd_topo_t const *      topo,
@@ -71,7 +78,8 @@ struct fd_event_report_iov {
 typedef struct fd_event_report_iov fd_event_report_iov_t;
 
 /* fd_event_report_ publishes a single event of sz bytes (the serialized
-   fd_event_<name>_t struct) to the event link.  type is the event schema
+   fd_event_<name>_t struct) to the diff link if the tile has one and sz
+   fits its mtu, else to the event link.  type is the event schema
    id, carried with the byte size in the frag sig (see FD_EVENT_SIG) so the
    event tile can dispatch and size-validate; the frag sz field is too
    narrow for large events and is published as 0.  No-op when
@@ -91,6 +99,7 @@ fd_event_report_( ulong        type,
                   ulong        sz ) {
   fd_event_reporter_t * r = fd_event_tl;
   if( FD_UNLIKELY( !r ) ) return; /* no event link / telemetry off */
+  if( fd_event_tl_diff && sz<=fd_event_tl_diff->mtu ) r = fd_event_tl_diff;
 
   FD_TEST( type<=0xFFUL );
   FD_TEST( sz<=r->mtu );
@@ -114,10 +123,9 @@ fd_event_report_gather_( ulong                         type,
 
   FD_TEST( type<=0xFFUL );
   ulong sz = 0UL;
-  for( ulong i=0UL; i<iov_cnt; i++ ) {
-    FD_TEST( iov[ i ].sz<=r->mtu-sz );
-    sz += iov[ i ].sz;
-  }
+  for( ulong i=0UL; i<iov_cnt; i++ ) sz += iov[ i ].sz;
+  if( fd_event_tl_diff && sz<=fd_event_tl_diff->mtu ) r = fd_event_tl_diff;
+  FD_TEST( sz<=r->mtu );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
