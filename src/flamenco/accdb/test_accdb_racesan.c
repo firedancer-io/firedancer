@@ -3534,10 +3534,12 @@ test_preevict_batch_cap( void ) {
   uchar owner[ 32 ] = { 0xAA, 0 };
   fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
 
+  /* Fill byte and size together are unique per account, so a record
+     read from another record's offset is caught. */
   ulong cnt = 300UL;
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar key[ 32 ] = { 'B', (uchar)(i>>8), (uchar)i, 0 };
-    seq_write_data( accdb, root0, key, 1000UL+i, owner, 64UL, (uchar)(0x10+(i&0x7FUL)) );
+    seq_write_data( accdb, root0, key, 1000UL+i, owner, 64UL+(i%61UL), (uchar)i );
   }
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar key[ 32 ] = { 'B', (uchar)(i>>8), (uchar)i, 0 };
@@ -3565,8 +3567,8 @@ test_preevict_batch_cap( void ) {
     memset( a, 0, sizeof(a) );
     fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
     FD_TEST( a[0].lamports==1000UL+i );
-    FD_TEST( a[0].data_len==64UL );
-    FD_TEST( a[0].data[ 0 ]==(uchar)(0x10+(i&0x7FUL)) && a[0].data[ 63 ]==(uchar)(0x10+(i&0x7FUL)) );
+    FD_TEST( a[0].data_len==64UL+(i%61UL) );
+    FD_TEST( a[0].data[ 0 ]==(uchar)i && a[0].data[ a[0].data_len-1UL ]==(uchar)i );
     fd_accdb_release( accdb, 1UL, a );
   }
 
