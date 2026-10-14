@@ -2177,6 +2177,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->vote_history_dir_fd  = -1;
   ctx->vote_history_new.fd = -1;
   ctx->vote_history_old.fd = -1;
+  ctx->wait_to_vote_slot   = 0UL;
   if( FD_LIKELY( tile->votor.vote_history_path[ 0 ] ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
     FD_TEST( fd_cstr_printf_check( ctx->vote_history_old.name, PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
@@ -2204,6 +2205,21 @@ privileged_init( fd_topo_t const *      topo,
     if( FD_UNLIKELY( st.st_uid!=tile->votor.target_uid ) ) {
       FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, ctx->vote_history_old.name, st.st_uid, tile->votor.target_uid ));
     }
+
+    /* Wait to vote past the slots the previous vote history file voted
+       in, which may have been voted on before a restart. */
+
+    int fd = openat( ctx->vote_history_dir_fd, ctx->vote_history_old.name, O_RDONLY );
+    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+    ulong sz     = fd_ulong_min( (ulong)st.st_size, AG_VOTE_HISTORY_FILE_MAX );
+    int   io_err = fd_io_read( fd, ctx->vote_history_buf, sz, sz, &sz );
+    if( FD_UNLIKELY( io_err ) ) FD_LOG_ERR(( "read(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, ctx->vote_history_old.name, io_err, fd_io_strerror( io_err ) ));
+    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+    int err = AG_VOTE_HISTORY_FILE_SUCCESS;
+    if( FD_UNLIKELY( (ulong)st.st_size>AG_VOTE_HISTORY_FILE_MAX ) ) err = AG_VOTE_HISTORY_FILE_ERR_SIZE;
+    else if( FD_LIKELY( sz ) )                                      err = ag_vote_history_file_scan( ctx->vote_history_buf, sz, ctx->id_key.uc, &ctx->wait_to_vote_slot );
+    if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "vote history file `%s/%s` is invalid (%i), voting without its slots", tile->votor.vote_history_path, ctx->vote_history_old.name, err ));
+    if( FD_UNLIKELY( ctx->wait_to_vote_slot ) ) FD_LOG_NOTICE(( "vote history file `%s/%s` has votes, waiting to vote until slot %lu", tile->votor.vote_history_path, ctx->vote_history_old.name, ctx->wait_to_vote_slot ));
 
     if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -2251,6 +2267,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
+  ag_votor_wait_to_vote( ctx->votor, ctx->wait_to_vote_slot );
 
   ctx->prev_epoch_info = NULL;
   ctx->prev_epoch_slot = ULONG_MAX;
@@ -2367,7 +2384,6 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->id_keyswitch );
   ctx->halt_signing      = 0;
   ctx->replay_in_seq     = 0UL;
-  ctx->wait_to_vote_slot = 0UL;
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );

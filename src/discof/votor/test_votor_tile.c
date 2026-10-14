@@ -1823,6 +1823,116 @@ test_write_vote_history( void ) {
   FD_LOG_NOTICE(( "pass: test_write_vote_history" ));
 }
 
+/* A restart waits to vote past the window of the last vote in the
+   previous vote history file, so a notar vote cast before the restart
+   is never followed by a skip vote in its slot. */
+
+static void
+test_boot_vote_history_floor( void ) {
+  fd_sha512_t sha[ 1 ];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+  uchar keypair[ 64 ];
+  memset( keypair, 7, 32UL );
+  fd_ed25519_public_from_private( keypair+32UL, keypair, sha );
+
+  char dir[] = "/tmp/test_boot_vote_history_floor_XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  int dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
+  FD_TEST( -1!=dir_fd );
+
+  char  json[ 512 ];
+  char * p = fd_cstr_init( json );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong i=0UL; i<64UL; i++ ) {
+    if( i ) p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_uchar_as_text( p, 0, 0, keypair[ i ], fd_uint_base10_dig_cnt( keypair[ i ] ) );
+  }
+  p = fd_cstr_append_char( p, ']' );
+  fd_cstr_fini( p );
+  file_make( dir_fd, "identity.json", json );
+
+  /* before the restart, a notar vote for slot 1 */
+
+  ag_bls_key_t bls_key[1];
+  fd_bls_sec_t sec[1];
+  fd_bls_pub_t pub[1];
+  build_bls_keys( bls_key, sec, pub, 1UL );
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  ag_votor_init         ( votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_advance_epoch( votor, 400000000L, 0UL, 0UL, bls_key[0] );
+  ag_block_info_t block = {0};
+  memset( block.hash, 1, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( votor, 1UL, &block );
+  ag_vote_t vote;
+  uchar     reason;
+  FD_TEST( ag_votor_poll_vote( votor, &vote, &reason ) && vote.kind==AG_VOTE_KIND_NOTAR && ag_vote_slot( &vote )==1UL );
+
+  static ag_vote_history_file_t vh[1];
+  static uchar                  buf[ AG_VOTE_HISTORY_FILE_MAX ];
+  FD_TEST( !ag_votor_vote_history( votor, vh ) );
+  ulong sz = ag_vote_history_file_ser( vh, keypair+32UL, buf, AG_VOTE_HISTORY_FILE_MAX );
+  FD_TEST( sz );
+  fd_ed25519_sign( buf+AG_VOTE_HISTORY_FILE_SIG_OFF, buf+AG_VOTE_HISTORY_FILE_DATA_OFF, sz-AG_VOTE_HISTORY_FILE_DATA_OFF, keypair+32UL, keypair, sha );
+  ag_votor_delete( ag_votor_leave( votor ) );
+
+  FD_BASE58_ENCODE_32_BYTES( keypair+32UL, id_b58 );
+  char name[ PATH_MAX ];
+  char name_new[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( name,     PATH_MAX, NULL, "vote_history-%s.bin",     id_b58 ) );
+  FD_TEST( fd_cstr_printf_check( name_new, PATH_MAX, NULL, "vote_history-%s.bin.new", id_b58 ) );
+  int fd = openat( dir_fd, name, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
+  FD_TEST( -1!=fd && (long)sz==write( fd, buf, sz ) && !close( fd ) );
+
+  /* the restart, then a missing file, a corrupt one, and an oversized one */
+
+  ulong       ctx_sz = sizeof(fd_votor_tile_t)+auth_vtr_footprint()+4096UL;
+  fd_wksp_t * wksp   = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, ctx_sz/FD_SHMEM_NORMAL_PAGE_SZ+2UL, fd_shmem_cpu_idx( 0UL ), "test_boot_vote_history_floor", 0UL );
+  FD_TEST( wksp );
+  void * mem = fd_wksp_alloc_laddr( wksp, alignof(fd_votor_tile_t), ctx_sz, 1UL );
+  FD_TEST( mem );
+
+  static fd_topo_t topo[1];
+  fd_topo_tile_t * tile = topo->tiles;
+  topo->workspaces[ 0 ].wksp = wksp;
+  topo->objs[ 0 ].offset     = fd_wksp_gaddr( wksp, mem );
+  FD_TEST( fd_cstr_printf_check( tile->votor.identity_key_path, PATH_MAX, NULL, "%s/identity.json", dir ) );
+  FD_TEST( fd_cstr_printf_check( tile->votor.vote_history_path, PATH_MAX, NULL, "%s",               dir ) );
+  tile->votor.target_uid = getuid();
+  tile->votor.target_gid = getgid();
+
+  ulong floor[4] = { AG_SLOTS_PER_WINDOW, 0UL, 0UL, 0UL };
+  for( ulong i=0UL; i<4UL; i++ ) {
+    if( i==1UL ) FD_TEST( !unlinkat( dir_fd, name, 0 ) );
+    if( i==2UL ) file_make( dir_fd, name, "corrupt" );
+    if( i==3UL ) { /* the valid file, padded past the size limit */
+      fd = openat( dir_fd, name, O_WRONLY|O_TRUNC );
+      FD_TEST( -1!=fd && (long)sz==write( fd, buf, sz ) && !ftruncate( fd, (long)AG_VOTE_HISTORY_FILE_MAX+1L ) && !close( fd ) );
+    }
+    privileged_init( topo, tile );
+    fd_votor_tile_t * ctx = mem;
+    FD_TEST( ctx->wait_to_vote_slot==floor[ i ] );
+
+    /* as unprivileged_init: no skip vote in slot 1's window */
+
+    votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+    ag_votor_wait_to_vote ( votor, ctx->wait_to_vote_slot );
+    ag_votor_init         ( votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+    ag_votor_advance_epoch( votor, 400000000L, 0UL, 0UL, bls_key[0] );
+    ag_votor_handle_skip_timeout( votor, 1UL );
+    FD_TEST( ag_votor_poll_vote( votor, &vote, &reason )==!floor[ i ] );
+    ag_votor_delete( ag_votor_leave( votor ) );
+
+    FD_TEST( !close( ctx->vote_history_new.fd ) && !close( ctx->vote_history_old.fd ) && !close( ctx->vote_history_dir_fd ) );
+  }
+
+  FD_TEST( !unlinkat( dir_fd, name, 0 ) && !unlinkat( dir_fd, name_new, 0 ) && !unlinkat( dir_fd, "identity.json", 0 ) );
+  FD_TEST( !close( dir_fd ) && !rmdir( dir ) );
+  fd_wksp_free_laddr( mem );
+  fd_wksp_delete_anonymous( wksp );
+
+  FD_LOG_NOTICE(( "pass: test_boot_vote_history_floor" ));
+}
+
 static uchar reward_out_mem   [ 1UL<<20 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 static uchar reward_mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
 
@@ -1950,6 +2060,7 @@ main( int     argc,
   test_park();
   test_standstill();
   test_write_vote_history();
+  test_boot_vote_history_floor();
   test_reward_certs();
 
   FD_LOG_NOTICE(( "pass" ));
