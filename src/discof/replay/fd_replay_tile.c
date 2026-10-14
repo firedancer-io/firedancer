@@ -1046,6 +1046,137 @@ report_block_completed( fd_replay_tile_t *                 ctx,
   fd_event_report_block_completed( ev );
 }
 
+static void
+update_metric_identity_balance( fd_replay_tile_t *  ctx,
+                                fd_accdb_fork_id_t  fork_id,
+                                fd_pubkey_t const * identity ) {
+  ulong identity_balance = fd_accdb_lamports( ctx->accdb, fork_id, identity->uc );
+  FD_MGAUGE_SET( REPLAY, IDENTITY_BALANCE_LAMPORTS, identity_balance );
+}
+
+static void
+update_metric_vote_account( fd_replay_tile_t *  ctx,
+                            fd_bank_t const *   bank,
+                            fd_accdb_fork_id_t  fork_id,
+                            fd_pubkey_t const * vote_key ) {
+  ulong epoch_credits = 0UL;
+  fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, vote_key->uc );
+  /* Unstaked voters are never admitted; don't flag them.  Once set,
+     sticky until an epoch boundary actually admits the account. */
+  int admitted = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL );
+  /* SIMD-0123: delegator rewards do not count towards the balance
+     https://github.com/anza-xyz/agave/blob/v4.4/vote/src/vote_account.rs#L225-L234 */
+  ulong available_balance = ro.lamports;
+  if( FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing ) ) {
+    ulong pending_delegator_rewards = 0UL;
+    if( FD_LIKELY( !fd_vote_account_pending_delegator_rewards( ro.data, ro.data_len, &pending_delegator_rewards ) ) ) {
+      available_balance = fd_ulong_sat_sub( ro.lamports, pending_delegator_rewards );
+    }
+  }
+  if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, available_balance, ro.owner, ro.data, ro.data_len ) ) ) {
+    ctx->vote_account_inadmissible = ctx->vote_account_staked || admitted;
+  } else if( FD_UNLIKELY( ctx->vote_account_inadmissible ) ) {
+    ctx->vote_account_inadmissible = ctx->vote_account_staked && !admitted;
+  }
+
+  if( FD_LIKELY( ro.lamports ) ) {
+    fd_vote_state_versioned_t vsv[1];
+    if( FD_LIKELY( fd_vote_state_versioned_deserialize( vsv, ro.data, ro.data_len ) ) ) {
+      fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( vsv );
+      if( !deq_fd_vote_epoch_credits_t_empty( ec ) ) {
+        fd_vote_epoch_credits_t const * last_ec = deq_fd_vote_epoch_credits_t_peek_tail_const( ec );
+        if( last_ec->epoch==bank->f.epoch ) {
+          epoch_credits = last_ec->credits;
+        }
+      }
+    }
+  }
+  fd_accdb_unread_one( ctx->accdb, &ro );
+
+  FD_MGAUGE_SET( REPLAY, EPOCH_CREDITS,                epoch_credits                         );
+  FD_MGAUGE_SET( REPLAY, IS_VOTE_ACCOUNT_INADMISSIBLE, (ulong)ctx->vote_account_inadmissible );
+}
+
+static void
+update_metric_active_stake( fd_bank_t const *   bank,
+                            fd_pubkey_t const * vote_key ) {
+  ulong my_active_stake = 0UL;
+
+  fd_vote_stakes_ele_t ele[1];
+  if( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, ele ) ) my_active_stake = ele->stake;
+
+  FD_MGAUGE_SET( REPLAY, ACTIVE_STAKE_LAMPORTS, my_active_stake );
+}
+
+/* vote_account_is_current returns 1 if the validator is current (not
+   delinquent). */
+
+static inline int
+vote_account_is_current( ulong cur_slot,
+                         ulong last_vote_slot ) {
+  return last_vote_slot!=ULONG_MAX &&
+         (cur_slot<last_vote_slot || cur_slot-last_vote_slot<DELINQUENT_VALIDATOR_SLOT_DISTANCE);
+}
+
+/* update_delinquent_stake recomputes delinquent stake over the T-2
+   vote-stake set, the only one exposing last_vote_slot and is_valid
+   (per-fork state in vacc_states).  A single pass O(n) approximation,
+   so the percentage may differ slightly from the GUI's. */
+
+static void
+update_delinquent_stake( fd_replay_tile_t * ctx,
+                         fd_bank_t const *  bank ) {
+  if( FD_UNLIKELY( !ctx->wait_info ) ) return; /* not in this topology */
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ulong              cur_slot    = bank->f.slot;
+  ulong              delinquent  = 0UL;
+  ulong              total       = 0UL;
+
+  if( FD_LIKELY( ctx->delinquent_known &&
+                 cur_slot<ctx->delinquent_sample_slot+DELINQUENT_SAMPLE_SLOTS ) ) return;
+  /* Slots arrive out of order across forks, so hold the watermark. */
+  ctx->delinquent_sample_slot = fd_ulong_max( ctx->delinquent_sample_slot, cur_slot );
+
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+    if( FD_UNLIKELY( !ele->is_valid ) ) continue;
+    total += ele->stake;
+    if( FD_UNLIKELY( !vote_account_is_current( cur_slot, ele->last_vote_slot ) ) ) {
+      delinquent += ele->stake;
+    }
+  }
+
+  ctx->delinquent_stake_lamports     = delinquent;
+  ctx->cluster_active_stake_lamports = total;
+  ctx->delinquent_known              = 1;
+}
+
+static void
+update_metric_balances( fd_replay_tile_t * ctx,
+                        fd_bank_t *        bank ) {
+  fd_accdb_fork_id_t fork_id = bank->accdb_fork_id;
+  fd_node_info_t node_info[1]; fd_node_info_read( node_info, ctx->node_info );
+  if( !fd_pubkey_check_zero( &node_info->identity ) ) {
+    update_metric_identity_balance( ctx, fork_id, &node_info->identity );
+  }
+
+  if( !fd_pubkey_check_zero( &node_info->vote_account ) ) {
+    update_metric_vote_account( ctx, bank, fork_id, &node_info->vote_account );
+    update_metric_active_stake(      bank,          &node_info->vote_account );
+  }
+  FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, bank->f.total_epoch_stake );
+
+  /* last_vote_slot only advances on a landed vote transaction, so this
+     is meaningless under Alpenglow. */
+  if( FD_LIKELY( !ctx->alpenglow ) ) update_delinquent_stake( ctx, bank );
+}
+
 /* try_advance_root_ag attempts to advance root to finalized_block_id.  For
    something to be rooted, it must be BOTH finalized AND replayed.  This
    walks up the bank lineage in the block id map to find and set root.
@@ -1071,11 +1202,13 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
   if( FD_UNLIKELY( finalized_block_id.slot<=ctx->consensus_root_slot ) ) return;
 
   ag_block_id_t ancestor_block_id = finalized_block_id;
+  fd_bank_t *   finalized_bank    = NULL;
 
   while( FD_LIKELY( ancestor_block_id.slot>ctx->consensus_root_slot ) ) {
     fd_block_id_ele_t * ele  = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &ancestor_block_id, NULL, ctx->block_id_arr );
     fd_bank_t *         bank = ele ? fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, ele ) ) : NULL;
     if( FD_UNLIKELY( !bank || bank->bank_seq!=ele->bank_seq || bank->state!=FD_BANK_STATE_FROZEN || bank->parent_idx==ULONG_MAX ) ) break; /* not replayed */
+    if( !finalized_bank ) finalized_bank = bank;
     ancestor_block_id = ctx->block_id_arr[ bank->parent_idx ].block_info;
   }
 
@@ -1083,6 +1216,7 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
     ctx->consensus_root_slot = finalized_block_id.slot;
     memcpy( ctx->consensus_root.uc, finalized_block_id.hash, sizeof(fd_hash_t) );
     if( FD_UNLIKELY( ctx->next_leader_slot!=ULONG_MAX && finalized_block_id.slot>ctx->votor_leader->parent_slot ) ) ctx->next_leader_slot = ULONG_MAX;
+    update_metric_balances( ctx, finalized_bank ); /* Alpenglow has no optimistic confirmation */
     return;
   }
 
@@ -4696,138 +4830,6 @@ maybe_verify_genesis_timestamp( fd_replay_tile_t * ctx ) {
                "the one you are trying to connect to, or you have loaded a snapshot for the wrong cluster. In either "
                "case, you can delete the problematic file and restart the node to download the correct one automatically.",
                ctx->genesis_path, ctx->genesis_timestamp, ctx->expected_genesis_timestamp ));
-}
-
-static void
-update_metric_identity_balance( fd_replay_tile_t *  ctx,
-                                fd_accdb_fork_id_t  fork_id,
-                                fd_pubkey_t const * identity ) {
-  ulong identity_balance = fd_accdb_lamports( ctx->accdb, fork_id, identity->uc );
-  FD_MGAUGE_SET( REPLAY, IDENTITY_BALANCE_LAMPORTS, identity_balance );
-}
-
-static void
-update_metric_vote_account( fd_replay_tile_t *  ctx,
-                            fd_bank_t const *   bank,
-                            fd_accdb_fork_id_t  fork_id,
-                            fd_pubkey_t const * vote_key ) {
-  ulong epoch_credits = 0UL;
-  fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, vote_key->uc );
-  /* Unstaked voters are never admitted; don't flag them.  Once set,
-     sticky until an epoch boundary actually admits the account. */
-  int admitted = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL );
-  /* SIMD-0123: delegator rewards do not count towards the balance
-     https://github.com/anza-xyz/agave/blob/v4.4/vote/src/vote_account.rs#L225-L234 */
-  ulong available_balance = ro.lamports;
-  if( FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing ) ) {
-    ulong pending_delegator_rewards = 0UL;
-    if( FD_LIKELY( !fd_vote_account_pending_delegator_rewards( ro.data, ro.data_len, &pending_delegator_rewards ) ) ) {
-      available_balance = fd_ulong_sat_sub( ro.lamports, pending_delegator_rewards );
-    }
-  }
-  if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, available_balance, ro.owner, ro.data, ro.data_len ) ) ) {
-    ctx->vote_account_inadmissible = ctx->vote_account_staked || admitted;
-  } else if( FD_UNLIKELY( ctx->vote_account_inadmissible ) ) {
-    ctx->vote_account_inadmissible = ctx->vote_account_staked && !admitted;
-  }
-
-  if( FD_LIKELY( ro.lamports ) ) {
-    fd_vote_state_versioned_t vsv[1];
-    if( FD_LIKELY( fd_vote_state_versioned_deserialize( vsv, ro.data, ro.data_len ) ) ) {
-      fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( vsv );
-      if( !deq_fd_vote_epoch_credits_t_empty( ec ) ) {
-        fd_vote_epoch_credits_t const * last_ec = deq_fd_vote_epoch_credits_t_peek_tail_const( ec );
-        if( last_ec->epoch==bank->f.epoch ) {
-          epoch_credits = last_ec->credits;
-        }
-      }
-    }
-  }
-  fd_accdb_unread_one( ctx->accdb, &ro );
-
-  FD_MGAUGE_SET( REPLAY, EPOCH_CREDITS,                epoch_credits                         );
-  FD_MGAUGE_SET( REPLAY, IS_VOTE_ACCOUNT_INADMISSIBLE, (ulong)ctx->vote_account_inadmissible );
-}
-
-static void
-update_metric_active_stake( fd_bank_t const *   bank,
-                            fd_pubkey_t const * vote_key ) {
-  ulong my_active_stake  = 0UL;
-  ulong tot_active_stake = bank->f.total_epoch_stake;
-
-  fd_vote_stakes_ele_t ele[1];
-  if( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, ele ) ) my_active_stake = ele->stake;
-
-  FD_MGAUGE_SET( REPLAY, ACTIVE_STAKE_LAMPORTS,         my_active_stake  );
-  FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, tot_active_stake );
-}
-
-/* vote_account_is_current returns 1 if the validator is current (not
-   delinquent). */
-
-static inline int
-vote_account_is_current( ulong cur_slot,
-                         ulong last_vote_slot ) {
-  return last_vote_slot!=ULONG_MAX &&
-         (cur_slot<last_vote_slot || cur_slot-last_vote_slot<DELINQUENT_VALIDATOR_SLOT_DISTANCE);
-}
-
-/* update_delinquent_stake recomputes delinquent stake over the T-2
-   vote-stake set, the only one exposing last_vote_slot and is_valid
-   (per-fork state in vacc_states).  A single pass O(n) approximation,
-   so the percentage may differ slightly from the GUI's. */
-
-static void
-update_delinquent_stake( fd_replay_tile_t * ctx,
-                         fd_bank_t const *  bank ) {
-  if( FD_UNLIKELY( !ctx->wait_info ) ) return; /* not in this topology */
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
-  ulong              cur_slot    = bank->f.slot;
-  ulong              delinquent  = 0UL;
-  ulong              total       = 0UL;
-
-  if( FD_LIKELY( ctx->delinquent_known &&
-                 cur_slot<ctx->delinquent_sample_slot+DELINQUENT_SAMPLE_SLOTS ) ) return;
-  /* Slots arrive out of order across forks, so hold the watermark. */
-  ctx->delinquent_sample_slot = fd_ulong_max( ctx->delinquent_sample_slot, cur_slot );
-
-  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
-       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
-       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
-    fd_vote_stakes_ele_t ele[1];
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
-    if( FD_UNLIKELY( !ele->is_valid ) ) continue;
-    total += ele->stake;
-    if( FD_UNLIKELY( !vote_account_is_current( cur_slot, ele->last_vote_slot ) ) ) {
-      delinquent += ele->stake;
-    }
-  }
-
-  ctx->delinquent_stake_lamports     = delinquent;
-  ctx->cluster_active_stake_lamports = total;
-  ctx->delinquent_known              = 1;
-}
-
-static void
-update_metric_balances( fd_replay_tile_t * ctx,
-                        fd_bank_t *        bank ) {
-  fd_accdb_fork_id_t fork_id = bank->accdb_fork_id;
-  fd_node_info_t node_info[1]; fd_node_info_read( node_info, ctx->node_info );
-  if( !fd_pubkey_check_zero( &node_info->identity ) ) {
-    update_metric_identity_balance( ctx, fork_id, &node_info->identity );
-  }
-
-  if( !fd_pubkey_check_zero( &node_info->vote_account ) ) {
-    update_metric_vote_account( ctx, bank, fork_id, &node_info->vote_account );
-    update_metric_active_stake(      bank,          &node_info->vote_account );
-  }
-
-  /* last_vote_slot only advances on a landed vote transaction, so this
-     is meaningless under Alpenglow. */
-  if( FD_LIKELY( !ctx->alpenglow ) ) update_delinquent_stake( ctx, bank );
 }
 
 static void
