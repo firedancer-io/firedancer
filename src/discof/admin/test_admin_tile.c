@@ -5,17 +5,13 @@
 
 static fd_admin_tile_ctx_t ctx;
 static fd_keyswitch_t      voter [1];
-static fd_keyswitch_t      txsend[1];
 static fd_keyswitch_t      sign  [ TEST_SIGN_CNT ];
 
 static void
-setup( int alpenglow ) {
+setup( void ) {
   memset( &ctx, 0, sizeof(ctx) );
-  ctx.alpenglow           = alpenglow;
-  ctx.voter_name          = alpenglow ? "votor" : "tower";
   ctx.voter_av_keyswitch  = fd_keyswitch_join( fd_keyswitch_new( voter,  FD_KEYSWITCH_STATE_UNLOCKED ) );
-  ctx.txsend_av_keyswitch = fd_keyswitch_join( fd_keyswitch_new( txsend, FD_KEYSWITCH_STATE_UNLOCKED ) );
-  FD_TEST( ctx.voter_av_keyswitch && ctx.txsend_av_keyswitch );
+  FD_TEST( ctx.voter_av_keyswitch );
   for( ulong i=0UL; i<TEST_SIGN_CNT; i++ ) {
     ctx.sign_av_keyswitch[ i ] = fd_keyswitch_join( fd_keyswitch_new( &sign[ i ], FD_KEYSWITCH_STATE_UNLOCKED ) );
     FD_TEST( ctx.sign_av_keyswitch[ i ] );
@@ -37,12 +33,11 @@ sign_complete( void ) {
   for( ulong i=0UL; i<TEST_SIGN_CNT; i++ ) fd_keyswitch_state( &sign[ i ], FD_KEYSWITCH_STATE_COMPLETED );
 }
 
-/* The sign tiles learn a new authorized voter before the vote producing
-   tile (tower, or votor under Alpenglow) does. */
+/* The sign tiles learn a new authorized voter before votor does. */
 
 static void
-test_add_authorized_voter( int alpenglow ) {
-  setup( alpenglow );
+test_add_authorized_voter( void ) {
+  setup();
   uchar keypair[ 64 ]; memset( keypair, 0x33, sizeof(keypair) );
   ulong result = 0UL;
   ulong state  = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
@@ -73,16 +68,13 @@ test_add_authorized_voter( int alpenglow ) {
   fd_keyswitch_state( voter, FD_KEYSWITCH_STATE_UNLOCKED );
   poll_add_authorized_voter( &ctx, &state, keypair, &result );
   FD_TEST( state==FD_ADD_AUTH_VOTER_STATE_UNLOCKED && !result );
-  FD_TEST( txsend->state==FD_KEYSWITCH_STATE_UNLOCKED );
 }
 
-/* The vote producing tile drops its authorized voters before the sign
-   tiles do.  Only the tower's votes pass through TxSend, so only the
-   tower path drains it. */
+/* Votor drops its authorized voters before the sign tiles do. */
 
 static void
-test_remove_all_authorized_voters( int alpenglow ) {
-  setup( alpenglow );
+test_remove_all_authorized_voters( void ) {
+  setup();
   ulong state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED;
 
   poll_remove_all_authorized_voters( &ctx, &state );
@@ -97,18 +89,6 @@ test_remove_all_authorized_voters( int alpenglow ) {
   fd_keyswitch_state( voter, FD_KEYSWITCH_STATE_COMPLETED );
   poll_remove_all_authorized_voters( &ctx, &state );
   FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_CLEARED );
-
-  poll_remove_all_authorized_voters( &ctx, &state );
-  if( alpenglow ) {
-    FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED );
-    FD_TEST( txsend->state==FD_KEYSWITCH_STATE_UNLOCKED );
-  } else {
-    FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED );
-    FD_TEST( txsend->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && txsend->param==42UL );
-    fd_keyswitch_state( txsend, FD_KEYSWITCH_STATE_COMPLETED );
-    poll_remove_all_authorized_voters( &ctx, &state );
-    FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED );
-  }
   sign_expect( FD_KEYSWITCH_STATE_UNLOCKED, 0UL );
 
   poll_remove_all_authorized_voters( &ctx, &state );
@@ -137,151 +117,80 @@ mock_tile( char const * name ) {
   return ks;
 }
 
-/* Votor and rotor stand in for tower and repair under Alpenglow: they
-   stop signing before the sign tiles switch keys, and resume after.
-   Alpenglow has no TxSend tile to drain. */
+/* Votor and rotor stop signing before the sign tiles switch keys, and
+   resume after. */
 
 static void
-test_set_identity( int alpenglow ) {
-  setup( alpenglow );
+test_set_identity( void ) {
+  setup();
   FD_TEST( fd_topob_new( test_topo, "admin-test" ) );
   fd_topob_wksp( test_topo, "wksp" )->wksp = NULL;
   fd_keyswitch_t * replay_ks = mock_tile( "replay" );
-  fd_keyswitch_t * repair_ks = mock_tile( alpenglow ? "rotor" : "repair" );
-  fd_keyswitch_t * voter_ks  = mock_tile( ctx.voter_name );
-  fd_keyswitch_t * txsend_ks = alpenglow ? NULL : mock_tile( "txsend" );
+  fd_keyswitch_t * repair_ks = mock_tile( "rotor" );
+  fd_keyswitch_t * voter_ks  = mock_tile( "votor" );
   fd_keyswitch_t * gossip_ks = mock_tile( "gossip" );
   fd_keyswitch_t * sign_ks   = mock_tile( "sign" );
   fd_keyswitch_t * gui_ks    = mock_tile( "gui" );
   ctx.topo = test_topo;
 
   uchar keypair[ 64 ]; memset( keypair, 0x44, sizeof(keypair) );
-  static fd_tower_file_t tower_file_[1];
-  memset( tower_file_, 0x55, sizeof(fd_tower_file_t) );
-  fd_tower_file_t const * tower_file        = alpenglow ? NULL : tower_file_;
-  ulong                   vote_history_slot = alpenglow ? 8UL  : 0UL;
+  ulong vote_history_slot = 8UL;
   ulong state = FD_SET_IDENTITY_STATE_UNLOCKED;
 
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_LOCKED && replay_ks->state==FD_KEYSWITCH_STATE_LOCKED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_REPLAY_HALT_REQUESTED && replay_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
   replay_ks->result = 40UL;
   fd_keyswitch_state( replay_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_REPLAY_HALTED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_VOTER_HALT_REQUESTED );
   FD_TEST( voter_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && voter_ks->param==40UL );
-  if(  alpenglow ) FD_TEST( FD_LOAD( ulong, voter_ks->bytes+32UL )==8UL );
-  if( !alpenglow ) FD_TEST( FD_LOAD( ulong, voter_ks->bytes+32UL )==sizeof(fd_tower_file_t) && !memcmp( voter_ks->bytes+40UL, tower_file_, sizeof(fd_tower_file_t) ) );
+  FD_TEST( FD_LOAD( ulong, voter_ks->bytes+32UL )==8UL );
   voter_ks->result = 42UL;
   fd_keyswitch_state( voter_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_VOTER_HALTED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
-  if( !alpenglow ) {
-    FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED );
-    FD_TEST( txsend_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && txsend_ks->param==42UL );
-    txsend_ks->result = 7UL;
-    fd_keyswitch_state( txsend_ks, FD_KEYSWITCH_STATE_COMPLETED );
-    poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
-  }
-  FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSHED );
-
-  /* Gossip must push the old identity votes TxSend published before it
-     halts. */
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED );
   FD_TEST( repair_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && voter_ks->state==FD_KEYSWITCH_STATE_COMPLETED );
-  FD_TEST( gossip_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && gossip_ks->param==( alpenglow ? 0UL : 7UL ) );
+  FD_TEST( gossip_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && gossip_ks->param==0UL );
   FD_TEST( sign_ks->state==FD_KEYSWITCH_STATE_UNLOCKED && gui_ks->state==FD_KEYSWITCH_STATE_UNLOCKED );
   fd_keyswitch_state( repair_ks, FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( gossip_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_HALTED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED );
   FD_TEST( sign_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && gui_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
   FD_TEST( repair_ks->state==FD_KEYSWITCH_STATE_COMPLETED && voter_ks->state==FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( sign_ks, FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( gui_ks,  FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_ALL_SWITCHED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED );
   FD_TEST( repair_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING && voter_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
   FD_TEST( gossip_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING && gossip_ks->param==0UL /* identity_outset */ );
   FD_TEST( gui_ks->state==FD_KEYSWITCH_STATE_COMPLETED );
-  if( !alpenglow ) FD_TEST( txsend_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
   fd_keyswitch_state( repair_ks, FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( voter_ks,  FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( gossip_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  if( !alpenglow ) fd_keyswitch_state( txsend_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot );
+  poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot );
   FD_TEST( state==FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED && replay_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
   fd_keyswitch_state( replay_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  FD_TEST( poll_set_identity( &ctx, &state, 0UL, keypair, tower_file, vote_history_slot ) );
+  FD_TEST( poll_set_identity( &ctx, &state, 0UL, keypair, vote_history_slot ) );
   FD_TEST( state==FD_SET_IDENTITY_STATE_UNLOCKED && replay_ks->state==FD_KEYSWITCH_STATE_UNLOCKED );
-}
-
-/* The admin tile decodes the tower file, or takes the slot the command
-   scanned from an Alpenglow vote history file, and rejects an invalid
-   tower file, or a file for the other voter, before switching. */
-
-static uchar adminctl_mem[ 1UL<<18 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)));
-
-static void
-test_set_identity_invalid_vote_history( int alpenglow ) {
-  setup( alpenglow );
-  FD_TEST( fd_sha512_join( fd_sha512_new( ctx.sha512 ) ) );
-  FD_TEST( fd_adminctl_footprint()<=sizeof(adminctl_mem) );
-  ctx.adminctl = fd_adminctl_join( fd_adminctl_new( adminctl_mem ) );
-  FD_TEST( ctx.adminctl );
-
-  void * payload;
-  ulong  payload_max;
-  ulong  slot_idx = fd_adminctl_reserve( ctx.adminctl, &payload, &payload_max );
-  FD_TEST( slot_idx!=ULONG_MAX && payload_max>=sizeof(fd_adminctl_set_identity_t) );
-  fd_adminctl_set_identity_t * req = payload;
-  req->version         = FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION;
-  req->tower_file_sz   = 1UL;
-  memset( req->keypair, 0x44, 32UL );
-  fd_ed25519_public_from_private( req->keypair+32UL, req->keypair, ctx.sha512 );
-  fd_adminctl_publish( ctx.adminctl, slot_idx, FD_ADMINCTL_CMD_SET_IDENTITY, sizeof(fd_adminctl_set_identity_t) );
-
-  ulong  poll_idx;
-  void * data;
-  ulong  data_sz;
-  FD_TEST( fd_adminctl_poll( ctx.adminctl, &poll_idx, &data, &data_sz )==FD_ADMINCTL_CMD_SET_IDENTITY );
-  set_identity( &ctx, poll_idx, data, data_sz );
-  FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY );
-  if( alpenglow ) return;
-
-  /* tower rejects a slot scanned from a vote history file */
-
-  slot_idx = fd_adminctl_reserve( ctx.adminctl, &payload, &payload_max );
-  FD_TEST( slot_idx!=ULONG_MAX );
-  req = payload;
-  req->version           = FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION;
-  req->vote_history_slot = 8UL;
-  req->tower_file_sz     = 0UL;
-  memset( req->keypair, 0x44, 32UL );
-  fd_ed25519_public_from_private( req->keypair+32UL, req->keypair, ctx.sha512 );
-  fd_adminctl_publish( ctx.adminctl, slot_idx, FD_ADMINCTL_CMD_SET_IDENTITY, sizeof(fd_adminctl_set_identity_t) );
-  ulong cmd = FD_ADMINCTL_CMD_IDLE;
-  for( ulong i=0UL; i<FD_ADMINCTL_SLOT_CNT && cmd==FD_ADMINCTL_CMD_IDLE; i++ ) cmd = fd_adminctl_poll( ctx.adminctl, &poll_idx, &data, &data_sz );
-  FD_TEST( cmd==FD_ADMINCTL_CMD_SET_IDENTITY );
-  set_identity( &ctx, poll_idx, data, data_sz );
-  FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY );
 }
 
 int
@@ -289,14 +198,9 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  test_add_authorized_voter( 0 );
-  test_add_authorized_voter( 1 );
-  test_remove_all_authorized_voters( 0 );
-  test_remove_all_authorized_voters( 1 );
-  test_set_identity( 0 );
-  test_set_identity( 1 );
-  test_set_identity_invalid_vote_history( 0 );
-  test_set_identity_invalid_vote_history( 1 );
+  test_add_authorized_voter();
+  test_remove_all_authorized_voters();
+  test_set_identity();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
