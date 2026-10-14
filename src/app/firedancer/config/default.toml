@@ -1749,6 +1749,17 @@ telemetry = true
         # revert to the "balanced" strategy.
         schedule_strategy = "balanced"
 
+        # Bundles that the block engine sends before this validator's
+        # leader slots start were built against older state and almost
+        # always fail, but a few of them pay large tips.  Pack keeps at
+        # most this many of them, the ones that declare the largest
+        # tips, and runs them only when no bundle that arrived during
+        # the leader slots is waiting.  Bundles that arrive during the
+        # leader slots always run first, in the order they arrived.
+        # Setting this to 0 runs every bundle in the order it arrived.
+        # At most 64.
+        stale_bundle_capacity = 16
+
         # If the pack tile receives a transaction that reads from or
         # writes to an address in the account_blocklist, it will reject
         # the transaction immediately and not consider it for inclusion

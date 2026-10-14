@@ -458,6 +458,18 @@ remove_ib( fd_pack_ctx_t * ctx ) {
   ctx->crank->ib_inserted = 0;
 }
 
+/* leader_slot_end_stale: called when packing for ctx->leader_slot ends.
+   Bundles that arrive from the end of the last slot of one of our
+   4-slot leader rotations until we next become leader were built
+   before our slots started, so they go to pack's stale treap (see
+   fd_pack_set_insert_stale).  Between two slots of the same rotation
+   they stay fresh. */
+static inline void
+leader_slot_end_stale( fd_pack_ctx_t * ctx ) {
+  int last_in_rotation = (ctx->leader_slot%FD_EPOCH_SLOTS_PER_ROTATION)==(FD_EPOCH_SLOTS_PER_ROTATION-1UL);
+  fd_pack_set_insert_stale( ctx->pack, last_in_rotation );
+}
+
 /* Bundle failure and dual-lane observability helpers.  See
    bundle-failure-metrics-design.md, fd_pack_bundle_obs.h and
    fd_pack_dual_lane.h. */
@@ -1184,6 +1196,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
     obs_leader_end( ctx );
     ctx->drain_execle        = 1;
+    leader_slot_end_stale( ctx );
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     remove_ib( ctx );
@@ -1480,6 +1493,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
     obs_leader_end( ctx );
     ctx->drain_execle        = 1;
+    leader_slot_end_stale( ctx );
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     remove_ib( ctx );
@@ -1672,6 +1686,7 @@ after_frag( fd_pack_ctx_t *     ctx,
         auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
         obs_leader_end( ctx );
         ctx->drain_execle        = 1;
+        leader_slot_end_stale( ctx );
         ctx->leader_slot         = ULONG_MAX;
         ctx->slot_microblock_cnt = 0UL;
         remove_ib( ctx );
@@ -1711,11 +1726,13 @@ after_frag( fd_pack_ctx_t *     ctx,
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining execle tiles.", leader_slot, ctx->leader_slot ));
       obs_leader_end( ctx );
       ctx->drain_execle        = 1;
+      leader_slot_end_stale( ctx );
       ctx->leader_slot         = ULONG_MAX;
       ctx->slot_microblock_cnt = 0UL;
       remove_ib( ctx );
     }
     ctx->leader_slot = leader_slot;
+    fd_pack_set_insert_stale( ctx->pack, 0 );
     ctx->block_height = ctx->_became_leader->block_height;
 
     ctx->slot_pack_start_ns  = now_ns;
@@ -2065,6 +2082,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->auction_spacing_tick          = (long)(tick_per_ns*(double)FD_PACK_AUCTION_SPACING_NS);
   ctx->auction_interval_tick         = (long)(tick_per_ns*(double)FD_PACK_AUCTION_INTERVAL_NS);
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
+  /* Not leader yet, so bundles that arrive now are stale */
+  fd_pack_set_stale_bundle_capacity( ctx->pack, tile->pack.stale_bundle_capacity );
+  fd_pack_set_insert_stale( ctx->pack, 1 );
   ctx->bench_max_shreds_per_block    = tile->pack.bench_max_shreds_per_block;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
 

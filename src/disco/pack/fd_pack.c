@@ -75,6 +75,11 @@ struct fd_pack_private_ord_txn {
      expires_at value for nonce transactions is rewritten */
   ulong  nonce_expires_at;
 
+  /* stale_tip: for a transaction in the stale bundle treap, the
+     declared tip of its bundle, which is the primary sort key of that
+     treap.  Not used otherwise. */
+  ulong  stale_tip;
+
   /* We want rewards*compute_est to fit in a ulong so that r1/c1 < r2/c2 can be
      computed as r1*c2 < r2*c1, with the product fitting in a ulong.
      compute_est has a small natural limit of mid-20 bits. rewards doesn't have
@@ -129,6 +134,7 @@ FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn_e->txnp  )==0UL, fd_pack_ord_
 #define FD_ORD_TXN_ROOT_PENDING_BUNDLE  2
 #define FD_ORD_TXN_ROOT_PENALTY( idx ) (3 | (idx)<<8)
 #define FD_ORD_TXN_ROOT_NEXT_AUCTION    4
+#define FD_ORD_TXN_ROOT_STALE_BUNDLE    5
 
 /* if root & TAG_MASK == PENALTY, then PENALTY_ACCT_IDX(root) gives the index
    in the transaction's list of account addresses of which penalty treap the
@@ -253,6 +259,26 @@ typedef struct fd_pack_wcost_ele fd_pack_wcost_ele_t;
 #define TREAP_IDX_T     ushort
 #define TREAP_OPTIMIZE_ITERATION 1
 #define TREAP_LT        COMPARE_WORSE
+#include "../../util/tmpl/fd_treap.c"
+
+/* The stale bundle treap holds bundles that arrived while we were not
+   leader, best first by declared tip.  Bundles with equal tips (and the
+   transactions within a bundle) are ordered by the usual bundle
+   encoding of rewards, i.e. insertion order.  It is a separate treap
+   type only because the order is different.  Both treap types are
+   instantiated over the same pool with TREAP_OPTIMIZE_ITERATION, so
+   both link their elements in order through the same prev/next fields,
+   and in-order iteration from an element (treap_{fwd,rev}_iter_next,
+   _ele, _done) works the same in either. */
+#define STALE_WORSE(x,y) ( ((x)->stale_tip<(y)->stale_tip) | (((x)->stale_tip==(y)->stale_tip) & COMPARE_WORSE(x,y)) )
+
+#define TREAP_T         fd_pack_ord_txn_t
+#define TREAP_NAME      stale_treap
+#define TREAP_QUERY_T   void *
+#define TREAP_CMP(a,b)  (__extension__({ (void)(a); (void)(b); -1; }))
+#define TREAP_IDX_T     ushort
+#define TREAP_OPTIMIZE_ITERATION 1
+#define TREAP_LT        STALE_WORSE
 #include "../../util/tmpl/fd_treap.c"
 
 
@@ -625,6 +651,20 @@ struct fd_pack_private {
   treap_t next_auction[1];
   int     auction_running;
 
+  /* stale_bundles: bundles inserted while insert_stale was set, i.e.
+     while we were not leader, best declared tip first.  It holds at
+     most stale_capacity bundles (stale_bundle_cnt of them now).  They
+     are only scheduled when no bundle in pending_bundles can be.
+     stale_bundle_idx is the bundle index the next stale bundle gets in
+     the rewards encoding, like relative_bundle_idx is for
+     pending_bundles.  stale_capacity==0 disables all of this, and
+     every bundle goes to pending_bundles. */
+  stale_treap_t stale_bundles[1];
+  ulong         stale_capacity;
+  ulong         stale_bundle_cnt;
+  ulong         stale_bundle_idx;
+  int           insert_stale;
+
   /* penalty_treaps: an fd_map_dynamic mapping hotly contended account
      addresses to treaps of transactions that write to them.  We try not
      to allow more than roughly PENALTY_TREAP_THRESHOLD transactions in
@@ -804,7 +844,7 @@ FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_
 
 /* Forward-declare some helper functions */
 static ulong delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap, int bundle_leave_reason );
-static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
+static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at, int stale );
 
 FD_FN_PURE ulong
 fd_pack_footprint( ulong                    pack_depth,
@@ -956,6 +996,12 @@ fd_pack_new( void                   * mem,
   treap_new( (void*)pack->pending_bundles, pack_depth+extra_depth );
   treap_new( (void*)pack->next_auction,    pack_depth+extra_depth );
   pack->auction_running = 0;
+
+  stale_treap_new( (void*)pack->stale_bundles, pack_depth+extra_depth );
+  pack->stale_capacity   = 0UL;
+  pack->stale_bundle_cnt = 0UL;
+  pack->stale_bundle_idx = 1UL;
+  pack->insert_stale     = 0;
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
@@ -1282,7 +1328,7 @@ delete_worst( fd_pack_t * pack,
 
     int       root_idx   = sample->root;
     float     multiplier = 0.0f; /* The smaller this is, the more biased we'll be to deleting it */
-    treap_t * treap;
+    treap_t * treap      = NULL; /* NULL for the stale treap, which is a different type */
     switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
       default:
       case FD_ORD_TXN_ROOT_FREE: {
@@ -1313,6 +1359,11 @@ delete_worst( fd_pack_t * pack,
         multiplier = 1e20f;
         break;
       }
+      case FD_ORD_TXN_ROOT_STALE_BUNDLE: {
+        /* Same reasoning as for pending bundles */
+        multiplier = 1e20f;
+        break;
+      }
       case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
         fd_txn_t * txn = TXN( sample->txn );
         fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, sample->txn->payload );
@@ -1328,7 +1379,7 @@ delete_worst( fd_pack_t * pack,
       }
     }
     /* Get the worst from the sampled treap */
-    treap_fwd_iter_t _cur=treap_fwd_iter_init( treap, pack->pool );
+    treap_fwd_iter_t _cur = treap ? treap_fwd_iter_init( treap, pack->pool ) : stale_treap_fwd_iter_init( pack->stale_bundles, pack->pool );
     FD_TEST( !treap_fwd_iter_done( _cur ) ); /* It can't be empty because we just sampled an element from it. */
     sample = treap_fwd_iter_ele( _cur, pack->pool );
 
@@ -1597,7 +1648,8 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( is_durable_nonce ) ) {
     fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, txne, NULL, pack->pool );
     if( FD_LIKELY( same_nonce ) ) { /* Seems like most nonce transactions are effectively duplicates */
-      if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || same_nonce->nonce_expires_at>expires_at ||
+      if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || same_nonce->root == FD_ORD_TXN_ROOT_STALE_BUNDLE ||
+            same_nonce->nonce_expires_at>expires_at ||
             (same_nonce->nonce_expires_at==expires_at && COMPARE_WORSE( ord, same_nonce ) ) ) ) REJECT( NONCE_PRIORITY );
       ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0, FD_PACK_BUNDLE_LEAVE_REPLACED ); /* Not a bundle, so delete_full_bundle is 0 */
       *delete_cnt += _delete_cnt;
@@ -1664,6 +1716,54 @@ fd_pack_insert_bundle_cancel( fd_pack_t          * pack,
 #define BUNDLE_N       313721UL
 #define RC_TO_REL_BUNDLE_IDX( r, c ) (BUNDLE_N - ((ulong)(r) * 1UL<<32)/((ulong)(c) * BUNDLE_L_PRIME))
 
+/* bundle_txn_declared_tip returns the lamports ord sends to the Jito
+   tip accounts with top-level System program transfers.  Tips paid
+   through a CPI are not visible. */
+static ulong
+bundle_txn_declared_tip( fd_pack_ord_txn_t const * ord ) {
+  fd_txn_t       const * txn     = TXN( ord->txn );
+  uchar          const * payload = ord->txn->payload;
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
+  ulong                  imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  ulong                  alt_cnt = (ulong)txn->addr_table_adtl_cnt;
+
+  ulong tip = 0UL;
+  for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = &txn->instr[ i ];
+    uchar          const * data  = payload + instr->data_off;
+    uchar          const * prog  = accts[ instr->program_id ].b; /* program ids are always static */
+    int is_system = (fd_ulong_load_8( prog )|fd_ulong_load_8( prog+8UL )|fd_ulong_load_8( prog+16UL )|fd_ulong_load_8( prog+24UL ))==0UL;
+    /* System program Transfer: u32 discriminant 2, u64 lamports */
+    if( FD_LIKELY( !is_system || instr->data_sz!=12 || instr->acct_cnt<2 || fd_uint_load_4( data )!=2U ) ) continue;
+
+    ulong dst_idx = (ulong)payload[ instr->acct_off+1UL ];
+    fd_acct_addr_t const * dst = NULL;
+    if( FD_LIKELY( dst_idx<imm_cnt ) )   dst = accts + dst_idx;
+    else if( (dst_idx-imm_cnt)<alt_cnt ) dst = ord->txn_e->alt_accts + (dst_idx-imm_cnt);
+    if( dst && fd_pack_tip_is_tip_account( dst ) ) tip = fd_ulong_sat_add( tip, fd_ulong_load_8( data+4UL ) );
+  }
+  return tip;
+}
+
+/* stale_bundles_remove removes the transaction at pool index idx from
+   the stale treap.  Every removal from the stale treap goes through
+   here so that stale_bundle_cnt stays exact: a bundle stops counting
+   when the last of its transactions still in the treap is removed.  A
+   bundle's transactions are adjacent in the treap, so that's the case
+   when neither neighbor has the same bundle index. */
+static inline void
+stale_bundles_remove( fd_pack_t * pack,
+                      ulong       idx ) {
+  fd_pack_ord_txn_t * pool       = pack->pool;
+  ulong               bundle_idx = RC_TO_REL_BUNDLE_IDX( pool[ idx ].rewards, pool[ idx ].compute_est );
+  stale_treap_rev_iter_t prev    = stale_treap_rev_iter_next( idx, pool );
+  stale_treap_fwd_iter_t next    = stale_treap_fwd_iter_next( idx, pool );
+  int more = (!stale_treap_rev_iter_done( prev ) && RC_TO_REL_BUNDLE_IDX( pool[ prev ].rewards, pool[ prev ].compute_est )==bundle_idx) ||
+             (!stale_treap_fwd_iter_done( next ) && RC_TO_REL_BUNDLE_IDX( pool[ next ].rewards, pool[ next ].compute_est )==bundle_idx);
+  pack->stale_bundle_cnt -= (ulong)!more;
+  stale_treap_idx_remove( pack->stale_bundles, idx, pool );
+}
+
 int
 fd_pack_insert_bundle_fini( fd_pack_t          * pack,
                             fd_txn_e_t * const * bundle,
@@ -1677,13 +1777,16 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
   *delete_cnt = 0UL;
 
   ulong pending_b_txn_cnt = treap_ele_cnt( pack->pending_bundles );
+  /* A bundle inserted while insert_stale is set goes to the stale treap
+     instead, which bounds its size by stale_capacity (see below). */
+  int stale = pack->insert_stale & (pack->stale_capacity>0UL) & (!initializer_bundle);
     /* We want to prevent bundles from consuming the whole treap, but in
        general, we assume bundles are lucrative.  We'll set the policy
        on capping bundles at half of the pack depth.  We assume that the
        bundles are coming in a pre-prioritized order, so it doesn't make
        sense to drop an earlier bundle for this one.  That means that
        really, the best thing to do is drop this one. */
-  if( FD_UNLIKELY( (!initializer_bundle)&(pending_b_txn_cnt+txn_cnt>pack->pack_depth/2UL) ) ) err = FD_PACK_INSERT_REJECT_PRIORITY;
+  if( FD_UNLIKELY( (!initializer_bundle)&(!stale)&(pending_b_txn_cnt+txn_cnt>pack->pack_depth/2UL) ) ) err = FD_PACK_INSERT_REJECT_PRIORITY;
 
   if( FD_UNLIKELY( expires_at<pack->expire_before                                         ) ) err = FD_PACK_INSERT_REJECT_EXPIRED;
 
@@ -1771,6 +1874,26 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     if( FD_UNLIKELY( is_ib && 0UL==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) {
       ulong _delete_cnt = delete_transaction( pack, cur, 1, 0, FD_PACK_BUNDLE_LEAVE_REPLACED );
       *delete_cnt += _delete_cnt;
+    }
+  }
+
+  ulong stale_tip = 0UL;
+  if( FD_UNLIKELY( stale ) ) {
+    for( ulong i=0UL; i<txn_cnt; i++ ) stale_tip = fd_ulong_sat_add( stale_tip, bundle_txn_declared_tip( (fd_pack_ord_txn_t *)bundle[ i ] ) );
+
+    /* When the stale treap is full, this bundle only gets in by
+       declaring a larger tip than the worst one there, which it then
+       replaces.  On a tie, the bundle that arrived first stays. */
+    if( FD_UNLIKELY( pack->stale_bundle_cnt>=pack->stale_capacity ) ) {
+      fd_pack_ord_txn_t * worst = stale_treap_fwd_iter_ele( stale_treap_fwd_iter_init( pack->stale_bundles, pack->pool ), pack->pool );
+      if( FD_UNLIKELY( stale_tip<=worst->stale_tip ) ) {
+        FD_MCNT_INC( PACK, STALE_BUNDLE_REJECTED, 1UL );
+        fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
+        return FD_PACK_INSERT_REJECT_PRIORITY;
+      }
+      *delete_cnt += delete_transaction( pack, worst, 1, 0, FD_PACK_BUNDLE_LEAVE_EVICTED );
+      FD_MCNT_INC( PACK, STALE_BUNDLE_EVICTED, 1UL );
+      replaces = 1;
     }
   }
 
@@ -1915,13 +2038,29 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 #define BUNDLE_L_PRIME 37896771UL
 #define BUNDLE_N       313721UL
 
+  if( FD_UNLIKELY( stale ) ) {
+    /* Same encoding, with the stale treap's own index, which orders
+       stale bundles that declare equal tips. */
+    if( FD_UNLIKELY( !stale_treap_ele_cnt( pack->stale_bundles ) ) ) pack->stale_bundle_idx = 1UL;
+    if( FD_UNLIKELY( pack->stale_bundle_idx>BUNDLE_N ) ) {
+      FD_LOG_WARNING(( "Too many stale bundles inserted without allowing the stale treap to go empty. "
+                       "Ordering of bundles may be incorrect." ));
+      pack->stale_bundle_idx = 1UL;
+    }
+    for( ulong i=0UL; i<txn_cnt; i++ ) ((fd_pack_ord_txn_t *)bundle[ i ])->stale_tip = stale_tip;
+    insert_bundle_impl( pack, pack->stale_bundle_idx++, txn_cnt, (fd_pack_ord_txn_t * *)bundle, expires_at, 1 );
+    pack->stale_bundle_cnt++;
+    FD_MCNT_INC( PACK, STALE_BUNDLE_INSERTED, 1UL );
+    return (0) | (replaces<<1) | ((!!nonce_txn_cnt)<<2);
+  }
+
   if( FD_UNLIKELY( pack->relative_bundle_idx>BUNDLE_N ) ) {
     FD_LOG_WARNING(( "Too many bundles inserted without allowing pending bundles to go empty. "
                      "Ordering of bundles may be incorrect." ));
     pack->relative_bundle_idx = 1UL;
   }
   ulong bundle_idx = fd_ulong_if( initializer_bundle, 0UL, pack->relative_bundle_idx );
-  insert_bundle_impl( pack, bundle_idx, txn_cnt, (fd_pack_ord_txn_t * *)bundle, expires_at );
+  insert_bundle_impl( pack, bundle_idx, txn_cnt, (fd_pack_ord_txn_t * *)bundle, expires_at, 0 );
   /* if IB this is max( 1, x ), which is x.  Otherwise, this is max(x,
      x+1) which is x++ */
   pack->relative_bundle_idx = fd_ulong_max( bundle_idx+1UL, pack->relative_bundle_idx );
@@ -1933,7 +2072,8 @@ insert_bundle_impl( fd_pack_t           * pack,
                     ulong                 bundle_idx,
                     ulong                 txn_cnt,
                     fd_pack_ord_txn_t * * bundle,
-                    ulong                 expires_at ) {
+                    ulong                 expires_at,
+                    int                   stale ) {
   ulong prev_reward = ((BUNDLE_L_PRIME * (BUNDLE_N - bundle_idx))) - 1UL;
   ulong prev_cost = 1UL<<32;
 
@@ -1941,7 +2081,7 @@ insert_bundle_impl( fd_pack_t           * pack,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_pack_ord_txn_t * ord = bundle[ txn_cnt-1UL - i ];
     ord->rewards = (uint)(((ulong)ord->compute_est * (prev_reward + 1UL) + prev_cost-1UL)/prev_cost);
-    ord->root    = FD_ORD_TXN_ROOT_PENDING_BUNDLE;
+    ord->root    = fd_int_if( stale, FD_ORD_TXN_ROOT_STALE_BUNDLE, FD_ORD_TXN_ROOT_PENDING_BUNDLE );
     prev_reward = ord->rewards;
     prev_cost   = ord->compute_est;
 
@@ -1950,7 +2090,8 @@ insert_bundle_impl( fd_pack_t           * pack,
     uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
     populate_bitsets( pack, ord, penalties, penalty_idx );
 
-    treap_ele_insert( pack->pending_bundles, ord, pack->pool );
+    if( FD_UNLIKELY( stale ) ) stale_treap_ele_insert( pack->stale_bundles,   ord, pack->pool );
+    else                       treap_ele_insert      ( pack->pending_bundles, ord, pack->pool );
     pack->pending_txn_cnt++;
 
     if( FD_UNLIKELY( ord->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_insert( pack->noncemap, ord, pack->pool );
@@ -1968,6 +2109,8 @@ fd_pack_peek_bundle_meta( fd_pack_t const * pack ) {
   if( FD_UNLIKELY( (ib_state==FD_PACK_IB_STATE_PENDING) | (ib_state==FD_PACK_IB_STATE_FAILED) ) ) return NULL;
 
   treap_rev_iter_t _cur=treap_rev_iter_init( pack->pending_bundles, pack->pool );
+  /* With no fresh bundles, the stale bundle that would run next */
+  if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) _cur = stale_treap_rev_iter_init( pack->stale_bundles, pack->pool );
   if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) return NULL; /* empty */
 
   fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pack->pool );
@@ -1980,6 +2123,25 @@ fd_pack_peek_bundle_meta( fd_pack_t const * pack ) {
 void
 fd_pack_set_initializer_bundles_ready( fd_pack_t * pack ) {
   pack->initializer_bundle_state = FD_PACK_IB_STATE_READY;
+}
+
+void
+fd_pack_set_stale_bundle_capacity( fd_pack_t * pack,
+                                   ulong       capacity ) {
+  FD_TEST( capacity<=FD_PACK_STALE_CAPACITY_MAX );
+  FD_TEST( capacity>=pack->stale_bundle_cnt );
+  pack->stale_capacity = capacity;
+}
+
+void
+fd_pack_set_insert_stale( fd_pack_t * pack,
+                          int         stale ) {
+  pack->insert_stale = !!stale;
+}
+
+ulong
+fd_pack_stale_bundle_cnt( fd_pack_t const * pack ) {
+  return pack->stale_bundle_cnt;
 }
 
 void
@@ -2016,14 +2178,14 @@ fd_pack_bundle_attempt( fd_pack_t const * pack,
 
 ulong
 fd_pack_pending_bundle_txn_cnt( fd_pack_t const * pack ) {
-  return treap_ele_cnt( pack->pending_bundles );
+  return treap_ele_cnt( pack->pending_bundles ) + stale_treap_ele_cnt( pack->stale_bundles );
 }
 
 void
 fd_pack_metrics_write( fd_pack_t const * pack ) {
   ulong pending_regular = treap_ele_cnt( pack->pending        );
   ulong pending_votes  = 0UL;
-  ulong pending_bundle = treap_ele_cnt( pack->pending_bundles );
+  ulong pending_bundle = treap_ele_cnt( pack->pending_bundles ) + stale_treap_ele_cnt( pack->stale_bundles );
   ulong next_auction   = treap_ele_cnt( pack->next_auction    );
   ulong conflicting    = pack->pending_txn_cnt - pending_votes - pending_bundle - next_auction - treap_ele_cnt( pack->pending );
   ulong smallest_cost  = fd_ulong_if( pack->pending_smallest->cus==ULONG_MAX, 0UL, pack->pending_smallest->cus );
@@ -2032,6 +2194,7 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
   FD_MGAUGE_SET( PACK, TXN_PENDING_USED_CONFLICTING,  conflicting                 );
   FD_MGAUGE_SET( PACK, TXN_PENDING_USED_BUNDLE,       pending_bundle              );
   FD_MGAUGE_SET( PACK, TXN_PENDING_USED_NEXT_AUCTION, next_auction                );
+  FD_MGAUGE_SET( PACK, STALE_BUNDLE_PENDING,          pack->stale_bundle_cnt      );
   FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_COST,     smallest_cost               );
   FD_MGAUGE_SET( PACK, BLOCK_COST,                    pack->cumulative_block_cost );
 
@@ -2525,7 +2688,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   fd_pack_ord_txn_t * pool    = pack->pool;
   treap_t           * bundles = pack->pending_bundles;
 
-  if( FD_UNLIKELY( !treap_ele_cnt( bundles ) ) ) {
+  if( FD_UNLIKELY( !treap_ele_cnt( bundles ) & !stale_treap_ele_cnt( pack->stale_bundles ) ) ) {
     pack->bundle_attempt = FD_PACK_BUNDLE_ATTEMPT_EMPTY;
     return TRY_BUNDLE_NO_READY_BUNDLES;
   }
@@ -2545,6 +2708,25 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   while( FD_UNLIKELY( !treap_rev_iter_done( _cur ) && treap_rev_iter_ele( _cur, pool )->skip==pack->compressed_slot_number ) ) {
     _cur = treap_rev_iter_next( _cur, pool );
     pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_DEFERRED_IDX ]++;
+  }
+
+  /* If no fresh bundle can be scheduled in this block, try the stale
+     bundle with the largest declared tip.  The initializer bundle is
+     never stale, so this needs it to be READY.  From here on, _cur may
+     point into the stale treap, which iterates the same way (see
+     STALE_WORSE). */
+  int from_stale = 0;
+  if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) {
+    if( FD_UNLIKELY( require_ib & !!stale_treap_ele_cnt( pack->stale_bundles ) ) ) {
+      pack->bundle_attempt = FD_PACK_BUNDLE_ATTEMPT_IB_WAIT;
+      return TRY_BUNDLE_NO_READY_BUNDLES;
+    }
+    _cur = stale_treap_rev_iter_init( pack->stale_bundles, pool );
+    while( FD_UNLIKELY( !stale_treap_rev_iter_done( _cur ) && stale_treap_rev_iter_ele( _cur, pool )->skip==pack->compressed_slot_number ) ) {
+      _cur = stale_treap_rev_iter_next( _cur, pool );
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_RESULT_V_WRITE_COST_DEFERRED_IDX ]++;
+    }
+    from_stale = 1;
   }
 
   if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) {
@@ -2751,6 +2933,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   pack->outstanding_microblock_mask |= bank_tile_mask;
   pack->inflight_gen++;
   pack->bundle_attempt = FD_PACK_BUNDLE_ATTEMPT_SCHEDULED;
+  FD_MCNT_INC( PACK, STALE_BUNDLE_SCHEDULED, (ulong)from_stale );
 
   /* For the bundle leave callback: writes after this are interference */
   long  bundle_arrival    = txn0->txn->scheduler_arrival_time_nanos;
@@ -2806,7 +2989,8 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     cur->root = FD_ORD_TXN_ROOT_FREE;
     expq_remove( pack->expiration_q, cur->expq_idx );
-    treap_idx_remove( pack->pending_bundles, _cur, pack->pool );
+    if( FD_UNLIKELY( from_stale ) ) stale_bundles_remove( pack, _cur );
+    else                            treap_idx_remove( pack->pending_bundles, _cur, pack->pool );
     trp_pool_idx_release( pack->pool, _cur );
     pack->pending_txn_cnt--;
   }
@@ -3184,6 +3368,18 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   release_tree( pack->pending_bundles, pack->signature_map, pack->noncemap, pack->pool );
   release_tree( pack->next_auction,    pack->signature_map, pack->noncemap, pack->pool );
 
+  /* Same as release_tree, for the stale treap */
+  while( stale_treap_ele_cnt( pack->stale_bundles ) ) {
+    ulong idx = stale_treap_fwd_iter_idx( stale_treap_fwd_iter_init( pack->stale_bundles, pack->pool ) );
+    pack->pool[ idx ].root = FD_ORD_TXN_ROOT_FREE;
+    stale_bundles_remove   ( pack,                idx             );
+    sig2txn_idx_remove_fast( pack->signature_map, idx, pack->pool );
+    trp_pool_idx_release   ( pack->pool,          idx             );
+    if( pack->pool[ idx ].txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) {
+      noncemap_idx_remove_fast( pack->noncemap, idx, pack->pool );
+    }
+  }
+
   ulong const pool_max = trp_pool_max( pack->pool );
   for( ulong i=0UL; i<pool_max; i++ ) {
     if( FD_UNLIKELY( pack->pool[ i ].root!=FD_ORD_TXN_ROOT_FREE ) ) {
@@ -3245,12 +3441,15 @@ delete_transaction( fd_pack_t         * pack,
 
   treap_t * root = NULL;
   int root_idx = containing->root;
+  /* The stale treap is a different type, so root stays NULL for it */
+  int stale    = (root_idx & FD_ORD_TXN_ROOT_TAG_MASK)==FD_ORD_TXN_ROOT_STALE_BUNDLE;
   fd_pack_penalty_treap_t * penalty_treap = NULL;
   switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
     case FD_ORD_TXN_ROOT_FREE:           FD_LOG_CRIT(( "Double free detected" ));
     case FD_ORD_TXN_ROOT_PENDING:        root = pack->pending;         break;
     case FD_ORD_TXN_ROOT_PENDING_BUNDLE: root = pack->pending_bundles; break;
     case FD_ORD_TXN_ROOT_NEXT_AUCTION:   root = pack->next_auction;    break;
+    case FD_ORD_TXN_ROOT_STALE_BUNDLE:                                 break;
     case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
       penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
@@ -3261,7 +3460,7 @@ delete_transaction( fd_pack_t         * pack,
   }
 
   ulong delete_cnt = 0UL;
-  if( FD_UNLIKELY( delete_full_bundle & (root==pack->pending_bundles) ) ) {
+  if( FD_UNLIKELY( delete_full_bundle & ((root==pack->pending_bundles) | stale) ) ) {
     /* When we delete, the structure of the treap may move around, but
        pointers to inside the pool will remain valid */
     fd_pack_ord_txn_t * bundle_ptrs[ FD_PACK_MAX_TXN_PER_BUNDLE-1UL ];
@@ -3349,12 +3548,13 @@ delete_transaction( fd_pack_t         * pack,
     noncemap_ele_remove_fast( pack->noncemap, containing, pack->pool );
   }
   if( FD_UNLIKELY( containing==pack->conflict_cache_txn ) ) pack->conflict_cache_txn = NULL; /* pool slot may be reused */
-  if( FD_UNLIKELY( (root==pack->pending_bundles) & (!!pack->bundle_leave_fn) ) ) {
+  if( FD_UNLIKELY( ((root==pack->pending_bundles) | stale) & (!!pack->bundle_leave_fn) ) ) {
     pack->bundle_leave_fn( pack->bundle_leave_ctx, (ulong)(containing-pack->pool), bundle_leave_reason, 0UL );
   }
   expq_remove( pack->expiration_q, containing->expq_idx );
+  if( FD_UNLIKELY( stale ) ) stale_bundles_remove( pack, (ulong)(containing-pack->pool) );
+  else                       treap_ele_remove( root, containing, pack->pool );
   containing->root = FD_ORD_TXN_ROOT_FREE;
-  treap_ele_remove( root, containing, pack->pool );
   sig2txn_ele_remove_fast( pack->signature_map, containing, pack->pool );
   trp_pool_ele_release( pack->pool, containing );
 
@@ -3472,18 +3672,37 @@ fd_pack_verify( fd_pack_t * pack,
 
   VERIFY_TEST( pack->auction_running || !treap_ele_cnt( pack->next_auction ), "next_auction not empty outside an auction" );
 
-  for( ulong k=0UL; k<3UL+penalty_map_slot_cnt( pack->penalty_treaps ); k++ ) {
+  /* The stale treap: the bundle count, and its bound */
+  VERIFY_TEST( !stale_treap_verify( pack->stale_bundles, pool ), "stale treap" );
+  ulong stale_bundle_cnt = 0UL;
+  ulong prev_bundle_idx  = ULONG_MAX;
+  for( stale_treap_rev_iter_t _cur=stale_treap_rev_iter_init( pack->stale_bundles, pool ); !stale_treap_rev_iter_done( _cur );
+      _cur=stale_treap_rev_iter_next( _cur, pool ) ) {
+    fd_pack_ord_txn_t const * cur = stale_treap_rev_iter_ele_const( _cur, pool );
+    ulong bundle_idx = RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est );
+    stale_bundle_cnt += (ulong)(bundle_idx!=prev_bundle_idx);
+    prev_bundle_idx   = bundle_idx;
+  }
+  VERIFY_TEST( stale_bundle_cnt==pack->stale_bundle_cnt, "stale_bundle_cnt %lu, found %lu bundles", pack->stale_bundle_cnt, stale_bundle_cnt );
+  VERIFY_TEST( stale_bundle_cnt<=pack->stale_capacity, "stale treap over capacity" );
+
+  /* k indexes the treaps: the 3 above, then the stale treap, then the
+     penalty treaps */
+  for( ulong k=0UL; k<4UL+penalty_map_slot_cnt( pack->penalty_treaps ); k++ ) {
     treap_t * treap = NULL;
 
     if( k<3UL ) treap = treaps[ k ];
-    else if( FD_LIKELY( penalty_map_key_inval( pack->penalty_treaps[ k-3UL ].key ) ) ) continue;
+    else if( k==3UL ) treap = NULL;
+    else if( FD_LIKELY( penalty_map_key_inval( pack->penalty_treaps[ k-4UL ].key ) ) ) continue;
     else {
-      treap = pack->penalty_treaps[ k-3UL ].penalty_treap;
+      treap = pack->penalty_treaps[ k-4UL ].penalty_treap;
       VERIFY_TEST( treap_ele_cnt( treap )>0UL, "empty penalty treap in map" );
     }
 
-    for( treap_rev_iter_t _cur=treap_rev_iter_init( treap, pool ); !treap_rev_iter_done( _cur );
-        _cur=treap_rev_iter_next( _cur, pool ) ) {
+    /* Elements of the stale treap iterate the same way (see
+       STALE_WORSE) */
+    treap_rev_iter_t _first = treap ? treap_rev_iter_init( treap, pool ) : stale_treap_rev_iter_init( pack->stale_bundles, pool );
+    for( treap_rev_iter_t _cur=_first; !treap_rev_iter_done( _cur ); _cur=treap_rev_iter_next( _cur, pool ) ) {
       txn_cnt++;
       fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
       fd_txn_t const * txn = TXN(cur->txn);
@@ -3493,11 +3712,12 @@ fd_pack_verify( fd_pack_t * pack,
       fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, &cur->_txn_e, NULL, pool );
       VERIFY_TEST( in_tbl, "signature missing from sig2txn" );
 
-      VERIFY_TEST( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==fd_int_if( k<3UL, root_tags[ fd_ulong_min( k, 2UL ) ], FD_ORD_TXN_ROOT_PENALTY(0) ),
-                   "treap element had bad root" );
+      int expected_root = fd_int_if( k<3UL, root_tags[ fd_ulong_min( k, 2UL ) ],
+                                     fd_int_if( k==3UL, FD_ORD_TXN_ROOT_STALE_BUNDLE, FD_ORD_TXN_ROOT_PENALTY(0) ) );
+      VERIFY_TEST( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==expected_root, "treap element had bad root" );
       if( FD_LIKELY( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==FD_ORD_TXN_ROOT_PENALTY(0) ) ) {
         fd_acct_addr_t const * penalty_acct = ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( cur->root ) );
-        VERIFY_TEST( !memcmp( penalty_acct, pack->penalty_treaps[ k-3UL ].key.b, 32UL ), "transaction in wrong penalty treap" );
+        VERIFY_TEST( !memcmp( penalty_acct, pack->penalty_treaps[ k-4UL ].key.b, 32UL ), "transaction in wrong penalty treap" );
       }
       VERIFY_TEST( cur->expires_at>=pack->expire_before, "treap element expired" );
 

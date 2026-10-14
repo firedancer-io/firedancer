@@ -10074,6 +10074,16 @@ message MetricsPack {
   MetricsPackBundleFirstArrivalOffsetNanos bundle_first_arrival_offset_nanos = 69;
   // Dual-lane table entries evicted less than a second after insertion; non-zero means some pairs can be missed
   uint64 dual_lane_entry_evicted = 70;
+  // Bundles held in pack's stale bundle treap: bundles that arrived while not leader, kept by largest declared tip
+  uint64 stale_bundle_pending = 71;
+  // Bundles that arrived while not leader and were inserted into the stale bundle treap
+  uint64 stale_bundle_inserted = 72;
+  // Bundles that arrived while not leader and were rejected because the stale bundle treap was full and they did not declare a larger tip than any bundle in it
+  uint64 stale_bundle_rejected = 73;
+  // Stale bundles evicted from the stale bundle treap to make room for a bundle that declares a larger tip
+  uint64 stale_bundle_evicted = 74;
+  // Stale bundles scheduled to an execle
+  uint64 stale_bundle_scheduled = 75;
 }
 
 // Metrics of one execle tile instance, one row per sweep

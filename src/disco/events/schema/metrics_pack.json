@@ -831,6 +831,11 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
-        "dual_lane_entry_evicted":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Dual-lane table entries evicted less than a second after insertion; non-zero means some pairs can be missed" }
+        "dual_lane_entry_evicted":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Dual-lane table entries evicted less than a second after insertion; non-zero means some pairs can be missed" },
+        "stale_bundle_pending":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bundles held in pack's stale bundle treap: bundles that arrived while not leader, kept by largest declared tip" },
+        "stale_bundle_inserted":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bundles that arrived while not leader and were inserted into the stale bundle treap" },
+        "stale_bundle_rejected":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bundles that arrived while not leader and were rejected because the stale bundle treap was full and they did not declare a larger tip than any bundle in it" },
+        "stale_bundle_evicted":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stale bundles evicted from the stale bundle treap to make room for a bundle that declares a larger tip" },
+        "stale_bundle_scheduled":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stale bundles scheduled to an execle" }
     }
 }

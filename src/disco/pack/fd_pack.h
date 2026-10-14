@@ -664,6 +664,37 @@ void const * fd_pack_peek_bundle_meta( fd_pack_t const * pack );
    bundles.  pack must be a valid local join. */
 void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 
+/* Stale bundles.  Bundles that arrive before our leader slots start
+   were built against older state and almost always fail, but a few pay
+   large tips.  While fd_pack_set_insert_stale is on, pack keeps
+   inserted bundles (other than initializer bundles) in a separate
+   stale treap instead of the FIFO, best declared tip first (lamports
+   sent to the Jito tip accounts by top-level System transfers; equal
+   tips keep insertion order).  It holds at most capacity bundles: once
+   full, a bundle is only inserted if it declares a larger tip than the
+   worst stale bundle, which it then replaces.  Otherwise the insert
+   fails with FD_PACK_INSERT_REJECT_PRIORITY.  Stale bundles are only
+   scheduled when no other bundle can be, in tip order, and only once
+   the initializer bundle state is READY.
+
+   fd_pack_set_stale_bundle_capacity sets capacity, at most
+   FD_PACK_STALE_CAPACITY_MAX.  0, the default, disables the stale
+   treap: every bundle goes to the FIFO, regardless of
+   fd_pack_set_insert_stale.  Set it before inserting bundles.
+
+   fd_pack_set_insert_stale( pack, 1 ) makes bundles inserted from now
+   on stale, ( pack, 0 ) fresh.  The caller sets it when it stops and
+   starts being leader.  Off by default.
+
+   fd_pack_stale_bundle_cnt returns the number of bundles in the stale
+   treap. */
+
+#define FD_PACK_STALE_CAPACITY_MAX (64UL)
+
+void  fd_pack_set_stale_bundle_capacity( fd_pack_t * pack, ulong capacity );
+void  fd_pack_set_insert_stale         ( fd_pack_t * pack, int   stale    );
+ulong fd_pack_stale_bundle_cnt         ( fd_pack_t const * pack           );
+
 
 /* Bundle observability hooks.  These let the caller follow each bundle
    through pack to attribute why it did or did not land.  They never

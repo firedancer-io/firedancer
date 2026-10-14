@@ -407,6 +407,7 @@ struct fd_config {
     struct {
       uint  max_pending_transactions;
       int   use_consumed_cus;
+      uint  stale_bundle_capacity;
       char  schedule_strategy[ 16 ];
       int   schedule_strategy_enum;
       ulong account_blocklist_cnt;

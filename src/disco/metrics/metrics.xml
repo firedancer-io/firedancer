@@ -818,6 +818,12 @@ deliberate exception with lint-allow="<rule id>")
 
     <counter name="BundleCrankAttempted" enum="BundleCrankResult" summary="Times pack checked whether the bundle tip state needed cranking, by outcome" />
 
+    <gauge name="StaleBundlePending" summary="Bundles held in pack's stale bundle treap: bundles that arrived while not leader, kept by largest declared tip" />
+    <counter name="StaleBundleInserted" summary="Bundles that arrived while not leader and were inserted into the stale bundle treap" />
+    <counter name="StaleBundleRejected" summary="Bundles that arrived while not leader and were rejected because the stale bundle treap was full and they did not declare a larger tip than any bundle in it" />
+    <counter name="StaleBundleEvicted" summary="Stale bundles evicted from the stale bundle treap to make room for a bundle that declares a larger tip" />
+    <counter name="StaleBundleScheduled" summary="Stale bundles scheduled to an execle" />
+
     <counter name="AuctionStarted" summary="Batch auctions started" />
     <counter name="AuctionCancelled" summary="Batch auctions skipped because the block was already at their CU limit" />
     <counter name="AuctionEnded" enum="PackAuctionEndReason" summary="Batch auctions ended, by reason" />

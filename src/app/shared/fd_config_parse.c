@@ -196,6 +196,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
+  CFG_POP      ( uint,   tiles.pack.stale_bundle_capacity                 );
   CFG_POP      ( cstr,   tiles.pack.schedule_strategy                     );
   CFG_POP_ARRAY( cstr,   tiles.pack.account_blocklist                     );
 
