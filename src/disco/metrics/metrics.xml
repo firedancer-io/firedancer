@@ -19,7 +19,8 @@ Exported as:
               their committed field order, additions at the end with
               provisional numbers until `make metrics-assign`.  Remove
               a landed metric or <int> with deprecated="true" (it stays
-              a schema tombstone); rename with renamed_from="OldName".
+              a schema tombstone); rename with renamed_from listing
+              every earlier name, oldest first ("A B" after A, B, C).
               telemetry="false" keeps a metric out of ClickHouse.
 Durations are integer nanoseconds everywhere, so a name is the same in
 every backend.  Once exported, names are permanent: deprecate and add.
@@ -100,7 +101,8 @@ deliberate exception with lint-allow="<rule id>")
     Le<N><Unit> with B, Kib or Mib (Le128B, Le2Kib, so the snake form
     is le2_kib); a reason may name what is missing (NoRoute).
     <group name="Busy" values="..."/> names a commonly summed subset;
-    every enum also gets an implicit All group.
+    every enum also gets an implicit All group (a ClickHouse _all
+    column only on counter enums: gauge values need not be additive).
 11. Histograms: Subject + Duration (one operation in this tile), Delay
     (between two events), Latency (request to response through another
     party), Size, Per<X> or Pct, then the unit.  Normalized time is

@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -49,6 +57,11 @@
         "thread_duration_nanos": {
             "type": "Tuple",
             "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,6 +73,9 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
@@ -72,6 +88,10 @@
         "txn_processed": {
             "type": "Tuple",
             "description": "Transactions processed, by result",
+            "aliases": {
+                "all":     ["success", "bundle_peer_failed", "parse_failed", "duplicate", "signature_failed"],
+                "failure": ["bundle_peer_failed", "parse_failed", "duplicate", "signature_failed"]
+            },
             "fields": {
                 "success":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction verified successfully" },
                 "bundle_peer_failed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Another transaction in the bundle failed" },

@@ -49,4 +49,5 @@ Renaming or removing an existing metric, or changing an enum value,
 breaks Prometheus dashboards and frozen ClickHouse columns.  Flag it
 and ask whether it is intended.  A removal must be deprecated="true"
 (the generator refuses an outright delete) and a rename must carry
-renamed_from="OldName"; both apply to <int> enum values too.
+renamed_from listing every earlier name, oldest first ("A B"); both
+apply to <int> enum values too.
