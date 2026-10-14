@@ -4,9 +4,6 @@ include config/extra/with-clang-pre.mk
 include config/base.mk
 include config/extra/with-clang.mk
 
-CPPFLAGS:=
-LDFLAGS:=-lm
-
 ifneq ($(shell uname -m),riscv64)
 CROSS=1
 endif
