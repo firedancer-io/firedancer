@@ -8,6 +8,9 @@
 #define FD_ED25519_S2N 0
 #endif
 
+/* FD_USE_CRC (crc/Local.mk): the definitions under !FD_USE_CRC are the tree's own, the default; with
+   FD_USE_CRC=1 the generated ed25519 (crc) provides the signers, the verifies and the signer cache. */
+
 #if FD_ED25519_S2N
 #include "fd_ed25519_s2n.c"
 #else
@@ -43,6 +46,8 @@ fd_ed25519_verify_equation( uchar const                k[ 32 ],
 }
 
 #endif
+
+#if !FD_USE_CRC
 
 uchar * FD_FN_SENSITIVE
 fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
@@ -432,6 +437,8 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
 #endif
 #undef MAX
 }
+
+#endif /* !FD_USE_CRC */
 
 char const *
 fd_ed25519_strerror( int err ) {
