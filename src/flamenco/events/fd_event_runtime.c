@@ -268,13 +268,14 @@ fd_event_runtime_bundle_txn_capture( fd_txn_in_t const * txn_in,
       if( t->diff_cnt<FD_EVENT_RUNTIME_BUNDLE_DIFF_MAX && ( acc->lamports || prior_lamports ) ) {
         fd_event_runtime_txn_account_diffs_t * d = &t->diff[ t->diff_cnt++ ];
         fd_memcpy( d->pubkey,     txn_out->accounts.keys[ i ].uc,           32UL );
-        fd_memcpy( d->owner,      acc->owner,                               32UL );
+        if( acc->lamports ) fd_memcpy( d->owner, acc->owner, 32UL );
+        else                fd_memset( d->owner, 0,          32UL );
         fd_memcpy( d->prev_owner, txn_out->accounts.starting_owner[ i ].uc, 32UL );
         d->lamports        = acc->lamports;
         d->prev_lamports   = prior_lamports;
-        d->data_sz         = acc->data_len;
+        d->data_sz         = acc->lamports ? acc->data_len : 0UL;
         d->prev_data_sz    = txn_out->accounts.starting_data_len[ i ];
-        d->is_executable   = !!acc->executable;
+        d->is_executable   = acc->lamports && acc->executable;
         d->is_stake_update = is_stake;
         d->is_vote_update  = is_vote;
         d->is_new_vote     = !!txn_out->accounts.new_vote[ i ];
