@@ -67,6 +67,8 @@ Configures the operating system so that it can run Firedancer. See
 [the guide](/guide/initializing) for more information. There are the
 following stages to each configure command:
 
+ - `iavf` Configures VFs, clears and installs PF ntuple rules and loads the
+    `vfio-pci` kernel module required by the iavf network provider.
  - `mlx5` Loads the `ib_uverbs` kernel module required by the mlx5
     network provider. Clears leftover XDP ntuple rules, resets the
     RSS indirection table and channel count to defaults.
@@ -119,6 +121,8 @@ and configure the number of combined channels on the network device.
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
 | `root`          | restore network device defaults and load the `ib_uverbs` kernel module if needed |
 | `CAP_SYS_MODULE` | load the `ib_uverbs` kernel module with `modprobe` when the uverbs interface is unavailable |
+| `root`          | configure VFs and PF ntuple rules. Only applies for the `iavf` stage |
+| `CAP_SYS_MODULE` | load the `vfio-pci` kernel module with `modprobe` when the driver is unavailable. Only applies for the `iavf` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 
 :::
@@ -137,8 +141,10 @@ Remove any Firedancer specific operating system configuration still
 lingering. The `hugetlbfs` stage unmounts its filesystems and returns the
 reserved huge and gigantic pages to the kernel pool. The `mlx5` stage
 clears leftover XDP ntuple rules and resets the RSS indirection table and
-channel count to defaults. The `fini` mode does not reduce sysctls that
-were earlier increased or restore previous network settings.
+channel count to defaults. The `iavf` stage clears PF ntuple rules and
+removes VF 0 if its PF has exactly one VF. PFs with multiple VFs retain
+all of them. The `fini` mode does not reduce sysctls that were earlier
+increased or restore previous network settings.
 
 ::: details Capabilities
 
@@ -146,6 +152,7 @@ were earlier increased or restore previous network settings.
 |------------|--------|
 | `root`     | remove directories from `/mnt`, unmount hugetlbfs. Only applies for the `hugetlbfs` stage |
 | `root`     | restore network device defaults |
+| `root`     | clear PF ntuple rules and remove VFs. Only applies for the `iavf` stage |
 
 :::
 
