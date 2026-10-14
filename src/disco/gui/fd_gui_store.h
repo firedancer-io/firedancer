@@ -126,6 +126,9 @@ struct fd_gui_store_desc {
   ulong        ts_off;      /* byte offset, within the value, of the record's `long` timestamp (TS only; pass 0 for KV) */
   ulong        granularity; /* TS window divisor: window = (ulong)(*(long*)(val+ts_off)) / granularity (pass 0 for KV) */
   ulong        max_records; /* enforced KV index budget (0 means 1; ignored for TS) */
+  ulong        bounds_off;  /* nonzero: offset of two longs [min,max] in immutable TS records;
+                              replaces the window index with per-region event-time bounds.
+                              Publish via ts_append, not ts_emplace. */
 };
 
 typedef struct fd_gui_store_desc fd_gui_store_desc_t;
@@ -401,6 +404,9 @@ struct fd_gui_store_ts_iter {
   ulong                  _window_lo;
   ulong                  _window_hi;
   ulong                  _cur_hi;   /* ring cursor to stop at (exclusive; from the window index) */
+  int                    _range;
+  long                   _lo;
+  long                   _hi;
   fd_gui_store_ts_filter_fn _filter;
   void *                 _filter_ctx;
 };
@@ -420,6 +426,20 @@ FD_FN_PURE static inline int
 fd_gui_store_ts_scan_done( fd_gui_store_ts_iter_t const * iter ) {
   return !iter->_valid;
 }
+
+/* Scan immutable bounded records overlapping inclusive [lo,hi], skipping
+   disjoint regions without reading their records. */
+fd_gui_store_ts_iter_t *
+fd_gui_store_ts_scan_range( fd_gui_store_t * db, fd_gui_store_ts_iter_t * iter, ulong ring_idx, long lo, long hi );
+
+/* Exact retained bounds for a bounded TS ring. */
+int
+fd_gui_store_ts_range_bounds( fd_gui_store_t * db, ulong ring_idx, long * lo, long * hi );
+
+/* Scan every retained TS record, including records older than the
+   timestamp index horizon.  Intended for batch-level secondary bounds. */
+fd_gui_store_ts_iter_t *
+fd_gui_store_ts_scan_all( fd_gui_store_t * db, fd_gui_store_ts_iter_t * iter, ulong ring_idx );
 
 int
 fd_gui_store_ts_scan_next( fd_gui_store_ts_iter_t * iter );

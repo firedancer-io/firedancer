@@ -52,7 +52,9 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_FEC_COMPLETIONS  (14) /* (FEC completion key) */
 #define FD_GUI_HIST_SLOT_DURATION    (15) /* (ts, ...)            */
 #define FD_GUI_HIST_CPU_UTIL         (16) /* (ts, ...)            */
-#define FD_GUI_HIST_CNT              (17)
+#define FD_GUI_HIST_FEC_EVENT_ARCHIVE (17) /* immutable event batches */
+#define FD_GUI_HIST_FEC_COMPLETION_ARCHIVE (18) /* immutable completion batches */
+#define FD_GUI_HIST_CNT              (19)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */

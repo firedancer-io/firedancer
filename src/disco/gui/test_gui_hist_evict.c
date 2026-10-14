@@ -559,7 +559,9 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( FD_GUI_HIST_FEC_COMPLETIONS==14 );
   FD_TEST( FD_GUI_HIST_SLOT_DURATION==15 );
   FD_TEST( FD_GUI_HIST_CPU_UTIL==16 );
-  FD_TEST( FD_GUI_HIST_CNT==17 );
+  FD_TEST( FD_GUI_HIST_CNT==19 );
+  FD_TEST( descs[ FD_GUI_HIST_FEC_EVENT_ARCHIVE ].kind==FD_GUI_STORE_KIND_TS );
+  FD_TEST( descs[ FD_GUI_HIST_FEC_COMPLETION_ARCHIVE ].kind==FD_GUI_STORE_KIND_TS );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_SLOT_DURATION ].name, "slot_duration" ) );
   FD_TEST( descs[ FD_GUI_HIST_SLOT_DURATION ].val_sz==sizeof(fd_gui_store_slot_duration_t) );
   FD_TEST( descs[ FD_GUI_HIST_SLOT_DURATION ].val_sz==32UL );
@@ -1474,8 +1476,19 @@ test_fec_event_index( fd_gui_t * gui ) {
   fd_gui_fec_event_append( gui, 100UL, 0UL, key.event, 1L, ts+sec_ns( 5UL ) );
   fd_gui_fec_event_append( gui, 100UL, 0UL, key.event, ts+40L, ts+sec_ns( 6UL ) );
   FD_TEST( first->event_time_ns==1L && first->insert_time_ns==ts+30L );
+  /* A full open event head must not synchronously drain a closed
+     completion backlog on the unrelated channel. */
+  for( ulong i=0UL; i<2048UL; i++ )
+    FD_TEST( fd_gui_fec_completion_append( gui, 50UL, ts+(long)i, 1UL, 0UL, 0UL, 0, ts ) );
+  fd_gui_event_slots_close_before( gui, 51UL );
   fd_gui_fec_event_append( gui, 999UL, 0UL, key.event, ts, ts );
   FD_TEST( gui->shreds.dropped_fec_event_cnt==1UL );
+  fd_gui_store_kv_scan_t completions;
+  fd_gui_store_kv_scan_begin( gui->db, &completions, FD_GUI_HIST_FEC_COMPLETIONS );
+  FD_TEST( completions.end-completions.cur==2048UL );
+  long archive_start = fd_log_wallclock();
+  FD_TEST( fd_gui_fec_archive_channel( gui, FD_GUI_HIST_FEC_COMPLETIONS, 2048UL )==2048UL );
+  FD_LOG_NOTICE(( "FEC archive: 2048 completions %.3f ms (includes first file growth)", (double)(fd_log_wallclock()-archive_start)/1e6 ));
   FD_TEST( !fd_gui_hist_evict_step( gui ) );
   fd_gui_shred_event_iter_t it;
   fd_gui_fec_event_iter_begin( gui, &it, 1L, 1L );
@@ -1539,13 +1552,94 @@ test_fec_event_index( fd_gui_t * gui ) {
   fd_gui_store_ring_stats( gui->db, FD_GUI_HIST_FEC_EVENTS, &used, &cap, &free_bytes, &used_slots, &cap_slots, &free_slots );
   FD_TEST( used_slots<=cnt && used_slots>cnt-512UL && cap<=2UL*FD_GUI_STORE_REGION_SZ );
   FD_TEST( cap_slots==cap/32UL );
+  /* Cycling staging must not destroy history.  This exceeds the old hard
+     retention ceiling and includes the timestamp updated far into the past. */
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==2UL*cnt+65535UL );
+  fd_gui_fec_event_iter_begin( gui, &it, 1L, 1L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.slot==100U );
+  FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+  fd_gui_shred_event_iter_end( &it );
   FD_LOG_NOTICE(( "test_fec_event_index: quota %lu, stride %lu, regions %lu; ok", cnt, used/used_slots, cap/FD_GUI_STORE_REGION_SZ ));
+}
+
+static void
+test_fec_archive( fd_gui_t * gui ) {
+  long ts = sec_ns( 10UL );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts, ts );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, 1L, ts+1L );
+  fd_gui_fec_event_append( gui, 101UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts+2L, ts+2L );
+  FD_TEST( fd_gui_fec_completion_append( gui, 100UL, ts, 32UL, 16UL, 8UL, 1, ts ) );
+  FD_TEST( !fd_gui_fec_completion_append( gui, 100UL, ts, 32UL, 16UL, 8UL, 1, ts ) );
+  fd_gui_shred_event_slot_complete( gui, 101UL, ts+3L, ts+3L );
+  FD_TEST( !fd_gui_fec_archive( gui, 512UL ) ); /* open head pins closed successor */
+  fd_gui_event_slots_close_before( gui, 101UL );
+  FD_TEST( fd_gui_fec_archive( gui, 1UL )==2UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==3UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_COMPLETIONS, ULONG_MAX )==1UL );
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==2UL );
+  FD_TEST( !fd_gui_fec_archive( gui, 512UL ) );
+  fd_gui_fec_event_key_t key = { .slot=100U, .idx=0U, .event=FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
+  FD_TEST( !fd_gui_hist_kv_get( gui, FD_GUI_HIST_FEC_EVENTS, &key ) );
+  fd_gui_fec_event_append( gui, 100UL, 0UL, key.event, 0L, ts+4L );
+  FD_TEST( gui->shreds.dropped_fec_event_cnt==1UL );
+  FD_TEST( !fd_gui_fec_completion_append( gui, 100UL, ts, 32UL, 16UL, 8UL, 1, ts+4L ) );
+  /* Late completion markers are distinct, even after the first marker has
+     already left staging.  Cross the entire TS index horizon as well. */
+  long late = ts+sec_ns( FD_GUI_STORE_TS_IDX_DEPTH+10UL );
+  fd_gui_shred_event_slot_complete( gui, 101UL, 2L, late );
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_EVENTS, ULONG_MAX )==4UL );
+  long lo, hi;
+  FD_TEST( fd_gui_event_bounds( gui, FD_GUI_HIST_FEC_EVENTS, &lo, &hi ) );
+  FD_TEST( lo==1L && hi==ts+4L );
+  fd_gui_shred_event_iter_t it;
+  fd_gui_fec_event_iter_begin( gui, &it, 1L, 2L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.event_time_ns==1L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.event_time_ns==2L && it.event.insert_time_ns==late );
+  FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+  fd_gui_shred_event_iter_end( &it );
+
+  /* An admission gap too large for the delta codec must remain exact. */
+  fd_gui_fec_event_append( gui, 102UL, 0UL, key.event, 3L, late+1L );
+  fd_gui_fec_event_append( gui, 102UL, 1UL, key.event, 4L, late+(long)UINT_MAX+2L );
+  fd_gui_event_slots_close_before( gui, 103UL );
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==2UL );
+  fd_gui_fec_event_iter_begin( gui, &it, 3L, 4L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.insert_time_ns==late+1L );
+  FD_TEST( fd_gui_shred_event_iter_next( &it ) && it.event.insert_time_ns==late+(long)UINT_MAX+2L );
+  FD_TEST( !fd_gui_shred_event_iter_next( &it ) );
+  fd_gui_shred_event_iter_end( &it );
+
+  /* Completion history also outlives the staging quota, without double
+     counting across repeated archival passes. */
+  long archive_total = 0L;
+  long archive_max = 0L;
+  for( ulong i=0UL; i<FD_GUI_FEC_RECORD_MAX+1UL; i++ ) {
+    ulong slot = 200UL+i/1024UL;
+    FD_TEST( fd_gui_fec_completion_append( gui, slot, late+(long)i, 32UL, 16UL, 8UL, 1, late+(long)i ) );
+    if( i%1024UL==1023UL ) {
+      fd_gui_event_slots_close_before( gui, slot+1UL );
+      long start = fd_log_wallclock();
+      FD_TEST( fd_gui_fec_archive( gui, 1024UL )==1024UL );
+      long elapsed = fd_log_wallclock()-start;
+      archive_total += elapsed;
+      archive_max = fd_long_max( archive_max, elapsed );
+    }
+  }
+  FD_TEST( count_ts( gui, FD_GUI_HIST_FEC_COMPLETIONS, ULONG_MAX )==FD_GUI_FEC_RECORD_MAX+2UL );
+  FD_TEST( fd_gui_event_bounds( gui, FD_GUI_HIST_FEC_COMPLETIONS, &lo, &hi ) );
+  FD_TEST( lo==ts && hi==late+(long)FD_GUI_FEC_RECORD_MAX+1L );
+  FD_LOG_NOTICE(( "FEC archive: 1024 completion batches, mean %.3f ms, max %.3f ms", (double)archive_total/1024e6, (double)archive_max/1e6 ));
+  FD_LOG_NOTICE(( "test_fec_archive: closed-prefix handoff, late timestamps/markers, index horizon, completion quota: ok" ));
 }
 
 static void
 test_fec_footprint( ulong bytes ) {
   fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
   memcpy( descs, fd_gui_hist_db_descs( bytes, TEST_TILE_CNT ), sizeof(descs) );
+  /* Fixed configuration floors, not a moving min_size-derived fixture. */
+  FD_TEST( !fd_gui_store_footprint( 4UL<<30, FD_GUI_HIST_CNT, descs ) );
+  FD_TEST( fd_gui_store_footprint( 5UL<<30, FD_GUI_HIST_CNT, descs ) );
   ulong current = fd_gui_store_footprint( bytes, FD_GUI_HIST_CNT, descs );
   for( int dbi=FD_GUI_HIST_FEC_EVENTS; dbi<=FD_GUI_HIST_FEC_COMPLETIONS; dbi++ ) {
     descs[ dbi ].kind        = FD_GUI_STORE_KIND_TS;
@@ -1737,6 +1831,7 @@ test_timeline_live_events( test_store_t * s ) {
   for( ulong i=0UL; i<5UL; i++ ) FD_TEST( !test_json_count( timeline_value( json, slot_fields[ i ] ) ) );
 
   fd_gui_event_slots_close_before( gui, 101UL );
+  FD_TEST( fd_gui_fec_archive( gui, 512UL )==3UL ); /* queries now merge archive + open KV */
   FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_shreds", "1ms", 0UL, ts, 1UL, 7UL ) );
   json = timeline_response( gui );
   FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "published" ), 0 ) )==128UL );
@@ -3623,6 +3718,9 @@ main( int     argc,
   }
   store_open( fec, TEST_STORE_BYTES, 30 );
   test_fec_prefix_guards( fec->gui );
+  store_close( fec );
+  store_open( fec, TEST_STORE_BYTES, 32 );
+  test_fec_archive( fec->gui );
   store_close( fec );
   ulong min_bytes = fd_gui_store_min_size( FD_GUI_HIST_CNT );
   store_open( fec, min_bytes, 31 );

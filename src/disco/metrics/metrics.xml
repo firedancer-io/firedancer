@@ -2088,6 +2088,8 @@ deliberate exception with lint-allow="<rule id>")
     <int value="15" name="FecCompletions" label="fec_completions" />
     <int value="16" name="SlotDuration" label="slot_duration" />
     <int value="17" name="CpuUtil" label="cpu_util" />
+    <int value="18" name="FecEventArchive" label="fec_event_archive" />
+    <int value="19" name="FecCompletionArchive" label="fec_completion_archive" />
 </enum>
 
 <enum name="EventConnState">

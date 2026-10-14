@@ -2056,7 +2056,11 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     /* Lazy eviction must outpace ingest: ~1 ms of batches per tick */
     long evict_end = fd_tickcount() + (long)( 1e6*gui->tick_per_ns );
-    while( fd_gui_hist_evict_step( gui ) && fd_tickcount()<evict_end ) {}
+    for(;;) {
+      ulong archived = fd_gui_fec_archive( gui, 512UL );
+      int evicted = fd_gui_hist_evict_step( gui );
+      if( (!archived && !evicted) || fd_tickcount()>=evict_end ) break;
+    }
 
     gui->next_sample_10millis += 10L*1000L*1000L;
     return 1;

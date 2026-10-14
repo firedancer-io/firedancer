@@ -58,6 +58,73 @@ batch_append( fd_gui_shred_builder_t *      builder,
   return 1;
 }
 
+static int
+archive_prefix_committed( void const * rec FD_PARAM_UNUSED, void * ctx FD_PARAM_UNUSED ) {
+  return 1;
+}
+
+ulong
+fd_gui_fec_archive_channel( fd_gui_t * gui, int dbi, ulong budget ) {
+  if( !gui->db || !gui->hist || (dbi!=FD_GUI_HIST_FEC_EVENTS && dbi!=FD_GUI_HIST_FEC_COMPLETIONS) ) return 0UL;
+  ulong total = 0UL;
+  int channel = dbi==FD_GUI_HIST_FEC_COMPLETIONS;
+  {
+    ulong remaining = budget;
+    while( remaining ) {
+      fd_gui_store_kv_scan_t scan;
+      fd_gui_store_kv_scan_begin( gui->db, &scan, (ulong)dbi );
+      fd_gui_shred_builder_t builder = {0};
+      fd_gui_fec_event_batch_t events = { .min_ns=LONG_MAX, .max_ns=LONG_MIN };
+      fd_gui_fec_completion_batch_t completions = { .min_ns=LONG_MAX, .max_ns=LONG_MIN };
+      ulong count = 0UL;
+      while( count<remaining && fd_gui_store_kv_scan_next( &scan ) ) {
+        if( channel ) {
+          fd_gui_fec_completion_record_t const * src = scan.rec;
+          if( !fd_gui_event_slot_permanently_closed( gui, src->key.slot ) ||
+              count==FD_GUI_FEC_COMPLETION_BATCH_MAX ) break;
+          if( !count ) completions.insert_time_ns = src->insert_time_ns;
+          completions.records[ count ] = *src;
+          completions.min_ns = fd_long_min( completions.min_ns, src->key.timestamp );
+          completions.max_ns = fd_long_max( completions.max_ns, src->key.timestamp );
+        } else {
+          fd_gui_fec_event_t const * src = scan.rec;
+          if( !fd_gui_event_slot_permanently_closed( gui, src->key.slot ) ) break;
+          fd_gui_shred_event_t event = { .insert_time_ns=src->insert_time_ns, .event_time_ns=src->event_time_ns,
+                                        .slot=src->key.slot, .idx=src->key.idx, .event=src->key.event };
+          if( !count ) events.insert_time_ns = builder.batch.insert_time_ns = src->insert_time_ns;
+          /* The codec's insertion delta is only 32 bits.  Split batches
+             across larger gaps rather than truncating the timestamp. */
+          if( count && (ulong)(src->insert_time_ns-builder.prev.insert_time_ns)>UINT_MAX ) break;
+          if( !batch_append( &builder, &event ) ) break;
+          events.min_ns = fd_long_min( events.min_ns, src->event_time_ns );
+          events.max_ns = fd_long_max( events.max_ns, src->event_time_ns );
+        }
+        count++;
+      }
+      if( !count ) break; /* An open prefix pins all later admissions. */
+      int rc;
+      if( channel ) {
+        completions.count = count;
+        rc = fd_gui_hist_ts_append( gui, FD_GUI_HIST_FEC_COMPLETION_ARCHIVE, &completions );
+      } else {
+        events.batch = builder.batch;
+        rc = fd_gui_hist_ts_append( gui, FD_GUI_HIST_FEC_EVENT_ARCHIVE, &events );
+      }
+      if( rc ) break; /* Keep staging intact on archive admission failure. */
+      FD_TEST( fd_gui_store_kv_reclaim_prefix( gui->db, (ulong)dbi, count, archive_prefix_committed, NULL )==count );
+      remaining -= count;
+      total += count;
+    }
+  }
+  return total;
+}
+
+ulong
+fd_gui_fec_archive( fd_gui_t * gui, ulong budget ) {
+  return fd_gui_fec_archive_channel( gui, FD_GUI_HIST_FEC_EVENTS, budget )
+       + fd_gui_fec_archive_channel( gui, FD_GUI_HIST_FEC_COMPLETIONS, budget );
+}
+
 static void
 batch_next( fd_gui_shred_event_iter_t * iter ) {
   uchar const * src = iter->_batch->data+iter->_data_off;
@@ -125,14 +192,18 @@ fd_gui_shred_event_iter_next( fd_gui_shred_event_iter_t * iter ) {
     if( iter->_batch && iter->_batch_idx<iter->_batch->event_cnt ) {
       batch_next( iter );
       long ts = iter->_event_time ? iter->event.event_time_ns : iter->event.insert_time_ns;
-      if( ts>=iter->_after_ns && (iter->_event_time ? ts<iter->_before_ns : ts<=iter->_before_ns) ) return 1;
+      if( ts>=iter->_after_ns && (iter->_event_time && !iter->_fec_archive ? ts<iter->_before_ns : ts<=iter->_before_ns) ) return 1;
       continue;
     }
     iter->_batch = NULL;
     iter->_batch_idx = 0UL;
     iter->_data_off  = 0UL;
     if( iter->_hist_active && fd_gui_hist_range_next( &iter->_hist_iter ) ) {
-      iter->_batch = iter->_hist_iter.rec;
+      if( iter->_fec_archive ) {
+        fd_gui_fec_event_batch_t const * b = iter->_hist_iter.rec;
+        if( b->max_ns<iter->_after_ns || b->min_ns>iter->_before_ns ) continue;
+        iter->_batch = &b->batch;
+      } else iter->_batch = iter->_hist_iter.rec;
       continue;
     }
     if( iter->_hist_active ) fd_gui_hist_range_end( &iter->_hist_iter );
@@ -297,6 +368,13 @@ fd_gui_event_slot_close( fd_gui_t * gui,
   gui->shreds.closed_slot_cnt++;
 }
 
+static void
+archive_scan_begin( fd_gui_t * gui, fd_gui_hist_iter_t * it, int dbi, long lo, long hi ) {
+  memset( it, 0, sizeof(*it) );
+  fd_gui_store_ts_scan_range( gui->db, &it->_it, (ulong)dbi, lo, hi );
+  it->rec = it->_it.rec;
+}
+
 void
 fd_gui_fec_event_iter_begin( fd_gui_t *                  gui,
                              fd_gui_shred_event_iter_t * iter,
@@ -305,7 +383,15 @@ fd_gui_fec_event_iter_begin( fd_gui_t *                  gui,
   memset( iter, 0, sizeof(*iter) );
   iter->_after_ns  = after_ns;
   iter->_before_ns = before_ns;
-  if( gui->db && gui->hist && after_ns<=before_ns ) fd_gui_store_kv_scan_begin( gui->db, &iter->_fec_iter, FD_GUI_HIST_FEC_EVENTS );
+  iter->_event_time = 1;
+  iter->_fec_archive = 1;
+  if( gui->db && gui->hist && after_ns<=before_ns ) {
+    /* Admission order is monotone, event time is not.  In particular a
+       late dedup update can move an event arbitrarily far into the past. */
+    archive_scan_begin( gui, &iter->_hist_iter, FD_GUI_HIST_FEC_EVENT_ARCHIVE, after_ns, before_ns );
+    iter->_hist_active = 1;
+    fd_gui_store_kv_scan_begin( gui->db, &iter->_fec_iter, FD_GUI_HIST_FEC_EVENTS );
+  }
 }
 
 void
@@ -354,13 +440,24 @@ fd_gui_fec_completion_iter_begin( fd_gui_t *                     gui,
   memset( it, 0, sizeof(*it) );
   it->after_ns  = after_ns;
   it->before_ns = before_ns;
-  if( gui->db && gui->hist && after_ns<=before_ns ) fd_gui_store_kv_scan_begin( gui->db, &it->iter, FD_GUI_HIST_FEC_COMPLETIONS );
+  if( gui->db && gui->hist && after_ns<=before_ns ) {
+    archive_scan_begin( gui, &it->hist, FD_GUI_HIST_FEC_COMPLETION_ARCHIVE, after_ns, before_ns );
+    fd_gui_store_kv_scan_begin( gui->db, &it->iter, FD_GUI_HIST_FEC_COMPLETIONS );
+  }
 }
 
 int
 fd_gui_fec_completion_iter_next( fd_gui_fec_completion_iter_t * it ) {
-  while( fd_gui_store_kv_scan_next( &it->iter ) ) {
-    fd_gui_fec_completion_record_t const * src = it->iter.rec;
+  for(;;) {
+    fd_gui_fec_completion_record_t const * src;
+    if( it->batch && it->batch_idx<it->batch->count ) src = &it->batch->records[ it->batch_idx++ ];
+    else if( fd_gui_hist_range_next( &it->hist ) ) {
+      it->batch = it->hist.rec;
+      it->batch_idx = 0UL;
+      if( it->batch->max_ns<it->after_ns || it->batch->min_ns>it->before_ns ) it->batch = NULL;
+      continue;
+    } else if( fd_gui_store_kv_scan_next( &it->iter ) ) src = it->iter.rec;
+    else break;
     if( src->key.timestamp<it->after_ns || src->key.timestamp>it->before_ns ) continue;
     uint counts = src->key.counts;
     it->event = (fd_gui_fec_completion_t){
@@ -379,6 +476,8 @@ fd_gui_fec_completion_iter_next( fd_gui_fec_completion_iter_t * it ) {
 void
 fd_gui_fec_completion_iter_end( fd_gui_fec_completion_iter_t * it ) {
   it->iter.db = NULL;
+  it->batch = NULL;
+  fd_gui_hist_range_end( &it->hist );
 }
 
 int
@@ -447,6 +546,8 @@ fd_gui_event_bounds( fd_gui_t * gui,
   if( dbi==FD_GUI_HIST_FEC_EVENTS || dbi==FD_GUI_HIST_FEC_COMPLETIONS ) {
     *lo = LONG_MAX;
     *hi = LONG_MIN;
+    int archive = dbi==FD_GUI_HIST_FEC_COMPLETIONS ? FD_GUI_HIST_FEC_COMPLETION_ARCHIVE : FD_GUI_HIST_FEC_EVENT_ARCHIVE;
+    if( fd_gui_store_ts_range_bounds( gui->db, (ulong)archive, lo, hi ) ) (*hi)++;
     fd_gui_store_kv_scan_t it;
     fd_gui_store_kv_scan_begin( gui->db, &it, (ulong)dbi );
     while( fd_gui_store_kv_scan_next( &it ) ) {

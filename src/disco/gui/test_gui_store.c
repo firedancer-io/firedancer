@@ -936,6 +936,64 @@ test_private_index_budget( void ) {
   FD_LOG_NOTICE(( "test_private_index_budget: ok" ));
 }
 
+static void
+test_ts_region_bounds( void ) {
+  char path[128]; mk_path( path, sizeof(path) );
+  struct { long ts; long lo; long hi; uchar pad[4072]; } val = {0};
+  fd_gui_store_desc_t d = { .name="bounded", .kind=FD_GUI_STORE_KIND_TS, .val_sz=sizeof(val),
+    .val_align=8UL, .granularity=1UL, .bounds_off=sizeof(long) };
+  ulong size = fd_gui_store_min_size( 1UL );
+  ulong fp = fd_gui_store_footprint( size, 1UL, &d );
+  d.bounds_off = 0UL;
+  FD_TEST( fd_gui_store_footprint( size, 1UL, &d )-fp==FD_GUI_STORE_TS_IDX_DEPTH*16UL );
+  d.bounds_off = sizeof(long);
+  void * mem = aligned_alloc( fd_gui_store_align(), fp );
+  FD_TEST( mem );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, 1UL, TEST_SEED, &d ) );
+  FD_TEST( db );
+  ulong cap = FD_GUI_STORE_REGION_SZ/sizeof(val);
+  for( ulong i=0UL; i<3UL*cap; i++ ) {
+    val.ts = (long)i;
+    val.lo = val.hi = (long)i+100L;
+    if( i==2UL*cap ) val.lo = val.hi = 1L; /* arbitrarily late old event */
+    FD_TEST( fd_gui_store_ts_append( db, 0UL, &val )==FD_GUI_STORE_SUCCESS );
+  }
+  fd_gui_store_ts_iter_t it;
+  fd_gui_store_ts_scan_range( db, &it, 0UL, 1L, 1L );
+  FD_TEST( !fd_gui_store_ts_scan_done( &it ) && ((long const *)it.rec)[0]==(long)(2UL*cap) );
+  FD_TEST( !fd_gui_store_ts_scan_next( &it ) );
+  long lo, hi;
+  FD_TEST( fd_gui_store_ts_range_bounds( db, 0UL, &lo, &hi ) && lo==1L && hi==(long)(3UL*cap)+99L );
+  long start = fd_log_wallclock();
+  for( ulong i=0UL; i<1000UL; i++ ) {
+    fd_gui_store_ts_scan_range( db, &it, 0UL, -2L, -1L );
+    FD_TEST( fd_gui_store_ts_scan_done( &it ) );
+    FD_TEST( fd_gui_store_ts_range_bounds( db, 0UL, &lo, &hi ) );
+  }
+  long indexed = fd_log_wallclock()-start;
+  start = fd_log_wallclock();
+  for( ulong i=0UL; i<20UL; i++ ) {
+    fd_gui_store_ts_scan_all( db, &it, 0UL );
+    while( !fd_gui_store_ts_scan_done( &it ) ) fd_gui_store_ts_scan_next( &it );
+  }
+  FD_LOG_NOTICE(( "bounded TS: %lu batches / 240 MiB, warm empty query+bounds %.3f us, full header walk %.3f us",
+    3UL*cap, (double)indexed/1e6, (double)(fd_log_wallclock()-start)/20e3 ));
+  FD_TEST( fd_gui_store_reclaim( db, 0UL, cap+1UL, NULL, NULL )==cap );
+  FD_TEST( fd_gui_store_reclaim( db, 0UL, cap, NULL, NULL )==cap );
+  FD_TEST( fd_gui_store_reclaim( db, 0UL, 1UL, NULL, NULL )==1UL );
+  FD_TEST( fd_gui_store_ts_range_bounds( db, 0UL, &lo, &hi ) && lo==(long)(2UL*cap)+101L );
+  fd_gui_store_ts_scan_range( db, &it, 0UL, 1L, 1L );
+  FD_TEST( fd_gui_store_ts_scan_done( &it ) );
+  /* Reuse freed physical regions. Cached bounds must not leak across owners. */
+  val.ts++; val.lo = val.hi = -5L;
+  FD_TEST( fd_gui_store_ts_append( db, 0UL, &val )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( fd_gui_store_ts_range_bounds( db, 0UL, &lo, &hi ) && lo==-5L );
+  fd_gui_store_ts_scan_range( db, &it, 0UL, -5L, -5L );
+  FD_TEST( !fd_gui_store_ts_scan_done( &it ) );
+  FD_TEST( !fd_gui_store_ts_scan_next( &it ) );
+  db_close( db ); cleanup( path );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -949,6 +1007,7 @@ main( int     argc,
   test_kv_prefix_scan();
   test_kv_index_footprint();
   test_ts_index_footprint();
+  test_ts_region_bounds();
   test_ts_append_scan();
   test_ts_live_timestamp_bounds();
   test_ts_live_timestamp_bounds_wrap();

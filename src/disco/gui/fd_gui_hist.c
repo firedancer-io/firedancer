@@ -45,6 +45,8 @@ fd_gui_hist_dbi_res_ns( int dbi FD_PARAM_UNUSED ) {
 static inline ulong
 fd_gui_hist_dbi_ts_off( int dbi ) {
   switch( dbi ) {
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return offsetof( fd_gui_fec_event_batch_t, insert_time_ns );
+    case FD_GUI_HIST_FEC_COMPLETION_ARCHIVE: return offsetof( fd_gui_fec_completion_batch_t, insert_time_ns );
     case FD_GUI_HIST_SHRED_EVENTS:     return offsetof( fd_gui_shred_batch_t,      insert_time_ns    );
     case FD_GUI_HIST_TILE_TIMERS:      return offsetof( fd_gui_tile_timers_hist_t, sample_time_nanos );
     case FD_GUI_HIST_SCHEDULER_COUNTS: return offsetof( fd_gui_scheduler_counts_t, sample_time_ns    );
@@ -69,6 +71,8 @@ fd_gui_hist_window( long ts_ns, long res_ns ) {
 static int
 fd_gui_hist_keyshape( int dbi ) {
   switch( dbi ) {
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE:
+    case FD_GUI_HIST_FEC_COMPLETION_ARCHIVE:
     case FD_GUI_HIST_SCHEDULER_COUNTS:
     case FD_GUI_HIST_TILE_TIMERS:
     case FD_GUI_HIST_TILE_STATS:
@@ -172,6 +176,8 @@ fd_gui_hist_rec_sz( int   dbi,
     case FD_GUI_HIST_TXN_END:          return sizeof(fd_gui_store_txn_end_t);
     case FD_GUI_HIST_REPLAY_TXN:       return sizeof(fd_gui_store_replay_txn_t);
     case FD_GUI_HIST_REPLAY_TXN_BATCH:  return sizeof(fd_gui_store_replay_txn_batch_t);
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return sizeof(fd_gui_fec_event_batch_t);
+    case FD_GUI_HIST_FEC_COMPLETION_ARCHIVE: return sizeof(fd_gui_fec_completion_batch_t);
     case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_fec_event_t);
     case FD_GUI_HIST_FEC_COMPLETIONS:  return sizeof(fd_gui_fec_completion_record_t);
     case FD_GUI_HIST_SLOT:             return sizeof(fd_gui_slot_t);
@@ -240,7 +246,8 @@ fd_gui_hist_db_descs( ulong store_bytes,
     "scheduler_counts", "tile_timers", "shred_events", "txn_start",
     "txn_end", "slot", "leader_slot", "epoch", "tile_stats",
     "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch",
-    "fec_events", "fec_completions", "slot_duration", "cpu_util"
+    "fec_events", "fec_completions", "slot_duration", "cpu_util",
+    "fec_event_archive", "fec_completion_archive"
   };
   static fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
   static ulong built_for = 0UL; /* store_bytes the table was built for (0 = unbuilt) */
@@ -282,6 +289,8 @@ fd_gui_hist_db_descs( ulong store_bytes,
       descs[ i ].ts_off      = ts ? fd_gui_hist_dbi_ts_off( i ) : 0UL;
       descs[ i ].granularity = ts ? (ulong)fd_gui_hist_dbi_res_ns( i ) : 0UL;
       descs[ i ].max_records = max_records;
+      descs[ i ].bounds_off  = i==FD_GUI_HIST_FEC_EVENT_ARCHIVE ? offsetof(fd_gui_fec_event_batch_t,min_ns)
+                            : i==FD_GUI_HIST_FEC_COMPLETION_ARCHIVE ? offsetof(fd_gui_fec_completion_batch_t,min_ns) : 0UL;
     }
     FD_COMPILER_MFENCE();
     built_tile_cnt = tile_cnt;
@@ -382,10 +391,10 @@ static int
 fd_gui_hist_reclaim_eligible( ulong        dbi,
                               void const * rec,
                               void *       ctx ) {
-  if( dbi==FD_GUI_HIST_FEC_EVENTS )
-    return fd_gui_event_slot_permanently_closed( ctx, ((fd_gui_fec_event_t const *)rec)->key.slot );
-  if( dbi==FD_GUI_HIST_FEC_COMPLETIONS )
-    return fd_gui_event_slot_permanently_closed( ctx, ((fd_gui_fec_completion_record_t const *)rec)->key.slot );
+  (void)rec; (void)ctx;
+  /* Staging is never disposable history, including closed records awaiting
+     archival.  Only fd_gui_fec_archive may reclaim these rings. */
+  if( dbi==FD_GUI_HIST_FEC_EVENTS || dbi==FD_GUI_HIST_FEC_COMPLETIONS ) return 0;
   return 1;
 }
 
@@ -394,6 +403,8 @@ fd_gui_hist_make_room( fd_gui_t * gui,
                        int        dbi,
                        int        rc ) {
   if( FD_UNLIKELY( rc!=FD_GUI_STORE_MAP_FULL && rc!=FD_GUI_STORE_RING_FULL ) ) return 0;
+  if( dbi==FD_GUI_HIST_FEC_EVENTS || dbi==FD_GUI_HIST_FEC_COMPLETIONS )
+    return !!fd_gui_fec_archive_channel( gui, dbi, FD_GUI_HIST_EVICT_BATCH );
   if( rc==FD_GUI_STORE_MAP_FULL && fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible, gui ) ) return 1;
   return !!fd_gui_store_reclaim( gui->db, (ulong)dbi, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible, gui );
 }
@@ -413,6 +424,8 @@ fd_gui_hist_kv_get_or_create( fd_gui_t *   gui,
       if( FD_UNLIKELY( forced_eviction ) ) fd_gui_hist( gui )->metrics.reserves[ dbi ]++;
       return val;
     }
+    /* FEC pressure gets one bounded attempt on its own channel only. */
+    if( forced_eviction && (dbi==FD_GUI_HIST_FEC_EVENTS || dbi==FD_GUI_HIST_FEC_COMPLETIONS) ) break;
     if( FD_UNLIKELY( !fd_gui_hist_make_room( gui, dbi, rc ) ) ) break;
     forced_eviction = 1;
   }
@@ -470,6 +483,17 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
   if( FD_UNLIKELY( !rec_sz ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d has no record type", dbi )); return -1; }
   long stored_ts;
   fd_memcpy( &stored_ts, (uchar const *)val + fd_gui_hist_dbi_ts_off( dbi ), sizeof(stored_ts) );
+  if( dbi==FD_GUI_HIST_FEC_EVENT_ARCHIVE || dbi==FD_GUI_HIST_FEC_COMPLETION_ARCHIVE ) {
+    fd_gui_hist_t * hist = fd_gui_hist( gui );
+    if( hist->has_last_ts[ dbi ] && stored_ts<hist->last_ts[ dbi ] ) return -1;
+    int rc = fd_gui_store_ts_append( gui->db, (ulong)dbi, val );
+    if( rc!=FD_GUI_STORE_SUCCESS && fd_gui_hist_make_room( gui, dbi, rc ) )
+      rc = fd_gui_store_ts_append( gui->db, (ulong)dbi, val );
+    if( rc!=FD_GUI_STORE_SUCCESS ) return -1; /* staging remains intact; retry next tick */
+    hist->last_ts[ dbi ] = stored_ts;
+    hist->has_last_ts[ dbi ] = 1;
+    return 0;
+  }
   void * dst = fd_gui_hist_ts_emplace( gui, dbi, stored_ts );
   if( FD_UNLIKELY( !dst ) ) return -1;
   fd_memcpy( dst, val, rec_sz );

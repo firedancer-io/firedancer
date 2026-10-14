@@ -105,6 +105,26 @@ FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_t)<=32UL, fec_event_size );
 FD_STATIC_ASSERT( sizeof(fd_gui_fec_completion_record_t)<=32UL, fec_completion_size );
 FD_STATIC_ASSERT( FD_GUI_STORE_REGION_SZ/32UL>=FD_GUI_FEC_RECORD_MAX, fec_region_capacity );
 
+/* Archives are ordered by admission time, not event time.  Per-batch
+   bounds permit event-time filtering even for arbitrarily late updates. */
+struct fd_gui_fec_event_batch {
+  long insert_time_ns;
+  long min_ns;
+  long max_ns;
+  fd_gui_shred_batch_t batch;
+};
+typedef struct fd_gui_fec_event_batch fd_gui_fec_event_batch_t;
+
+#define FD_GUI_FEC_COMPLETION_BATCH_MAX (128UL)
+struct fd_gui_fec_completion_batch {
+  long insert_time_ns;
+  long min_ns;
+  long max_ns;
+  ulong count;
+  fd_gui_fec_completion_record_t records[ FD_GUI_FEC_COMPLETION_BATCH_MAX ];
+};
+typedef struct fd_gui_fec_completion_batch fd_gui_fec_completion_batch_t;
+
 struct fd_gui_shred_event_iter {
   fd_gui_shred_event_t event;
   fd_gui_t * _gui;
@@ -115,6 +135,7 @@ struct fd_gui_shred_event_iter {
   ulong _batch_idx;
   ulong _data_off;
   int   _event_time;
+  int   _fec_archive;
   int   _builder_pending;
   int   _hist_active;
   fd_gui_store_kv_scan_t _fec_iter;
@@ -127,10 +148,22 @@ struct fd_gui_fec_completion_iter {
   long                    after_ns;
   long                    before_ns;
   fd_gui_store_kv_scan_t  iter;
+  fd_gui_hist_iter_t      hist;
+  fd_gui_fec_completion_batch_t const * batch;
+  ulong batch_idx;
 };
 typedef struct fd_gui_fec_completion_iter fd_gui_fec_completion_iter_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* Move at most budget closed-prefix records per channel to immutable TS
+   batches.  Never remove a KV record before its archive append succeeds. */
+ulong
+fd_gui_fec_archive( fd_gui_t * gui, ulong budget );
+
+/* Admission pressure must not drain unrelated channels. */
+ulong
+fd_gui_fec_archive_channel( fd_gui_t * gui, int dbi, ulong budget );
 
 /* fd_gui_fec_event_iter_begin selects persisted FEC events by event time
    in [after_ns,before_ns].  Use fd_gui_shred_event_iter_next/end to read

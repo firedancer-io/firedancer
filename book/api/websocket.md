@@ -2849,8 +2849,6 @@ Historical shred and transaction lookups use insertion-time indices
 with a one-second margin on either side, then filter by event time.
 An event inserted more than one second away from its event timestamp
 can be missed by a narrow query.
-FEC event and completion queries scan their bounded retained records
-and filter by canonical event time; they do not use this lookup margin.
 
 The GUI's database is wiped on boot. When it reaches capacity, data is
 evicted approximately oldest-first.
@@ -3233,9 +3231,7 @@ calendar-day aggregates retained independently of the detailed history.
 Exact duplicate completions contribute only once. If a new completion
 cannot be admitted after safe reclamation, both its detail and its coarse
 aggregate contribution are dropped, and the completion drop counter is
-incremented. Each FEC collection is capped at 1,048,576 live records;
-this limit does not promise a retention duration.
-Reclamation stops at the first record whose slot is not permanently closed.
+incremented.
 
 `slot_duration` is independent of FEC counts. Every replayed block completion
 contributes a sample, including abandoned forks and exact duplicate replays.
