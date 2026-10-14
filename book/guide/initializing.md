@@ -4,6 +4,8 @@
 The `firedancer configure` command is used to setup the host operator
 system so Firedancer can run correctly. It does the following:
 
+* **iavf** Configures VFs, clears and installs PF ntuple rules and loads the
+  `vfio-pci` kernel module required by the iavf network provider.
 * **mlx5** Loads the `ib_uverbs` kernel module required by the mlx5
   network provider and clears network configuration left by XDP.
 * **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
@@ -46,7 +48,7 @@ where `mode` is one of:
    privileges and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
-`stage` can be one or more of `mlx5`, `hugetlbfs`, `sysctl`,
+`stage` can be one or more of `iavf`, `mlx5`, `hugetlbfs`, `sysctl`,
 `hyperthreads`, `bonding`,  `ethtool-channels`, `ethtool-offloads`,
 `ethtool-loopback`,
 `irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, `console`, and
@@ -58,6 +60,33 @@ Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
 requires privileges, and the `init` mode will only require
 privileges if it needs to actually change something.
+
+## iavf
+The iavf provider uses one SR-IOV Virtual Function (VF) per Physical
+Function (PF) on `[net.interface]`. This stage only runs when `[net.provider]`
+is `iavf`. The PFs must use Intel `ice` or `i40e` drivers, SR-IOV and IOMMU
+must be enabled in the system's BIOS, with Virtualization Mode set to SR-IOV
+in the NIC's BIOS section.
+
+`init` loads the `vfio-pci` kernel module if needed, then reuses the
+highest index VF (`sriov_numvfs - 1`) or creates VF 0 if none exist. It
+binds the VF to `vfio-pci`, assigns the MAC address of `[net.interface]`
+to each VF used (this leads to all RX being sent to both the PF and VF,
+Firedancer adds drop rules on the PF so it processes less unnecessary FD packets),
+disables spoof checking and trust, and sets automatic link state. Repeated
+init does not add excess VFs.
+
+The stage clears all existing PF ntuple rules and installs UDP port based
+drop rules for Firedancer's ports so unnecessary packets are not processed
+by the normal kernel (would otherwise waste CPU resources).
+
+Changing VFs or PF filters requires root privileges. `CAP_SYS_MODULE`
+is also required when loading `vfio-pci`. If already configured, `init`
+does nothing. The `check` mode requires no privileges and makes no changes.
+
+`fini` clears PF's ntuple rules and removes VF 0 if its PF has
+exactly one VF (PFs with multiple VFs retain all of them), it does not
+unload `vfio-pci`.
 
 ## mlx5
 The mlx5 network provider sets up the network device through the

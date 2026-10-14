@@ -1,4 +1,4 @@
-# Networking (XDP)
+# Networking
 
 ## `xdp` network provider
 
@@ -66,11 +66,25 @@ Firedancer.
 The recommended way to capture Firedancer traffic is using the
 `firedancer dump` subcommand.
 
-### Internals
+## `iavf` network provider
 
-Further documentation on network stack internals:
-- [net tile internals](./internals/net_tile.md)
-- [netlnk tile internals](./internals/netlink.md)
+### Virtual Functions
+
+The iavf provider uses SR-IOV Virtual Functions (VFs) to facilitate kernel
+bypass while also sharing the selected networking device with the Linux
+kernel. iavf takes control of one VF per PF (Physical Function).
+
+`configure init iavf` reuses the highest index VF (`sriov_numvfs - 1`)
+if it exists or creates VF 0 if none exist. Therefore repeated init
+does not add excess VFs.
+
+`configure fini iavf` removes a VF if its associated PF has exactly one
+VF. PFs with multiple VFs retain all of them, and iavf will reuse the
+highest index VF upon `configure init iavf`.
+
+This reuse highest index design allows other applications on the system
+to also use VFs by adding an extra VF per PF ontop of what their
+applications want, which Firedancer will then use.
 
 ## `socket` network provider
 
@@ -81,3 +95,9 @@ It can be enabled as follows:
 [net]
     provider = "socket"
 ```
+
+### Internals
+
+Further documentation on network stack internals:
+- [net tile internals](./internals/net_tile.md)
+- [netlnk tile internals](./internals/netlink.md)
