@@ -39,7 +39,6 @@ test_basic( void ) {
   ag_vote_t v;
 
   v = ag_vote_construct_notar( sec_sign_fn, &sk, selector, 0UL, h, 0UL, TEST_SHRED_VERSION );
-  { char cstr[ AG_VOTE_CSTR_MAX ]; FD_TEST( !strncmp( ag_vote_to_cstr( &v, cstr ), "Notar { slot: 0, hash: 000000...", 32UL ) ); FD_LOG_NOTICE(( "%s", cstr )); }
   FD_TEST( v.kind==AG_VOTE_KIND_NOTAR );
   FD_TEST( ag_vote_slot( &v )==0UL );
   FD_TEST( ag_vote_rank( &v )==0UL );

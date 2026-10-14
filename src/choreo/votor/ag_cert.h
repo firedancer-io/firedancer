@@ -11,7 +11,9 @@
 #define AG_CERT_KIND_NOTAR_FALLBACK (3)
 #define AG_CERT_KIND_SKIP           (4)
 
-#define AG_CERT_CSTR_MAX (512UL)
+#define AG_CERT_VERIFY_SUCCESS       ( 0)
+#define AG_CERT_VERIFY_ERR_THRESHOLD (-1) /* the signers do not have enough stake, the signature is not checked */
+#define AG_CERT_VERIFY_ERR_SIG       (-2) /* the signature does not verify */
 
 struct ag_cert_final {
   ulong        slot;
@@ -116,10 +118,6 @@ ag_cert_shred_version( ag_cert_t const * self ) {
 int
 ag_cert_verify( ag_cert_t const *       self,
                 ag_epoch_info_t const * epoch_info );
-
-char *
-ag_cert_to_cstr( ag_cert_t const * self,
-                 char              cstr[ static AG_CERT_CSTR_MAX ] );
 
 FD_PROTOTYPES_END
 
