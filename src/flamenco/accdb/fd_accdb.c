@@ -4006,12 +4006,14 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
 /* Dirty lines are staged in the bounce buffer and written with one
    pwritev2 per batch, so the kernel's inode lock is taken once per
    batch instead of once per account.  Evictions are performed
-   per-class in batches of up to PREEVICT_TICK_BUDGET records.  While
-   a line sits in a batch its account can be read neither from the
-   cache nor from disk, so a reader waits for the batch write to
-   finish. */
+   per-class in batches of up to PREEVICT_TICK_BUDGET records or
+   PREEVICT_BATCH_SZ bytes.  While a line sits in a batch its account
+   can be read neither from the cache nor from disk, so a reader waits
+   for the batch write to finish. */
 
 #define PREEVICT_TICK_BUDGET (256UL)
+#define PREEVICT_BATCH_SZ    (1UL<<20)
+FD_STATIC_ASSERT( PREEVICT_BATCH_SZ<=FD_ACCDB_BOUNCE_SZ, batch_fits_bounce );
 
 /* cache_line_free invalidates a claimed line and returns it to its
    class free list. */
@@ -4115,9 +4117,9 @@ background_preevict( fd_accdb_t * accdb,
                      int          force ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
 
-  /* A batch has to fit the bounce buffer and one disk partition. */
+  /* A batch has to fit one disk partition. */
   FD_TEST( accdb->bounce );
-  ulong batch_max = fd_ulong_min( FD_ACCDB_BOUNCE_SZ, shmem->partition_sz );
+  ulong batch_max = fd_ulong_min( PREEVICT_BATCH_SZ, shmem->partition_sz );
 
   fd_accdb_cache_line_t * pend_line[ PREEVICT_TICK_BUDGET ];
   ulong                   pend_sz  [ PREEVICT_TICK_BUDGET ];
@@ -4190,7 +4192,7 @@ background_preevict( fd_accdb_t * accdb,
       uint  data_sz  = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
       ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
 
-      if( FD_UNLIKELY( stage_sz+entry_sz>batch_max || pend_cnt==PREEVICT_TICK_BUDGET ) ) {
+      if( FD_UNLIKELY( pend_cnt && ( stage_sz+entry_sz>batch_max || pend_cnt==PREEVICT_TICK_BUDGET ) ) ) {
         preevict_flush( accdb, size_class, pend_line, pend_sz, pend_cnt, stage_sz );
         pend_cnt = 0UL;
         stage_sz = 0UL;
