@@ -447,11 +447,6 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
       FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
       FD_TEST( in_link->mtu==124UL ); // FD_REPAIR_MAX_PREIMAGE_SZ
       FD_TEST( out_link->mtu==64UL );
-    } else if ( !strcmp(in_link->name, "txsend_sign" ) ) {
-      ctx->in[ i ].role = FD_KEYGUARD_ROLE_TXSEND;
-      FD_TEST( !strcmp( out_link->name, "sign_txsend" ) );
-      FD_TEST( in_link->mtu==FD_TXN_MTU_V0  );
-      FD_TEST( out_link->mtu==64UL*2UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );
@@ -477,11 +472,6 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
       FD_TEST( !strcmp( out_link->name, "sign_votor" ) );
       FD_TEST( in_link->mtu==FD_KEYGUARD_SIGN_REQ_MTU );
       FD_TEST( out_link->mtu==FD_BLS_SIG_SZ );
-    } else if( !strcmp(in_link->name, "tower_sign" ) ) {
-      ctx->in[ i ].role = FD_KEYGUARD_ROLE_TOWER;
-      FD_TEST( !strcmp( out_link->name, "sign_tower" ) );
-      FD_TEST( in_link->mtu==4096UL );
-      FD_TEST( out_link->mtu==64UL );
     } else {
       FD_LOG_CRIT(( "unexpected link %s", in_link->name ));
     }
