@@ -636,8 +636,7 @@ fd_config_validate( fd_config_t const * config ) {
 #undef CFG_HAS_POW2
 
 void
-fd_config_load( int           is_firedancer,
-                int           is_local_cluster,
+fd_config_load( int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,
                 char const *  override_config,
@@ -649,7 +648,6 @@ fd_config_load( int           is_firedancer,
                 fd_config_t * config,
                 int           dev ) {
   memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = is_firedancer;
   config->boot_timestamp_nanos = fd_log_wallclock();
 
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );

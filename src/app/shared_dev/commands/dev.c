@@ -27,8 +27,6 @@ dev_cmd_args( int *    pargc,
   args->dev.full_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--full-watch" );
   args->dev.no_configure = fd_env_strip_cmdline_contains( pargc, pargv, "--no-configure" );
   args->dev.no_init_workspaces = fd_env_strip_cmdline_contains( pargc, pargv, "--no-init-workspaces" );
-  args->dev.no_agave = fd_env_strip_cmdline_contains( pargc, pargv, "--no-agave"  ) ||
-                       fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" );
 }
 
 void
@@ -109,8 +107,7 @@ update_config_for_dev( fd_config_t * config ) {
 
 static void
 run_firedancer_threaded( config_t * config,
-                         int        init_workspaces,
-                         void ( * agave_main )( config_t const * ) ) {
+                         int        init_workspaces ) {
   install_parent_signals();
 
   fd_topo_print_log( 0, &config->topo );
@@ -127,9 +124,7 @@ run_firedancer_threaded( config_t * config,
   initialize_vote_stakes_fd( config );
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
-  if( FD_LIKELY( config->is_firedancer ) ) {
-    initialize_snapshot_fds( config );
-  }
+  initialize_snapshot_fds( config );
 
   /* This is kind of a hack, but we have to join all the workspaces as
      read-write if we are running things threaded.  The reason is that
@@ -141,17 +136,12 @@ run_firedancer_threaded( config_t * config,
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
-
-  if( FD_UNLIKELY( agave_main && !config->development.no_agave ) ) {
-    agave_main( config );
-  }
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
 }
 
 void
 dev_cmd_fn( args_t *   args,
-            config_t * config,
-            void ( * agave_main )( config_t const * ) ) {
+            config_t * config ) {
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,
@@ -162,12 +152,11 @@ dev_cmd_fn( args_t *   args,
   }
 
   update_config_for_dev( config );
-  if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
 
   if( FD_LIKELY( args->dev.no_watch ) ) {
     if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );
     else {
-      run_firedancer_threaded( config , !args->dev.no_init_workspaces, agave_main );
+      run_firedancer_threaded( config , !args->dev.no_init_workspaces );
       for(;;) pause();
     }
   } else {
@@ -239,7 +228,7 @@ dev_cmd_fn( args_t *   args,
       if( FD_UNLIKELY( fd_log_private_restore_stderr==-1 ) ) FD_LOG_ERR(( "dup() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-      run_firedancer_threaded( config, 0, agave_main );
+      run_firedancer_threaded( config, 0 );
       watch_cmd_fn( &watch_args, config );
     }
   }

@@ -40,7 +40,6 @@ fd_topob_new( void * mem,
 
   topo->sleep_obj_id = ULONG_MAX;
 
-  topo->agave_affinity_cnt = 0;
   topo->blocklist_cores_cnt = 0;
 
   return topo;
@@ -168,7 +167,6 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_agave,
                int            uses_id_keyswitch,
                int            uses_av_keyswitch,
                int            is_waker_client ) {
@@ -186,7 +184,6 @@ fd_topob_tile( fd_topo_t *    topo,
   strncpy( tile->name, tile_name, sizeof(tile->name) );
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
-  tile->is_agave            = is_agave;
   tile->cpu_idx             = fd_ulong_if( cpu_idx<ULONG_MAX, cpu_idx & ~FD_TOPOB_CPU_SHARED, ULONG_MAX );
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
@@ -237,7 +234,7 @@ fd_topob_waker( fd_topo_t * topo ) {
       char const * metrics_wksp = topo->workspaces[ topo->objs[ client->metrics_obj_id ].wksp_id ].name;
       fd_topob_wksp( topo, "waker"       );
       fd_topob_wksp( topo, "waker_ready" );
-      waker_tile = fd_topob_tile( topo, "waker", "waker", metrics_wksp, ULONG_MAX, 0, 0, 0, 0 );
+      waker_tile = fd_topob_tile( topo, "waker", "waker", metrics_wksp, ULONG_MAX, 0, 0, 0 );
     }
     fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "waker_ready" );
     fd_topob_tile_uses( topo, client,     fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -255,7 +252,7 @@ fd_topob_sleep( fd_topo_t *  topo,
   fd_topob_wksp( topo, "mwaitx" );
   fd_topob_wksp( topo, "sleep"  );
   topo->sleep_obj_id = fd_topob_obj( topo, "sleep", "sleep" )->id;
-  fd_topob_tile( topo, "mwaitx", "mwaitx", metrics_wksp, mwaitx_cpu_idx, 0, 0, 0, 0 );
+  fd_topob_tile( topo, "mwaitx", "mwaitx", metrics_wksp, mwaitx_cpu_idx, 0, 0, 0 );
 }
 
 /* Tiles that must not share a physical core.  The layout leaves their
@@ -518,24 +515,24 @@ static char const * FLOATING[] = {
 /* Tiles only active on startup
    (Must shut down after snapshot load) */
 static char const * STARTUP[] = {
-  "genesi", /* FIREDANCER only */
-  "snapct", /* FIREDANCER only */
-  "snapld", /* FIREDANCER only */
-  "snapdc", /* FIREDANCER only */
-  "snapin", /* FIREDANCER only */
+  "genesi",
+  "snapct",
+  "snapld",
+  "snapdc",
+  "snapin",
   NULL
 };
 
 /* Tiles only active post startup
    (Must sleep until snapshot load finishes) */
 static char const * POST_START[] = {
-  "accdb",  /* FIREDANCER only */
-  "execle", /* FIREDANCER only */
-  "poh",    /* FIREDANCER only */
-  "motor",  /* FIREDANCER only */
-  "execrp", /* FIREDANCER only */
-  "txsend", /* FIREDANCER only */
-  "solcap", /* FIREDANCER only */
+  "accdb",
+  "execle",
+  "poh",
+  "motor",
+  "execrp",
+  "txsend",
+  "solcap",
   NULL
 };
 
@@ -551,28 +548,23 @@ static char const * ALWAYS[] = {
   "bundle",
   "verify",
   "dedup",
-  "resolh", /* FRANK only */
-  "resolv", /* FIREDANCER only */
+  "resolv",
   "pack",
-  "bank",   /* FRANK only */
-  "pohh",   /* FRANK only */
   "sign",
   "shred",
-  "event",  /* FIREDANCER only */
-  "store",  /* FRANK only */
-  "plugin", /* FRANK only */
-  "gui",    /* FIREDANCER only */
-  "rpc",    /* FIREDANCER only */
-  "gossvf", /* FIREDANCER only */
-  "gossip", /* FIREDANCER only */
-  "repair", /* FIREDANCER only */
-  "rotor",  /* FIREDANCER only */
-  "rserve", /* FIREDANCER only */
-  "replay", /* FIREDANCER only */
-  "tower",  /* FIREDANCER only */
-  "votor",  /* FIREDANCER only */
+  "event",
+  "gui",
+  "rpc",
+  "gossvf",
+  "gossip",
+  "repair",
+  "rotor",
+  "rserve",
+  "replay",
+  "tower",
+  "votor",
   "pktgen",
-  "mwaitx", /* FIREDANCER only */
+  "mwaitx",
   NULL
 };
 
@@ -583,9 +575,9 @@ static char const * ALWAYS[] = {
    picks the NUMA node of the pool they run over, not an L3. */
 
 static char const * HOT_TILES[] = {
-  "mwaitx", /* FIREDANCER only */
-  "replay", /* FIREDANCER only */
-  "execrp", /* FIREDANCER only */
+  "mwaitx",
+  "replay",
+  "execrp",
   "mlx5",
   NULL
 };
@@ -870,8 +862,7 @@ auto_tile_cpu_l3( fd_topo_tile_t * tile,
 
 void
 fd_topob_auto_layout_cpus( fd_topo_t *      topo,
-                           fd_topo_cpus_t * cpus,
-                           int              reserve_agave_cores ) {
+                           fd_topo_cpus_t * cpus ) {
   /* Incredibly simple automatic layout system for now ... just assign
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
@@ -970,22 +961,19 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   }
   ulong l3_tiles_to_assign = always_tiles_to_assign + hot_post_start_tiles +
       fd_ulong_max( pinned_startup_tiles, pinned_post_start_tiles-hot_post_start_tiles );
-  int l3_layout = topo->sleep_obj_id!=ULONG_MAX && !reserve_agave_cores && fd_topo_cpus_l3_complete( cpus ) &&
+  int l3_layout = topo->sleep_obj_id!=ULONG_MAX && fd_topo_cpus_l3_complete( cpus ) &&
                   available_physical>=l3_tiles_to_assign;
 
   /* If we have enough physical cores (excluding HT siblings) for all
      tiles that need assignment, exclude HT siblings so that no tile
-     gets scheduled on a hyperthread pair.
-     For Frankendancer, we reserve 2x cores so we have enough for Agave */
-  _Bool skip_ht_pairs = reserve_agave_cores
-    ? (available_physical>=2*tiles_to_assign) /* Frankendancer */
-    : (available_physical>=tiles_to_assign);  /* Firedancer */
+     gets scheduled on a hyperthread pair. */
+  _Bool skip_ht_pairs = (available_physical>=tiles_to_assign);
 
   /* Otherwise spend the spare logical CPUs on whole cores for the
      dedicated tiles.  Each costs its sibling, like a critical tile.
      The L3 layout already places them on whole cores. */
   ulong dedicated_budget = 0UL;
-  if( !skip_ht_pairs && !l3_layout && !reserve_agave_cores ) {
+  if( !skip_ht_pairs && !l3_layout ) {
     ulong free_logical = 0UL;
     for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) free_logical += !cpu_bv_test( cpu_assigned, i );
     ulong critical_cnt = 0UL;
@@ -1045,26 +1033,13 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
 
     if( FD_UNLIKELY( !tile_is_floating( tile ) ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
-
-  topo->agave_affinity_cnt = 0UL;
-  if( FD_UNLIKELY( reserve_agave_cores ) ) {
-    for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
-      if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
-      if( FD_UNLIKELY( cpu_bv_test( cpu_assigned, cpu_ordering[ i ] ) ) ) continue;
-
-      if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
-        topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
-      }
-    }
-  }
 }
 
 void
-fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores ) {
+fd_topob_auto_layout( fd_topo_t * topo ) {
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
-  fd_topob_auto_layout_cpus( topo, cpus, reserve_agave_cores );
+  fd_topob_auto_layout_cpus( topo, cpus );
 }
 
 ulong

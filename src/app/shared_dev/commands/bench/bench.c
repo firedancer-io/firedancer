@@ -61,8 +61,7 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       send_to_port,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
-                uint         rpc_ip_addr,
-                int          reserve_agave_cores ) {
+                uint         rpc_ip_addr ) {
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 128UL, 64UL, 1UL );
@@ -99,18 +98,18 @@ add_bench_topo( fd_topo_t  * topo,
                        "in the [development.bench.affinity] provides for %lu cores. The extra cores will be unused.",
                        benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
   }
-  fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", tile_to_cpu[ 0 ], 0, 0, 0, 0 );
+  fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", tile_to_cpu[ 0 ], 0, 0, 0 );
   bencho->bencho.rpc_port    = rpc_port;
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
-    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", tile_to_cpu[ i+1UL ], 0, 0, 0, 0 );
+    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", tile_to_cpu[ i+1UL ], 0, 0, 0 );
     benchg->benchg.accounts_cnt        = accounts_cnt;
     benchg->benchg.mode                = transaction_mode;
     benchg->benchg.contending_fraction = contending_fraction;
     benchg->benchg.cu_price_spread     = cu_price_spread;
   }
   for( ulong i=0UL; i<benchs_tile_cnt; i++ ) {
-    fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, 0, 0, 0 );
+    fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, 0, 0 );
     benchs->benchs.send_to_ip_addr = send_to_ip_addr;
     benchs->benchs.send_to_port    = send_to_port;
     benchs->benchs.conn_cnt        = conn_cnt;
@@ -131,7 +130,7 @@ add_bench_topo( fd_topo_t  * topo,
   }
 
   /* This will blow away previous auto topology layouts and recompute an auto topology. */
-  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo, reserve_agave_cores );
+  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo );
   fd_topob_sleep_finish( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
@@ -173,8 +172,7 @@ bench_topo( config_t * config ) {
                   config->tiles.quic.quic_transaction_listen_port,
                   config->net.ip_addr,
                   rpc_port,
-                  rpc_ip_addr,
-                  !config->is_firedancer );
+                  rpc_ip_addr );
 }
 
 static pid_t bench_pid;
@@ -242,9 +240,7 @@ bench_cmd_fn( args_t *   args,
   initialize_vote_stakes_fd( config );
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
-  if( FD_LIKELY( config->is_firedancer ) ) {
-    initialize_snapshot_fds( config );
-  }
+  initialize_snapshot_fds( config );
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
@@ -265,10 +261,10 @@ bench_cmd_fn( args_t *   args,
     if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     /* FIXME allow running sandboxed/multiprocess */
-    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+    fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
     watch_cmd_fn( &watch_args, config );
   } else {
     /* FIXME allow running sandboxed/multiprocess */
-    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+    fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
   }
 }

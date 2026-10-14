@@ -25,11 +25,6 @@ ready_cmd_fn( args_t *   args,
   for( ulong i=0; i<config->topo.tile_cnt; i++) {
     fd_topo_tile_t * tile = &config->topo.tiles[i];
 
-    /* Don't wait for agave hosted tiles yet, they will take a
-       long time, and aren't needed to start sending transactions
-       anyway. */
-    if( FD_UNLIKELY( tile->is_agave ) ) continue;
-
     long start = fd_log_wallclock();
     int printed = 0;
     do {
@@ -86,11 +81,10 @@ action_t fd_action_ready = {
   .require_config = 0,
   .perm           = NULL,
   .description    = "Wait for all tiles to be running",
-  .detail         = "Connects to a running validator and blocks until every tile (except\n"
-                    "Agave-hosted tiles) reports a running status, then exits 0.  A tile is a\n"
-                    "single thread pinned to a CPU core that performs one part of the validator's\n"
-                    "work.  Useful in scripts that must wait for the validator to finish booting\n"
-                    "before proceeding.",
+  .detail         = "Connects to a running validator and blocks until every tile reports a\n"
+                    "running status, then exits 0.  A tile is a single thread pinned to a CPU\n"
+                    "core that performs one part of the validator's work.  Useful in scripts\n"
+                    "that must wait for the validator to finish booting before proceeding.",
   .usage          = "ready [OPTIONS]",
   .args_help      = ready_args_help,
 };

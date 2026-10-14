@@ -5,7 +5,7 @@
 #include "../../choreo/tower/fd_tower_file.h"
 
 /* FD_APP_NAME and FD_BINARY_NAME identify the control binary at run time
-   (e.g. "Firedancer"/"firedancer", "Frankendancer"/"fddev").  They are
+   (e.g. "Firedancer"/"firedancer").  They are
    defined once per binary in its main translation unit.  Commands
    shared across binaries should reference these instead of hard-coding
    a binary name in help text or usage messages. */
@@ -75,7 +75,6 @@ union fdctl_args {
     int  full_watch;
     int  no_configure;
     int  no_init_workspaces;
-    int  no_agave;
   } dev;
 
   struct {

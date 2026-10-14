@@ -105,8 +105,6 @@ proc_start_time( ulong pid ) {
 }
 
 #define KILL_NO                ( 0)
-#define KILL_IS_FDDEV          (-1)
-#define KILL_IS_FDCTL          (-2)
 #define KILL_IS_FIREDANCER     (-3)
 #define KILL_IS_FIREDANCER_DEV (-4)
 #define KILL_HAS_WORKSPACE_FD  (-5)
@@ -116,8 +114,6 @@ proc_start_time( ulong pid ) {
 static char const *
 kill_reason( int err ) {
   switch( err ) {
-    case KILL_IS_FDDEV:          return "is fddev";
-    case KILL_IS_FDCTL:          return "is fdctl";
     case KILL_IS_FIREDANCER:     return "is firedancer";
     case KILL_IS_FIREDANCER_DEV: return "is firedancer-dev";
     case KILL_HAS_WORKSPACE_FD:  return "has a workspace file descriptor open";
@@ -153,8 +149,8 @@ check_binary( ulong pid ) {
   char const * base = strrchr( exe, '/' );
   base = base ? base+1UL : exe;
 
-  static char const * binaries[] = { "fddev",       "fdctl",       "firedancer",       "firedancer-dev"       };
-  static int const    errors[]   = { KILL_IS_FDDEV, KILL_IS_FDCTL, KILL_IS_FIREDANCER, KILL_IS_FIREDANCER_DEV };
+  static char const * binaries[] = { "firedancer",       "firedancer-dev"       };
+  static int const    errors[]   = { KILL_IS_FIREDANCER, KILL_IS_FIREDANCER_DEV };
   for( ulong i=0UL; i<sizeof(binaries)/sizeof(binaries[0]); i++ ) {
     if( FD_UNLIKELY( !strcmp( base, binaries[ i ] ) ) ) return errors[ i ];
   }

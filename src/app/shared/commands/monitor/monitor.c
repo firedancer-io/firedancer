@@ -539,8 +539,7 @@ monitor_cmd_fn( args_t *   args,
                     0,
                     0U,
                     0,
-                    0U,
-                    !config->is_firedancer );
+                    0U );
   }
 
   struct sigaction sa = {
