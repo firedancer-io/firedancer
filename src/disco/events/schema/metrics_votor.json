@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -49,6 +57,11 @@
         "thread_duration_nanos": {
             "type": "Tuple",
             "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,6 +73,9 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
@@ -72,6 +88,9 @@
         "datagram_rx": {
             "type": "Tuple",
             "description": "Inbound datagrams dispatched, by result",
+            "aliases": {
+                "all": ["vote", "cert", "not_ready", "too_small", "unknown_tag"]
+            },
             "fields": {
                 "vote":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram carried a vote and was handed to vote rx" },
                 "cert":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram carried a cert and was handed to cert rx" },
@@ -83,6 +102,9 @@
         "vote_rx": {
             "type": "Tuple",
             "description": "Inbound votes processed, by result",
+            "aliases": {
+                "all": ["success", "bad_size", "bad_encoding", "unknown_signer", "not_peer", "banned", "slot_out_of_range", "null_block_hash", "signature_failed", "unranked", "shred_version_mismatched", "duplicate", "slashable"]
+            },
             "fields": {
                 "success":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote was handed to the pool and accepted" },
                 "bad_size":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote was truncated or had trailing bytes" },
@@ -102,6 +124,9 @@
         "cert_rx": {
             "type": "Tuple",
             "description": "Inbound certificates processed, by result",
+            "aliases": {
+                "all": ["success", "bad_size", "bad_encoding", "shred_version_mismatched", "unknown_signer", "not_peer", "unranked", "slot_out_of_range", "duplicate", "signature_failed", "banned"]
+            },
             "fields": {
                 "success":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Cert was handed to the pool and accepted" },
                 "bad_size":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Cert was truncated or had trailing bytes" },

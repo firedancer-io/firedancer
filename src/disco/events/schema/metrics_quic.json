@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -49,6 +57,11 @@
         "thread_duration_nanos": {
             "type": "Tuple",
             "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,6 +73,9 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
@@ -78,6 +94,9 @@
         "txn_rx": {
             "type": "Tuple",
             "description": "Transactions published to verify, by TPU ingress path; excludes all *Dropped",
+            "aliases": {
+                "all": ["udp", "quic_fast", "quic_frag"]
+            },
             "fields": {
                 "udp":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TPU/UDP" },
                 "quic_fast": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TPU/QUIC unfragmented" },
@@ -118,6 +137,9 @@
         "pkt_dropped": {
             "type": "Tuple",
             "description": "Received packets dropped, by reason",
+            "aliases": {
+                "all": ["undersize", "oversize", "src_ip_mismatch", "header_invalid", "net_header_invalid", "version_unsupported"]
+            },
             "fields": {
                 "undersize":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "QUIC packet too small" },
                 "oversize":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "QUIC packet too large" },
@@ -130,6 +152,9 @@
         "pkt_no_conn_dropped": {
             "type": "Tuple",
             "description": "Packets with an unknown connection ID, by packet type",
+            "aliases": {
+                "all": ["initial", "retry", "handshake", "one_rtt"]
+            },
             "fields": {
                 "initial":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Initial" },
                 "retry":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retry" },
@@ -140,6 +165,9 @@
         "pkt_meta_acquire_attempted": {
             "type": "Tuple",
             "description": "Attempts to acquire packet metadata for transmission, by result",
+            "aliases": {
+                "all": ["success", "pool_empty", "conn_limit"]
+            },
             "fields": {
                 "success":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Success" },
                 "pool_empty": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Packet metadata pool empty" },
@@ -149,6 +177,9 @@
         "initial_pkt_rx": {
             "type": "Tuple",
             "description": "Initial packets received, by token type",
+            "aliases": {
+                "all": ["none", "retry_token", "other"]
+            },
             "fields": {
                 "none":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No token" },
                 "retry_token": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fd_quic retry token" },
@@ -163,6 +194,9 @@
         "frame_rx": {
             "type": "Tuple",
             "description": "QUIC frames received, by frame type",
+            "aliases": {
+                "all": ["unknown", "ack", "reset_stream", "stop_sending", "crypto", "new_token", "stream", "max_data", "max_stream_data", "max_streams", "data_blocked", "stream_data_blocked", "streams_blocked", "new_conn_id", "retire_conn_id", "path_challenge", "path_response", "conn_close_quic", "conn_close_app", "handshake_done", "ping", "padding", "datagram"]
+            },
             "fields": {
                 "unknown":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Unknown frame type" },
                 "ack":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "ACK frame" },
@@ -192,6 +226,9 @@
         "pkt_ack_processed": {
             "type": "Tuple",
             "description": "Received packets processed for acknowledgement, by result",
+            "aliases": {
+                "all": ["no_pkt_number", "new_range", "merged", "queue_full", "cancelled"]
+            },
             "fields": {
                 "no_pkt_number": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Packet had no packet number to acknowledge" },
                 "new_range":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "New ACK range" },
@@ -250,6 +287,9 @@
         "pkt_decrypt_failed": {
             "type": "Tuple",
             "description": "Packets that failed decryption, by encryption level",
+            "aliases": {
+                "all": ["initial", "early", "handshake", "app"]
+            },
             "fields": {
                 "initial":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Initial" },
                 "early":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Early data" },
@@ -260,6 +300,9 @@
         "pkt_no_key_dropped": {
             "type": "Tuple",
             "description": "Packets dropped because the decryption key was missing, by encryption level",
+            "aliases": {
+                "all": ["initial", "early", "handshake", "app"]
+            },
             "fields": {
                 "initial":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Initial" },
                 "early":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Early data" },
@@ -271,6 +314,9 @@
         "pkt_retransmitted": {
             "type": "Tuple",
             "description": "QUIC packets retransmitted, by encryption level",
+            "aliases": {
+                "all": ["initial", "early", "handshake", "app"]
+            },
             "fields": {
                 "initial":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Initial" },
                 "early":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Early data" },
