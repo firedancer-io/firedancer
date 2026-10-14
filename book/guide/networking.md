@@ -1,4 +1,4 @@
-# Networking (XDP)
+# Networking
 
 ## `xdp` network provider
 
@@ -71,6 +71,20 @@ The recommended way to capture Firedancer traffic is using the
 Further documentation on network stack internals:
 - [net tile internals](./internals/net_tile.md)
 - [netlnk tile internals](./internals/netlink.md)
+
+## `iavf` network provider
+
+### VFs
+
+IAVF uses one SR-IOV virtual function (VF) per physical function (PF).
+For an 802.3ad (LACP) bond, this applies separately to each member PF.
+VF indices are local to each PF.
+
+`configure init iavf` reuses the highest-index VF (`sriov_numvfs - 1`),
+or creates VF 0 if none exist. Repeated init does not add VFs.
+
+`configure fini iavf` removes the VF only when that PF has exactly one
+VF, whether created or reused. PFs with multiple VFs retain all of them.
 
 ## `socket` network provider
 
