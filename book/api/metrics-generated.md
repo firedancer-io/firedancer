@@ -2099,6 +2099,7 @@
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;bytes</span> | counter | Number of bytes transmitted (including Ethernet header). |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;buffer</span> | counter | Number of transmit jobs dropped because no TX buffer was available. |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;link</span> | counter | Number of transmit jobs dropped because no configured VF or bond member can send traffic. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;loopback_&#8203;failed</span> | counter | Number of loopback transmit jobs dropped because the socket send failed or accepted only part of a batch. |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">no_&#8203;route</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (No matching route) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">route_&#8203;type</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Unsupported route type) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface not available) |

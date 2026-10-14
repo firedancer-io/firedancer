@@ -154,10 +154,12 @@ setup_iavf_tile( fd_topo_t *             topo,
                  ulong                   route_max,
                  ulong                   route_peer_max ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "iavf", "iavf", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
+  fd_topo_tile_t const * owner = NULL;
   if( tile_kind_id ) {
     ulong owner_id = fd_topo_find_tile( topo, "iavf", 0UL );
     FD_TEST( owner_id!=ULONG_MAX );
-    fd_topob_tile_uses( topo, tile, &topo->objs[ topo->tiles[ owner_id ].tile_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    owner = &topo->tiles[ owner_id ];
+    fd_topob_tile_uses( topo, tile, &topo->objs[ owner->tile_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
   tile->sleep_eventfd = topo->sleep_obj_id!=ULONG_MAX;
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
@@ -173,14 +175,16 @@ setup_iavf_tile( fd_topo_t *             topo,
   FD_STATIC_ASSERT( sizeof(tile->iavf.if_name)==IF_NAMESIZE, str_bounds );
   fd_cstr_ncpy( tile->iavf.if_name, net_cfg->interface, IF_NAMESIZE );
 
-  if( FD_UNLIKELY( fd_iavf_member_interfaces( net_cfg->interface, tile->iavf.members, &tile->iavf.member_cnt ) ) ) {
+  if( owner ) {
+    tile->iavf.member_cnt = owner->iavf.member_cnt;
+    fd_memcpy( tile->iavf.members, owner->iavf.members, sizeof(tile->iavf.members) );
+  } else if( FD_UNLIKELY( fd_iavf_member_interfaces( net_cfg->interface, tile->iavf.members, &tile->iavf.member_cnt ) ) ) {
     FD_LOG_ERR(( "IAVF member discovery failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   tile->iavf.net.bind_address = net_cfg->bind_address_parsed;
   tile->iavf.rx_queue_size    = net_cfg->iavf.rx_queue_size;
   tile->iavf.tx_queue_size    = net_cfg->iavf.tx_queue_size;
-  tile->iavf.batch_size       = FD_IAVF_BATCH_SIZE;
 
   tile->net.umem_dcache_obj_id = umem_obj->id;
   tile->iavf.netdev_tbl_obj_id = netlink_tile->netlink.netdev_tbl_obj_id;

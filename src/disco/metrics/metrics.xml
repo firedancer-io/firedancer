@@ -509,6 +509,7 @@ EXAMPLES
     <counter name="PktTxBytes" summary="Number of bytes transmitted (including Ethernet header)." />
     <counter name="PktTxNoBuffer" summary="Number of transmit jobs dropped because no TX buffer was available." />
     <counter name="PktTxNoLink" summary="Number of transmit jobs dropped because no configured VF or bond member can send traffic." />
+    <counter name="PktTxLoopbackFailed" summary="Number of loopback transmit jobs dropped because the socket send failed or accepted only part of a batch." />
     <counter name="PktTxRouteFail" enum="RouteFail" summary="Number of transmit jobs dropped because route or source address selection failed." />
     <counter name="PktTxInvalid" summary="Number of transmit jobs dropped for invalid packet headers or GRE packets exceeding the MTU." />
     <counter name="PktTxNoNeighbor" summary="Number of transmit jobs dropped because the next-hop neighbor was unresolved." />

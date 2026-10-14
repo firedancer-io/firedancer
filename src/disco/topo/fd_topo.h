@@ -234,7 +234,6 @@ struct fd_topo_tile {
       ulong member_cnt;
       uint  rx_queue_size;
       uint  tx_queue_size;
-      uint  batch_size;
 
       ulong netdev_tbl_obj_id;
       ulong route_max;
