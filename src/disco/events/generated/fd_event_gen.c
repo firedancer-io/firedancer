@@ -596,6 +596,17 @@ fd_event_runtime_block_serialize( fd_circq_t *                     circq,
   FD_TEST( msg->other_diffs_cnt<=32UL );
   FD_TEST( msg->fec_merkle_roots_cnt<=512UL );
 
+  uchar const * _dyn = (uchar const *)msg + FD_EVENT_RUNTIME_BLOCK_PREFIX_SZ;
+  fd_event_runtime_block_sysvar_diffs_t const * sysvar_diffs = (fd_event_runtime_block_sysvar_diffs_t const *)_dyn;
+  _dyn += msg->sysvar_diffs_cnt*sizeof(sysvar_diffs[0]);
+  ulong sysvar_diffs_cnt = msg->sysvar_diffs_cnt;
+  fd_event_runtime_block_other_diffs_t const * other_diffs = (fd_event_runtime_block_other_diffs_t const *)_dyn;
+  _dyn += msg->other_diffs_cnt*sizeof(other_diffs[0]);
+  ulong other_diffs_cnt = msg->other_diffs_cnt;
+  uchar const (* fec_merkle_roots)[ 32UL ] = (uchar const (*)[ 32UL ])_dyn;
+  _dyn += msg->fec_merkle_roots_cnt*32UL;
+  ulong fec_merkle_roots_cnt = msg->fec_merkle_roots_cnt;
+
   ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
   ok &= !!fd_pb_submsg_open( encoder, 13U ); /* RuntimeBlock */
   if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
@@ -644,33 +655,33 @@ fd_event_runtime_block_serialize( fd_circq_t *                     circq,
   if( msg->total_activating_stake ) ok &= !!fd_pb_push_uint64( encoder, 31U, (ulong)msg->total_activating_stake );
   if( msg->total_deactivating_stake ) ok &= !!fd_pb_push_uint64( encoder, 32U, (ulong)msg->total_deactivating_stake );
   if( msg->total_epoch_stake ) ok &= !!fd_pb_push_uint64( encoder, 33U, (ulong)msg->total_epoch_stake );
-  for( ulong k=0UL; k<msg->sysvar_diffs_cnt; k++ ) {
+  for( ulong k=0UL; k<sysvar_diffs_cnt; k++ ) {
     ok &= !!fd_pb_submsg_open( encoder, 34U );
-    ok &= !!fd_pb_push_bytes ( encoder, 1U, msg->sysvar_diffs[ k ].pubkey, 32UL );
-    ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->sysvar_diffs[ k ].owner, 32UL );
-    ok &= !!fd_pb_push_bytes ( encoder, 3U, msg->sysvar_diffs[ k ].prev_owner, 32UL );
-    if( msg->sysvar_diffs[ k ].lamports ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->sysvar_diffs[ k ].lamports );
-    if( msg->sysvar_diffs[ k ].prev_lamports ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->sysvar_diffs[ k ].prev_lamports );
-    if( msg->sysvar_diffs[ k ].data_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->sysvar_diffs[ k ].data_sz );
-    if( msg->sysvar_diffs[ k ].prev_data_sz ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->sysvar_diffs[ k ].prev_data_sz );
-    if( msg->sysvar_diffs[ k ].is_executable ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->sysvar_diffs[ k ].is_executable );
+    ok &= !!fd_pb_push_bytes ( encoder, 1U, sysvar_diffs[ k ].pubkey, 32UL );
+    ok &= !!fd_pb_push_bytes ( encoder, 2U, sysvar_diffs[ k ].owner, 32UL );
+    ok &= !!fd_pb_push_bytes ( encoder, 3U, sysvar_diffs[ k ].prev_owner, 32UL );
+    if( sysvar_diffs[ k ].lamports ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)sysvar_diffs[ k ].lamports );
+    if( sysvar_diffs[ k ].prev_lamports ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)sysvar_diffs[ k ].prev_lamports );
+    if( sysvar_diffs[ k ].data_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)sysvar_diffs[ k ].data_sz );
+    if( sysvar_diffs[ k ].prev_data_sz ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)sysvar_diffs[ k ].prev_data_sz );
+    if( sysvar_diffs[ k ].is_executable ) ok &= !!fd_pb_push_bool  ( encoder, 8U, sysvar_diffs[ k ].is_executable );
     ok &= !!fd_pb_submsg_close( encoder );
   }
-  for( ulong k=0UL; k<msg->other_diffs_cnt; k++ ) {
+  for( ulong k=0UL; k<other_diffs_cnt; k++ ) {
     ok &= !!fd_pb_submsg_open( encoder, 35U );
-    ok &= !!fd_pb_push_bytes ( encoder, 1U, msg->other_diffs[ k ].pubkey, 32UL );
-    ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->other_diffs[ k ].owner, 32UL );
-    ok &= !!fd_pb_push_bytes ( encoder, 3U, msg->other_diffs[ k ].prev_owner, 32UL );
-    if( msg->other_diffs[ k ].lamports ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)msg->other_diffs[ k ].lamports );
-    if( msg->other_diffs[ k ].prev_lamports ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->other_diffs[ k ].prev_lamports );
-    if( msg->other_diffs[ k ].data_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->other_diffs[ k ].data_sz );
-    if( msg->other_diffs[ k ].prev_data_sz ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->other_diffs[ k ].prev_data_sz );
-    if( msg->other_diffs[ k ].is_executable ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->other_diffs[ k ].is_executable );
+    ok &= !!fd_pb_push_bytes ( encoder, 1U, other_diffs[ k ].pubkey, 32UL );
+    ok &= !!fd_pb_push_bytes ( encoder, 2U, other_diffs[ k ].owner, 32UL );
+    ok &= !!fd_pb_push_bytes ( encoder, 3U, other_diffs[ k ].prev_owner, 32UL );
+    if( other_diffs[ k ].lamports ) ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)other_diffs[ k ].lamports );
+    if( other_diffs[ k ].prev_lamports ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)other_diffs[ k ].prev_lamports );
+    if( other_diffs[ k ].data_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)other_diffs[ k ].data_sz );
+    if( other_diffs[ k ].prev_data_sz ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)other_diffs[ k ].prev_data_sz );
+    if( other_diffs[ k ].is_executable ) ok &= !!fd_pb_push_bool  ( encoder, 8U, other_diffs[ k ].is_executable );
     ok &= !!fd_pb_submsg_close( encoder );
   }
   if( msg->fec_count ) ok &= !!fd_pb_push_uint64( encoder, 36U, (ulong)msg->fec_count );
-  for( ulong k=0UL; k<msg->fec_merkle_roots_cnt; k++ ) {
-    ok &= !!fd_pb_push_bytes ( encoder, 37U, msg->fec_merkle_roots[ k ], 32UL );
+  for( ulong k=0UL; k<fec_merkle_roots_cnt; k++ ) {
+    ok &= !!fd_pb_push_bytes ( encoder, 37U, fec_merkle_roots[ k ], 32UL );
   }
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
@@ -1287,10 +1298,16 @@ fd_event_serialize_by_type( ulong               type,
     FD_TEST( ev_sz==sizeof(fd_event_admin_command_t) );
     fd_event_admin_command_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_admin_command_t const *)ev );
     break;
-  case 13UL:
-    FD_TEST( ev_sz==sizeof(fd_event_runtime_block_t) );
-    fd_event_runtime_block_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_block_t const *)ev );
+  case 13UL: {
+    FD_TEST( ev_sz>=FD_EVENT_RUNTIME_BLOCK_PREFIX_SZ );
+    fd_event_runtime_block_t const * msg = (fd_event_runtime_block_t const *)ev;
+    FD_TEST( msg->sysvar_diffs_cnt<=16UL );
+    FD_TEST( msg->other_diffs_cnt<=32UL );
+    FD_TEST( msg->fec_merkle_roots_cnt<=512UL );
+    FD_TEST( ev_sz==fd_event_runtime_block_footprint( msg ) );
+    fd_event_runtime_block_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;
+  }
   case 14UL:
     FD_TEST( ev_sz==sizeof(fd_event_runtime_reward_t) );
     fd_event_runtime_reward_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_reward_t const *)ev );
