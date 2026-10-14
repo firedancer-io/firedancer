@@ -212,7 +212,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
 
   CFG_POP      ( cstr,   tiles.event.url                                  );
-  CFG_POP      ( ulong,  tiles.event.upload_rate_bps                      );
 
   CFG_POP      ( bool,   tiles.gui.enabled                                );
   CFG_POP      ( cstr,   tiles.gui.gui_listen_address                     );
@@ -284,6 +283,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   development.event.report_shreds                  );
   CFG_POP      ( bool,   development.event.report_transactions            );
   CFG_POP      ( bool,   development.event.report_runtime_diffs           );
+  CFG_POP      ( ulong,  development.event.max_upload_rate_mbps           );
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
