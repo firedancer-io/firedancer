@@ -1906,14 +1906,6 @@ telemetry = true
         # `telemetry` to false to disable event reporting.
         url = "https://events-in.firedancer.io"
 
-        # Maximum rate, in bytes per second, at which events are
-        # uploaded.  Events produced faster than this queue in the
-        # event tile, and the oldest are dropped if the queue fills.
-        # The default suits the public collection server; a private
-        # collector receiving [development.event.report_runtime_diffs]
-        # needs a much higher rate.
-        upload_rate_bps = 4000000
-
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
     [tiles.gui]
@@ -2297,6 +2289,15 @@ telemetry = true
         # volume of events and should only be used for debugging and
         # development purposes.
         report_runtime_diffs = false
+
+        # Maximum upload speed for telemetry data in megabits per second (Mbps).
+        # The steady state of collection sits well under the default here, and
+        # it is set higher to allow draining a backlog of data in the event of
+        # server outage.
+        #
+        # It is not recommended to change this value except in test or
+        # development environments.
+        max_upload_rate_mbps = 32
 
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
