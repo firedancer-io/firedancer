@@ -25,11 +25,9 @@
    write to the same accounts. */
 
 #define IN_KIND_RESOLV       (0UL)
-#define IN_KIND_POH          (1UL)
 #define IN_KIND_EXECLE       (2UL)
 #define IN_KIND_SIGN         (3UL)
 #define IN_KIND_REPLAY       (4UL)
-#define IN_KIND_EXECUTED_TXN (5UL)
 
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/execle.  At
@@ -113,7 +111,6 @@ typedef struct {
   /* The leader slot we are currently packing for, or ULONG_MAX if we
      are not the leader. */
   ulong  leader_slot;
-  void const * leader_bank;
   ulong        leader_bank_idx;
   ulong        leader_bank_seq;
 
@@ -626,13 +623,8 @@ after_credit( fd_pack_ctx_t *     ctx,
     if( FD_LIKELY( ctx->execle_idle_bitset==fd_ulong_mask_lsb( (int)execle_cnt ) ) ) {
       ctx->drain_execle = 0;
 
-      /* Pack notifies poh when execle are drained so that poh can
-         relinquish pack's ownership over the slot execle (by decrementing
-         its Arc). We do this by sending a FD_PACK_MSG_DONE_DRAINING
-         sig over the pack_poh mcache.
-
-         TODO: This is only needed for Frankendancer, not Firedancer,
-         which manages bank lifetime different. */
+      /* Notify consumers of pack_poh (e.g. the GUI) that execle are
+         drained by sending a FD_PACK_MSG_DONE_DRAINING sig. */
       fd_stem_publish( stem, ctx->poh_out.out_idx, FD_PACK_MSG_DONE_DRAINING, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       *charge_busy = 1;
       return;
@@ -772,7 +764,6 @@ after_credit( fd_pack_ctx_t *     ctx,
       ulong chunk  = execle_out->chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_e_t);
       fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
-      trailer->bank = ctx->leader_bank;
       trailer->bank_idx = ctx->leader_bank_idx;
       trailer->bank_seq = ctx->leader_bank_seq;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
@@ -870,17 +861,6 @@ during_frag( fd_pack_ctx_t * ctx,
       return;
     }
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
-
-    /* There was a leader transition.  Handle it. */
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-    fd_memcpy( ctx->_became_leader, dcache_entry, sizeof(fd_became_leader_t) );
-    return;
-  }
-  case IN_KIND_POH: {
-      /* Not interested in stamped microblocks, only leader updates. */
-    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
     /* There was a leader transition.  Handle it. */
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
@@ -988,11 +968,6 @@ during_frag( fd_pack_ctx_t * ctx,
 
     break;
   }
-  case IN_KIND_EXECUTED_TXN: {
-    FD_TEST( sz==64UL );
-    fd_memcpy( ctx->executed_txn_sig, dcache_entry, sz );
-    break;
-  }
   }
 }
 
@@ -1054,17 +1029,12 @@ after_frag( fd_pack_ctx_t *     ctx,
       ctx->start_block_sched_metrics->time = now;
       fd_pack_get_sched_metrics( ctx->pack, ctx->start_block_sched_metrics->sched_results );
       break;
-    case IN_KIND_POH:
-      if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
-      leader_slot = fd_disco_poh_sig_slot( sig );
-      break;
     default:
       break;
   }
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_REPLAY:
-  case IN_KIND_POH: {
+  case IN_KIND_REPLAY: {
     long now_ticks = fd_tickcount();
     long now_ns    = fd_log_wallclock();
 
@@ -1095,7 +1065,6 @@ after_frag( fd_pack_ctx_t *     ctx,
     ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->block_height, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
     FD_MCNT_INC( PACK, TXN_DROPPED_EXPIRED, exp_cnt );
 
-    ctx->leader_bank          = ctx->_became_leader->bank;
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
     ctx->leader_bank_seq      = ctx->_became_leader->bank_seq;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
@@ -1193,11 +1162,6 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->cur_spot = NULL;
     break;
   }
-  case IN_KIND_EXECUTED_TXN: {
-    ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
-    FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
-    break;
-  }
   }
 
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
@@ -1287,14 +1251,9 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
     if( FD_LIKELY(      !strcmp( link->name, "resolv_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "resolh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "pohh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "execle_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "executed_txn" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
@@ -1361,7 +1320,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->block_height                  = 0UL;
-  ctx->leader_bank                   = NULL;
   ctx->leader_bank_idx               = ULONG_MAX;
   ctx->leader_bank_seq               = ULONG_MAX;
   ctx->pack_idx                      = 0UL;
@@ -1422,7 +1380,6 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->poh_out.out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_poh", 0UL );
-  if( FD_UNLIKELY( ctx->poh_out.out_idx==ULONG_MAX ) ) ctx->poh_out.out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_pohh", 0UL );
   FD_TEST( ctx->poh_out.out_idx!=ULONG_MAX );
   fd_topo_link_t const * poh_out_link = &topo->links[ tile->out_link_id[ ctx->poh_out.out_idx ] ];
   ctx->poh_out.mem    = topo->workspaces[ topo->objs[ poh_out_link->dcache_obj_id ].wksp_id ].wksp;

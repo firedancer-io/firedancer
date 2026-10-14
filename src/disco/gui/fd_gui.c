@@ -244,9 +244,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.net_tile_cnt    = fd_topo_tile_name_cnt( gui->topo, "net"    );
   gui->summary.quic_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "quic"   );
   gui->summary.verify_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "verify" );
-  gui->summary.resolh_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolh" );
   gui->summary.resolv_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolv" );
-  gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
   gui->summary.execle_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execle" );
   gui->summary.execrp_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execrp" );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
@@ -1234,27 +1232,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   memset( cur, 0, sizeof(fd_gui_txn_waterfall_t) );
   fd_topo_t const * topo = gui->topo;
 
-  for( ulong i=0UL; i<gui->summary.bank_tile_cnt; i++ ) {
-    fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
-
-    volatile ulong const * bank_metrics = fd_metrics_tile( bank->metrics );
-    cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_SUCCESS ) ];
-
-    cur->out.block_fail +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_FAILED    ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_FEES_ONLY ) ];
-
-    cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_UNINITIALIZED ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_NOT_FOUND ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_OWNER ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_DATA ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_LOOKUP_INDEX  ) ];
-
-    cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_DROPPED ) ];
-  }
-
   for( ulong i=0UL; i<gui->summary.execle_tile_cnt; i++ ) {
     fd_topo_tile_t const * execle = &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ];
 
@@ -1311,27 +1288,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
         pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_INSERTED ) ]
       + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_INSERTION_FAILED ) ]
       + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_ATTEMPTED_CREATION_FAILED ) ];
-  }
-
-  for( ulong i=0UL; i<gui->summary.resolh_tile_cnt; i++ ) {
-    fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolh", i ) ];
-    volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
-
-    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_DROPPED_NO_BANK ) ];
-    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_DROPPED_BLOCKHASH_EXPIRED  ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_DROPPED_BUNDLE_PEER_FAILED ) ];
-    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_NOT_FOUND ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_OWNER ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_DATA ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_UNINITIALIZED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_LOOKUP_INDEX ) ];
-    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_REMOVED_EVICTED ) ];
-
-    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_INSERTED ) ];
-    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_REMOVED_EVICTED ) ]
-                              + resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_REMOVED_PUBLISHED ) ]
-                              + resolv_metrics[ MIDX( COUNTER, RESOLH, STASH_TXN_REMOVED_FAILED ) ];
-    cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
   }
 
   for( ulong i=0UL; i<gui->summary.resolv_tile_cnt; i++ ) {

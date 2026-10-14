@@ -238,7 +238,7 @@ function tango.dissector (tvb, pinfo, tree)
     local dissector = Dissector.get("solana.tpu.udp")
     local dissector2 = Dissector.get("fd_txn_t")
     local stride = link_name == "pack_execle" and 7040 or 4992
-    local trailer_sz = link_name == "pack_execle" and 56 or 96
+    local trailer_sz = link_name == "pack_execle" and 48 or 96
 
     for offset=0,dcache_contents:len()-trailer_sz-stride,stride do
       local txn = dcache_contents(offset, stride):tvb()
@@ -492,7 +492,7 @@ local f_ticks_per_slot = ProtoField.uint64("fd_became_leader_t.ticks_per_slot", 
 fd_became_leader.fields = { f_slot, f_slot_start, f_slot_end, f_bank_idx, f_bank_seq, f_max_microblocks_in_slot, f_ticks_per_slot }
 
 function fd_became_leader.dissector(buffer, pinfo, tree)
-  if buffer:len() < 64 then return end
+  if buffer:len() < 56 then return end
   local subtree = tree:add(fd_became_leader, buffer(), "fd_became_leader_t")
 
   -- Extract fields from buffer
@@ -503,10 +503,10 @@ function fd_became_leader.dissector(buffer, pinfo, tree)
   subtree:add_le(f_slot, buffer(0, 8))
   subtree:add(f_slot_start, buffer(8, 8), NSTime.new( (slot_start/1000000000):tonumber(), (slot_start%1000000000):lower()) )
   subtree:add(f_slot_end,   buffer(16, 8), NSTime.new( (slot_end  /1000000000):tonumber(), (slot_end  %1000000000):lower()) )
-  subtree:add_le(f_bank_idx, buffer(32, 8))
-  subtree:add_le(f_bank_seq, buffer(40, 8))
-  subtree:add_le(f_max_microblocks_in_slot, buffer(48, 8))
-  subtree:add_le(f_ticks_per_slot, buffer(56, 8))
+  subtree:add_le(f_bank_idx, buffer(24, 8))
+  subtree:add_le(f_bank_seq, buffer(32, 8))
+  subtree:add_le(f_max_microblocks_in_slot, buffer(40, 8))
+  subtree:add_le(f_ticks_per_slot, buffer(48, 8))
 end
 
 

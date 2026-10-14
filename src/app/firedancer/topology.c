@@ -465,7 +465,7 @@ fd_topo_initialize( config_t * config ) {
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  ulong shred_depth = 65536UL; /* from fdctl/topology.c shred_store link. MAKE SURE TO KEEP IN SYNC. */
+  ulong shred_depth = 65536UL;
 
   /* Under Alpenglow, rotor redelivers every FEC set replay can hold when
      replay loses a parent bank, and polls nothing until that is

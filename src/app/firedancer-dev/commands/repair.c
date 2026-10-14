@@ -384,18 +384,6 @@ repair_topo( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
-  /* There's another special fseq that's used to communicate the shred
-    version from the Agave boot path to the shred tile. */
-  fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
-  fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ];
-  fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
-    fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
-    fd_topob_tile_uses( topo, shred_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  }
-  FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
-
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
       FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "

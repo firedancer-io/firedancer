@@ -19,8 +19,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/submodule-init
-
       - uses: ./.github/actions/cpusonline
       - uses: ./.github/actions/hugepages
         with:

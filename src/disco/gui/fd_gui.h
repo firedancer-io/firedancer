@@ -1037,9 +1037,7 @@ struct fd_gui_summary {
   ulong net_tile_cnt;
   ulong quic_tile_cnt;
   ulong verify_tile_cnt;
-  ulong resolh_tile_cnt;
   ulong resolv_tile_cnt;
-  ulong bank_tile_cnt;
   ulong execle_tile_cnt;
   ulong execrp_tile_cnt;
   ulong shred_tile_cnt;

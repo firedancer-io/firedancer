@@ -113,10 +113,6 @@ static sysctl_param_t gui_params[] = {
   {0}
 };
 
-/* Some of these sysctl limits are needed for the Agave client, not
-   Firedancer.  We set them on their behalf to make configuration easier
-   for users. */
-
 static void
 init_param_list( sysctl_param_t const * list ) {
   for( sysctl_param_t const * p=list; p->path; p++ ) {

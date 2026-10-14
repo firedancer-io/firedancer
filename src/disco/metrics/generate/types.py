@@ -53,11 +53,6 @@ class Tile(Enum):
     SNAPRD = 52
     SNAPSV = 53
 
-    RESOLH = 100
-    BANK = 101
-    POHH = 102
-    STORE = 103
-    PLUGIN = 104
     BACKT = 105
     BENCHS = 106
     GUIH = 107
