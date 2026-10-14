@@ -2118,10 +2118,14 @@ test_root_waits_for_replay( fd_wksp_t * wksp ) {
   FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
   FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
 
-  /* Its slot completing roots it, and the ancestor replay got to first. */
+  /* Its slot completing roots it, and the ancestor replay got to first.
+     Balance metrics follow the deferred root. */
   fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
+  b2->f.total_epoch_stake = 4242UL;
+  FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, 0UL );
   try_advance_root_ag( ctx, ctx->finalized_block_id_lo );
   expect_rooted( ctx, wksp, seq0, b2 );
+  FD_TEST( FD_MGAUGE_GET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS )==4242UL );
 
   /* A finalization of a block replay already completed roots at once. */
   fd_bank_t * b3 = add_block( ctx, b2, 3UL, &id3 );

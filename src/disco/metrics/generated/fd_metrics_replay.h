@@ -181,22 +181,22 @@ enum {
 
 #define FD_METRICS_GAUGE_REPLAY_IDENTITY_BALANCE_LAMPORTS_NAME "replay_identity_balance_lamports"
 #define FD_METRICS_GAUGE_REPLAY_IDENTITY_BALANCE_LAMPORTS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_IDENTITY_BALANCE_LAMPORTS_DESC "Identity account balance at the optimistically confirmed slot"
+#define FD_METRICS_GAUGE_REPLAY_IDENTITY_BALANCE_LAMPORTS_DESC "Identity account balance at the optimistically confirmed slot, or the finalized slot under Alpenglow"
 #define FD_METRICS_GAUGE_REPLAY_IDENTITY_BALANCE_LAMPORTS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_REPLAY_ACTIVE_STAKE_LAMPORTS_NAME "replay_active_stake_lamports"
 #define FD_METRICS_GAUGE_REPLAY_ACTIVE_STAKE_LAMPORTS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_ACTIVE_STAKE_LAMPORTS_DESC "Our active stake at the optimistically confirmed slot"
+#define FD_METRICS_GAUGE_REPLAY_ACTIVE_STAKE_LAMPORTS_DESC "Our active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow"
 #define FD_METRICS_GAUGE_REPLAY_ACTIVE_STAKE_LAMPORTS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_REPLAY_CLUSTER_ACTIVE_STAKE_LAMPORTS_NAME "replay_cluster_active_stake_lamports"
 #define FD_METRICS_GAUGE_REPLAY_CLUSTER_ACTIVE_STAKE_LAMPORTS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_CLUSTER_ACTIVE_STAKE_LAMPORTS_DESC "Cluster active stake at the optimistically confirmed slot"
+#define FD_METRICS_GAUGE_REPLAY_CLUSTER_ACTIVE_STAKE_LAMPORTS_DESC "Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow"
 #define FD_METRICS_GAUGE_REPLAY_CLUSTER_ACTIVE_STAKE_LAMPORTS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_NAME "replay_epoch_credits"
 #define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_DESC "Our vote account epoch credits at the optimistically confirmed slot"
+#define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_DESC "Our vote account epoch credits at the optimistically confirmed slot, or the finalized slot under Alpenglow"
 #define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_REPLAY_IS_VOTE_ACCOUNT_INADMISSIBLE_NAME "replay_is_vote_account_inadmissible"
