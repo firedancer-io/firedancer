@@ -140,6 +140,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
 
   FD_MGAUGE_SET( TILE, PID, pid );
   FD_MGAUGE_SET( TILE, TID, tid );
+  FD_MGAUGE_SET( TILE, HEARTBEAT_TIME, (ulong)fd_log_wallclock() );
 
   if( FD_UNLIKELY( tile_run->unprivileged_init ) )
     tile_run->unprivileged_init( topo, tile );
