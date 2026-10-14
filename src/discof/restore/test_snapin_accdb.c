@@ -156,7 +156,6 @@ test_env_init( test_env_t * env,
     FD_TEST( ctx->accdb );
     ctx->full              = 1;
     ctx->tile_idx          = i;
-    ctx->incr_fork         = (ulong)USHORT_MAX;
     ctx->shmem             = env->snapin_shmem;
     ctx->stake_delegations = stake_delegations;
 
@@ -173,6 +172,7 @@ test_env_init( test_env_t * env,
   }
 
   env->root = fd_accdb_attach_child( env->worker[ 0 ].accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
+  for( ulong i=0UL; i<worker_cnt; i++ ) env->worker[ i ].load_fork = (ulong)env->root.val;
   fd_accdb_snapshot_load_begin( env->worker[ 0 ].accdb );
 }
 
@@ -389,7 +389,7 @@ cap_full_then_begin_incr( test_env_t * env ) {
   fd_memset( &env->snapin_shmem->values, 0, sizeof(env->snapin_shmem->values) );
   for( ulong i=0UL; i<env->worker_cnt; i++ ) {
     env->worker[ i ].full      = 0;
-    env->worker[ i ].incr_fork = (ulong)incr.val;
+    env->worker[ i ].load_fork = (ulong)incr.val;
   }
   return full_cap;
 }
