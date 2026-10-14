@@ -4072,6 +4072,8 @@ preevict_flush( fd_accdb_t *             accdb,
   }
   FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, stage_sz );
 
+  fd_racesan_hook( "preevict:post_write" );
+
   FD_COMPILER_MFENCE();
   ulong off = file_off;
   for( ulong i=0UL; i<pend_cnt; i++ ) {
