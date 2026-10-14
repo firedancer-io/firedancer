@@ -185,27 +185,55 @@ verify_linear_hashed( fd_bls_agg_t const *   agg,
   return bad;
 }
 
-/* A bisect frame is a sub-aggregate over the contiguous run
-   ranks[ lo, hi ) of the signer list, with its pub and sig sums and
-   its gt (see agg_pairing).
-
-   Invariants: Every frame on the stack has gt!=1, i.e. it contains a
-   bad signer.  Halving the signer list at each split bounds the depth
-   by log2 of the set capacity, and a split pushes at most two frames,
-   so the stack never holds more than two frames per level. */
-
-struct bisect_frame {
-  ushort       lo;
-  ushort       hi;
-  fd_bls_pub_t pub;
-  blst_p2      sig;
-  blst_fp12    gt;
-};
-typedef struct bisect_frame bisect_frame_t;
+/* verify_bisect_rec descends the contiguous run ranks[ lo, hi ) of
+   the signer list.  pub_aff and sig_aff are the signers' pub and sig
+   points in affine form, in signer-list (not rank) order.  The caller
+   guarantees gt!=1, i.e. the run contains a bad signer.  p, s and gt
+   are consumed by the descent, which lets both halves be derived
+   without copying the parent: the hi run's sums are p-lp and its gt
+   is conj( lgt*conj(gt) ) = conj(lgt)*gt. */
 
 #define BISECT_DEPTH_MAX (11UL)
-#define BISECT_STACK_MAX (2UL*BISECT_DEPTH_MAX+2UL)
 FD_STATIC_ASSERT( FD_BLS_SET_MAX<=(1UL<<BISECT_DEPTH_MAX), bisect_depth );
+
+static void
+verify_bisect_rec( blst_p2_affine const * h,
+                   blst_p1_affine const * pub_aff,
+                   blst_p2_affine const * sig_aff,
+                   ushort const *         ranks,
+                   ushort                 lo,
+                   ushort                 hi,
+                   blst_p1 *              p,
+                   blst_p2 *              s,
+                   blst_fp12 *            gt,
+                   fd_bls_set_t *         bad ) {
+  if( hi-lo==1 ) { fd_bls_set_insert( bad, ranks[ lo ] ); return; }
+
+  ushort mid = (ushort)( lo + ( (ulong)hi-(ulong)lo )/2UL );
+
+  /* Sum the lo half's pub and sig points in one batch each. */
+  blst_p1_affine const * pub_sum[2] = { pub_aff+lo, NULL };
+  blst_p2_affine const * sig_sum[2] = { sig_aff+lo, NULL };
+  blst_p1 lp[1]; blst_p2 ls[1];
+  blst_p1s_add( lp, pub_sum, (size_t)( (ulong)mid-(ulong)lo ) );
+  blst_p2s_add( ls, sig_sum, (size_t)( (ulong)mid-(ulong)lo ) );
+
+  blst_p1_cneg( p, 1 );
+  blst_p2_cneg( s, 1 );
+  blst_p1 hp[1]; blst_p2 hs[1];
+  blst_p1_add_or_double( hp, lp, p ); blst_p1_cneg( hp, 1 ); /* hp = p-lp */
+  blst_p2_add_or_double( hs, ls, s ); blst_p2_cneg( hs, 1 ); /* hs = s-ls */
+
+  blst_fp12 lgt[1];
+  agg_pairing( lgt, h, lp, ls );
+  blst_fp12_conjugate( gt );
+  blst_fp12 hgt[1];
+  blst_fp12_mul( hgt, lgt, gt );
+  blst_fp12_conjugate( hgt ); /* hgt = conj(lgt)*gt */
+
+  if( FD_LIKELY( !blst_fp12_is_one( lgt ) ) ) verify_bisect_rec( h, pub_aff, sig_aff, ranks, lo, mid, lp, ls, lgt, bad );
+  if( FD_LIKELY( !blst_fp12_is_one( hgt ) ) ) verify_bisect_rec( h, pub_aff, sig_aff, ranks, mid, hi, hp, hs, hgt, bad );
+}
 
 static fd_bls_set_t *
 verify_bisect_hashed( fd_bls_agg_t const *   agg,
@@ -215,43 +243,37 @@ verify_bisect_hashed( fd_bls_agg_t const *   agg,
                       fd_bls_set_t *         bad ) {
   fd_bls_set_null( bad );
 
-  ushort ranks[ FD_BLS_SET_MAX ];
+  ushort           ranks  [ FD_BLS_SET_MAX ];
+  blst_p1 const *  pub_ptr[ FD_BLS_SET_MAX ];
+  blst_p1_affine   pub_aff[ FD_BLS_SET_MAX ];
+  blst_p2_affine   sig_aff[ FD_BLS_SET_MAX ]; /* sigs are stored affine, so they are gathered rather than converted */
   ulong  cnt = 0UL;
   for( ulong rank = fd_bls_set_const_iter_init( agg->set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( agg->set, rank ) ) {
-    ranks[ cnt++ ] = (ushort)rank;
+    ranks[ cnt ]   = (ushort)rank;
+    pub_ptr[ cnt ] = pub+rank;
+    sig_aff[ cnt ] = sig[ rank ];
+    cnt++;
   }
   if( FD_UNLIKELY( !cnt ) ) return bad;
 
-  bisect_frame_t stack[ BISECT_STACK_MAX ];
-  ulong          depth = 0UL;
-  stack[ 0 ] = (bisect_frame_t){ .lo = 0, .hi = (ushort)cnt, .pub = agg->pub, .sig = agg->sig };
-  agg_pairing( &stack[ 0 ].gt, h, &agg->pub, &agg->sig );
-  if( FD_UNLIKELY( blst_fp12_is_one( &stack[ 0 ].gt ) ) ) return bad;
-  depth++;
-
-  while( FD_LIKELY( depth ) ) {
-    bisect_frame_t range = stack[ --depth ];
-    if( FD_UNLIKELY( range.hi-range.lo==1 ) ) { fd_bls_set_insert( bad, ranks[ range.lo ] ); continue; }
-
-    ushort         mid = (ushort)( range.lo + ( range.hi-range.lo )/2 );
-    bisect_frame_t lo  = { .lo = range.lo, .hi = mid      }; /* pub, sig start at infinity */
-    bisect_frame_t hi  = { .lo = mid,      .hi = range.hi };
-    for( ulong i=range.lo; i<mid; i++ ) {
-      blst_p1_add_or_double( &lo.pub, &lo.pub, pub+ranks[ i ] );
-      blst_p2_add_or_double_affine( &lo.sig, &lo.sig, sig+ranks[ i ] );
-    }
-    hi.pub = lo.pub; blst_p1_cneg( &hi.pub, 1 ); blst_p1_add_or_double( &hi.pub, &hi.pub, &range.pub );
-    hi.sig = lo.sig; blst_p2_cneg( &hi.sig, 1 ); blst_p2_add_or_double( &hi.sig, &hi.sig, &range.sig );
-
-    agg_pairing( &lo.gt, h, &lo.pub, &lo.sig );
-    hi.gt = lo.gt; blst_fp12_conjugate( &hi.gt ); blst_fp12_mul( &hi.gt, &hi.gt, &range.gt ); /* conjugate inverts in GT */
-
-    FD_TEST( depth+2UL<=BISECT_STACK_MAX );
-    if( FD_LIKELY( !blst_fp12_is_one( &hi.gt ) ) ) stack[ depth++ ] = hi;
-    if( FD_LIKELY( !blst_fp12_is_one( &lo.gt ) ) ) stack[ depth++ ] = lo; /* popped first: lower ranks are higher stake */
+  /* blst_p1s_to_affine cannot take a point at infinity. A signer with an
+     infinity pub or sig cannot verify anyway, so fall back to the linear
+     scan, which flags them. */
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( blst_p1_is_inf( pub_ptr[ i ] ) || blst_p2_affine_is_inf( sig_aff+i ) ) )
+      return verify_linear_hashed( agg, h, pub, sig, bad );
   }
+
+  blst_p1s_to_affine( pub_aff, pub_ptr, cnt );
+
+  blst_p1   p[1]; p[ 0 ] = agg->pub; /* consumed by the descent */
+  blst_p2   s[1]; s[ 0 ] = agg->sig;
+  blst_fp12 gt[1];
+  agg_pairing( gt, h, &agg->pub, &agg->sig );
+  if( FD_UNLIKELY( blst_fp12_is_one( gt ) ) ) return bad;
+  verify_bisect_rec( h, pub_aff, sig_aff, ranks, 0, (ushort)cnt, p, s, gt, bad );
   return bad;
 }
 
