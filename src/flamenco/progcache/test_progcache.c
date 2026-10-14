@@ -2439,7 +2439,7 @@ main( int     argc,
 #if FD_HAS_THREADS
   g_stall_ticks          = fd_env_strip_cmdline_ulong( &argc, &argv, "--stall-ticks", NULL, 30UL                        );
 #endif
-  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 1UL                          );
   ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
