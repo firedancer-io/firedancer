@@ -198,6 +198,9 @@ struct ctx {
   fd_policy_t    * policy;
   fd_reqlim_t    * dedup;
   fd_inflights_t * inflights;
+
+  long policy_idle_until;
+
   fd_repair_t    * protocol;
 
   ulong enforce_fixed_fec_set; /* min slot where the feature is enforced */

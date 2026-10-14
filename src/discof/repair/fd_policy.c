@@ -34,6 +34,7 @@ fd_policy_new( void * shmem, ulong peer_max, ulong seed, fd_rnonce_ss_t const * 
   policy->peers.fast    = fd_policy_peer_dlist_new( peers_fast                       );
   policy->peers.slow    = fd_policy_peer_dlist_new( peers_slow                       );
   policy->turbine_slot0 = ULONG_MAX;
+  policy->hit_run       = 0UL;
   policy->rnonce_ss[0]  = *rnonce_ss;
 
   return shmem;
@@ -102,6 +103,21 @@ static ulong ts_ms( long wallclock ) {
   return (ulong)wallclock / (ulong)1e6;
 }
 
+/* throttle_stamp returns the recv stamp (ms since first_shred_ts) the
+   throttle deadline of cand_idx runs from: its FEC set's, else the
+   nearest stamped set below it, else 0. */
+
+static ushort
+throttle_stamp( fd_forest_t const * forest, fd_forest_blk_t const * ele, uint cand_idx ) {
+  fd_forest_recv_t const * recv = fd_forest_blk_recv( forest, ele );
+  uint fec_idx = (uint)fd_ulong_min( cand_idx/FD_FEC_SHRED_CNT, forest->shred_max/FD_FEC_SHRED_CNT-1UL );
+  for(;;) {
+    ushort ms = recv[ fec_idx ].first;
+    if( FD_LIKELY( ms || !fec_idx ) ) return ms;
+    fec_idx--;
+  }
+}
+
 /* throttle_remaining_ns returns how long (ns) until the candidate
    missing shred cand_idx of ele passes the eager repair threshold, 0 if
    it already passes.  A missing shred becomes eligible DEFER_REPAIR_MS
@@ -110,22 +126,15 @@ static ulong ts_ms( long wallclock ) {
 
    If the set has not been observed, we wait DEFER_REPAIR_MS from the
    last set turbine delivered before it; if no set has been observed the
-   window runs from first_shred_ts. */
+   window runs from first_shred_ts.  *opt_ms gets the stamp used. */
 
 static long
-throttle_remaining_ns( fd_policy_t * policy, fd_forest_t const * forest, fd_forest_blk_t const * ele, uint cand_idx ) {
+throttle_remaining_ns( fd_policy_t * policy, fd_forest_t const * forest, fd_forest_blk_t const * ele, uint cand_idx, ushort * opt_ms ) {
   if( FD_UNLIKELY( ele->slot < policy->turbine_slot0 ) ) return 0L;
   if( FD_UNLIKELY( !ele->first_shred_ts ) ) return 0L; /* nothing observed yet, nothing to defer against */
 
-  fd_forest_recv_t const * recv = fd_forest_blk_recv( forest, ele );
-  uint fec_idx = (uint)fd_ulong_min( cand_idx/FD_FEC_SHRED_CNT, forest->shred_max/FD_FEC_SHRED_CNT-1UL );
-  ushort ms = 0;
-
-  for(;;) {
-    ms = recv[ fec_idx ].first;
-    if( FD_LIKELY( ms || !fec_idx ) ) break;
-    fec_idx--;
-  }
+  ushort ms = throttle_stamp( forest, ele, cand_idx );
+  if( opt_ms ) *opt_ms = ms;
 
   double first_ms   = (double)ms; /* time since first_shred_ts */
   double elapsed_ms = (double)(fd_tickcount() - ele->first_shred_ts) / fd_tempo_tick_per_ns( NULL ) * 1e-6;
@@ -199,10 +208,20 @@ fd_policy_peer_select( fd_policy_t * policy ) {
   return &select->key;
 }
 
+/* policy_idle_due returns the earlier of due (the earliest declined
+   candidate) and the next orphan request. */
+
+static long
+policy_idle_due( long due, fd_forest_orphan_ent_t const * orphanq ) {
+  if( FD_UNLIKELY( fd_forest_orphanq_cnt( orphanq ) ) ) due = fd_long_min( due, orphanq[ 0 ].due );
+  return due;
+}
+
 fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
   *charge_busy = 0;
+  policy->next_due = LONG_MAX;
 
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return NULL;
   if( FD_UNLIKELY( fd_policy_peer_pool_used( policy->peers.pool ) == 0 ) ) return NULL;
@@ -228,6 +247,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ent.slot, 0U, now );
       out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, nonce, ent.slot );
       orphan->req_orphan_cnt++;
+      policy->hit_run = 0UL;
       return out;
     }
   }
@@ -245,31 +265,55 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
 
   fd_forest_iter_next( iter, forest );
   if( FD_UNLIKELY( fd_forest_iter_done( iter, forest ) ) ) {
-    // This happens when we have already requested all the shreds we know about.
+    /* Usually every known shred was requested, but the other list may
+       have work (the main list just emptied) or iter_next purged a
+       slot with more listed behind it. */
+    fd_forest_ref_t * reqspool = fd_forest_reqspool( forest );
+    int more = !fd_forest_reqslist_is_empty( fd_forest_reqslist( forest ), reqspool ) ||
+               !fd_forest_reqslist_is_empty( fd_forest_orphlist( forest ), reqspool );
+    policy->hit_run  = 0UL;
+    policy->next_due = more ? now : policy_idle_due( LONG_MAX, orphanq );
     return NULL;
   }
 
   fd_forest_blk_t * ele = fd_forest_pool_ele( pool, iter->ele_idx );
 
   /* The next request this call would produce.  If it was recently
-     declined and nothing about it changed, skip the turn.  A throttle
-     memo applies to any slot (see fd_policy_skip_t for why memos are
-     per slot).  A dedup memo is only written for, and only applies to,
-     the head slot: once highest_known_slot moves on, the same candidate
-     maps to a highest-shred probe under a different reqlim key, so the
-     memo would be stale.  Older slots with both their probe and tail
-     request rate limited are simply re-evaluated each turn. */
+     declined and nothing about it changed, skip the turn (see
+     fd_policy_skip_t for why memos are per slot).  A throttle memo is
+     valid while first_shred_ts and the recv stamp its deadline ran from
+     are unchanged.  A dedup memo is valid while the slot is on the same
+     side of the head: the head (or a slot above it) asks for the tail,
+     an older slot probes first, under a different reqlim key. */
   uint cand_idx = iter->shred_idx==UINT_MAX ? ele->buffered_idx+1U : iter->shred_idx;
   fd_policy_skip_t * skip = fd_policy_skip( policy, ele->slot );
-  if( FD_UNLIKELY( ( skip->throttled || ( iter->shred_idx==UINT_MAX && ele->slot==highest_known_slot ) ) &&
+  int memo_valid = skip->throttled ? ( skip->anchor==ele->first_shred_ts && skip->ms==throttle_stamp( forest, ele, cand_idx ) )
+                                   : ( iter->shred_idx==UINT_MAX && skip->head==(ele->slot>=highest_known_slot) );
+  if( FD_UNLIKELY( memo_valid &&
                    skip->slot==ele->slot &&
                    skip->idx==cand_idx &&
                    now<skip->until ) ) {
     iter->shred_idx = UINT_MAX;
+    /* The walk visits one slot per call, in rotation, so one hit does
+       not mean the other slots were declined.  Idle once the hits in a
+       row cover the whole list (reqspool counts both lists and grows
+       with any append): every listed slot then holds its own live memo,
+       and the earliest of them is the next one due. */
+    policy->hit_due = policy->hit_run ? fd_long_min( policy->hit_due, skip->until ) : skip->until;
+    policy->hit_run++;
+    if( policy->hit_run>=fd_forest_reqspool_used( fd_forest_reqspool( forest ) ) ) {
+      policy->hit_run  = 0UL;
+      policy->next_due = policy_idle_due( policy->hit_due, orphanq );
+    } else {
+      policy->next_due = now;
+    }
     return NULL;
   }
 
-  long throttle_ns = throttle_remaining_ns( policy, forest, ele, cand_idx );
+  policy->hit_run = 0UL;
+
+  ushort throttle_ms = 0;
+  long   throttle_ns = throttle_remaining_ns( policy, forest, ele, cand_idx, &throttle_ms );
   if( FD_UNLIKELY( throttle_ns ) ) {
     /* When we are at the head of the turbine, we should give turbine the
        chance to complete the shreds.
@@ -283,12 +327,16 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
        re-queue this one at the tail while it is incomplete). */
     iter->shred_idx = UINT_MAX;
 
-    /* Cap at 1ms: the deadline is derived from tick estimates that can
-       move as more shreds land without changing the candidate. */
-    skip->until     = now + fd_long_min( throttle_ns, (long)1e6 );
+    /* The deadline moves only if first_shred_ts or the stamp it ran
+       from does (a shred read out of rx order across shred tiles can
+       backfill an earlier stamp), so the memo is anchored on both. */
+    skip->until     = now + throttle_ns;
     skip->slot      = ele->slot;
     skip->idx       = cand_idx;
     skip->throttled = 1;
+    skip->anchor    = ele->first_shred_ts;
+    skip->ms        = throttle_ms;
+    policy->next_due = now; /* another slot may be actionable */
     return NULL;
   }
 
@@ -310,16 +358,35 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
     } else if( FD_LIKELY( (ulong)cand_idx < forest->shred_max ) ) {
       ulong key = fd_reqlim_key( FD_REPAIR_KIND_SHRED, ele->slot, cand_idx );
       if( FD_UNLIKELY( fd_reqlim_query( dedup, key, now ) ) ) {
-        // TODO should this be gated on ele->slot == highest_known_slot?
+        /* The head (or a slot above it, which never probes) waits on
+           the tail request; an older slot on whichever of its probe and
+           tail request opens first. */
+        int head = ele->slot>=highest_known_slot;
         skip->slot      = ele->slot;
         skip->idx       = cand_idx;
         skip->throttled = 0;
+        skip->head      = head;
         skip->until     = fd_reqlim_next_due( dedup, key, now );
+        if( FD_LIKELY( !head ) ) skip->until = fd_long_min( skip->until, fd_reqlim_next_due( dedup, highest_key, now ) );
+        policy->next_due = now; /* another slot may be actionable */
         *charge_busy = 0;
         return NULL;
       }
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, cand_idx, now );
       out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, cand_idx );
+    } else {
+      /* Every data shred buffered but no slot complete (a misbehaving
+         leader): nothing to ask for until a frag changes the slot, or
+         the probe window opens for an older slot. */
+      int head = ele->slot>=highest_known_slot;
+      skip->slot      = ele->slot;
+      skip->idx       = cand_idx;
+      skip->throttled = 0;
+      skip->head      = head;
+      skip->until     = head ? LONG_MAX : fd_reqlim_next_due( dedup, highest_key, now );
+      policy->next_due = now;
+      *charge_busy = 0;
+      return NULL;
     }
   } else {
     /* Regular repair requests are not deduped here.  The repair tile
@@ -328,6 +395,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
     uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, iter->shred_idx, now );
     out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, iter->shred_idx );
   }
+  if( FD_UNLIKELY( !out ) ) policy->next_due = now;
   return out;
 }
 

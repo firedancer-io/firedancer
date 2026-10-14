@@ -968,6 +968,73 @@ test_after_fec0_parent_update_unconfirmed_stale_parent( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_after_fec0_parent_update_unconfirmed_stale_parent" ));
 }
 
+/* after_credit / next_deadline idle scheduling: a fruitless walk parks
+   until a frag, a policy timer, or an inflight timeout; running out of
+   sign credits parks until a sign response; an inflight timeout pop
+   reopens the walk. */
+
+static void
+test_policy_idle( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp, 64 );
+  fd_clock_tile_init( ctx->clock );
+  fd_forest_init( ctx->forest, 0UL );
+  fd_pubkey_t   peer = { .ul = { 0xBEEF } };
+  fd_ip4_port_t addr = { .addr = 0x01020304U, .port = 1234 };
+  FD_TEST( fd_policy_peer_upsert( ctx->policy, &peer, &addr ) );
+  int charge_busy = 0;
+
+  /* Nothing to repair: the walk is fruitless and nothing is due. */
+  for( ulong i=0UL; i<8UL && ctx->policy_idle_until!=LONG_MAX; i++ ) after_credit( ctx, NULL, NULL, &charge_busy );
+  FD_TEST( ctx->policy_idle_until==LONG_MAX );
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+
+  /* A frag invalidates it, and restarts a run of memo hits. */
+  ctx->policy->hit_run = 3UL;
+  fd_replay_fec_evicted_t * evicted = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, sizeof(fd_replay_fec_evicted_t), 1UL );
+  FD_TEST( evicted );
+  *evicted = (fd_replay_fec_evicted_t){ .slot = 99UL, .fec_set_idx = 0U }; /* not in the forest: a no-op frag */
+  ctx->in_kind[ 0 ]      = IN_KIND_REPLAY;
+  ctx->in_links[ 0 ].mem = wksp;
+  ctx->chunk             = fd_laddr_to_chunk( wksp, evicted );
+  after_frag( ctx, 0UL, 0UL, REPLAY_SIG_REASM_EVICTED, sizeof(fd_replay_fec_evicted_t), 0UL, 0UL, NULL );
+  FD_TEST( ctx->policy_idle_until==0L && ctx->policy->hit_run==0UL );
+  FD_TEST( next_deadline( ctx )==0L );
+
+  /* A missing shred: the next turn requests it (a sign request out). */
+  fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, 1UL, 0UL, NULL );
+  FD_TEST( blk );
+  blk->buffered_idx = 4U;
+  ulong signs_b4 = fd_signs_map_key_cnt( ctx->signs_map );
+  for( ulong i=0UL; i<8UL && fd_signs_map_key_cnt( ctx->signs_map )==signs_b4; i++ ) after_credit( ctx, NULL, NULL, &charge_busy );
+  FD_TEST( fd_signs_map_key_cnt( ctx->signs_map )==signs_b4+1UL );
+
+  /* The oldest outstanding inflight request bounds the park deadline. */
+  long now = fd_clock_tile_now( ctx->clock );
+  record_inflight_request( ctx, 7UL, &peer, 1UL, 5UL, now );
+  ctx->policy_idle_until = LONG_MAX;
+  fd_inflight_t * head = fd_inflight_dlist_ele_peek_head( ctx->inflights->outstanding_dl, ctx->inflights->pool );
+  long due = next_deadline( ctx );
+  FD_TEST( due!=LONG_MAX && due==fd_clock_tile_wallclock_to_tickcount( ctx->clock, head->timestamp_ns+FD_REQLIM_DEDUP_TIMEOUT+1L ) );
+
+  /* No sign credits: after_credit returns early and nothing but a sign
+     response can help, so no timed deadline even with work pending. */
+  ctx->repair_sign_out_ctx[0].credits = 0UL;
+  ctx->policy_idle_until = 0L;
+  after_credit( ctx, NULL, NULL, &charge_busy );
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+  ctx->repair_sign_out_ctx[0].credits = ctx->repair_sign_out_ctx[0].max_credits;
+
+  /* A timed out inflight pop reopens the walk even if it had parked on
+     a full table. */
+  ctx->policy_idle_until = LONG_MAX;
+  head->timestamp_ns = now-2L*FD_REQLIM_DEDUP_TIMEOUT;
+  after_credit( ctx, NULL, NULL, &charge_busy );
+  FD_TEST( ctx->policy_idle_until!=LONG_MAX );
+
+  FD_LOG_NOTICE(( "pass: test_policy_idle" ));
+}
+
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
@@ -996,6 +1063,9 @@ int main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1UL );
   test_after_fec0_parent_update_unconfirmed_stale_parent( wksp );
+
+  fd_wksp_reset( wksp, 1UL );
+  test_policy_idle( wksp );
 
 
 
