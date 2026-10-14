@@ -977,11 +977,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->topo = topo;
   ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, ctx->seed, fd_clock_tile_now( ctx->clock ) ) );
-  /* The accounts database is a full-client (Firedancer) feature only.
-     Frankendancer has no accdb, so its topology leaves accdb_obj_id
-     unset (ULONG_MAX) and the gui tile joins no accdb shmem.  The gui
-     only reads partition stats from the shmem; it never reads account
-     data from disk, so it does not join the accdb fd. */
+  /* The gui only reads partition stats from the accdb shmem; it never
+     reads account data from disk, so it does not join the accdb fd. */
   fd_accdb_shmem_t * accdb_shmem = NULL;
   if( FD_LIKELY( tile->gui.accdb_obj_id!=ULONG_MAX ) ) {
     void * accdb_shmem_raw = fd_topo_obj_laddr( topo, tile->gui.accdb_obj_id );

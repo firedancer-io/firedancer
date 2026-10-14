@@ -9202,7 +9202,7 @@ message MetricsDedup {
   // Transactions processed, by result
   MetricsDedupTxnProcessed txn_processed = 25;
   // Gossip vote transactions from pohh (Frankendancer only)
-  uint64 vote_gossip_rx = 26;
+  uint64 vote_gossip_rx = 26 [deprecated = true];
 }
 
 // Metrics of one resolv tile instance, one row per sweep
@@ -9552,7 +9552,7 @@ message MetricsShred {
   // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)
-  MetricsShredDestPerUpdate dest_per_update = 25;
+  MetricsShredDestPerUpdate dest_per_update = 25 [deprecated = true];
   // Microblock batches abandoned because we switched slots without finishing the current slot
   uint64 batch_abandoned = 26;
   // Leader blocks whose parent block_id was unknown, so the chained merkle root was zeroed

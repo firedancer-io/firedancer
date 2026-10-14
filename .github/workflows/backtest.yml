@@ -46,8 +46,6 @@ jobs:
 
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/submodule-init
-
       - uses: ./.github/actions/hugepages
         with:
           # DO NOT CHANGE THESE VALUES - increasing the hugetlbfs reservations on the CI runners too high causes other jobs to be OOM-killed

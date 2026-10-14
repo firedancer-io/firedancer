@@ -545,7 +545,7 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="dedup">
     <counter name="TxnProcessed" enum="DedupResult" summary="Transactions processed, by result" />
-    <counter name="VoteGossipRx" summary="Gossip vote transactions from pohh (Frankendancer only)" />
+    <counter name="VoteGossipRx" deprecated="true" summary="Gossip vote transactions from pohh (Frankendancer only)" />
 </tile>
 
 <enum name="LutResolveResult">
@@ -733,52 +733,6 @@ deliberate exception with lint-allow="<rule id>")
     </histogram>
 </tile>
 
-<!-- Frankendancer transaction result -->
-<enum name="BankTxnResult">
-    <int value="0" name="Success" label="Success" />
-    <int value="1" name="AccountInUse" label="An account is already being processed in another transaction in a way that does not support parallelism" />
-    <int value="2" name="AccountLoadedTwice" label="A `Pubkey` appears twice in the transaction's `account_keys`. Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys" />
-    <int value="3" name="AccountNotFound" label="Attempt to debit an account but found no record of a prior credit" />
-    <int value="4" name="ProgramAccountNotFound" label="Attempt to load a program that does not exist" />
-    <int value="5" name="InsufficientFundsForFee" label="The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction" />
-    <int value="6" name="InvalidAccountForFee" label="This account may not be used to pay transaction fees" />
-    <int value="7" name="AlreadyProcessed" label="The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack" />
-    <int value="8" name="BlockhashNotFound" label="The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded" />
-    <int value="9" name="InstructionError" label="An error occurred while processing an instruction" />
-    <int value="10" name="CallChainTooDeep" label="Loader call chain is too deep" />
-    <int value="11" name="MissingSignatureForFee" label="Transaction requires a fee but has no signature present" />
-    <int value="12" name="InvalidAccountIndex" label="Transaction contains an invalid account reference" />
-    <int value="13" name="SignatureFailure" label="Transaction did not pass signature verification" />
-    <int value="14" name="InvalidProgramForExecution" label="This program may not be used for executing instructions" />
-    <int value="15" name="SanitizeFailure" label="Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked" />
-    <int value="16" name="ClusterMaintenance" label="Transactions are currently disabled due to cluster maintenance" />
-    <int value="17" name="AccountBorrowOutstanding" label="Transaction processing left an account with an outstanding borrowed reference" />
-    <int value="18" name="WouldExceedMaxBlockCostLimit" label="Transaction would exceed max Block Cost Limit" />
-    <int value="19" name="UnsupportedVersion" label="Transaction version is unsupported" />
-    <int value="20" name="InvalidWritableAccount" label="Transaction loads a writable account that cannot be written" />
-    <int value="21" name="WouldExceedMaxAccountCostLimit" label="Transaction would exceed max account limit within the block" />
-    <int value="22" name="WouldExceedAccountDataBlockLimit" label="Transaction would exceed account data limit within the block" />
-    <int value="23" name="TooManyAccountLocks" label="Transaction locked too many accounts" />
-    <int value="24" name="AddressLookupTableNotFound" label="Address lookup table not found" />
-    <int value="25" name="InvalidAddressLookupTableOwner" label="Attempted to lookup addresses from an account owned by the wrong program" />
-    <int value="26" name="InvalidAddressLookupTableData" label="Attempted to lookup addresses from an invalid account" />
-    <int value="27" name="InvalidAddressLookupTableIndex" label="Address table lookup uses an invalid index" />
-    <int value="28" name="InvalidRentPayingAccount" label="Transaction leaves an account with a lower balance than rent-exempt minimum" />
-    <int value="29" name="WouldExceedMaxVoteCostLimit" label="Transaction would exceed max Vote Cost Limit" />
-    <int value="30" name="WouldExceedAccountDataTotalLimit" label="Transaction would exceed total account data limit" />
-    <int value="31" name="DuplicateInstruction" label="Transaction contains a duplicate instruction that is not allowed" />
-    <int value="32" name="InsufficientFundsForRent" label="Transaction results in an account with insufficient funds for rent" />
-    <int value="33" name="MaxLoadedAccountsDataSizeExceeded" label="Transaction exceeded max loaded accounts data size cap" />
-    <int value="34" name="InvalidLoadedAccountsDataSizeLimit" label="LoadedAccountsDataSizeLimit set for transaction must be greater than 0" />
-    <int value="35" name="ResanitizationNeeded" label="Sanitized transaction differed before/after feature activation. Needs to be resanitized" />
-    <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account" />
-    <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction" />
-    <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit" />
-    <int value="39" name="CommitCancelled" label="The process for committing the transaction was cancelled internally" />
-    <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed" />
-</enum>
-
-<!-- Firedancer transaction result -->
 <enum name="TxnResult">
     <int value="0" name="Success" label="Transaction executed successfully" />
 
@@ -888,27 +842,6 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbCopiedBytes" summary="Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" />
 </tile>
 
-<tile name="bank" telemetry="false">
-    <counter name="TxnLutResolveAttempted" enum="LutResolveResult" summary="Address lookup table resolution attempts, by result; only the first error per transaction is counted" />
-    <counter name="TxnProcessed" enum="BankTxnResult" summary="Transactions loaded and executed, by result" />
-    <counter name="TxnProcessedByLanding" enum="TxnLandingResult" summary="Transactions processed, by whether and how they landed in the block" />
-</tile>
-
-<tile name="pohh" telemetry="false">
-    <histogram name="BeginLeaderDelayNanos" min="10" max="10000000" source="ticks">
-        <summary>Delay between when we become leader in a slot and when we receive the bank</summary>
-    </histogram>
-    <histogram name="FirstMicroblockDelayNanos" min="10" max="10000000" source="ticks">
-        <summary>Delay between when we become leader in a slot and when we receive the first microblock</summary>
-    </histogram>
-    <histogram name="SlotDoneDelayNanos" min="1000000" max="600000000" source="ticks">
-        <summary>Delay between when we become leader in a slot and when we finish the slot</summary>
-    </histogram>
-    <histogram name="BundleInitializeDelayNanos" min="10" max="10000000" source="ticks">
-        <summary>Delay in starting the slot caused by loading the information needed to generate the bundle crank transactions</summary>
-    </histogram>
-</tile>
-
 <tile name="poh" telemetry="false">
 </tile>
 
@@ -926,7 +859,7 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <tile name="shred">
-    <histogram name="DestPerUpdate" min="0" max="40200">
+    <histogram name="DestPerUpdate" min="0" max="40200" deprecated="true">
         <summary>Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)</summary>
     </histogram>
     <counter name="BatchAbandoned" summary="Microblock batches abandoned because we switched slots without finishing the current slot" />
@@ -962,10 +895,6 @@ deliberate exception with lint-allow="<rule id>")
     </histogram>
     <counter name="StoreFecSyncSpilled" summary="FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full" />
     <counter name="StoreFecSyncSpilledBytes" summary="FEC payload bytes the shred tile spilled to the store synchronously" />
-</tile>
-
-<tile name="store" telemetry="false">
-    <counter name="LeaderTxnInserted" summary="Estimated transactions in our leader shreds inserted into the store" />
 </tile>
 
 <tile name="accdb">

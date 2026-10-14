@@ -265,7 +265,6 @@ static char const * CRITICAL_TILES[] = {
   "pack",
   "poh",
   "motor",
-  "pohh",
   NULL
 };
 
@@ -426,12 +425,6 @@ validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tiles[ i ].out_cnt; j++ ) {
       for( ulong k=0UL; k<topo->tiles[ i ].in_cnt; k++ ) {
-        char const * link_name = topo->links[ topo->tiles[ i ].out_link_id[ j ] ].name;
-        /* PoH tile "publishes" this on behalf of Agave, so it's not
-           a real circular link. */
-        if( FD_UNLIKELY( !strcmp( link_name, "stake_out" ) ||
-                         !strcmp( link_name, "crds_shred" ) ) ) continue;
-
         if( FD_UNLIKELY( topo->tiles[ i ].out_link_id[ j ] == topo->tiles[ i ].in_link_id[ k ] ) )
           FD_LOG_ERR(( "tile %lu has out link %lu same as in", i, topo->tiles[ i ].out_link_id[ j ] ));
       }

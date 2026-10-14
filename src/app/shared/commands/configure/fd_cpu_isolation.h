@@ -70,7 +70,7 @@ fd_cpu_isolation_partition_type( fd_topo_t const * topo );
 /* fd_cpu_isolation_partition_cpus fills cpuset with the CPUs that the
    cpuset stage places in the isolated partition: all fixed tile CPUs,
    plus the otherwise-unused hyperthread siblings of the tiles that are
-   sensitive to SMT resource sharing (pack, poh, pohh; the same set the
+   sensitive to SMT resource sharing (pack, poh; the same set the
    hyperthreads stage checks).  Isolating an unused sibling leaves it
    permanently idle in a deep sleep state, which relinquishes the
    physical core's shared execution resources about as well as taking

@@ -99,7 +99,7 @@ fd_cpu_isolation_format_list( char *              buf,
    sharing that their hyperthread sibling should be kept quiet.  Keep
    in sync with the hyperthreads configure stage. */
 
-static char const * const smt_sensitive_tiles[] = { "pack", "pohh", "poh", NULL };
+static char const * const smt_sensitive_tiles[] = { "pack", "poh", NULL };
 
 char const *
 fd_cpu_isolation_partition_type( fd_topo_t const * topo ) {

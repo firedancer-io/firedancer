@@ -154,9 +154,7 @@ returnable_frag( fd_poh_tile_t *     ctx,
 
   fd_startup_gate_busy( ctx->startup_gate );
 
-  /* TODO: Pack has a workaround for Frankendancer that sequences bank
-     release to manage lifetimes, but it's not needed in Firedancer so
-     we just drop it.  We shouldn't send it at all in future. */
+  /* DONE_DRAINING is only consumed by monitoring (the GUI). */
   if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     ctx->idle_cnt = 0UL;
     return 0;

@@ -33,8 +33,6 @@ Firedancer source tree
   └── src/             The main Firedancer source tree
       │
       ├── app/         Main binaries
-      │   ├── fdctl/            Frankendancer
-      │   ├── fddev/            Frankendancer (development)
       │   ├── firedancer/       Firedancer
       │   ├── firedancer-dev/   Firedancer (development)
       │   ├── shared/           Shared Frank/FD
@@ -50,8 +48,6 @@ Firedancer source tree
       ├── disco/       Common tiles (network stack, block production)
       │
       ├── discof/      Full Firedancer tiles (consensus, runtime, RPC)
-      │
-      ├── discoh/      Frankendancer tiles (Agave FFI)
       │
       ├── flamenco/    Solana SVM / runtime
       │

@@ -97,6 +97,6 @@
                 "duplicate":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction was a duplicate" }
             }
         },
-        "vote_gossip_rx":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Gossip vote transactions from pohh (Frankendancer only)" }
+        "vote_gossip_rx":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Gossip vote transactions from pohh (Frankendancer only)", "deprecated": true }
     }
 }

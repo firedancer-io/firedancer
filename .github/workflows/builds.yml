@@ -130,10 +130,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/submodule-init
-
-      - uses: dtolnay/rust-toolchain@1.95.0
-
       - name: Build command line args
         run: |
           ARGS=""
@@ -177,7 +173,7 @@ jobs:
 
       - name: Run gcc builds
         run: |
-          contrib/build.sh --no-rust --no-clang ${{ env.BUILD_ARGS }}
+          contrib/build.sh --no-clang ${{ env.BUILD_ARGS }}
 
   build_clang:
     runs-on:
@@ -186,10 +182,6 @@ jobs:
     if: ${{ inputs.clang != 'none' }}
     steps:
       - uses: actions/checkout@v7
-
-      - uses: ./.github/actions/submodule-init
-
-      - uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Build command line args
         run: |
@@ -234,7 +226,7 @@ jobs:
 
       - name: Run clang builds
         run: |
-          contrib/build.sh --no-rust --no-gcc ${{ env.BUILD_ARGS }}
+          contrib/build.sh --no-gcc ${{ env.BUILD_ARGS }}
 
   build_arm:
     runs-on:
@@ -246,8 +238,6 @@ jobs:
         gcc_version: [12]
     steps:
       - uses: actions/checkout@v7
-
-      - uses: ./.github/actions/submodule-init
 
       - name: Run build
         run: |

@@ -408,7 +408,6 @@
 | <span class="metrics-name">dedup_&#8203;txn_&#8203;processed</span><br/>{dedup_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Transactions processed, by result (Transaction was not a duplicate) |
 | <span class="metrics-name">dedup_&#8203;txn_&#8203;processed</span><br/>{dedup_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer_&#8203;failed</span>"} | counter | Transactions processed, by result (Another transaction in the bundle failed) |
 | <span class="metrics-name">dedup_&#8203;txn_&#8203;processed</span><br/>{dedup_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Transactions processed, by result (Transaction was a duplicate) |
-| <span class="metrics-name">dedup_&#8203;vote_&#8203;gossip_&#8203;rx</span> | counter | Gossip vote transactions from pohh (Frankendancer only) |
 
 </div>
 
@@ -709,7 +708,6 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">shred_&#8203;dest_&#8203;per_&#8203;update</span> | histogram | Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count) |
 | <span class="metrics-name">shred_&#8203;batch_&#8203;abandoned</span> | counter | Microblock batches abandoned because we switched slots without finishing the current slot |
 | <span class="metrics-name">shred_&#8203;parent_&#8203;block_&#8203;id_&#8203;zeroed</span> | counter | Leader blocks whose parent block_id was unknown, so the chained merkle root was zeroed |
 | <span class="metrics-name">shred_&#8203;batch_&#8203;size_&#8203;bytes</span> | histogram | Size of each microblock batch that is shredded |
@@ -2172,89 +2170,6 @@
 | <span class="metrics-name">resolh_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Address lookup table resolution attempts, by result (The account referenced as a LUT wasn't owned by the ALUT program ID) |
 | <span class="metrics-name">resolh_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Address lookup table resolution attempts, by result (The account referenced as a LUT couldn't be found) |
 | <span class="metrics-name">resolh_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Address lookup table resolution attempts, by result (Resolved successfully) |
-
-</div>
-
-## Bank Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">bank_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Address lookup table resolution attempts, by result; only the first error per transaction is counted (The transaction referenced an index in a LUT that didn't exist) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Address lookup table resolution attempts, by result; only the first error per transaction is counted (The account referenced as a LUT hasn't been initialized) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Address lookup table resolution attempts, by result; only the first error per transaction is counted (The account referenced as a LUT couldn't be parsed) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Address lookup table resolution attempts, by result; only the first error per transaction is counted (The account referenced as a LUT wasn't owned by the ALUT program ID) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Address lookup table resolution attempts, by result; only the first error per transaction is counted (The account referenced as a LUT couldn't be found) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;lut_&#8203;resolve_&#8203;attempted</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Address lookup table resolution attempts, by result; only the first error per transaction is counted (Resolved successfully) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Transactions loaded and executed, by result (Success) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Transactions loaded and executed, by result (An account is already being processed in another transaction in a way that does not support parallelism) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Transactions loaded and executed, by result (A `Pubkey` appears twice in the transaction's `account_keys`. Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Transactions loaded and executed, by result (Attempt to debit an account but found no record of a prior credit) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">program_&#8203;account_&#8203;not_&#8203;found</span>"} | counter | Transactions loaded and executed, by result (Attempt to load a program that does not exist) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;fee</span>"} | counter | Transactions loaded and executed, by result (The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;for_&#8203;fee</span>"} | counter | Transactions loaded and executed, by result (This account may not be used to pay transaction fees) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">already_&#8203;processed</span>"} | counter | Transactions loaded and executed, by result (The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">blockhash_&#8203;not_&#8203;found</span>"} | counter | Transactions loaded and executed, by result (The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">instruction_&#8203;error</span>"} | counter | Transactions loaded and executed, by result (An error occurred while processing an instruction) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">call_&#8203;chain_&#8203;too_&#8203;deep</span>"} | counter | Transactions loaded and executed, by result (Loader call chain is too deep) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">missing_&#8203;signature_&#8203;for_&#8203;fee</span>"} | counter | Transactions loaded and executed, by result (Transaction requires a fee but has no signature present) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;index</span>"} | counter | Transactions loaded and executed, by result (Transaction contains an invalid account reference) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">signature_&#8203;failure</span>"} | counter | Transactions loaded and executed, by result (Transaction did not pass signature verification) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;program_&#8203;for_&#8203;execution</span>"} | counter | Transactions loaded and executed, by result (This program may not be used for executing instructions) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">sanitize_&#8203;failure</span>"} | counter | Transactions loaded and executed, by result (Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">cluster_&#8203;maintenance</span>"} | counter | Transactions loaded and executed, by result (Transactions are currently disabled due to cluster maintenance) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">account_&#8203;borrow_&#8203;outstanding</span>"} | counter | Transactions loaded and executed, by result (Transaction processing left an account with an outstanding borrowed reference) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;block_&#8203;cost_&#8203;limit</span>"} | counter | Transactions loaded and executed, by result (Transaction would exceed max Block Cost Limit) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">unsupported_&#8203;version</span>"} | counter | Transactions loaded and executed, by result (Transaction version is unsupported) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;writable_&#8203;account</span>"} | counter | Transactions loaded and executed, by result (Transaction loads a writable account that cannot be written) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;account_&#8203;cost_&#8203;limit</span>"} | counter | Transactions loaded and executed, by result (Transaction would exceed max account limit within the block) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">would_&#8203;exceed_&#8203;account_&#8203;data_&#8203;block_&#8203;limit</span>"} | counter | Transactions loaded and executed, by result (Transaction would exceed account data limit within the block) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">too_&#8203;many_&#8203;account_&#8203;locks</span>"} | counter | Transactions loaded and executed, by result (Transaction locked too many accounts) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">address_&#8203;lookup_&#8203;table_&#8203;not_&#8203;found</span>"} | counter | Transactions loaded and executed, by result (Address lookup table not found) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;owner</span>"} | counter | Transactions loaded and executed, by result (Attempted to lookup addresses from an account owned by the wrong program) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;data</span>"} | counter | Transactions loaded and executed, by result (Attempted to lookup addresses from an invalid account) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;index</span>"} | counter | Transactions loaded and executed, by result (Address table lookup uses an invalid index) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;rent_&#8203;paying_&#8203;account</span>"} | counter | Transactions loaded and executed, by result (Transaction leaves an account with a lower balance than rent-exempt minimum) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;vote_&#8203;cost_&#8203;limit</span>"} | counter | Transactions loaded and executed, by result (Transaction would exceed max Vote Cost Limit) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">would_&#8203;exceed_&#8203;account_&#8203;data_&#8203;total_&#8203;limit</span>"} | counter | Transactions loaded and executed, by result (Transaction would exceed total account data limit) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">duplicate_&#8203;instruction</span>"} | counter | Transactions loaded and executed, by result (Transaction contains a duplicate instruction that is not allowed) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Transactions loaded and executed, by result (Transaction results in an account with insufficient funds for rent) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">max_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;exceeded</span>"} | counter | Transactions loaded and executed, by result (Transaction exceeded max loaded accounts data size cap) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">invalid_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;limit</span>"} | counter | Transactions loaded and executed, by result (LoadedAccountsDataSizeLimit set for transaction must be greater than 0) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">resanitization_&#8203;needed</span>"} | counter | Transactions loaded and executed, by result (Sanitized transaction differed before/after feature activation. Needs to be resanitized) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">program_&#8203;execution_&#8203;temporarily_&#8203;restricted</span>"} | counter | Transactions loaded and executed, by result (Program execution is temporarily restricted on an account) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Transactions loaded and executed, by result (The total balance before the transaction does not equal the total balance after the transaction) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">program_&#8203;cache_&#8203;hit_&#8203;max_&#8203;limit</span>"} | counter | Transactions loaded and executed, by result (The total program cache size hit the maximum allowed limit) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">commit_&#8203;cancelled</span>"} | counter | Transactions loaded and executed, by result (The process for committing the transaction was cancelled internally) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed</span><br/>{bank_&#8203;txn_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Transactions loaded and executed, by result (Transaction is part of a bundle and one of the peer transactions failed) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed_&#8203;by_&#8203;landing</span><br/>{txn_&#8203;landing_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Transactions processed, by whether and how they landed in the block (Transaction landed and executed successfully) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed_&#8203;by_&#8203;landing</span><br/>{txn_&#8203;landing_&#8203;result="<span class="metrics-enum">fees_&#8203;only</span>"} | counter | Transactions processed, by whether and how they landed in the block (Transaction landed, but was fees only and did not execute) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed_&#8203;by_&#8203;landing</span><br/>{txn_&#8203;landing_&#8203;result="<span class="metrics-enum">failed</span>"} | counter | Transactions processed, by whether and how they landed in the block (Transaction landed, but failed to execute) |
-| <span class="metrics-name">bank_&#8203;txn_&#8203;processed_&#8203;by_&#8203;landing</span><br/>{txn_&#8203;landing_&#8203;result="<span class="metrics-enum">dropped</span>"} | counter | Transactions processed, by whether and how they landed in the block (Transaction did not land) |
-
-</div>
-
-## Pohh Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">pohh_&#8203;begin_&#8203;leader_&#8203;delay_&#8203;nanos</span> | histogram | Delay between when we become leader in a slot and when we receive the bank |
-| <span class="metrics-name">pohh_&#8203;first_&#8203;microblock_&#8203;delay_&#8203;nanos</span> | histogram | Delay between when we become leader in a slot and when we receive the first microblock |
-| <span class="metrics-name">pohh_&#8203;slot_&#8203;done_&#8203;delay_&#8203;nanos</span> | histogram | Delay between when we become leader in a slot and when we finish the slot |
-| <span class="metrics-name">pohh_&#8203;bundle_&#8203;initialize_&#8203;delay_&#8203;nanos</span> | histogram | Delay in starting the slot caused by loading the information needed to generate the bundle crank transactions |
-
-</div>
-
-## Store Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">store_&#8203;leader_&#8203;txn_&#8203;inserted</span> | counter | Estimated transactions in our leader shreds inserted into the store |
 
 </div>
 

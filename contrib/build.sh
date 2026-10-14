@@ -10,7 +10,6 @@ help() {
   echo " Flags:"
   echo "   --no-gcc             Do not run any gcc builds"
   echo "   --no-clang           Do not run any clang builds"
-  echo "   --no-rust            Do not install rust"
   echo "   --no-optimization    Compile with FD_DISABLE_OPTIMIZATION=1"
   echo "   --dry-run            Print build matrix and exit"
   echo "   --check-run          Run \`make check\` instead of full builds"
@@ -21,7 +20,7 @@ help() {
   echo " Args: --ARG <ARG1>,<ARG2>,<ARG3>,..."
   echo "   --targets        -t  Targets to compile during building"
   echo "                        This will be used for all types of builds."
-  echo "                        For example: all,unit-test,fdctl"
+  echo "                        For example: all,unit-test"
   echo "   --machines       -m  Machine types to build for"
   echo "                        For example: linux_gcc_icelake,linux_clang_noarch64"
   echo "   --gcc-versions   -g  GCC compiler versions to use for builds"
@@ -36,7 +35,7 @@ help() {
   echo "                        For example: gcc-11.4.0,linux_gcc_zen4,ALL"
   echo "   --clang-except       Comma separated group of clang-compiler,machine,target to exclude"
   echo "                        Use 'ALL' to exclude for all of any of the types."
-  echo "                        For example: ALL,linux_clang_minimal,fdctl"
+  echo "                        For example: ALL,linux_clang_minimal"
   echo "                        This argument can be supplied multiple times."
   echo
   echo " Exit Codes:"
@@ -99,9 +98,8 @@ while [[ $# -gt 0 ]]; do
     "--no-clang")
       NO_CLANG=1
       ;;
-    # do not install rust
+    # unused
     "--no-rust")
-      NO_RUST=1
       ;;
     # disable optimization
     "--no-optimization")
@@ -170,7 +168,6 @@ FD_REPO_DIR=$(realpath $(dirname $(realpath "$0"))/..)
 BUILD_TARGETS=( all asm ppp seccomp-policies )
 TEST_TARGETS=( unit-test fuzz-test )
 
-RUST_TARGETS=( fdctl fddev integration-test )
 OTHER_TARGETS=( ${BUILD_TARGETS[@]} ${TEST_TARGETS[@]} )
 
 # Overrides for list of targets to build for certain
@@ -187,6 +184,8 @@ CUSTOM_TARGETS+=( ["macos_clang_m1"]="${OTHER_TARGETS[@]}" )
 CUSTOM_TARGETS+=( ["linux_clang_minimal"]="${OTHER_TARGETS[@]}" )
 CUSTOM_TARGETS+=( ["linux_clang_noarch64"]="${OTHER_TARGETS[@]}" )
 CUSTOM_TARGETS+=( ["linux_clang_noarch128"]="${OTHER_TARGETS[@]}" )
+
+OTHER_TARGETS+=( integration-test )
 
 FAIL=0
 START=$(date +%s)
@@ -303,9 +302,6 @@ skip_compiler_machine_target() {
 
 inf "Setting up build environment...\n"
 cd $FD_REPO_DIR
-if [[ $NO_RUST -ne 1 ]]; then
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y > /dev/null 2>&1
-fi
 inf "Installing packages...\n"
 FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check > /dev/null 2>&1
 make -j distclean > /dev/null 2>&1
@@ -340,7 +336,6 @@ if [[ $NO_GCC -ne 1 ]]; then
             IFS=' ' read -r -a BUILD_TARGETS <<< "${CUSTOM_TARGETS[${MACHINE}]}"
           else
             BUILD_TARGETS+=( "${OTHER_TARGETS[@]}"  )
-            BUILD_TARGETS+=( "${RUST_TARGETS[@]}" )
           fi
         else
           BUILD_TARGETS=( "${TARGETS[@]}" )
@@ -433,7 +428,6 @@ if [[ $NO_CLANG -ne 1 ]]; then
             IFS=' ' read -r -a BUILD_TARGETS <<< "${CUSTOM_TARGETS[${MACHINE}]}"
           else
             BUILD_TARGETS+=( "${OTHER_TARGETS[@]}"  )
-            BUILD_TARGETS+=( "${RUST_TARGETS[@]}" )
           fi
         else
           BUILD_TARGETS=( "${TARGETS[@]}" )
