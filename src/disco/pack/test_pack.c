@@ -1950,6 +1950,343 @@ test_bundle_observe( void ) {
   for( ulong j=0UL; j<11UL; j++ ) fd_memset( TXN( &txnp_scratch[ j ] ), (uchar)0, FD_TXN_MAX_SZ );
 }
 
+/* The 8 Jito tip accounts (see fd_pack_tip_prog_blacklist.h) */
+static char const * const TEST_TIP_ACCTS[ 8 ] = {
+  "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5", "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+  "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY", "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+  "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh", "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+  "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL", "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT" };
+
+/* Makes a transaction with id i (encoded in the signature like
+   make_transaction1) that requests compute CUs, writes one account per
+   character in writes, and pays tip lamports to Jito tip account
+   tip_acct_idx (0-7) with a top-level System transfer.  Accounts:
+   [signer, writes..., tip account, system program, compute budget
+   program]. */
+static void
+make_tip_transaction1( fd_txn_p_t * txnp,
+                       ulong        i,
+                       uint         compute,
+                       ulong        tip,
+                       ulong        tip_acct_idx,
+                       char const * writes ) {
+  uchar *    p      = txnp->payload;
+  uchar *    p_base = p;
+  fd_txn_t * t      = TXN( txnp );
+  ulong      w      = strlen( writes );
+
+  *(p++) = (uchar)1;
+  fd_memcpy( p,                                   &i,               sizeof(ulong)                                    );
+  fd_memcpy( p+sizeof(ulong),                     SIGNATURE_SUFFIX, FD_TXN_SIGNATURE_SZ - sizeof(ulong)-sizeof(uint) );
+  fd_memcpy( p+FD_TXN_SIGNATURE_SZ-sizeof(ulong), &compute,         sizeof(uint)                                     );
+  p += FD_TXN_SIGNATURE_SZ;
+
+  t->transaction_version   = FD_TXN_VLEGACY;
+  t->signature_cnt         = 1;
+  t->signature_off         = 1;
+  t->message_off           = FD_TXN_SIGNATURE_SZ+1UL;
+  t->readonly_signed_cnt   = 0;
+  t->readonly_unsigned_cnt = 2;
+  t->acct_addr_cnt         = (ushort)(1UL + w + 1UL + 2UL);
+  t->acct_addr_off         = FD_TXN_SIGNATURE_SZ+1UL;
+
+  *p = 's' + 0x80; fd_memcpy( p+1, &i, sizeof(ulong) ); memset( p+9, 'S', FD_TXN_ACCT_ADDR_SZ-9 ); p += FD_TXN_ACCT_ADDR_SZ;
+  for( ulong k=0UL; k<w; k++ ) { memset( p, writes[ k ], FD_TXN_ACCT_ADDR_SZ ); p += FD_TXN_ACCT_ADDR_SZ; }
+  FD_TEST( fd_base58_decode_32( TEST_TIP_ACCTS[ tip_acct_idx ], p ) );  p += FD_TXN_ACCT_ADDR_SZ;
+  memset( p, 0, FD_TXN_ACCT_ADDR_SZ );                                  p += FD_TXN_ACCT_ADDR_SZ; /* system program */
+  fd_memcpy( p, FD_COMPUTE_BUDGET_PROGRAM_ID, FD_TXN_ACCT_ADDR_SZ );    p += FD_TXN_ACCT_ADDR_SZ;
+
+  t->recent_blockhash_off         = 0;
+  t->addr_table_lookup_cnt        = 0;
+  t->addr_table_adtl_writable_cnt = 0;
+  t->addr_table_adtl_cnt          = 0;
+  t->instr_cnt                    = 2;
+
+  uchar tip_idx = (uchar)(1UL+w);
+  uchar sys_idx = (uchar)(2UL+w);
+  uchar cb_idx  = (uchar)(3UL+w);
+
+  /* SetComputeUnitLimit */
+  t->instr[ 0 ].program_id = cb_idx;
+  t->instr[ 0 ].acct_cnt   = 0;
+  t->instr[ 0 ].data_sz    = 5;
+  t->instr[ 0 ].acct_off   = (ushort)(p - p_base);
+  t->instr[ 0 ].data_off   = (ushort)(p - p_base);
+  *p = 2; fd_memcpy( p+1, &compute, sizeof(uint) ); p += 5UL;
+
+  /* System transfer from the signer to the tip account */
+  t->instr[ 1 ].program_id = sys_idx;
+  t->instr[ 1 ].acct_cnt   = 2;
+  t->instr[ 1 ].data_sz    = 12;
+  t->instr[ 1 ].acct_off   = (ushort)(p - p_base);
+  *(p++) = 0;
+  *(p++) = tip_idx;
+  t->instr[ 1 ].data_off   = (ushort)(p - p_base);
+  FD_STORE( uint,  p,     2U  );
+  FD_STORE( ulong, p+4UL, tip );
+  p += 12UL;
+
+  txnp->payload_sz = (ushort)(p-p_base);
+}
+
+/* Inserts a one-transaction bundle of make_tip_transaction1( i, ... ).
+   Returns the insert result. */
+static int
+insert_tip_bundle( fd_pack_t *  pack,
+                   ulong        i,
+                   ulong        tip,
+                   ulong        tip_acct_idx,
+                   char const * writes,
+                   ulong        expires_at ) {
+  fd_txn_e_t * _bundle[ 1 ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+  make_tip_transaction1( bundle[ 0 ]->txnp, i, 10000U, tip, tip_acct_idx, writes );
+  ulong deleted;
+  return fd_pack_insert_bundle_fini( pack, bundle, 1UL, expires_at, 0, NULL, &deleted );
+}
+
+/* Inserts a two-transaction bundle: i0 pays tip0, i1 pays tip1. */
+static int
+insert_tip_bundle2( fd_pack_t * pack,
+                    ulong       i0,
+                    ulong       tip0,
+                    ulong       i1,
+                    ulong       tip1,
+                    ulong       expires_at ) {
+  fd_txn_e_t * _bundle[ 2 ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 2UL );
+  make_tip_transaction1( bundle[ 0 ]->txnp, i0, 10000U, tip0, 6UL, "Y" );
+  make_tip_transaction1( bundle[ 1 ]->txnp, i1, 10000U, tip1, 7UL, "Z" );
+  ulong deleted;
+  return fd_pack_insert_bundle_fini( pack, bundle, 2UL, expires_at, 0, NULL, &deleted );
+}
+
+/* The id i written into the signature of a scheduled transaction */
+static ulong
+result_id( fd_txn_e_t const * r ) {
+  return FD_LOAD( ulong, r->txnp->payload+1UL );
+}
+
+/* Schedules one bundle on execle 0 and completes it.  Returns the id
+   of its first transaction, or ULONG_MAX if nothing was scheduled. */
+static ulong
+schedule_bundle_id( fd_pack_t * pack ) {
+  ulong cnt = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results );
+  if( !cnt ) return ULONG_MAX;
+  fd_pack_microblock_complete( pack, 0UL );
+  return result_id( outcome.results );
+}
+
+static void
+test_stale_bundles( void ) {
+  FD_LOG_NOTICE(( "TEST STALE BUNDLES" ));
+
+  /* Fresh bundles go first, in FIFO order, then stale bundles by
+     declared tip, equal tips in insert order */
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_stale_bundle_capacity( pack, 16UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  FD_TEST( insert_tip_bundle( pack, 0UL, 1000UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 1UL, 9000UL, 1UL, "B", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 2UL, 5000UL, 2UL, "C", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 3UL, 9000UL, 3UL, "D", 1000UL )>=0 );
+  fd_pack_set_insert_stale( pack, 0 );
+  FD_TEST( insert_tip_bundle( pack, 4UL,    1UL, 4UL, "E", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 5UL,    2UL, 5UL, "F", 1000UL )>=0 );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==4UL );
+  FD_TEST( fd_pack_pending_bundle_txn_cnt( pack )==6UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  ulong sched0 = FD_MCNT_GET( PACK, STALE_BUNDLE_SCHEDULED );
+  ulong expect[ 6 ] = { 4UL, 5UL, 1UL, 3UL, 2UL, 0UL };
+  for( ulong k=0UL; k<6UL; k++ ) {
+    FD_TEST( schedule_bundle_id( pack )==expect[ k ] );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  }
+  FD_TEST( schedule_bundle_id( pack )==ULONG_MAX );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==0UL );
+  FD_TEST( FD_MCNT_GET( PACK, STALE_BUNDLE_SCHEDULED )==sched0+4UL );
+
+  /* A full stale treap only takes a larger tip than its worst bundle,
+     which it then evicts.  On a tie the earlier bundle stays. */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_stale_bundle_capacity( pack, 3UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  ulong inserted0 = FD_MCNT_GET( PACK, STALE_BUNDLE_INSERTED );
+  ulong rejected0 = FD_MCNT_GET( PACK, STALE_BUNDLE_REJECTED );
+  ulong evicted0  = FD_MCNT_GET( PACK, STALE_BUNDLE_EVICTED  );
+  FD_TEST( insert_tip_bundle( pack, 10UL, 100UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 11UL, 300UL, 1UL, "B", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 12UL, 200UL, 2UL, "C", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 13UL, 100UL, 3UL, "D", 1000UL )==FD_PACK_INSERT_REJECT_PRIORITY );
+  FD_TEST( insert_tip_bundle( pack, 14UL,  50UL, 4UL, "E", 1000UL )==FD_PACK_INSERT_REJECT_PRIORITY );
+  FD_TEST( insert_tip_bundle( pack, 15UL, 250UL, 5UL, "F", 1000UL )>=0 );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==3UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
+  FD_TEST( FD_MCNT_GET( PACK, STALE_BUNDLE_INSERTED )==inserted0+4UL );
+  FD_TEST( FD_MCNT_GET( PACK, STALE_BUNDLE_REJECTED )==rejected0+2UL );
+  FD_TEST( FD_MCNT_GET( PACK, STALE_BUNDLE_EVICTED  )==evicted0 +1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( schedule_bundle_id( pack )==11UL );
+  FD_TEST( schedule_bundle_id( pack )==15UL );
+  FD_TEST( schedule_bundle_id( pack )==12UL );
+  FD_TEST( schedule_bundle_id( pack )==ULONG_MAX );
+
+  /* Capacity 0 (the default) disables the stale treap: bundles stay
+     FIFO even while inserts are stale */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_insert_stale( pack, 1 );
+  FD_TEST( insert_tip_bundle( pack, 20UL, 100UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle( pack, 21UL, 900UL, 1UL, "B", 1000UL )>=0 );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==0UL );
+  FD_TEST( schedule_bundle_id( pack )==20UL );
+  FD_TEST( schedule_bundle_id( pack )==21UL );
+
+  /* Stale bundles wait for the initializer bundle.  With no fresh
+     bundles, peek_bundle_meta shows the stale head, so the tile cranks
+     an initializer bundle, which goes to the FIFO even while inserts
+     are stale. */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_end_block( pack ); /* start from a fresh block (initializer bundle state) */
+  fd_pack_set_stale_bundle_capacity( pack, 16UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  FD_TEST( insert_tip_bundle( pack, 30UL, 5000UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( fd_pack_peek_bundle_meta( pack )!=NULL );
+  FD_TEST( schedule_bundle_id( pack )==ULONG_MAX );
+  {
+    fd_txn_e_t * _ib[ 1 ];
+    fd_txn_e_t * const * ib = fd_pack_insert_bundle_init( pack, _ib, 1UL );
+    make_transaction1( ib[ 0 ]->txnp, 31UL, 1000U, 100U, 5.0, "I", "J", NULL, NULL );
+    ulong deleted;
+    FD_TEST( fd_pack_insert_bundle_fini( pack, ib, 1UL, 1000UL, 1, NULL, &deleted )>=0 );
+  }
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==1UL );
+  FD_TEST( fd_pack_pending_bundle_txn_cnt( pack )==2UL );
+  FD_TEST( fd_pack_peek_bundle_meta( pack )==NULL ); /* the initializer bundle is at the head */
+  FD_TEST( schedule_bundle_id( pack )==31UL );
+  FD_TEST( schedule_bundle_id( pack )==ULONG_MAX );  /* waiting for the initializer bundle's result */
+  fd_pack_set_initializer_bundles_ready( pack );
+  FD_TEST( schedule_bundle_id( pack )==30UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* A multi-transaction stale bundle keeps its order, and ranks by the
+     sum of its tips */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_stale_bundle_capacity( pack, 16UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  FD_TEST( insert_tip_bundle ( pack, 40UL, 6000UL, 0UL, "A", 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle2( pack, 41UL, 3000UL, 42UL, 4000UL, 1000UL )>=0 );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==2UL );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==2UL );
+  FD_TEST( result_id( outcome.results+0 )==41UL );
+  FD_TEST( result_id( outcome.results+1 )==42UL );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==1UL );
+  FD_TEST( schedule_bundle_id( pack )==40UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* A fresh head that conflicts with an in-flight microblock blocks the
+     execle as before: pack does not fall through to a stale bundle */
+  pack = init_all( 1024UL, 2UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_stale_bundle_capacity( pack, 16UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  FD_TEST( insert_tip_bundle( pack, 50UL, 9000UL, 0UL, "E", 1000UL )>=0 );
+  fd_pack_set_insert_stale( pack, 0 );
+  make_transaction( 51UL, 1000U, 100U, 11.0, "A", "Z", NULL, NULL );
+  FD_TEST( insert( 51UL, pack )>=0 );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_TXN, outcome.results )==1UL );
+  FD_TEST( insert_tip_bundle( pack, 52UL, 1UL, 1UL, "A", 1000UL )>=0 );
+  FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==0UL );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( schedule_bundle_id( pack )==52UL );
+  FD_TEST( schedule_bundle_id( pack )==50UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
+static void
+test_stale_bundle_lifecycle( void ) {
+  FD_LOG_NOTICE(( "TEST STALE BUNDLE LIFECYCLE" ));
+
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_stale_bundle_capacity( pack, 16UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  FD_TEST( insert_tip_bundle2( pack, 60UL, 0UL, 61UL, 7000UL, 1000UL )>=0 );
+  FD_TEST( insert_tip_bundle ( pack, 62UL, 1000UL, 0UL, "C", 5000UL )>=0 );
+  FD_TEST( insert_tip_bundle2( pack, 63UL, 0UL, 64UL, 2000UL, 6000UL )>=0 );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==3UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Deleting either transaction by signature removes the whole bundle */
+  make_tip_transaction1( &txnp_scratch[ 0 ], 61UL, 10000U, 7000UL, 7UL, "Z" );
+  fd_ed25519_sig_t sig; memcpy( &sig, txnp_get_signatures( &txnp_scratch[ 0 ] ), sizeof(fd_ed25519_sig_t) );
+  FD_TEST( fd_pack_delete_transaction( pack, &sig )==2UL );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==2UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Expiry deletes one transaction at a time; the bundle stops counting
+     when its last one goes */
+  FD_TEST( fd_pack_expire_before( pack, 5500UL )==1UL );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( fd_pack_expire_before( pack, 7000UL )==2UL );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* clear_all empties the stale treap */
+  FD_TEST( insert_tip_bundle( pack, 65UL, 1000UL, 0UL, "A", 10000UL )>=0 );
+  fd_pack_clear_all( pack );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( insert_tip_bundle( pack, 66UL, 1000UL, 0UL, "A", 10000UL )>=0 );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* delete_worst samples stale transactions too, and keeps the count
+     right whatever it deletes */
+  pack = init_all( 16UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_stale_bundle_capacity( pack, 4UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  for( ulong k=0UL; k<4UL; k++ ) {
+    char writes[ 2 ] = { (char)('A'+k), '\0' };
+    FD_TEST( insert_tip_bundle( pack, 70UL+k, 1UL+k, k, writes, 1000UL )>=0 );
+  }
+  fd_pack_set_insert_stale( pack, 0 );
+  for( ulong k=0UL; k<40UL; k++ ) {
+    make_transaction( 80UL+k, 1000U, 100U, 11.0+(double)(k%5UL), "Q", "", NULL, NULL );
+    insert( 80UL+k, pack );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  }
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )<=4UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )<=16UL );
+
+  /* A transaction can't take the nonce of a stale bundle, even one that
+     expires later (which would win against a regular transaction) */
+  pack = init_all( 32UL, 1UL, 32UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_stale_bundle_capacity( pack, 16UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  ulong deleted;
+  fd_txn_e_t * _bundle[ 1 ];
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+  make_nonce_transaction1( bundle[ 0 ]->txnp, 120UL, 11.0, 5, 0, 'b' );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==1UL );
+  fd_txn_e_t * txn = fd_pack_insert_txn_init( pack );
+  make_nonce_transaction1( txn->txnp, 121UL, 12.0, 5, 0, 'b' );
+  FD_TEST( fd_pack_insert_txn_fini( pack, txn, 2000UL, &deleted )==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==1UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1978,6 +2315,8 @@ main( int     argc,
   test_bundle_nonce();
   test_next_auction();
   test_bundle_observe();
+  test_stale_bundles();
+  test_stale_bundle_lifecycle();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
     performance_test2();

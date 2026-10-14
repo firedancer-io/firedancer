@@ -10,6 +10,7 @@
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/pack/fd_pack_cost.h"
+#include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/txn/fd_txn.h"
@@ -419,6 +420,9 @@ fd_config_fill( fd_config_t * config,
     config->tiles.pack.schedule_strategy_enum = 2;
   }
   else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
+
+  if( FD_UNLIKELY( config->tiles.pack.stale_bundle_capacity>FD_PACK_STALE_CAPACITY_MAX ) )
+    FD_LOG_ERR(( "[tiles.pack.stale_bundle_capacity] must be at most %lu", FD_PACK_STALE_CAPACITY_MAX ));
 
   fd_config_fill_net( config );
 

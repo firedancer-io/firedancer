@@ -1038,6 +1038,12 @@ EXAMPLES
 
     <counter name="BundleCrankResult" enum="BundleCrankResult" summary="Result of considering whether bundle cranks are needed" />
 
+    <gauge name="StaleBundles" summary="Bundles held in pack's stale bundle treap: bundles that arrived while not leader, kept by largest declared tip" />
+    <counter name="StaleBundleInserted" summary="Bundles that arrived while not leader and were inserted into the stale bundle treap" />
+    <counter name="StaleBundleRejected" summary="Bundles that arrived while not leader and were rejected because the stale bundle treap was full and they did not declare a larger tip than any bundle in it" />
+    <counter name="StaleBundleEvicted" summary="Stale bundles evicted from the stale bundle treap to make room for a bundle that declares a larger tip" />
+    <counter name="StaleBundleScheduled" summary="Stale bundles scheduled to an execle" />
+
     <counter name="AuctionStarted" summary="Number of batch auctions started" />
     <counter name="AuctionCancelled" summary="Number of batch auctions skipped because the block was already at their CU limit" />
     <counter name="AuctionEnded" enum="PackAuctionEnd" summary="Number of batch auctions that have ended and the reason" />
