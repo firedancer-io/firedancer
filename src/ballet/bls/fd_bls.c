@@ -84,12 +84,21 @@ fd_bls_agg_construct( fd_bls_agg_t *       agg,
                       fd_bls_sig_t const * sig,
                       fd_bls_set_t const * set ) {
   fd_bls_set_copy( agg->set, set );
+
+  /* blst_p1s_add reads each pub through its affine x,y prefix, which is
+     its value because pubs carry Z==1 (see fd_bls_pub_t). */
+  blst_p1_affine const * pub_ptr[ FD_BLS_SET_MAX ];
+  blst_p2_affine const * sig_ptr[ FD_BLS_SET_MAX ];
+  ulong cnt = 0UL;
   for( ulong rank = fd_bls_set_const_iter_init( set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( set, rank ) ) {
-    blst_p1_add_or_double( &agg->pub, &agg->pub, pub+rank );
-    blst_p2_add_or_double_affine( &agg->sig, &agg->sig, sig+rank );
+    pub_ptr[ cnt ] = (blst_p1_affine const *)( pub+rank );
+    sig_ptr[ cnt ] = sig+rank;
+    cnt++;
   }
+  blst_p1s_add( &agg->pub, pub_ptr, cnt );
+  blst_p2s_add( &agg->sig, sig_ptr, cnt );
   return agg;
 }
 

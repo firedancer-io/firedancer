@@ -14,7 +14,7 @@
 #define FD_BLS_DST_SZ            (sizeof(FD_BLS_DST)-1UL)
 
 typedef blst_scalar    fd_bls_sec_t;
-typedef blst_p1        fd_bls_pub_t;
+typedef blst_p1        fd_bls_pub_t; /* always Z==1 (blst_p1_from_affine), so its x,y prefix is the affine point */
 typedef blst_p2_affine fd_bls_sig_t;
 
 #define SET_NAME fd_bls_set
