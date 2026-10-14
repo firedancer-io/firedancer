@@ -1132,9 +1132,11 @@ test_out_of_bounds_votes( void ) {
     }
   }
 
-  for( ulong s=slot-AG_REWARD_SLOT_DELTA; s<slot; s++ ) {
+  for( ulong s=slot-AG_REWARD_SLOT_DELTA; s<=slot; s++ ) {
     ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[0], test_bls_public_key, s, (ushort)0, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+    vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], test_bls_public_key, s, gh, (ushort)0, TEST_SHRED_VERSION );
+    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
   }
 
   ulong future = 5UL*TEST_SLOT_MAX;
@@ -1628,7 +1630,7 @@ test_handle_invalid_votes( void ) {
 static void
 test_hash_capacity( void ) {
   ag_pool_t * pool = setup_pool();
-  ulong slot = 0UL;
+  ulong slot = 1UL;
 
   ag_block_hash_t hash[ NV ];
   for( ulong i=0UL; i<NV; i++ ) {
@@ -1825,9 +1827,11 @@ test_retired_epoch_already_pruned( void ) {
   ag_epoch_info_t * a; ag_epoch_info_t * b;
   ag_pool_t * pool = setup_two_epoch_pool( &a, &b, 1 );
 
+  ag_block_hash_t late_hash;
   for( ulong s=EPOCH_A_LO+1UL; s<=EPOCH_B_LO; s++ ) {
     ag_block_hash_t hash; random_hash( hash );
-    add_notar_votes( pool, s, hash, 0UL, NV );
+    if( s==EPOCH_B_LO-1UL ) memcpy( late_hash, hash, sizeof(ag_block_hash_t) );
+    add_notar_votes( pool, s, hash, 0UL, fd_ulong_if( s==EPOCH_B_LO-1UL, NV-1UL, NV ) );
   }
   FD_TEST( ag_pool_finalized_slot( pool )==EPOCH_B_LO );
 
@@ -1844,7 +1848,7 @@ test_retired_epoch_already_pruned( void ) {
   FD_TEST( epoch_info( pool, EPOCH_B_HI+1UL )==c );
   FD_TEST( contains_slot( pool, EPOCH_B_LO ) );
 
-  ag_vote_t v_late = ag_vote_construct_final( sec_sign_fn, &g_sk[0], test_bls_public_key, EPOCH_B_LO-1UL, (ushort)0, TEST_SHRED_VERSION );
+  ag_vote_t v_late = ag_vote_construct_notar( sec_sign_fn, &g_sk[NV-1UL], test_bls_public_key, EPOCH_B_LO-1UL, late_hash, (ushort)(NV-1UL), TEST_SHRED_VERSION );
   FD_TEST( ag_pool_add_vote( pool, &v_late, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( ag_pool_slot_state( pool, EPOCH_B_LO-1UL ) && epoch_info( pool, EPOCH_B_LO-1UL )==a ); /* retained, verified against its own epoch */
 
@@ -2023,7 +2027,11 @@ test_standstill_iter_partial_root( void ) {
   ag_standstill_t standstill = recover_from_standstill( pool );
   FD_TEST( standstill.cert_cnt==0UL && standstill.vote_cnt==0UL );
 
-  add_final_votes( pool, 0UL, 0UL, 7UL ); /* a final cert, still no notar cert */
+  ag_vote_final_t fv[ 7 ];
+  for( ulong v=0UL; v<7UL; v++ ) fv[v] = ag_vote_construct_final( sec_sign_fn, &g_sk[v], test_bls_public_key, 0UL, (ushort)v, TEST_SHRED_VERSION ).final;
+  ag_cert_t fc = cert_build_final( fv, 7UL, g_epoch_info );
+  FD_TEST( ag_pool_add_cert( pool, &fc, 0, bad )==AG_POOL_SUCCESS ); /* a final cert, still no notar cert */
+  drain_events( pool );
   FD_TEST( has_final_cert( pool, 0UL ) && !has_notar_cert( pool, 0UL ) );
   FD_TEST( ag_pool_finalized_slot( pool )==0UL );
 

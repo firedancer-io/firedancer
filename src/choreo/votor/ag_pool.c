@@ -575,6 +575,9 @@ ag_pool_add_vote( ag_pool_t *       self,
   if( FD_UNLIKELY( slot<retained_slot || slot>=slot_far_in_future ) ) {
     return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
   }
+  if( FD_UNLIKELY( slot<=first_unpruned_slot && vote->kind!=AG_VOTE_KIND_NOTAR && vote->kind!=AG_VOTE_KIND_SKIP ) ) {
+    return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  }
   ag_slot_states_t *      states     = &self->slot_states->shared;
   ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
   if( FD_UNLIKELY( !epoch_info ) ) {
