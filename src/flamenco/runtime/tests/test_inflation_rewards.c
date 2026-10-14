@@ -867,6 +867,79 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_footer_vote_account_acquire: PASSED" ));
 }
 
+/* fd_runtime_block_execute_finalize is fail closed: a footer whose
+   certs do not verify (here unsigned, all-zero signatures) is rejected
+   before anything is written.  The unverified variant (replay, with the
+   certs verifying elsewhere) applies the same footer. */
+
+static void
+test_finalize_verifies_footer( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_AG_ROOT_SLOT;
+  params->clock              = &test_ag_clock;
+  params->mock_validator_cnt = 2UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  activate_alpenglow( mini );
+  set_alpenglow_migration( mini, TEST_ROOT_SLOT );
+  init_epoch_inflation_account( mini, 1UL );
+
+  fd_pubkey_t vote[ 2 ], identity[ 2 ];
+  uchar       bls [ 2 ][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_pubkey_t stake;
+    mock_validator_keys_idx( params->hash_seed, i, identity+i, vote+i, &stake );
+    uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
+    fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
+    fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
+    blst_p1_affine aff[1]; blst_p1_to_affine( aff, pub ); blst_p1_affine_compress( bls[i], aff );
+  }
+
+  ulong bank_slot = 24UL;
+  fd_bank_t * bank[ 2 ];
+  ulong       idx [ 2 ];
+  for( ulong b=0UL; b<2UL; b++ ) {
+    idx [ b ] = fd_svm_mini_attach_child( mini, root_idx, bank_slot );
+    bank[ b ] = fd_svm_mini_bank( mini, idx[ b ] );
+  }
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank[ 0 ] );
+  fd_vote_stakes_reset( vote_stakes );
+  ulong vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+  for( ulong i=0UL; i<2UL; i++ ) fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL*(i+1UL), 0U, bls[i] );
+  fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
+
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( mini->runtime->accdb, bank[ 0 ]->accdb_fork_id, clock_ );
+  FD_TEST( clock );
+
+  fd_block_footer_t footer[1];
+  fd_memset( footer, 0, sizeof(fd_block_footer_t) );
+  footer->block_producer_time_nanos = (ulong)clock->unix_timestamp*1000000000UL+1000000UL; /* valid producer time */
+  footer->has_fast_final_cert       = 1;
+  footer->fast_final_cert.slot      = bank_slot-1UL;
+  for( ulong r=0UL; r<2UL; r++ ) fd_bls_set_insert( footer->fast_final_cert.signer_set, r );
+
+  for( ulong b=0UL; b<2UL; b++ ) {
+    FD_FEATURE_SET_ACTIVE( &bank[ b ]->f.features, alpenglow, 0UL );
+    bank[ b ]->vote_stakes_fork_id = vs_fork;
+    fd_sha256_hash( &b, sizeof(ulong), bank[ b ]->f.poh.hash ); /* distinct blockhash per sibling */
+  }
+  fd_lthash_value_t pre = *fd_bank_lthash_locking_query( bank[ 0 ] ); fd_bank_lthash_end_locking_query( bank[ 0 ] );
+  fd_footer_cache_t * cache = new_cache();
+  fd_accdb_t * accdb = mini->runtime->accdb;
+  FD_TEST( fd_runtime_block_execute_finalize( bank[ 0 ], accdb, NULL, footer, 4242, cache )==-1 );
+  fd_lthash_value_t post = *fd_bank_lthash_locking_query( bank[ 0 ] ); fd_bank_lthash_end_locking_query( bank[ 0 ] );
+  FD_TEST( fd_lthash_eq( &pre, &post ) );
+  FD_TEST( vote_last_voted_slot( mini, fd_svm_mini_fork_id( mini, idx[ 0 ] ), vote+0 )!=bank_slot-1UL );
+
+  FD_TEST( !fd_runtime_block_execute_finalize_unverified( bank[ 1 ], accdb, footer, cache ) );
+  FD_TEST( vote_last_voted_slot( mini, fd_svm_mini_fork_id( mini, idx[ 1 ] ), vote+0 )==bank_slot-1UL );
+  FD_TEST( bank[ 1 ]->f.slot==bank_slot );
+  free( cache );
+  FD_LOG_NOTICE(( "test_finalize_verifies_footer: PASSED" ));
+}
+
 /* Writes a VoteStateV4-serialized vote account with the given
    commission (percent), epoch credits, and SIMD-0232 collectors. */
 static void
@@ -4285,6 +4358,7 @@ main( int     argc,
   test_footer_uses_vote_stakes_rank( mini, 1 );
   test_footer_fused_matches_sequential( mini );
   test_footer_vote_account_acquire( mini );
+  test_finalize_verifies_footer( mini );
   test_alpenglow_reward_uses_vote_credits( mini );
   test_alpenglow_preserves_commission_remainder( mini );
   test_migration_epoch_prorates_tower_and_alpenglow( mini );

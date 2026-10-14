@@ -1852,11 +1852,12 @@ apply_footer( fd_bank_t *               bank,
               fd_accdb_t *              accdb,
               fd_capture_ctx_t *        capture_ctx,
               fd_block_footer_t const * footer,
+              int                       verify,
               ushort                    shred_version,
               fd_footer_cache_t *       cache ) {
 
   /* leader bank's certs were verified by votor */
-  if( FD_UNLIKELY( !bank->is_leader && fd_alpenglow_footer_verify( bank, footer, shred_version, cache ) ) ) return -1;
+  if( FD_UNLIKELY( verify && !bank->is_leader && fd_alpenglow_footer_verify( bank, footer, shred_version, cache ) ) ) return -1;
 
   /* Rewrite the clock sysvar and the alpenclock account from the
      footer's producer timestamp (Agave Bank::update_clock_from_footer).
@@ -1913,9 +1914,21 @@ fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_block_footer_t const * footer,
                                    ushort                    shred_version,
                                    fd_footer_cache_t *       cache ) {
-  if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer, shred_version, cache ) ) ) return -1;
+  if( FD_UNLIKELY( footer && apply_footer( bank, accdb, capture_ctx, footer, 1, shred_version, cache ) ) ) return -1;
   fd_runtime_freeze( bank, accdb, capture_ctx );
   fd_runtime_update_bank_hash( bank, capture_ctx );
+  return 0;
+}
+
+int
+fd_runtime_block_execute_finalize_unverified( fd_bank_t *               bank,
+                                              fd_accdb_t *              accdb,
+                                              fd_block_footer_t const * footer,
+                                              fd_footer_cache_t *       cache ) {
+  FD_TEST( footer && !bank->is_leader && !fd_bank_report_runtime_diffs( bank ) );
+  if( FD_UNLIKELY( apply_footer( bank, accdb, NULL, footer, 0, 0, cache ) ) ) return -1;
+  fd_runtime_freeze( bank, accdb, NULL );
+  fd_runtime_update_bank_hash( bank, NULL );
   return 0;
 }
 

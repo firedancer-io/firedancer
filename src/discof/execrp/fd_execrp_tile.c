@@ -346,6 +346,18 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
       }
+      case FD_EXECRP_TT_CERT_VERIFY: {
+        fd_execrp_cert_verify_msg_t * msg  = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        fd_bank_t const *             bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( bank );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx         = msg->bank_idx;
+        out_msg->cert_verify->err    = !!fd_alpenglow_cert_verify( bank, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &out_msg->cert_verify->hm );
+        out_msg->cert_verify->has_hm = !msg->has_hm && !out_msg->cert_verify->err; /* hashed here */
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_CERT_VERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
       default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));
     }
   } else FD_LOG_CRIT(( "invalid in_idx %lu", in_idx ));

@@ -287,12 +287,25 @@ static fd_hash_t         mock_footer_poh;
 #define fd_sched_get_poh(s,b)        (mock_footer_finalize ? &mock_footer_poh : (fd_sched_get_poh)(s,b))
 #define fd_sched_get_shred_cnt(s,b)  (mock_footer_finalize ? 0U : (fd_sched_get_shred_cnt)(s,b))
 #define fd_sched_get_footer(s,b)     (mock_footer_finalize ? mock_footer : (fd_sched_get_footer)(s,b))
-#define fd_runtime_block_execute_finalize(b,a,c,f,s,g) (mock_footer_finalize ? 0 : (fd_runtime_block_execute_finalize)(b,a,c,f,s,g))
+static int mock_footer_verify; /* mocked finalize still verifies certs */
+#define fd_runtime_block_execute_finalize(b,a,c,f,s,g) (mock_footer_finalize ? ( mock_footer_verify && (f) ? fd_alpenglow_footer_verify(b,f,s,g) : 0 ) : (fd_runtime_block_execute_finalize)(b,a,c,f,s,g))
+#define fd_runtime_block_execute_finalize_unverified(b,a,f,g) (mock_footer_finalize ? 0 : (fd_runtime_block_execute_finalize_unverified)(b,a,f,g))
 #define fd_txncache_finalize_fork(t,f,o,h) do { if( !mock_footer_finalize ) (fd_txncache_finalize_fork)(t,f,o,h); } while(0)
+static ulong mock_cert_tiles; /* idle exec tiles fd_sched_cert_dispatch claims from */
+static ulong
+mock_sched_cert_dispatch_fn( fd_sched_t * s FD_PARAM_UNUSED,
+                             ulong        b FD_PARAM_UNUSED,
+                             ulong        cnt ) {
+  ulong tiles = 0UL;
+  for( ulong idle=mock_cert_tiles; idle && cnt; cnt--, idle=fd_ulong_pop_lsb( idle ) ) tiles |= fd_ulong_mask_bit( fd_ulong_find_lsb( idle ) );
+  return tiles;
+}
+#define fd_sched_cert_dispatch mock_sched_cert_dispatch_fn
 
 /* ---- Include the tile under test ---- */
 
 #include "fd_replay_tile.c"
+#include "../../choreo/votor/ag_vote_serde.h"
 
 /* ---- Test setup ---- */
 
@@ -2292,6 +2305,166 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer_finalize = 0;
 
   FD_LOG_NOTICE(( "pass: test_root_from_footer" ));
+}
+
+/* test_footer_cert_tasks drives replay_block_finalize with real signed
+   footer certs and mocked idle exec tiles.  Claimed tiles get one
+   CERT_VERIFY frag each and the bank stays REPLAYABLE until every done
+   frag is in, then try_replay freezes and publishes it.  A failed cert
+   (on a tile or inline) marks it dead BAD_FOOTER and later done frags
+   only drain.  No idle tile or capture on: inline, frozen at once. */
+
+#define CERT_TEST_VAL_CNT (4UL)
+#define CERT_TEST_SV      ((ushort)4242)
+
+static fd_bls_sec_t cert_test_sk[ CERT_TEST_VAL_CNT ]; /* by rank */
+
+static void
+cert_test_sign( fd_block_footer_cert_t * cert,
+                ulong                    slot,
+                fd_hash_t const *        bid ) {
+  blst_scalar sum = { 0 };
+  for( ulong r=0UL; r<CERT_TEST_VAL_CNT; r++ ) blst_sk_add_n_check( &sum, &sum, cert_test_sk+r );
+  uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, bid->uc, CERT_TEST_SV, msg );
+  fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
+  fd_bls_sig_t sig[1]; fd_bls_sec_sign( &sum, msg, sz, sig );
+  blst_p2_from_affine( &agg->sig, sig );
+  for( ulong r=0UL; r<CERT_TEST_VAL_CNT; r++ ) fd_bls_set_insert( agg->set, r );
+  FD_TEST( fd_block_footer_cert_from_agg( cert, slot, bid->uc, agg ) );
+}
+
+static void
+test_footer_cert_tasks( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
+  FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( root );
+  ulong              fork_id     = root->vote_stakes_fork_id;
+  fd_pubkey_t        vote[ CERT_TEST_VAL_CNT ];
+  for( ulong i=0UL; i<CERT_TEST_VAL_CNT; i++ ) {
+    vote[ i ]        = (fd_pubkey_t){ .ul = { 3000UL+i } };
+    fd_pubkey_t node = (fd_pubkey_t){ .ul = { 4000UL+i } };
+    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+    test_bls_pubkey( bls, 10UL+i );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, 100UL*(i+1UL), 0U, bls );
+  }
+  fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
+  for( ulong i=0UL; i<CERT_TEST_VAL_CNT; i++ ) {
+    ushort rank = test_vote_rank( vote_stakes, fork_id, &vote[ i ] );
+    FD_TEST( rank<CERT_TEST_VAL_CNT );
+    uchar ikm[ 32 ] = { 0 };
+    FD_STORE( ulong, ikm, 10UL+i+1UL );
+    fd_bls_sec_derive( cert_test_sk+rank, ikm, sizeof(ikm) );
+  }
+
+  ctx->exec_out[ 1 ] = *ctx->rotor_out; /* spare test link */
+  ctx->exec_cnt      = 2UL;
+  ctx->is_booted     = 1;
+  ctx->shred_version = CERT_TEST_SV;
+  void * cache_mem = fd_wksp_alloc_laddr( wksp, FD_FOOTER_CACHE_ALIGN, fd_footer_cache_footprint(), 1UL );
+  FD_TEST( cache_mem );
+  ctx->footer_cache = fd_footer_cache_join( fd_footer_cache_new( cache_mem ) );
+
+  mock_footer_finalize = 1;
+  mock_footer_verify   = 1;
+  fd_hash_t ids[ 16 ];
+  for( ulong i=0UL; i<16UL; i++ ) ids[ i ] = (fd_hash_t){ .ul = { 300UL+i } };
+
+  fd_bank_t * parent  = root;
+  ulong       slot    = 1UL;
+  ulong       hm_cnt  = 0UL;
+  ulong       out_idx = ctx->replay_out->idx;
+  /* mode 0 two tiles, 1 one tile (one cert inline), 2 no idle tile,
+     3 capture on, 4 two tiles and a footer bank hash mismatch */
+  for( ulong mode=0UL; mode<5UL; mode++ ) {
+    for( ulong bad=0UL; bad<2UL; bad++ ) {
+      memset( mock_footer, 0, sizeof(fd_block_footer_t) );
+      mock_footer->has_fast_final_cert   = 1;
+      mock_footer->has_notar_reward_cert = 1;
+      cert_test_sign( &mock_footer->fast_final_cert,   parent->f.slot, &parent->f.block_id );
+      cert_test_sign( &mock_footer->notar_reward_cert, parent->f.slot, &parent->f.block_id );
+      if( bad ) mock_footer->notar_reward_cert.slot = slot; /* signed another slot */
+      int hash_bad = mode==4UL;
+
+      fd_bank_t * b = add_replayable_block( ctx, parent, slot, ids+slot );
+      mock_footer->bank_hash = b->f.bank_hash; /* the mocked finalize keeps it */
+      if( hash_bad ) mock_footer->bank_hash.ul[ 0 ] ^= 1UL;
+      static fd_capture_ctx_t cap[1];
+      mock_cert_tiles  = mode==1UL ? 2UL : mode==2UL ? 0UL : 3UL;
+      ctx->capture_ctx = mode==3UL ? cap : NULL;
+      ulong refcnt0    = b->refcnt;
+      ulong seq0[ 2 ]  = { test_stem_seqs[ ctx->exec_out[ 0 ].idx ], test_stem_seqs[ ctx->exec_out[ 1 ].idx ] };
+      ulong done0      = test_stem_seqs[ out_idx ];
+      int   dead       = replay_block_finalize( ctx, test_stem, b );
+
+      ulong frag_cnt   = mode==0UL || mode==4UL ? 2UL : mode==1UL ? 1UL : 0UL;
+      int   inline_bad = bad && frag_cnt!=2UL; /* the bad cert verifies on replay */
+      int   dead_end   = bad || hash_bad;
+      FD_TEST( dead==inline_bad );
+      FD_TEST( b->cert_task_cnt==frag_cnt );
+      FD_TEST( b->refcnt==refcnt0+frag_cnt );
+      if( !frag_cnt ) {
+        FD_TEST( b->state==( dead_end ? FD_BANK_STATE_DEAD : FD_BANK_STATE_FROZEN ) );
+      } else if( !inline_bad ) {
+        FD_TEST( b->state==FD_BANK_STATE_REPLAYABLE );
+        FD_TEST( test_stem_seqs[ out_idx ]==done0 ); /* no slot_completed or slot_dead (with footer) yet */
+      }
+
+      /* the exec tiles: verify each frag, answer with a done frag */
+      ulong k = 0UL;
+      for( ulong t=0UL; t<2UL; t++ ) {
+        ulong exec_idx = ctx->exec_out[ t ].idx;
+        for( ulong seq=seq0[ t ]; seq<test_stem_seqs[ exec_idx ]; seq++, k++ ) {
+          fd_frag_meta_t const * m = test_stem_mcaches[ exec_idx ] + fd_mcache_line_idx( seq, test_stem_depths[ exec_idx ] );
+          FD_TEST( m->sig==((FD_EXECRP_TT_CERT_VERIFY<<32) | t) );
+          fd_execrp_cert_verify_msg_t const * msg = fd_chunk_to_laddr_const( wksp, m->chunk );
+          FD_TEST( msg->bank_idx==b->idx && msg->shred_version==CERT_TEST_SV );
+          if( msg->has_hm ) { /* from replay's memo: the payload's H(m) */
+            uchar pl[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ]; blst_p2_affine h[1];
+            fd_bls_hash_msg( pl, fd_alpenglow_cert_payload( msg->cert, msg->tag, msg->shred_version, pl ), h );
+            FD_TEST( blst_p2_affine_is_equal( h, &msg->hm ) );
+            hm_cnt++;
+          }
+          fd_execrp_task_done_msg_t done[1];
+          done->bank_idx         = b->idx;
+          done->cert_verify->err = !!fd_alpenglow_cert_verify( b, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &done->cert_verify->hm );
+          done->cert_verify->has_hm = !msg->has_hm && !done->cert_verify->err;
+          FD_TEST( done->cert_verify->err==( bad && k==1UL ) );
+          ulong task_done0 = mock_sched_task_done_cnt;
+          process_exec_task_done( ctx, test_stem, done, (FD_EXECRP_TT_CERT_VERIFY<<32) | t );
+          if( done->cert_verify->has_hm ) { /* the tile's H(m) is now in replay's memo */
+            uchar pl[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
+            ulong pl_sz = fd_alpenglow_cert_payload( msg->cert, msg->tag, msg->shred_version, pl );
+            blst_p2_affine const * h = fd_footer_cache_hash_query( ctx->footer_cache, pl, pl_sz );
+            FD_TEST( h && blst_p2_affine_is_equal( h, &done->cert_verify->hm ) );
+          }
+          FD_TEST( mock_sched_task_done_cnt==task_done0+1UL && mock_sched_task_done_type==FD_SCHED_TT_CERT_VERIFY && mock_sched_task_done_exec_idx==t );
+          if( bad && k==1UL ) FD_TEST( b->state==FD_BANK_STATE_DEAD );
+        }
+      }
+      FD_TEST( k==frag_cnt && !b->cert_task_cnt );
+      FD_TEST( b->state==( dead_end ? FD_BANK_STATE_DEAD : FD_BANK_STATE_FROZEN ) ); /* completed on the last done frag */
+      FD_TEST( b->refcnt==refcnt0 );
+      if( !dead_end ) {
+        fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( test_stem_seqs[ out_idx ]-1UL, test_stem_depths[ out_idx ] );
+        FD_TEST( m->sig==REPLAY_SIG_SLOT_COMPLETED );
+        parent = b;
+      }
+      slot++;
+      fd_banks_prune_cancel_info_t cancel[1];
+      if( dead_end ) FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
+    }
+  }
+  FD_TEST( hm_cnt ); /* earlier certs seeded the memo for later posts */
+  ctx->capture_ctx     = NULL;
+  mock_cert_tiles      = 0UL;
+  mock_footer_finalize = 0;
+  mock_footer_verify   = 0;
+  FD_LOG_NOTICE(( "pass: test_footer_cert_tasks" ));
 }
 
 static void
@@ -5139,6 +5312,7 @@ main( int     argc,
   test_root_lagging_replay( wksp );                 fd_wksp_reset( wksp, 42U );
   test_root_newer_first( wksp );                    fd_wksp_reset( wksp, 42U );
   test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
+  test_footer_cert_tasks( wksp );                   fd_wksp_reset( wksp, 42U );
   test_slot_completed_keeps_leader_sentinel( wksp ); fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );

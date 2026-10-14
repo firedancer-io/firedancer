@@ -288,6 +288,10 @@ struct fd_bank {
   long last_transaction_finished_nanos;
   long block_completed_nanos;
 
+  ulong cert_task_cnt; /* footer cert verify tasks out on exec tiles */
+  ulong execution_fees_pre_settle; /* for publish once those are done */
+  ulong priority_fees_pre_settle;
+
   /* This field should only be accessed by the replay and executor
      tiles.  Taken per transaction, so on its own line. */
   fd_rwlock_t lthash_lock __attribute__((aligned(64UL)));
