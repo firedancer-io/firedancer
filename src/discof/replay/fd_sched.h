@@ -174,10 +174,16 @@ struct fd_sched_txn_exec {
 };
 typedef struct fd_sched_txn_exec fd_sched_txn_exec_t;
 
+/* A sigverify task carries consecutive transactions of one block whose
+   signatures together fit FD_SCHED_SIGVERIFY_SIG_PARA lanes.  The first
+   transaction is always taken, so a transaction with more signatures
+   than that is dispatched alone. */
+#define FD_SCHED_SIGVERIFY_SIG_PARA 8
 struct fd_sched_txn_sigverify {
   ulong bank_idx;
-  ulong txn_idx;
   ulong exec_idx;
+  ulong cnt;     /* In [1,FD_SCHED_SIGVERIFY_SIG_PARA] */
+  ulong txn_idx[ FD_SCHED_SIGVERIFY_SIG_PARA ];
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
@@ -415,6 +421,9 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    completing.  Then, in the immediate ensuing stem run loop,
    sched_pruned_next() will return the index for the corresponding bank
    so the refcnt can be decremented for sched.
+
+   A sigverify task retires every transaction of the batch that was
+   dispatched to exec_idx; txn_idx and data are ignored for it.
 
    The transaction at the given index may be freed upon return from this
    function.  Nonetheless, as long as there is no intervening FEC
