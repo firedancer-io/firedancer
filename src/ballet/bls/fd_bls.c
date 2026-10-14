@@ -127,24 +127,34 @@ fd_bls_hash_msg( uchar const *    msg,
   blst_p2_to_affine( h, p );
 }
 
+/* agg_pairing computes gt = e(pub,h) / e(G1,sig), which is the identity iff
+   sig is a valid signature on h under pub. */
+
+static blst_fp12 *
+agg_pairing( blst_fp12 *            gt,
+        blst_p2_affine const * h,
+        fd_bls_pub_t const *   pub,
+        blst_p2 const *        sig ) {
+  blst_p1_affine         a[2];
+  blst_p2_affine         b[2];
+  blst_p1_affine const * aptr[2];
+  blst_p2_affine const * bptr[2];
+  ulong                  n = 0UL;
+  if( FD_LIKELY( !blst_p1_is_inf( pub ) && !blst_p2_affine_is_inf( h ) ) ) { blst_p1_to_affine( a+n, pub ); b[n] = *h;                     aptr[n] = a+n; bptr[n] = b+n; n++; }
+  if( FD_LIKELY( !blst_p2_is_inf( sig )                                ) ) { a[n] = BLS12_381_NEG_G1;       blst_p2_to_affine( b+n, sig ); aptr[n] = a+n; bptr[n] = b+n; n++; }
+  if( FD_UNLIKELY( !n ) ) { *gt = *blst_fp12_one(); return gt; }
+  blst_miller_loop_n( gt, bptr, aptr, n );
+  blst_final_exp( gt, gt );
+  return gt;
+}
+
 int
 fd_bls_agg_verify_hashed( blst_p2_affine const * h,
                           fd_bls_pub_t const *   pub,
                           blst_p2 const *        sig ) {
-  if( FD_UNLIKELY( blst_p2_affine_is_inf( h ) || blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
-
-  blst_p1_affine a[2];
-  blst_p2_affine b[2];
-  blst_p1_to_affine( a, pub );
-  b[0] = *h;
-  a[1] = BLS12_381_NEG_G1;
-  blst_p2_to_affine( b+1, sig );
-
-  blst_p1_affine const * aptr[2] = { a, a+1 };
-  blst_p2_affine const * bptr[2] = { b, b+1 };
-  blst_fp12 r[1];
-  blst_miller_loop_n( r, bptr, aptr, 2UL );
-  return !!blst_fp12_finalverify( r, blst_fp12_one() );
+  if( FD_UNLIKELY( blst_p2_affine_is_inf( h ) || blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0;
+  blst_fp12 gt[1];
+  return !!blst_fp12_is_one( agg_pairing( gt, h, pub, sig ) );
 }
 
 int
@@ -175,37 +185,74 @@ verify_linear_hashed( fd_bls_agg_t const *   agg,
   return bad;
 }
 
+/* A bisect frame is a sub-aggregate over the contiguous run
+   ranks[ lo, hi ) of the signer list, with its pub and sig sums and
+   its gt (see agg_pairing).
+
+   Invariants: Every frame on the stack has gt!=1, i.e. it contains a
+   bad signer.  Halving the signer list at each split bounds the depth
+   by log2 of the set capacity, and a split pushes at most two frames,
+   so the stack never holds more than two frames per level. */
+
+struct bisect_frame {
+  ushort       lo;
+  ushort       hi;
+  fd_bls_pub_t pub;
+  blst_p2      sig;
+  blst_fp12    gt;
+};
+typedef struct bisect_frame bisect_frame_t;
+
+#define BISECT_DEPTH_MAX (11UL)
+#define BISECT_STACK_MAX (2UL*BISECT_DEPTH_MAX+2UL)
+FD_STATIC_ASSERT( FD_BLS_SET_MAX<=(1UL<<BISECT_DEPTH_MAX), bisect_depth );
+
 static fd_bls_set_t *
 verify_bisect_hashed( fd_bls_agg_t const *   agg,
                       blst_p2_affine const * h,
                       fd_bls_pub_t const *   pub,
                       fd_bls_sig_t const *   sig,
                       fd_bls_set_t *         bad ) {
-  fd_bls_agg_t key = *agg;
-  ulong        cnt = fd_bls_set_cnt( key.set );
-  while( FD_LIKELY( cnt>1UL ) ) {
-    fd_bls_agg_t lo = { 0 };
-    fd_bls_agg_t hi; fd_bls_set_null( hi.set );
-    ulong        mid = 0UL;
-    for( ulong rank = fd_bls_set_const_iter_init( key.set );
-                     !fd_bls_set_const_iter_done( rank );
-               rank = fd_bls_set_const_iter_next( key.set, rank ) ) {
-      if( FD_LIKELY( mid++<cnt/2UL ) ) { fd_bls_set_insert( lo.set, rank ); blst_p1_add_or_double( &lo.pub, &lo.pub, pub+rank ); blst_p2_add_or_double_affine( &lo.sig, &lo.sig, sig+rank ); }
-      else                             { fd_bls_set_insert( hi.set, rank ); }
-    }
-    hi.pub = lo.pub; blst_p1_cneg( &hi.pub, 1 ); blst_p1_add_or_double( &hi.pub, &hi.pub, &key.pub );
-    hi.sig = lo.sig; blst_p2_cneg( &hi.sig, 1 ); blst_p2_add_or_double( &hi.sig, &hi.sig, &key.sig );
+  fd_bls_set_null( bad );
 
-    int lo_ok = fd_bls_agg_verify_hashed( h, &lo.pub, &lo.sig ); /* verify lo first, because agg is sorted by stake, so lo has higher-staked validators (which we assume are more likely to be honest) */
-    if( FD_LIKELY( lo_ok ) ) key = hi; /* lo is good */
-    else { /* lo is bad */
-      int hi_ok = fd_bls_agg_verify_hashed( h, &hi.pub, &hi.sig );
-      if( FD_UNLIKELY( !hi_ok ) ) break; /* hi is also bad... have to linear scan */
-      key = lo;
-    }
-    cnt = fd_bls_set_cnt( key.set );
+  ushort ranks[ FD_BLS_SET_MAX ];
+  ulong  cnt = 0UL;
+  for( ulong rank = fd_bls_set_const_iter_init( agg->set );
+                   !fd_bls_set_const_iter_done( rank );
+             rank = fd_bls_set_const_iter_next( agg->set, rank ) ) {
+    ranks[ cnt++ ] = (ushort)rank;
   }
-  return verify_linear_hashed( &key, h, pub, sig, bad );
+  if( FD_UNLIKELY( !cnt ) ) return bad;
+
+  bisect_frame_t stack[ BISECT_STACK_MAX ];
+  ulong          depth = 0UL;
+  stack[ 0 ] = (bisect_frame_t){ .lo = 0, .hi = (ushort)cnt, .pub = agg->pub, .sig = agg->sig };
+  agg_pairing( &stack[ 0 ].gt, h, &agg->pub, &agg->sig );
+  if( FD_UNLIKELY( blst_fp12_is_one( &stack[ 0 ].gt ) ) ) return bad;
+  depth++;
+
+  while( FD_LIKELY( depth ) ) {
+    bisect_frame_t range = stack[ --depth ];
+    if( FD_UNLIKELY( range.hi-range.lo==1 ) ) { fd_bls_set_insert( bad, ranks[ range.lo ] ); continue; }
+
+    ushort         mid = (ushort)( range.lo + ( range.hi-range.lo )/2 );
+    bisect_frame_t lo  = { .lo = range.lo, .hi = mid      }; /* pub, sig start at infinity */
+    bisect_frame_t hi  = { .lo = mid,      .hi = range.hi };
+    for( ulong i=range.lo; i<mid; i++ ) {
+      blst_p1_add_or_double( &lo.pub, &lo.pub, pub+ranks[ i ] );
+      blst_p2_add_or_double_affine( &lo.sig, &lo.sig, sig+ranks[ i ] );
+    }
+    hi.pub = lo.pub; blst_p1_cneg( &hi.pub, 1 ); blst_p1_add_or_double( &hi.pub, &hi.pub, &range.pub );
+    hi.sig = lo.sig; blst_p2_cneg( &hi.sig, 1 ); blst_p2_add_or_double( &hi.sig, &hi.sig, &range.sig );
+
+    agg_pairing( &lo.gt, h, &lo.pub, &lo.sig );
+    hi.gt = lo.gt; blst_fp12_conjugate( &hi.gt ); blst_fp12_mul( &hi.gt, &hi.gt, &range.gt ); /* conjugate inverts in GT */
+
+    FD_TEST( depth+2UL<=BISECT_STACK_MAX );
+    if( FD_LIKELY( !blst_fp12_is_one( &hi.gt ) ) ) stack[ depth++ ] = hi;
+    if( FD_LIKELY( !blst_fp12_is_one( &lo.gt ) ) ) stack[ depth++ ] = lo; /* popped first: lower ranks are higher stake */
+  }
+  return bad;
 }
 
 fd_bls_set_t *
@@ -241,13 +288,16 @@ fd_bls_agg_verify_subtract( fd_bls_agg_t *       agg,
                             fd_bls_set_t *       bad ) {
   blst_p2_affine h[1];
   fd_bls_hash_msg( msg, msg_sz, h );
-  if( FD_LIKELY( fd_bls_agg_verify_hashed( h, &agg->pub, &agg->sig ) ) ) { fd_bls_set_null( bad ); return 0; }
   verify_bisect_hashed( agg, h, pub, sig, bad );
-  fd_bls_agg_t sub = { 0 };
-  fd_bls_agg_construct( &sub, pub, sig, bad );
-  blst_p1_cneg( &sub.pub, 1 ); blst_p1_add_or_double( &agg->pub, &agg->pub, &sub.pub );
-  blst_p2_cneg( &sub.sig, 1 ); blst_p2_add_or_double( &agg->sig, &agg->sig, &sub.sig );
-  fd_bls_set_subtract( agg->set, agg->set, bad );
+  if( FD_UNLIKELY( !fd_bls_set_is_null( bad ) ) ) {
+    fd_bls_agg_t sub = { 0 };
+    fd_bls_agg_construct( &sub, pub, sig, bad );
+    blst_p1_cneg( &sub.pub, 1 ); blst_p1_add_or_double( &agg->pub, &agg->pub, &sub.pub );
+    blst_p2_cneg( &sub.sig, 1 ); blst_p2_add_or_double( &agg->sig, &agg->sig, &sub.sig );
+    fd_bls_set_subtract( agg->set, agg->set, bad );
+  }
+  /* an aggregate whose keys cancel to infinity carries no stake even
+     when every signer is individually valid */
   if( FD_UNLIKELY( blst_p1_is_inf( &agg->pub ) ) ) return -1;
   return 0;
 }
