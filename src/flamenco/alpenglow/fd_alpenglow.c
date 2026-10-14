@@ -375,12 +375,17 @@ vote_account_open( fd_bank_t *                 bank,
 
 static void
 vote_update_apply( fd_vote_state_versioned_t * vs,
-                   vote_update_t const *       upd ) {
-  if( upd->update_votes ) vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
+                   vote_update_t *             upd ) {
+  if( upd->update_votes ) {
+    vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
+    upd->vote_slot  = *fd_vsv_get_last_voted_slot( vs );
+    upd->vote_ts_ns = fd_vsv_get_last_timestamp( vs )->timestamp*1000000000L;
+  }
   if( upd->update_root ) {
     ulong const * root = fd_vsv_get_root_slot( vs );
     ulong latest_root  = fd_ulong_max( root ? *root : upd->root_slot, upd->root_slot );
     fd_vsv_set_root_slot( vs, &latest_root );
+    upd->root_slot = latest_root;
   }
   if( upd->credits ) credits_increment( fd_vsv_get_epoch_credits_mutable( vs ), upd->migration_epoch, upd->current_epoch, upd->credits );
 }
@@ -427,7 +432,7 @@ vote_account_modify( fd_bank_t *              bank,
                      fd_accdb_t *             accdb,
                      fd_capture_ctx_t *       capture_ctx,
                      fd_pubkey_t const *      pk,
-                     vote_update_t const *    upd,
+                     vote_update_t *          upd,
                      fd_footer_cache_memo_t * memo,
                      fd_vote_queue_t *        q ) {
   static FD_TL fd_vote_state_versioned_t vs[1];
