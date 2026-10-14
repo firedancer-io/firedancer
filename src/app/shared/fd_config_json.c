@@ -512,7 +512,8 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "event" );
       jw_bool( &w, "report_shreds",            config->development.event.report_shreds );
       jw_bool( &w, "report_transactions",      config->development.event.report_transactions );
-      jw_bool( &w, "report_runtime_diffs",      config->development.event.report_runtime_diffs );
+      jw_bool ( &w, "report_runtime_diffs",      config->development.event.report_runtime_diffs );
+      jw_ulong( &w, "max_upload_rate_mbps",      config->development.event.max_upload_rate_mbps );
     jw_obj_close( &w );
     jw_obj_open( &w, "pktgen" );
       jw_str( &w, "affinity",    config->development.pktgen.affinity );
@@ -598,8 +599,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "prometheus_listen_port",    config->tiles.metric.prometheus_listen_port );
     jw_obj_close( &w );
     jw_obj_open( &w, "event" );
-      jw_url  ( &w, "url",             config->tiles.event.url );
-      jw_ulong( &w, "upload_rate_bps", config->tiles.event.upload_rate_bps );
+      jw_url( &w, "url", config->tiles.event.url );
     jw_obj_close( &w );
     jw_obj_open( &w, "gui" );
       jw_bool ( &w, "enabled",                   config->tiles.gui.enabled );

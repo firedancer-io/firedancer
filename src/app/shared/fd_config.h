@@ -412,9 +412,10 @@ struct fd_config {
     } bundle;
 
     struct {
-      int report_shreds;
-      int report_transactions;
-      int report_runtime_diffs;
+      int   report_shreds;
+      int   report_transactions;
+      int   report_runtime_diffs;
+      ulong max_upload_rate_mbps;
     } event;
 
     struct {
@@ -523,8 +524,7 @@ struct fd_config {
     } metric;
 
     struct {
-      char  url[ FD_URL_MAX ];
-      ulong upload_rate_bps;
+      char url[ FD_URL_MAX ];
     } event;
 
     struct {
