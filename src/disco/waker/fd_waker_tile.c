@@ -42,7 +42,7 @@ static void
 before_credit( fd_waker_tile_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem;
+  (void)stem; (void)charge_busy; /* never busy, the interval is mostly epoll_pwait */
 
   struct epoll_event evs[ FD_WAKER_CLIENT_MAX ];
   int n = epoll_pwait( FD_WAKER_OUTER_FD, evs, FD_WAKER_CLIENT_MAX, EPOLL_TIMEOUT_MILLIS, NULL );
@@ -53,7 +53,6 @@ before_credit( fd_waker_tile_t *   ctx,
   FD_MCNT_INC( WAKER, EPOLL_WAIT_RETURNED, 1UL );
   if( FD_LIKELY( !n ) ) return;
 
-  *charge_busy = 1;
   for( int i=0; i<n; i++ ) {
     ulong idx = evs[ i ].data.u64;
     FD_TEST( idx<ctx->client_cnt );
