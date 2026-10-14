@@ -612,7 +612,7 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
     fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
-    blst_p1_affine aff[1]; blst_p1_to_affine( aff, pub ); blst_p1_affine_compress( bls[i], aff );
+    blst_p1_affine_compress( bls[i], pub );
   }
 
   fd_footer_cache_t * cache = new_cache();
@@ -789,7 +789,7 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
     uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
     fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
-    blst_p1_affine aff[1]; blst_p1_to_affine( aff, pub ); blst_p1_affine_compress( bls[i], aff );
+    blst_p1_affine_compress( bls[i], pub );
   }
 
   fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
@@ -893,7 +893,7 @@ test_finalize_verifies_footer( fd_svm_mini_t * mini ) {
     uchar ikm[ 32 ] = {0}; FD_STORE( ulong, ikm, i+1UL );
     fd_bls_sec_t sk[1]; fd_bls_sec_derive( sk, ikm, sizeof(ikm) );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( sk, pub );
-    blst_p1_affine aff[1]; blst_p1_to_affine( aff, pub ); blst_p1_affine_compress( bls[i], aff );
+    blst_p1_affine_compress( bls[i], pub );
   }
 
   ulong bank_slot = 24UL;

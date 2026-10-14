@@ -15,7 +15,7 @@ bls_key_from_sec( ag_bls_key_t         out,
                   fd_bls_sec_t const * sec ) {
   fd_bls_pub_t pub[1];
   fd_bls_sec_to_pub( sec, pub );
-  blst_p1_compress( out, pub );
+  blst_p1_affine_compress( out, pub );
 }
 
 /* epoch_info_build fills epoch_info from an already ranked validator

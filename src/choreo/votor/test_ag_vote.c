@@ -33,7 +33,7 @@ static void
 test_basic( void ) {
   fd_bls_sec_t sk; fd_memset( &sk, 9, FD_BLS_SEC_SZ );
   fd_bls_pub_t pk; fd_bls_sec_to_pub( &sk, &pk );
-  uchar selector[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_compress( selector, &pk );
+  uchar selector[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_affine_compress( selector, &pk );
   ag_block_hash_t h; memset( h, 0, sizeof(ag_block_hash_t) );
 
   ag_vote_t v;
@@ -137,10 +137,11 @@ check_wire( ag_vote_t const *    v,
   blst_p2_affine sig_aff[1];
   FD_TEST( blst_p2_deserialize( sig_aff, wire_sig )==BLST_SUCCESS );
   blst_p2_from_affine( sig, sig_aff );
-  FD_TEST( fd_bls_agg_verify( payload, payload_sz, pk, sig ) );
+  blst_p1 pub[1]; blst_p1_from_affine( pub, pk );
+  FD_TEST( fd_bls_agg_verify( payload, payload_sz, pub, sig ) );
 
   payload[ 1 ] ^= 0xFFu;
-  FD_TEST( !fd_bls_agg_verify( payload, payload_sz, pk, sig ) );
+  FD_TEST( !fd_bls_agg_verify( payload, payload_sz, pub, sig ) );
 }
 
 static void
@@ -148,7 +149,7 @@ test_serialize( void ) {
   uchar        ikm[ 64 ]; for( ulong i=0UL; i<64UL; i++ ) ikm[i] = (uchar)(i+1u);
   fd_bls_sec_t sk; fd_bls_sec_derive( &sk, ikm, sizeof(ikm) );
   fd_bls_pub_t pk; fd_bls_sec_to_pub( &sk, &pk );
-  uchar selector[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_compress( selector, &pk );
+  uchar selector[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_affine_compress( selector, &pk );
   ag_block_hash_t h; for( ulong i=0UL; i<32UL; i++ ) h[i] = (uchar)(0xA0u+i);
 
   ag_vote_t v;
