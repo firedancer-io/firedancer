@@ -41,9 +41,10 @@ test_sshttp_init( fd_sshttp_t * http,
                   char const *  path,
                   ulong         path_len,
                   ulong         hops,
-                  long          now ) {
+                  long          now,
+                  ulong         range_start ) {
   init_cnt++;
-  return fd_sshttp_init( http, addr, hostname, is_https, path, path_len, hops, now );
+  return fd_sshttp_init( http, addr, hostname, is_https, path, path_len, hops, now, range_start );
 }
 
 #define fd_stem_publish test_stem_publish
