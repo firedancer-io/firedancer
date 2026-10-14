@@ -765,7 +765,7 @@ test_ser_signature( void ) {
   ulong sig_off = FD_BLOCK_MARKER_PREAMBLE_SZ+1UL+32UL+8UL+1UL+1UL+8UL+32UL;
   FD_TEST( !memcmp( out+sig_off, marker->footer.fast_final_cert.sig, FD_BLS_SIG_COMPRESSED_SZ ) );
   uchar expected[ 192 ];
-  { blst_p2_affine a[1]; blst_p2_to_affine( a, &agg->sig ); blst_p2_affine_serialize( expected, a ); }
+  { fd_bls_sig_t a[1]; blst_p2_to_affine( a, &agg->sig ); blst_p2_affine_serialize( expected, a ); }
   uchar decompressed[ 192 ];
   FD_TEST( !fd_bls12_381_g2_decompress_syscall( decompressed, out+sig_off, 1 ) );
   FD_TEST( !memcmp( decompressed, expected, sizeof(decompressed) ) );

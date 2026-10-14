@@ -133,8 +133,8 @@ check_wire( ag_vote_t const *    v,
 
   uchar          payload[ AG_VOTE_SIGNING_SER_MAX ];
   ulong          payload_sz = ag_vote_signing_ser( v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION, payload );
-  blst_p2        sig[1];
-  blst_p2_affine sig_aff[1];
+  blst_p2      sig[1];
+  fd_bls_sig_t sig_aff[1];
   FD_TEST( blst_p2_deserialize( sig_aff, wire_sig )==BLST_SUCCESS );
   blst_p2_from_affine( sig, sig_aff );
   blst_p1 pub[1]; blst_p1_from_affine( pub, pk );

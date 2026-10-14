@@ -1042,8 +1042,8 @@ test_vote_subgroup_after_duplicate( void ) {
   ulong          one[6] = { 1UL }, four[6] = { 4UL };
   blst_fp        fp1[1];
   blst_fp2       b[1], t[1];
-  blst_p2_affine torsion[1];
-  memset( torsion, 0, sizeof(blst_p2_affine) );
+  fd_bls_sig_t   torsion[1];
+  memset( torsion, 0, sizeof(fd_bls_sig_t) );
   blst_fp_from_uint64( fp1, one );
   blst_fp_from_uint64( &b->fp[0], four ); b->fp[1] = b->fp[0];
   do {

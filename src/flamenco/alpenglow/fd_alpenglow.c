@@ -162,8 +162,8 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
     return -1;
   }
 
-  blst_p2_affine sig_affine[1];
-  blst_p2        sig[1];
+  fd_bls_sig_t sig_affine[1];
+  blst_p2      sig[1];
   if( FD_UNLIKELY( blst_p2_uncompress( sig_affine, cert->sig )!=BLST_SUCCESS || !blst_p2_affine_in_g2( sig_affine ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has a malformed signature", bank_slot, cert_slot ));
     return -1;
