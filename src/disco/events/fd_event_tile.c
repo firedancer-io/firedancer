@@ -579,7 +579,7 @@ static int
 link_is_event_report( fd_topo_t const * topo,
                       ulong             link_id ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( FD_UNLIKELY( topo->tiles[ i ].event_link_id==link_id ) ) return 1;
+    if( FD_UNLIKELY( topo->tiles[ i ].event_link_id==link_id || topo->tiles[ i ].event_diff_link_id==link_id ) ) return 1;
   }
   return 0;
 }

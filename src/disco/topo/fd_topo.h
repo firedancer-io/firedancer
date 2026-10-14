@@ -156,6 +156,8 @@ struct fd_topo_tile {
   ulong event_link_id; /* If not ULONG_MAX, the link_id of a dedicated unreliable link to the event tile that this tile reports
                           telemetry events on via the thread-local fd_event_report_* macros.  This link is deliberately NOT part
                           of out_link_id[] / out_cnt: it is written directly (outside fd_stem) by the thread-local reporter. */
+  ulong event_diff_link_id; /* If not ULONG_MAX, a second such link with a smaller mtu and a greater depth.  Events that fit its mtu
+                               are reported on it instead of event_link_id.  Replay has one when report_runtime_diffs is set. */
 
   ulong tile_obj_id;
   ulong metrics_obj_id;
