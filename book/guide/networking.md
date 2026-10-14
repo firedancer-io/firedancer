@@ -1,4 +1,4 @@
-# Networking (XDP)
+# Networking
 
 ## `xdp` network provider
 
@@ -66,11 +66,26 @@ Firedancer.
 The recommended way to capture Firedancer traffic is using the
 `firedancer dump` subcommand.
 
-### Internals
+## `iavf` network provider
 
-Further documentation on network stack internals:
-- [net tile internals](./internals/net_tile.md)
-- [netlnk tile internals](./internals/netlink.md)
+### Virtual Functions
+
+The iavf provider uses SR-IOV Virtual Functions (VFs) to facilitate kernel
+bypass while also sharing the selected networking device with the Linux
+kernel. iavf takes control of one VF per PF (Physical Function).
+
+`configure init iavf` reuses the highest index VF bound to `vfio-pci`.
+If VFs exist but none are bound to `vfio-pci`, init fails. If no VFs
+exist, it creates VF 0 and binds it to `vfio-pci`. Repeated init therefore
+doesn't add excess VFs.
+
+`configure fini iavf` removes a VF if its associated PF has exactly one
+VF. PFs with multiple VFs retain all of them, and iavf will reuse the
+highest index VF bound to `vfio-pci` upon `configure init iavf`.
+
+To let other applications use VFs on the same NIC/PFs, keep one VF unused
+per PF and bind it to `vfio-pci` (iavf will use this one), make sure
+to do this before running `configure init iavf`.
 
 ## `socket` network provider
 
@@ -81,3 +96,9 @@ It can be enabled as follows:
 [net]
     provider = "socket"
 ```
+
+### Internals
+
+Further documentation on network stack internals:
+- [net tile internals](./internals/net_tile.md)
+- [netlnk tile internals](./internals/netlink.md)
