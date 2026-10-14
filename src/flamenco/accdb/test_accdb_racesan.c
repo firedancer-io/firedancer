@@ -3606,8 +3606,8 @@ test_preevict_batch_reader_wait( void ) {
     ulong cls, idx;
     FD_TEST( fd_accdb_debug_find_line( accdb, key[ pick ], &cls, &idx ) );
     fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
-    ulong write_ops0     = accdb->metrics->write_ops;
-    ulong bytes_written0 = accdb->metrics->bytes_written;
+    ulong write_ops0     = fd_accdb_metrics( accdb )->write_ops;
+    ulong bytes_written0 = fd_accdb_metrics( accdb )->bytes_written;
 
     /* Park the sweep before the batch write with all eight claimed. */
     fd_racesan_async_t * sweep = fiber_force_preevict( &g_fiber[0], accdb );
@@ -3630,8 +3630,8 @@ test_preevict_batch_reader_wait( void ) {
     /* One write of the whole batch has happened, nothing is published
        yet: the reader still waits and the line is still claimed. */
     FD_TEST( fd_racesan_async_step_until( sweep, "preevict:post_write", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-    FD_TEST( accdb->metrics->write_ops    ==write_ops0+1UL );
-    FD_TEST( accdb->metrics->bytes_written==bytes_written0+batch_sz );
+    FD_TEST( fd_accdb_metrics( accdb )->write_ops    ==write_ops0+1UL );
+    FD_TEST( fd_accdb_metrics( accdb )->bytes_written==bytes_written0+batch_sz );
     FD_TEST( line->refcnt==FD_ACCDB_EVICT_SENTINEL && line->acc_idx!=UINT_MAX );
     FD_TEST( fd_racesan_async_step( reader )==FD_RACESAN_ASYNC_RET_HOOK );
     FD_TEST( fd_racesan_async_hook_name_eq( reader, wait_hook ) );
