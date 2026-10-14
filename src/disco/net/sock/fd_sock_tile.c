@@ -211,6 +211,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->repair_shred_sock_idx = UINT_MAX;
   ctx->tx_sock = -1;
   ctx->bind_address = tile->sock.net.bind_address;
+  ctx->tick_per_ns  = fd_tempo_tick_per_ns( NULL );
   if( tile->sock.only_recv_lo ) {
     ctx->lo_ifindex = if_nametoindex( "lo" );
     if( FD_UNLIKELY( !ctx->lo_ifindex ) ) {
@@ -510,9 +511,11 @@ poll_rx( fd_sock_tile_t *    ctx,
     FD_LOG_ERR(( "Batch is not clean" ));
   }
   ctx->tx_idle_cnt = 0; /* restart TX polling */
-  if( FD_UNLIKELY( fd_syscall_poll( ctx->pollfd, ctx->sock_cnt, ctx->lo_ifindex ? -1 : 0 )<0 ) ) {
+  long wait_ns = ctx->lo_ifindex ? (long)((double)fd_long_max( stem->then-fd_tickcount(), 0L )/ctx->tick_per_ns) : 0L;
+  struct timespec ts = { .tv_sec = wait_ns/1000000000L, .tv_nsec = wait_ns%1000000000L };
+  if( FD_UNLIKELY( ppoll( ctx->pollfd, ctx->sock_cnt, &ts, NULL )<0 ) ) {
     if( FD_UNLIKELY( errno==EINTR ) ) return 0UL;
-    FD_LOG_ERR(( "fd_syscall_poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "ppoll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   for( uint j=0U; j<ctx->sock_cnt; j++ ) {
     if( ctx->pollfd[ j ].revents & (POLLIN|POLLERR) ) {

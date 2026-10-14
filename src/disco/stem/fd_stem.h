@@ -12,6 +12,7 @@ struct fd_stem_context {
    ulong *           depths;
 
    long              now;
+   long              then;
 
    ulong *           cr_avail;
    ulong *           min_cr_avail;
