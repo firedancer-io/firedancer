@@ -41,6 +41,7 @@ struct fd_sshttp_private {
   char  request[ 4096UL ];
   ulong request_len;
   ulong request_sent;
+  ulong range_start; /* byte offset the request resumes at, 0 for the whole body */
 
   ulong response_len;
   char  response[ USHORT_MAX ];

@@ -555,7 +555,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       if( !ctx->load_file ) {
         FD_TEST( sz==sizeof(fd_ssctrl_start_t) );
         fd_ssctrl_start_t const * msg = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
-        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg->addr, msg->hostname, msg->is_https, msg->path, msg->path_len, 4UL, fd_clock_tile_now( ctx->clock ) ) ) ) {
+        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg->addr, msg->hostname, msg->is_https, msg->path, msg->path_len, 4UL, fd_clock_tile_now( ctx->clock ), 0UL ) ) ) {
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;
