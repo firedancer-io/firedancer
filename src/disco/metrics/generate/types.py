@@ -64,6 +64,8 @@ class Tile(Enum):
 
     ROTOR = 108
     VOTOR = 109
+    MOTOR = 110
+    SOLCAP = 111
 
 class MetricType(Enum):
     COUNTER = 0

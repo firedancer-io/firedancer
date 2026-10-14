@@ -600,6 +600,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers ); /* needs to be called after fd_pack_end_block */
 
+    metrics_write( ctx );
     fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
@@ -825,6 +826,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_pack_end_block( ctx->pack );
     fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
+    metrics_write( ctx ); /* final for the slot before poh ends it */
     fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
@@ -1024,6 +1026,7 @@ after_frag( fd_pack_ctx_t *     ctx,
         fd_pack_end_block( ctx->pack );
         fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
+        metrics_write( ctx ); /* final for the slot before poh ends it */
         fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
         ctx->pack_idx++;
@@ -1066,6 +1069,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       fd_pack_end_block( ctx->pack );
       fd_pack_get_top_writers( ctx->pack, done_packing->limits_usage->top_writers );
 
+      metrics_write( ctx ); /* final for the slot before poh ends it */
       fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
       ctx->pack_idx++;
