@@ -198,7 +198,8 @@
 #endif
 
 /* STEM_ALWAYS_PARK makes the tile park on its NEXT_DEADLINE even in
-   performance mode.
+   performance mode, where nothing rings it, so its ins wait for the
+   deadline too.
 
    STEM_NEVER_PARK keeps the tile spinning even if it has no fragments
    to process and would ordinarily try to park.  This is typically for
@@ -638,7 +639,6 @@ STEM_(run1)( ulong                        in_cnt,
              STEM_CALLBACK_CONTEXT_TYPE * ctx,
              fd_stem_sleep_t const *      sleep ) {
 #if STEM_ALWAYS_PARK
-  if( !sleep->shmem ) FD_TEST( !in_cnt );
   STEM_(run_park)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );
 #elif STEM_NEVER_PARK
   STEM_(run_spin)( in_cnt, in_mcache, in_fseq, out_cnt, out_mcache, cons_cnt, _cons_out, _cons_fseq, _cons_slow, burst, lazy, rng, scratch, ctx, sleep );

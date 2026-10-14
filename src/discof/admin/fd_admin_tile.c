@@ -23,6 +23,8 @@ struct fd_admin_tile_ctx {
   ulong snap_create_slot_idx;     /* adminctl slot of snapshot-create command */
   ulong snap_create_target_slot;  /* requested slot retained until Replay responds */
   ulong snap_create_start_time;   /* command start retained until Replay responds */
+
+  long poll_ticks;
 };
 
 typedef struct fd_admin_tile_ctx fd_admin_tile_ctx_t;
@@ -96,6 +98,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
   ctx->replay_out_idx       = ULONG_MAX;
   ctx->snap_create_slot_idx = ULONG_MAX;
+  ctx->poll_ticks           = (long)(1e6*fd_tempo_tick_per_ns( NULL )); /* 1ms */
   ctx->topo = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
@@ -1307,6 +1310,11 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
+static inline long
+next_deadline( fd_admin_tile_ctx_t * ctx ) {
+  return fd_tickcount() + ctx->poll_ticks;
+}
+
 static inline void FD_FN_SENSITIVE
 after_credit( fd_admin_tile_ctx_t * ctx,
               fd_stem_context_t *   stem,
@@ -1391,10 +1399,12 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #define STEM_BURST (1UL)
 #define STEM_LAZY  ((long)1e6) /* 1ms */
+#define STEM_ALWAYS_PARK 1
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_admin_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_admin_tile_ctx_t)
 
+#define STEM_CALLBACK_NEXT_DEADLINE next_deadline
 #define STEM_CALLBACK_AFTER_CREDIT after_credit
 #define STEM_CALLBACK_DURING_FRAG  during_frag
 
