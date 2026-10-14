@@ -167,7 +167,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_accdb_snapshot_save_whead                 mock_accdb_snapshot_save_whead
 #define fd_accdb_snapshot_revert_whead               mock_accdb_snapshot_revert_whead
 #define fd_accdb_snapshot_reserve_write              mock_accdb_snapshot_reserve_write
-#define fd_accdb_snapshot_write_batch                mock_accdb_snapshot_write_batch
+#define fd_accdb_restore_write_batch                 mock_accdb_restore_write_batch
 #define fd_accdb_read_one_nocache                    mock_accdb_read_one_nocache
 #define fd_txncache_reset                            mock_txncache_reset
 #define fd_txncache_snapin_scratch                   mock_txncache_snapin_scratch
@@ -208,7 +208,7 @@ test_padded_sz( ulong used ) {
 #undef fd_txncache_snapin_scratch
 #undef fd_txncache_reset
 #undef fd_accdb_read_one_nocache
-#undef fd_accdb_snapshot_write_batch
+#undef fd_accdb_restore_write_batch
 #undef fd_accdb_snapshot_reserve_write
 #undef fd_accdb_snapshot_revert_whead
 #undef fd_accdb_snapshot_save_whead
@@ -236,8 +236,8 @@ struct test_sysvar {
 typedef struct test_sysvar test_sysvar_t;
 static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 
-/* Outcome mock_accdb_snapshot_write_batch reports for every account. */
-static uchar test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
+/* Outcome mock_accdb_restore_write_batch reports for every account. */
+static uchar test_write_result = FD_ACCDB_RESTORE_WRITE_LOADED;
 
 /* The mocks above hide these prototypes; tests reach the real ones. */
 ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
@@ -358,23 +358,25 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
 }
 
 int
-mock_accdb_snapshot_write_batch( fd_accdb_t *                         accdb,
-                                 fd_accdb_fork_id_t                   fork_id,
-                                 ulong                                cnt,
-                                 uchar const * const                  pubkeys[],
-                                 ulong const                          slots[],
-                                 ulong const                          lamports[],
-                                 ulong const                          data_lens[],
-                                 int const                            executables[],
-                                 ulong const                          file_offsets[],
-                                 ulong *                              accounts_ignored,
-                                 ulong *                              accounts_replaced,
-                                 ulong *                              accounts_loaded,
-                                 ulong *                              out_replaced_lamports,
-                                 ulong *                              out_ignored_lamports,
-                                 uchar *                              results ) {
+mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
+                                fd_accdb_fork_id_t                   fork_id,
+                                int                                  is_incremental,
+                                ulong                                cnt,
+                                uchar const * const                  pubkeys[],
+                                ulong const                          slots[],
+                                ulong const                          lamports[],
+                                ulong const                          data_lens[],
+                                int const                            executables[],
+                                ulong const                          file_offsets[],
+                                ulong *                              accounts_ignored,
+                                ulong *                              accounts_replaced,
+                                ulong *                              accounts_loaded,
+                                ulong *                              out_replaced_lamports,
+                                ulong *                              out_ignored_lamports,
+                                uchar *                              results ) {
   (void)accdb;
   (void)fork_id;
+  (void)is_incremental;
   (void)pubkeys;
   (void)slots;
   (void)lamports;
@@ -557,7 +559,7 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
   fd_memset( init_mem, 0, sizeof(init_mem) );
   ctx->shmem = (fd_snapin_shmem_t *)shmem_mem;
   fd_memset( ctx->shmem, 0, sizeof(fd_snapin_shmem_t) );
-  ctx->shmem->fork_id    = (ulong)USHORT_MAX;
+  ctx->shmem->fork_id    = 7UL; /* the mock attach_child fork */
   ctx->shmem->stake_fork = USHORT_MAX;
 
   ctx->state        = state;
@@ -571,6 +573,7 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
 
   ctx->lead.accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  ctx->lead.accdb_full_fork_id = (fd_accdb_fork_id_t){ .val = 7U };
   ctx->lead.boot_timestamp     = fd_log_wallclock();
   ctx->lead.txncache_max_groups_per_slot  = TEST_MAX_GROUPS_PER_SLOT;
   ctx->lead.txncache_max_entries_per_slot = TEST_MAX_ENTRIES_PER_SLOT;
@@ -628,7 +631,7 @@ test_counters_reset( void ) {
   test_stake_publish_fork       = USHORT_MAX;
   test_stake_evict_cnt          = 0UL;
   test_stake_evict_fork         = USHORT_MAX;
-  test_write_result             = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
+  test_write_result             = FD_ACCDB_RESTORE_WRITE_LOADED;
   test_accdb_read_one_cnt       = 0UL;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) test_sysvars[ i ].lamports = 0UL;
   test_appendvec_parse_cnt      = 0UL;
@@ -1366,11 +1369,11 @@ test_eager_claim_coverage( void ) {
 
       cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       FD_TEST( !cl->shmem->next_appendvec_ticket );
-      for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==ULONG_MAX );
+      for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].load_fork==ULONG_MAX );
 
       ulong owner[ TEST_AV_MAX ];
       cluster_stream( cl, orders[ o_idx ], owner );
-      for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==(ulong)USHORT_MAX );
+      for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].load_fork==7UL );
 
       FD_TEST( test_appendvec_parse_cnt==T ); /* the parser was flipped exactly once per ordinal */
 
@@ -1592,7 +1595,7 @@ write_one( fd_snapin_tile_t *  ctx,
   };
   FD_TEST( !process_account_batch( ctx, &result ) );
   FD_TEST( !writer_flush( ctx ) );
-  test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
+  test_write_result = FD_ACCDB_RESTORE_WRITE_LOADED;
 }
 
 static void
@@ -1603,7 +1606,7 @@ test_batch_stake_delegation( fd_wksp_t * wksp ) {
   fd_stake_state_t state[1];
   make_stake_state( state, &vote_account );
 
-  write_one( test_ctx, &stake_account, &fd_solana_stake_program_id, 5000UL, state, sizeof(fd_stake_state_t), 10UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  write_one( test_ctx, &stake_account, &fd_solana_stake_program_id, 5000UL, state, sizeof(fd_stake_state_t), 10UL, FD_ACCDB_RESTORE_WRITE_LOADED );
   assert_stake_delegation( stake_delegations, &stake_account, &vote_account );
 }
 
@@ -1664,33 +1667,33 @@ test_snoop_outcomes( fd_wksp_t * wksp ) {
   fd_stake_delegation_t d[1];
 
   /* loaded: added. */
-  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 5000UL, state, stake_sz, 10UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 5000UL, state, stake_sz, 10UL, FD_ACCDB_RESTORE_WRITE_LOADED );
   assert_stake_delegation( stake_delegations, &acc_a, &vote );
 
   /* ignored: no trace. */
-  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 7000UL, state, stake_sz, 5UL, FD_ACCDB_SNAPSHOT_WRITE_IGNORED );
+  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 7000UL, state, stake_sz, 5UL, FD_ACCDB_RESTORE_WRITE_IGNORED );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==5000UL );
 
   /* replaced by a closed account: tombstoned at the closing slot. */
-  write_one( ctx, &acc_a, &fd_solana_system_program_id, 0UL, NULL, 0UL, 30UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED );
+  write_one( ctx, &acc_a, &fd_solana_system_program_id, 0UL, NULL, 0UL, 30UL, FD_ACCDB_RESTORE_WRITE_REPLACED );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && !d->lamports && d->slot==30U );
 
   /* replaced a funded version from an earlier load: tombstoned only if
      present. */
-  write_one( ctx, &acc_b, &vote, 1UL, state, stake_sz, 32UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
+  write_one( ctx, &acc_b, &vote, 1UL, state, stake_sz, 32UL, FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS );
   FD_TEST( !test_stake_delegations_contains( stake_delegations, &acc_b ) );
 
   /* stake-owned but no longer delegated, replacing a funded version:
      tombstoned like any other non-delegation. */
-  write_one( ctx, &acc_c, &fd_solana_stake_program_id, 5000UL, initialized, stake_sz, 30UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED );
+  write_one( ctx, &acc_c, &fd_solana_stake_program_id, 5000UL, initialized, stake_sz, 30UL, FD_ACCDB_RESTORE_WRITE_REPLACED );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_c, d ) && !d->lamports );
 
   /* legacy 4008 byte delegation: added. */
-  write_one( ctx, &acc_d, &fd_solana_stake_program_id, 5000UL, legacy, sizeof(legacy), 30UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  write_one( ctx, &acc_d, &fd_solana_stake_program_id, 5000UL, legacy, sizeof(legacy), 30UL, FD_ACCDB_RESTORE_WRITE_LOADED );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_d, d ) && d->acc_dlen==4008U );
 
   /* loaded non-delegation: nothing. */
-  write_one( ctx, &acc_b, &fd_solana_system_program_id, 0UL, NULL, 0UL, 30UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  write_one( ctx, &acc_b, &fd_solana_system_program_id, 0UL, NULL, 0UL, 30UL, FD_ACCDB_RESTORE_WRITE_LOADED );
   FD_TEST( !test_stake_delegations_contains( stake_delegations, &acc_b ) );
 }
 
@@ -1707,11 +1710,11 @@ test_snoop_incremental_fork( fd_wksp_t * wksp ) {
   fd_stake_delegation_t d[1];
 
   /* Full snapshot left a delegation in the root. */
-  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 5000UL, state, stake_sz, 10UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 5000UL, state, stake_sz, 10UL, FD_ACCDB_RESTORE_WRITE_LOADED );
 
   ctx->full = 0;
   ctx->shmem->stake_fork = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
-  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 9000UL, state, stake_sz, 100UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
+  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 9000UL, state, stake_sz, 100UL, FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==5000UL ); /* root untouched */
 
   fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, stake_delegations, ctx->shmem->stake_fork, NULL );
@@ -2602,7 +2605,7 @@ test_retry_resets( void ) {
     fd_snapin_tile_t * ctx = &cl->ctx[ t ];
     FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
     FD_TEST( !ctx->appendvec_seq );
-    FD_TEST( ctx->incr_fork==ULONG_MAX );
+    FD_TEST( ctx->load_fork==ULONG_MAX );
   }
   FD_TEST( cl->ctx[ 0 ].lead.rollback.pending );
   FD_TEST( cl->ctx[ 0 ].lead.rollback.full );
@@ -2624,7 +2627,7 @@ test_retry_resets( void ) {
 
   FD_TEST( !cl->shmem->values[ FD_TOPO_MAX_TILE_IN_LINKS-1UL ].input_lamports );
   FD_TEST( !cl->shmem->next_appendvec_ticket );
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==ULONG_MAX );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].load_fork==ULONG_MAX );
 
   /* The retry covers every ordinal exactly once (cluster_stream would
      trip on a double claim). */
@@ -2684,7 +2687,7 @@ test_accumulator_fold( void ) {
   /* The full snapshot's totals are saved for the incremental revert. */
   FD_TEST( t0->lead.recovery.capitalization==t0->lead.manifest_capitalization );
   FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
-  FD_TEST( test_accdb_read_one_fork.val==t0->lead.accdb_root_fork_id.val );
+  FD_TEST( test_accdb_read_one_fork.val==t0->lead.accdb_full_fork_id.val );
 
   test_cluster_delete( cl );
 }
@@ -2775,7 +2778,7 @@ test_verify_sysvars_accepts_valid( void ) {
 
   FD_TEST( !verify_sysvars( ctx ) );
   FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
-  FD_TEST( test_accdb_read_one_fork.val==ctx->lead.accdb_root_fork_id.val );
+  FD_TEST( test_accdb_read_one_fork.val==ctx->lead.accdb_full_fork_id.val );
 
   /* An incremental load reads from the incremental fork. */
   ctx->full = 0;
@@ -2990,7 +2993,7 @@ test_verify_sysvars_gates_controls( void ) {
     FD_TEST( !test_accdb_advance_root_cnt );
     FD_TEST( !test_accdb_load_end_cnt );
     FD_TEST( !test_feature_restore_cnt );
-    FD_TEST( test_accdb_read_one_fork.val==(incr ? 7U : cl->ctx[ 0 ].lead.accdb_root_fork_id.val) );
+    FD_TEST( test_accdb_read_one_fork.val==(incr ? 7U : cl->ctx[ 0 ].lead.accdb_full_fork_id.val) );
 
     test_cluster_delete( cl );
   }
@@ -3018,10 +3021,10 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( test_accdb_reset_cnt==1UL );
   FD_TEST( test_accdb_load_begin_cnt==1UL );
   FD_TEST( !cl->shmem->next_appendvec_ticket );
-  FD_TEST( cl->ctx[ 0 ].incr_fork==ULONG_MAX );
+  FD_TEST( cl->ctx[ 0 ].load_fork==ULONG_MAX );
 
   cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==(ulong)USHORT_MAX );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].load_fork==7UL );
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
   FD_TEST( test_accdb_flush_metrics_cnt==n );
   FD_TEST( !test_accdb_read_one_cnt );
@@ -3029,7 +3032,7 @@ test_full_lifecycle_9_tiles( void ) {
   test_stamp_sysvars( cl, bank_slot );
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_NEXT );
   FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
-  FD_TEST( test_accdb_read_one_fork.val==cl->ctx[ 0 ].lead.accdb_root_fork_id.val );
+  FD_TEST( test_accdb_read_one_fork.val==cl->ctx[ 0 ].lead.accdb_full_fork_id.val );
   FD_TEST( test_accdb_save_whead_cnt==1UL );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
   FD_TEST( !cl->ctx[ 0 ].lead.init_completed );
@@ -3043,13 +3046,13 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( test_stake_new_fork_cnt==1UL );        /* stake delegations fork likewise */
   FD_TEST( cl->shmem->fork_id==7UL );
   FD_TEST( cl->shmem->stake_fork==3 );
-  FD_TEST( cl->ctx[ 0 ].incr_fork==ULONG_MAX );
+  FD_TEST( cl->ctx[ 0 ].load_fork==ULONG_MAX );
   FD_TEST( !cl->shmem->next_appendvec_ticket );
 
   for( ulong step=0UL; step<4UL; step++ ) {
     for( ulong t=0UL; t<n; t++ ) (void)tile_step( &cl->ctx[ t ] );
   }
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].incr_fork==7UL );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].load_fork==7UL );
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( cl->ctx[ 0 ].lead.rollback.pending );
   FD_TEST( !cl->ctx[ 0 ].lead.rollback.full );
@@ -3081,7 +3084,8 @@ test_full_lifecycle_9_tiles( void ) {
   ulong pub0 = test_pub_cnt;
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
   FD_TEST( test_accdb_recover_delta_cnt==1UL );
-  FD_TEST( test_accdb_advance_root_cnt==1UL );
+  FD_TEST( test_accdb_advance_root_cnt==2UL ); /* the full snapshot fork, then the incremental fork */
+  FD_TEST( cl->ctx[ 0 ].lead.accdb_full_fork_id.val==USHORT_MAX );
   FD_TEST( test_accdb_load_end_cnt==1UL );
   FD_TEST( test_feature_restore_cnt==1UL );
   FD_TEST( test_feature_restore_fork.val==7U );

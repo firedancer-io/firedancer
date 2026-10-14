@@ -4347,38 +4347,32 @@ background_preevict( fd_accdb_t * accdb,
 }
 
 int
-fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
-                               fd_accdb_fork_id_t  fork_id,
-                               ulong               cnt,
-                               uchar const * const pubkeys[],
-                               ulong  const        slots[],
-                               ulong  const        lamports[],
-                               ulong  const        data_lens[],
-                               int    const        executables[],
-                               ulong  const        file_offsets[],
-                               ulong *             accounts_ignored,
-                               ulong *             accounts_replaced,
-                               ulong *             accounts_loaded,
-                               ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports,
-                               uchar *             results ) {
+fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
+                              fd_accdb_fork_id_t  fork_id,
+                              int                 is_incremental,
+                              ulong               cnt,
+                              uchar const * const pubkeys[],
+                              ulong  const        slots[],
+                              ulong  const        lamports[],
+                              ulong  const        data_lens[],
+                              int    const        executables[],
+                              ulong  const        file_offsets[],
+                              ulong *             accounts_ignored,
+                              ulong *             accounts_replaced,
+                              ulong *             accounts_loaded,
+                              ulong *             out_replaced_lamports,
+                              ulong *             out_ignored_lamports,
+                              uchar *             results ) {
   FD_TEST( cnt>0UL && cnt<=8UL );
 
-  int incremental = fork_id.val!=USHORT_MAX;
-
-  fd_accdb_fork_t * fork     = NULL;
-  uint              fork_gen = 0U;
-  if( FD_UNLIKELY( incremental ) ) {
-    fork     = &accdb->fork_pool[ fork_id.val ];
-    fork_gen = fork->shmem->generation;
-  }
+  FD_TEST( fork_id.val!=USHORT_MAX );
+  FD_TEST( accdb->shmem->root_fork_id.val!=USHORT_MAX );
+  fd_accdb_fork_t * fork            = &accdb->fork_pool[ fork_id.val ];
+  uint              fork_gen        = fork->shmem->generation;
+  uint              root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
 
   ulong seed      = accdb->shmem->seed;
   ulong chain_msk = accdb->shmem->chain_cnt - 1UL;
-  if( FD_UNLIKELY( !incremental && accdb->shmem->root_fork_id.val==USHORT_MAX ) ) {
-    FD_LOG_ERR(( "snapshot_write_batch called without a root fork attached" ));
-  }
-  uint  gen       = incremental ? 0U : accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
 
   ulong ignored           = 0UL;
   ulong replaced          = 0UL;
@@ -4442,9 +4436,12 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       FD_SPIN_PAUSE();
     }
 
+    fd_racesan_hook( "accdb_restore_write:locked" );
+
     fd_accdb_accmeta_t * existing       = NULL;
     fd_accdb_accmeta_t * cross_existing = NULL; /* cross-fork dup (incremental only) */
-    uint next_acc = chain_head;
+    uint last_live = UINT_MAX;                  /* last live version seen; the new node is linked after it */
+    uint next_acc  = chain_head;
     while( next_acc!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ next_acc ];
 
@@ -4453,6 +4450,17 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       }
 
       if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
+        /* Live records must sit before snapshot-loaded records so any
+           queries during replay return the live version of the
+           account. */
+        if( FD_UNLIKELY( candidate->key.generation>root_generation &&
+                         fd_accdb_acc_fork_id( candidate )!=fork_id.val &&
+                         !descends_set_test( fork->descends, fd_accdb_acc_fork_id( candidate ) ) ) ) {
+          last_live = next_acc;
+          next_acc = candidate->map.next;
+          continue;
+        }
+
         if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
           skip = 1;
         } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
@@ -4461,7 +4469,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
           FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
           result = -1;
           goto fini;
-        } else if( FD_UNLIKELY( incremental ) && candidate->key.generation!=fork_gen ) {
+        } else if( FD_UNLIKELY( is_incremental ) && candidate->key.generation!=fork_gen ) {
           cross_existing = candidate;
         } else {
           existing = candidate;
@@ -4472,7 +4480,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     }
 
     if( FD_UNLIKELY( skip ) ) {
-      results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_IGNORED;
+      results[ i ] = FD_ACCDB_RESTORE_WRITE_IGNORED;
       FD_COMPILER_MFENCE();
       FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
       fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
@@ -4485,9 +4493,9 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     uint new_head = chain_head;
 
     fd_accdb_accmeta_t const * prev = existing ? existing : cross_existing;
-    if( !prev || !prev->lamports ) results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
-    else if( cross_existing )      results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS;
-    else                           results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_REPLACED;
+    if( !prev || !prev->lamports ) results[ i ] = FD_ACCDB_RESTORE_WRITE_LOADED;
+    else if( cross_existing )      results[ i ] = FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS;
+    else                           results[ i ] = FD_ACCDB_RESTORE_WRITE_REPLACED;
 
     if( FD_UNLIKELY( existing ) ) {
       accmeta = existing;
@@ -4502,11 +4510,15 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
 
       fd_memcpy( accmeta->key.pubkey, pubkeys[ i ], 32UL );
-      accmeta->key.generation = incremental ? fork_gen : gen;
-      accmeta->map.next = chain_head;
-      new_head = acc_idx;
+      accmeta->key.generation = fork_gen;
+      if( FD_UNLIKELY( last_live!=UINT_MAX ) ) {
+        accmeta->map.next = accdb->acc_pool[ last_live ].map.next;
+      } else {
+        accmeta->map.next = chain_head;
+        new_head = acc_idx;
+      }
 
-      if( FD_UNLIKELY( incremental ) ) {
+      if( FD_UNLIKELY( is_incremental ) ) {
         fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
         if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
         txn->acc_pool_idx = acc_idx;
@@ -4532,9 +4544,12 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     accmeta->lamports        = lamports[ i ];
     accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
     ulong file_off           = file_offsets[ i ];
-    accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
+    accmeta->offset_fork     = fd_accdb_acc_pack_offset_fork( file_off, fork_id.val );
 
     FD_COMPILER_MFENCE();
+    if( FD_UNLIKELY( last_live!=UINT_MAX && !existing ) ) {
+      FD_VOLATILE( accdb->acc_pool[ last_live ].map.next ) = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
+    }
     FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = new_head;
 
     used_bytes_added += entry_sz;
@@ -4678,6 +4693,12 @@ fd_accdb_background( fd_accdb_t * accdb,
     if( FD_UNLIKELY( accdb->carry_sz && k!=accdb->carry_layer ) ) continue; /* would overwrite the carried tail */
     background_compact( accdb, k, charge_busy );
   }
+}
+
+
+fd_accdb_fork_id_t
+fd_accdb_root_fork_id( fd_accdb_t * accdb ) {
+  return accdb->shmem->root_fork_id;
 }
 
 fd_accdb_shmem_metrics_t const *

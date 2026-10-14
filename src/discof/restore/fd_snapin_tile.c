@@ -240,6 +240,7 @@ struct fd_snapin_lead {
 
   fd_accdb_fork_id_t accdb_root_fork_id;
   fd_accdb_fork_id_t accdb_incr_fork_id; /* child fork for incremental writes (purge on failure) */
+  fd_accdb_fork_id_t accdb_full_fork_id; /* fork the full snapshot is written on, until it is rooted */
   fd_txncache_fork_id_t txncache_root_fork_id;
 
   fd_snapin_out_link_t manifest_out;
@@ -335,7 +336,7 @@ struct fd_snapin_tile {
   /* Parse state for one attempt. */
   ulong appendvec_seq;      /* next appendvec number */
   ulong claimed_appendvec;  /* current claim */
-  ulong incr_fork;          /* insert fork; USHORT_MAX for full */
+  ulong load_fork;          /* fork the snapshot is written on */
 
   struct {
     uchar                     buf[ FD_SNAPIN_WRITE_BUF_SZ ] __attribute__((aligned(FD_SNAPIN_DIRECT_ALIGN)));
@@ -613,7 +614,7 @@ verify_epoch_rewards( fd_snapin_tile_t const *  ctx,
 
 static int
 verify_sysvars( fd_snapin_tile_t * ctx ) {
-  fd_accdb_fork_id_t fork_id = ctx->full ? ctx->lead.accdb_root_fork_id
+  fd_accdb_fork_id_t fork_id = ctx->full ? ctx->lead.accdb_full_fork_id
                                          : ctx->lead.accdb_incr_fork_id;
   fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new( ctx->lead.sysvar_cache ) );
 
@@ -1330,7 +1331,7 @@ process_manifest( fd_snapin_tile_t *  ctx,
     }
   }
 
-  manifest->accdb_fork_id    = fd_ushort_if( ctx->full, ctx->lead.accdb_root_fork_id.val, ctx->lead.accdb_incr_fork_id.val );
+  manifest->accdb_fork_id    = fd_ushort_if( ctx->full, ctx->lead.accdb_full_fork_id.val, ctx->lead.accdb_incr_fork_id.val );
   manifest->txncache_fork_id = ctx->lead.txncache_root_fork_id.val;
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
@@ -1407,7 +1408,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
   writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
 
-  fd_accdb_fork_id_t          fork_id    = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
+  fd_accdb_fork_id_t          fork_id    = { .val = (ushort)ctx->load_fork };
   ushort                      stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
   fd_snapin_account_batch_t * batch      = &ctx->writer.batch;
   ulong                       tile_idx   = ctx->tile_idx;
@@ -1438,11 +1439,11 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     }
 
     ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
-    if( FD_UNLIKELY( fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys,
-                                                    slots, batch->lamports+batch_off,
-                                                    data_lens, batch->executables+batch_off,
-                                                    file_offsets, &accounts_ignored, &accounts_replaced,
-                                                    &accounts_loaded, &replaced_lamports, &ignored_lamports, results ) ) ) {
+    if( FD_UNLIKELY( fd_accdb_restore_write_batch( ctx->accdb, fork_id, !ctx->full, cnt, pubkeys,
+                                                   slots, batch->lamports+batch_off,
+                                                   data_lens, batch->executables+batch_off,
+                                                   file_offsets, &accounts_ignored, &accounts_replaced,
+                                                   &accounts_loaded, &replaced_lamports, &ignored_lamports, results ) ) ) {
       return 1;
     }
 
@@ -1450,7 +1451,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
        delegation and replaced a funded version tombstones it, so a tile
        still holding the older version cannot leave it behind. */
     for( ulong i=0UL; i<cnt; i++ ) {
-      if( FD_UNLIKELY( results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED ) ) continue;
+      if( FD_UNLIKELY( results[ i ]==FD_ACCDB_RESTORE_WRITE_IGNORED ) ) continue;
 
       ulong               lamports = batch->lamports[ batch_off+i ];
       fd_pubkey_t const * pubkey   = (fd_pubkey_t const *)pubkeys[ i ];
@@ -1465,8 +1466,8 @@ writer_flush( fd_snapin_tile_t * ctx ) {
         }
       }
 
-      int replacing_full_entry = results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS;
-      if( FD_UNLIKELY( replacing_full_entry || results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED ) ) {
+      int replacing_full_entry = results[ i ]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS;
+      if( FD_UNLIKELY( replacing_full_entry || results[ i ]==FD_ACCDB_RESTORE_WRITE_REPLACED ) ) {
         fd_stake_delegations_fork_remove( ctx->stake_delegations, stake_fork, slots[ i ], pubkey, replacing_full_entry );
       }
     }
@@ -1806,7 +1807,7 @@ reset_attempt_state( fd_snapin_tile_t * ctx ) {
   }
   ctx->expected_frame         = 0UL;
   ctx->appendvec_seq          = 0UL;
-  ctx->incr_fork              = ULONG_MAX;
+  ctx->load_fork              = ULONG_MAX;
   ctx->writer.buf_used        = 0UL;
   ctx->writer.batch.cnt       = 0UL;
   ctx->staged.data_len        = 0UL;
@@ -1819,8 +1820,8 @@ reset_attempt_state( fd_snapin_tile_t * ctx ) {
 static void
 start_processing_attempt( fd_snapin_tile_t * ctx ) {
   FD_COMPILER_MFENCE();
-  ctx->incr_fork = FD_VOLATILE_CONST( ctx->shmem->fork_id );
-  FD_TEST( ctx->full ? ctx->incr_fork==(ulong)USHORT_MAX : ctx->incr_fork<(ulong)USHORT_MAX );
+  ctx->load_fork = FD_VOLATILE_CONST( ctx->shmem->fork_id );
+  FD_TEST( ctx->load_fork<(ulong)USHORT_MAX );
 
   /* Claim before the first data fragment. */
   ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec_ticket, 1UL );
@@ -1856,6 +1857,16 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
     return -1;
   }
   return 0;
+}
+
+/* root_fork makes fork_id the accounts database root and clears it. */
+
+static void
+root_fork( fd_snapin_tile_t *   ctx,
+           fd_accdb_fork_id_t * fork_id ) {
+  fd_accdb_advance_root( ctx->accdb, *fork_id );
+  ctx->lead.accdb_root_fork_id = *fork_id;
+  *fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 }
 
 static void
@@ -1939,13 +1950,20 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ctx->lead.accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
 
+        /* The full snapshot is written on its own fork and rooted at
+           DONE, so nothing outside that fork sees it until the whole
+           load is complete. */
+        ctx->lead.accdb_full_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
+
         fd_accdb_snapshot_load_begin( ctx->accdb );
       } else {
         /* Create a child fork for incremental writes.  On failure,
            fd_accdb_purge(child) reverts just the incremental changes.
            On success, fd_accdb_advance_root(child) promotes them.  The
            stake delegations get a fork likewise. */
-        ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
+        fd_accdb_fork_id_t parent = ctx->lead.accdb_full_fork_id.val!=USHORT_MAX ? ctx->lead.accdb_full_fork_id
+                                                                                 : ctx->lead.accdb_root_fork_id;
+        ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, parent );
         stake_fork                   = fd_stake_delegations_new_fork( ctx->stake_delegations, USHORT_MAX );
       }
 
@@ -1965,7 +1983,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_COMPILER_MFENCE();
 
       /* Publish before acknowledging INIT. */
-      FD_VOLATILE( ctx->shmem->fork_id    ) = ctx->full ? (ulong)USHORT_MAX : (ulong)ctx->lead.accdb_incr_fork_id.val;
+      FD_VOLATILE( ctx->shmem->fork_id    ) = ctx->full ? (ulong)ctx->lead.accdb_full_fork_id.val : (ulong)ctx->lead.accdb_incr_fork_id.val;
       FD_VOLATILE( ctx->shmem->stake_fork ) = stake_fork;
       FD_COMPILER_MFENCE();
       break;
@@ -2070,13 +2088,19 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       fold_account_counts( ctx );
+      if( !ctx->full ) fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->lead.accdb_incr_fork_id );
+
+      /* ensure that snapin tile sees all delta changes before rooting */
+      __atomic_thread_fence( __ATOMIC_SEQ_CST );
+
+      /* Root the full snapshot fork if it is still unrooted, then the
+         incremental fork. */
+      if( ctx->lead.accdb_full_fork_id.val!=USHORT_MAX ) {
+        root_fork( ctx, &ctx->lead.accdb_full_fork_id );
+      }
+
       if( !ctx->full ) {
-        fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->lead.accdb_incr_fork_id );
-        /* ensure that snapin tile sees all delta changes before rooting */
-        __atomic_thread_fence( __ATOMIC_SEQ_CST );
-        fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
-        ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
-        ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+        root_fork( ctx, &ctx->lead.accdb_incr_fork_id );
         ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
         fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
         fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
@@ -2119,7 +2143,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
           ctx->lead.rollback.pending = 1;
           ctx->lead.rollback.full    = ctx->full;
           ctx->lead.rollback.fork    = ctx->lead.accdb_incr_fork_id;
-          if( ctx->full ) ctx->lead.accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+          if( ctx->full ) {
+            ctx->lead.accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+            ctx->lead.accdb_full_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+          }
           ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         }
         ctx->lead.init_completed = 0;
@@ -2197,7 +2224,7 @@ handle_lane_data_frag( fd_snapin_tile_t *  ctx,
                        ulong               chunk,
                        ulong               sz,
                        ulong               ctl ) {
-  if( FD_UNLIKELY( ctx->incr_fork==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( ctx->load_fork==ULONG_MAX ) ) {
     start_processing_attempt( ctx );
   }
 
@@ -2430,6 +2457,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( &ctx->lead.account_counts, 0, sizeof(ctx->lead.account_counts) );
   ctx->lead.accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  ctx->lead.accdb_full_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   fd_memset( &ctx->lead.recovery.accdb_metadata, 0, sizeof(ctx->lead.recovery.accdb_metadata) );
   fd_memset( &ctx->lead.flags, 0, sizeof(ctx->lead.flags) );
   ctx->lead.boot_timestamp = fd_log_wallclock();

@@ -1300,10 +1300,12 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   };
   ulong ignored, replaced, loaded, ignored_lamports;
   uchar results[ 1 ];
-  int result = fd_accdb_snapshot_write_batch( accdb, fork_id, 1UL, pubkeys, slots, lamports_arr,
-                                               data_lens, executables, file_offsets, &ignored,
-                                               &replaced, &loaded, out_replaced_lamports,
-                                               &ignored_lamports, results );
+  int incremental = fork_id.val!=USHORT_MAX;
+  if( !incremental ) fork_id = fd_accdb_root_fork_id( accdb );
+  int result = fd_accdb_restore_write_batch( accdb, fork_id, incremental, 1UL, pubkeys, slots, lamports_arr,
+                                              data_lens, executables, file_offsets, &ignored,
+                                              &replaced, &loaded, out_replaced_lamports,
+                                              &ignored_lamports, results );
   FD_TEST( !result );
   if( ignored ) return -1;
   if( replaced ) return 2;
@@ -1625,15 +1627,16 @@ typedef struct {
 } test_batch_result_t;
 
 static test_batch_result_t
-test_write_batch( fd_accdb_t *                         accdb,
-                  fd_accdb_fork_id_t                   fork_id,
-                  ulong                                cnt,
-                  uchar const * const                  pubkeys[],
-                  ulong const                          slots[],
-                  ulong const                          lamports[],
-                  ulong const                          data_lens[],
-                  int const                            executables[],
-                  test_store_ctx_t *                   store ) {
+test_write_batch_on( fd_accdb_t *                         accdb,
+                     fd_accdb_fork_id_t                   fork_id,
+                     int                                  is_incremental,
+                        ulong                                cnt,
+                     uchar const * const                  pubkeys[],
+                     ulong const                          slots[],
+                     ulong const                          lamports[],
+                     ulong const                          data_lens[],
+                     int const                            executables[],
+                     test_store_ctx_t *                   store ) {
   ulong total_sz = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) total_sz += sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
 
@@ -1654,11 +1657,27 @@ test_write_batch( fd_accdb_t *                         accdb,
   }
 
   test_batch_result_t result = {0};
-  result.err = fd_accdb_snapshot_write_batch( accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
-                                               executables, file_offsets, &result.ignored, &result.replaced,
-                                               &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
-                                               result.results );
+  result.err = fd_accdb_restore_write_batch( accdb, fork_id, is_incremental, cnt, pubkeys, slots, lamports, data_lens,
+                                              executables, file_offsets, &result.ignored, &result.replaced,
+                                              &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
+                                              result.results );
   return result;
+}
+
+/* SENTINEL means full mode onto the current root. */
+static test_batch_result_t
+test_write_batch( fd_accdb_t *                         accdb,
+                  fd_accdb_fork_id_t                   fork_id,
+                  ulong                                cnt,
+                  uchar const * const                  pubkeys[],
+                  ulong const                          slots[],
+                  ulong const                          lamports[],
+                  ulong const                          data_lens[],
+                  int const                            executables[],
+                  test_store_ctx_t *                   store ) {
+  int incremental = fork_id.val!=USHORT_MAX;
+  if( !incremental ) fork_id = fd_accdb_root_fork_id( accdb );
+  return test_write_batch_on( accdb, fork_id, incremental, cnt, pubkeys, slots, lamports, data_lens, executables, store );
 }
 
 typedef struct {
@@ -2293,16 +2312,16 @@ test_snapshot_write_results( void ) {
 
   /* First versions load. */
   r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 10UL, 10UL }, (ulong[]){ 100UL, 5UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_LOADED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && r.results[1]==FD_ACCDB_RESTORE_WRITE_LOADED );
 
   /* Newer pk0 replaces a funded version, older pk1 is ignored. */
   r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 20UL, 5UL }, (ulong[]){ 0UL, 7UL }, (ulong[]){ 0UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED && r.results[1]==FD_ACCDB_RESTORE_WRITE_IGNORED );
   FD_TEST( r.ignored==1UL && r.replaced==1UL && r.loaded==0UL );
 
   /* Replacing an empty version reports LOADED. */
   r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 30UL, 30UL }, (ulong[]){ 9UL, 6UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_LOADED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && r.results[1]==FD_ACCDB_RESTORE_WRITE_REPLACED );
   fd_accdb_snapshot_load_end( accdb );
 
   /* Incremental: replacing the full snapshot's version is cross fork,
@@ -2310,10 +2329,145 @@ test_snapshot_write_results( void ) {
   fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
   fd_accdb_snapshot_load_begin( accdb );
   r = test_write_batch( accdb, incr, 2UL, pubkeys, (ulong[]){ 40UL, 25UL }, (ulong[]){ 11UL, 8UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS && r.results[1]==FD_ACCDB_RESTORE_WRITE_IGNORED );
   r = test_write_batch( accdb, incr, 2UL, pubkeys, (ulong[]){ 41UL, 41UL }, (ulong[]){ 12UL, 8UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED && r.results[1]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS );
   fd_accdb_snapshot_load_end( accdb );
+
+  test_teardown( accdb, fd );
+}
+
+/* A fork that is not an ancestor of the snapshot loader's fork writes
+   a key before the loader reaches it.  The loader must keep that write
+   ahead of its own copy, so the fork keeps reading its own value
+   during the load, after it, and after it is rooted. */
+static void
+test_snapshot_behind_live_full( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, 11UL<<20UL );
+  test_store_ctx_t store = { .fd=fd };
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  uchar key  [ 32UL ] = { 0xF0 };
+  uchar owner[ 32UL ] = { 9, 0 };
+  accdb_write( accdb, child, key, 500UL, NULL, 0UL, owner );
+
+  uchar const * pks[ 1 ] = { key };
+  int execs[ 1 ] = { 0 };
+  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, (ulong[]){ 10UL }, (ulong[]){ 100UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && r.loaded==1UL );
+
+  /* A second copy from the stream replaces the first and is counted. */
+  r = test_write_batch( accdb, SENTINEL, 1UL, pks, (ulong[]){ 20UL }, (ulong[]){ 150UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED && r.replaced_lamports==100UL );
+
+  ulong got = 0UL;
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) && got==500UL );
+  FD_TEST( accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) && got==150UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) && got==500UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, key )==500UL );
+
+  fd_accdb_advance_root( accdb, child );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) && got==500UL );
+  fd_accdb_flush_metrics( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
+
+  test_teardown( accdb, fd );
+}
+
+/* Same with an incremental snapshot: the full snapshot's copy on root
+   is still found behind the live write and counted as replaced. */
+static void
+test_snapshot_behind_live_incremental( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, 11UL<<20UL );
+  test_store_ctx_t store = { .fd=fd };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t d    = fd_accdb_attach_child( accdb, incr );
+
+  uchar key  [ 32UL ] = { 0xF1 };
+  uchar owner[ 32UL ] = { 9, 0 };
+  uchar const * pks[ 1 ] = { key };
+  int execs[ 1 ] = { 0 };
+  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, (ulong[]){ 5UL }, (ulong[]){ 100UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED );
+
+  accdb_write( accdb, d, key, 500UL, NULL, 0UL, owner );
+
+  r = test_write_batch( accdb, incr, 1UL, pks, (ulong[]){ 20UL }, (ulong[]){ 200UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS && r.replaced_lamports==100UL );
+
+  ulong got = 0UL;
+  FD_TEST( accdb_read( accdb, d,    key, &got, NULL, NULL, NULL ) && got==500UL );
+  FD_TEST( accdb_read( accdb, incr, key, &got, NULL, NULL, NULL ) && got==200UL );
+  FD_TEST( accdb_read( accdb, root, key, &got, NULL, NULL, NULL ) && got==100UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+  fd_accdb_advance_root( accdb, incr );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, d,    key, &got, NULL, NULL, NULL ) && got==500UL );
+  FD_TEST( accdb_read( accdb, incr, key, &got, NULL, NULL, NULL ) && got==200UL );
+
+  fd_accdb_advance_root( accdb, d );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, d, key, &got, NULL, NULL, NULL ) && got==500UL );
+  fd_accdb_flush_metrics( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
+
+  test_teardown( accdb, fd );
+}
+
+/* The full snapshot is written on its own fork.  Nothing outside that
+   fork sees it until it is rooted, and rooting a fork with no txn
+   records works. */
+static void
+test_restore_full_on_fork( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, 11UL<<20UL );
+  test_store_ctx_t store = { .fd=fd };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t snap = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t side = fd_accdb_attach_child( accdb, root );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  uchar key[ 32UL ] = { 0xF2 };
+  uchar const * pks[ 1 ] = { key };
+  int execs[ 1 ] = { 0 };
+  test_batch_result_t r = test_write_batch_on( accdb, snap, 0, 1UL, pks, (ulong[]){ 10UL }, (ulong[]){ 100UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED );
+
+  ulong got = 0UL;
+  FD_TEST( accdb_read( accdb, snap, key, &got, NULL, NULL, NULL ) && got==100UL );
+  FD_TEST( !accdb_read( accdb, root, key, &got, NULL, NULL, NULL ) );
+  FD_TEST( !accdb_read( accdb, side, key, &got, NULL, NULL, NULL ) );
+  FD_TEST( fd_accdb_lamports( accdb, side, key )==0UL );
+
+  /* An incremental on top of it supersedes the full copy. */
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, snap );
+  r = test_write_batch_on( accdb, incr, 1, 1UL, pks, (ulong[]){ 20UL }, (ulong[]){ 200UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS && r.replaced_lamports==100UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+  fd_accdb_advance_root( accdb, snap );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, snap, key, &got, NULL, NULL, NULL ) && got==100UL );
+  FD_TEST( accdb_read( accdb, incr, key, &got, NULL, NULL, NULL ) && got==200UL );
+
+  fd_accdb_advance_root( accdb, incr );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, incr, key, &got, NULL, NULL, NULL ) && got==200UL );
+  fd_accdb_flush_metrics( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
 
   test_teardown( accdb, fd );
 }
@@ -2593,6 +2747,15 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_snapshot_write_results ..." ));
   test_snapshot_write_results();
+
+  FD_LOG_NOTICE(( "test_snapshot_behind_live_full ..." ));
+  test_snapshot_behind_live_full();
+
+  FD_LOG_NOTICE(( "test_snapshot_behind_live_incremental ..." ));
+  test_snapshot_behind_live_incremental();
+
+  FD_LOG_NOTICE(( "test_restore_full_on_fork ..." ));
+  test_restore_full_on_fork();
 
   FD_LOG_NOTICE(( "test_incremental_retry_reuses_acc_pool ..." ));
   test_incremental_retry_reuses_acc_pool();

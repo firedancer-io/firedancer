@@ -538,11 +538,12 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
                                  ulong        sz,
                                  ulong        dead_tail_sz );
 
-/* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
+/* fd_accdb_restore_write_batch processes up to 8 accounts at once,
    using software prefetching to overlap hash chain memory latency with
    useful work.  It is thread safe across distinct joins and locks each
-   pubkey's hash chain across lookup and commit.  Snapshot loading
-   excludes non-snapshot accdb operations while these locks are held.
+   pubkey's hash chain across lookup and commit.  Live writes and reads
+   may run alongside, but nothing may unlink chain nodes (advance_root,
+   purge) while restore writers are in flight.
    Each pubkey[i] points to a 32-byte public key.
    *out_replaced_lamports is set to the sum of the lamports of all
    accounts replaced by this batch (i.e. the previous lamports value
@@ -562,42 +563,47 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
 
    file_offsets[i] is the pre-reserved on-disk location for pubkeys[i].
 
-   results receives one FD_ACCDB_SNAPSHOT_WRITE_* code per account.
+   results receives one FD_ACCDB_RESTORE_WRITE_* code per account.
    Not meaningful when -1 is returned.
 
-   fork_id controls recovery behavior:
+   fork_id is the fork the versions are written on.  is_incremental
+   selects how the load can be undone:
 
-     USHORT_MAX, full-snapshot mode.  Existing entries with the same
-                 pubkey are replaced in-place.  No txn entries are
-                 created.
+     0, full-snapshot mode.  Existing entries with the same pubkey are
+        replaced in-place.  No txn entries are created, so the load can
+        only be undone by fd_accdb_reset.
 
-     other,      incremental-snapshot mode.  Cross-snapshot overrides
-                 insert a new acc_pool entry alongside the old one and
-                 create a txn record on fork_id, so fd_accdb_purge can
-                 revert the incremental writes on failure.  Intra-fork
-                 duplicates are replaced in-place. */
+     1, incremental-snapshot mode.  Cross-snapshot overrides insert a
+        new acc_pool entry alongside the old one and create a txn
+        record on fork_id, so fd_accdb_purge can revert the incremental
+        writes on failure.  Intra-fork duplicates are replaced in-place.
 
-#define FD_ACCDB_SNAPSHOT_WRITE_IGNORED        (0) /* a newer version existed, write dropped */
-#define FD_ACCDB_SNAPSHOT_WRITE_LOADED         (1) /* no prior funded version */
-#define FD_ACCDB_SNAPSHOT_WRITE_REPLACED       (2) /* superseded a funded version from this load */
-#define FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS (3) /* superseded a funded version from an earlier snapshot */
+   A version written while the load runs on a fork the loader's fork
+   cannot see is a live write.  The snapshot copy is linked behind it,
+   so that fork keeps reading its own write. */
+
+#define FD_ACCDB_RESTORE_WRITE_IGNORED        (0) /* a newer version existed, write dropped */
+#define FD_ACCDB_RESTORE_WRITE_LOADED         (1) /* no prior funded version */
+#define FD_ACCDB_RESTORE_WRITE_REPLACED       (2) /* superseded a funded version from this load */
+#define FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS (3) /* superseded a funded version from an earlier snapshot */
 
 int
-fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
-                               fd_accdb_fork_id_t  fork_id,
-                               ulong               cnt,
-                               uchar const * const pubkeys[],
-                               ulong  const        slots[],
-                               ulong  const        lamports[],
-                               ulong  const        data_lens[],
-                               int    const        executables[],
-                               ulong const         file_offsets[],
-                               ulong *             accounts_ignored,
-                               ulong *             accounts_replaced,
-                               ulong *             accounts_loaded,
-                               ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports,
-                               uchar *             results );
+fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
+                              fd_accdb_fork_id_t  fork_id,
+                              int                 is_incremental,
+                              ulong               cnt,
+                              uchar const * const pubkeys[],
+                              ulong  const        slots[],
+                              ulong  const        lamports[],
+                              ulong  const        data_lens[],
+                              int    const        executables[],
+                              ulong const         file_offsets[],
+                              ulong *             accounts_ignored,
+                              ulong *             accounts_replaced,
+                              ulong *             accounts_loaded,
+                              ulong *             out_replaced_lamports,
+                              ulong *             out_ignored_lamports,
+                              uchar *             results );
 
 /* fd_accdb_background performs one unit of background work.
 
@@ -637,6 +643,11 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 void
 fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy );
+
+/* fd_accdb_root_fork_id returns the current root fork. */
+
+fd_accdb_fork_id_t
+fd_accdb_root_fork_id( fd_accdb_t * accdb );
 
 /* fd_accdb_shmetrics returns a pointer to the shared metrics counters
    for the given accdb instance.  The returned pointer remains valid
