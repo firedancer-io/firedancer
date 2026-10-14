@@ -3575,12 +3575,13 @@ test_preevict_batch_cap( void ) {
   test_teardown( accdb, fd );
 }
 
-/* test_preevict_batch_reader_wait: while the sweeper holds a staged
-   batch that is not yet on disk, a reader of a staged account must
-   wait on the invalid offset, then read the staged bytes once the
-   batch is published.  Once for the nocache path, once for the acquire
-   path (the test shmem allows one extra join, so one reader at a
-   time). */
+/* test_preevict_batch_reader_wait: a reader of a staged account must
+   wait until the batch is on disk and its offset is published, then
+   read the staged bytes.  Eight dirty accounts form one batch.  The
+   sweep is parked after the batch write (preevict:post_write), where
+   the reader must still be waiting and the line still claimed.  Once
+   for the nocache path, once for the acquire path (the test shmem
+   allows one extra join, so one reader at a time). */
 static void
 test_preevict_batch_reader_wait( void ) {
   int fd;
@@ -3588,46 +3589,70 @@ test_preevict_batch_reader_wait( void ) {
   fd_accdb_t * accdb_r = test_join_extra();
 
   uchar owner[ 32 ] = { 0xAA, 0 };
-  uchar key_P[ 32 ] = { 'P', 0 };
-  uchar key_Q[ 32 ] = { 'Q', 0 };
   fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
-  ulong cls, idx;
+  ulong const cnt  = 8UL;
+  ulong const pick = 3UL;
 
-  /* P dirty; the sweep parks at the batch write with P claimed; a
-     nocache reader of P waits on the invalid offset. */
-  seq_write_data( accdb, root0, key_P, 100UL, owner, 100UL, 0xA1 );
-  fd_racesan_async_t * sweep = fiber_force_preevict( &g_fiber[0], accdb );
-  FD_TEST( fd_racesan_async_step_until( sweep, "preevict:pre_synth", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-  FD_TEST( !fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
-  fd_racesan_async_t * reader = fiber_nocache( &g_fiber[1], accdb_r, root0, key_P, 100UL, 0xAA, 100UL, 0xA1 );
-  FD_TEST( fd_racesan_async_step_until( reader, "accdb_nocache:offset_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-  for(;;) {
-    int rc = fd_racesan_async_step( sweep );
-    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
-    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
-  }
-  for(;;) {
-    int rc = fd_racesan_async_step( reader );
-    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
-    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
-  }
+  for( int leg=0; leg<2; leg++ ) {
+    uchar key[ 8 ][ 32 ];
+    ulong batch_sz = 0UL;
+    for( ulong i=0UL; i<cnt; i++ ) {
+      memset( key[ i ], 0, 32UL );
+      key[ i ][ 0 ] = (uchar)( 'P'+leg );
+      key[ i ][ 1 ] = (uchar)i;
+      seq_write_data( accdb, root0, key[ i ], 100UL+i, owner, 64UL+8UL*i, (uchar)( 0xA0+i ) );
+      batch_sz += sizeof(fd_accdb_disk_meta_t)+64UL+8UL*i;
+    }
+    ulong cls, idx;
+    FD_TEST( fd_accdb_debug_find_line( accdb, key[ pick ], &cls, &idx ) );
+    fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
+    ulong write_ops0     = accdb->metrics->write_ops;
+    ulong bytes_written0 = accdb->metrics->bytes_written;
 
-  /* Same with Q and a reader on the acquire path. */
-  seq_write_data( accdb, root0, key_Q, 200UL, owner, 100UL, 0xB2 );
-  sweep = fiber_force_preevict( &g_fiber[0], accdb );
-  FD_TEST( fd_racesan_async_step_until( sweep, "preevict:pre_synth", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-  FD_TEST( !fd_accdb_debug_find_line( accdb, key_Q, &cls, &idx ) );
-  reader = fiber_acquire_expect( &g_fiber[1], accdb_r, root0, key_Q, 200UL );
-  FD_TEST( fd_racesan_async_step_until( reader, "accdb_acquire:offset_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-  for(;;) {
-    int rc = fd_racesan_async_step( sweep );
-    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
-    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
-  }
-  for(;;) {
-    int rc = fd_racesan_async_step( reader );
-    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
-    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+    /* Park the sweep before the batch write with all eight claimed. */
+    fd_racesan_async_t * sweep = fiber_force_preevict( &g_fiber[0], accdb );
+    FD_TEST( fd_racesan_async_step_until( sweep, "preevict:pre_synth", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+    for( ulong i=0UL; i<cnt; i++ ) FD_TEST( !fd_accdb_debug_find_line( accdb, key[ i ], &cls, &idx ) );
+    FD_TEST( line->refcnt==FD_ACCDB_EVICT_SENTINEL );
+
+    /* A reader of the picked account waits on the invalid offset. */
+    fd_racesan_async_t * reader;
+    char const *         wait_hook;
+    if( !leg ) {
+      reader    = fiber_nocache( &g_fiber[1], accdb_r, root0, key[ pick ], 100UL+pick, 0xAA, 64UL+8UL*pick, (uchar)( 0xA0+pick ) );
+      wait_hook = "accdb_nocache:offset_wait";
+    } else {
+      reader    = fiber_acquire_expect( &g_fiber[1], accdb_r, root0, key[ pick ], 100UL+pick );
+      wait_hook = "accdb_acquire:offset_wait";
+    }
+    FD_TEST( fd_racesan_async_step_until( reader, wait_hook, STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+    /* One write of the whole batch has happened, nothing is published
+       yet: the reader still waits and the line is still claimed. */
+    FD_TEST( fd_racesan_async_step_until( sweep, "preevict:post_write", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+    FD_TEST( accdb->metrics->write_ops    ==write_ops0+1UL );
+    FD_TEST( accdb->metrics->bytes_written==bytes_written0+batch_sz );
+    FD_TEST( line->refcnt==FD_ACCDB_EVICT_SENTINEL && line->acc_idx!=UINT_MAX );
+    FD_TEST( fd_racesan_async_step( reader )==FD_RACESAN_ASYNC_RET_HOOK );
+    FD_TEST( fd_racesan_async_hook_name_eq( reader, wait_hook ) );
+
+    /* Publishing frees the line and releases the reader, which checks
+       the bytes it read. */
+    async_finish( sweep );
+    FD_TEST( line->refcnt==0U );
+    async_finish( reader );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      uchar const * pks[1] = { key[ i ] };
+      int rd[1] = { 0 };
+      fd_acc_t a[1];
+      memset( a, 0, sizeof(a) );
+      fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+      FD_TEST( a[0].lamports==100UL+i );
+      FD_TEST( a[0].owner[ 0 ]==0xAA );
+      FD_TEST( a[0].data_len==64UL+8UL*i );
+      FD_TEST( a[0].data[ 0 ]==(uchar)( 0xA0+i ) && a[0].data[ a[0].data_len-1UL ]==(uchar)( 0xA0+i ) );
+      fd_accdb_release( accdb, 1UL, a );
+    }
   }
 
   free( accdb_r );
