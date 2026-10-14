@@ -496,8 +496,7 @@ FD_UNIT_TEST( execrp_cert_verify ) {
     fd_bls_sec_t sk; fd_bls_sec_derive( &sk, ikm, sizeof(ikm) );
     blst_sk_add_n_check( &sum, &sum, &sk );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( &sk, pub );
-    blst_p1_affine aff[1]; blst_p1_to_affine( aff, pub );
-    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; blst_p1_affine_compress( bls, aff );
+    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; blst_p1_affine_compress( bls, pub );
     fd_pubkey_t vote = { .ul = { 0x7000UL+i } };
     fd_pubkey_t node = { .ul = { 0x8000UL+i } };
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote, &node, 1000UL, 0U, bls );

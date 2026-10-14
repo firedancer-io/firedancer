@@ -1488,8 +1488,8 @@ handle_replay( fd_votor_tile_t *           ctx,
 
   /* Replay verified these certs before publishing the footer (or, as
      leader, built them from ours), so skip re-verifying them. */
-  ag_cert_t *    cert = &ctx->scratch.cert;
-  blst_p2_affine sig_aff[1];
+  ag_cert_t *  cert = &ctx->scratch.cert;
+  fd_bls_sig_t sig_aff[1];
   if( footer->has_fast_final_cert ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = { .slot = footer->fast_final_cert.slot, .shred_version = ctx->shred_version } };
     memcpy( cert->fast_final.block_hash, footer->fast_final_cert.block_id.uc, sizeof(ag_block_hash_t) );

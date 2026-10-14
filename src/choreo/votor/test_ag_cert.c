@@ -538,7 +538,7 @@ check_cert_wire( char const *         name,
   blst_p2 exp_sig[1]; *exp_sig = agg->sig;
   if( agg2 ) blst_p2_add_or_double( exp_sig, exp_sig, &agg2->sig );
   uchar exp_bytes[ FD_BLS_SIG_SZ ];
-  { blst_p2_affine a[1]; blst_p2_to_affine( a, exp_sig ); blst_p2_affine_serialize( exp_bytes, a ); }
+  { fd_bls_sig_t a[1]; blst_p2_to_affine( a, exp_sig ); blst_p2_affine_serialize( exp_bytes, a ); }
   FD_TEST( !memcmp( buf+off, exp_bytes, FD_BLS_SIG_SZ ) ); off += FD_BLS_SIG_SZ;
   FD_TEST( FD_LOAD( ulong, buf+off )==CERT_BITMAP_HDR_SZ+bitmap_sz ); off += 8UL;
   FD_TEST( off==hdr );
@@ -716,9 +716,9 @@ test_wire_not_g2( void ) {
   ulong          one[6] = { 1UL }, four[6] = { 4UL };
   blst_fp        fp1[1];
   blst_fp2       b[1], t[1];
-  blst_p2_affine bad[1];
+  fd_bls_sig_t   bad[1];
   uchar          bad_bytes[ FD_BLS_SIG_SZ ];
-  memset( bad, 0, sizeof(blst_p2_affine) );
+  memset( bad, 0, sizeof(fd_bls_sig_t) );
   blst_fp_from_uint64( fp1, one );
   blst_fp_from_uint64( &b->fp[0], four ); b->fp[1] = b->fp[0];
   do {

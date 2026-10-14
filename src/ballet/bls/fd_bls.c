@@ -5,7 +5,9 @@
 void
 fd_bls_sec_to_pub( fd_bls_sec_t const * sk,
                    fd_bls_pub_t *       pk ) {
-  blst_sk_to_pk_in_g1( pk, sk );
+  blst_p1 p[1];
+  blst_sk_to_pk_in_g1( p, sk );
+  blst_p1_to_affine( pk, p );
 }
 
 void
@@ -64,15 +66,12 @@ int
 fd_bls_pub_de( fd_bls_pub_t * pub,
                uchar const *  buf,
                ulong          buf_sz ) {
-  blst_p1_affine a[1];
-  if( FD_UNLIKELY( !pub_from_bytes( a, buf, buf_sz ) ) ) return -1;
-  blst_p1_from_affine( pub, a );
-  return 0;
+  return pub_from_bytes( pub, buf, buf_sz ) ? 0 : -1;
 }
 
 fd_bls_agg_t *
 fd_bls_agg_null( fd_bls_agg_t * agg ) {
-  fd_memset( &agg->pub, 0, sizeof(fd_bls_pub_t) );
+  fd_memset( &agg->pub, 0, sizeof(blst_p1) );
   fd_memset( &agg->sig, 0, sizeof(blst_p2) );
   fd_bls_set_null( agg->set );
   return agg;
@@ -84,22 +83,31 @@ fd_bls_agg_construct( fd_bls_agg_t *       agg,
                       fd_bls_sig_t const * sig,
                       fd_bls_set_t const * set ) {
   fd_bls_set_copy( agg->set, set );
+
+  /* one batched addition per curve: a field inversion per batch in
+     place of one per signer */
+  fd_bls_pub_t const * pub_ptr[ FD_BLS_SET_MAX ];
+  fd_bls_sig_t const * sig_ptr[ FD_BLS_SET_MAX ];
+  ulong                cnt = 0UL;
   for( ulong rank = fd_bls_set_const_iter_init( set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( set, rank ) ) {
-    blst_p1_add_or_double( &agg->pub, &agg->pub, pub+rank );
-    blst_p2_add_or_double_affine( &agg->sig, &agg->sig, sig+rank );
+    pub_ptr[ cnt ] = pub+rank;
+    sig_ptr[ cnt ] = sig+rank;
+    cnt++;
   }
+  blst_p1s_add( &agg->pub, pub_ptr, cnt );
+  blst_p2s_add( &agg->sig, sig_ptr, cnt );
   return agg;
 }
 
-fd_bls_pub_t *
-fd_bls_pub_sum( fd_bls_pub_t *         pub,
-                blst_p1_affine const * key,
-                ulong                  key_cnt,
-                fd_bls_set_t const *   set,
-                fd_bls_pub_t const *   full ) {
-  fd_memset( pub, 0, sizeof(fd_bls_pub_t) ); /* point at infinity */
+blst_p1 *
+fd_bls_pub_sum( blst_p1 *            pub,
+                fd_bls_pub_t const * key,
+                ulong                key_cnt,
+                fd_bls_set_t const * set,
+                blst_p1 const *      full ) {
+  fd_memset( pub, 0, sizeof(blst_p1) ); /* point at infinity */
 
   if( FD_LIKELY( !full || 2UL*fd_bls_set_cnt( set )<=key_cnt ) ) {
     for( ulong rank=0UL; rank<key_cnt; rank++ ) {
@@ -132,9 +140,9 @@ fd_bls_hash_msg( uchar const *    msg,
 
 static blst_fp12 *
 agg_pairing( blst_fp12 *            gt,
-        blst_p2_affine const * h,
-        fd_bls_pub_t const *   pub,
-        blst_p2 const *        sig ) {
+             blst_p2_affine const * h,
+             blst_p1 const *        pub,
+             blst_p2 const *        sig ) {
   blst_p1_affine         a[2];
   blst_p2_affine         b[2];
   blst_p1_affine const * aptr[2];
@@ -150,7 +158,7 @@ agg_pairing( blst_fp12 *            gt,
 
 int
 fd_bls_agg_verify_hashed( blst_p2_affine const * h,
-                          fd_bls_pub_t const *   pub,
+                          blst_p1 const *        pub,
                           blst_p2 const *        sig ) {
   if( FD_UNLIKELY( blst_p2_affine_is_inf( h ) || blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0;
   blst_fp12 gt[1];
@@ -158,10 +166,10 @@ fd_bls_agg_verify_hashed( blst_p2_affine const * h,
 }
 
 int
-fd_bls_agg_verify( uchar const *        msg,
-                   ulong                msg_sz,
-                   fd_bls_pub_t const * pub,
-                   blst_p2 const *      sig ) {
+fd_bls_agg_verify( uchar const *   msg,
+                   ulong           msg_sz,
+                   blst_p1 const * pub,
+                   blst_p2 const * sig ) {
   if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0;
   blst_p2_affine h[1];
   fd_bls_hash_msg( msg, msg_sz, h );
@@ -178,16 +186,16 @@ verify_linear_hashed( fd_bls_agg_t const *   agg,
   for( ulong rank = fd_bls_set_const_iter_init( agg->set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( agg->set, rank ) ) {
-    blst_p2 one;
-    blst_p2_from_affine( &one, sig+rank );
-    if( FD_UNLIKELY( !fd_bls_agg_verify_hashed( h, pub+rank, &one ) ) ) fd_bls_set_insert( bad, rank );
+    blst_p1 p; blst_p1_from_affine( &p, pub+rank );
+    blst_p2 s; blst_p2_from_affine( &s, sig+rank );
+    if( FD_UNLIKELY( !fd_bls_agg_verify_hashed( h, &p, &s ) ) ) fd_bls_set_insert( bad, rank );
   }
   return bad;
 }
 
 /* verify_bisect_rec descends the contiguous run ranks[ lo, hi ) of
-   the signer list.  pub_aff and sig_aff are the signers' pub and sig
-   points in affine form, in signer-list (not rank) order.  The caller
+   the signer list.  pub and sig are the signers' keys and signatures
+   gathered into signer-list (not rank) order.  The caller
    guarantees gt!=1, i.e. the run contains a bad signer.  p, s and gt
    are consumed by the descent, which lets both halves be derived
    without copying the parent: the hi run's sums are p-lp and its gt
@@ -198,8 +206,8 @@ FD_STATIC_ASSERT( FD_BLS_SET_MAX<=(1UL<<BISECT_DEPTH_MAX), bisect_depth );
 
 static void
 verify_bisect_rec( blst_p2_affine const * h,
-                   blst_p1_affine const * pub_aff,
-                   blst_p2_affine const * sig_aff,
+                   fd_bls_pub_t const *   pub,
+                   fd_bls_sig_t const *   sig,
                    ushort const *         ranks,
                    ushort                 lo,
                    ushort                 hi,
@@ -212,8 +220,8 @@ verify_bisect_rec( blst_p2_affine const * h,
   ushort mid = (ushort)( lo + ( (ulong)hi-(ulong)lo )/2UL );
 
   /* Sum the lo half's pub and sig points in one batch each. */
-  blst_p1_affine const * pub_sum[2] = { pub_aff+lo, NULL };
-  blst_p2_affine const * sig_sum[2] = { sig_aff+lo, NULL };
+  fd_bls_pub_t const * pub_sum[2] = { pub+lo, NULL };
+  fd_bls_sig_t const * sig_sum[2] = { sig+lo, NULL };
   blst_p1 lp[1]; blst_p2 ls[1];
   blst_p1s_add( lp, pub_sum, (size_t)( (ulong)mid-(ulong)lo ) );
   blst_p2s_add( ls, sig_sum, (size_t)( (ulong)mid-(ulong)lo ) );
@@ -231,8 +239,8 @@ verify_bisect_rec( blst_p2_affine const * h,
   blst_fp12_mul( hgt, lgt, gt );
   blst_fp12_conjugate( hgt ); /* hgt = conj(lgt)*gt */
 
-  if( FD_LIKELY( !blst_fp12_is_one( lgt ) ) ) verify_bisect_rec( h, pub_aff, sig_aff, ranks, lo, mid, lp, ls, lgt, bad );
-  if( FD_LIKELY( !blst_fp12_is_one( hgt ) ) ) verify_bisect_rec( h, pub_aff, sig_aff, ranks, mid, hi, hp, hs, hgt, bad );
+  if( FD_LIKELY( !blst_fp12_is_one( lgt ) ) ) verify_bisect_rec( h, pub, sig, ranks, lo, mid, lp, ls, lgt, bad );
+  if( FD_LIKELY( !blst_fp12_is_one( hgt ) ) ) verify_bisect_rec( h, pub, sig, ranks, mid, hi, hp, hs, hgt, bad );
 }
 
 static fd_bls_set_t *
@@ -251,30 +259,21 @@ verify_bisect_hashed( fd_bls_agg_t const *   agg,
   agg_pairing( gt, h, &agg->pub, &agg->sig );
   if( FD_LIKELY( blst_fp12_is_one( gt ) ) ) return bad;
 
-  ushort           ranks  [ FD_BLS_SET_MAX ];
-  blst_p1 const *  pub_ptr[ FD_BLS_SET_MAX ];
-  blst_p1_affine   pub_aff[ FD_BLS_SET_MAX ];
-  blst_p2_affine   sig_aff[ FD_BLS_SET_MAX ]; /* sigs are stored affine, so they are gathered rather than converted */
-  ulong  cnt = 0UL;
+  /* gather the signers into a contiguous run so each half of the
+     descent is a linear range */
+  ushort       ranks  [ FD_BLS_SET_MAX ];
+  fd_bls_pub_t pub_run[ FD_BLS_SET_MAX ];
+  fd_bls_sig_t sig_run[ FD_BLS_SET_MAX ];
+  ulong        cnt = 0UL;
   for( ulong rank = fd_bls_set_const_iter_init( agg->set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( agg->set, rank ) ) {
     ranks  [ cnt ] = (ushort)rank;
-    pub_ptr[ cnt ] = pub+rank;
-    sig_aff[ cnt ] = sig[ rank ];
+    pub_run[ cnt ] = pub[ rank ];
+    sig_run[ cnt ] = sig[ rank ];
     cnt++;
   }
-
-  /* blst_p1s_to_affine cannot take a point at infinity. A signer with an
-     infinity pub or sig cannot verify anyway, so fall back to the linear
-     scan, which flags them. */
-  for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( blst_p1_is_inf( pub_ptr[ i ] ) || blst_p2_affine_is_inf( sig_aff+i ) ) )
-      return verify_linear_hashed( agg, h, pub, sig, bad );
-  }
-
-  blst_p1s_to_affine( pub_aff, pub_ptr, cnt );
-  verify_bisect_rec( h, pub_aff, sig_aff, ranks, 0, (ushort)cnt, p, s, gt, bad );
+  verify_bisect_rec( h, pub_run, sig_run, ranks, 0, (ushort)cnt, p, s, gt, bad );
   return bad;
 }
 

@@ -1881,9 +1881,7 @@ test_bls_pubkey( uchar out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
   fd_bls_sec_derive( &sec, ikm, sizeof(ikm) );
   fd_bls_pub_t pub;
   fd_bls_sec_to_pub( &sec, &pub );
-  blst_p1_affine aff[ 1 ];
-  blst_p1_to_affine( aff, &pub );
-  blst_p1_affine_compress( out, aff );
+  blst_p1_affine_compress( out, &pub );
 }
 
 static ushort

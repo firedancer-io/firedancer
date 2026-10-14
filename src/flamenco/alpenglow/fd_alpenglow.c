@@ -49,8 +49,8 @@ struct validator_set {
   ulong          epoch;
   ulong          validator_cnt;          /* 0 if not built */
   ulong          total_stake;
-  fd_bls_pub_t   key_sum;                /* sum of all keys, infinity for a t-1 set */
-  blst_p1_affine bls_keys[ AG_VAT_MAX ]; /* indexed by rank */
+  blst_p1        key_sum;                /* sum of all keys, infinity for a t-1 set */
+  fd_bls_pub_t   bls_keys[ AG_VAT_MAX ]; /* indexed by rank */
   ulong          stakes  [ AG_VAT_MAX ]; /* indexed by rank */
 };
 typedef struct validator_set validator_set_t;
@@ -105,7 +105,7 @@ validator_set_for_slot( validator_set_t * set,
     FD_LOG_WARNING(( "slot %lu: epoch %lu has %lu ranked validators, highest rank %lu", bank->f.slot, epoch, cnt, max_rank ));
     return 0;
   }
-  memset( &set->key_sum, 0, sizeof(fd_bls_pub_t) ); /* point at infinity */
+  memset( &set->key_sum, 0, sizeof(blst_p1) ); /* point at infinity */
   if( FD_LIKELY( iter_kind!=FD_VOTE_STAKES_ITER_T_1 ) ) {
     for( ulong rank=0UL; rank<cnt; rank++ ) blst_p1_add_or_double_affine( &set->key_sum, &set->key_sum, set->bls_keys+rank );
   }
@@ -157,7 +157,7 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
   for( ulong rank=fd_bls_set_const_iter_init( cert->signer_set ); !fd_bls_set_const_iter_done( rank ); rank=fd_bls_set_const_iter_next( cert->signer_set, rank ) ) {
     stake += set->stakes[ rank ];
   }
-  fd_bls_pub_t pub[1];
+  blst_p1 pub[1];
   fd_bls_pub_sum( pub, set->bls_keys, set->validator_cnt, cert->signer_set, set->epoch!=ULONG_MAX ? &set->key_sum : NULL );
   if( FD_UNLIKELY( quorum_numer && (uint128)stake*(uint128)AG_QUORUM_THRESHOLD_DENOM<(uint128)set->total_stake*(uint128)quorum_numer ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has %lu of %lu stake, below %lu/%lu",
@@ -165,8 +165,8 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
     return -1;
   }
 
-  blst_p2_affine sig_affine[1];
-  blst_p2        sig[1];
+  fd_bls_sig_t sig_affine[1];
+  blst_p2      sig[1];
   if( FD_UNLIKELY( blst_p2_uncompress( sig_affine, cert->sig )!=BLST_SUCCESS || !blst_p2_affine_in_g2( sig_affine ) ) ) {
     FD_LOG_WARNING(( "slot %lu: footer cert for slot %lu has a malformed signature", bank_slot, cert_slot ));
     return -1;
