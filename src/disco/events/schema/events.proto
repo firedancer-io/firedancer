@@ -445,6 +445,7 @@ enum AlpenglowVoteReason {
   ALPENGLOW_VOTE_REASON_SAFE_TO_SKIP = 7;  // No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window.
   ALPENGLOW_VOTE_REASON_REWARD = 8;  // Our notar or skip vote sent to the leader of slot+8, who packs the slot's reward cert, apart from the broadcast, and resent every probe timeout until that leader acknowledges it or we replay slot+8.
   ALPENGLOW_VOTE_REASON_REWARD_ACKED = 9;  // The leader of slot+8 acknowledged a packet carrying our notar or skip vote, which ends its reward resends. The row timestamp is when the acknowledgement arrived; broadcast_to is empty.
+  ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION = 10;  // We are trying to cast a notar or skip vote whose reward (slot+8) leader we have no active connection to. The problematic gossip ip and port is in broadcast_to.
 }
 
 // What we did with the vote. unknown_peer and banned_peer are decided on the connection before the vote is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific validation.

@@ -1455,11 +1455,11 @@ test_park( void ) {
   long next = ag_votor_next_skip_timeout( ctx->votor );
   FD_TEST( next==timeout1+ctx->ns_per_slot ); /* slot 2: still set, a no-op when it fires */
 
-  /* A reward retry whose leader has no active conn waits for the frag
-     that brings one up: it adds no deadline, due or not.  The park
-     stays on the standstill timer, which the first pass started and
-     which is due by now: its bundle is empty, so it goes quiet for a
-     cycle. */
+  /* A reward retry whose leader has no active conn is due like any
+     other: the pass tries to bring the leader's conn up, charges no
+     busy, and checks again REWARD_VOTE_RTT_MIN_NS later.  The standstill
+     timer, which the first pass started and which is due by now, has an
+     empty bundle, so it goes quiet for a cycle. */
   fd_clock_tile_set( ctx->clock, timeout+(long)10e9 );
   ulong timeout_slot;
   while( ag_votor_poll_skip_timeout( ctx->votor, LONG_MAX-1L, &timeout_slot ) ) ag_votor_handle_skip_timeout( ctx->votor, timeout_slot );
@@ -1470,14 +1470,15 @@ test_park( void ) {
   reward_vote_t * rv = &ctx->reward_votes[ 5UL%REWARD_VOTE_MAX ];
   rv->slot     = 5UL;
   rv->retry_ts = timeout;
-  FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->standstill_ts ) );
+  FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, fd_long_min( ctx->standstill_ts, timeout ) ) );
   charge_busy = 0;
   long pass = fd_clock_tile_now( ctx->clock );
   after_credit( ctx, NULL, &poll_in, &charge_busy );
   FD_TEST( !charge_busy );
   FD_TEST( ag_pool_standstill_iter_done( ctx->standstill_iter ) );
   FD_TEST( ctx->standstill_ts>=pass+STANDSTILL_CYCLE_INTERVAL_NS && ctx->standstill_ts<=fd_clock_tile_now( ctx->clock )+STANDSTILL_CYCLE_INTERVAL_NS );
-  FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->standstill_ts ) );
+  FD_TEST( rv->retry_ts>=pass+REWARD_VOTE_RTT_MIN_NS && rv->retry_ts<=fd_clock_tile_now( ctx->clock )+REWARD_VOTE_RTT_MIN_NS );
+  FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, rv->retry_ts ) );
   FD_TEST( rv->slot==5UL );
 
   reconn_prq_delete( reconn_prq_leave( ctx->reconn_prq ) );

@@ -430,8 +430,26 @@ report_alpenglow_vote( fd_votor_tile_t * ctx,
   ev.broadcast_start_time               = (ulong)broadcast_start_time;
   ev.done_time                          = (ulong)fd_clock_tile_now( ctx->clock );
 
-  if( FD_UNLIKELY( !conn && reason!=FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED ) ) {
-    ulong cnt = epoch_info ? epoch_info->validator_cnt : 0UL;
+  if( FD_UNLIKELY( reason==FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION ) ) {
+    ulong                   reward_slot = ev.slot+AG_REWARD_SLOT_DELTA;
+    ag_epoch_info_t const * reward_info = fd_ptr_if( reward_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( reward_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
+    ulong                   cnt         = reward_info ? reward_info->validator_cnt : 0UL;
+    ushort                  rank        = fd_ushort_if( reward_slot>=ctx->next_epoch_slot, reward_leader->next_rank, fd_ushort_if( reward_slot>=ctx->curr_epoch_slot, reward_leader->curr_rank, reward_leader->prev_rank ) );
+    contact_info_t const *  ci          = contact_infos_query( ctx->contact_infos, reward_leader->id_key, NULL );
+    fd_memset( ev.broadcast_to, 0, cnt*sizeof(fd_event_alpenglow_vote_broadcast_to_t) );
+    if( FD_LIKELY( rank<cnt ) ) memcpy( ev.broadcast_to[ rank ].identity, reward_leader->id_key.uc, sizeof(fd_pubkey_t) );
+    if( FD_LIKELY( rank<cnt && ci ) ) {
+      FD_STORE( ushort, ev.broadcast_to[ rank ].ip+10, (ushort)0xffff );
+      FD_STORE( uint,   ev.broadcast_to[ rank ].ip+12, ci->ip4 );
+      ev.broadcast_to[ rank ].port = ci->port;
+    }
+    ev.broadcast_to_cnt = cnt;
+  }
+
+  if( FD_UNLIKELY( !conn && reason!=FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED && reason!=FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION ) ) {
+    ulong                   rank_slot = fd_ulong_if( reason==FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, ev.slot+AG_REWARD_SLOT_DELTA, ev.slot );
+    ag_epoch_info_t const * rank_info = fd_ptr_if( rank_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( rank_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
+    ulong                   cnt       = rank_info ? rank_info->validator_cnt : 0UL;
     fd_memset( ev.broadcast_to, 0, cnt*sizeof(fd_event_alpenglow_vote_broadcast_to_t) );
     for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
@@ -439,7 +457,7 @@ report_alpenglow_vote( fd_votor_tile_t * ctx,
                      || !peer->tx_conn
                      || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE
                      || (peer==reward_leader)!=(reason==FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD) ) ) continue;
-      ushort rank = fd_ushort_if( ev.slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( ev.slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
+      ushort rank = fd_ushort_if( rank_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( rank_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
       if( FD_UNLIKELY( rank>=cnt ) ) continue;
       memcpy( ev.broadcast_to[ rank ].identity, peer->id_key.uc, sizeof(fd_pubkey_t) );
       FD_STORE( ushort, ev.broadcast_to[ rank ].ip+10, (ushort)0xffff );
@@ -1666,7 +1684,7 @@ next_deadline( fd_votor_tile_t * ctx ) {
     for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
       reward_vote_t const * rv = &ctx->reward_votes[ i ];
       if( FD_LIKELY( rv->slot==ULONG_MAX || rv->retry_ts>=next ) ) continue;
-      if( FD_LIKELY( query_reward_leader( ctx, rv ) ) ) next = rv->retry_ts;
+      next = rv->retry_ts;
     }
     for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) {
       reward_cert_t const * rc = &ctx->reward_certs[ i ];
@@ -1778,7 +1796,14 @@ after_credit( fd_votor_tile_t *   ctx,
     reward_vote_t * rv = &ctx->reward_votes[ i ];
     if( FD_LIKELY( rv->slot==ULONG_MAX || now<rv->retry_ts ) ) continue;
     peer_t const * peer = query_reward_leader( ctx, rv );
-    if( FD_UNLIKELY( !peer ) ) continue;
+    if( FD_UNLIKELY( !peer ) ) {
+      fd_pubkey_t const *    leader_key = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
+      peer_t *               leader     = leader_key ? peers_query( ctx->peers, *leader_key, NULL ) : NULL;
+      contact_info_t const * ci         = leader ? contact_infos_query( ctx->contact_infos, leader->id_key, NULL ) : NULL;
+      if( FD_LIKELY( ci && now>=leader->conn_ts+REWARD_VOTE_RTT_MAX_NS ) ) quic_client_connect( ctx, leader, ci, now ); /* skip the reconnect backoff, the reward vote is only useful until we replay slot+8 */
+      rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
+      continue;
+    }
     long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
     ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
     ulong pkt_num              = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
@@ -1997,6 +2022,7 @@ after_credit( fd_votor_tile_t *   ctx,
         FD_LOG_CRIT(( "unhandled kind" ));
       }
       report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, reward_leader );
+      if( FD_UNLIKELY( reward_leader && ( !reward_leader->tx_conn || reward_leader->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION, 0L, 0L, reward_leader );
     }
     *opt_poll_in = 0;
     *charge_busy = 1;
