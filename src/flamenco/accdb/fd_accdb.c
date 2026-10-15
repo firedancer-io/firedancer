@@ -3540,7 +3540,7 @@ release_inner( fd_accdb_t * accdb,
     } else {
       accdb->metrics->accounts_committed_new_per_class[ new_size_class ]++;
       fd_accdb_accmeta_t * accmeta = acc_pool_acquire( accdb->acc_pool_join );
-      FD_TEST( accmeta );
+      if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
       ulong acc_idx = acc_pool_idx( accdb->acc_pool_join, accmeta );
       fd_memcpy( accmeta->key.pubkey, accs[ i ].pubkey, 32UL );
       accmeta->lamports        = accs[ i ].lamports;
@@ -4237,7 +4237,9 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   }
 
   fd_accdb_accmeta_t * acquired[ 8 ];
-  FD_TEST( acc_pool_acquire_batch( accdb->acc_pool_join, cnt, acquired ) );
+  if( FD_UNLIKELY( !acc_pool_acquire_batch( accdb->acc_pool_join, cnt, acquired ) ) ) {
+    FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
+  }
 
   /* Phase 2: walk and commit under the account chain lock. */
 
