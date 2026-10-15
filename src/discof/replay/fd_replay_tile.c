@@ -115,6 +115,7 @@
 #define IN_KIND_SNAPMK     (11)
 #define IN_KIND_ADMIN      (12)
 #define IN_KIND_VOTOR      (13)
+#define IN_KIND_STRMK      (14)
 
 #define DEBUG_LOGGING 0
 
@@ -3186,6 +3187,10 @@ snapmk_start( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int                 incremental );
 
+static void
+strmk_start( fd_replay_tile_t * ctx,
+             int                incremental );
+
 static int
 try_advance_published_root( fd_replay_tile_t *  ctx,
                             fd_stem_context_t * stem ) {
@@ -3194,7 +3199,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   /* accdb pauses advance_root while producing a snapshot, so submitting
      one would stall the next wait_cmd until the snapshot completes. */
-  if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
+  if( FD_UNLIKELY( ctx->snapmk.active || ctx->strmk.active ) ) return 0;
 
   /* Don't spin in advance_root on the previous root, replay instead and
      retry next iteration. */
@@ -3291,6 +3296,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( snap_due ) ) {
     snapmk_start( ctx, stem, snap_incremental );
+    strmk_start( ctx, snap_incremental );
     if( FD_UNLIKELY( !snap_incremental ) ) {
       if( FD_UNLIKELY( ctx->snapmk.full_interval_blocks &&
                        bank->f.block_height>=ctx->snapmk.next_full_block_height ) ) {
@@ -3907,6 +3913,27 @@ snapmk_start( fd_replay_tile_t *  ctx,
   ctx->snapmk.active = 1;
 }
 
+static void
+strmk_start( fd_replay_tile_t * ctx,
+             int                incremental ) {
+  FD_CHECK_CRIT( ctx->snapmk.active, "stream start without a snapshot start" );
+  FD_CHECK_CRIT( !ctx->strmk.active, "stream start while the stream maker still reads a snapshot bank" );
+  ctx->strmk.active = incremental && ctx->strmk.supported;
+}
+
+/* snap_release unpins the snapshot bank once neither the snapshot
+   maker nor the stream maker is reading it. */
+
+static void
+snap_release( fd_replay_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->snapmk.active || ctx->strmk.active ) ) return;
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->snapmk.bank_idx );
+  FD_CHECK_CRIT( bank, "invalid snapmk.bank_idx" );
+  FD_CHECK_CRIT( bank->refcnt > 0UL, "invalid snapmk.bank_idx refcnt" );
+  fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
+  bank->refcnt--;
+}
+
 /* snapmk_done reacts to the snapmk tile reporting completion. */
 
 static void
@@ -3917,10 +3944,8 @@ snapmk_done( fd_replay_tile_t *  ctx,
 
   FD_CHECK_CRIT( ctx->snapmk.active, "spurious snap complete msg (not creating snapshot)" );
 
-  /* release bank */
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->snapmk.bank_idx );
   FD_CHECK_CRIT( bank, "invalid snapmk.bank_idx" );
-  FD_CHECK_CRIT( bank->refcnt > 0UL, "invalid snapmk.bank_idx refcnt" );
 
   /* A completed full snapshot becomes the base of later incrementals. */
   if( FD_LIKELY( success && !ctx->snapmk.incremental ) ) {
@@ -3936,9 +3961,18 @@ snapmk_done( fd_replay_tile_t *  ctx,
     }
   }
 
-  fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
-  bank->refcnt--;
   ctx->snapmk.active = 0;
+  snap_release( ctx );
+}
+
+/* strmk_done reacts to the stream maker reporting it is finished
+   reading the snapshot bank. */
+
+static void
+strmk_done( fd_replay_tile_t * ctx ) {
+  FD_CHECK_CRIT( ctx->strmk.active, "spurious stream done msg (stream maker not reading the snapshot bank)" );
+  ctx->strmk.active = 0;
+  snap_release( ctx );
 }
 
 static void
@@ -3977,6 +4011,14 @@ msg_snapmk( fd_replay_tile_t *  ctx,
   default:
     break;
   }
+}
+
+/* msg_strmk handles the one message the stream maker sends: it is
+   done reading the snapshot bank. */
+
+static void
+msg_strmk( fd_replay_tile_t * ctx ) {
+  strmk_done( ctx );
 }
 
 /* admin command handlers
@@ -4031,13 +4073,14 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->snapmk.active ) ) {
+  if( FD_UNLIKELY( ctx->snapmk.active || ctx->strmk.active ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but currently busy creating another snapshot. ignoring ..." ));
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
     return;
   }
 
   snapmk_start( ctx, stem, 0 );
+  strmk_start( ctx, 0 );
   admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
@@ -4279,6 +4322,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_SNAPMK:
       msg_snapmk( ctx, stem, sig, in_idx, chunk );
+      break;
+    case IN_KIND_STRMK:
+      msg_strmk( ctx );
       break;
     case IN_KIND_ADMIN:
       msg_admin( ctx, stem, fd_frag_meta_ctl_orig( ctl ), sig );
@@ -4628,6 +4674,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
+  ctx->strmk.supported = fd_topo_find_tile( topo, "strmk", 0UL )!=ULONG_MAX;
+  ctx->strmk.active    = 0;
 
   ctx->votor_final->slot       = ULONG_MAX;
   ctx->votor_parent_ready_slot = 0UL;
@@ -4693,6 +4741,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_misc"   ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
+    else if( !strcmp( link->name, "strmk_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_STRMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
     else if( !strcmp( link->name, "votor_out"     ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));

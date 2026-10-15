@@ -241,6 +241,7 @@ bench_cmd_fn( args_t *   args,
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );
+  initialize_fast_boot_fds( config );
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {

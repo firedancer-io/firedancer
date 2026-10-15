@@ -648,6 +648,15 @@ telemetry = true
         # in more memory use.  Must be a power of two.
         send_buffer_size_kib = 64
 
+    # Firedancer supports fast booting off other Firedancer nodes which
+    # allows clients to vote on blocks while snapshots are still
+    # loading.  Enabling this allows other Firedancer clients to connect
+    # to this validator and start up via fast boot.  Needs
+    # [snapshots.server] and incremental snapshot production both
+    # enabled.
+    [snapshots.fast_boot.serve]
+        enabled = false
+
 [consensus]
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter

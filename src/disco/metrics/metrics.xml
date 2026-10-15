@@ -2015,6 +2015,9 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="ConnOpen" summary="Open HTTP connections to the snapshot service" />
     <counter name="HttpRxBytes" summary="Bytes received in requests to the snapshot service" />
     <counter name="HttpTxBytes" summary="Bytes sent in responses from the snapshot service" />
+    <gauge name="FastBootStreamAvailable" summary="Fast boot stream files currently available for download" />
+    <counter name="FastBootRequestServed" summary="HTTP requests for fast boot streams served" />
+    <counter name="FastBootTxBytes" summary="Bytes sent in fast boot stream responses" />
 </tile>
 
 <tile name="motor">
