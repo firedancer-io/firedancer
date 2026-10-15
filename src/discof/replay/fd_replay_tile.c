@@ -338,8 +338,10 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_REASSEMBLY_EMPTY,    ctx->metrics.reasm_empty );
   FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_LEADER_FREEZE_WAIT,  ctx->metrics.leader_bid_wait );
   FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_BANK_FULL,           ctx->metrics.banks_full );
+  FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_EQUIVOCATION_WAIT,   ctx->metrics.reasm_eqvoc_wait );
+  FD_MCNT_SET( REPLAY, LEADER_SLOT_ALREADY_PRODUCED,         ctx->metrics.leader_slot_already_produced );
   FD_MCNT_SET( REPLAY, FEC_PARENT_MISSING_DROPPED,           ctx->metrics.parent_unavailable );
-  FD_MCNT_SET( REPLAY, ROOT_ADVANCE_DEFERRED,               ctx->metrics.storage_root_behind );
+  FD_MCNT_SET( REPLAY, ROOT_ADVANCE_DEFERRED,                ctx->metrics.storage_root_behind );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED, pcm->root_cnt );
@@ -2389,6 +2391,19 @@ try_become_leader( fd_replay_tile_t *  ctx,
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state!=FD_BANK_STATE_FROZEN ) ) return 0;
 
+  /* The cluster already produced this slot (e.g. a hot spare or
+     restart catching up through our own past slots): leading it again
+     would publish a duplicate block.  Move on to the next one. */
+  if( FD_UNLIKELY( fd_reasm_has_xid( ctx->reasm, ctx->next_leader_slot, 0U ) ) ) {
+    ctx->metrics.leader_slot_already_produced++;
+    ctx->next_leader_slot = query_next_leader_slot( ctx, ctx->next_leader_slot+1UL );
+    if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) {
+      double slot_duration_ticks = (double)reset_bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
+      ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
+    }
+    return 0;
+  }
+
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
@@ -3209,7 +3224,8 @@ can_process_fec( fd_replay_tile_t * ctx,
 
   fd_reasm_fec_t * fec;
   if( FD_UNLIKELY( (fec = fd_reasm_peek( ctx->reasm ))==NULL ) ) {
-    ctx->metrics.reasm_empty++;
+    if( FD_UNLIKELY( fd_reasm_blocked( ctx->reasm ) ) ) ctx->metrics.reasm_eqvoc_wait++;
+    else                                                ctx->metrics.reasm_empty++;
     return 0;
   }
 

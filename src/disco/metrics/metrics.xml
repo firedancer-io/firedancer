@@ -641,6 +641,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="1" name="ReassemblyEmpty" label="The reassembly queue was empty" />
     <int value="2" name="LeaderFreezeWait" label="Waiting for PoH to end our leader block" />
     <int value="3" name="BankFull" label="The bank pool was full" />
+    <int value="4" name="EquivocationWait" label="Every queued FEC set equivocates and awaits duplicate confirmation" />
 </enum>
 
 <enum name="PackScheduleRegime">
@@ -1126,6 +1127,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="FecPollSkipped" enum="FecPollSkipReason" summary="Replay loop iterations that processed no FEC set, by reason" />
     <counter name="FecParentMissingDropped" summary="FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past" />
     <counter name="RootAdvanceDeferred" summary="Times the storage root could not advance to the consensus root yet" />
+    <counter name="LeaderSlotAlreadyProduced" summary="Leader slots skipped because a block for the slot was already received from the network" />
 
     <counter name="ProgcacheRooted" summary="Program cache entries rooted" />
     <gauge name="ProgcacheClassUsed" enum="ProgcacheClass" summary="Program cache value slots in use, by size class" />

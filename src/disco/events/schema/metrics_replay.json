@@ -224,13 +224,14 @@
             "type": "Tuple",
             "description": "Replay loop iterations that processed no FEC set, by reason",
             "aliases": {
-                "all": ["sched_full", "reassembly_empty", "leader_freeze_wait", "bank_full"]
+                "all": ["sched_full", "reassembly_empty", "leader_freeze_wait", "bank_full", "equivocation_wait"]
             },
             "fields": {
                 "sched_full":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The scheduler was full" },
                 "reassembly_empty":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The reassembly queue was empty" },
                 "leader_freeze_wait": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Waiting for PoH to end our leader block" },
-                "bank_full":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank pool was full" }
+                "bank_full":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank pool was full" },
+                "equivocation_wait":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Every queued FEC set equivocates and awaits duplicate confirmation" }
             }
         },
         "fec_parent_missing_dropped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past" },
@@ -370,6 +371,7 @@
         "accdb_disk_written_bytes":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
         "accdb_disk_written":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
         "accdb_copied_bytes":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" },
-        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" }
+        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" },
+        "leader_slot_already_produced":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader slots skipped because a block for the slot was already received from the network" }
     }
 }

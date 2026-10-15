@@ -435,6 +435,48 @@ test_eqvoc_xid( fd_wksp_t * wksp ) {
 }
 
 void
+test_eqvoc_leader( fd_wksp_t * wksp ) {
+  ulong        fec_max = 32;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+  fd_reasm_fec_t * ev[1];
+
+  fd_hash_t mr0[1] = {{{ 2, 0 }}};
+  fd_reasm_init( reasm, mr0, 0 );
+
+  fd_hash_t mr1[1] = {{{ 2, 1 }}};
+  fd_hash_t mr2[1] = {{{ 2, 2 }}};
+  fd_hash_t mr3[1] = {{{ 2, 3 }}};
+  fd_hash_t ld2[1] = {{{ 2, 4 }}};
+  fd_hash_t eq2[1] = {{{ 2, 5 }}};
+
+  fd_reasm_insert( reasm, mr1, mr0, 1, 0,  1, 32, 1, 1, 0, NULL, NULL, ev );
+  fd_reasm_insert( reasm, mr2, mr1, 2, 0,  1, 32, 0, 0, 0, NULL, NULL, ev );
+  FD_TEST( fd_reasm_pop( reasm )->slot==1UL );
+  FD_TEST( fd_reasm_has_xid( reasm, 2UL, 0U ) );
+
+  /* Our leader FEC colliding with the network's marks only ours. */
+
+  fd_reasm_fec_t * leader = fd_reasm_insert( reasm, ld2, mr1, 2, 0, 1, 32, 1, 1, 1, NULL, NULL, ev );
+  fd_reasm_fec_t * net3   = fd_reasm_insert( reasm, mr3, mr2, 2, 32, 1, 32, 1, 1, 0, NULL, NULL, ev );
+  FD_TEST( leader->eqvoc );
+  FD_TEST( !fd_reasm_query( reasm, mr2 )->eqvoc && !net3->eqvoc );
+  FD_TEST( fd_reasm_pop( reasm )==fd_reasm_query( reasm, mr2 ) );
+  FD_TEST( fd_reasm_pop( reasm )==net3 );
+  FD_TEST( !fd_reasm_peek( reasm ) && !fd_reasm_blocked( reasm ) );
+
+  /* A network collision still marks both network chains. */
+
+  fd_reasm_insert( reasm, eq2, mr1, 2, 0, 1, 32, 1, 1, 0, NULL, NULL, ev );
+  FD_TEST( fd_reasm_query( reasm, eq2 )->eqvoc && net3->eqvoc );
+  FD_TEST( !fd_reasm_peek( reasm ) && fd_reasm_blocked( reasm ) );
+
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  FD_LOG_NOTICE(( "test_eqvoc_leader passed" ));
+}
+
+void
 test_eqvoc_transitive( fd_wksp_t * wksp ) {
   ulong        fec_max = 32;
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
@@ -1453,6 +1495,7 @@ main( int argc, char ** argv ) {
   test_fec_after_eos( wksp );
   test_eqvoc_transitive( wksp );
   test_eqvoc_xid( wksp );
+  test_eqvoc_leader( wksp );
   test_eqvoc_xid_evict( wksp );
   test_evict( wksp );
   test_validate_cross_slot( wksp );

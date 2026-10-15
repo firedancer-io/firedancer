@@ -3829,6 +3829,8 @@ message MetricsReplayFecPollSkipped {
   uint64 leader_freeze_wait = 3;
   // The bank pool was full
   uint64 bank_full = 4;
+  // Every queued FEC set equivocates and awaits duplicate confirmation
+  uint64 equivocation_wait = 5;
 }
 
 // Transactions with address lookup tables the replay scheduler tried to resolve, by result
@@ -9455,6 +9457,8 @@ message MetricsReplay {
   uint64 accdb_copied_bytes = 115;
   // Whether the runtime has loaded a bank and can replay
   bool is_runtime_loaded = 116;
+  // Leader slots skipped because a block for the slot was already received from the network
+  uint64 leader_slot_already_produced = 117;
 }
 
 // Metrics of one rotor tile instance, one row per sweep

@@ -164,6 +164,18 @@ fd_reasm_free( fd_reasm_t * reasm ) {
   return pool_free( reasm_pool( reasm ) );
 }
 
+int
+fd_reasm_has_xid( fd_reasm_t * reasm,
+                  ulong        slot,
+                  uint         fec_set_idx ) {
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  xid_t *          xid  = xid_query( reasm->xid, (slot<<32) | fec_set_idx, NULL );
+  for( uint idx = xid ? (uint)xid->idx : UINT_MAX; idx!=UINT_MAX; idx = pool_ele( pool, idx )->xid_next ) {
+    if( FD_LIKELY( !pool_ele( pool, idx )->is_leader ) ) return 1;
+  }
+  return 0;
+}
+
 fd_reasm_fec_t *
 fd_reasm_peek( fd_reasm_t * reasm ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
@@ -174,6 +186,11 @@ fd_reasm_peek( fd_reasm_t * reasm ) {
     if( FD_LIKELY( fec && !fec->popped && ( !fec->eqvoc || fec->confirmed ) ) ) return fec;
   }
   return NULL;
+}
+
+int
+fd_reasm_blocked( fd_reasm_t * reasm ) {
+  return !out_is_empty( reasm->out, reasm_pool( reasm ) );
 }
 
 fd_reasm_fec_t *
@@ -955,15 +972,17 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   /* Fourth, check and handle equivocation.  There are three cases.
 
      1. we've already seen this FEC's xid (slot, fec_set_idx)
-     2. this FEC's parent equivocates. */
+     2. this FEC's parent equivocates.
+
+     A collision with our own leader FEC marks only ours: a slot we
+     abandoned or led behind the cluster must not mark the network's
+     chain eqvoc, which only a duplicate confirmation can clear. */
 
   xid_t * xid = xid_query( reasm->xid, (slot<<32) | fec_set_idx, NULL );
-  if( FD_UNLIKELY( xid ) ) {
-    eqvoc( reasm, fec );
-    eqvoc( reasm, pool_ele( pool, xid->idx ) ); /* most recent appearance of this xid */
-    /* We can call eqvoc on the head of the xid list because we maintain
-       the order of most recent to least recent. Inductively, this marks
-       all FECs with the same xid as equivocating. */
+  for( uint idx = xid ? (uint)xid->idx : UINT_MAX; idx!=UINT_MAX; idx = pool_ele( pool, idx )->xid_next ) {
+    fd_reasm_fec_t * ele = pool_ele( pool, idx );
+    if( FD_LIKELY( is_leader      || !ele->is_leader ) ) eqvoc( reasm, fec );
+    if( FD_LIKELY( ele->is_leader || !is_leader      ) ) eqvoc( reasm, ele );
   }
   xid_update( reasm, slot, fec_set_idx, pool_idx( pool, fec ) );
   if( FD_UNLIKELY( parent && parent->eqvoc && !parent->confirmed ) ) eqvoc( reasm, fec );

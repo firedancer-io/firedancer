@@ -615,6 +615,8 @@ struct fd_replay_tile {
     ulong reasm_empty;
     ulong leader_bid_wait;
     ulong banks_full;
+    ulong reasm_eqvoc_wait;
+    ulong leader_slot_already_produced;
     ulong parent_unavailable;
     ulong storage_root_behind;
 
