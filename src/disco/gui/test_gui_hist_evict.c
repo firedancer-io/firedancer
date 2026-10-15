@@ -1382,7 +1382,7 @@ main( int     argc,
   store_close( rv );
 
   test_store_t la[ 1 ];
-  store_open( la, 1UL<<30, 30 );
+  store_open( la, TEST_STORE_BYTES, 30 );
   test_leader_active_slot( la->gui );
   store_close( la );
 
