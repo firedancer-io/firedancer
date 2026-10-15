@@ -123,6 +123,7 @@ jobs:
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          sudo rm -rf "$HOME/.firedancer/fd1"
           make run-integration-test
 
       - name: run solcap tests

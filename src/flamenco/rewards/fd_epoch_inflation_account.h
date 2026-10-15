@@ -92,24 +92,31 @@ fd_epoch_inflation_rewards_for_epoch( fd_bank_t const * bank,
   FD_LOG_CRIT(( "missing epoch inflation state for Alpenglow reward epoch %lu", epoch ));
 }
 
+/* fd_epoch_inflation_account_encode writes the account data of state
+   to data, which has room for FD_EPOCH_INFLATION_ACCOUNT_SOME bytes.
+   Returns the data size. */
+
+static inline ulong
+fd_epoch_inflation_account_encode( uchar                                      data[ static FD_EPOCH_INFLATION_ACCOUNT_SOME ],
+                                   fd_epoch_inflation_account_state_t const * state ) {
+  FD_STORE( ulong, data,      state->current.max_possible_validator_reward );
+  FD_STORE( ulong, data+8UL,  state->current.slots_per_epoch               );
+  FD_STORE( ulong, data+16UL, state->current.epoch                         );
+  data[ FD_EPOCH_INFLATION_STATE_SZ ] = (uchar)!!state->has_prev;
+  if( !state->has_prev ) return FD_EPOCH_INFLATION_ACCOUNT_NONE;
+  FD_STORE( ulong, data+25UL, state->prev.max_possible_validator_reward );
+  FD_STORE( ulong, data+33UL, state->prev.slots_per_epoch               );
+  FD_STORE( ulong, data+41UL, state->prev.epoch                         );
+  return FD_EPOCH_INFLATION_ACCOUNT_SOME;
+}
+
 static inline void
 fd_epoch_inflation_account_write( fd_bank_t *                                bank,
                                   fd_accdb_t *                               accdb,
                                   fd_capture_ctx_t *                         capture_ctx,
                                   fd_epoch_inflation_account_state_t const * state ) {
   uchar data[ FD_EPOCH_INFLATION_ACCOUNT_SOME ];
-  FD_STORE( ulong, data,      state->current.max_possible_validator_reward );
-  FD_STORE( ulong, data+8UL,  state->current.slots_per_epoch               );
-  FD_STORE( ulong, data+16UL, state->current.epoch                         );
-  data[ FD_EPOCH_INFLATION_STATE_SZ ] = (uchar)!!state->has_prev;
-
-  ulong data_sz = FD_EPOCH_INFLATION_ACCOUNT_NONE;
-  if( state->has_prev ) {
-    FD_STORE( ulong, data+25UL, state->prev.max_possible_validator_reward );
-    FD_STORE( ulong, data+33UL, state->prev.slots_per_epoch               );
-    FD_STORE( ulong, data+41UL, state->prev.epoch                         );
-    data_sz = FD_EPOCH_INFLATION_ACCOUNT_SOME;
-  }
+  ulong data_sz = fd_epoch_inflation_account_encode( data, state );
 
   fd_pubkey_t           address = fd_epoch_inflation_account_address();
   fd_accdb_svm_update_t update[1];

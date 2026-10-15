@@ -12,6 +12,9 @@ $(call add-objs,fd_keyguard_client,fd_disco)
 $(call add-hdrs,fd_keyswitch.h)
 $(call add-objs,fd_keyswitch,fd_disco)
 
+$(call add-hdrs,fd_keyguard_bls.h)
+$(call add-objs,fd_keyguard_bls,fd_disco)
+
 $(call add-hdrs,fd_keyload.h)
 $(call add-objs,fd_keyload,fd_disco)
 $(call make-unit-test,test_keyload,test_keyload,fd_disco fd_flamenco fd_tls fd_ballet fd_util)
