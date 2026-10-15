@@ -304,16 +304,33 @@ ag_pool_delete( void * mem ) {
   return mem;
 }
 
-void
-ag_pool_init( ag_pool_t *           self,
-              ag_block_id_t const * root ) {
+static void
+pool_init( ag_pool_t *           self,
+           ag_block_id_t const * root ) {
   ag_finality_tracker_init( self->finality_tracker, root->slot );
   self->parent_ready_tracker->root = fd_ulong_sat_sub( root->slot, AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW );
+}
 
-  ulong ready_cnt = ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys );
+static void
+pool_push_parent_readys( ag_pool_t * self,
+                         ulong       ready_cnt ) {
   for( ulong i=0UL; i<ready_cnt; i++ ) {
     pool_events_push( self->pool_events, (ag_pool_event_t){ .kind = AG_POOL_EVENT_PARENT_READY, .parent_ready = self->scratch.parent_readys[i] } );
   }
+}
+
+void
+ag_pool_from_snapshot( ag_pool_t *           self,
+                       ag_block_id_t const * root ) {
+  pool_init( self, root );
+  pool_push_parent_readys( self, ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys ) );
+}
+
+void
+ag_pool_from_genesis( ag_pool_t *           self,
+                      ag_block_id_t const * genesis ) {
+  pool_init( self, genesis );
+  pool_push_parent_readys( self, ag_parent_ready_tracker_mark_root( self->parent_ready_tracker, genesis, self->scratch.parent_readys ) );
 }
 
 void
