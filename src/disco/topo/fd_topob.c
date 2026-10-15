@@ -580,7 +580,6 @@ static char const * ALWAYS[] = {
   "tower",  /* FIREDANCER only */
   "votor",  /* FIREDANCER only */
   "pktgen",
-  "forkt",  /* FIREDANCER only */
   "mwaitx", /* FIREDANCER only */
   NULL
 };

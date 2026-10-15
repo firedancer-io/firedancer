@@ -2082,15 +2082,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;
     tile->backtest.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "forkt" ) ) ) {
-
-    fd_cstr_ncpy( tile->forktest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->forktest.ledger_format) );
-    fd_cstr_ncpy( tile->forktest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
-    if( FD_UNLIKELY( 0==strlen( tile->forktest.ledger_path ) ) ) {
-      FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
-    }
-    tile->forktest.end_slot = config->firedancer.development.ledger_input.end_slot;
-
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
     fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
     tile->bundle.url_len = strnlen( tile->bundle.url, sizeof(tile->bundle.url)-1UL );

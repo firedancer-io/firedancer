@@ -130,7 +130,6 @@ extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_votor;
 extern fd_topo_run_tile_t fd_tile_accdb;
 extern fd_topo_run_tile_t fd_tile_backtest;
-extern fd_topo_run_tile_t fd_tile_forktest;
 extern fd_topo_run_tile_t fd_tile_solcap;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
@@ -181,7 +180,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_votor,
   &fd_tile_accdb,
   &fd_tile_backtest,
-  &fd_tile_forktest,
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
@@ -243,7 +241,6 @@ extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_remove_all_authorized_voters;
-extern action_t fd_action_forktest;
 extern action_t fd_action_snapshot_create;
 extern action_t fd_action_wait;
 
@@ -289,7 +286,6 @@ action_t * ACTIONS[] = {
   &fd_action_watch,
   &fd_action_add_authorized_voter,
   &fd_action_remove_all_authorized_voters,
-  &fd_action_forktest,
   &fd_action_snapshot_create,
   &fd_action_wait,
   NULL,

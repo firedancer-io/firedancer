@@ -186,7 +186,6 @@ static char const * const jw_reported_keys[] = {
   "development.udpecho.affinity",
   "development.ledger_input.format",
   "development.backtest.affinity",
-  "development.forktest.affinity",
   "capture.dump_instr_program_id_filter",
 };
 
@@ -497,9 +496,6 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "backtest" );
       jw_str  ( &w, "affinity",      f->development.backtest.affinity );
       jw_ulong( &w, "root_distance", f->development.backtest.root_distance );
-    jw_obj_close( &w );
-    jw_obj_open( &w, "forktest" );
-      jw_str( &w, "affinity", f->development.forktest.affinity );
     jw_obj_close( &w );
     jw_obj_open( &w, "bench" );
       jw_ulong( &w, "benchg_tile_count",            config->development.bench.benchg_tile_count );

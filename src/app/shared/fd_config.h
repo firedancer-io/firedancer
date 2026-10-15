@@ -201,10 +201,6 @@ struct fd_configf {
       char  affinity[ AFFINITY_SZ ];
       ulong root_distance;
     } backtest;
-
-    struct {
-      char affinity[ AFFINITY_SZ ];
-    } forktest;
   } development;
 
   struct {

@@ -2014,7 +2014,7 @@ test_ag_update_delinquent( fd_wksp_t * wksp ) {
   FD_TEST( !ctx->ag_last_voted[ rank[ 0 ] ]   );
   FD_TEST( ctx->ag_last_voted_epoch==epoch+1UL );
 
-  /* No wait_info consumer (backtest, forktest): the walk is skipped
+  /* No wait_info consumer (backtest): the walk is skipped
      rather than run for nothing. */
   ctx->wait_info                         = NULL;
   ctx->delinquent_stake_lamports = 0UL;
@@ -2082,7 +2082,7 @@ test_update_delinquent_stake( fd_wksp_t * wksp ) {
   FD_TEST( ctx->cluster_active_stake_lamports==600UL );
   FD_TEST( !ctx->delinquent_stake_lamports );
 
-  /* No wait_info consumer (backtest, forktest): the walk is skipped
+  /* No wait_info consumer (backtest): the walk is skipped
      rather than run for nothing. */
   ctx->wait_info                 = NULL;
   ctx->delinquent_stake_lamports = 123UL;
