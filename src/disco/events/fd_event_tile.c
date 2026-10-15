@@ -269,13 +269,12 @@ metrics_sample_sweep( fd_event_tile_t * ctx,
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_metrics_sample_schema_t const * schema = ctx->sample_schema[ i ];
-    if( FD_UNLIKELY( !schema ) ) continue;
 
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
     ulong state = FD_VOLATILE_CONST( fd_metrics_tile( tile->metrics )[ MIDX( GAUGE, TILE, STATE ) ] );
     FD_COMPILER_MFENCE();
     if( FD_UNLIKELY( ctx->tile_shutdown_rendered[ i ] ) ) continue;
-    metrics_sample_push( ctx, schema, tile, ULONG_MAX, NULL, fd_metrics_tile( tile->metrics ), reason, slot, snapct_state, caught_up, now );
+    if( FD_LIKELY( schema ) ) metrics_sample_push( ctx, schema, tile, ULONG_MAX, NULL, fd_metrics_tile( tile->metrics ), reason, slot, snapct_state, caught_up, now );
 
     ulong polled_in_idx = 0UL;
     for( ulong k=0UL; k<tile->in_cnt; k++ ) {
@@ -670,7 +669,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
     int skip = 0;
     for( char const * const * t=fd_metrics_sample_skip; *t; t++ ) skip |= !strcmp( *t, topo->tiles[ i ].name );
-    if( FD_UNLIKELY( !skip ) ) FD_LOG_WARNING(( "tile %s has no metrics schema, no telemetry reported", topo->tiles[ i ].name ));
+    if( FD_UNLIKELY( !skip ) ) FD_LOG_WARNING(( "tile %s has no metrics schema, only its in-links are reported", topo->tiles[ i ].name ));
   }
 
   ctx->idle_cnt = 0UL;
