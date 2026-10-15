@@ -1,4 +1,5 @@
 #include "./fd_bn254_field_inl.h"
+#include "./fd_bn254_backend.h"
 
 /* Compress/Decompress */
 
@@ -248,7 +249,7 @@ fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
   // no: if( FD_UNLIKELY( !fd_bn254_scalar_validate( s ) ) ) return -1;
 
   /* Compute scalar mul and serialize result */
-  fd_bn254_g1_scalar_mul( r, a, s );
+  fd_bn254_backend_g1_scalar_mul( r, a, s );
   fd_bn254_g1_tobytes( out, r, big_endian );
   return 0;
 }
@@ -270,7 +271,11 @@ fd_bn254_g2_scalar_mul_syscall( uchar       out[128],
      https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/multiplication.rs#L252-L255 */
   fd_bn254_g2_t r[1], a[1];
   fd_bn254_scalar_t s[1];
-  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_subgroup( a, &buf[ 0], big_endian ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_eq_only( a, &buf[ 0], big_endian ) ) ) {
+    return -1;
+  }
+  if( FD_UNLIKELY( !fd_bn254_g2_is_zero( a ) &&
+                   !fd_bn254_backend_g2_in_subgroup( a ) ) ) {
     return -1;
   }
 
@@ -284,7 +289,7 @@ fd_bn254_g2_scalar_mul_syscall( uchar       out[128],
   // no: if( FD_UNLIKELY( !fd_bn254_scalar_validate( s ) ) ) return -1;
 
   /* Compute scalar mul and serialize result */
-  fd_bn254_g2_scalar_mul( r, a, s );
+  fd_bn254_backend_g2_scalar_mul( r, a, s );
   fd_bn254_g2_tobytes( out, r, big_endian );
   return 0;
 }
@@ -299,10 +304,18 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
     return -1; /* Invalid input length */
   }
   ulong elements_len = in_sz / 192UL;
-  fd_bn254_g1_t p[FD_BN254_PAIRING_BATCH_MAX];
-  fd_bn254_g2_t q[FD_BN254_PAIRING_BATCH_MAX];
 
-  /* Important: set r=1 so that the result of 0 pairings is 1. */
+  /* Validation matches agave: parse and subgroup-check each pair in
+     input order, skipping infinity pairs, before any pairing work.
+     FD_BN254_PAIRING_MAX bounds the one-shot backend path; the VM
+     compute budget (12121 CU per pair) keeps real inputs far below it,
+     and larger inputs stream through Miller-loop batches instead. */
+# define FD_BN254_PAIRING_MAX (128UL)
+  fd_bn254_g1_t p[FD_BN254_PAIRING_MAX];
+  fd_bn254_g2_t q[FD_BN254_PAIRING_MAX];
+
+  int stream = elements_len>FD_BN254_PAIRING_MAX;
+# undef FD_BN254_PAIRING_MAX
   fd_bn254_fp12_t r[1];
   fd_bn254_fp12_set_one( r );
 
@@ -312,8 +325,13 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
     if( FD_UNLIKELY( !fd_bn254_g1_frombytes_check_subgroup( &p[sz], &in[i*192   ], big_endian ) ) ) {
       return -1;
     }
-    /* G2: deserialize and check subgroup membership */
-    if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_subgroup( &q[sz], &in[i*192+64], big_endian ) ) ) {
+    /* G2: deserialize and check subgroup membership (the AVX-512 backend
+       runs the subgroup part natively via the dispatch) */
+    if( FD_UNLIKELY( !fd_bn254_g2_frombytes_check_eq_only( &q[sz], &in[i*192+64], big_endian ) ) ) {
+      return -1;
+    }
+    if( FD_UNLIKELY( !fd_bn254_g2_is_zero(&q[sz]) &&
+                     !fd_bn254_backend_g2_in_subgroup( &q[sz] ) ) ) {
       return -1;
     }
     /* Skip any pair where either P or Q is the point at infinity */
@@ -321,28 +339,48 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
       continue;
     }
     ++sz;
-    /* Compute the Miller loop and aggregate into r */
-    if( sz==FD_BN254_PAIRING_BATCH_MAX ) {
+    if( FD_UNLIKELY( stream ) && sz==FD_BN254_PAIRING_BATCH_MAX ) {
       fd_bn254_fp12_t tmp[1];
       fd_bn254_miller_loop( tmp, p, q, sz );
       fd_bn254_fp12_mul( r, r, tmp );
       sz = 0;
     }
   }
-  if( sz>0 ) {
-    fd_bn254_fp12_t tmp[1];
-    fd_bn254_miller_loop( tmp, p, q, sz );
-    fd_bn254_fp12_mul( r, r, tmp );
-    sz = 0;
-  }
 
-  /* Compute the final exponentiation */
-  fd_bn254_final_exp( r, r );
-
-  /* Output is 0 or 1, serialized as big endian uint256. */
+  /* Output is 0 or 1, serialized as big endian uint256.  The empty
+     product is 1. */
   fd_memset( out, 0, 32 );
-  if( FD_LIKELY( fd_bn254_fp12_is_one( r ) ) ) {
+  if( FD_UNLIKELY( stream ) ) {
+    if( sz>0 ) {
+      fd_bn254_fp12_t tmp[1];
+      fd_bn254_miller_loop( tmp, p, q, sz );
+      fd_bn254_fp12_mul( r, r, tmp );
+    }
+    fd_bn254_final_exp( r, r );
+    if( FD_LIKELY( fd_bn254_fp12_is_one( r ) ) ) out[ big_endian ? 31 : 0 ] = 1;
+    return 0;
+  }
+  if( FD_LIKELY( fd_bn254_backend_pairing_is_one( p, q, sz ) ) ) {
     out[ big_endian ? 31 : 0 ] = 1;
   }
   return 0;
+}
+
+/* fd_bn254_ref_pairing_is_one: the reference pairing product over
+   already-validated affine pairs (backend dispatch boundary). */
+int
+fd_bn254_ref_pairing_is_one( fd_bn254_g1_t const * p,
+                             fd_bn254_g2_t const * q,
+                             ulong                 sz ) {
+  fd_bn254_fp12_t r[1], tmp[1];
+  fd_bn254_fp12_set_one( r );
+  ulong done = 0UL;
+  while( done<sz ) {
+    ulong n = fd_ulong_min( sz-done, FD_BN254_PAIRING_BATCH_MAX );
+    fd_bn254_miller_loop( tmp, p+done, q+done, n );
+    fd_bn254_fp12_mul( r, r, tmp );
+    done += n;
+  }
+  fd_bn254_final_exp( r, r );
+  return fd_bn254_fp12_is_one( r );
 }

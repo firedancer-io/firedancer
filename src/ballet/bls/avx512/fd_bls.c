@@ -79,9 +79,9 @@ fd_bls_avx512_pairing( ulong               out[12][6],
                        fd_bls_g2_t const * q,
                        ulong               cnt ) {
   if( FD_UNLIKELY( !out || cnt>FD_BLS_PAIR_MAX || (cnt && (!p || !q)) ) ) return -1;
-  fd_bls_fp12_t result;
+  vroom_fp12_t result;
   if( FD_UNLIKELY( fd_bls_pairing_avx512( &result, p, q, cnt ) ) ) return -1;
-  for( int i=0; i<12; i++ ) fd_bls_fp_to_uint64( out[i], &result.c[i] );
+  for( int i=0; i<12; i++ ) vroom_fp_to_uint64( out[i], &result.c[i] );
   return 0;
 }
 

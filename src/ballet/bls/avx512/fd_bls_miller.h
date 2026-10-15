@@ -5,17 +5,17 @@
    exponentiation).  Inputs are canonical normal-form limbs for already
    validated points. */
 
-#include "fd_bls_field.h"
+#include "../../vroom/fd_vroom_field.h"
 #include "../fd_bls.h"
 
 #if FD_HAS_AVX512
 FD_PROTOTYPES_BEGIN
 
-void fd_bls_miller_loop_avx512( fd_bls_fp12_t *     out,
+void fd_bls_miller_loop_avx512( vroom_fp12_t *     out,
                                 fd_bls_g1_t const * p,
                                 fd_bls_g2_t const * q );
 
-int fd_bls_pairing_avx512( fd_bls_fp12_t *     out,
+int fd_bls_pairing_avx512( vroom_fp12_t *     out,
                            fd_bls_g1_t const * p,
                            fd_bls_g2_t const * q,
                            ulong               cnt );

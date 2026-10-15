@@ -1,20 +1,16 @@
-/* BLS12-381 base-field arithmetic in rotated-RNS Montgomery form on
-   AVX-512 IFMA (8x50-bit residue bases M and N; see fd_bls_rns.h and
-   gen_bls_constants.py for the representation). */
+/* VROOM engine: base-field arithmetic in rotated-RNS Montgomery form on
+   AVX-512 IFMA (8x50-bit residue bases M and N; see fd_vroom_rns.h and
+   gen_vroom_constants.py for the representation).
 
-#include "fd_bls_rns.h"
+   Unity-TU fragment: the curve translation unit must include its
+   generated constants header (vroom_m1, vroom_r2_mat, vroom_p_limbs,
+   VROOM_P0, vroom_rr2, ...) before this file. */
+
+#include "fd_vroom_rns.h"
 
 #if FD_HAS_AVX512
 
-#include "fd_bls_constants.h"
-
-#define FD_BLS_MASK50 ((ulong)((1UL<<50)-1UL))
-
-static ulong const fd_bls_field_modulus[6] = {
-  0xb9feffffffffaaabUL, 0x1eabfffeb153ffffUL,
-  0x6730d2a0f6b0f624UL, 0x64774b84f38512bfUL,
-  0x4b1ba7b6434bacd7UL, 0x1a0111ea397fe69aUL
-};
+#define VROOM_MASK50 ((ulong)((1UL<<50)-1UL))
 
 static inline int
 uint384_ge( ulong const a[6],
@@ -40,27 +36,19 @@ uint384_sub( ulong       a[6],
 }
 
 /* Canonical reduction for the conversion/export boundary: scalar
-   Montgomery arithmetic, hot through fd_bls_fp_to_uint64 and the
+   Montgomery arithmetic, hot through vroom_fp_to_uint64 and the
    hash-to-field path. */
-
-#define FD_BLS_P0 (0x89f3fffcfffcfffdUL) /* -p^-1 mod 2^64. */
-
-/* 2^768 mod p: redc(y*RR2) = y*2^384 mod p undoes one redc pass. */
-static ulong const fd_bls_rr2[6] = {
-  0xf4df1f341c341746UL, 0x0a76e6a609d104f1UL, 0x8de5476c4c95b6d5UL,
-  0x67eb88a9939d83c0UL, 0x9a793e85b519952dUL, 0x11988fe592cae3aaUL
-};
 
 /* One Montgomery round on a sliding window: t <- (t + (t0*p0 mod 2^64)*p)/2^64.
    t has cnt live limbs on entry and cnt-1 on exit (the caller shrinks cnt). */
 static inline void
 redc_round( ulong * t,
             int     cnt ) {
-  ulong   m     = t[0]*FD_BLS_P0;                 /* m makes t+m*p divisible by 2^64. */
-  uint128 acc   = (uint128)t[0] + (uint128)m*(uint128)fd_bls_field_modulus[0];
+  ulong   m     = t[0]*VROOM_P0;                 /* m makes t+m*p divisible by 2^64. */
+  uint128 acc   = (uint128)t[0] + (uint128)m*(uint128)vroom_p_limbs[0];
   ulong   carry = (ulong)(acc>>64);               /* Low limb is zero by construction. */
   for( int i=1; i<6; i++ ) {
-    acc    = (uint128)t[i] + (uint128)m*(uint128)fd_bls_field_modulus[i] + (uint128)carry;
+    acc    = (uint128)t[i] + (uint128)m*(uint128)vroom_p_limbs[i] + (uint128)carry;
     t[i-1] = (ulong)acc;                          /* Shift down while accumulating.    */
     carry  = (ulong)(acc>>64);
   }
@@ -95,21 +83,21 @@ reduce_512( ulong       out[6],
   for( int i=0; i<6; i++ ) {
     ulong carry = 0UL;
     for( int j=0; j<6; j++ ) {
-      uint128 acc = (uint128)y[i]*(uint128)fd_bls_rr2[j] + (uint128)t[i+j] + (uint128)carry;
+      uint128 acc = (uint128)y[i]*(uint128)vroom_rr2[j] + (uint128)t[i+j] + (uint128)carry;
       t[i+j] = (ulong)acc;
       carry  = (ulong)(acc>>64);
     }
     t[i+6] = carry;
   }
   redc_768( out, t );                             /* out = y*2^384 = in mod p, < 2p.   */
-  if( uint384_ge( out, fd_bls_field_modulus ) ) uint384_sub( out, fd_bls_field_modulus );
+  if( uint384_ge( out, vroom_p_limbs ) ) uint384_sub( out, vroom_p_limbs );
 }
 
 static inline wwv_t
 normalize( wwv_t x,
            wwv_t t ) {
   /* For m_i=2^50-t_i, fold x=x_lo+2^50*x_hi to x_lo+t_i*x_hi (mod m_i). */
-  wwv_t lo = wwv_and( x, wwv_bcast( (ulong)FD_BLS_MASK50 ) ); /* lo  = x mod 2^50.             */
+  wwv_t lo = wwv_and( x, wwv_bcast( (ulong)VROOM_MASK50 ) ); /* lo  = x mod 2^50.             */
   wwv_t hi = wwv_shr( x, 50 );                               /* hi  = floor(x/2^50).          */
   return wwv_madd52lo( lo, hi, t );                           /* out = lo+hi*t = x (mod m_i). */
 }
@@ -185,20 +173,20 @@ expand_m2_to_m1( wwv_t m2 ) {
   /* Algorithm 2, line 4: CRNS from N back to M, with its scale folded in. */
   wwv_t hi = wwv_zero();                                  /* hi:lo = 0 before CRT reconstruction. */
   wwv_t lo = wwv_zero();
-  matrix_accumulate( m2, fd_bls_r2_mat, fd_bls_r2_sqe, fd_bls_r2_correction,
-                     fd_bls_r2_correction_shift, &hi, &lo );
-  return mont_reduce_wide_normalized( hi, lo, wwv_ld( fd_bls_m1 ), wwv_ld( fd_bls_m1_mont ), wwv_ld( fd_bls_m1_t ) ); /* N residues -> M residues. */
+  matrix_accumulate( m2, vroom_r2_mat, vroom_r2_sqe, vroom_r2_correction,
+                     vroom_r2_correction_shift, &hi, &lo );
+  return mont_reduce_wide_normalized( hi, lo, wwv_ld( vroom_m1 ), wwv_ld( vroom_m1_mont ), wwv_ld( vroom_m1_t ) ); /* N residues -> M residues. */
 }
 
 static inline wwv_t
-reduce_wide_m2( fd_bls_fp_wide_t const * in,
+reduce_wide_m2( vroom_fp_wide_t const * in,
                 int                        normalize_m1 ) {
   /* ready<MAX_ADD> sees a product of two standard (bound-2) inputs.  Its
      first reduction deliberately keeps the [0,2m) result.  Reducing it once
      more would alter the no-k quotient estimate in the following r1 step. */
   wwv_t m1 = mont_reduce_wide_raw( in->m1_hi, in->m1_lo,
-                                  wwv_ld( fd_bls_m1 ), wwv_ld( fd_bls_m1_mont ) ); /* m1 = X/R in base M. */
-  if( normalize_m1 ) m1 = normalize( m1, wwv_ld( fd_bls_m1_t ) );                 /* m1 <- m1 mod each M_i. */
+                                  wwv_ld( vroom_m1 ), wwv_ld( vroom_m1_mont ) ); /* m1 = X/R in base M. */
+  if( normalize_m1 ) m1 = normalize( m1, wwv_ld( vroom_m1_t ) );                 /* m1 <- m1 mod each M_i. */
 
   /* Algorithm 2, line 3: the cyclic CRNS map changes M to N and accumulates
      the Montgomery quotient term directly into the unreduced N product. */
@@ -208,17 +196,17 @@ reduce_wide_m2( fd_bls_fp_wide_t const * in,
   wwv_t shift = wwv( 7UL, 0UL, 1UL, 2UL, 3UL, 4UL, 5UL, 6UL );
   for( int d=0; d<8; d++ ) {
     if( d ) cur = wwv_permute( shift, cur );         /* cur_j = m1_{j-d mod 8}.             */
-    wwv_t row = wwv_ld( fd_bls_r1_perm[d] );         /* row_j = cyclic CRNS coefficient.   */
+    wwv_t row = wwv_ld( vroom_r1_perm[d] );         /* row_j = cyclic CRNS coefficient.   */
     hi = wwv_madd52hi( hi, row, cur );               /* X_N += row_j*cur_j, high IFMA half. */
     lo = wwv_madd52lo( lo, row, cur );               /* X_N += row_j*cur_j, low IFMA half.  */
   }
   return mont_reduce_wide_normalized( hi, lo,
-                                     wwv_ld( fd_bls_m2 ), wwv_ld( fd_bls_m2_mont ), wwv_ld( fd_bls_m2_t ) );
+                                     wwv_ld( vroom_m2 ), wwv_ld( vroom_m2_mont ), wwv_ld( vroom_m2_t ) );
 }
 
 static inline void
-reduce_wide_inner( fd_bls_fp_t *            out,
-                   fd_bls_fp_wide_t const * in,
+reduce_wide_inner( vroom_fp_t *            out,
+                   vroom_fp_wide_t const * in,
                    int                        normalize_m1 ) {
   out->m2 = reduce_wide_m2( in, normalize_m1 ); /* First obtain reduced residues in N. */
   out->m1 = expand_m2_to_m1( out->m2 );        /* Reconstruct the matching M residues. */
@@ -231,18 +219,18 @@ reduce_wide_inner( fd_bls_fp_t *            out,
    cost, so one wide batch beats two narrow ones even when the working set
    spills a few vectors. */
 static __attribute__((always_inline)) inline void
-fd_bls_fp_reduce_wide_scaled_batch( fd_bls_fp_t *            out,
-                                    fd_bls_fp_wide_t const * in,
+vroom_fp_reduce_wide_scaled_batch( vroom_fp_t *            out,
+                                    vroom_fp_wide_t const * in,
                                     int                      cnt,
                                     uint                     scale_lo,
                                     uint                     scale_hi ) {
   wwv_t cur[12], hi[12], lo[12];
-  wwv_t mod1  = wwv_ld( fd_bls_m1 );
-  wwv_t mod2  = wwv_ld( fd_bls_m2 );
-  wwv_t mont1 = wwv_ld( fd_bls_m1_mont );
-  wwv_t mont2 = wwv_ld( fd_bls_m2_mont );
-  wwv_t t1    = wwv_ld( fd_bls_m1_t );
-  wwv_t t2    = wwv_ld( fd_bls_m2_t );
+  wwv_t mod1  = wwv_ld( vroom_m1 );
+  wwv_t mod2  = wwv_ld( vroom_m2 );
+  wwv_t mont1 = wwv_ld( vroom_m1_mont );
+  wwv_t mont2 = wwv_ld( vroom_m2_mont );
+  wwv_t t1    = wwv_ld( vroom_m1_t );
+  wwv_t t2    = wwv_ld( vroom_m2_t );
   wwv_t shift = wwv( 7UL, 0UL, 1UL, 2UL, 3UL, 4UL, 5UL, 6UL );
 
   for( int j=0; j<cnt; j++ ) {
@@ -251,7 +239,7 @@ fd_bls_fp_reduce_wide_scaled_batch( fd_bls_fp_t *            out,
     lo[j]  = in[j].m2_lo;
   }
   for( int d=0; d<8; d++ ) {
-    wwv_t row = wwv_ld( fd_bls_r1_perm[d] );
+    wwv_t row = wwv_ld( vroom_r1_perm[d] );
     for( int j=0; j<cnt; j++ ) {
       if( d ) cur[j] = wwv_permute( shift, cur[j] ); /* cur lane rotates to the next cyclic M residue. */
       hi[j] = wwv_madd52hi( hi[j], row, cur[j] );   /* Add CRNS correction, high IFMA half.           */
@@ -275,16 +263,16 @@ fd_bls_fp_reduce_wide_scaled_batch( fd_bls_fp_t *            out,
     lo[j] = wwv_zero();
   }
   for( int i=0; i<8; i++ ) {
-    wwv_t row = wwv_ld( fd_bls_r2_mat[i] );
+    wwv_t row = wwv_ld( vroom_r2_mat[i] );
     for( int j=0; j<cnt; j++ ) {
       wwv_t s = wwv_bcast( (ulong)scalar[j][i] );                         /* s lanes = N residue i.              */
       hi[j] = wwv_madd52hi( hi[j], row, s );                             /* CRT sum += s*A_i, high IFMA half.   */
       lo[j] = wwv_madd52lo( lo[j], row, s );                             /* CRT sum += s*A_i, low IFMA half.    */
-      k_raw[j] += (uint128)scalar[j][i] * (uint128)fd_bls_r2_sqe[i];      /* Fixed-point quotient numerator.    */
+      k_raw[j] += (uint128)scalar[j][i] * (uint128)vroom_r2_sqe[i];      /* Fixed-point quotient numerator.    */
     }
   }
-  wwv_t corr       = wwv_ld( fd_bls_r2_correction );
-  wwv_t corr_shift = wwv_ld( fd_bls_r2_correction_shift );
+  wwv_t corr       = wwv_ld( vroom_r2_correction );
+  wwv_t corr_shift = wwv_ld( vroom_r2_correction_shift );
   for( int j=0; j<cnt; j++ ) {
     wwv_t k = wwv_bcast( (ulong)(k_raw[j] >> 64) );                  /* k=floor(dot(s,f)/2^64).             */
     hi[j] = wwv_madd52hi( hi[j], corr, k );                          /* Add low digit of k*correction.      */
@@ -297,44 +285,44 @@ fd_bls_fp_reduce_wide_scaled_batch( fd_bls_fp_t *            out,
 }
 
 static __attribute__((always_inline)) inline void
-fd_bls_fp_reduce_wide_scaled_batch6( fd_bls_fp_t            out[6],
-                                     fd_bls_fp_wide_t const in[6],
+vroom_fp_reduce_wide_scaled_batch6( vroom_fp_t            out[6],
+                                     vroom_fp_wide_t const in[6],
                                      uint                   scale ) {
-  fd_bls_fp_reduce_wide_scaled_batch( out, in, 6, scale, scale );
+  vroom_fp_reduce_wide_scaled_batch( out, in, 6, scale, scale );
 }
 
-void
-fd_bls_fp_from_uint64( fd_bls_fp_t * out,
+VROOM_FN void
+vroom_fp_from_uint64( vroom_fp_t * out,
                        ulong const   in[6] ) {
   /* Appendix F: regard the radix input as eight 50-bit digits, convert it to
      the rotated N representation, then expand N to M. */
   ulong d[8] __attribute__((aligned(64)));
-  d[0] = in[0] & FD_BLS_MASK50;                                /* d0 = floor(in/2^(50*0)) mod 2^50. */
-  d[1] = ((in[0] >> 50) | (in[1] << 14)) & FD_BLS_MASK50;      /* d1 = floor(in/2^(50*1)) mod 2^50. */
-  d[2] = ((in[1] >> 36) | (in[2] << 28)) & FD_BLS_MASK50;      /* d2 = floor(in/2^(50*2)) mod 2^50. */
-  d[3] = ((in[2] >> 22) | (in[3] << 42)) & FD_BLS_MASK50;      /* d3 = floor(in/2^(50*3)) mod 2^50. */
-  d[4] = (in[3] >> 8) & FD_BLS_MASK50;                         /* d4 = floor(in/2^(50*4)) mod 2^50. */
-  d[5] = ((in[3] >> 58) | (in[4] << 6)) & FD_BLS_MASK50;       /* d5 = floor(in/2^(50*5)) mod 2^50. */
-  d[6] = ((in[4] >> 44) | (in[5] << 20)) & FD_BLS_MASK50;      /* d6 = floor(in/2^(50*6)) mod 2^50. */
-  d[7] = (in[5] >> 30) & FD_BLS_MASK50;                        /* d7 = floor(in/2^(50*7)) mod 2^50. */
+  d[0] = in[0] & VROOM_MASK50;                                /* d0 = floor(in/2^(50*0)) mod 2^50. */
+  d[1] = ((in[0] >> 50) | (in[1] << 14)) & VROOM_MASK50;      /* d1 = floor(in/2^(50*1)) mod 2^50. */
+  d[2] = ((in[1] >> 36) | (in[2] << 28)) & VROOM_MASK50;      /* d2 = floor(in/2^(50*2)) mod 2^50. */
+  d[3] = ((in[2] >> 22) | (in[3] << 42)) & VROOM_MASK50;      /* d3 = floor(in/2^(50*3)) mod 2^50. */
+  d[4] = (in[3] >> 8) & VROOM_MASK50;                         /* d4 = floor(in/2^(50*4)) mod 2^50. */
+  d[5] = ((in[3] >> 58) | (in[4] << 6)) & VROOM_MASK50;       /* d5 = floor(in/2^(50*5)) mod 2^50. */
+  d[6] = ((in[4] >> 44) | (in[5] << 20)) & VROOM_MASK50;      /* d6 = floor(in/2^(50*6)) mod 2^50. */
+  d[7] = (in[5] >> 30) & VROOM_MASK50;                        /* d7 = floor(in/2^(50*7)) mod 2^50. */
 
   wwv_t hi = wwv_zero();
   wwv_t lo = wwv_zero();
-  matrix_accumulate( wwv_ld( d ), fd_bls_to_mat, fd_bls_to_sqe, fd_bls_to_correction,
+  matrix_accumulate( wwv_ld( d ), vroom_to_mat, vroom_to_sqe, vroom_to_correction,
                      NULL, &hi, &lo );
   out->m2 = mont_reduce_wide_normalized( hi, lo,
-                                        wwv_ld( fd_bls_m2 ), wwv_ld( fd_bls_m2_mont ), wwv_ld( fd_bls_m2_t ) ); /* radix digits -> N residues. */
+                                        wwv_ld( vroom_m2 ), wwv_ld( vroom_m2_mont ), wwv_ld( vroom_m2_t ) ); /* radix digits -> N residues. */
   out->m1 = expand_m2_to_m1( out->m2 ); /* Complete the redundant representation with matching M residues. */
 }
 
-void
-fd_bls_fp_to_uint64( ulong               out[6],
-                     fd_bls_fp_t const * in ) {
+VROOM_FN void
+vroom_fp_to_uint64( ulong               out[6],
+                     vroom_fp_t const * in ) {
   /* Appendix F in reverse: CRNS from N to radix-2^52 digits, then remove the
      remaining redundant multiple of p at this cold conversion boundary. */
   wwv_t hi = wwv_zero();
   wwv_t lo = wwv_zero();
-  matrix_accumulate( in->m2, fd_bls_from_mat, fd_bls_from_sqe, fd_bls_from_correction,
+  matrix_accumulate( in->m2, vroom_from_mat, vroom_from_sqe, vroom_from_correction,
                      NULL, &hi, &lo );
 
   ulong h[8] __attribute__((aligned(64)));
@@ -358,25 +346,25 @@ fd_bls_fp_to_uint64( ulong               out[6],
   reduce_512( out, sum );
 }
 
-void
-fd_bls_fp_reduce_wide( fd_bls_fp_t *            out,
-                       fd_bls_fp_wide_t const * in ) {
+VROOM_FN void
+vroom_fp_reduce_wide( vroom_fp_t *            out,
+                       vroom_fp_wide_t const * in ) {
   reduce_wide_inner( out, in, 1 );
 }
 
 static __attribute__((always_inline)) inline void
-reduce_wide_batch_impl( fd_bls_fp_t *            out,
-                        fd_bls_fp_wide_t const * in,
+reduce_wide_batch_impl( vroom_fp_t *            out,
+                        vroom_fp_wide_t const * in,
                         int                      cnt ) {
   /* This is reduce_wide_inner interleaved across cnt values: reduce X/R in
      M, use that quotient to finish the N reduction, then reconstruct M. */
   wwv_t cur[12], hi[12], lo[12];
-  wwv_t mod1  = wwv_ld( fd_bls_m1 );
-  wwv_t mod2  = wwv_ld( fd_bls_m2 );
-  wwv_t mont1 = wwv_ld( fd_bls_m1_mont );
-  wwv_t mont2 = wwv_ld( fd_bls_m2_mont );
-  wwv_t t1    = wwv_ld( fd_bls_m1_t );
-  wwv_t t2    = wwv_ld( fd_bls_m2_t );
+  wwv_t mod1  = wwv_ld( vroom_m1 );
+  wwv_t mod2  = wwv_ld( vroom_m2 );
+  wwv_t mont1 = wwv_ld( vroom_m1_mont );
+  wwv_t mont2 = wwv_ld( vroom_m2_mont );
+  wwv_t t1    = wwv_ld( vroom_m1_t );
+  wwv_t t2    = wwv_ld( vroom_m2_t );
   wwv_t shift = wwv( 7UL, 0UL, 1UL, 2UL, 3UL, 4UL, 5UL, 6UL );
 
   for( int j=0; j<cnt; j++ ) {
@@ -385,7 +373,7 @@ reduce_wide_batch_impl( fd_bls_fp_t *            out,
     lo[j]  = in[j].m2_lo;
   }
   for( int d=0; d<8; d++ ) {
-    wwv_t row = wwv_ld( fd_bls_r1_perm[d] );
+    wwv_t row = wwv_ld( vroom_r1_perm[d] );
     for( int j=0; j<cnt; j++ ) {
       if( d ) cur[j] = wwv_permute( shift, cur[j] ); /* Rotate to M residue j-d.             */
       hi[j] = wwv_madd52hi( hi[j], row, cur[j] );   /* Add cyclic M->N correction, high half. */
@@ -403,16 +391,16 @@ reduce_wide_batch_impl( fd_bls_fp_t *            out,
     lo[j] = wwv_zero();
   }
   for( int i=0; i<8; i++ ) {
-    wwv_t row = wwv_ld( fd_bls_r2_mat[i] );
+    wwv_t row = wwv_ld( vroom_r2_mat[i] );
     for( int j=0; j<cnt; j++ ) {
       wwv_t s = wwv_bcast( (ulong)scalar[j][i] );                    /* s lanes = N residue i.            */
       hi[j] = wwv_madd52hi( hi[j], row, s );                        /* CRT sum += s*A_i, high half.      */
       lo[j] = wwv_madd52lo( lo[j], row, s );                        /* CRT sum += s*A_i, low half.       */
-      k_raw[j] += (uint128)scalar[j][i] * (uint128)fd_bls_r2_sqe[i]; /* Fixed-point quotient numerator.  */
+      k_raw[j] += (uint128)scalar[j][i] * (uint128)vroom_r2_sqe[i]; /* Fixed-point quotient numerator.  */
     }
   }
-  wwv_t corr       = wwv_ld( fd_bls_r2_correction );
-  wwv_t corr_shift = wwv_ld( fd_bls_r2_correction_shift );
+  wwv_t corr       = wwv_ld( vroom_r2_correction );
+  wwv_t corr_shift = wwv_ld( vroom_r2_correction_shift );
   for( int j=0; j<cnt; j++ ) {
     wwv_t k = wwv_bcast( (ulong)(k_raw[j] >> 64) );                  /* k=floor(dot(s,f)/2^64).             */
     hi[j] = wwv_madd52hi( hi[j], corr, k );                          /* Add low digit of k*correction.      */
@@ -425,40 +413,52 @@ reduce_wide_batch_impl( fd_bls_fp_t *            out,
 }
 
 static __attribute__((always_inline)) inline void
-fd_bls_fp_reduce_wide_batch2( fd_bls_fp_t            out[2],
-                              fd_bls_fp_wide_t const in[2] ) {
+vroom_fp_reduce_wide_batch2( vroom_fp_t            out[2],
+                              vroom_fp_wide_t const in[2] ) {
   reduce_wide_batch_impl( out, in, 2 );
 }
 
 static __attribute__((always_inline)) inline void
-fd_bls_fp_reduce_wide_batch4( fd_bls_fp_t            out[4],
-                              fd_bls_fp_wide_t const in[4] ) {
+vroom_fp_reduce_wide_batch3( vroom_fp_t            out[3],
+                             vroom_fp_wide_t const in[3] ) {
+  reduce_wide_batch_impl( out, in, 3 );
+}
+
+static __attribute__((always_inline)) inline void
+vroom_fp_reduce_wide_batch5( vroom_fp_t            out[5],
+                             vroom_fp_wide_t const in[5] ) {
+  reduce_wide_batch_impl( out, in, 5 );
+}
+
+static __attribute__((always_inline)) inline void
+vroom_fp_reduce_wide_batch4( vroom_fp_t            out[4],
+                              vroom_fp_wide_t const in[4] ) {
   reduce_wide_batch_impl( out, in, 4 );
 }
 
 static __attribute__((always_inline)) inline void
-fd_bls_fp_reduce_wide_batch6( fd_bls_fp_t            out[6],
-                              fd_bls_fp_wide_t const in[6] ) {
+vroom_fp_reduce_wide_batch6( vroom_fp_t            out[6],
+                              vroom_fp_wide_t const in[6] ) {
   reduce_wide_batch_impl( out, in, 6 );
 }
 
 static __attribute__((always_inline)) inline void
-fd_bls_fp_reduce_wide_batch8( fd_bls_fp_t            out[8],
-                              fd_bls_fp_wide_t const in[8] ) {
+vroom_fp_reduce_wide_batch8( vroom_fp_t            out[8],
+                              vroom_fp_wide_t const in[8] ) {
   reduce_wide_batch_impl( out, in, 8 );
 }
 
 static __attribute__((always_inline)) inline void
-fd_bls_fp_reduce_wide_batch10( fd_bls_fp_t            out[10],
-                               fd_bls_fp_wide_t const in[10] ) {
+vroom_fp_reduce_wide_batch10( vroom_fp_t            out[10],
+                               vroom_fp_wide_t const in[10] ) {
   reduce_wide_batch_impl( out, in, 10 );
 }
 
-void
-fd_bls_fp_mul( fd_bls_fp_t *       out,
-               fd_bls_fp_t const * a,
-               fd_bls_fp_t const * b ) {
-  fd_bls_fp_wide_t w;
+VROOM_FN void
+vroom_fp_mul( vroom_fp_t *       out,
+               vroom_fp_t const * a,
+               vroom_fp_t const * b ) {
+  vroom_fp_wide_t w;
   w.m1_hi = wwv_madd52hi( wwv_zero(), a->m1, b->m1 ); /* w_M = a_M*b_M, high radix-R half. */
   w.m1_lo = wwv_madd52lo( wwv_zero(), a->m1, b->m1 ); /* w_M = a_M*b_M, low radix-R half.  */
   w.m2_hi = wwv_madd52hi( wwv_zero(), a->m2, b->m2 ); /* w_N = a_N*b_N, high radix-R half. */
@@ -466,65 +466,65 @@ fd_bls_fp_mul( fd_bls_fp_t *       out,
   reduce_wide_inner( out, &w, 0 );                    /* out = a*b in rotated RNS Montgomery form. */
 }
 
-void
-fd_bls_fp_sqr( fd_bls_fp_t *       out,
-               fd_bls_fp_t const * a ) {
-  fd_bls_fp_mul( out, a, a );
+VROOM_FN void
+vroom_fp_sqr( vroom_fp_t *       out,
+               vroom_fp_t const * a ) {
+  vroom_fp_mul( out, a, a );
 }
 
-void
-fd_bls_fp_add( fd_bls_fp_t *       out,
-               fd_bls_fp_t const * a,
-               fd_bls_fp_t const * b ) {
-  out->m1 = normalize( wwv_add( a->m1, b->m1 ), wwv_ld( fd_bls_m1_t ) );
-  out->m2 = normalize( wwv_add( a->m2, b->m2 ), wwv_ld( fd_bls_m2_t ) );
+VROOM_FN void
+vroom_fp_add( vroom_fp_t *       out,
+               vroom_fp_t const * a,
+               vroom_fp_t const * b ) {
+  out->m1 = normalize( wwv_add( a->m1, b->m1 ), wwv_ld( vroom_m1_t ) );
+  out->m2 = normalize( wwv_add( a->m2, b->m2 ), wwv_ld( vroom_m2_t ) );
 }
 
-void
-fd_bls_fp_neg( fd_bls_fp_t *       out,
-               fd_bls_fp_t const * a ) {
+VROOM_FN void
+vroom_fp_neg( vroom_fp_t *       out,
+               vroom_fp_t const * a ) {
   /* The encoded p is zero in Fp; adding it makes p-a nonnegative per lane. */
-  wwv_t m1 = wwv_ld( fd_bls_m1 );
-  wwv_t m2 = wwv_ld( fd_bls_m2 );
+  wwv_t m1 = wwv_ld( vroom_m1 );
+  wwv_t m2 = wwv_ld( vroom_m2 );
   wwv_t x1 = wwv_add( wwv_sub( wwv_shl( m1, 1 ), a->m1 ),
-                      wwv_ld( fd_bls_modulus_m1 ) );
+                      wwv_ld( vroom_modulus_m1 ) );
   wwv_t x2 = wwv_add( wwv_sub( wwv_shl( m2, 1 ), a->m2 ),
-                      wwv_ld( fd_bls_modulus_m2 ) );
+                      wwv_ld( vroom_modulus_m2 ) );
   out->m1 = wwv_min( x1, wwv_sub( x1, m1 ) );
   out->m2 = wwv_min( x2, wwv_sub( x2, m2 ) );
 }
 
-void
-fd_bls_fp_sub( fd_bls_fp_t *       out,
-               fd_bls_fp_t const * a,
-               fd_bls_fp_t const * b ) {
-  fd_bls_fp_t neg_b;
-  fd_bls_fp_neg( &neg_b, b );
-  fd_bls_fp_add( out, a, &neg_b );
+VROOM_FN void
+vroom_fp_sub( vroom_fp_t *       out,
+               vroom_fp_t const * a,
+               vroom_fp_t const * b ) {
+  vroom_fp_t neg_b;
+  vroom_fp_neg( &neg_b, b );
+  vroom_fp_add( out, a, &neg_b );
 }
 
-void
-fd_bls_fp_wide_offset( fd_bls_fp_wide_t * out ) {
-  out->m1_hi = wwv_ld( fd_bls_wide_offset_m1_hi );
-  out->m1_lo = wwv_ld( fd_bls_wide_offset_m1_lo );
-  out->m2_hi = wwv_ld( fd_bls_wide_offset_m2_hi );
-  out->m2_lo = wwv_ld( fd_bls_wide_offset_m2_lo );
+VROOM_FN void
+vroom_fp_wide_offset( vroom_fp_wide_t * out ) {
+  out->m1_hi = wwv_ld( vroom_wide_offset_m1_hi );
+  out->m1_lo = wwv_ld( vroom_wide_offset_m1_lo );
+  out->m2_hi = wwv_ld( vroom_wide_offset_m2_hi );
+  out->m2_lo = wwv_ld( vroom_wide_offset_m2_lo );
 }
 
-void
-fd_bls_fp_wide_addmul( fd_bls_fp_wide_t *  out,
-                       fd_bls_fp_t const * a,
-                       fd_bls_fp_t const * b ) {
+VROOM_FN void
+vroom_fp_wide_addmul( vroom_fp_wide_t *  out,
+                       vroom_fp_t const * a,
+                       vroom_fp_t const * b ) {
   out->m1_hi = wwv_madd52hi( out->m1_hi, a->m1, b->m1 );
   out->m1_lo = wwv_madd52lo( out->m1_lo, a->m1, b->m1 );
   out->m2_hi = wwv_madd52hi( out->m2_hi, a->m2, b->m2 );
   out->m2_lo = wwv_madd52lo( out->m2_lo, a->m2, b->m2 );
 }
 
-void
-fd_bls_fp_wide_submul( fd_bls_fp_wide_t *  out,
-                       fd_bls_fp_t const * a,
-                       fd_bls_fp_t const * b ) {
+VROOM_FN void
+vroom_fp_wide_submul( vroom_fp_wide_t *  out,
+                       vroom_fp_t const * a,
+                       vroom_fp_t const * b ) {
   wwv_t z = wwv_zero();
   out->m1_hi = wwv_sub( out->m1_hi, wwv_madd52hi( z, a->m1, b->m1 ) );
   out->m1_lo = wwv_sub( out->m1_lo, wwv_madd52lo( z, a->m1, b->m1 ) );
@@ -532,14 +532,14 @@ fd_bls_fp_wide_submul( fd_bls_fp_wide_t *  out,
   out->m2_lo = wwv_sub( out->m2_lo, wwv_madd52lo( z, a->m2, b->m2 ) );
 }
 
-void
-fd_bls_fp_one( fd_bls_fp_t * out ) {
-  out->m1 = wwv_ld( fd_bls_one_m1 );
-  out->m2 = wwv_ld( fd_bls_one_m2 );
+VROOM_FN void
+vroom_fp_one( vroom_fp_t * out ) {
+  out->m1 = wwv_ld( vroom_one_m1 );
+  out->m2 = wwv_ld( vroom_one_m2 );
 }
 
-void
-fd_bls_fp_zero( fd_bls_fp_t * out ) {
+VROOM_FN void
+vroom_fp_zero( vroom_fp_t * out ) {
   out->m1 = wwv_zero();
   out->m2 = wwv_zero();
 }
@@ -550,13 +550,13 @@ canonical_residue( wwv_t x,
   return wwv_min( x, wwv_sub( x, modulus ) );
 }
 
-int
-fd_bls_fp_equal( fd_bls_fp_t const * a,
-                 fd_bls_fp_t const * b ) {
-  wwv_t mod1 = wwv_ld( fd_bls_m1 );
-  wwv_t mod2 = wwv_ld( fd_bls_m2 );
-  wwv_t p1   = canonical_residue( wwv_ld( fd_bls_field_modulus_m1 ), mod1 );
-  wwv_t p2   = canonical_residue( wwv_ld( fd_bls_field_modulus_m2 ), mod2 );
+VROOM_FN int
+vroom_fp_equal( vroom_fp_t const * a,
+                 vroom_fp_t const * b ) {
+  wwv_t mod1 = wwv_ld( vroom_m1 );
+  wwv_t mod2 = wwv_ld( vroom_m2 );
+  wwv_t p1   = canonical_residue( wwv_ld( vroom_field_modulus_m1 ), mod1 );
+  wwv_t p2   = canonical_residue( wwv_ld( vroom_field_modulus_m2 ), mod2 );
   wwv_t a1   = canonical_residue( a->m1, mod1 );
   wwv_t a2   = canonical_residue( a->m2, mod2 );
   wwv_t b1   = canonical_residue( b->m1, mod1 );
@@ -577,6 +577,25 @@ fd_bls_fp_equal( fd_bls_fp_t const * a,
     cb2 = canonical_residue( wwv_add( cb2, p2 ), mod2 );
   }
   return 0;
+}
+
+/* out = n*a for small n (n <= 2^8): double-and-add over RAW 64-bit lane
+   sums.  Lanes are 64-bit and only madd52 operands must stay below 2^52,
+   so every intermediate (bounded by n*2^51 < 2^60) accumulates without
+   per-step normalization; one trailing normalize restores the bound. */
+VROOM_FN void
+vroom_fp_mul_small( vroom_fp_t *       out,
+                    vroom_fp_t const * a,
+                    uint               n ) {
+  wwv_t r1 = wwv_zero(), r2 = wwv_zero();
+  wwv_t x1 = a->m1,      x2 = a->m2;
+  while( n ) {
+    if( n & 1U ) { r1 = wwv_add( r1, x1 ); r2 = wwv_add( r2, x2 ); }
+    n >>= 1;
+    if( n ) { x1 = wwv_add( x1, x1 ); x2 = wwv_add( x2, x2 ); }
+  }
+  out->m1 = normalize( r1, wwv_ld( vroom_m1_t ) );
+  out->m2 = normalize( r2, wwv_ld( vroom_m2_t ) );
 }
 
 #endif

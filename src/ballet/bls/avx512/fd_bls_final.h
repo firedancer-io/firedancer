@@ -3,15 +3,14 @@
 
 /* Final exponentiation and Fp12 utilities for the AVX-512 pairing. */
 
-#include "fd_bls_field.h"
+#include "../../vroom/fd_vroom_field.h"
 
 #if FD_HAS_AVX512
 FD_PROTOTYPES_BEGIN
 
-void fd_bls_final_exp( fd_bls_fp12_t * out, fd_bls_fp12_t const * in );
-void fd_bls_fp12_inverse( fd_bls_fp12_t * out, fd_bls_fp12_t const * in );
-void fd_bls_fp12_frobenius( fd_bls_fp12_t * out, fd_bls_fp12_t const * in, ulong n );
-int  fd_bls_fp12_is_one( fd_bls_fp12_t const * in );
+void fd_bls_final_exp( vroom_fp12_t * out, vroom_fp12_t const * in );
+void vroom_fp12_inverse( vroom_fp12_t * out, vroom_fp12_t const * in );
+void fd_bls_fp12_frobenius( vroom_fp12_t * out, vroom_fp12_t const * in, ulong n );
 
 FD_PROTOTYPES_END
 #endif

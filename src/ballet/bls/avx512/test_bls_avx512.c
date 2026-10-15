@@ -1,5 +1,5 @@
-#include "fd_bls_rns.h"
-#include "fd_bls_field.h"
+#include "../../vroom/fd_vroom_rns.h"
+#include "../../vroom/fd_vroom_field.h"
 #include "fd_bls_miller.h"
 #include "fd_bls_final.h"
 #include "../fd_bls.h"
@@ -17,7 +17,7 @@ median101( long t[101] ) {
 }
 
 static void
-expect( fd_bls_fp_t const * x,
+expect( vroom_fp_t const * x,
         ulong const           m1[8],
         ulong const           m2[8] ) {
   ulong got1[8] __attribute__((aligned(64)));
@@ -30,21 +30,21 @@ expect( fd_bls_fp_t const * x,
 
 static void
 to_blst_fp12( blst_fp12 *             out,
-              fd_bls_fp12_t const * in ) {
+              vroom_fp12_t const * in ) {
   for( int i=0; i<12; i++ ) {
     ulong normal[6];
-    fd_bls_fp_to_uint64( normal, &in->c[i] );
+    vroom_fp_to_uint64( normal, &in->c[i] );
     blst_fp_from_uint64( ((blst_fp *)out)+i, normal );
   }
 }
 
 static void
-from_blst_fp12( fd_bls_fp12_t * out,
+from_blst_fp12( vroom_fp12_t * out,
                 blst_fp12 const * in ) {
   for( int i=0; i<12; i++ ) {
     ulong normal[6];
     blst_uint64_from_fp( normal, ((blst_fp const *)in)+i );
-    fd_bls_fp_from_uint64( &out->c[i], normal );
+    vroom_fp_from_uint64( &out->c[i], normal );
   }
 }
 
@@ -79,55 +79,55 @@ main( int     argc,
   ulong const c1[8] = { 277308246776731UL, 577481257347083UL, 90959109564192UL, 725921282476275UL, 1009833741461758UL, 61104099621559UL, 580609561492213UL, 760811924845715UL };
   ulong const c2[8] = { 678563601006820UL, 89045698410381UL, 129132908732247UL, 263293375596051UL, 414115650968632UL, 503307363257033UL, 545396070234415UL, 686954640914705UL };
 
-  fd_bls_fp_t ar, br, cr;
-  fd_bls_fp_from_uint64( &ar, a );
-  fd_bls_fp_from_uint64( &br, b );
+  vroom_fp_t ar, br, cr;
+  vroom_fp_from_uint64( &ar, a );
+  vroom_fp_from_uint64( &br, b );
   expect( &ar, a1, a2 );
   expect( &br, b1, b2 );
   ulong roundtrip[6];
-  fd_bls_fp_to_uint64( roundtrip, &ar );
+  vroom_fp_to_uint64( roundtrip, &ar );
   FD_TEST( !memcmp( roundtrip, a, sizeof(a) ) );
-  fd_bls_fp_to_uint64( roundtrip, &br );
+  vroom_fp_to_uint64( roundtrip, &br );
   FD_TEST( !memcmp( roundtrip, b, sizeof(b) ) );
-  fd_bls_fp_mul( &cr, &ar, &br );
+  vroom_fp_mul( &cr, &ar, &br );
   expect( &cr, c1, c2 );
 
-  fd_bls_fp_t one, identity;
-  fd_bls_fp_one( &one );
-  fd_bls_fp_mul( &identity, &ar, &one );
+  vroom_fp_t one, identity;
+  vroom_fp_one( &one );
+  vroom_fp_mul( &identity, &ar, &one );
   ulong const i1[8] = { 875909906340822UL, 360617026990273UL, 600365738960708UL, 734973616245734UL, 534266515125129UL, 904054785939657UL, 504852527554801UL, 1024953831931218UL };
   ulong const i2[8] = { 174216029891577UL, 530570771293766UL, 850971667885324UL, 73240393623386UL, 1004126063843614UL, 612427962045160UL, 494946582557490UL, 856441705901549UL };
   expect( &identity, i1, i2 );
 
-  fd_bls_fp2_t x2, y2, z2;
-  ulong n[6] = {5UL,0UL,0UL,0UL,0UL,0UL}; fd_bls_fp_from_uint64( &x2.c[0], n );
-  n[0] = 2UL; fd_bls_fp_from_uint64( &x2.c[1], n );
-  n[0] = 7UL; fd_bls_fp_from_uint64( &y2.c[0], n );
-  n[0] = 3UL; fd_bls_fp_from_uint64( &y2.c[1], n );
-  fd_bls_fp2_mul( &z2, &x2, &y2 );
+  vroom_fp2_t x2, y2, z2;
+  ulong n[6] = {5UL,0UL,0UL,0UL,0UL,0UL}; vroom_fp_from_uint64( &x2.c[0], n );
+  n[0] = 2UL; vroom_fp_from_uint64( &x2.c[1], n );
+  n[0] = 7UL; vroom_fp_from_uint64( &y2.c[0], n );
+  n[0] = 3UL; vroom_fp_from_uint64( &y2.c[1], n );
+  vroom_fp2_mul( &z2, &x2, &y2 );
   ulong znormal[6];
-  fd_bls_fp_to_uint64( znormal, &z2.c[0] ); FD_TEST( znormal[0]==29UL );
-  fd_bls_fp_to_uint64( znormal, &z2.c[1] ); FD_TEST( znormal[0]==29UL );
-  fd_bls_fp2_sqr( &z2, &x2 );
-  fd_bls_fp_to_uint64( znormal, &z2.c[0] ); FD_TEST( znormal[0]==21UL );
-  fd_bls_fp_to_uint64( znormal, &z2.c[1] ); FD_TEST( znormal[0]==20UL );
+  vroom_fp_to_uint64( znormal, &z2.c[0] ); FD_TEST( znormal[0]==29UL );
+  vroom_fp_to_uint64( znormal, &z2.c[1] ); FD_TEST( znormal[0]==29UL );
+  vroom_fp2_sqr( &z2, &x2 );
+  vroom_fp_to_uint64( znormal, &z2.c[0] ); FD_TEST( znormal[0]==21UL );
+  vroom_fp_to_uint64( znormal, &z2.c[1] ); FD_TEST( znormal[0]==20UL );
 
-  fd_bls_fp12_t x12, y12, z12;
+  vroom_fp12_t x12, y12, z12;
   for( int i=0; i<12; i++ ) {
     fd_memset( n, 0, sizeof(n) ); n[0] = (ulong)(i+1);
-    fd_bls_fp_from_uint64( &x12.c[i], n );
+    vroom_fp_from_uint64( &x12.c[i], n );
     n[0] = (ulong)(3*i+2);
-    fd_bls_fp_from_uint64( &y12.c[i], n );
+    vroom_fp_from_uint64( &y12.c[i], n );
   }
   blst_fp12 bx, by, bref, bgot;
   to_blst_fp12( &bx, &x12 );
   to_blst_fp12( &by, &y12 );
   blst_fp12_mul( &bref, &bx, &by );
-  fd_bls_fp12_mul( &z12, &x12, &y12 );
+  vroom_fp12_mul( &z12, &x12, &y12 );
   to_blst_fp12( &bgot, &z12 );
   FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
   blst_fp12_sqr( &bref, &bx );
-  fd_bls_fp12_sqr( &z12, &x12 );
+  vroom_fp12_sqr( &z12, &x12 );
   to_blst_fp12( &bgot, &z12 );
   FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
   for( ulong power=1UL; power<=3UL; power++ ) {
@@ -137,18 +137,18 @@ main( int     argc,
     FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
   }
   blst_fp12_inverse( &bref, &bx );
-  fd_bls_fp12_inverse( &z12, &x12 );
+  vroom_fp12_inverse( &z12, &x12 );
   to_blst_fp12( &bgot, &z12 );
   FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
-  fd_bls_fp12_mul( &y12, &x12, &z12 );
-  FD_TEST( fd_bls_fp12_is_one( &y12 ) );
+  vroom_fp12_mul( &y12, &x12, &z12 );
+  FD_TEST( vroom_fp12_is_one( &y12 ) );
   for( ulong value=1UL; value<=32UL; value++ ) {
-    for( int i=0; i<12; i++ ) fd_bls_fp_zero( &x12.c[i] );
+    for( int i=0; i<12; i++ ) vroom_fp_zero( &x12.c[i] );
     ulong scalar[6] = { value, 0UL, 0UL, 0UL, 0UL, 0UL };
-    fd_bls_fp_from_uint64( &x12.c[0], scalar );
+    vroom_fp_from_uint64( &x12.c[0], scalar );
     to_blst_fp12( &bx, &x12 );
     blst_fp12_inverse( &bref, &bx );
-    fd_bls_fp12_inverse( &z12, &x12 );
+    vroom_fp12_inverse( &z12, &x12 );
     to_blst_fp12( &bgot, &z12 );
     FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
   }
@@ -186,12 +186,12 @@ main( int     argc,
   FD_TEST( blst_fp12_finalverify( &bref, blst_fp12_one() ) );
   blst_final_exp( &bx, &bref );
   from_blst_fp12( &x12, &bx );
-  fd_bls_fp12_cyclotomic_sqr( &z12, &x12 );
+  vroom_fp12_cyclotomic_sqr( &z12, &x12 );
   to_blst_fp12( &bgot, &z12 );
   blst_fp12_cyclotomic_sqr( &by, &bx );
   FD_TEST( blst_fp12_is_equal( &by, &bgot ) );
   for( int i=0; i<64; i++ ) {
-    fd_bls_fp12_cyclotomic_sqr( &z12, &z12 );
+    vroom_fp12_cyclotomic_sqr( &z12, &z12 );
     blst_fp12_cyclotomic_sqr( &by, &by );
     to_blst_fp12( &bgot, &z12 );
     if( FD_UNLIKELY( !blst_fp12_is_equal( &by, &bgot ) ) )
@@ -265,20 +265,20 @@ main( int     argc,
       then = fd_log_wallclock();
       FD_TEST( fd_bls_g2_prepare( prepared, pairing_qn )==0 );
       prepare_samples[sample] = fd_log_wallclock()-then;
-      fd_bls_fp12_t m0, m1, mp, mf;
+      vroom_fp12_t m0, m1, mp, mf;
       then = fd_log_wallclock();
       fd_bls_miller_loop_avx512( &m0, &pairing_pn[0], &pairing_qn[0] );
       fd_bls_miller_loop_avx512( &m1, &pairing_pn[1], &pairing_qn[1] );
-      fd_bls_fp12_mul( &mp, &m0, &m1 );
+      vroom_fp12_mul( &mp, &m0, &m1 );
       c_miller_samples[sample] = fd_log_wallclock()-then;
       then = fd_log_wallclock();
       fd_bls_final_exp( &mf, &mp );
       c_final_samples[sample] = fd_log_wallclock()-then;
       then = fd_log_wallclock();
-      FD_TEST( fd_bls_fp12_is_one( &mf ) );
+      FD_TEST( vroom_fp12_is_one( &mf ) );
       c_isone_samples[sample] = fd_log_wallclock()-then;
       then = fd_log_wallclock();
-      fd_bls_fp12_inverse( &mf, &mp );
+      vroom_fp12_inverse( &mf, &mp );
       c_inverse_samples[sample] = fd_log_wallclock()-then;
       then = fd_log_wallclock();
       blst_miller_loop_n( &bref, qq, pp, 2UL );
@@ -295,12 +295,12 @@ main( int     argc,
     FD_LOG_NOTICE(( "FP12 inverse: %.3f ms", (double)median101( c_inverse_samples )/1e6 ));
   }
 
-  fd_bls_fp_t line[6] = { y12.c[0], y12.c[1], y12.c[2], y12.c[3], y12.c[8], y12.c[9] };
-  for( int i=0; i<12; i++ ) fd_bls_fp_zero( &y12.c[i] );
+  vroom_fp_t line[6] = { y12.c[0], y12.c[1], y12.c[2], y12.c[3], y12.c[8], y12.c[9] };
+  for( int i=0; i<12; i++ ) vroom_fp_zero( &y12.c[i] );
   y12.c[0]=line[0]; y12.c[1]=line[1]; y12.c[2]=line[2]; y12.c[3]=line[3]; y12.c[8]=line[4]; y12.c[9]=line[5];
   to_blst_fp12( &by, &y12 );
   blst_fp12_mul( &bref, &bx, &by );
-  fd_bls_fp12_mul_sparse( &z12, &x12, line );
+  vroom_fp12_mul_sparse( &z12, &x12, line );
   to_blst_fp12( &bgot, &z12 );
   FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
 
@@ -312,35 +312,35 @@ main( int     argc,
     for( int i=0; i<12; i++ ) {
       prng = prng*0x9e3779b97f4a7c15UL + 0xda942042e4dd58b5UL;
       fd_memset( n, 0, sizeof(n) ); n[0] = prng;
-      fd_bls_fp_from_uint64( &x12.c[i], n );
+      vroom_fp_from_uint64( &x12.c[i], n );
       prng = prng*0x9e3779b97f4a7c15UL + 0xda942042e4dd58b5UL;
       n[0] = prng;
-      fd_bls_fp_from_uint64( &y12.c[i], n );
+      vroom_fp_from_uint64( &y12.c[i], n );
     }
     to_blst_fp12( &bx, &x12 );
     to_blst_fp12( &by, &y12 );
 
     blst_fp12_mul( &bref, &bx, &by );
-    fd_bls_fp12_mul( &x12, &x12, &y12 );
+    vroom_fp12_mul( &x12, &x12, &y12 );
     to_blst_fp12( &bgot, &x12 );
     FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
 
     blst_fp12_sqr( &bref, &by );
-    fd_bls_fp12_sqr( &y12, &y12 );
+    vroom_fp12_sqr( &y12, &y12 );
     to_blst_fp12( &bgot, &y12 );
     FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
 
-    fd_bls_fp_t sparse_line[6] = {
+    vroom_fp_t sparse_line[6] = {
       x12.c[0], x12.c[1], x12.c[2], x12.c[3], x12.c[8], x12.c[9]
     };
-    for( int i=0; i<12; i++ ) fd_bls_fp_zero( &z12.c[i] );
+    for( int i=0; i<12; i++ ) vroom_fp_zero( &z12.c[i] );
     z12.c[0]=sparse_line[0]; z12.c[1]=sparse_line[1];
     z12.c[2]=sparse_line[2]; z12.c[3]=sparse_line[3];
     z12.c[8]=sparse_line[4]; z12.c[9]=sparse_line[5];
     to_blst_fp12( &bx, &x12 );
     to_blst_fp12( &by, &z12 );
     blst_fp12_mul( &bref, &bx, &by );
-    fd_bls_fp12_mul_sparse( &x12, &x12, sparse_line );
+    vroom_fp12_mul_sparse( &x12, &x12, sparse_line );
     to_blst_fp12( &bgot, &x12 );
     FD_TEST( blst_fp12_is_equal( &bref, &bgot ) );
   }

@@ -1,5 +1,6 @@
 #include "./fd_bn254_g2_inl.h"
 #include "./fd_bn254_glv.h"
+#include "./fd_bn254_backend.h"
 
 /* G2 scalar mul and deserialization. */
 
@@ -189,11 +190,21 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
      fd_bn254_g2_frob( b, p );
      if( !fd_bn254_g2_eq( a, b ) ) return NULL; */
 
-  fd_bn254_g2_t xp[1], l[1], psi[1], r[1];
-  fd_bn254_g2_scalar_mul( xp, p, fd_bn254_const_x ); /* 64-bit */
-  fd_bn254_g2_add_mixed( l, xp, p );
+  if( FD_UNLIKELY( !fd_bn254_backend_g2_in_subgroup( p ) ) ) {
+    return NULL;
+  }
+  return p;
+}
 
-  /* l will not be equal to psi unless p==0 */
+/* fd_bn254_ref_g2_in_subgroup: Scott's check as above, on the scalar
+   backend (dispatch boundary; q is affine, on-curve, not infinity). */
+int
+fd_bn254_ref_g2_in_subgroup( fd_bn254_g2_t const * q ) {
+  fd_bn254_g2_t xp[1], l[1], psi[1], r[1];
+  fd_bn254_g2_scalar_mul( xp, q, fd_bn254_const_x ); /* 64-bit */
+  fd_bn254_g2_add_mixed( l, xp, q );
+
+  /* l will not be equal to psi unless q==0 */
   fd_bn254_g2_frob( psi, xp );
   fd_bn254_g2_add( l, l, psi );
 
@@ -202,8 +213,5 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
 
   fd_bn254_g2_frob( psi, psi );
   fd_bn254_g2_dbl( r, psi );
-  if( FD_UNLIKELY( !fd_bn254_g2_eq( l, r ) ) ) {
-    return NULL;
-  }
-  return p;
+  return fd_bn254_g2_eq( l, r );
 }
