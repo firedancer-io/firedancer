@@ -57,7 +57,7 @@ case $what in
     { cat "$BENCH_DIR/$side/bench.toml"; printf '[paths]\n    accounts = "%s"\n    shredb = "%s"\n' "$DUMP_DIR/accounts.db" "$SHREDB"; } > "$out.toml"
     quiesce
     rm -f "$out.log"
-    sudo "$bin/firedancer-dev" bench --no-watch --duration 10 --config "$out.toml" \
+    sudo "$bin/firedancer-dev" bench --alpenglow --no-watch --duration 10 --config "$out.toml" \
          --log-path "$out.log" > /dev/null 2>&1
     ;;
   *) echo "bench.sh: unknown measurement $what" >&2; exit 1 ;;

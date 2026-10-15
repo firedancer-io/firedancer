@@ -243,6 +243,7 @@ firedancer_dev_test_run( int     argc,
 
       static config_t config[1];
       fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
+      config->firedancer.consensus.alpenglow = 1;
 
       FD_TEST( config->firedancer.development.genesis.max_file_size_mib==16UL );
 
@@ -399,6 +400,7 @@ main( int     argc,
     fd_boot( &argc, &argv );
     static config_t config[ 1 ];
     fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 1 /* dev */ );
+    config->firedancer.consensus.alpenglow = 1;
     fd_topo_initialize( config );
     test_efficient_layout( config );
     fd_halt();
