@@ -1002,10 +1002,12 @@ after_credit( fd_rotor_tile_t *   ctx,
   while( !pending_dlist_is_empty( ctx->pending_dlist, ctx->pending_pool ) ) {
     pending_t * pending = pending_dlist_ele_peek_head( ctx->pending_dlist, ctx->pending_pool );
     if( FD_LIKELY( now-pending->ts<PENDING_TTL ) ) break;
-    /* no rtt sample, don't know if pending failed because the peer
-       didn't send us, or it got deduplicated at the shred tile, or the
-       root moved forward */
-    fd_rotor_strat_request_failed( ctx->strat, &pending->peer, 0 );
+
+    /* An unanswered request counts as a reply at PENDING_TTL, unless
+       the root moved past it and the shred tile ignored the reply. */
+
+    if( FD_LIKELY( pending->slot>ctx->rotor->root ) ) fd_rotor_strat_request_done  ( ctx->strat, &pending->peer, PENDING_TTL );
+    else                                              fd_rotor_strat_request_failed( ctx->strat, &pending->peer, 0           );
     ctx->metrics->req_expired++;
     pending_dlist_ele_pop_head ( ctx->pending_dlist, ctx->pending_pool );
     pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
