@@ -355,13 +355,7 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
   return FD_COST_TRACKER_SUCCESS;
 }
 
-/* roll_back_applied_costs undoes the costs that try_add_account_costs
-   applied to the writable accounts before index acct_end.  The pool is
-   only appended to, so the accounts this transaction inserted are the
-   pool elements at or after accounts_used.  They are removed from the
-   map and their pool elements are released by restoring accounts_used.
-   The cost is subtracted from the other accounts.
-   https://github.com/anza-xyz/agave/blob/v4.3.0/cost-model/src/cost_tracker.rs#L286-L305 */
+/* https://github.com/anza-xyz/agave/blob/v4.3.0/cost-model/src/cost_tracker.rs#L286-L305 */
 static void
 roll_back_applied_costs( cost_tracker_outer_t * cost_tracker,
                          fd_txn_out_t const *   txn_out,
@@ -385,12 +379,7 @@ roll_back_applied_costs( cost_tracker_outer_t * cost_tracker,
   cost_tracker->accounts_used = accounts_used;
 }
 
-/* try_add_account_costs checks each writable account against the
-   account cost limit and applies the cost with the same map lookup.  If
-   an account would exceed the limit, the costs already applied are
-   rolled back and FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT
-   is returned, leaving the cost tracker unchanged.
-   https://github.com/anza-xyz/agave/blob/v4.3.0/cost-model/src/cost_tracker.rs#L212-L239 */
+/* https://github.com/anza-xyz/agave/blob/v4.3.0/cost-model/src/cost_tracker.rs#L212-L239 */
 static inline int
 try_add_account_costs( fd_cost_tracker_t *  _cost_tracker,
                        fd_txn_out_t const * txn_out,
