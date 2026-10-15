@@ -318,14 +318,19 @@ publish_shred_version( fd_backt_tile_t *   ctx,
 static void
 drain_events( fd_backt_tile_t * ctx ) {
   if( FD_LIKELY( !ctx->event_metrics ) ) return;
-  long deadline = fd_log_wallclock() + (long)120e9;
+  long  deadline           = fd_log_wallclock() + (long)120e9;
+  ulong hb_at_caught_up    = 0UL;
+  ulong hb_after_caught_up = 0UL;
   for(;;) {
-    int drained = 1;
+    int caught_up = 1;
     for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
-      if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
+      if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { caught_up = 0; break; }
     }
-    drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ];
-    if( FD_LIKELY( drained ) ) break;
+    ulong hb = ctx->event_metrics[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIME_OFF ];
+    if( !caught_up ) hb_at_caught_up = hb_after_caught_up = 0UL;
+    else if( !hb_at_caught_up ) hb_at_caught_up = hb;
+    else if( !hb_after_caught_up ) { if( hb>hb_at_caught_up ) hb_after_caught_up = hb; }
+    else if( hb>hb_after_caught_up && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_USED_OFF ] ) break;
     if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
       FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_COUNT_OFF ] ));
       break;
