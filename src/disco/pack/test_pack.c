@@ -2285,6 +2285,26 @@ test_stale_bundle_lifecycle( void ) {
   FD_TEST( fd_pack_stale_bundle_cnt( pack )==1UL );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* A stale bundle that the cap rejects must not first displace the
+     pending transaction holding the same durable nonce */
+  pack = init_all( 1024UL, 1UL, 8UL, &outcome );
+  fd_pack_set_initializer_bundles_ready( pack );
+  fd_pack_set_stale_bundle_capacity( pack, 1UL );
+  fd_pack_set_insert_stale( pack, 1 );
+  FD_TEST( insert_tip_bundle( pack, 130UL, 9000UL, 0UL, "A", 1000UL )>=0 );
+  txn = fd_pack_insert_txn_init( pack );
+  make_nonce_transaction1( txn->txnp, 131UL, 11.0, 5, 0, 'b' );
+  FD_TEST( fd_pack_insert_txn_fini( pack, txn, 1000UL, &deleted )>=0 );
+  fd_txn_e_t * _bundle2[ 2 ];
+  fd_txn_e_t * const * bundle2 = fd_pack_insert_bundle_init( pack, _bundle2, 2UL );
+  make_nonce_transaction1( bundle2[ 0 ]->txnp, 132UL, 12.0, 5, 0, 'b' );
+  make_tip_transaction1  ( bundle2[ 1 ]->txnp, 133UL, 10000U, 1000UL, 1UL, "C" );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle2, 2UL, 1000UL, 0, NULL, &deleted )==FD_PACK_INSERT_REJECT_PRIORITY );
+  FD_TEST( deleted==0UL );
+  FD_TEST( fd_pack_stale_bundle_cnt( pack )==1UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==2UL ); /* the kept stale bundle and the nonce transaction */
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
 int

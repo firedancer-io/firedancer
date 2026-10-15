@@ -1790,6 +1790,24 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
   if( FD_UNLIKELY( expires_at<pack->expire_before                                         ) ) err = FD_PACK_INSERT_REJECT_EXPIRED;
 
+  /* When the stale treap is full, a stale bundle only gets in by
+     declaring a larger tip than the worst one there, which it then
+     replaces (below, once the bundle is known to be valid).  On a tie,
+     the bundle that arrived first stays.  Check this before validating,
+     because validation can delete a pending transaction that holds the
+     same durable nonce. */
+  ulong stale_tip = 0UL;
+  if( FD_UNLIKELY( stale & !err ) ) {
+    for( ulong i=0UL; i<txn_cnt; i++ ) stale_tip = fd_ulong_sat_add( stale_tip, bundle_txn_declared_tip( (fd_pack_ord_txn_t *)bundle[ i ] ) );
+    if( FD_UNLIKELY( pack->stale_bundle_cnt>=pack->stale_capacity ) ) {
+      fd_pack_ord_txn_t const * worst = stale_treap_fwd_iter_ele( stale_treap_fwd_iter_init( pack->stale_bundles, pack->pool ), pack->pool );
+      if( FD_UNLIKELY( stale_tip<=worst->stale_tip ) ) {
+        FD_MCNT_INC( PACK, STALE_BUNDLE_REJECTED, 1UL );
+        fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
+        return FD_PACK_INSERT_REJECT_PRIORITY;
+      }
+    }
+  }
 
   int   replaces      = 0;
   ulong nonce_txn_cnt = 0UL;
@@ -1877,24 +1895,15 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     }
   }
 
-  ulong stale_tip = 0UL;
-  if( FD_UNLIKELY( stale ) ) {
-    for( ulong i=0UL; i<txn_cnt; i++ ) stale_tip = fd_ulong_sat_add( stale_tip, bundle_txn_declared_tip( (fd_pack_ord_txn_t *)bundle[ i ] ) );
-
-    /* When the stale treap is full, this bundle only gets in by
-       declaring a larger tip than the worst one there, which it then
-       replaces.  On a tie, the bundle that arrived first stays. */
-    if( FD_UNLIKELY( pack->stale_bundle_cnt>=pack->stale_capacity ) ) {
-      fd_pack_ord_txn_t * worst = stale_treap_fwd_iter_ele( stale_treap_fwd_iter_init( pack->stale_bundles, pack->pool ), pack->pool );
-      if( FD_UNLIKELY( stale_tip<=worst->stale_tip ) ) {
-        FD_MCNT_INC( PACK, STALE_BUNDLE_REJECTED, 1UL );
-        fd_pack_insert_bundle_cancel( pack, bundle, txn_cnt );
-        return FD_PACK_INSERT_REJECT_PRIORITY;
-      }
-      *delete_cnt += delete_transaction( pack, worst, 1, 0, FD_PACK_BUNDLE_LEAVE_EVICTED );
-      FD_MCNT_INC( PACK, STALE_BUNDLE_EVICTED, 1UL );
-      replaces = 1;
-    }
+  /* The stale treap is full and this bundle declares a larger tip than
+     the worst one there (checked above): evict the worst.  Validation
+     can't have changed the stale treap, since a pending bundle holding
+     the same durable nonce makes this bundle fail validation. */
+  if( FD_UNLIKELY( stale && pack->stale_bundle_cnt>=pack->stale_capacity ) ) {
+    fd_pack_ord_txn_t * worst = stale_treap_fwd_iter_ele( stale_treap_fwd_iter_init( pack->stale_bundles, pack->pool ), pack->pool );
+    *delete_cnt += delete_transaction( pack, worst, 1, 0, FD_PACK_BUNDLE_LEAVE_EVICTED );
+    FD_MCNT_INC( PACK, STALE_BUNDLE_EVICTED, 1UL );
+    replaces = 1;
   }
 
   while( FD_UNLIKELY( pack->pending_txn_cnt+txn_cnt > pack->pack_depth ) ) {
