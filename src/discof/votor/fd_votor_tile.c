@@ -298,6 +298,8 @@ struct fd_votor_tile {
   ulong                      next_leader_slot;
   ulong                      highest_parent_ready_slot;
   ulong                      highest_certed_final_slot; /* highest slot whose final cert was published paired with its notar cert */
+  ulong                      catchup_slot;              /* highest verified final cert slot beyond the pool window, 0 if none */
+  int                        catchup_dirty;             /* catchup_slot not yet published */
 
   /* Alpenglow data structures */
 
@@ -968,7 +970,16 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, verify_start_time, 0L );
       break;
-    case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; break;
+    case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS:
+      ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++;
+      /* too far ahead for the pool, but proof of where the cluster is */
+      if( FD_UNLIKELY( ( cert->kind==AG_CERT_KIND_FINAL || cert->kind==AG_CERT_KIND_FAST_FINAL ) &&
+                       cert_slot>ctx->catchup_slot && cert_slot>ag_pool_finalized_slot( ctx->pool ) && epoch_info ) ) {
+        if( FD_UNLIKELY( !ag_cert_verify( cert, epoch_info ) ) ) { ban_peer( peer, fd_clock_tile_now( ctx->clock ) ); break; }
+        ctx->catchup_slot  = cert_slot;
+        ctx->catchup_dirty = 1;
+      }
+      break;
     case AG_POOL_ERR_DUPLICATE:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX ]++;
       if( FD_LIKELY( ctx->scratch.cert.kind==AG_CERT_KIND_NOTAR ) ) report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE, 0L, 0L );
@@ -1803,6 +1814,17 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
+  /* 1b. Publish the catchup target. */
+
+  if( FD_UNLIKELY( ctx->catchup_dirty ) ) {
+    fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+    chunk->catchup = (fd_votor_catchup_t){ .slot = ctx->catchup_slot };
+    fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CATCHUP, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+    ctx->catchup_dirty = 0;
+    *charge_busy = 1;
+  }
+
   /* 2. Retry un-acked reward votes. */
 
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
@@ -2310,6 +2332,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_certed_final_slot = 0UL;
+  ctx->catchup_slot              = 0UL;
+  ctx->catchup_dirty             = 0;
   ctx->standstill_slot           = ULONG_MAX;
   ctx->standstill_ts             = LONG_MAX;
   ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );

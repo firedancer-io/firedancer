@@ -10,9 +10,10 @@
 #define FD_VOTOR_SIG_LEADER (2)
 #define FD_VOTOR_SIG_REWARD (3)
 #define FD_VOTOR_SIG_QUORUM (4)
+#define FD_VOTOR_SIG_CATCHUP (5)
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
-#define FD_VOTOR_OUT_BURST (2UL+1UL+1UL+AG_SLOTS_PER_WINDOW+1UL) /* 2 certed or 1 quorum + 1 repair + 1 republished reward + 4 reward + 1 leader */
+#define FD_VOTOR_OUT_BURST (2UL+1UL+1UL+AG_SLOTS_PER_WINDOW+1UL+1UL) /* 2 certed or 1 quorum + 1 repair + 1 republished reward + 4 reward + 1 leader + 1 catchup */
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is
@@ -86,12 +87,22 @@ struct fd_votor_quorum {
 };
 typedef struct fd_votor_quorum fd_votor_quorum_t;
 
+/* fd_votor_catchup names the highest slot with a verified final cert
+   beyond the pool window, so rotor repairs toward it while far
+   behind. */
+
+struct fd_votor_catchup {
+  ulong slot;
+};
+typedef struct fd_votor_catchup fd_votor_catchup_t;
+
 union fd_votor_msg {
-  fd_votor_certed_t certed;
-  fd_votor_repair_t repair;
-  fd_votor_leader_t leader;
-  fd_votor_reward_t reward;
-  fd_votor_quorum_t quorum;
+  fd_votor_certed_t  certed;
+  fd_votor_repair_t  repair;
+  fd_votor_leader_t  leader;
+  fd_votor_reward_t  reward;
+  fd_votor_quorum_t  quorum;
+  fd_votor_catchup_t catchup;
 };
 typedef union fd_votor_msg fd_votor_msg_t;
 

@@ -159,6 +159,7 @@ struct fd_rotor_tile {
 
   ulong     cert_slot0;      /* staked: first cert slot, 0 if none yet */
   ulong     turbine_slot0;   /* unstaked: first turbine slot, 0 if none yet */
+  ulong     catchup_target;  /* staked: highest slot finalized beyond the window per votor, 0 if none */
   ulong     highest_fec_complete_slot; /* highest slot a FEC set completed for off the network, our leader sets excluded: the cluster tip, 0 if none yet */
 
   /* Snapshot */
@@ -612,6 +613,14 @@ handle_votor( fd_rotor_tile_t * ctx,
     }
     break;
   }
+  case FD_VOTOR_SIG_CATCHUP: {
+    /* Nothing past the window reaches us, so seed the window toward the
+       target and repair it by position.  Rolls forward with the root. */
+    if( FD_UNLIKELY( !staked || msg->catchup.slot<=ctx->catchup_target ) ) return;
+    ctx->catchup_target = msg->catchup.slot;
+    fd_rotor_slot_catchup( ctx->rotor, fd_ulong_min( ctx->catchup_target+1UL, ctx->rotor->root+ctx->rotor->slot_max ) );
+    break;
+  }
   default: FD_LOG_ERR(( "unhandled votor sig %lu", sig ));
   }
 }
@@ -626,6 +635,7 @@ handle_replay( fd_rotor_tile_t * ctx,
     ctx->metrics->replay_root_advanced++;
     if( FD_UNLIKELY( root->slot<=ctx->rotor->root ) ) return;
     fd_rotor_root_advanced( ctx->rotor, root->slot, &root->block_id );
+    if( FD_UNLIKELY( ctx->catchup_target>ctx->rotor->root ) ) fd_rotor_slot_catchup( ctx->rotor, fd_ulong_min( ctx->catchup_target+1UL, ctx->rotor->root+ctx->rotor->slot_max ) );
     break;
   }
   case REPLAY_SIG_SLOT_DEAD: {
@@ -871,6 +881,7 @@ metrics_write( fd_rotor_tile_t * ctx ) {
   FD_MGAUGE_SET( ROTOR, HIGHEST_DELIVERED_SLOT, ctx->metrics->slot_highest_repaired                );
   FD_MGAUGE_SET( ROTOR, HIGHEST_RECEIVED_SLOT,  ctx->metrics->slot_current                         );
   FD_MGAUGE_SET( ROTOR, FIRST_TURBINE_SLOT,     ctx->turbine_slot0                                 );
+  FD_MGAUGE_SET( ROTOR, CATCHUP_TARGET_SLOT,    ctx->catchup_target                                );
   FD_MGAUGE_SET( ROTOR, BLOCK_PENDING,          queued                                             );
   FD_MGAUGE_SET( ROTOR, REQUEST_IN_FLIGHT,      pending_pool_used( ctx->pending_pool )             );
   FD_MGAUGE_SET( ROTOR, TIMEOUT_PENDING,        waiting                                            );
@@ -1157,7 +1168,7 @@ before_frag( fd_rotor_tile_t * ctx,
   }
   case IN_KIND_VOTOR:
     if( FD_UNLIKELY( ctx->rotor->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
-    return sig!=FD_VOTOR_SIG_CERTED && sig!=FD_VOTOR_SIG_REPAIR && sig!=FD_VOTOR_SIG_QUORUM;
+    return sig!=FD_VOTOR_SIG_CERTED && sig!=FD_VOTOR_SIG_REPAIR && sig!=FD_VOTOR_SIG_QUORUM && sig!=FD_VOTOR_SIG_CATCHUP;
   case IN_KIND_REPLAY:
     return sig!=REPLAY_SIG_ROOT_ADVANCED && sig!=REPLAY_SIG_SLOT_DEAD && sig!=REPLAY_SIG_MISSING_FEC;
   case IN_KIND_EPOCH:
