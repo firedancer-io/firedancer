@@ -1805,30 +1805,15 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
 }
 
 /* valid_producer_time returns 1 iff an Alpenglow block footer's
-   producer_time_nanos is within valid bounds relative to the
-   Alpenclock PDA and can be safely represented as a long, and 0 if
-   not.
-
-   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor.rs#L698-L726 */
+   producer_time_nanos is within valid bounds relative to the parent's
+   timestamp and can be safely represented as a long, and 0 if not. */
 
 static inline int
-valid_producer_time( fd_bank_t const *             bank,
-                     fd_accdb_t *                  accdb,
-                     fd_pubkey_t const *           alpenclock_addr,
-                     fd_sol_sysvar_clock_t const * clock,
-                     ulong                         producer_time_nanos ) {
-  fd_acc_t alpenclock_ac = fd_accdb_read_one( accdb, bank->accdb_fork_id, alpenclock_addr->uc );
-
-  /* Fall back to the sysvar clock if the Alpenclock PDA does not exist
-     yet (the first block after the Alpenglow migration). */
-  long parent_nanos = ( alpenclock_ac.lamports && alpenclock_ac.data_len>=sizeof(ulong) )
-                      ? (long)FD_LOAD( ulong, alpenclock_ac.data )
-                      : fd_long_sat_mul( clock->unix_timestamp, 1000000000L );
-  fd_accdb_unread_one( accdb, &alpenclock_ac );
-
-  ulong elapsed_nanos = fd_slot_params_slot_range_duration_ns( bank, bank->f.parent_slot+1UL, bank->f.slot+1UL );
-  long  lo = fd_long_sat_add( parent_nanos, 1L );
-  long  hi = fd_long_sat_add( parent_nanos, (long)fd_ulong_min( fd_ulong_sat_mul( elapsed_nanos, 2UL ), (ulong)LONG_MAX ) );
+valid_producer_time( fd_bank_t const * bank,
+                     fd_accdb_t *      accdb,
+                     ulong             producer_time_nanos ) {
+  long lo, hi;
+  fd_alpenglow_producer_time_bounds( bank, accdb, &lo, &hi );
   return producer_time_nanos<=(ulong)LONG_MAX && (long)producer_time_nanos>=lo && (long)producer_time_nanos<=hi;
 }
 
@@ -1855,10 +1840,7 @@ apply_footer( fd_bank_t *               bank,
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
-  fd_pubkey_t alpenclock_addr;
-  fd_alpenglow_pda( "alpenclock", &alpenclock_addr );
-
-  if( FD_UNLIKELY( !valid_producer_time( bank, accdb, &alpenclock_addr, clock, producer_time_nanos ) ) ) return -1;
+  if( FD_UNLIKELY( !valid_producer_time( bank, accdb, producer_time_nanos ) ) ) return -1;
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong current_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot,        NULL );
@@ -1878,6 +1860,8 @@ apply_footer( fd_bank_t *               bank,
 
   /* size the alpenclock balance with exactly the default rent, any
      excess lamports must be burned */
+  fd_pubkey_t alpenclock_addr;
+  fd_alpenglow_pda( "alpenclock", &alpenclock_addr );
   uchar data[ 8UL ];
   FD_STORE( ulong, data, producer_time_nanos );
   fd_accdb_svm_update_t update[1];

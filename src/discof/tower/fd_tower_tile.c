@@ -1241,8 +1241,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   fd_ghost_blk_t * ghost_blk;
   if( FD_UNLIKELY( !ctx->init ) ) {
 
-    /* This is the first replay_slot_completed (ie. the snapshot or
-       genesis slot), so initialize the ghost root. */
+    /* This is the first replay_slot_completed (ie. the snapshot
+       slot), so initialize the ghost root. */
 
     ghost_blk = fd_ghost_init( ctx->ghost, slot_completed->bank_seq, slot_completed->slot, &slot_completed->block_id );
 
