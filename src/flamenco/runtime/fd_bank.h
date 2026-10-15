@@ -254,6 +254,7 @@ struct fd_bank {
   ulong state;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
   uchar is_leader;   /* whether the bank is the leader */
+  fd_pubkey_t leader; /* slot leader of this block */
 
   fd_txncache_fork_id_t  txncache_fork_id __attribute__((aligned(64UL)));
   fd_progcache_fork_id_t progcache_fork_id;

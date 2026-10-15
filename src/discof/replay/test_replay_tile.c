@@ -407,6 +407,36 @@ setup_node_info( fd_replay_tile_t * ctx ) {
   FD_TEST( ctx->node_info );
 }
 
+/* setup_mleaders fills the leader cache for epochs 0 and 1 (128-slot
+   epochs, one staked node), as production does at boot. */
+
+static void
+setup_mleaders( fd_replay_tile_t * ctx ) {
+  ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
+  FD_TEST( ctx->mleaders );
+  static uchar buf[ 4096 ] __attribute__((aligned(64)));
+  for( ulong epoch=0UL; epoch<2UL; epoch++ ) {
+    memset( buf, 0, sizeof(buf) );
+    fd_epoch_info_msg_t * msg = (fd_epoch_info_msg_t *)buf;
+    msg->epoch           = epoch;
+    msg->staked_vote_cnt = 1UL;
+    msg->staked_id_cnt   = 1UL;
+    msg->start_slot      = epoch*128UL;
+    msg->slot_cnt        = 128UL;
+    msg->ns_per_slot     = 400000000UL;
+    fd_epoch_schedule_derive( &msg->epoch_schedule, 128UL, 128UL, 0 );
+    fd_vote_stake_weight_t * vw = fd_epoch_info_msg_stake_weights( msg );
+    memset( vw[ 0 ].vote_key.uc, 0x33, 32UL );
+    memset( vw[ 0 ].id_key.uc,   0x33, 32UL );
+    vw[ 0 ].stake = 1UL;
+    fd_stake_weight_t * iw = fd_epoch_info_msg_id_weights( msg );
+    memset( iw[ 0 ].key.uc, 0x33, 32UL );
+    iw[ 0 ].stake = 1UL;
+    (fd_multi_epoch_leaders_epoch_msg_init)( ctx->mleaders, msg );
+    (fd_multi_epoch_leaders_epoch_msg_fini)( ctx->mleaders );
+  }
+}
+
 static void
 setup_ctx( fd_replay_tile_t * ctx,
            fd_wksp_t *        wksp ) {
@@ -506,6 +536,8 @@ setup_ctx( fd_replay_tile_t * ctx,
   mock_epoch_boundary_enabled = 0;
   mock_leader_for_slot_override = 0;
   mock_leader_schedule_loaded   = 0;
+
+  setup_mleaders( ctx );
 
   setup_node_info( ctx );
   setup_stem( ctx, wksp );
@@ -1012,6 +1044,49 @@ test_snapshot_intervals_use_block_height( void ) {
   FD_LOG_NOTICE(( "pass: test_snapshot_intervals_use_block_height" ));
 }
 
+/* A snapshot can come due on a published-root bank that is still in
+   epoch E after the consensus root entered E+1.  By then replay has
+   computed E+2's leader schedule into E's parity slot, so looking the
+   leader up by the bank's epoch fails.  snapmk_start must use the
+   leader recorded on the bank when the block was executed. */
+
+static void
+test_snapmk_start_leader_after_epoch_rollover( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  FD_TEST( bank );
+  bank->f.slot  = 127UL;                 /* last slot of epoch 0 (128-slot epochs) */
+  bank->f.epoch = 0UL;
+  ctx->published_root_bank_idx = bank->idx;
+  ctx->snapmk.supported        = 1;
+  ctx->snapmk.active           = 0;
+  ctx->snapmk.base_slot        = ULONG_MAX;
+  *ctx->snapmk_out = *ctx->slot_out;
+
+  /* The consensus root is in epoch 1: epoch 2's schedule now lives in
+     epoch 0's parity slot, so a lookup by the bank's epoch finds no
+     leader for slot 127. */
+  fd_vote_stake_weight_t w2[ 1 ] = { { .stake = 1UL } };
+  memset( w2[ 0 ].vote_key.uc, 0x22, 32UL );
+  memset( w2[ 0 ].id_key.uc,   0x22, 32UL );
+  FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new( fd_bank_epoch_leaders_modify( bank, 0UL ), 2UL, 256UL, 128UL, 1UL, w2 ) ) );
+  FD_TEST( !fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, 0UL ), 127UL ) );
+
+  fd_pubkey_t expected; memset( expected.uc, 0x11, 32UL );
+  bank->leader = expected;
+
+  ulong chunk = ctx->snapmk_out->chunk;
+  snapmk_start( ctx, test_stem, 0 );
+  fd_replay_snap_start_t const * msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
+  FD_TEST( msg->slot==127UL );
+  FD_TEST( !memcmp( msg->leader.uc, expected.uc, 32UL ) );
+  FD_TEST( ctx->snapmk.active );
+
+  FD_LOG_NOTICE(( "pass: test_snapmk_start_leader_after_epoch_rollover" ));
+}
+
 static void
 test_snapshot_found_deleted_state( fd_wksp_t * wksp ) {
   ulong  data_sz = fd_dcache_req_data_sz( sizeof(fd_snapmk_msg_t), 4UL, 1UL, 1 );
@@ -1460,6 +1535,7 @@ static void
 test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   memset( ctx, 0, sizeof(*ctx) );
+  setup_mleaders( ctx );
   setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
   setup_node_info( ctx );
@@ -5190,6 +5266,7 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
                          fd_wksp_t *          wksp,
                          fd_runtime_stack_t * runtime_stack,
                          ulong                snapshot_slot ) {
+  setup_mleaders( ctx );
   setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
   setup_node_info( ctx );
@@ -5737,6 +5814,8 @@ main( int     argc,
   test_ag_leader_abandon_on_root_past_leader_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_leader_fec_not_gated( wksp );
+  fd_wksp_reset( wksp, 42U );
+  test_snapmk_start_leader_after_epoch_rollover( wksp );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 
