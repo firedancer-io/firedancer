@@ -1,5 +1,6 @@
 #include "fd_keyguard_client.h"
 #include "fd_keyguard.h"
+#include "../../ballet/bls/fd_bls.h"
 
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
@@ -113,9 +114,9 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          int                    sign_type ) {
   ulong signature_sz;
   switch( sign_type ) {
-    case FD_KEYGUARD_SIGN_TYPE_BLS:        signature_sz = FD_KEYGUARD_BLS_SIG_SZ;    break;
-    case FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY: signature_sz = FD_KEYGUARD_BLS_PUBKEY_SZ; break;
-    default:                               signature_sz = FD_ED25519_SIG_SZ;         break;
+    case FD_KEYGUARD_SIGN_TYPE_BLS:        signature_sz = FD_BLS_SIG_SZ;            break;
+    case FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY: signature_sz = FD_BLS_PUB_COMPRESSED_SZ; break;
+    default:                               signature_sz = FD_ED25519_SIG_SZ;        break;
   }
   fd_keyguard_client_sign_sz( client, signature, signature_sz, sign_data, sign_data_len, (ulong)(uint)sign_type );
 }
@@ -132,7 +133,7 @@ fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
 
   ulong sig = (ulong)FD_KEYGUARD_SIGN_TYPE_BLS;
   if( authority_idx!=ULONG_MAX ) sig |= (1UL << 32) | (authority_idx << 33);
-  fd_keyguard_client_sign_sz( client, signature, FD_KEYGUARD_BLS_SIG_SZ, sign_data, sign_data_len, sig );
+  fd_keyguard_client_sign_sz( client, signature, FD_BLS_SIG_SZ, sign_data, sign_data_len, sig );
 }
 
 void

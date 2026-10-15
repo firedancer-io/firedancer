@@ -1,8 +1,7 @@
-#include "ag_vote_history_file.h"
+#include "ag_vote_history_serde.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 
 static uchar buf[ 16UL<<20 ];
-static ag_vote_history_file_t out[ 1 ];
 
 #define PUT( T, v )   do { FD_STORE( T, buf+sz, (v) ); sz += sizeof(T); } while(0)
 #define PUT_HASH( b ) do { fd_memset( buf+sz, (b), 32UL ); sz += 32UL; } while(0)
@@ -107,29 +106,23 @@ main( int     argc,
   uchar pub  [ 32 ]; fd_ed25519_public_from_private( pub,  priv,  sha );
   uchar pub2 [ 32 ]; fd_ed25519_public_from_private( pub2, priv2, sha );
 
-  ulong sz = build( pub, priv, pub, 0UL, 1UL );
-  FD_TEST( ag_vote_history_file_de( buf, sz, pub, out )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  FD_TEST( out->root==10UL );
-  FD_TEST( out->voted_cnt==1UL && out->voted[0]==11UL );
-  FD_TEST( out->voted_notar_cnt==1UL && out->voted_notar[0].slot==11UL && out->voted_notar[0].hash[0]==0xAA );
-  FD_TEST( out->voted_notar_fallback_cnt==2UL && out->voted_notar_fallback[1].slot==12UL && out->voted_notar_fallback[1].hash[31]==0xB2 );
-  FD_TEST( out->voted_skip_fallback_cnt==1UL );
-  FD_TEST( out->skipped_cnt==2UL && out->skipped[1]==13UL );
-  FD_TEST( out->its_over_cnt==0UL );
-  FD_TEST( out->votes_cast_cnt==3UL );
-  FD_TEST( out->votes_cast[0].kind==AG_VOTE_HISTORY_KIND_NOTAR && out->votes_cast[0].block.hash[0]==0xAA );
-  FD_TEST( out->votes_cast[2].kind==AG_VOTE_HISTORY_KIND_SKIP_FALLBACK && out->votes_cast[2].block.slot==12UL );
-  FD_TEST( out->notarized_blocks_cnt==1UL );
-  FD_TEST( out->parent_ready_cnt==1UL && out->parent_ready[0].slot==12UL && out->parent_ready[0].block.slot==11UL );
-
-  /* the scan gives the window after the skip in slot 13, and a parent
-     ready slot above that is not a vote */
+  /* the file ag_vote_history_ser writes: the window after root */
+  uchar file[ AG_VOTE_HISTORY_SER_SZ ];
   ulong wait = 0UL;
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  ag_vote_history_ser( pub, 7UL, file );
+  fd_ed25519_sign( file+AG_VOTE_HISTORY_SERDE_SIG_OFF, file+AG_VOTE_HISTORY_SERDE_DATA_OFF, AG_VOTE_HISTORY_SER_SZ-AG_VOTE_HISTORY_SERDE_DATA_OFF, pub, priv, sha );
+  FD_TEST( ag_vote_history_de( file, sizeof(file), pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
+  FD_TEST( wait==8UL );
+  FD_TEST( ag_vote_history_de( file, sizeof(file), pub2, &wait )==AG_VOTE_HISTORY_DE_ERR_SIG );
+
+  /* the window after the skip in slot 13, and a parent ready slot above
+     that is not a vote */
+  ulong sz = build( pub, priv, pub, 0UL, 1UL );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
   FD_TEST( wait==16UL );
   FD_STORE( ulong, buf+sz-64UL, 16UL );
   fd_ed25519_sign( buf+4UL, buf+76UL, sz-76UL, pub, priv, sha );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
   FD_TEST( wait==16UL );
 
   /* every truncation fails; signed body prefixes exercise decoder bounds */
@@ -138,58 +131,58 @@ main( int     argc,
       FD_STORE( ulong, buf+68UL, i-76UL );
       fd_ed25519_sign( buf+4UL, buf+76UL, i-76UL, pub, priv, sha );
     }
-    FD_TEST( ag_vote_history_file_de  ( buf, i, pub, out   )==AG_VOTE_HISTORY_FILE_ERR_SIZE );
-    FD_TEST( ag_vote_history_file_scan( buf, i, pub, &wait )==AG_VOTE_HISTORY_FILE_ERR_SIZE );
+    FD_TEST( ag_vote_history_de( buf, i, pub, &wait )==AG_VOTE_HISTORY_DE_ERR_SIZE );
   }
   sz = build( pub, priv, pub, 0UL, 1UL );
 
-  /* trailing bytes */
-  FD_TEST( ag_vote_history_file_de  ( buf, sz+1UL, pub, out   )==AG_VOTE_HISTORY_FILE_ERR_SIZE );
-  FD_TEST( ag_vote_history_file_scan( buf, sz+1UL, pub, &wait )==AG_VOTE_HISTORY_FILE_ERR_SIZE );
+  /* trailing bytes after the file, or inside the signed history, are
+     ignored as Agave does, but a history longer than the file is not */
+  FD_TEST( ag_vote_history_de( buf, sz+1UL, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS && wait==16UL );
+  buf[ sz ] = 0xEE;
+  FD_STORE( ulong, buf+68UL, sz+1UL-76UL );
+  fd_ed25519_sign( buf+4UL, buf+76UL, sz+1UL-76UL, pub, priv, sha );
+  FD_TEST( ag_vote_history_de( buf, sz+1UL, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS && wait==16UL );
+  FD_TEST( ag_vote_history_de( buf, sz,     pub, &wait )==AG_VOTE_HISTORY_DE_ERR_SIZE );
+  sz = build( pub, priv, pub, 0UL, 1UL );
 
   /* wrong verifier */
-  FD_TEST( ag_vote_history_file_de  ( buf, sz, pub2, out   )==AG_VOTE_HISTORY_FILE_ERR_SIG );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub2, &wait )==AG_VOTE_HISTORY_FILE_ERR_SIG );
+  FD_TEST( ag_vote_history_de( buf, sz, pub2, &wait )==AG_VOTE_HISTORY_DE_ERR_SIG );
 
   /* signed by identity but for another node */
   sz = build( pub, priv, pub2, 0UL, 1UL );
-  FD_TEST( ag_vote_history_file_de  ( buf, sz, pub, out   )==AG_VOTE_HISTORY_FILE_ERR_IDENTITY );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_ERR_IDENTITY );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_ERR_IDENTITY );
 
-  /* slot below root */
+  /* a slot below root, which Agave never writes but does load, is
+     accepted and cannot lower the floor */
   sz = build( pub, priv, pub, 9UL, 1UL );
-  FD_TEST( ag_vote_history_file_de  ( buf, sz, pub, out   )==AG_VOTE_HISTORY_FILE_ERR_HISTORY );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_ERR_HISTORY );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
+  FD_TEST( wait==16UL );
 
   /* bad outer version */
   sz = build( pub, priv, pub, 0UL, 1UL );
   FD_STORE( uint, buf, 1U );
-  FD_TEST( ag_vote_history_file_de  ( buf, sz, pub, out   )==AG_VOTE_HISTORY_FILE_ERR_VERSION );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_ERR_VERSION );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_ERR_VERSION );
   FD_TEST( wait==16UL );
 
-  /* parent ready sets grow quadratically with fallback certificates,
-     so they are bounded by the file instead */
+  /* parent ready sets that grow quadratically with fallback
+     certificates */
   sz = build( pub, priv, pub, 0UL, 800UL );
-  FD_TEST( ag_vote_history_file_de( buf, sz, pub, out )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  FD_TEST( out->parent_ready_cnt==800UL );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
 
-  /* 180 slots without finalization fit, Agave's 30,000 do not */
+  /* Agave's 30,000 slots without finalization */
   sz = build_long( pub, priv, 180UL, 0UL );
-  FD_TEST( ag_vote_history_file_de  ( buf, sz, pub, out   )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
   FD_TEST( wait==184UL );
   sz = build_long( pub, priv, 30000UL, 0UL );
-  FD_TEST( ag_vote_history_file_de  ( buf, sz, pub, out   )==AG_VOTE_HISTORY_FILE_ERR_SIZE );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_ERR_SIZE );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
+  FD_TEST( wait==30004UL );
 
   /* with no votes, the window after root, saturated */
   sz = build_long( pub, priv, 0UL, 10UL );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
   FD_TEST( wait==12UL );
   sz = build_long( pub, priv, 0UL, ULONG_MAX );
-  FD_TEST( ag_vote_history_file_scan( buf, sz, pub, &wait )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  FD_TEST( ag_vote_history_de( buf, sz, pub, &wait )==AG_VOTE_HISTORY_DE_SUCCESS );
   FD_TEST( wait==ULONG_MAX );
 
   FD_LOG_NOTICE(( "pass" ));
