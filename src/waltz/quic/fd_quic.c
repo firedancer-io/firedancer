@@ -1575,7 +1575,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
   if( FD_UNLIKELY(
-        fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+        fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                     pn_offset,
                                     rx_keys ) != FD_QUIC_SUCCESS ) ) {
     /* As this is an INITIAL packet, change the status to DEAD, and allow
@@ -1874,11 +1874,12 @@ fd_quic_handle_v1_handshake(
 
   ulong    body_sz          = handshake->len;  /* not a protected field */
                                                /* length of payload + num packet bytes */
+  ulong    tot_sz           = pn_offset + body_sz; /* total including header and payload */
 
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
   if( FD_UNLIKELY(
-        fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+        fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                     pn_offset,
                                     &conn->keys[2][0] ) != FD_QUIC_SUCCESS ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
@@ -1889,7 +1890,6 @@ fd_quic_handle_v1_handshake(
 
   /* number of bytes in the packet header */
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-  ulong tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
   /* now we have decrypted packet number */
   ulong pktnum_comp = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
@@ -2415,6 +2415,39 @@ is_version_invalid( fd_quic_t * quic, uint version ) {
   return 0;
 }
 
+static ulong
+fd_quic_long_pkt_varint( uchar const * cur_ptr,
+                         ulong         cur_sz,
+                         ulong *       off ) {
+  if( FD_UNLIKELY( *off>=cur_sz ) ) return ULONG_MAX;
+  uint  msb2 = (uint)cur_ptr[ *off ]>>6;
+  ulong vsz  = 1UL<<msb2;
+  if( FD_UNLIKELY( *off+vsz>cur_sz ) ) return ULONG_MAX;
+  ulong val = fd_quic_varint_decode( cur_ptr+*off, msb2 );
+  *off += vsz;
+  return val;
+}
+
+static ulong
+fd_quic_long_pkt_sz( uchar const * cur_ptr,
+                     ulong         cur_sz ) {
+  uchar type = fd_quic_h0_long_packet_type( *cur_ptr );
+  if( FD_UNLIKELY( type==FD_QUIC_PKT_TYPE_RETRY ) ) return FD_QUIC_PARSE_FAIL; /* no Length field */
+  ulong off = 5UL;                                             /* h0, version */
+  if( FD_UNLIKELY( off>=cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  off += 1UL+cur_ptr[ off ];                                   /* dcid */
+  if( FD_UNLIKELY( off>=cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  off += 1UL+cur_ptr[ off ];                                   /* scid */
+  if( type==FD_QUIC_PKT_TYPE_INITIAL ) {                       /* token */
+    ulong token_sz = fd_quic_long_pkt_varint( cur_ptr, cur_sz, &off );
+    if( FD_UNLIKELY( token_sz>cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+    off += token_sz;
+  }
+  ulong len = fd_quic_long_pkt_varint( cur_ptr, cur_sz, &off );
+  if( FD_UNLIKELY( len>cur_sz || off+len>cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  return off+len;
+}
+
 static inline void
 fd_quic_process_packet_impl( fd_quic_t * quic,
                              uchar *     data,
@@ -2557,6 +2590,11 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
 
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
       svc_cnt_eq_alloc_conn( state->svc_timers, quic );
+
+      /* RFC 9000 Section 12.2: a packet that fails (e.g. Handshake after
+         its keys are discarded) does not void the rest of the datagram.
+         Skip it by its Length field. */
+      if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) rc = fd_quic_long_pkt_sz( cur_ptr, cur_sz );
 
       /* 0UL means no progress, so fail */
       if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
