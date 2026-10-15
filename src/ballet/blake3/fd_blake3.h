@@ -374,6 +374,28 @@ fd_blake3_fini_2048_xn( ulong          n,
                         fd_blake3_t ** sha,
                         void **        hash );
 
+/* fd_blake3_right_cv sets cv to the chaining value of the right
+   subtree (chunks 2 and up) of an input of 2048+sz bytes, sz in
+   [1,2048], whose bytes from offset 2048 are r[0,sz). */
+
+void
+fd_blake3_right_cv( uchar const * r,
+                    ulong         sz,
+                    uchar         cv[ static 32 ] );
+
+/* fd_blake3_fini_2048_left_xn sets hash[i] to the 2048 byte XOF output
+   of an input of 2049 to 4096 bytes whose first 2048 bytes are left[i]
+   and whose fd_blake3_right_cv is right_cv[i], for i in [0,n),
+   n<=FD_BLAKE3_LEFT_XN_MAX.  Same output as hashing the whole input. */
+
+#define FD_BLAKE3_LEFT_XN_MAX (8UL)
+
+void
+fd_blake3_fini_2048_left_xn( ulong                 n,
+                             uchar const * const * left,
+                             uchar const * const * right_cv,
+                             void * const *        hash );
+
 void *
 fd_blake3_hash( void const * data,
                 ulong        sz,
