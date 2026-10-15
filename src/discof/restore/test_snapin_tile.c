@@ -322,8 +322,9 @@ mock_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
 
 ulong
 mock_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
-                                   ulong        sz ) {
-  (void)accdb;
+                                   ulong        sz,
+                                   ulong        dead_tail_sz ) {
+  (void)accdb; (void)dead_tail_sz;
   return FD_ATOMIC_FETCH_AND_ADD( &test_file_off, sz );
 }
 
