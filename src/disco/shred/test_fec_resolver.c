@@ -270,23 +270,26 @@ test_rolloff( void ) {
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
   for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) { ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY ); }
 
-  for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) { ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY ); }
+  for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) { ADD_SHRED( resolver, set2->data_shreds[ j ], OKAY ); }
 
-  /* At this point we have set0, set1 as the two in progress sets */
+  /* At this point we have set0, set2 as the two in progress sets.  set1
+     is below set2, so set2 is kicked out since it is the highest. */
 
   for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) {
-    if( j == 0 ) { ADD_SHRED_SPILLS( resolver, set2->data_shreds[ j ], OKAY, 0UL, 32UL, 31UL ); }
-    else         { ADD_SHRED( resolver, set2->data_shreds[ j ], OKAY ); }
+    if( j == 0 ) { ADD_SHRED_SPILLS( resolver, set1->data_shreds[ j ], OKAY, 0UL, 64UL, 31UL ); }
+    else         { ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY ); }
   }
 
-  /* Now, set1 kicked out, since it is the highest.  set0 and set2 are
-     in progress.  if we add set1 again, it should be added to current.
-     then set0 and set1 are in progress.*/
-  ADD_SHRED_SPILLS( resolver, set1->parity_shreds[ 0 ], OKAY, 0UL, 64UL, 31UL );
-  ADD_SHRED( resolver, set0->parity_shreds[ 1 ], COMPLETES ); FD_TEST( *out_fec==out_sets+0 ); FD_TEST( sets_eq( set0, *out_fec ) );
-  /* now set0 in completes, only set1 is in progress. */
-  for( ulong j=0UL; j<FD_FEC_SHRED_CNT-2UL; j++ ) { ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY ); }
-  ADD_SHRED( resolver, set1->parity_shreds[ 1 ], COMPLETES ); FD_TEST( *out_fec==out_sets+1 ); FD_TEST( sets_eq( set1, *out_fec ) );
+  /* set2 would now be the highest of a full resolver, so it is dropped
+     instead of evicting set1. */
+  ADD_SHRED( resolver, set2->parity_shreds[ 0 ], IGNORED );
+  ADD_SHRED_SRC( resolver, set2->parity_shreds[ 0 ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR, IGNORED );
+  ADD_SHRED( resolver, set0->parity_shreds[ 1 ], COMPLETES ); FD_TEST( sets_eq( set0, *out_fec ) );
+
+  /* set0 completed, so there is room for set2 again. */
+  for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) { ADD_SHRED( resolver, set2->data_shreds[ j ], OKAY ); }
+  ADD_SHRED( resolver, set2->parity_shreds[ 1 ], COMPLETES ); FD_TEST( sets_eq( set2, *out_fec ) );
+  ADD_SHRED( resolver, set1->parity_shreds[ 1 ], COMPLETES ); FD_TEST( sets_eq( set1, *out_fec ) );
 
   ADD_SHRED( resolver, set0->parity_shreds[ 4 ], IGNORED );
 
@@ -484,7 +487,7 @@ test_shred_reject( void ) {
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 2UL, meta ) );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets, SEED ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 13UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets, SEED ) /* never fills */ );
   fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
@@ -572,6 +575,7 @@ test_shred_reject( void ) {
      key, and a mismatched pubkey are still rejected, and the intact
      shred still accepted. */
   shred = set->parity_shreds[ 4 ].s;
+  shred->code.idx = 0; shred->fec_set_idx = shred->idx = 96U; /* not in progress, so it is a first shred and verifies */
   fake_resign( shred, signer_ctx );
   shred->signature[ 5 ]++;
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
