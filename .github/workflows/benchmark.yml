@@ -43,7 +43,7 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 398
+        count_gigantic: 220
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v7
@@ -166,7 +166,7 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 398
+        count_gigantic: 220
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v7
@@ -269,7 +269,7 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 398
+        count_gigantic: 220
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v7
