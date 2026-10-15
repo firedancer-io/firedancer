@@ -925,7 +925,7 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="shred">
     <histogram name="DestPerUpdate" min="0" max="40200">
-        <summary>Shred destinations in each cluster contact info update</summary>
+        <summary>Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)</summary>
     </histogram>
     <counter name="BatchAbandoned" summary="Microblock batches abandoned because we switched slots without finishing the current slot" />
     <counter name="ParentBlockIdZeroed" summary="Leader blocks whose parent block_id was unknown, so the chained merkle root was zeroed" />

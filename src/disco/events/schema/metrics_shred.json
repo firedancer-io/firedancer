@@ -87,7 +87,7 @@
         "timer_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
         "dest_per_update": {
             "type": "Tuple",
-            "description": "Shred destinations in each cluster contact info update",
+            "description": "Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)",
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
