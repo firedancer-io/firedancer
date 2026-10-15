@@ -526,6 +526,42 @@ FD_UNIT_TEST( stream_deadline_clock ) {
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
+/* Backoff resets only on a server response after 10 s connected:
+   neither uptime alone nor an early ack resets it. */
+FD_UNIT_TEST( backoff_reset_on_response ) {
+  static uchar circq_mem[ 4096UL+512UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 512UL ) );
+  FD_TEST( circq );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client( circq, rng, 65536UL );
+  client->consecutive_failure_count     = 7UL;
+  client->stream_gen                    = 1UL;
+  client->connected.connected_timestamp = 0L;
+
+  int sv[2];
+  FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK, 0, sv ) );
+  client->sockfd = sv[0];
+  struct epoll_event ev = { .events = EPOLLIN, .data.fd = sv[0] };
+  FD_TEST( 0==epoll_ctl( g_epoll_fd, EPOLL_CTL_ADD, sv[0], &ev ) );
+  int charge_busy = 0;
+  fd_event_client_poll( client, 20L*(long)1e9, &charge_busy ); /* well past any connection-age threshold */
+  FD_TEST( client->state==FD_EVENT_CLIENT_STATE_CONNECTED );
+  FD_TEST( client->consecutive_failure_count==7UL );
+
+  uchar ack[ 2 ] = { 0x08, 0x00 }; /* field 1 varint 0 */
+  client->now = 5L*(long)1e9;
+  fd_event_client_handle_stream_events_resp( client, ack, sizeof(ack), FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS|(1UL<<8) );
+  FD_TEST( client->consecutive_failure_count==7UL );
+  client->now = 20L*(long)1e9;
+  fd_event_client_handle_stream_events_resp( client, ack, sizeof(ack), FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS|(1UL<<8) );
+  FD_TEST( client->consecutive_failure_count==0UL );
+
+  close( sv[0] ); close( sv[1] );
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
 /* A callback can defer a disconnect before flushing its response fails.
    The transport failure must consume that reason before the next redial. */
 FD_UNIT_TEST( disconnect_transport_failure ) {

@@ -756,6 +756,7 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
 
   client->metrics.events_acked++;
   client->last_response_ns = client->now;
+  if( FD_UNLIKELY( client->now-client->connected.connected_timestamp>=10L*(long)1e9 ) ) client->consecutive_failure_count = 0UL; /* responding and stayed up */
   if( FD_UNLIKELY( nonce_ack==ULONG_MAX ) ) return;
 
   /* Acks are cumulative over the circq, so the new stream's acks would
@@ -1073,9 +1074,6 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
   long deadline = fd_grpc_client_next_deadline( client->grpc_client );
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING ) ) deadline = fd_long_min( deadline, client->auth_deadline );
   if( FD_UNLIKELY( client->auth_send_pending && !fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) deadline = now;
-  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->consecutive_failure_count ) ) {
-    deadline = fd_long_min( deadline, client->connected.connected_timestamp+10L*(long)1e9 );
-  }
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->event_stream ) ) {
     deadline = fd_long_min( deadline, fd_long_min( client->last_response_ns   +FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS,
                                                    client->last_stream_send_ns+FD_EVENT_CLIENT_HEARTBEAT_NANOS ) );
@@ -1157,7 +1155,6 @@ poll1( fd_event_client_t * client,
       disconnect( client, now, DISCONNECT_REASON_TIMEOUT, 0, 1 );
       return;
     }
-    if( FD_UNLIKELY( client->consecutive_failure_count && (now-client->connected.connected_timestamp>10L*(long)1e9 ) ) ) client->consecutive_failure_count = 0UL;
     if( FD_UNLIKELY( credit_stall_check( client, now ) ) ) return;
     tx( client, now, charge_busy );
   }
