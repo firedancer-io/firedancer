@@ -305,8 +305,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   tiles.tower.write_vote_history_file              );
 
-  CFG_POP      ( bool,   tiles.votor.write_vote_history_file              );
-
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
   CFG_POP      ( bool,   capture.recent_only                              );

@@ -558,10 +558,6 @@ struct fd_config {
     } tower;
 
     struct {
-      int write_vote_history_file;
-    } votor;
-
-    struct {
       ulong max_transaction_lookahead_buffer_size;
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];

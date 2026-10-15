@@ -39,27 +39,29 @@ passed alongside a tower file produced by Agave or Firedancer (e.g.
 `tower-1_9-<pubkey>.bin`). The file will be restored and lockouts
 will be preserved as described in the file. If the file is invalid, the
 command will fail and the identity of the running validator will not
-be changed. When Alpenglow is enabled, pass a vote history file
-produced by Agave or Firedancer (e.g. `vote_history-<pubkey>.bin`, at
-most 32,688 bytes) instead, and the validator will not vote until the
-leader window after the highest slot the previous validator voted in.
+be changed.
 
-If `[tiles.tower.write_vote_history_file]` is enabled, votes are saved
-to `tower-1_9-<identity>.bin` in the `[paths.vote_history]` directory
-(by default the base directory). With Alpenglow,
-`[tiles.votor.write_vote_history_file]` instead saves the votes cast
-since the root to `vote_history-<identity>.bin` in the same directory,
-and a vote history larger than 32,688 bytes empties the file until it
-fits again. The file is only read by `--vote-history-file`, never when
-Firedancer boots. The path for the vote history file should be to a
-directory which exists and is writable by the Firedancer user.
-The validator keeps writing the files of its current identity that it
-opened at boot, so do not overwrite, move, or replace them while it
-runs. The file passed to `--vote-history-file` can be anywhere else.
-When `set-identity` changes the identity, the file is renamed to the
-new identity when that identity first votes, so the old identity's last
-vote keeps its name until then. If a file with the new name already
-exists, it is not replaced but renamed with an `.old` suffix.
+In Tower, if `[tiles.tower.write_vote_history_file]` is enabled, votes
+are saved to `tower-1_9-<identity>.bin` in the `[paths.vote_history]`
+directory (by default the base directory).
+
+In Alpenglow, the validator instead writes
+`vote_history-<identity>.bin`. This is an Agave-compatible vote history
+file and it protects against equivocation, both double voting and double
+producing blocks.
+
+### Manual failover with Alpenglow
+Only one validator may run a staked identity at a time. To move an
+identity between two running validators:
+
+1. On the validator giving up the identity, run `set-identity` with an
+   unstaked keypair. If failing over _from_ Firedancer, it will write
+   `vote_history-<identity>.bin` to `[paths.vote_history]`.
+2. Copy that file to the working directory of the validator assuming the
+   identity.
+3. Then, on the assuming validator, run `set-identity` with the identity
+   keypair. If failing over _to_ Firedancer, pass the vote history file
+   with `--vote-history-file <path>`.
 
 | Arguments                    | Description |
 |------------------------------|-------------|

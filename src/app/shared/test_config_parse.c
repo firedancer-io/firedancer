@@ -31,9 +31,7 @@ static char const cfg_str_vote_history[] =
   "[paths]\n"
   "  vote_history = \"/data/{name}/vote_history\"\n"
   "[tiles.tower]\n"
-  "  write_vote_history_file = false\n"
-  "[tiles.votor]\n"
-  "  write_vote_history_file = true";
+  "  write_vote_history_file = false";
 
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
@@ -227,7 +225,6 @@ main( int     argc,
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   FD_TEST( !strcmp( config->paths.vote_history, "/data/{name}/vote_history" ) );
   FD_TEST( !config->tiles.tower.write_vote_history_file );
-  FD_TEST(  config->tiles.votor.write_vote_history_file );
 
   FD_TEST(  vote_history_path_is_valid( ""                   ) ); /* default */
   FD_TEST(  vote_history_path_is_valid( "/data/vote_history" ) );

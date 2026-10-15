@@ -623,9 +623,6 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "tower" );
       jw_bool ( &w, "write_vote_history_file",   config->tiles.tower.write_vote_history_file );
     jw_obj_close( &w );
-    jw_obj_open( &w, "votor" );
-      jw_bool ( &w, "write_vote_history_file",   config->tiles.votor.write_vote_history_file );
-    jw_obj_close( &w );
     jw_obj_open( &w, "replay" );
       jw_ulong( &w, "max_transaction_lookahead_buffer_size", config->tiles.replay.max_transaction_lookahead_buffer_size );
       jw_str_arr( &w, "enable_features", config->tiles.replay.enable_features[ 0 ], sizeof(config->tiles.replay.enable_features[ 0 ]), config->tiles.replay.enable_features_cnt );
