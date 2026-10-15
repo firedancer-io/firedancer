@@ -630,7 +630,7 @@ fd_wsample_remove_idx( fd_wsample_t * sampler,
    corresponding to the first set bit to the 0th position, or the src
    vector if there aren't any set bits.  From there, we can use
    _mm512_broadcastq_epi64 to fill a vector with that value.  Applying
-  this trick to single_bit gives us l_{i-1} and to ~lmask give l_i. */
+   this trick to single_bit gives us l_{i-1} and to ~lmask give l_i. */
 #define FD_WSAMPLE_IMPLEMENTATION 2
 
 #if FD_WSAMPLE_IMPLEMENTATION==1
