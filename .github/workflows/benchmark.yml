@@ -27,7 +27,7 @@ permissions:
 jobs:
   bench-replay:
     runs-on:
-      labels: [self-hosted, 512G]
+      labels: [self-hosted, X64]
       group: fd-public-repo
     timeout-minutes: 6
     env:
@@ -149,7 +149,7 @@ jobs:
 
   bench-snapshot:
     runs-on:
-      labels: [self-hosted, 512G]
+      labels: [self-hosted, X64]
       group: fd-public-repo
     timeout-minutes: 6
     env:
@@ -257,7 +257,7 @@ jobs:
 
   bench-tps:
     runs-on:
-      labels: [self-hosted, 512G]
+      labels: [self-hosted, X64]
       group: fd-public-repo
     timeout-minutes: 6
     env:
