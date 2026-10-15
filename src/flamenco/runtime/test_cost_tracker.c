@@ -205,6 +205,128 @@ test_cost_tracker_multiple_accounts( fd_cost_tracker_t * ct ) {
   FD_TEST( ct->block_cost == 600UL );
 }
 
+/* set_accounts sets up txn_out with accounts keyed by the given ids
+   (key byte 0), writable iff wr[ i ], and the given txn cost. */
+static void
+set_accounts( fd_txn_out_t * txn_out,
+              uchar const *  ids,
+              uchar const *  wr,
+              ulong          cnt,
+              uint           cost ) {
+  memset( txn_out->accounts.keys, 0, sizeof(txn_out->accounts.keys) );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    txn_out->accounts.keys[ i ].uc[ 0 ] = ids[ i ];
+    txn_out->accounts.is_writable[ i ]  = wr[ i ];
+  }
+  txn_out->accounts.cnt = cnt;
+  memset( &txn_out->details.txn_cost, 0, sizeof(txn_out->details.txn_cost) );
+  txn_out->details.txn_cost.transaction.programs_execution_cost = cost;
+}
+
+/* Mixes accounts that already have chained cost with first-touch
+   accounts in one transaction, and checks that a transaction rejected
+   by the per-account limit (after the cost was applied to earlier
+   writable accounts in it, both new and existing) leaves every account
+   cost, the block cost and the allocated data size unchanged. */
+static void
+test_cost_tracker_mixed_accounts( fd_cost_tracker_t * ct ) {
+  ulong const slot = 10UL;
+  fd_features_t f;
+  static fd_txn_out_t txn_out = {0};
+
+  fd_features_enable_all( &f );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
+  ct->account_cost_limit = 1000UL;
+
+  /* A=600 B=600 */
+  set_accounts( &txn_out, (uchar[]){ 1, 2 }, (uchar[]){ 1, 1 }, 2UL, 600U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+  FD_TEST( ct->block_cost==600UL );
+
+  /* Existing A, new C, readonly B: A=900 B=600 C=300 */
+  set_accounts( &txn_out, (uchar[]){ 1, 3, 2 }, (uchar[]){ 1, 1, 0 }, 3UL, 300U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+  FD_TEST( ct->block_cost==900UL );
+
+  /* Existing C, new D, then A which would exceed the account limit
+     (900+200>1000): rejected, nothing changes. */
+  set_accounts( &txn_out, (uchar[]){ 3, 4, 1 }, (uchar[]){ 1, 1, 1 }, 3UL, 200U );
+  txn_out.details.txn_cost.transaction.allocated_accounts_data_size = 7UL;
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+  FD_TEST( ct->block_cost==900UL );
+  FD_TEST( ct->allocated_accounts_data_size==0UL );
+
+  /* D was rolled back: it takes the full account limit. */
+  set_accounts( &txn_out, (uchar[]){ 4 }, (uchar[]){ 1 }, 1UL, 1000U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+  set_accounts( &txn_out, (uchar[]){ 4 }, (uchar[]){ 1 }, 1UL, 1U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+
+  /* C is still 300 and A still 900: each fits exactly to the limit. */
+  set_accounts( &txn_out, (uchar[]){ 3 }, (uchar[]){ 1 }, 1UL, 700U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+  set_accounts( &txn_out, (uchar[]){ 1 }, (uchar[]){ 1 }, 1UL, 100U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+  set_accounts( &txn_out, (uchar[]){ 3, 1 }, (uchar[]){ 0, 1 }, 2UL, 1U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+
+  /* B is still 600. */
+  set_accounts( &txn_out, (uchar[]){ 2 }, (uchar[]){ 1 }, 1UL, 400U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+  set_accounts( &txn_out, (uchar[]){ 2 }, (uchar[]){ 1 }, 1UL, 1U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+
+  FD_TEST( ct->block_cost==900UL+1000UL+700UL+100UL+400UL );
+}
+
+/* Rejects a transaction whose last writable account is over the limit,
+   after its cost was applied to every earlier (new) account, enough
+   times that the account pool would run out if a rejection did not
+   release the pool elements it took. */
+static void
+test_cost_tracker_rollback_releases_pool( fd_cost_tracker_t * ct ) {
+  ulong const slot = 10UL;
+  fd_features_t f;
+  static fd_txn_out_t txn_out = {0};
+
+  fd_features_enable_all( &f );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, slot );
+  ct->account_cost_limit = 1000UL;
+
+  ulong const cnt = MAX_TX_ACCOUNT_LOCKS;
+  uchar ids[ MAX_TX_ACCOUNT_LOCKS ];
+  uchar wr [ MAX_TX_ACCOUNT_LOCKS ];
+  for( ulong i=0UL; i<cnt; i++ ) { ids[ i ] = (uchar)(i+1UL); wr[ i ] = 1; }
+
+  /* Last account at the limit */
+  set_accounts( &txn_out, ids+cnt-1UL, wr, 1UL, 1000U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+
+  set_accounts( &txn_out, ids, wr, cnt, 1U );
+  ulong iter = FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT/(cnt-1UL) + 1UL;
+  for( ulong i=0UL; i<iter; i++ ) {
+    FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+  }
+  FD_TEST( ct->block_cost==1000UL );
+
+  /* New accounts take the released pool elements.  Then the earlier
+     accounts, which must be gone from the map, take the full limit.
+     Every account is then at the limit. */
+  uchar ids2[ MAX_TX_ACCOUNT_LOCKS ];
+  for( ulong i=0UL; i<cnt; i++ ) ids2[ i ] = (uchar)(i+101UL);
+  set_accounts( &txn_out, ids2, wr, cnt-1UL, 1000U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+  set_accounts( &txn_out, ids, wr, cnt-1UL, 1000U );
+  FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_SUCCESS );
+  FD_TEST( ct->block_cost==3000UL );
+  for( ulong i=0UL; i<cnt-1UL; i++ ) {
+    set_accounts( &txn_out, ids+i, wr, 1UL, 1U );
+    FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+    set_accounts( &txn_out, ids2+i, wr, 1UL, 1U );
+    FD_TEST( fd_cost_tracker_try_add_cost( ct, &txn_out )==FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT );
+  }
+}
+
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
@@ -251,6 +373,8 @@ int main( int argc, char ** argv ) {
   test_cost_tracker_data_size_limit( cost_tracker );
   test_cost_tracker_rejection_non_mutating( cost_tracker );
   test_cost_tracker_multiple_accounts( cost_tracker );
+  test_cost_tracker_mixed_accounts( cost_tracker );
+  test_cost_tracker_rollback_releases_pool( cost_tracker );
 
   /* TODO: Add more sophisticated tests for the cost tracker. */
   FD_LOG_NOTICE(( "pass" ));
