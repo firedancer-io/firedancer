@@ -157,7 +157,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   development.backtest.affinity                       );
   CFG_POP      ( ulong,  development.backtest.root_distance                  );
 
-  CFG_POP      ( cstr,   development.forktest.affinity                       );
 
   return config;
 }

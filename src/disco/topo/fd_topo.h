@@ -640,13 +640,6 @@ struct fd_topo_tile {
     } backtest;
 
     struct {
-      char   ledger_format[ 16 ];
-      char   ledger_path[ PATH_MAX ];
-      ulong  end_slot;
-      ushort shred_listen_port;
-    } forktest;
-
-    struct {
       ulong accdb_obj_id;
 
       ulong  authorized_voter_paths_cnt;

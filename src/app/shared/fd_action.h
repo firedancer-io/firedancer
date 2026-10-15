@@ -83,10 +83,6 @@ union fdctl_args {
   } backtest;
 
   struct {
-    int no_watch;
-  } forktest;
-
-  struct {
     char tile_name[ 7UL ];
     int  no_configure;
   } dev1;

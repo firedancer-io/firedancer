@@ -2327,7 +2327,7 @@ telemetry = true
         affinity = "auto"
 
     # Inject shreds (block data) into the system to replay.
-    # Used by 'firedancer-dev {backtest,forktest}'.
+    # Used by 'firedancer-dev backtest'.
     [development.ledger_input]
         # The following input ledger formats are supported:
         #
@@ -2359,11 +2359,6 @@ telemetry = true
 
         # Delays rooting by the given number of slots.
         root_distance = 32
-
-    # 'firedancer-dev forktest' specific options
-    [development.forktest]
-        # See [layout.affinity]
-        affinity = "auto"
 
     # Tuning for the accounts database.  These options are for advanced
     # users and should not be changed in production.

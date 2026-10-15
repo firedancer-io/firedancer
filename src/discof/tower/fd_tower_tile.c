@@ -2113,7 +2113,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client, sign_out->mcache, sign_out->dcache, sign_in->mcache, sign_in->dcache,
                                                               sign_out->mtu, sign_in->mtu, sleep, sign_out->id, fd_topo_find_link_consumer( topo, sign_out ) ) ) );
   } else {
-    ctx->tower_dir_fd = -1; /* no signer (forktest), the tower file is not written */
+    ctx->tower_dir_fd = -1; /* no signer, the tower file is not written */
   }
 
   FD_BASE58_ENCODE_32_BYTES( ctx->vote_account->uc, vote_account_b58 );
