@@ -103,6 +103,7 @@ export ledger_dir=$(realpath $DUMP/$LEDGER)
 export dump_dir=$(realpath $DUMP)
 
 cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
+telemetry = false
 
 [snapshots]
     incremental_snapshots = false
