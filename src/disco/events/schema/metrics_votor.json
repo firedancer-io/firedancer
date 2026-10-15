@@ -125,8 +125,8 @@
         "rank":                         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Rank of this validator in the current epoch (0 is the highest rank), ULONG_MAX if unranked (unstaked)" },
         "peer_conn_open":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Peers with an open outbound connection" },
         "vote_history_file_written":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the vote history file was written" },
-        "vote_history_file_slot":       { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Newest vote slot in the last written vote history file, 0 if not written yet, emptied, or without votes" },
-        "vote_history_file_size_bytes": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Size of the last written vote history file, 0 if emptied" },
-        "vote_history_file_skipped":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Vote history writes skipped because the history was too large; the file is emptied until it fits" }
+        "vote_history_file_slot":       { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Root of the last written vote history file, which votor waits to vote past, 0 if not written yet" },
+        "vote_history_file_size_bytes": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Size of the last written vote history file" },
+        "vote_history_file_skipped":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Vote history writes skipped because the history was too large; the file is emptied until it fits", "deprecated": true }
     }
 }

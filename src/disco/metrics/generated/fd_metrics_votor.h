@@ -50,7 +50,6 @@ enum {
   FD_METRICS_COUNTER_VOTOR_VOTE_HISTORY_FILE_WRITTEN_OFF,
   FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_OFF,
   FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SIZE_BYTES_OFF,
-  FD_METRICS_COUNTER_VOTOR_VOTE_HISTORY_FILE_SKIPPED_OFF,
 };
 
 #define FD_METRICS_COUNTER_VOTOR_DATAGRAM_RX_NAME "votor_datagram_rx"
@@ -118,20 +117,15 @@ enum {
 
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_NAME "votor_vote_history_file_slot"
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_DESC "Newest vote slot in the last written vote history file, 0 if not written yet, emptied, or without votes"
+#define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_DESC "Root of the last written vote history file, which votor waits to vote past, 0 if not written yet"
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SIZE_BYTES_NAME "votor_vote_history_file_size_bytes"
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SIZE_BYTES_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SIZE_BYTES_DESC "Size of the last written vote history file, 0 if emptied"
+#define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SIZE_BYTES_DESC "Size of the last written vote history file"
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SIZE_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_COUNTER_VOTOR_VOTE_HISTORY_FILE_SKIPPED_NAME "votor_vote_history_file_skipped"
-#define FD_METRICS_COUNTER_VOTOR_VOTE_HISTORY_FILE_SKIPPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_VOTOR_VOTE_HISTORY_FILE_SKIPPED_DESC "Vote history writes skipped because the history was too large; the file is emptied until it fits"
-#define FD_METRICS_COUNTER_VOTOR_VOTE_HISTORY_FILE_SKIPPED_CVT  (FD_METRICS_CONVERTER_NONE)
-
-#define FD_METRICS_VOTOR_TOTAL (41UL)
+#define FD_METRICS_VOTOR_TOTAL (40UL)
 extern const fd_metrics_meta_t FD_METRICS_VOTOR[FD_METRICS_VOTOR_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_votor_h */

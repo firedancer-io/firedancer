@@ -6,7 +6,7 @@
 #include "../../choreo/votor/ag_cert_serde.h"
 #include "../../choreo/votor/ag_pool.h"
 #include "../../choreo/votor/ag_slot_state.h"
-#include "../../choreo/votor/ag_vote_history_file.h"
+#include "../../choreo/votor/ag_vote_history_serde.h"
 #include "../../choreo/votor/ag_vote_serde.h"
 #include "../../choreo/votor/ag_votor.h"
 #include "../../disco/events/generated/fd_event_gen.h"
@@ -33,6 +33,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
@@ -273,10 +274,7 @@ struct fd_votor_tile {
   int                    vote_history_dir_fd;
   vote_history_file_t    vote_history_new;       /* staging, <name>.new */
   vote_history_file_t    vote_history_old;       /* live, <name> */
-  ulong                  vote_history_pending;   /* newest vote slot not yet written, 0 if none (slot 0 is never voted on) */
-  int                    vote_history_empty;     /* the live file was emptied because the history did not fit */
-  ag_vote_history_file_t vote_history[1];        /* votor's history, encoded into vote_history_buf */
-  uchar                  vote_history_buf[ AG_VOTE_HISTORY_FILE_MAX ];
+  uchar                  vote_history_buf[ AG_VOTE_HISTORY_SER_SZ ];
 
   /* Initialization */
 
@@ -380,7 +378,6 @@ struct fd_votor_tile {
     ulong vote_history_write;
     ulong vote_history_slot;
     ulong vote_history_sz;
-    ulong vote_history_too_large;
   } metrics;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
@@ -1021,10 +1018,25 @@ load_keys( fd_votor_tile_t * ctx,
 }
 
 static void
-set_rank_and_bls_key( fd_votor_tile_t * ctx ) {
+update_own_rank( fd_votor_tile_t * ctx ) {
   ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
   ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
-  char const *            voting     [3] = { "unknown", "unknown", "unknown" };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ag_epoch_info_t const * epoch_info = epoch_infos[ i ];
+    if( FD_UNLIKELY( !epoch_info ) ) continue;
+    ushort own_rank = USHORT_MAX;
+    for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
+      if( FD_UNLIKELY( !memcmp( epoch_info->validators[ rank ].id_key, ctx->id_key.uc, sizeof(ag_id_key_t) ) ) ) own_rank = (ushort)rank;
+    }
+    ag_pool_set_rank ( ctx->pool,  epoch_slots[ i ], own_rank );
+    ag_votor_set_rank( ctx->votor, epoch_slots[ i ], own_rank );
+  }
+}
+
+static void
+update_own_bls_key( fd_votor_tile_t * ctx ) {
+  ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
+  ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
   for( ulong i=0UL; i<3UL; i++ ) {
     ag_epoch_info_t const * epoch_info = epoch_infos[ i ];
     if( FD_UNLIKELY( !epoch_info ) ) continue;
@@ -1035,23 +1047,17 @@ set_rank_and_bls_key( fd_votor_tile_t * ctx ) {
     uchar const * own_bls_key = NULL; /* NULL if we are not ranked or cannot sign with our key, in which case we do not vote */
     if( FD_LIKELY( own_rank!=USHORT_MAX ) ) {
       ag_validator_info_t const * validator = &epoch_info->validators[ own_rank ];
+      FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
       if( FD_LIKELY( auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( validator->bls_key ), NULL ) ) ) {
         own_bls_key = validator->bls_key;
+        FD_LOG_INFO(( "voting as %s in the epoch starting at slot %lu", vote_key_b58, epoch_slots[ i ] ));
       } else {
-        FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
         FD_LOG_WARNING(( "no identity or authorized voter keypair matches the BLS key of vote account %s, unable to vote", vote_key_b58 ));
       }
     }
-    ag_pool_set_rank    ( ctx->pool,  epoch_slots[ i ], own_rank );
-    ag_votor_set_rank   ( ctx->votor, epoch_slots[ i ], own_rank );
     ag_votor_set_bls_key( ctx->votor, epoch_slots[ i ], own_bls_key );
-    voting[ i ] = own_bls_key ? "enabled" : "disabled";
   }
-  FD_LOG_INFO(( "keyswitch: authorized voter count is now %lu; voting %s in the current epoch and %s in the next epoch",
-                ctx->auth_vtr_path_cnt, voting[ 1 ], voting[ 2 ] ));
 }
-
-FD_STATIC_ASSERT( FD_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
 
 static void
 sign_vote( void *         signer_ctx,
@@ -1067,9 +1073,14 @@ sign_vote( void *         signer_ctx,
   if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
 }
 
-/* rename_vote_history renames file to name.  A file that already has
-   that name, e.g. the vote history file passed to set-identity, is
-   moved to the first free name.old, name.old.1, ... first. */
+/* rename_vote_history atomically replaces the Agave-compatible vote
+   history file with a new one.
+
+   Examples:
+
+   vote_history-A.bin      renamed to vote_history-B.bin
+   vote_history-B.bin      already there, moved to vote_history-B.bin.old
+   vote_history-B.bin.old  already there too, so vote_history-B.bin.old.1, ... */
 
 static void
 rename_vote_history( int                   dir_fd,
@@ -1091,16 +1102,14 @@ rename_vote_history( int                   dir_fd,
   FD_TEST( fd_cstr_printf_check( file->name, PATH_MAX, NULL, "%s", name ) );
 }
 
-/* write_vote_history saves vote history in Agave's format, and supports
-   failover to an Agave validator.
+/* write_vote_history writes out an Agave-compatible vote history file.
 
    Examples:
 
    vote_history-A.bin          live
    vote_history-A.bin.new      staging, swapped with live on each write
    vote_history-B.bin(.new)    the A files, renamed on the first write as B
-   vote_history-B.bin.old      a B file already there (.old.1, .old.2, ...)
-   vote_history-B.bin, empty   history larger than AG_VOTE_HISTORY_FILE_MAX */
+   vote_history-B.bin.old      a B file already there (.old.1, .old.2, ...) */
 
 static void
 write_vote_history( fd_votor_tile_t * ctx ) {
@@ -1116,15 +1125,11 @@ write_vote_history( fd_votor_tile_t * ctx ) {
     rename_vote_history( ctx->vote_history_dir_fd, &ctx->vote_history_old, old_name );
   }
 
-  uchar * buf = ctx->vote_history_buf;
-  ulong   sz  = ag_votor_vote_history( ctx->votor, ctx->vote_history ) ? 0UL : ag_vote_history_file_ser( ctx->vote_history, ctx->id_key.uc, buf, AG_VOTE_HISTORY_FILE_MAX );
-  if( FD_LIKELY( sz ) ) {
-    fd_keyguard_client_sign( ctx->keyguard_client, buf+AG_VOTE_HISTORY_FILE_SIG_OFF, buf+AG_VOTE_HISTORY_FILE_DATA_OFF, sz-AG_VOTE_HISTORY_FILE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  } else {
-    ctx->metrics.vote_history_too_large++;
-    if( ctx->vote_history_empty ) { ctx->vote_history_pending = 0UL; return; }
-    FD_LOG_WARNING(( "vote history is larger than %lu bytes, emptied %s until it fits", AG_VOTE_HISTORY_FILE_MAX, ctx->vote_history_old.name ));
-  }
+  uchar * buf  = ctx->vote_history_buf;
+  ulong   sz   = AG_VOTE_HISTORY_SER_SZ;
+  ulong   root = ag_votor_vote_history( ctx->votor );
+  ag_vote_history_ser( ctx->id_key.uc, root, buf );
+  fd_keyguard_client_sign( ctx->keyguard_client, buf+AG_VOTE_HISTORY_SERDE_SIG_OFF, buf+AG_VOTE_HISTORY_SERDE_DATA_OFF, sz-AG_VOTE_HISTORY_SERDE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   for( ulong off=0UL; off<sz; ) {
     long n = pwritev2( ctx->vote_history_new.fd, &(struct iovec){ .iov_base=buf+off, .iov_len=sz-off }, 1, (long)off, 0 );
@@ -1140,11 +1145,33 @@ write_vote_history( fd_votor_tile_t * ctx ) {
     FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->vote_history_new.name, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
   int fd = ctx->vote_history_new.fd; ctx->vote_history_new.fd = ctx->vote_history_old.fd; ctx->vote_history_old.fd = fd;
 
-  ctx->vote_history_empty           = !sz;
-  ctx->metrics.vote_history_write  += (ulong)!!sz;
-  ctx->metrics.vote_history_slot    = sz && ctx->vote_history->votes_cast_cnt ? ctx->vote_history->votes_cast[ ctx->vote_history->votes_cast_cnt-1UL ].block.slot : ULONG_MAX;
-  ctx->metrics.vote_history_sz      = sz;
-  ctx->vote_history_pending         = 0UL;
+  ctx->metrics.vote_history_write++;
+  ctx->metrics.vote_history_slot = root;
+  ctx->metrics.vote_history_sz   = sz;
+}
+
+/* read_vote_history reads in an Agave-compatible vote history file. */
+
+static void
+read_vote_history( fd_votor_tile_t * ctx,
+                   char const *      path ) {
+  int fd = openat( ctx->vote_history_dir_fd, ctx->vote_history_old.name, O_RDONLY );
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+  struct stat st;
+  if( FD_UNLIKELY( -1==fstat( fd, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !st.st_size ) ) { /* never written, the identity was never switched away from here */
+    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  ulong         sz   = (ulong)st.st_size;
+  uchar const * file = mmap( NULL, sz, PROT_READ, MAP_PRIVATE, fd, 0 );
+  if( FD_UNLIKELY( file==MAP_FAILED ) ) FD_LOG_ERR(( "mmap(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+  int err = ag_vote_history_de( file, sz, ctx->id_key.uc, &ctx->wait_to_vote_slot );
+  if( FD_UNLIKELY( munmap( (void *)file, sz ) ) ) FD_LOG_ERR(( "munmap(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "vote history file `%s/%s` is invalid (%i) or not for this identity, remove it to boot without it", path, ctx->vote_history_old.name, err ));
+  FD_LOG_NOTICE(( "vote history file `%s/%s` has votes, waiting to vote until slot %lu", path, ctx->vote_history_old.name, ctx->wait_to_vote_slot ));
 }
 
 static ag_epoch_info_t *
@@ -1347,21 +1374,9 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   ctx->ns_per_slot = (long)msg->ns_per_slot;
 
-  /* update our own bls key by reading it out of our own epoch_info. */
-
-  uchar const * own_bls_key = NULL; /* NULL if we are not ranked or cannot sign with our key, in which case we do not vote */
-  if( FD_LIKELY( own_rank!=USHORT_MAX ) ) {
-    ag_validator_info_t const * validator = &epoch_info->validators[ own_rank ];
-    if( FD_LIKELY( auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( validator->bls_key ), NULL ) ) ) {
-      own_bls_key = validator->bls_key;
-    } else {
-      FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
-      FD_LOG_WARNING(( "no identity or authorized voter keypair matches the BLS key of vote account %s, unable to vote", vote_key_b58 ));
-    }
-  }
-
   ag_pool_advance_epoch ( ctx->pool,  epoch_info,       own_rank, msg->start_slot );
-  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, ctx->halt_signing ? NULL : own_bls_key );
+  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, NULL );
+  update_own_bls_key( ctx );
 
   /* update our leader schedule */
 
@@ -1519,8 +1534,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 during_housekeeping( fd_votor_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->vote_history_pending && !ctx->halt_signing ) ) write_vote_history( ctx );
-
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
   /* Spread handshakes to newly ranked peers across 10 seconds. */
@@ -1585,7 +1598,8 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     /* The epochs votor holds chose their keys when they advanced, so
        choose them again for each of them. */
 
-    set_rank_and_bls_key( ctx );
+    FD_LOG_INFO(( "keyswitch: authorized voter count is now %lu", ctx->auth_vtr_path_cnt ));
+    update_own_bls_key( ctx );
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
@@ -1598,13 +1612,11 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     if( FD_UNLIKELY( fd_seq_lt( ctx->replay_in_seq, fd_keyswitch_param_query( ctx->id_keyswitch ) ) ) ) return;
 
-    /* Halt signing at first by removing our BLS keys from votor. */
+    /* Halt signing at first. */
 
     if( !ctx->halt_signing ) {
       ctx->halt_signing = 1;
-      ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
-      ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
-      for( ulong i=0UL; i<3UL; i++ ) if( FD_LIKELY( epoch_infos[ i ] ) ) ag_votor_set_bls_key( ctx->votor, epoch_slots[ i ], NULL );
+      ag_votor_halt_signing( ctx->votor );
     }
 
     /* If votes and pool events drained close quic conns and update
@@ -1615,9 +1627,9 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
       /* Save the votes drained since the halt as the old identity.  The
          admin tile switches the sign tile only after this completes. */
 
-      if( FD_UNLIKELY( ctx->vote_history_pending ) ) write_vote_history( ctx );
+      if( FD_LIKELY( ctx->vote_history_dir_fd!=-1 ) ) write_vote_history( ctx );
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
-      ctx->wait_to_vote_slot = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL ) ? FD_LOAD( ulong, ctx->id_keyswitch->bytes+40UL ) : 0UL;
+      ctx->wait_to_vote_slot = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL );
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
       fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
@@ -1662,7 +1674,9 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     load_keys( ctx, ctx->auth_vtr_path_cnt );
     ctx->halt_signing = 0;
     ag_votor_wait_to_vote( ctx->votor, ctx->wait_to_vote_slot );
-    set_rank_and_bls_key( ctx );
+    update_own_rank( ctx );
+    update_own_bls_key( ctx );
+    ag_votor_unhalt_signing( ctx->votor );
     ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool ); /* its next vote was copied as the old identity */
     for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
       peer_t * peer = &ctx->peers[ slot ];
@@ -1703,7 +1717,6 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_SET  ( VOTOR, VOTE_HISTORY_FILE_WRITTEN,    ctx->metrics.vote_history_write     );
   FD_MGAUGE_SET( VOTOR, VOTE_HISTORY_FILE_SLOT,       fd_ulong_if( ctx->metrics.vote_history_slot==ULONG_MAX, 0UL, ctx->metrics.vote_history_slot ) );
   FD_MGAUGE_SET( VOTOR, VOTE_HISTORY_FILE_SIZE_BYTES, ctx->metrics.vote_history_sz        );
-  FD_MCNT_SET  ( VOTOR, VOTE_HISTORY_FILE_SKIPPED,    ctx->metrics.vote_history_too_large );
 
   ag_votor_metrics_t votor_metrics = ag_votor_metrics( ctx->votor );
   FD_MGAUGE_SET( VOTOR, VOTING_SLOT_USED,        votor_metrics.slot_state_pool_used );
@@ -1971,7 +1984,6 @@ after_credit( fd_votor_tile_t *   ctx,
   uchar reason;
   if( FD_UNLIKELY( !pool_event && !repair_event && ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) ) ) {
     ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote );
-    if( FD_LIKELY( ctx->vote_history_dir_fd!=-1 ) ) ctx->vote_history_pending = fd_ulong_max( ctx->vote_history_pending, vote_slot );
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
     if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
@@ -2177,6 +2189,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->vote_history_dir_fd  = -1;
   ctx->vote_history_new.fd = -1;
   ctx->vote_history_old.fd = -1;
+  ctx->wait_to_vote_slot   = 0UL;
   if( FD_LIKELY( tile->votor.vote_history_path[ 0 ] ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
     FD_TEST( fd_cstr_printf_check( ctx->vote_history_old.name, PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
@@ -2204,6 +2217,8 @@ privileged_init( fd_topo_t const *      topo,
     if( FD_UNLIKELY( st.st_uid!=tile->votor.target_uid ) ) {
       FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, ctx->vote_history_old.name, st.st_uid, tile->votor.target_uid ));
     }
+
+    read_vote_history( ctx, tile->votor.vote_history_path );
 
     if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -2240,8 +2255,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
   ctx->metrics.vote_history_slot = ULONG_MAX;
-  ctx->vote_history_pending      = 0UL;
-  ctx->vote_history_empty        = 0;
 
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
@@ -2251,6 +2264,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
+  ag_votor_wait_to_vote( ctx->votor, ctx->wait_to_vote_slot );
 
   ctx->prev_epoch_info = NULL;
   ctx->prev_epoch_slot = ULONG_MAX;
@@ -2367,7 +2381,6 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->id_keyswitch );
   ctx->halt_signing      = 0;
   ctx->replay_in_seq     = 0UL;
-  ctx->wait_to_vote_slot = 0UL;
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );

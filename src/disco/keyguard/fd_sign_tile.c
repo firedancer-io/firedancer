@@ -23,12 +23,10 @@
 
 struct fd_keyguard_bls_key {
   fd_bls_sec_t secret_key;
-  uchar        public_key[ FD_KEYGUARD_BLS_PUBKEY_SZ ]; /* canonical compressed encoding */
+  uchar        public_key[ FD_BLS_PUB_COMPRESSED_SZ ]; /* canonical compressed encoding */
 };
 typedef struct fd_keyguard_bls_key fd_keyguard_bls_key_t;
 
-FD_STATIC_ASSERT( FD_KEYGUARD_BLS_PUBKEY_SZ==FD_BLS_PUB_COMPRESSED_SZ, bls_public_key_size );
-FD_STATIC_ASSERT( FD_KEYGUARD_BLS_SIG_SZ   ==FD_BLS_SIG_SZ,            bls_signature_size  );
 FD_STATIC_ASSERT( sizeof(fd_keyguard_bls_key_t)*FD_KEYGUARD_BLS_KEY_MAX<=4096UL, bls_keys_fit_protected_page );
 
 /* fd_sign_in_ctx_t is a context object for each in (producer) mcache
@@ -326,7 +324,7 @@ after_frag_sensitive( void *              _ctx,
     fd_bls_sig_t bls_sig[1];
     fd_bls_sec_sign( &ctx->bls_keys[ key_idx ].secret_key, ctx->_data, sz, bls_sig );
     fd_bls_sig_ser( bls_sig, dst );
-    out_sz = FD_KEYGUARD_BLS_SIG_SZ;
+    out_sz = FD_BLS_SIG_SZ;
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY: {
@@ -338,8 +336,8 @@ after_frag_sensitive( void *              _ctx,
       FD_LOG_CRIT(( "invalid BLS public key request from in_idx=%lu: authority_idx=%lu out of range (authorized_voters_cnt=%lu)", in_idx, authority_idx, ctx->authorized_voters_cnt ));
     }
     ulong key_idx = authority_idx==ULONG_MAX ? 0UL : authority_idx+1UL;
-    memcpy( dst, ctx->bls_keys[ key_idx ].public_key, FD_KEYGUARD_BLS_PUBKEY_SZ );
-    out_sz = FD_KEYGUARD_BLS_PUBKEY_SZ;
+    memcpy( dst, ctx->bls_keys[ key_idx ].public_key, FD_BLS_PUB_COMPRESSED_SZ );
+    out_sz = FD_BLS_PUB_COMPRESSED_SZ;
     break;
   }
   default:
@@ -506,7 +504,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_VOTOR;
       FD_TEST( !strcmp( out_link->name, "sign_votor" ) );
       FD_TEST( in_link->mtu==FD_KEYGUARD_SIGN_REQ_MTU );
-      FD_TEST( out_link->mtu==FD_KEYGUARD_BLS_SIG_SZ );
+      FD_TEST( out_link->mtu==FD_BLS_SIG_SZ );
     } else if( !strcmp(in_link->name, "tower_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_TOWER;
       FD_TEST( !strcmp( out_link->name, "sign_tower" ) );
