@@ -6359,7 +6359,7 @@ message MetricsGuiDbForcedEvictWriteCompleted {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6377,7 +6377,7 @@ message MetricsGuiDbForcedEvictWriteCompleted {
   uint64 replay_txn = 13;
 }
 
-// Records dropped because the database was full (MAP_FULL), by database
+// Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database
 message MetricsGuiDbRecordDropped {
   // scheduler_counts
   uint64 scheduler_counts = 1;
@@ -6389,7 +6389,7 @@ message MetricsGuiDbRecordDropped {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6419,7 +6419,7 @@ message MetricsGuiDbRegionReleased {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6449,7 +6449,7 @@ message MetricsGuiDbRegionClaimed {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6479,7 +6479,7 @@ message MetricsGuiDbEvictionPassCompleted {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6509,7 +6509,7 @@ message MetricsGuiDbRecordEvicted {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6539,7 +6539,7 @@ message MetricsGuiDbTimeSeriesRecordRead {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6569,7 +6569,7 @@ message MetricsGuiDbTimeSeriesScanned {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6599,7 +6599,7 @@ message MetricsGuiDbTimeSeriesRecordAppended {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6629,7 +6629,7 @@ message MetricsGuiDbKvQueried {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6659,7 +6659,7 @@ message MetricsGuiDbRecordAllocated {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6689,7 +6689,7 @@ message MetricsGuiDbRecordUsed {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6719,7 +6719,7 @@ message MetricsGuiDbAllocatedBytes {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -6749,7 +6749,7 @@ message MetricsGuiDbUsedBytes {
   uint64 txn_start = 4;
   // txn_end
   uint64 txn_end = 5;
-  // tower
+  // Retired: no longer a database, always zero
   uint64 tower = 6;
   // slot
   uint64 slot = 7;
@@ -11057,7 +11057,7 @@ message MetricsGui {
   MetricsGuiDbRegionClaimed db_region_claimed = 43;
   // Regions returned to the free list, by database
   MetricsGuiDbRegionReleased db_region_released = 44;
-  // Records dropped because the database was full (MAP_FULL), by database
+  // Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database
   MetricsGuiDbRecordDropped db_record_dropped = 45;
   // Writes that evicted records before succeeding, by database
   MetricsGuiDbForcedEvictWriteCompleted db_forced_evict_write_completed = 46;
