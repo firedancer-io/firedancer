@@ -48,6 +48,8 @@ fddev_configure( config_t * config,
   FD_TEST( !fd_cap_chk_err_cnt( chk ) );
   configure_cmd_fn( &args, config );
 
+  if( FD_LIKELY( fd_cfg_stage_cpuset.enabled( config ) ) ) fd_cfg_stage_cpuset.fini( config, 0 );
+
   args.configure.command = CONFIGURE_CMD_INIT;
   configure_cmd_perm( &args, chk, config );
   FD_TEST( !fd_cap_chk_err_cnt( chk ) );
