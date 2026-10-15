@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_compute_budget_program_h
 
 #include "../../fd_flamenco_base.h"
+#include "../fd_compute_budget_details.h"
 
 /* FIXME: put these elsewhere */
 #define FD_MIN_HEAP_FRAME_BYTES (32 * 1024)     /* Min heap size */
@@ -102,6 +103,13 @@ FD_PROTOTYPES_BEGIN
    https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L101-L153 */
 int
 fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out );
+
+/* fd_compute_budget_count_instrs adds the transaction's builtin and
+   non-builtin instruction counts to details. */
+void
+fd_compute_budget_count_instrs( fd_bank_t const *             bank,
+                                fd_txn_in_t const *           txn_in,
+                                fd_compute_budget_details_t * details );
 
 int
 fd_executor_compute_budget_program_execute_instructions( fd_bank_t const *   bank,
