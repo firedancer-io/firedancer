@@ -95,12 +95,20 @@ ag_pool_leave( ag_pool_t const * pool );
 void *
 ag_pool_delete( void * mem );
 
-/* ag_pool_init starts the pool at root, a finalized block that is
-   treated as notarized (Section 2.9). */
+/* ag_pool_from_snapshot starts the pool at root, a finalized block
+   that is treated as notarized (Section 2.9). */
 
 void
-ag_pool_init( ag_pool_t *           self,
-              ag_block_id_t const * root );
+ag_pool_from_snapshot( ag_pool_t *           self,
+                       ag_block_id_t const * root );
+
+/* ag_pool_from_genesis starts the pool at the genesis block.  Like
+   ag_pool_from_snapshot, but also makes genesis+1 ParentReady (see
+   ag_parent_ready_tracker_mark_root). */
+
+void
+ag_pool_from_genesis( ag_pool_t *           self,
+                      ag_block_id_t const * genesis );
 
 void
 ag_pool_fini( ag_pool_t * self );
