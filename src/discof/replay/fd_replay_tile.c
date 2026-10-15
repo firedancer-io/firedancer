@@ -3274,7 +3274,10 @@ can_process_fec( fd_replay_tile_t * ctx,
     int is_eqvoc     = fec->eqvoc && !parent->eqvoc;
     if( FD_UNLIKELY( is_new_block || is_eqvoc || invalid_parent ) ) {
       ctx->metrics.banks_full++;
-      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
+      /* While a snapshot freezes the published root nothing is pruned,
+         so evicting would only drop the tip and replay it again.  Wait
+         for the snapshot to finish instead. */
+      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active ) ) *evict_banks_out = 1;
       return 0;
     }
   }
@@ -3460,7 +3463,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     int is_new_block = fec->fec_set_idx==0U && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
-      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
+      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
       return PROCESS_FEC_WAIT;
     }
   }
