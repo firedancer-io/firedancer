@@ -10877,12 +10877,12 @@ message MetricsVotor {
   uint64 peer_conn_open = 35;
   // Times the vote history file was written
   uint64 vote_history_file_written = 36;
-  // Newest vote slot in the last written vote history file, 0 if not written yet, emptied, or without votes
+  // Root of the last written vote history file, which votor waits to vote past, 0 if not written yet
   uint64 vote_history_file_slot = 37;
-  // Size of the last written vote history file, 0 if emptied
+  // Size of the last written vote history file
   uint64 vote_history_file_size_bytes = 38;
   // Vote history writes skipped because the history was too large; the file is emptied until it fits
-  uint64 vote_history_file_skipped = 39;
+  uint64 vote_history_file_skipped = 39 [deprecated = true];
 }
 
 // Metrics of one gui tile instance, one row per sweep

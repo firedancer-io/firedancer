@@ -14,8 +14,6 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_KEYGUARD_SIGN_REQ_MTU (32768UL)
 
-#define FD_KEYGUARD_BLS_PUBKEY_SZ (48UL)
-#define FD_KEYGUARD_BLS_SIG_SZ    (192UL)
 
 /* FD_KEYGUARD_AUTH_VOTERS_MAX is the maximum number of authorized voter
    keys the sign tile holds besides the identity.  An authority_idx is
