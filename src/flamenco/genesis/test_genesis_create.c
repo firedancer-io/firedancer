@@ -157,7 +157,7 @@ main( int     argc,
       FD_TEST( account->data_len == FD_VOTE_STATE_V4_SZ );
       FD_TEST( !memcmp( account->owner.key, fd_solana_vote_program_id.key, 32 ) );
       FD_TEST( fd_vsv_is_correct_size_owner_and_init( account->owner.uc, account->data, account->data_len ) );
-      FD_TEST( fd_vote_account_is_v4_with_bls_pubkey( account->data, account->data_len ) );
+      FD_TEST( fd_vote_account_has_bls_pubkey( account->data, account->data_len ) );
       fd_rent_t rent = {
         .lamports_per_uint8_year = genesis->rent.lamports_per_uint8_year,
         .exemption_threshold     = genesis->rent.exemption_threshold,

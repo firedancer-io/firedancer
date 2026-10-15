@@ -678,6 +678,156 @@ serialize_all( fd_wksp_t *            wksp,
    the entries are at ages 5, 4, 1 and 0.  A nonzero base checks that
    indices are written as stored, not rebased. */
 
+static ulong
+put_v5_vote_entry( uchar *             out,
+                   uchar const *       vote,
+                   ulong               stake,
+                   ulong               lamports,
+                   ulong               data_len,
+                   uchar const *       v5,
+                   uchar               executable,
+                   ulong               rent_epoch ) {
+  uchar * p = out;
+  memcpy( p, vote, 32UL );                                        p += 32UL;
+  FD_STORE( ulong, p, stake    );                                 p += 8UL;
+  FD_STORE( ulong, p, lamports );                                 p += 8UL;
+  FD_STORE( ulong, p, data_len );                                 p += 8UL;
+  memcpy( p, v5, fd_ulong_min( data_len, FD_VOTE_STATE_V5_SZ ) ); p += data_len;
+  memcpy( p, fd_solana_vote_program_id.uc, 32UL );                p += 32UL;
+  *p = executable;                                                p += 1UL;
+  FD_STORE( ulong, p, rent_epoch );                               p += 8UL;
+  return (ulong)( p-out );
+}
+
+static int
+parse_manifest( fd_wksp_t *              wksp,
+                uchar const *            buf,
+                ulong                    sz,
+                fd_snapshot_manifest_t * manifest ) {
+  memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
+  void * parser_mem = test_alloc( wksp, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
+  fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser_mem ) );
+  FD_TEST( parser );
+  fd_ssmanifest_parser_init( parser, manifest );
+  int result = fd_ssmanifest_parser_consume( parser, buf, sz );
+  int ok     = ( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE || result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN ) &&
+               fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE;
+  fd_wksp_free_laddr( parser_mem );
+  return ok;
+}
+
+static void
+test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
+                                fd_bank_t *     bank ) {
+  FD_LOG_NOTICE(( "test_manifest_v5_vote_accounts" ));
+  fd_wksp_t * wksp = mini->wksp;
+
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
+
+  fd_ssmanifest_writer_t * writer   = test_alloc( wksp, alignof(fd_ssmanifest_writer_t), sizeof(fd_ssmanifest_writer_t) );
+  uchar *                  acc_data = test_alloc( wksp, 1UL, FD_RUNTIME_ACC_SZ_MAX );
+  fd_pubkey_t leader = {0};
+  fd_ssmanifest_writer_init( writer, bank, &leader, mini->runtime->accdb, bank->accdb_fork_id, acc_data );
+  ulong manifest_sz = writer->serialized_sz;
+  FD_TEST( manifest_sz>0UL );
+
+  static fd_vote_state_versioned_t vsv[1];
+  FD_TEST( fd_vote_state_versioned_new( vsv, fd_vote_state_versioned_enum_v5 ) );
+  fd_memset( vsv->v5.node_pubkey.uc,        0x5a, 32UL );
+  fd_memset( vsv->v5.bls_pubkey_compressed, 0x5b, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  uchar stakes_v5[ FD_VOTE_STATE_V5_SZ ];
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, stakes_v5, sizeof(stakes_v5) ) );
+  uchar stakes_vote[ 32UL ];
+  uchar stakes_node[ 32UL ];
+  fd_memset( stakes_vote, 0x5c, 32UL );
+  fd_memset( stakes_node, 0x5a, 32UL );
+
+  ulong   max_sz      = manifest_sz + ( manifest_sz/(56UL+186UL+41UL)+2UL )*FD_VOTE_STATE_V5_SZ;
+  uchar * v4_buf      = test_alloc( wksp, alignof(uchar), manifest_sz );
+  uchar * v5_buf      = test_alloc( wksp, alignof(uchar), max_sz );
+  uchar * bad_buf     = test_alloc( wksp, alignof(uchar), max_sz );
+  uchar * chunk_buf   = test_alloc( wksp, alignof(uchar), FD_SSMANIFEST_BUF_MIN );
+  ulong   v4_sz       = 0UL;
+  ulong   v5_sz       = 0UL;
+  ulong   bad_len_off = ULONG_MAX;
+  ulong   converted   = 0UL;
+  int     injected    = 0;
+  for(;;) {
+    ulong sz = fd_snap_manifest_serialize( writer, chunk_buf, FD_SSMANIFEST_BUF_MIN );
+    if( !sz ) break;
+    FD_TEST( v4_sz+sz<=manifest_sz );
+    memcpy( v4_buf+v4_sz, chunk_buf, sz );
+    v4_sz += sz;
+
+    if( FD_UNLIKELY( !injected &&
+                     sz==4UL*sizeof(ulong) &&
+                     FD_LOAD( ulong, chunk_buf      )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+ 8UL )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+16UL )==0UL &&
+                     FD_LOAD( ulong, chunk_buf+24UL )==bank->f.epoch ) ) {
+      FD_STORE( ulong, v5_buf+v5_sz, 1UL ); v5_sz += 8UL;
+      bad_len_off = v5_sz+48UL;
+      v5_sz += put_v5_vote_entry( v5_buf+v5_sz, stakes_vote, 777UL, 1000000000UL, FD_VOTE_STATE_V5_SZ, stakes_v5, 0, 0UL );
+      memcpy( v5_buf+v5_sz, chunk_buf+8UL, sz-8UL ); v5_sz += sz-8UL;
+      injected = 1;
+      continue;
+    }
+
+    ulong data_len = sz>=56UL ? FD_LOAD( ulong, chunk_buf+48UL ) : 0UL;
+    if( sz>=60UL && data_len<=sz && sz==56UL+data_len+41UL &&
+        FD_LOAD( uint, chunk_buf+56UL )==fd_vote_state_versioned_enum_v4 &&
+        fd_memeq( chunk_buf+56UL+data_len, fd_solana_vote_program_id.uc, 32UL ) &&
+        fd_vote_state_versioned_deserialize( vsv, chunk_buf+56UL, data_len ) ) {
+      vsv->v4.has_bls_pubkey_compressed = 1;
+      uchar v5[ FD_VOTE_STATE_V5_SZ ];
+      FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
+      FD_TEST( !fd_vote_state_versioned_serialize( vsv, v5, sizeof(v5) ) );
+      v5_sz += put_v5_vote_entry( v5_buf+v5_sz, chunk_buf, FD_LOAD( ulong, chunk_buf+32UL ), FD_LOAD( ulong, chunk_buf+40UL ),
+                                  FD_VOTE_STATE_V5_SZ, v5, chunk_buf[ 56UL+data_len+32UL ], FD_LOAD( ulong, chunk_buf+56UL+data_len+33UL ) );
+      converted++;
+      continue;
+    }
+
+    memcpy( v5_buf+v5_sz, chunk_buf, sz );
+    v5_sz += sz;
+    FD_TEST( v5_sz<=max_sz );
+  }
+  FD_TEST( v4_sz==manifest_sz );
+  FD_TEST( injected && converted>0UL );
+  fd_epoch_credits_view_fini( epoch_credits_view );
+
+  fd_snapshot_manifest_t * a = test_alloc( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
+  fd_snapshot_manifest_t * b = test_alloc( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
+  FD_TEST( parse_manifest( wksp, v4_buf, v4_sz, a ) );
+  FD_TEST( parse_manifest( wksp, v5_buf, v5_sz, b ) );
+
+  FD_TEST( b->vote_accounts_len==a->vote_accounts_len+1UL );
+  ulong found = 0UL;
+  for( ulong i=0UL; i<b->vote_accounts_len; i++ ) {
+    if( b->vote_accounts[ i ].stake!=777UL ) continue;
+    FD_TEST( fd_memeq( b->vote_accounts[ i ].vote_account_pubkey, stakes_vote, 32UL ) );
+    FD_TEST( fd_memeq( b->vote_accounts[ i ].node_account_pubkey, stakes_node, 32UL ) );
+    found++;
+  }
+  FD_TEST( found==1UL );
+
+  for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+    FD_TEST( a->epoch_stakes[ i ].epoch==b->epoch_stakes[ i ].epoch );
+    FD_TEST( a->epoch_stakes[ i ].vote_stakes_len==b->epoch_stakes[ i ].vote_stakes_len );
+    for( ulong j=0UL; j<a->epoch_stakes[ i ].vote_stakes_len; j++ ) {
+      fd_snapshot_manifest_vote_stakes_t vs = b->epoch_stakes[ i ].vote_stakes[ j ];
+      FD_TEST( vs.has_identity_bls==1 );
+      vs.has_identity_bls = a->epoch_stakes[ i ].vote_stakes[ j ].has_identity_bls;
+      FD_TEST( fd_memeq( &vs, &a->epoch_stakes[ i ].vote_stakes[ j ], sizeof(fd_snapshot_manifest_vote_stakes_t) ) );
+    }
+  }
+
+  memcpy( bad_buf, v5_buf, v5_sz );
+  FD_STORE( ulong, bad_buf+bad_len_off, FD_VOTE_STATE_V5_PAD_OFF-1UL );
+  FD_TEST( !parse_manifest( wksp, bad_buf, v5_sz, b ) );
+}
+
 static void
 test_manifest_roundtrip_blockhash_holes( fd_svm_mini_t * mini,
                                          fd_bank_t *     bank ) {
@@ -1987,6 +2137,8 @@ main( int     argc,
   FD_TEST( bank );
 
   test_manifest_roundtrip( mini, bank );
+  test_allocs_reclaim( wksp );
+  test_manifest_v5_vote_accounts( mini, bank );
   test_allocs_reclaim( wksp );
   test_manifest_roundtrip_blockhash_holes( mini, bank );
   test_allocs_reclaim( wksp );

@@ -95,7 +95,7 @@ fuzz_vote_state( uchar const * data,
   if( vsv ) {
     /* If the vote state is valid, peek must also support it
        (The opposite is not true, as peek does not do full validation) */
-    if( vsv->kind!=fd_vote_state_versioned_enum_uninitialized ) {
+    if( vsv->kind!=fd_vote_state_versioned_enum_uninitialized && vsv->kind!=fd_vote_state_versioned_enum_v5 ) {
       assert( desc );
     }
 
@@ -142,6 +142,9 @@ fuzz_vote_state( uchar const * data,
       }
       break;
     }
+    case fd_vote_state_versioned_enum_v5:
+      assert( desc==NULL );
+      break;
     default:
       abort();
     }

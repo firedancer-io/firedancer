@@ -3,6 +3,7 @@
 #include "fd_vote_utils.h"
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
+#include "fd_vote_state_v5.h"
 #include "fd_authorized_voters.h"
 #include "../fd_vote_program.h"
 #include "../../fd_runtime.h"
@@ -79,9 +80,30 @@ fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
       return &self->v3.authorized_withdrawer;
     case fd_vote_state_versioned_enum_v4:
       return &self->v4.authorized_withdrawer;
+    case fd_vote_state_versioned_enum_v5:
+      return &self->v5.authorized_withdrawer;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
+}
+
+static ushort
+v5_latest_commission_bps( fd_vote_state_v5_t const * v5,
+                          uint                       kind ) {
+  fd_vote_state_v5_commission_t c;
+  fd_vote_state_v5_commission_get( v5, kind, &c );
+  return fd_vote_state_v5_commission_latest( &c );
+}
+
+static void
+v5_schedule_commission( fd_vote_state_v5_t * v5,
+                        uint                 kind,
+                        ulong                current_epoch,
+                        ushort               bps ) {
+  fd_vote_state_v5_commission_t c;
+  fd_vote_state_v5_commission_get( v5, kind, &c );
+  fd_vote_state_v5_commission_schedule( &c, current_epoch+2UL, bps );
+  fd_vote_state_v5_commission_set( v5, kind, &c );
 }
 
 uchar
@@ -91,6 +113,8 @@ fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
       return self->v3.commission;
     case fd_vote_state_versioned_enum_v4:
       return (uchar)fd_ushort_min( (ushort)UCHAR_MAX, (ushort)( self->v4.inflation_rewards_commission_bps/100 ) );
+    case fd_vote_state_versioned_enum_v5:
+      return (uchar)fd_ushort_min( (ushort)UCHAR_MAX, (ushort)( v5_latest_commission_bps( &self->v5, fd_commission_kind_enum_inflation_rewards )/100 ) );
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
@@ -99,6 +123,17 @@ fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
 fd_vote_epoch_credits_t const *
 fd_vsv_get_epoch_credits( fd_vote_state_versioned_t * self ) {
   return fd_vsv_get_epoch_credits_mutable( self );
+}
+
+fd_vote_epoch_credits_t const *
+fd_vsv_get_last_epoch_credits( fd_vote_state_versioned_t * self ) {
+  if( self->kind==fd_vote_state_versioned_enum_v5 ) {
+    ulong cnt = self->v5.accumulated_lamports_len;
+    return cnt ? &self->v5.accumulated_lamports[ cnt-1UL ] : NULL;
+  }
+  fd_vote_epoch_credits_t const * epoch_credits = fd_vsv_get_epoch_credits( self );
+  if( deq_fd_vote_epoch_credits_t_empty( epoch_credits ) ) return NULL;
+  return deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits );
 }
 
 fd_landed_vote_t const *
@@ -153,6 +188,8 @@ fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v4:
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L676 */
       return !!self->v4.has_bls_pubkey_compressed;
+    case fd_vote_state_versioned_enum_v5:
+      return 1;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
@@ -166,6 +203,8 @@ fd_vsv_get_pending_delegator_rewards( fd_vote_state_versioned_t * self ) {
       return 0UL;
     case fd_vote_state_versioned_enum_v4:
       return self->v4.pending_delegator_rewards;
+    case fd_vote_state_versioned_enum_v5:
+      return self->v5.pending_delegator_rewards;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
@@ -240,6 +279,8 @@ fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
       return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned );
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
+    case fd_vote_state_versioned_enum_v5:
+      return fd_vsv_set_state( vote_account, versioned );
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", versioned->kind ));
   }
@@ -255,6 +296,10 @@ fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
     }
     case fd_vote_state_versioned_enum_v4: {
       self->v4.authorized_withdrawer = *authorized_withdrawer;
+      break;
+    }
+    case fd_vote_state_versioned_enum_v5: {
+      self->v5.authorized_withdrawer = *authorized_withdrawer;
       break;
     }
     default:
@@ -297,6 +342,18 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
           signers,
           signers_cnt
       );
+    case fd_vote_state_versioned_enum_v5:
+      return fd_vote_state_v5_set_new_authorized_voter(
+          ctx,
+          &self->v5,
+          authorized_pubkey,
+          current_epoch,
+          target_epoch,
+          bls_pubkey,
+          authorized_withdrawer_signer,
+          signers,
+          signers_cnt
+      );
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
@@ -312,6 +369,9 @@ fd_vsv_set_node_pubkey( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v4:
       self->v4.node_pubkey = *node_pubkey;
       break;
+    case fd_vote_state_versioned_enum_v5:
+      self->v5.node_pubkey = *node_pubkey;
+      break;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
@@ -323,6 +383,9 @@ fd_vsv_set_block_revenue_collector( fd_vote_state_versioned_t * self,
   switch( self->kind ) {
     case fd_vote_state_versioned_enum_v4:
       self->v4.block_revenue_collector = *block_revenue_collector;
+      break;
+    case fd_vote_state_versioned_enum_v5:
+      self->v5.block_revenue_collector = *block_revenue_collector;
       break;
     case fd_vote_state_versioned_enum_v3:
       /* No-op for v3 */
@@ -339,6 +402,9 @@ fd_vsv_set_inflation_rewards_collector( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v4:
       self->v4.inflation_rewards_collector = *inflation_rewards_collector;
       break;
+    case fd_vote_state_versioned_enum_v5:
+      self->v5.inflation_rewards_collector = *inflation_rewards_collector;
+      break;
     case fd_vote_state_versioned_enum_v3:
       /* No-op for v3 */
       break;
@@ -349,13 +415,17 @@ fd_vsv_set_inflation_rewards_collector( fd_vote_state_versioned_t * self,
 
 void
 fd_vsv_set_commission( fd_vote_state_versioned_t * self,
-                       uchar                       commission ) {
+                       uchar                       commission,
+                       ulong                       current_epoch ) {
   switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
       self->v3.commission = commission;
       break;
     case fd_vote_state_versioned_enum_v4:
       self->v4.inflation_rewards_commission_bps = (ushort)( commission*100 );
+      break;
+    case fd_vote_state_versioned_enum_v5:
+      v5_schedule_commission( &self->v5, fd_commission_kind_enum_inflation_rewards, current_epoch, (ushort)( commission*100 ) );
       break;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
@@ -364,10 +434,14 @@ fd_vsv_set_commission( fd_vote_state_versioned_t * self,
 
 void
 fd_vsv_set_inflation_rewards_commission_bps( fd_vote_state_versioned_t * self,
-                                             ushort                      commission_bps ) {
+                                             ushort                      commission_bps,
+                                             ulong                       current_epoch ) {
   switch( self->kind ) {
     case fd_vote_state_versioned_enum_v4:
       self->v4.inflation_rewards_commission_bps = commission_bps;
+      break;
+    case fd_vote_state_versioned_enum_v5:
+      v5_schedule_commission( &self->v5, fd_commission_kind_enum_inflation_rewards, current_epoch, commission_bps );
       break;
     case fd_vote_state_versioned_enum_v3:
       /* No-op for v3 */
@@ -379,10 +453,14 @@ fd_vsv_set_inflation_rewards_commission_bps( fd_vote_state_versioned_t * self,
 
 void
 fd_vsv_set_block_revenue_commission_bps( fd_vote_state_versioned_t * self,
-                                         ushort                      commission_bps ) {
+                                         ushort                      commission_bps,
+                                         ulong                       current_epoch ) {
   switch( self->kind ) {
     case fd_vote_state_versioned_enum_v4:
       self->v4.block_revenue_commission_bps = commission_bps;
+      break;
+    case fd_vote_state_versioned_enum_v5:
+      v5_schedule_commission( &self->v5, fd_commission_kind_enum_block_revenue, current_epoch, commission_bps );
       break;
     case fd_vote_state_versioned_enum_v3:
       /* No-op for v3 */
@@ -625,6 +703,7 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self ) {
       return FD_EXECUTOR_INSTR_SUCCESS;
     /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L96 */
     case fd_vote_state_versioned_enum_v4:
+    case fd_vote_state_versioned_enum_v5:
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
@@ -699,8 +778,77 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L1005 */
     case fd_vote_state_versioned_enum_v4:
       return FD_EXECUTOR_INSTR_SUCCESS;
+    case fd_vote_state_versioned_enum_v5:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
+  }
+}
+
+int
+fd_vsv_has_tower_votes( fd_vote_state_versioned_t const * self ) {
+  return self->kind!=fd_vote_state_versioned_enum_v5;
+}
+
+int
+fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t * self,
+                          ulong                       current_epoch ) {
+  switch( self->kind ) {
+    case fd_vote_state_versioned_enum_v5:
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    case fd_vote_state_versioned_enum_v4: {
+      fd_vote_state_v4_t * state  = &self->v4;
+      ulong                av_cnt = fd_vote_authorized_voters_treap_ele_cnt( state->authorized_voters.treap );
+      ulong                ec_cnt = deq_fd_vote_epoch_credits_t_cnt( state->epoch_credits );
+      if( FD_UNLIKELY( !state->has_bls_pubkey_compressed ||
+                       av_cnt>MAX_AUTHORIZED_VOTERS      ||
+                       ec_cnt>MAX_EPOCH_CREDITS_HISTORY ) ) {
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      }
+
+      fd_vote_state_v5_t v5 = {
+        .node_pubkey                                 = state->node_pubkey,
+        .authorized_withdrawer                       = state->authorized_withdrawer,
+        .inflation_rewards_collector                 = state->inflation_rewards_collector,
+        .block_revenue_collector                     = state->block_revenue_collector,
+        .inflation_rewards_commission_bps_len        = 1,
+        .block_revenue_commission_bps_len            = 1,
+        .pending_delegator_rewards                   = state->pending_delegator_rewards,
+        .inflation_rewards_commission_bps_epochs     = { current_epoch+2UL },
+        .inflation_rewards_commission_bps            = { state->inflation_rewards_commission_bps },
+        .block_revenue_commission_bps_epochs         = { current_epoch+2UL },
+        .block_revenue_commission_bps                = { state->block_revenue_commission_bps },
+        .latest_vote                                 = deq_fd_landed_vote_t_empty( state->votes ) ? ULONG_MAX : deq_fd_landed_vote_t_peek_tail_const( state->votes )->lockout.slot,
+        .root_slot                                   = state->has_root_slot ? state->root_slot : ULONG_MAX,
+        .authorized_voters_len                       = (uint)av_cnt,
+        .accumulated_lamports_len                    = (uint)ec_cnt,
+        .last_timestamp                              = state->last_timestamp
+      };
+      /* TODO: set location */
+      /* TODO: error if not set? */
+      fd_memcpy( v5.bls_pubkey_compressed, state->bls_pubkey_compressed, FD_BLS_PUBKEY_COMPRESSED_SZ );
+
+      ulong i = 0UL;
+      for( fd_vote_authorized_voters_treap_fwd_iter_t iter = fd_vote_authorized_voters_treap_fwd_iter_init( state->authorized_voters.treap, state->authorized_voters.pool );
+           !fd_vote_authorized_voters_treap_fwd_iter_done( iter );
+           iter = fd_vote_authorized_voters_treap_fwd_iter_next( iter, state->authorized_voters.pool ) ) {
+        fd_vote_authorized_voter_t const * voter = fd_vote_authorized_voters_treap_fwd_iter_ele_const( iter, state->authorized_voters.pool );
+        v5.authorized_voters[ i++ ] = (fd_vote_state_v5_authorized_voter_t){ .epoch=voter->epoch, .pubkey=voter->pubkey };
+      }
+
+      i = 0UL;
+      for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( state->epoch_credits );
+           !deq_fd_vote_epoch_credits_t_iter_done( state->epoch_credits, iter );
+           iter = deq_fd_vote_epoch_credits_t_iter_next( state->epoch_credits, iter ) ) {
+        v5.accumulated_lamports[ i++ ] = *deq_fd_vote_epoch_credits_t_iter_ele_const( state->epoch_credits, iter );
+      }
+
+      self->kind = fd_vote_state_versioned_enum_v5;
+      self->v5   = v5;
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    }
+    default:
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 }
 
@@ -730,6 +878,7 @@ fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v3:
       return fd_authorized_voters_is_empty( &self->v3.authorized_voters );
     case fd_vote_state_versioned_enum_v4:
+    case fd_vote_state_versioned_enum_v5:
       return 0; // v4 vote states are always initialized
     default:
       FD_LOG_CRIT(( "unsupported vote state versioned kind: %u", self->kind ));
@@ -742,6 +891,10 @@ fd_vsv_is_correct_size_and_initialized( uchar const * data,
   /* VoteStateV4::is_correct_size_and_initialized
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v4.rs#L207-L210 */
   if( FD_LIKELY( data_len==FD_VOTE_STATE_V4_SZ && FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v4 ) ) {
+    return 1;
+  }
+
+  if( FD_LIKELY( data_len==FD_VOTE_STATE_V5_SZ && FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v5 ) ) {
     return 1;
   }
 

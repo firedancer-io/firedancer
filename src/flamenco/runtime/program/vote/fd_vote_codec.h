@@ -2,6 +2,9 @@
 #define HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_codec_h
 
 #include "../../../fd_flamenco_base.h"
+#include "fd_validator_location.h"
+
+#include <stddef.h>
 
 /* Vote program type definitions and (de)serializers.
 
@@ -49,6 +52,8 @@
 #define FD_VOTE_STATE_V2_SZ (3731UL)
 #define FD_VOTE_STATE_V3_SZ (3762UL)
 #define FD_VOTE_STATE_V4_SZ (3762UL)
+#define FD_VOTE_STATE_V5_SZ (3762UL)
+#define FD_VOTE_STATE_V5_COMMISSION_MAX (4UL)
 
 /**********************************************************************/
 /* Constants -- vote instruction footprints                           */
@@ -332,6 +337,64 @@ struct fd_vote_state_v4 {
 };
 typedef struct fd_vote_state_v4 fd_vote_state_v4_t;
 
+struct __attribute__((packed)) fd_vote_state_v5_authorized_voter {
+  ulong       epoch;
+  fd_pubkey_t pubkey;
+};
+typedef struct fd_vote_state_v5_authorized_voter fd_vote_state_v5_authorized_voter_t;
+
+struct __attribute__((packed,aligned(4))) fd_vote_state_v5 {
+  fd_pubkey_t                         node_pubkey;
+  fd_pubkey_t                         authorized_withdrawer;
+  fd_pubkey_t                         inflation_rewards_collector;
+  fd_pubkey_t                         block_revenue_collector;
+  ushort                              inflation_rewards_commission_bps_len;
+  ushort                              block_revenue_commission_bps_len;
+  ulong                               pending_delegator_rewards;
+  fd_validator_location_t             location;
+  ulong                               inflation_rewards_commission_bps_epochs[ FD_VOTE_STATE_V5_COMMISSION_MAX ];
+  ushort                              inflation_rewards_commission_bps[ FD_VOTE_STATE_V5_COMMISSION_MAX ];
+  ulong                               block_revenue_commission_bps_epochs[ FD_VOTE_STATE_V5_COMMISSION_MAX ];
+  ushort                              block_revenue_commission_bps[ FD_VOTE_STATE_V5_COMMISSION_MAX ];
+  uchar                               bls_pubkey_compressed[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  ulong                               latest_vote;
+  ulong                               root_slot;
+  uint                                authorized_voters_len;
+  fd_vote_state_v5_authorized_voter_t authorized_voters[ MAX_AUTHORIZED_VOTERS ];
+  uint                                accumulated_lamports_len;
+  fd_vote_epoch_credits_t             accumulated_lamports[ MAX_EPOCH_CREDITS_HISTORY ];
+  fd_vote_block_timestamp_t           last_timestamp;
+};
+typedef struct fd_vote_state_v5 fd_vote_state_v5_t;
+
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, inflation_rewards_commission_bps_len    )==128UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, block_revenue_commission_bps_len        )==130UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, location                                )==140UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, inflation_rewards_commission_bps_epochs )==152UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, inflation_rewards_commission_bps        )==184UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, block_revenue_commission_bps_epochs     )==192UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, block_revenue_commission_bps            )==224UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, bls_pubkey_compressed                   )==232UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, latest_vote                             )==280UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, root_slot                               )==288UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, authorized_voters_len                   )==296UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, authorized_voters                       )==300UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, accumulated_lamports_len                )==460UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, accumulated_lamports                    )==464UL,  v5_layout );
+FD_STATIC_ASSERT( offsetof( fd_vote_state_v5_t, last_timestamp                          )==2000UL, v5_layout );
+FD_STATIC_ASSERT( sizeof(fd_vote_state_v5_t)==2016UL,                                              v5_layout );
+FD_STATIC_ASSERT( alignof(fd_vote_state_v5_t)==4UL,                                                v5_layout );
+
+#define FD_VOTE_STATE_V5_PAD_OFF (sizeof(uint)+sizeof(fd_vote_state_v5_t))
+#define FD_VOTE_STATE_V5_PAD_SZ  (FD_VOTE_STATE_V5_SZ-FD_VOTE_STATE_V5_PAD_OFF)
+
+struct fd_vote_state_v5_commission {
+  ulong  len;
+  ulong  epoch[ FD_VOTE_STATE_V5_COMMISSION_MAX ];
+  ushort bps  [ FD_VOTE_STATE_V5_COMMISSION_MAX ];
+};
+typedef struct fd_vote_state_v5_commission fd_vote_state_v5_commission_t;
+
 /**********************************************************************/
 /* Versioned vote state (discriminated union)                         */
 /**********************************************************************/
@@ -342,6 +405,7 @@ struct fd_vote_state_versioned {
     fd_vote_state_1_14_11_t v1_14_11;
     fd_vote_state_v3_t      v3;
     fd_vote_state_v4_t      v4;
+    fd_vote_state_v5_t      v5;
   };
 
   /* Memory for dynamic sub-structures */
@@ -357,6 +421,7 @@ enum {
   fd_vote_state_versioned_enum_v1_14_11      = 1,
   fd_vote_state_versioned_enum_v3            = 2,
   fd_vote_state_versioned_enum_v4            = 3,
+  fd_vote_state_versioned_enum_v5            = 4,
 };
 
 /**********************************************************************/
@@ -700,8 +765,8 @@ fd_vote_account_last_timestamp( uchar const *               data,
 /* Returns 1 if the vote account is v4 with has_bls_pubkey_compressed
    set, 0 otherwise. */
 int
-fd_vote_account_is_v4_with_bls_pubkey( uchar const * data,
-                                       ulong         data_sz );
+fd_vote_account_has_bls_pubkey( uchar const * data,
+                                ulong         data_sz );
 
 /* Seeks through variable-length fields and returns a zero-copy pointer
    to the epoch_credits entries inside the raw buffer.  *cnt is set to
@@ -710,6 +775,83 @@ fd_vote_epoch_credits_t const *
 fd_vote_account_epoch_credits( uchar const * data,
                                ulong         data_sz,
                                ulong *       cnt );
+
+int
+fd_vote_account_is_valid_v5( uchar const * data,
+                             ulong         data_sz );
+
+static inline fd_vote_state_v5_t *
+fd_vote_account_v5( uchar * data ) {
+  return (fd_vote_state_v5_t *)( data+sizeof(uint) );
+}
+
+static inline void
+fd_vote_state_v5_commission_get( fd_vote_state_v5_t const *      self,
+                                 uint                            kind,
+                                 fd_vote_state_v5_commission_t * out ) {
+  int block = kind==fd_commission_kind_enum_block_revenue;
+  out->len  = block ? self->block_revenue_commission_bps_len : self->inflation_rewards_commission_bps_len;
+  for( ulong i=0UL; i<FD_VOTE_STATE_V5_COMMISSION_MAX; i++ ) {
+    out->epoch[ i ] = block ? self->block_revenue_commission_bps_epochs[ i ] : self->inflation_rewards_commission_bps_epochs[ i ];
+    out->bps  [ i ] = block ? self->block_revenue_commission_bps       [ i ] : self->inflation_rewards_commission_bps       [ i ];
+  }
+}
+
+static inline void
+fd_vote_state_v5_commission_set( fd_vote_state_v5_t *                  self,
+                                 uint                                  kind,
+                                 fd_vote_state_v5_commission_t const * in ) {
+  if( kind==fd_commission_kind_enum_block_revenue ) {
+    self->block_revenue_commission_bps_len = (ushort)in->len;
+    for( ulong i=0UL; i<FD_VOTE_STATE_V5_COMMISSION_MAX; i++ ) {
+      self->block_revenue_commission_bps_epochs[ i ] = in->epoch[ i ];
+      self->block_revenue_commission_bps       [ i ] = in->bps  [ i ];
+    }
+  } else {
+    self->inflation_rewards_commission_bps_len = (ushort)in->len;
+    for( ulong i=0UL; i<FD_VOTE_STATE_V5_COMMISSION_MAX; i++ ) {
+      self->inflation_rewards_commission_bps_epochs[ i ] = in->epoch[ i ];
+      self->inflation_rewards_commission_bps       [ i ] = in->bps  [ i ];
+    }
+  }
+}
+
+FD_FN_PURE static inline int
+fd_vote_state_v5_commission_is_valid( fd_vote_state_v5_commission_t const * c ) {
+  if( FD_UNLIKELY( c->len<1UL || c->len>FD_VOTE_STATE_V5_COMMISSION_MAX ) ) return 0;
+  for( ulong i=1UL; i<c->len; i++ ) {
+    if( FD_UNLIKELY( c->epoch[ i ]<=c->epoch[ i-1UL ] ) ) return 0;
+  }
+  for( ulong i=c->len; i<FD_VOTE_STATE_V5_COMMISSION_MAX; i++ ) {
+    if( FD_UNLIKELY( c->epoch[ i ] || c->bps[ i ] ) ) return 0;
+  }
+  return 1;
+}
+
+FD_FN_PURE static inline ushort
+fd_vote_state_v5_commission_latest( fd_vote_state_v5_commission_t const * c ) {
+  return c->len ? c->bps[ c->len-1UL ] : (ushort)0;
+}
+
+static inline void
+fd_vote_state_v5_commission_schedule( fd_vote_state_v5_commission_t * c,
+                                      ulong                           epoch,
+                                      ushort                          bps ) {
+  if( c->len && c->epoch[ c->len-1UL ]==epoch ) {
+    c->bps[ c->len-1UL ] = bps;
+    return;
+  }
+  if( c->len==FD_VOTE_STATE_V5_COMMISSION_MAX ) {
+    for( ulong i=1UL; i<c->len; i++ ) {
+      c->epoch[ i-1UL ] = c->epoch[ i ];
+      c->bps  [ i-1UL ] = c->bps  [ i ];
+    }
+    c->len--;
+  }
+  c->epoch[ c->len ] = epoch;
+  c->bps  [ c->len ] = bps;
+  c->len++;
+}
 
 /* fd_vote_instruction_deserialize deserializes a vote instruction from
    bincode-encoded data into the provided instruction struct.  Dynamic

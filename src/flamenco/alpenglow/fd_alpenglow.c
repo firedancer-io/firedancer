@@ -301,6 +301,64 @@ credits_increment( fd_vote_epoch_credits_t * ec,
   while( deq_fd_vote_epoch_credits_t_cnt( ec )>MAX_EPOCH_CREDITS_HISTORY ) deq_fd_vote_epoch_credits_t_pop_head( ec );
 }
 
+static void
+credits_push_v5( fd_vote_state_v5_t *            v5,
+                 fd_vote_epoch_credits_t const * ec ) {
+  ulong cnt = v5->accumulated_lamports_len;
+  if( FD_UNLIKELY( cnt==MAX_EPOCH_CREDITS_HISTORY ) ) {
+    memmove( v5->accumulated_lamports, v5->accumulated_lamports+1UL, (cnt-1UL)*sizeof(fd_vote_epoch_credits_t) );
+    cnt--;
+  }
+  v5->accumulated_lamports[ cnt ] = *ec;
+  v5->accumulated_lamports_len    = (uint)( cnt+1UL );
+}
+
+static void
+credits_increment_v5( fd_vote_state_v5_t * v5,
+                      ulong                migration_epoch,
+                      ulong                epoch,
+                      ulong                credits ) {
+  if( epoch==migration_epoch ) {
+    int have_marker = 0;
+    for( ulong i=0UL; i<v5->accumulated_lamports_len; i++ ) have_marker |= fd_vote_epoch_credits_is_alpenglow_marker( &v5->accumulated_lamports[ i ] );
+    if( !have_marker ) credits_push_v5( v5, &(fd_vote_epoch_credits_t){ .epoch=ULONG_MAX, .credits=ULONG_MAX, .prev_credits=ULONG_MAX } );
+  }
+
+  ulong cnt = v5->accumulated_lamports_len;
+  if( FD_UNLIKELY( !cnt ) ) {
+    credits_push_v5( v5, &(fd_vote_epoch_credits_t){ .epoch=epoch, .credits=credits, .prev_credits=0UL } );
+    return;
+  }
+
+  fd_vote_epoch_credits_t * last = &v5->accumulated_lamports[ cnt-1UL ];
+
+  if( fd_vote_epoch_credits_is_alpenglow_marker( last ) ) {
+    ulong final_tower_credits = cnt>=2UL ? v5->accumulated_lamports[ cnt-2UL ].credits : 0UL;
+    credits_push_v5( v5, &(fd_vote_epoch_credits_t){
+      .epoch        = epoch,
+      .credits      = fd_ulong_sat_add( credits, final_tower_credits ),
+      .prev_credits = final_tower_credits } );
+    return;
+  }
+
+  if( last->epoch==epoch ) {
+    last->credits = fd_ulong_sat_add( last->credits, credits );
+    return;
+  }
+
+  if( last->credits==last->prev_credits ) {
+    last->epoch   = epoch;
+    last->credits = fd_ulong_sat_add( last->credits, credits );
+    return;
+  }
+
+  ulong final_credits = last->credits;
+  credits_push_v5( v5, &(fd_vote_epoch_credits_t){
+    .epoch        = epoch,
+    .credits      = fd_ulong_sat_add( credits, final_credits ),
+    .prev_credits = final_credits } );
+}
+
 /* vs_maybe_update_votes mirrors VoteState::maybe_update_votes: the
    votes deque is replaced by a single landed vote on the latest voted
    slot, and last_timestamp advances to the slot's timestamp if newer. */
@@ -341,8 +399,16 @@ vote_account_open( fd_bank_t *                 bank,
                    fd_accdb_t *                accdb,
                    fd_pubkey_t const *         pk,
                    fd_vote_state_versioned_t * vs,
+                   fd_vote_state_v5_t **       v5,
                    fd_acc_t *                  acc ) {
   *acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pk->uc );
+  *v5  = NULL;
+  if( acc->prior_lamports &&
+      fd_vsv_is_correct_size_owner_and_init( acc->prior_owner, acc->prior_data, acc->prior_data_len ) &&
+      fd_vote_account_is_valid_v5( acc->data, acc->data_len ) ) {
+    *v5 = fd_vote_account_v5( acc->data );
+    return 1;
+  }
   if( FD_UNLIKELY( !acc->prior_lamports ||
                    !fd_vsv_is_correct_size_owner_and_init( acc->prior_owner, acc->prior_data, acc->prior_data_len ) ||
                    !fd_vote_state_versioned_deserialize( vs, acc->prior_data, acc->prior_data_len ) ||
@@ -354,8 +420,31 @@ vote_account_open( fd_bank_t *                 bank,
 }
 
 static void
+vote_update_apply_v5( fd_vote_state_v5_t *  v5,
+                      vote_update_t const * upd ) {
+  if( upd->update_votes ) {
+    v5->latest_vote = v5->latest_vote==ULONG_MAX ? upd->vote_slot : fd_ulong_max( upd->vote_slot, v5->latest_vote );
+    if( v5->root_slot!=ULONG_MAX ) v5->latest_vote = fd_ulong_max( v5->latest_vote, v5->root_slot );
+
+    long timestamp = upd->vote_ts_ns/1000000000L;
+    if( timestamp>v5->last_timestamp.timestamp ) {
+      v5->last_timestamp = (fd_vote_block_timestamp_t){ .slot=upd->vote_slot, .timestamp=timestamp };
+    }
+  }
+  if( upd->update_root ) {
+    v5->root_slot = v5->root_slot==ULONG_MAX ? upd->root_slot : fd_ulong_max( v5->root_slot, upd->root_slot );
+  }
+  if( upd->credits ) credits_increment_v5( v5, upd->migration_epoch, upd->current_epoch, upd->credits );
+}
+
+static void
 vote_update_apply( fd_vote_state_versioned_t * vs,
+                   fd_vote_state_v5_t *        v5,
                    vote_update_t const *       upd ) {
+  if( v5 ) {
+    vote_update_apply_v5( v5, upd );
+    return;
+  }
   if( upd->update_votes ) vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
   if( upd->update_root ) {
     ulong const * root = fd_vsv_get_root_slot( vs );
@@ -371,14 +460,17 @@ vote_account_store( fd_bank_t *                       bank,
                     fd_capture_ctx_t *                capture_ctx,
                     fd_acc_t *                        acc,
                     fd_vote_state_versioned_t const * vs,
+                    fd_vote_state_v5_t const *        v5,
                     fd_footer_cache_memo_t *          memo,
                     fd_vote_queue_t *                 q ) {
-  fd_memset( acc->data, 0, acc->data_len );
-  if( FD_UNLIKELY( fd_vote_state_versioned_serialize( vs, acc->data, acc->data_len ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( acc->pubkey, pk_b58 );
-    FD_LOG_WARNING(( "slot %lu: vote account %s failed to serialize; skipping", bank->f.slot, pk_b58 ));
-    fd_accdb_unwrite_one( accdb, acc );
-    return;
+  if( !v5 ) {
+    fd_memset( acc->data, 0, acc->data_len );
+    if( FD_UNLIKELY( fd_vote_state_versioned_serialize( vs, acc->data, acc->data_len ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( acc->pubkey, pk_b58 );
+      FD_LOG_WARNING(( "slot %lu: vote account %s failed to serialize; skipping", bank->f.slot, pk_b58 ));
+      fd_accdb_unwrite_one( accdb, acc );
+      return;
+    }
   }
   acc->executable = 0;
 
@@ -398,10 +490,11 @@ vote_account_modify( fd_bank_t *              bank,
                      fd_footer_cache_memo_t * memo,
                      fd_vote_queue_t *        q ) {
   static FD_TL fd_vote_state_versioned_t vs[1];
-  fd_acc_t acc;
-  if( FD_UNLIKELY( !vote_account_open( bank, accdb, pk, vs, &acc ) ) ) return;
-  vote_update_apply( vs, upd );
-  vote_account_store( bank, accdb, capture_ctx, &acc, vs, memo, q );
+  fd_vote_state_v5_t * v5;
+  fd_acc_t             acc;
+  if( FD_UNLIKELY( !vote_account_open( bank, accdb, pk, vs, &v5, &acc ) ) ) return;
+  vote_update_apply( vs, v5, upd );
+  vote_account_store( bank, accdb, capture_ctx, &acc, vs, v5, memo, q );
 }
 
 void
@@ -589,11 +682,12 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       if( !in_rwd && !in_fin ) continue;
 
       static FD_TL fd_vote_state_versioned_t vs[1];
-      fd_acc_t acc;
+      fd_vote_state_v5_t * v5;
+      fd_acc_t             acc;
 
       /* Skip this node if the vote account cannot be deserialized
          https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L378-L380 */
-      if( FD_UNLIKELY( !vote_account_open( bank, accdb, &ele->pubkey, vs, &acc ) ) ) continue;
+      if( FD_UNLIKELY( !vote_account_open( bank, accdb, &ele->pubkey, vs, &v5, &acc ) ) ) continue;
 
       if( in_rwd ) {
         /* per-slot, stake-fractional reward; split half validator, half
@@ -608,7 +702,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
 
            https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L249 */
         leader_credits = fd_ulong_sat_add( leader_credits, reward-validator_reward );
-        vote_update_apply( vs, &(vote_update_t){
+        vote_update_apply( vs, v5, &(vote_update_t){
           .update_votes    = 1, .vote_slot = reward_slot, .vote_ts_ns = reward_ts_ns,
           .credits         = validator_reward,
           .migration_epoch = migration_epoch,
@@ -616,12 +710,12 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
         } );
       }
       if( in_fin ) {
-        vote_update_apply( vs, &(vote_update_t){
+        vote_update_apply( vs, v5, &(vote_update_t){
           .update_root  = 1, .root_slot = final_slot,
           .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = final_ts_ns,
         } );
       }
-      vote_account_store( bank, accdb, capture_ctx, &acc, vs, cache->memo+r, q );
+      vote_account_store( bank, accdb, capture_ctx, &acc, vs, v5, cache->memo+r, q );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       if( rwd ) FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu",    bank_slot, reward_slot ));

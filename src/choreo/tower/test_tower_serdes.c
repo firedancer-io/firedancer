@@ -421,6 +421,21 @@ test_tower_file_root( void ) {
   FD_LOG_NOTICE(( "pass: test_tower_file_root" ));
 }
 
+void
+test_voter_v5( void ) {
+  static fd_vote_state_versioned_t vsv[1];
+  FD_TEST( fd_vote_state_versioned_new( vsv, fd_vote_state_versioned_enum_v5 ) );
+  vsv->v5.root_slot = 777UL;
+  uchar v5[ FD_VOTE_STATE_V5_SZ ];
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, v5, sizeof(v5) ) );
+
+  fd_vote_acc_desc_t desc[1];
+  FD_TEST( !fd_vote_acc_desc( desc, v5, sizeof(v5) ) );
+
+  fd_vote_acc_vote_t tower[ FD_TOWER_VOTE_MAX ];
+  FD_TEST( fd_tower_with_lat_from_vote_acc( tower, v5, sizeof(v5) )==0UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -429,6 +444,7 @@ main( int     argc,
   test_voter_v2();
   test_voter_v3();
   test_voter_v4();
+  test_voter_v5();
   test_de_attacker();
   test_compact_to_votes();
   test_tower_file_root();
