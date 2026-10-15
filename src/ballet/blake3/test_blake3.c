@@ -944,6 +944,66 @@ test_fini_2048_xn( void ) {
   }
 }
 
+static void
+test_fini_2048_left_xn( void ) {
+  static uchar in [ FD_BLAKE3_LEFT_XN_MAX ][ 4096 ];
+  static uchar out[ FD_BLAKE3_LEFT_XN_MAX ][ 2048 ] __attribute__((aligned(64)));
+  static uchar ref[ 2048 ] __attribute__((aligned(64)));
+  static ulong const edge[ FD_BLAKE3_LEFT_XN_MAX ] = { 2049, 2050, 2112, 3071, 3072, 3073, 4095, 4096 }; /* first iter */
+  for( ulong iter=0UL; iter<2000UL; iter++ ) {
+    ulong         n = iter ? 1UL+fd_rng_ulong_roll( rng, FD_BLAKE3_LEFT_XN_MAX ) : FD_BLAKE3_LEFT_XN_MAX;
+    ulong         sz[ FD_BLAKE3_LEFT_XN_MAX ];
+    uchar         cv[ FD_BLAKE3_LEFT_XN_MAX ][ 32 ];
+    uchar const * lp[ FD_BLAKE3_LEFT_XN_MAX ];
+    uchar const * cp[ FD_BLAKE3_LEFT_XN_MAX ];
+    void *        op[ FD_BLAKE3_LEFT_XN_MAX ];
+    for( ulong i=0UL; i<n; i++ ) {
+      sz[ i ] = iter ? 2049UL+fd_rng_ulong_roll( rng, 2048UL ) : edge[ i ];
+      for( ulong b=0UL; b<sz[ i ]; b++ ) in[ i ][ b ] = fd_rng_uchar( rng );
+      fd_blake3_right_cv( in[ i ]+2048, sz[ i ]-2048UL, cv[ i ] );
+      lp[ i ] = in[ i ]; cp[ i ] = cv[ i ]; op[ i ] = out[ i ];
+    }
+    fd_blake3_fini_2048_left_xn( n, lp, cp, op );
+    for( ulong i=0UL; i<n; i++ ) {
+      fd_blake3_t sha[1];
+      fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha ), in[ i ], sz[ i ] ), ref );
+      FD_TEST( fd_memeq( ref, out[ i ], 2048UL ) );
+    }
+  }
+}
+
+static void
+bench_fini_2048_left_xn( void ) {
+  static fd_blake3_t sha[ 4 ];
+  static uchar       out[ FD_BLAKE3_LEFT_XN_MAX ][ 2048 ] __attribute__((aligned(64)));
+  uchar              cv [ FD_BLAKE3_LEFT_XN_MAX ][ 32 ];
+  uchar const *      lp [ FD_BLAKE3_LEFT_XN_MAX ];
+  uchar const *      cp [ FD_BLAKE3_LEFT_XN_MAX ];
+  void *             op [ FD_BLAKE3_LEFT_XN_MAX ];
+  ulong const        sz   = 3835UL; /* vote account lthash input */
+  ulong const        iter = 20000UL;
+  for( ulong i=0UL; i<FD_BLAKE3_LEFT_XN_MAX; i++ ) {
+    fd_blake3_right_cv( rand_buf+i*sz+2048UL, sz-2048UL, cv[ i ] );
+    lp[ i ] = rand_buf+i*sz; cp[ i ] = cv[ i ]; op[ i ] = out[ i ];
+  }
+
+  FD_LOG_NOTICE(( "Benchmarking XOF(2048) of %lu bytes from a cached right cv", sz ));
+  for( ulong n=1UL; n<=FD_BLAKE3_LEFT_XN_MAX; n*=2UL ) {
+    long dt = -fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048_left_xn( n, lp, cp, op );
+    dt += fd_log_wallclock();
+    FD_LOG_NOTICE(( "  left_xn n=%lu: %7.1f ns/hash", n, (double)dt/(double)(iter*n) ));
+  }
+  long dt = -fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) {
+    fd_blake3_t * s[ 4 ]; void * h[ 4 ];
+    for( ulong i=0UL; i<4UL; i++ ) { s[ i ] = fd_blake3_append( fd_blake3_init( sha+i ), rand_buf+i*sz, sz ); h[ i ] = out[ i ]; }
+    fd_blake3_fini_2048_xn( 4UL, s, h );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "  full xn n=4:   %7.1f ns/hash", (double)dt/(double)(iter*4UL) ));
+}
+
 struct test_fn {
   char const * name;
   void (* fn)( void );
@@ -1019,7 +1079,9 @@ static struct test_fn const tests[] = {
 #if FD_HAS_SVE2
   { "test sve2_compress4", test_sve2_compress4 },
 #endif
+  { "test fini_2048_left_xn",      test_fini_2048_left_xn },
   { "bench ref_compress1",          bench_ref_compress1 },
+  { "bench fini_2048_left_xn",     bench_fini_2048_left_xn },
 
   {0}
 };

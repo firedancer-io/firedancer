@@ -723,6 +723,44 @@ fd_blake3_fini_xof_compress( fd_blake3_t * sha,
   }
 }
 
+/* fd_blake3_xof_2048 expands root block root_msg (block_sz bytes,
+   zero padded to 64, input chaining value root_cv_pre) into the 2048
+   bytes of XOF output starting at counter ctr0. */
+
+static void
+fd_blake3_xof_2048( uchar const * root_msg,
+                    uchar const * root_cv_pre,
+                    ulong         ctr0,
+                    uint          last_block_sz,
+                    uint          last_block_flags,
+                    void *        hash ) {
+  for( ulong i=0UL; i<32UL; i+=FD_BLAKE3_PARA_MAX ) {
+#if FD_HAS_AVX512
+    fd_blake3_avx512_xof16( root_msg, root_cv_pre, ctr0+i, last_block_sz, last_block_flags, (uchar *)hash + i*64UL );
+#elif FD_HAS_AVX
+    ulong  batch_data [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_data [ j ] = (ulong)root_msg;
+    uint   batch_sz   [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_sz   [ j ] = last_block_sz;
+    ulong  batch_ctr  [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_ctr  [ j ] = ctr0+i+j;
+    uint   batch_flags[ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_flags[ j ] = last_block_flags;
+    void * batch_hash [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
+    void const * batch_cv[ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_cv[ j ] = root_cv_pre;
+    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
+#elif FD_HAS_SVE2
+    ulong  batch_data [ 4 ]; for( ulong j=0; j<4; j++ ) batch_data [ j ] = (ulong)root_msg;
+    uint   batch_sz   [ 4 ]; for( ulong j=0; j<4; j++ ) batch_sz   [ j ] = last_block_sz;
+    ulong  batch_ctr  [ 4 ]; for( ulong j=0; j<4; j++ ) batch_ctr  [ j ] = ctr0+i+j;
+    uint   batch_flags[ 4 ]; for( ulong j=0; j<4; j++ ) batch_flags[ j ] = last_block_flags;
+    void * batch_hash [ 4 ]; for( ulong j=0; j<4; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
+    void const * batch_cv[ 4 ]; for( ulong j=0; j<4; j++ ) batch_cv[ j ] = root_cv_pre;
+    fd_blake3_sve2_compress4( 4UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, 64U, batch_cv );
+#elif FD_HAS_SSE
+    fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
+#else
+    fd_blake3_ref_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
+#endif
+  }
+}
+
 static void
 fd_blake3_fini_xof_expand( fd_blake3_t * sha,
                            uchar *       root_msg,
@@ -751,32 +789,7 @@ fd_blake3_fini_xof_expand( fd_blake3_t * sha,
   FD_BLAKE3_TRACE(( "fd_blake3_fini_2048: sz=%lu ctr0=%lu flags=%x",
                     sha->pos.input_sz, ctr0, last_block_flags ));
 
-  /* Expand LtHash */
-  for( ulong i=0UL; i<32UL; i+=FD_BLAKE3_PARA_MAX ) {
-#if FD_HAS_AVX512
-    fd_blake3_avx512_xof16( root_msg, root_cv_pre, ctr0+i, last_block_sz, last_block_flags, (uchar *)hash + i*64UL );
-#elif FD_HAS_AVX
-    ulong  batch_data [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_data [ j ] = (ulong)root_msg;
-    uint   batch_sz   [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_sz   [ j ] = last_block_sz;
-    ulong  batch_ctr  [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_ctr  [ j ] = ctr0+i+j;
-    uint   batch_flags[ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_flags[ j ] = last_block_flags;
-    void * batch_hash [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
-    void * batch_cv   [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_cv   [ j ] = root_cv_pre;
-    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
-#elif FD_HAS_SVE2
-    ulong  batch_data [ 4 ]; for( ulong j=0; j<4; j++ ) batch_data [ j ] = (ulong)root_msg;
-    uint   batch_sz   [ 4 ]; for( ulong j=0; j<4; j++ ) batch_sz   [ j ] = last_block_sz;
-    ulong  batch_ctr  [ 4 ]; for( ulong j=0; j<4; j++ ) batch_ctr  [ j ] = ctr0+i+j;
-    uint   batch_flags[ 4 ]; for( ulong j=0; j<4; j++ ) batch_flags[ j ] = last_block_flags;
-    void * batch_hash [ 4 ]; for( ulong j=0; j<4; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
-    void * batch_cv   [ 4 ]; for( ulong j=0; j<4; j++ ) batch_cv   [ j ] = root_cv_pre;
-    fd_blake3_sve2_compress4( 4UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, 64U, batch_cv );
-#elif FD_HAS_SSE
-    fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
-#else
-    fd_blake3_ref_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
-#endif
-  }
+  fd_blake3_xof_2048( root_msg, root_cv_pre, ctr0, last_block_sz, last_block_flags, hash );
 }
 
 void *
@@ -828,6 +841,56 @@ fd_blake3_fini_2048_xn( ulong          n,
 #else
   for( ulong i=0UL; i<n; i++ ) fd_blake3_fini_2048( sha[ i ], hash[ i ] );
 #endif
+}
+
+/* ops_hash runs independent compressions (chunks or parents) */
+
+static void
+ops_hash( fd_blake3_op_t const * ops,
+          ulong                  op_cnt ) {
+#if FD_BLAKE3_PARA_MAX>1
+  for( ulong off=0UL; off<op_cnt; off+=FD_BLAKE3_PARA_MAX ) fd_blake3_batch_hash( ops+off, fd_ulong_min( op_cnt-off, FD_BLAKE3_PARA_MAX ) );
+#elif FD_HAS_SSE
+  for( ulong i=0UL; i<op_cnt; i++ ) fd_blake3_sse_compress1( ops[ i ].out, ops[ i ].msg, ops[ i ].sz, ops[ i ].counter, ops[ i ].flags, NULL, NULL );
+#else
+  for( ulong i=0UL; i<op_cnt; i++ ) fd_blake3_ref_compress1( ops[ i ].out, ops[ i ].msg, ops[ i ].sz, ops[ i ].counter, ops[ i ].flags, NULL, NULL );
+#endif
+}
+
+void
+fd_blake3_right_cv( uchar const * r,
+                    ulong         sz,
+                    uchar         cv[ static 32 ] ) {
+  uchar __attribute__((aligned(64))) leaf[ 64 ];
+  fd_blake3_op_t ops[ 2 ] = {
+    { .msg = r,      .out = leaf,    .counter = 2UL, .sz = (ushort)fd_ulong_min( sz, FD_BLAKE3_CHUNK_SZ ), .flags = 0 },
+    { .msg = r+1024, .out = leaf+32, .counter = 3UL, .sz = (ushort)( sz-fd_ulong_min( sz, FD_BLAKE3_CHUNK_SZ ) ), .flags = 0 } };
+  if( sz<=FD_BLAKE3_CHUNK_SZ ) { ops_hash( ops, 1UL ); memcpy( cv, leaf, 32UL ); return; }
+  ops_hash( ops, 2UL );
+  fd_blake3_op_t par = { .msg = leaf, .out = cv, .counter = 0UL, .sz = 64U, .flags = FD_BLAKE3_FLAG_PARENT };
+  ops_hash( &par, 1UL );
+}
+
+void
+fd_blake3_fini_2048_left_xn( ulong                 n,
+                             uchar const * const * left,
+                             uchar const * const * right_cv,
+                             void * const *        hash ) {
+  uchar __attribute__((aligned(64))) cv  [ FD_BLAKE3_LEFT_XN_MAX ][ 64 ];
+  uchar __attribute__((aligned(64))) root[ FD_BLAKE3_LEFT_XN_MAX ][ 64 ];
+  fd_blake3_op_t ops[ 2UL*FD_BLAKE3_LEFT_XN_MAX ];
+  for( ulong i=0UL; i<n; i++ ) {
+    ops[ 2UL*i    ] = (fd_blake3_op_t){ .msg = left[ i ],      .out = cv[ i ],    .counter = 0UL, .sz = 1024U, .flags = 0 };
+    ops[ 2UL*i+1UL ] = (fd_blake3_op_t){ .msg = left[ i ]+1024, .out = cv[ i ]+32, .counter = 1UL, .sz = 1024U, .flags = 0 };
+  }
+  ops_hash( ops, 2UL*n );
+  for( ulong i=0UL; i<n; i++ ) ops[ i ] = (fd_blake3_op_t){ .msg = cv[ i ], .out = root[ i ], .counter = 0UL, .sz = 64U, .flags = FD_BLAKE3_FLAG_PARENT };
+  ops_hash( ops, n );
+  uchar __attribute__((aligned(32))) iv[ 32 ]; memcpy( iv, FD_BLAKE3_IV, 32UL );
+  for( ulong i=0UL; i<n; i++ ) {
+    memcpy( root[ i ]+32, right_cv[ i ], 32UL );
+    fd_blake3_xof_2048( root[ i ], iv, 0UL, 64U, FD_BLAKE3_FLAG_ROOT|FD_BLAKE3_FLAG_PARENT, hash[ i ] );
+  }
 }
 
 void *
