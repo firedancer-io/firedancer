@@ -109,9 +109,9 @@
                 "token_mismatch":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ignored because the token did not match" }
             }
         },
-        "ping_peer_evicted":                             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers evicted from the ping tracker to make room for new ones" },
+        "ping_peer_evicted":                             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers evicted from the ping tracker to make room for new ones", "deprecated": true },
         "ping_peer_added":                               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers added to the ping tracker" },
-        "ping_peer_staked_removed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers removed from the ping tracker because they became staked" },
+        "ping_peer_staked_removed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers removed from the ping tracker because they became staked", "deprecated": true },
         "ping_peer_address_changed":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Tracked peers whose gossip address changed; pong invalidated and reset to unpinged" },
         "sign_queue_full_dropped":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Messages dropped because the maximum number of sign requests were in flight" },
         "crds_capacity":                                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Capacity of the data store" },
@@ -304,6 +304,19 @@
                 "waiting_for_stake": { "description": "Waiting for enough stake to come online" },
                 "publishing":        { "description": "Publishing our contact info to start" },
                 "done_or_disabled":  { "description": "Done, or wait-for-supermajority is disabled" }
+            }
+        },
+        "ping_peer_removed": {
+            "type": "Tuple",
+            "description": "Peers removed from the ping tracker, by reason",
+            "aliases": {
+                "all": ["evicted", "staked", "stale", "identity"]
+            },
+            "fields": {
+                "evicted":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Evicted to make room for a new peer" },
+                "staked":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Became staked, no longer pinged" },
+                "stale":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact info not received for 60 s" },
+                "identity": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Became our identity" }
             }
         }
     }

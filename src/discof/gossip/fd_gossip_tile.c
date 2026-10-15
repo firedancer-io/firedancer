@@ -213,12 +213,11 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( GOSSIP, PING_PEER_COUNT_VALID,         ping_tracker_metrics->valid_cnt      );
   FD_MGAUGE_SET( GOSSIP, PING_PEER_COUNT_REFRESHING,    ping_tracker_metrics->refreshing_cnt );
 
-  FD_MCNT_ENUM_COPY( GOSSIP, PONG_PROCESSED, ping_tracker_metrics->pong_result );
+  FD_MCNT_ENUM_COPY( GOSSIP, PONG_PROCESSED,    ping_tracker_metrics->pong_result );
+  FD_MCNT_ENUM_COPY( GOSSIP, PING_PEER_REMOVED, ping_tracker_metrics->removed     );
 
-  FD_MCNT_SET( GOSSIP, PING_PEER_EVICTED,            ping_tracker_metrics->peers_evicted       );
-  FD_MCNT_SET( GOSSIP, PING_PEER_ADDED,              ping_tracker_metrics->tracked_cnt         );
-  FD_MCNT_SET( GOSSIP, PING_PEER_STAKED_REMOVED,     ping_tracker_metrics->stake_changed_cnt   );
-  FD_MCNT_SET( GOSSIP, PING_PEER_ADDRESS_CHANGED,    ping_tracker_metrics->address_changed_cnt );
+  FD_MCNT_SET( GOSSIP, PING_PEER_ADDED,           ping_tracker_metrics->tracked_cnt         );
+  FD_MCNT_SET( GOSSIP, PING_PEER_ADDRESS_CHANGED, ping_tracker_metrics->address_changed_cnt );
 
   fd_gossip_purged_metrics_t const * purged_metrics = fd_gossip_purged_metrics2( ctx->gossip );
 

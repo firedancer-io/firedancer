@@ -4343,6 +4343,18 @@ message MetricsRserveRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Peers removed from the ping tracker, by reason
+message MetricsGossipPingPeerRemoved {
+  // Evicted to make room for a new peer
+  uint64 evicted = 1;
+  // Became staked, no longer pinged
+  uint64 staked = 2;
+  // Contact info not received for 60 s
+  uint64 stale = 3;
+  // Became our identity
+  uint64 identity = 4;
+}
+
 // Wire bytes of CRDS values sent in pull response messages, by value type
 message MetricsGossipCrdsPullResponseTxBytes {
   // Contact Info V1
@@ -9732,11 +9744,11 @@ message MetricsGossip {
   // Pongs processed, by result
   MetricsGossipPongProcessed pong_processed = 26;
   // Peers evicted from the ping tracker to make room for new ones
-  uint64 ping_peer_evicted = 27;
+  uint64 ping_peer_evicted = 27 [deprecated = true];
   // Peers added to the ping tracker
   uint64 ping_peer_added = 28;
   // Peers removed from the ping tracker because they became staked
-  uint64 ping_peer_staked_removed = 29;
+  uint64 ping_peer_staked_removed = 29 [deprecated = true];
   // Tracked peers whose gossip address changed; pong invalidated and reset to unpinged
   uint64 ping_peer_address_changed = 30;
   // Messages dropped because the maximum number of sign requests were in flight
@@ -9789,6 +9801,8 @@ message MetricsGossip {
   uint64 wait_for_supermajority_stake_tracked_lamports = 54;
   // Wait-for-supermajority progress: 0=unset (Not started), 1=loading_stakes (Loading stakes from the snapshot), 2=waiting_for_stake (Waiting for enough stake to come online), 3=publishing (Publishing our contact info to start), 4=done_or_disabled (Done, or wait-for-supermajority is disabled)
   MetricsGossipWaitForSupermajorityState wait_for_supermajority_state = 55;
+  // Peers removed from the ping tracker, by reason
+  MetricsGossipPingPeerRemoved ping_peer_removed = 56;
 }
 
 // Metrics of one gossvf tile instance, one row per sweep

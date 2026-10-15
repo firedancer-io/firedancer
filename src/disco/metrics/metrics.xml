@@ -1359,6 +1359,13 @@ deliberate exception with lint-allow="<rule id>")
     <int value="3" name="Refreshing" label="Peer was pinged and is currently valid, and is being refreshed with a new ping" />
 </enum>
 
+<enum name="PingPeerRemoveReason">
+    <int value="0" name="Evicted" label="Evicted to make room for a new peer" />
+    <int value="1" name="Staked" label="Became staked, no longer pinged" />
+    <int value="2" name="Stale" label="Contact info not received for 60 s" />
+    <int value="3" name="Identity" label="Became our identity" />
+</enum>
+
 <enum name="GossipCrdsResult">
     <int value="0" name="InsertedPullResponse" label="Pull Response (upserted)" />
     <int value="1" name="InsertedPush" label="Push (upserted)" />
@@ -1383,9 +1390,10 @@ deliberate exception with lint-allow="<rule id>")
 <tile name="gossip">
     <gauge name="PingPeerCount" enum="PingPeerState" summary="Peers tracked for ping/pong, by state" />
     <counter name="PongProcessed" enum="PongResult" summary="Pongs processed, by result" />
-    <counter name="PingPeerEvicted" summary="Peers evicted from the ping tracker to make room for new ones" />
+    <counter name="PingPeerEvicted" deprecated="true" summary="Peers evicted from the ping tracker to make room for new ones" />
     <counter name="PingPeerAdded" summary="Peers added to the ping tracker" />
-    <counter name="PingPeerStakedRemoved" summary="Peers removed from the ping tracker because they became staked" />
+    <counter name="PingPeerStakedRemoved" deprecated="true" summary="Peers removed from the ping tracker because they became staked" />
+    <counter name="PingPeerRemoved" enum="PingPeerRemoveReason" summary="Peers removed from the ping tracker, by reason" />
     <counter name="PingPeerAddressChanged" summary="Tracked peers whose gossip address changed; pong invalidated and reset to unpinged" />
 
     <counter name="SignQueueFullDropped" summary="Messages dropped because the maximum number of sign requests were in flight" />
