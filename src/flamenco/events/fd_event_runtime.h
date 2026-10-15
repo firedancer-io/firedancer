@@ -12,7 +12,63 @@
 #include "../stakes/fd_stakes.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 
+#define FD_EVENT_RUNTIME_BUNDLE_DIFF_MAX (64UL)
+
+struct fd_event_runtime_bundle_stake {
+  fd_pubkey_t      pubkey;
+  int              remove;
+  fd_stake_state_t state;
+};
+typedef struct fd_event_runtime_bundle_stake fd_event_runtime_bundle_stake_t;
+
+struct fd_event_runtime_bundle_carry {
+  fd_txn_out_t * owner;
+  ulong          owner_idx;
+  ulong          idx;
+  uchar          touched;
+};
+typedef struct fd_event_runtime_bundle_carry fd_event_runtime_bundle_carry_t;
+
+struct fd_event_runtime_bundle_txn {
+  fd_txn_out_t const *                 txn_out;
+  ulong                                diff_cnt;
+  fd_event_runtime_txn_account_diffs_t diff[ FD_EVENT_RUNTIME_BUNDLE_DIFF_MAX ];
+  ulong                                stake_cnt;
+  fd_event_runtime_bundle_stake_t      stake[ MAX_TX_ACCOUNT_LOCKS ];
+  ulong                                carry_cnt;
+  fd_event_runtime_bundle_carry_t      carry[ MAX_TX_ACCOUNT_LOCKS ];
+};
+typedef struct fd_event_runtime_bundle_txn fd_event_runtime_bundle_txn_t;
+
+struct fd_event_runtime_bundle_acct {
+  fd_acc_t const * acc;
+  int              has_delegation;
+  uchar            hash[ 32 ];
+};
+typedef struct fd_event_runtime_bundle_acct fd_event_runtime_bundle_acct_t;
+
+struct fd_event_runtime_bundle {
+  fd_event_runtime_bundle_txn_t  txn[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  ulong                          acct_cnt;
+  fd_event_runtime_bundle_acct_t acct[ FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS ];
+};
+typedef struct fd_event_runtime_bundle fd_event_runtime_bundle_t;
+
 FD_PROTOTYPES_BEGIN
+
+static inline int
+fd_event_runtime_bundle_captured( fd_txn_in_t const * txn_in ) {
+  return txn_in->bundle.is_bundle && !!txn_in->bundle.event_capture;
+}
+
+void
+fd_event_runtime_bundle_txn_prepare( fd_txn_in_t  const * txn_in,
+                                     fd_txn_out_t const * txn_out );
+
+void
+fd_event_runtime_bundle_txn_capture( fd_txn_in_t const * txn_in,
+                                     fd_txn_out_t *      txn_out,
+                                     fd_bank_t   const * bank );
 
 static inline int
 fd_event_txn_err_from_txn_err( int err ) {
@@ -140,22 +196,6 @@ fd_event_runtime_stake_delegation_emit( fd_txn_in_t      const * txn_in,
                                         fd_pubkey_t      const * pubkey,
                                         fd_stake_state_t const * stake_state );
 
-/* Build a runtime_stake_delegation event for a baseline stake
-   delegation cache entry loaded at boot (streamed from the snapshot
-   accounts by snapin, or loaded from genesis) and publish it on the
-   calling tile's event link.  slot/epoch are the snapshot slot and its
-   epoch (0/0 for genesis).  No-op when the tile has no event link. */
-
-void
-fd_event_runtime_stake_delegation_bootup_emit( ulong         slot,
-                                               ulong         epoch,
-                                               uchar const * stake_account,
-                                               uchar const * vote_account,
-                                               ulong         stake,
-                                               ulong         activation_epoch,
-                                               ulong         deactivation_epoch,
-                                               ulong         credits_observed );
-
 /* Record the StakeHistory sysvar entry for the new epoch. */
 
 void
@@ -279,7 +319,9 @@ fd_event_runtime_block_account( fd_bank_t *   bank,
                                 int           executable );
 
 /* Build a runtime_reward event and publish it on the calling tile's
-   event link. No-op when the tile has no event link. */
+   event link. No-op when the tile has no event link.  For stake
+   rewards, credits_observed / stake / vote_account are the post-payout
+   stake-delegations cache entry; vote rewards pass 0 / 0 / NULL. */
 
 void
 fd_event_runtime_reward_emit( fd_bank_t const * bank,
@@ -290,7 +332,8 @@ fd_event_runtime_reward_emit( fd_bank_t const * bank,
                               ulong             lamports,
                               ulong             partition_idx,
                               ulong             credits_observed,
-                              ulong             stake );
+                              ulong             stake,
+                              uchar const *     vote_account );
 
 /* Build the runtime_block event for a finalized bank from the bank
    state and its accumulated diffs and publish it on the calling
@@ -308,6 +351,25 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
                              fd_sol_sysvar_clock_t const * clock,
                              fd_hash_t const *             fec_mrs,
                              ulong                         fec_mr_cnt );
+
+/* Build a runtime_vote_write event for a vote account rewritten by
+   applying a block's Alpenglow footer certificates and publish it on
+   the calling tile's event link.  No-op when the tile has no event
+   link. */
+
+void
+fd_event_runtime_vote_write_emit( fd_bank_t const * bank,
+                                  uchar const *     vote_account,
+                                  uchar const *     owner,
+                                  ulong             lamports,
+                                  ulong             data_sz,
+                                  int               kind,
+                                  ulong             cert_slot,
+                                  ulong             credits_added,
+                                  ulong             credits_after,
+                                  ulong             vote_slot,
+                                  long              vote_timestamp,
+                                  ulong             root_slot );
 
 FD_PROTOTYPES_END
 

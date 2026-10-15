@@ -419,8 +419,7 @@ enum RuntimeStakeDelegationKind {
   RUNTIME_STAKE_DELEGATION_KIND_UNSPECIFIED = 0;
   RUNTIME_STAKE_DELEGATION_KIND_UPSERT = 1;  // Entry fully rewritten from the post-txn account state
   RUNTIME_STAKE_DELEGATION_KIND_REMOVE = 2;  // Entry removed, either by a transaction (has signature and index_in_slot) or by epoch-boundary inactive-stake pruning (non-transaction; index_in_slot is UInt64 max)
-  RUNTIME_STAKE_DELEGATION_KIND_BOOTUP = 3;  // Post-reconciliation baseline entry: emitted once at boot from the finalized root delegation cache (after snapshot verification/refresh, or genesis load), not from the raw snapshot account stream
-  RUNTIME_STAKE_DELEGATION_KIND_REWARD = 4;  // Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window
+  RUNTIME_STAKE_DELEGATION_KIND_REWARD = 3;  // Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window; pairs with the stake row in runtime_reward for the same slot and stake account
 }
 
 // What kind of vote is this.
@@ -997,6 +996,14 @@ enum MetricsMotorState {
   METRICS_MOTOR_STATE_BOOTING = 1;  // Booting
   METRICS_MOTOR_STATE_RUNNING = 2;  // Running
   METRICS_MOTOR_STATE_SHUTDOWN = 3;  // Shutdown
+}
+
+// Which footer certificate caused the write
+enum RuntimeVoteWriteKind {
+  RUNTIME_VOTE_WRITE_KIND_UNSPECIFIED = 0;
+  RUNTIME_VOTE_WRITE_KIND_REWARD_CERT = 1;  // Signer of the block's skip/notarization reward certificates: credits_added validator credits granted and the latest vote set to cert_slot
+  RUNTIME_VOTE_WRITE_KIND_FINAL_CERT = 2;  // Signer of the block's fast-finalization certificate, or of its finalization or notarization certificate: root and latest vote set to cert_slot
+  RUNTIME_VOTE_WRITE_KIND_LEADER_REWARD = 3;  // The block leader's vote account: credits_added is the leader half of all reward-cert rewards in this block
 }
 
 // Slot that was voted on
@@ -7363,7 +7370,7 @@ message RuntimeTxn {
   uint32 cost_loaded_accounts_data_size = 36;
   // Allocated accounts data size from the cost tracker
   uint64 cost_allocated_accounts_data_size = 37;
-  // Per-account diffs for writable accounts that were modified
+  // Per-account diffs for the accounts this transaction stores, matching Agave: every writable account a successful transaction touched, including ones it left unchanged (prior and current fields equal), or the fee payer and nonce account of a failed one. Accounts with zero lamports before and after are omitted: they do not affect state, and Agave's accounts-db does not store them
   repeated RuntimeTxnAccountDiffs account_diffs = 38;
   // Every account the transaction locked as writable
   repeated bytes writable_accounts = 39;
@@ -7845,7 +7852,7 @@ message RuntimeBlock {
   uint64 total_epoch_stake = 33;
   // Final per-account diff of every sysvar account written this block; repeated writes to the same sysvar (e.g. the stake history update then its rent-exemption top-up at an epoch boundary) are coalesced into one entry keeping the first pre-state and last post-state. Ordinary slots carry ~4 entries (Clock, SlotHashes, RecentBlockhashes, SlotHistory; LastRestartSlot only when it changes), boundary/PER slots 5-6. Overflow past the 16-account bound drops the entry with a validator log warning
   repeated RuntimeBlockSysvarDiffs sysvar_diffs = 34;
-  // Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites. Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning
+  // Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites (see runtime_vote_write). Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning
   repeated RuntimeBlockOtherDiffs other_diffs = 35;
   // Total number of FEC sets observed while assembling this block (not capped by fec_merkle_roots)
   uint64 fec_count = 36;
@@ -7853,7 +7860,7 @@ message RuntimeBlock {
   repeated bytes fec_merkle_roots = 37;
 }
 
-// One row per epoch-reward credit to an account
+// One row per epoch-reward credit to an account, plus a zero-lamport vote row for each commission account Agave stores at the epoch boundary without a reward (a successful stake redeem with zero commission). This is the account diff for reward credits, which are recorded here instead of in runtime_block. Stake rewards also rewrite the stake-delegations cache entry, recorded as the matching kind = reward row in runtime_stake_delegation.
 message RuntimeReward {
   // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
   uint64 bank_seq = 1;
@@ -7877,19 +7884,21 @@ message RuntimeReward {
   uint64 credits_observed = 10;
   // Post-payout delegated stake written to the stake-delegations cache (0 for vote rewards)
   uint64 stake = 11;
+  // Vote account the stake is delegated to, as written to the stake-delegations cache (zero for vote rewards)
+  bytes vote_account = 12;
 }
 
-// The complete history of the stake-delegations cache, one row per mutation: the baseline entries emitted once at boot (kind = bootup, one row per delegation in the finalized root cache after snapshot verification/refresh or genesis load, not the raw snapshot account stream), the entry rewrites applied by epoch-reward payouts (kind = reward), and the transaction-driven mutations emitted as the cache is updated at txn commit (kind = upsert / remove).
+// The mutation history of the stake-delegations cache since boot, one row per mutation: the entry rewrites applied by epoch-reward payouts (kind = reward) and the transaction-driven mutations emitted as the cache is updated at txn commit (kind = upsert / remove). No baseline is emitted at boot: the starting cache state is the loaded snapshot, which is shared by every validator, so a consumer reconstructing absolute state seeds from the snapshot and applies these rows.
 message RuntimeStakeDelegation {
   // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
   uint64 bank_seq = 1;
-  // Slot in which the mutating transaction was committed (the snapshot slot for bootup baseline entries; 0 for genesis-boot baselines)
+  // Slot in which the mutating transaction was committed
   uint64 slot = 2;
   // Epoch the slot belongs to
   uint64 epoch = 3;
-  // 0-indexed position of the mutating transaction within its block. UInt64 max for the non-transaction rows (bootup or reward kind)
+  // 0-indexed position of the mutating transaction within its block. UInt64 max for the non-transaction rows (reward kind, and epoch-boundary prune removes)
   uint64 index_in_slot = 4;
-  // First signature of the mutating transaction (64 bytes; zero for the non-transaction rows, bootup or reward kind)
+  // First signature of the mutating transaction (64 bytes; zero for the non-transaction rows)
   bytes signature = 5;
   // Type of the cache entry mutation
   RuntimeStakeDelegationKind kind = 6;
@@ -7967,7 +7976,7 @@ message RuntimeEpoch {
   repeated bytes feature_activations = 15;
   // Decoded EpochRewards sysvar as initialized at this boundary
   RuntimeEpochEpochRewardsSysvar epoch_rewards_sysvar = 16;
-  // Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0
+  // Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0 The per-account debits are not emitted as rows: every admitted vote account, i.e. every runtime_vote_account row of this boundary, is debited exactly this amount, so a consumer derives them from those two tables.
   uint64 vat_burn_per_vote_account = 17;
 }
 
@@ -11497,6 +11506,38 @@ message MetricsMotor {
   uint64 timer_irq = 24;
 }
 
+// One row per vote account rewritten by applying a block's Alpenglow footer certificates, the per-block vote-state mutations that replace vote transactions under Alpenglow: reward-cert signers are granted credits and have their latest vote set, finalization-cert signers have their root and latest vote set, and the block leader is granted the leader half of the reward credits. These writes do not change lamports and are excluded from runtime_block.other_diffs by volume. Only emitted when the alpenglow feature is active.
+message RuntimeVoteWrite {
+  // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // Block whose footer was applied
+  uint64 slot = 2;
+  // Epoch the slot belongs to
+  uint64 epoch = 3;
+  // Vote account rewritten
+  bytes vote_account = 4;
+  // Which footer certificate caused the write
+  RuntimeVoteWriteKind kind = 5;
+  // Slot the certificate is for: the rewarded slot for reward_cert and leader_reward, the finalized slot for final_cert
+  uint64 cert_slot = 6;
+  // Vote credits added to the account's current-epoch entry by this write (0 for final_cert)
+  uint64 credits_added = 7;
+  // The account's current-epoch credits after this write (0 if the epoch has no entry); the value the next epoch boundary pays rewards on
+  uint64 credits_after = 8;
+  // Slot recorded as the account's latest landed vote (0 if the write did not touch votes)
+  uint64 vote_slot = 9;
+  // Unix timestamp recorded with the vote, seconds (0 if the write did not touch votes)
+  sint64 vote_timestamp = 10;
+  // Root slot set by the write (0 if the write did not touch the root)
+  uint64 root_slot = 11;
+  // Owner program of the vote account
+  bytes owner = 12;
+  // Lamports of the account, unchanged by the write; carried so the row describes the stored account
+  uint64 lamports = 13;
+  // Data size of the account, unchanged by the write
+  uint64 data_sz = 14;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -11562,5 +11603,6 @@ message Event {
     MetricsSnapsv metrics_snapsv = 60;
     MetricsLink metrics_link = 61;
     MetricsMotor metrics_motor = 62;
+    RuntimeVoteWrite runtime_vote_write = 63;
   }
 }

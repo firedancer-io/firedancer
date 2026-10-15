@@ -222,6 +222,8 @@ struct fd_runtime {
 };
 typedef struct fd_runtime fd_runtime_t;
 
+struct fd_event_runtime_bundle;
+
 struct fd_txn_in {
   fd_txn_p_t const * txn;
 
@@ -235,6 +237,7 @@ struct fd_txn_in {
     int            is_bundle;
     fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
     ulong          prev_txn_cnt;
+    struct fd_event_runtime_bundle * event_capture;
   } bundle;
 };
 typedef struct fd_txn_in fd_txn_in_t;

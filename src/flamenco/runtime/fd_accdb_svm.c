@@ -85,7 +85,14 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
                      fd_pubkey_t const * pubkey,
                      ulong               lamports_add,
                      int                 is_vote_reward ) {
-  if( FD_UNLIKELY( !lamports_add ) ) return;
+  if( FD_UNLIKELY( !lamports_add ) ) {
+    if( FD_UNLIKELY( is_vote_reward && fd_bank_report_runtime_diffs( bank ) ) ) {
+      fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey->uc );
+      if( ro.lamports ) fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_VOTE, ro.pubkey, ro.owner, ro.lamports, ro.lamports, 0UL, 0UL, 0UL, NULL );
+      fd_accdb_unread_one( accdb, &ro );
+    }
+    return;
+  }
 
   fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
 
@@ -97,7 +104,7 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
                                      acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len,
                          bank, capture_ctx );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
-    if( FD_UNLIKELY( is_vote_reward ) ) fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_VOTE, acc.pubkey, acc.owner, lamports_pre, acc.lamports, 0UL, 0UL, 0UL );
+    if( FD_UNLIKELY( is_vote_reward ) ) fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_VOTE, acc.pubkey, acc.owner, lamports_pre, acc.lamports, 0UL, 0UL, 0UL, NULL );
     else                                fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, lamports_pre, acc.lamports, acc.data_len, acc.data_len, acc.executable );
   }
   acc.commit = 1;
