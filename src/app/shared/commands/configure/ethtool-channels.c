@@ -10,15 +10,6 @@
 
 static int fini_device( char const * device );
 
-static int
-enabled( fd_config_t const * config ) {
-
-  /* only enable if network stack is XDP */
-  if( 0!=strcmp( config->net.provider, "xdp" ) ) return 0;
-
-  return 1;
-}
-
 static void
 init_perm( fd_cap_chk_t *      chk,
            fd_config_t const * config FD_PARAM_UNUSED ) {
@@ -189,6 +180,11 @@ init_device( char const *        device,
 
 static void
 init( fd_config_t const * config ) {
+  /* Only xdp configures channels.  For other providers check reports
+     leftover xdp state as partially configured, so configure undoes it
+     with fini before init. */
+  if( FD_UNLIKELY( 0!=strcmp( config->net.provider, "xdp" ) ) ) return;
+
   int only_dedicated =
     (0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ));
   int try_dedicated = only_dedicated ||
@@ -337,7 +333,26 @@ check_device_is_configured( char const *        device,
 
 static configure_result_t
 check( fd_config_t const * config,
-       int                 check_type FD_PARAM_UNUSED ) {
+       int                 check_type ) {
+  if( FD_UNLIKELY( 0!=strcmp( config->net.provider, "xdp" ) ) ) {
+    int is_modified = 0;
+    if( fd_bonding_is_master( config->net.interface ) ) {
+      fd_bonding_slave_iter_t iter_[1];
+      fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
+      for( ; !is_modified && !fd_bonding_slave_iter_done( iter );
+          fd_bonding_slave_iter_next( iter ) ) {
+        is_modified = check_device_is_modified( fd_bonding_slave_iter_ele( iter ) );
+      }
+    } else {
+      is_modified = check_device_is_modified( config->net.interface );
+    }
+    if( FD_UNLIKELY( is_modified ) )
+      PARTIALLY_CONFIGURED( "device `%s` has ethtool-channels configuration left by the xdp provider", config->net.interface );
+    if( check_type==FD_CONFIGURE_CHECK_TYPE_FINI_PERM || check_type==FD_CONFIGURE_CHECK_TYPE_PRE_FINI || check_type==FD_CONFIGURE_CHECK_TYPE_POST_FINI )
+      NOT_CONFIGURED( "device `%s` has default ethtool-channels configuration", config->net.interface ); /* nothing to undo */
+    CONFIGURE_OK();
+  }
+
   int only_dedicated =
     (0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ));
   int check_dedicated = only_dedicated ||
@@ -483,7 +498,6 @@ fini( fd_config_t const * config,
 configure_stage_t fd_cfg_stage_ethtool_channels = {
   .name            = NAME,
   .always_recreate = 0,
-  .enabled         = enabled,
   .init_perm       = init_perm,
   .fini_perm       = fini_perm,
   .init            = init,
