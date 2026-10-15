@@ -306,6 +306,7 @@ struct fd_votor_tile {
   ulong                      next_leader_slot;
   ulong                      highest_parent_ready_slot;
   ulong                      highest_certed_final_slot; /* highest slot whose final cert was published paired with its notar cert */
+  ulong                      cert_too_new_slot[ 5 ];    /* by AG_CERT_KIND_*, highest slot reported SLOT_TOO_NEW */
 
   /* Alpenglow data structures */
 
@@ -998,7 +999,16 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, verify_start_time, 0L );
       break;
-    case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; break;
+    case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS:
+      ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++;
+      /* Every peer rebroadcasts every cert, so report a too new slot
+         once per kind as it rises: the far behind signal.  Too old
+         certs are routine late arrivals. */
+      if( FD_UNLIKELY( cert_slot>ag_pool_finalized_slot( ctx->pool ) && cert_slot>ctx->cert_too_new_slot[ cert->kind ] ) ) {
+        ctx->cert_too_new_slot[ cert->kind ] = cert_slot;
+        report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_NEW, 0L, 0L );
+      }
+      break;
     case AG_POOL_ERR_DUPLICATE:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX ]++;
       if( FD_LIKELY( ctx->scratch.cert.kind==AG_CERT_KIND_NOTAR ) ) report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE, 0L, 0L );
@@ -2372,6 +2382,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_certed_final_slot = 0UL;
+  memset( ctx->cert_too_new_slot, 0, sizeof(ctx->cert_too_new_slot) );
   ctx->standstill_slot           = ULONG_MAX;
   ctx->standstill_ts             = LONG_MAX;
   ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );
