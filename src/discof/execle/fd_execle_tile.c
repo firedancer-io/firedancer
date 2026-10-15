@@ -50,6 +50,7 @@ struct fd_execle_tile {
   fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
 
   ulong * busy_fseq;
+  ulong   pack_tile_id;
 
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
@@ -472,6 +473,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
+  if( FD_UNLIKELY( stem->sleep && ctx->pack_tile_id!=ULONG_MAX ) ) {
+    __atomic_thread_fence( __ATOMIC_SEQ_CST );
+    if( FD_UNLIKELY( FD_VOLATILE_CONST( stem->sleep->parked_bits[ ctx->pack_tile_id>>6 ] ) & (1UL<<(ctx->pack_tile_id&63UL)) ) ) fd_sleep_ring( stem->sleep, ctx->pack_tile_id );
+  }
 
   /* Now produce the merkle hash of the transactions for inclusion
      (mixin) to the PoH hash.  This is done on the execle tile because
@@ -664,6 +669,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
+  if( FD_UNLIKELY( stem->sleep && ctx->pack_tile_id!=ULONG_MAX ) ) {
+    __atomic_thread_fence( __ATOMIC_SEQ_CST );
+    if( FD_UNLIKELY( FD_VOLATILE_CONST( stem->sleep->parked_bits[ ctx->pack_tile_id>>6 ] ) & (1UL<<(ctx->pack_tile_id&63UL)) ) ) fd_sleep_ring( stem->sleep, ctx->pack_tile_id );
+  }
 
   /* We need to publish each transaction separately into its own
      microblock, so make a temporary copy on the stack so we can move
@@ -841,6 +850,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( busy_obj_id!=ULONG_MAX );
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
   if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "execle tile %lu has no busy flag", tile->kind_id ));
+  ctx->pack_tile_id = fd_topo_find_tile( topo, "pack", 0UL );
 
   memset( &ctx->metrics,          0, sizeof( ctx->metrics )          );
   memset( &ctx->runtime->metrics, 0, sizeof( ctx->runtime->metrics ) );
