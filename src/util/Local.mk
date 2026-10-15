@@ -26,7 +26,7 @@ endif
 
 include src/app/firedancer/version.mk
 define FD_VERSION_GENERATED_H
-#define FIREDANCER_COMMIT_REF_CSTR "$(shell git rev-parse HEAD)"
+#define FIREDANCER_COMMIT_REF_CSTR "$(shell git rev-parse --verify -q HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)"
 #define FD_VERSION_MAJOR $(FD_VERSION_MAJOR)
 #define FD_VERSION_MINOR $(FD_VERSION_MINOR)
 #define FD_VERSION_PATCH $(FD_VERSION_PATCH)
