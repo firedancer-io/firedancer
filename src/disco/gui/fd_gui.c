@@ -159,7 +159,8 @@ fd_gui_new( void *                   shmem,
     fd_gui_ema_init( &gui->summary.egress_ema [ i ], now, FD_GUI_NETWORK_EMA_HALF_LIFE_NS );
   }
 
-  gui->leader_active = 0;
+  gui->leader_begin_slot       = 0UL;
+  gui->leader_end_slot         = 0UL;
   gui->leader_slot_pending     = ULONG_MAX;
   gui->leader_bank_seq_pending = ULONG_MAX;
 
@@ -1864,7 +1865,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_gui_printf_estimated_tps( gui );
     fd_http_server_ws_broadcast( gui->http );
 
-    if( FD_LIKELY( !gui->leader_active ) ) {
+    if( FD_LIKELY( gui->leader_begin_slot<=gui->leader_end_slot ) ) {
       for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
         fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, &gui->summary.tile_timers_packed[ i ] );
       }
@@ -1879,7 +1880,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_gui_printf_live_txn_waterfall( gui, gui->summary.txn_waterfall_reference, gui->summary.txn_waterfall_current, 0UL /* TODO: REAL NEXT LEADER SLOT */ );
     fd_http_server_ws_broadcast( gui->http );
 
-    if( FD_LIKELY( gui->leader_active ) ) {
+    if( FD_LIKELY( gui->leader_begin_slot>gui->leader_end_slot ) ) {
       gui->summary.txn_waterfall_current->sample_time_nanos = now;
       fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_WATERFALL, gui->summary.txn_waterfall_current );
     }
@@ -1967,7 +1968,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_gui_printf_live_tile_metrics( gui );
     fd_http_server_ws_broadcast( gui->http );
 
-    if( FD_LIKELY( gui->leader_active ) ) {
+    if( FD_LIKELY( gui->leader_begin_slot>gui->leader_end_slot ) ) {
       for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
         fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, &gui->summary.tile_timers_packed[ i ] );
       }
@@ -1978,7 +1979,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
   }
 
   if( FD_LIKELY( now>gui->next_sample_10millis ) ) {
-    if( FD_UNLIKELY( gui->leader_active ) ) fd_gui_scheduler_counts_snap( gui, now );
+    if( FD_UNLIKELY( gui->leader_begin_slot>gui->leader_end_slot ) ) fd_gui_scheduler_counts_snap( gui, now );
 
     fd_gui_printf_server_time_nanos( gui, now );
     fd_http_server_ws_broadcast( gui->http );
@@ -3741,9 +3742,7 @@ fd_gui_became_leader( fd_gui_t * gui,
                       ulong      max_compute_units,
                       ulong      max_microblocks,
                       ulong      bank_seq ) {
-  if( FD_UNLIKELY( fd_gui_slot_is_mine( gui, _slot ) && !fd_gui_slot_is_mine( gui, _slot-1UL ) ) ) {
-    gui->leader_active = 1;
-  }
+  gui->leader_begin_slot = fd_ulong_max( gui->leader_begin_slot, _slot );
 
   fd_gui_leader_slot_t * lslot = fd_gui_slot_leader_get_or_create( gui, _slot, bank_seq );
   if( FD_UNLIKELY( !lslot ) ) return;
@@ -3759,9 +3758,7 @@ void
 fd_gui_unbecame_leader( fd_gui_t *                gui,
                         ulong                     _slot,
                         fd_done_packing_t const * done_packing ) {
-  if( FD_UNLIKELY( fd_gui_slot_is_mine( gui, _slot ) && !fd_gui_slot_is_mine( gui, _slot+1UL ) ) ) {
-    gui->leader_active = 0;
-  }
+  gui->leader_end_slot = fd_ulong_max( gui->leader_end_slot, _slot ); /* may arrive before its became_leader */
 
   fd_gui_leader_slot_t * lslot = fd_gui_slot_leader_get_any( gui, _slot );
   if( FD_UNLIKELY( !lslot ) ) return;

@@ -1211,6 +1211,37 @@ check_response( fd_gui_t *   gui,
   fd_http_server_stage_trunc( gui->http, 0UL );
 }
 
+/* Leadership follows what pack produced, not the schedule: active while
+   the highest became_leader slot is above the highest unbecame_leader
+   slot, in either arrival order. */
+
+static void
+test_leader_active_slot( fd_gui_t * gui ) {
+  long now = 1000L*1000L*1000L;
+  fd_done_packing_t done_packing = {0};
+  gui->leader_begin_slot       = 0UL;
+  gui->leader_end_slot         = 0UL;
+  gui->leader_slot_pending     = ULONG_MAX;
+  gui->leader_bank_seq_pending = ULONG_MAX;
+  fd_gui_became_leader( gui, 600UL, now, now+sec_ns( 1UL ), 60000000UL, 8UL, 9UL );
+  FD_TEST( gui->leader_begin_slot>gui->leader_end_slot );
+  fd_gui_unbecame_leader( gui, 600UL, &done_packing );
+  FD_TEST( gui->leader_begin_slot<=gui->leader_end_slot );
+
+  /* The next slot begins before the previous one's completion lands. */
+  fd_gui_became_leader( gui, 601UL, now, now+sec_ns( 1UL ), 60000000UL, 8UL, 10UL );
+  fd_gui_became_leader( gui, 602UL, now, now+sec_ns( 1UL ), 60000000UL, 8UL, 11UL );
+  fd_gui_unbecame_leader( gui, 601UL, &done_packing );
+  FD_TEST( gui->leader_begin_slot>gui->leader_end_slot );
+  fd_gui_unbecame_leader( gui, 602UL, &done_packing );
+  FD_TEST( gui->leader_begin_slot<=gui->leader_end_slot );
+
+  /* A completion processed before its start leaves the GUI idle. */
+  fd_gui_unbecame_leader( gui, 603UL, &done_packing );
+  fd_gui_became_leader( gui, 603UL, now, now+sec_ns( 1UL ), 60000000UL, 8UL, 12UL );
+  FD_TEST( gui->leader_begin_slot<=gui->leader_end_slot );
+}
+
 static void
 test_timeline_revenue( fd_gui_t * gui ) {
   fd_http_server_params_t params = {
@@ -1435,6 +1466,11 @@ main( int     argc,
   store_open( rv, 1UL<<30, 28 );
   test_timeline_revenue( rv->gui );
   store_close( rv );
+
+  test_store_t la[ 1 ];
+  store_open( la, 1UL<<30, 30 );
+  test_leader_active_slot( la->gui );
+  store_close( la );
 
   test_store_t s7[ 1 ];
   store_open( s7, 1UL<<30, 10 );

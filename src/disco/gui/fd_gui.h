@@ -1143,7 +1143,8 @@ struct fd_gui {
   long next_sample_25millis;
   long next_sample_10millis;
 
-  int leader_active;
+  ulong leader_begin_slot;
+  ulong leader_end_slot;
   ulong leader_slot_pending;
   ulong leader_bank_seq_pending;
 
