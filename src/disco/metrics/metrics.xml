@@ -68,7 +68,9 @@ deliberate exception with lint-allow="<rule id>")
     such as CacheClassReserved, Height) gets ambiguous-kind="true",
     which puts "counter" or "gauge" in its ClickHouse column comment.
  4. The Unit is the last word: Nanos (a duration), Bytes, Lamports, Pct
-    (integer 0-100 of a denominator named in the summary), Slot, Epoch.
+    (integer 0-100 of a denominator named in the summary), Slot, Epoch,
+    Millicelsius or Microwatts (hardware sensors, as hwmon reports), or
+    Centi (a fixed-point value times 100, such as the load average).
     Plain counts have no unit.  A slot difference is
     <Subject>SlotDistance.  Never Seconds, Ms or Us.  A tile that
     stores fd_tickcount() deltas adds source="ticks" and the value is
@@ -1697,6 +1699,21 @@ deliberate exception with lint-allow="<rule id>")
     <int value="4" name="Connected" label="Block builder connected and healthy" />
 </enum>
 
+<enum name="LoadAverageType">
+    <int value="0" name="Minute1" label="1 minute" />
+    <int value="1" name="Minute5" label="5 minutes" />
+    <int value="2" name="Minute15" label="15 minutes" />
+</enum>
+
+<enum name="SystemCpuState">
+    <int value="0" name="User" label="User (including nice)" />
+    <int value="1" name="System" label="System" />
+    <int value="2" name="Idle" label="Idle" />
+    <int value="3" name="IoWait" label="Idle waiting on IO" />
+    <int value="4" name="Interrupt" label="Hardirq and softirq handlers" />
+    <int value="5" name="Steal" label="Stolen by the hypervisor" />
+</enum>
+
 <tile name="diag">
     <gauge name="BundleState" states="DiagBundleState" summary="Bundle subsystem state" />
     <gauge name="VoteState" states="DiagVoteState" summary="Vote subsystem state" />
@@ -1708,6 +1725,29 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DeviceIrqOnTileCpu" ambiguous-kind="true" summary="Device IRQs on CPUs dedicated to pinned tiles; subset of SystemDeviceIrq" />
     <counter name="SystemSoftirq" enum="SoftirqType" ambiguous-kind="true" summary="Soft-IRQs across all CPUs, by softirq type" />
     <counter name="SoftirqOnTileCpu" enum="SoftirqType" ambiguous-kind="true" summary="Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq" />
+
+    <gauge name="CpuPackageMillicelsius" summary="Hottest CPU package temperature (k10temp Tctl or coretemp Package), 0 if no sensor" />
+    <gauge name="NicMillicelsius" summary="Hottest NIC ASIC temperature (mlx5 or ice), 0 if no sensor" />
+    <gauge name="NvmeMillicelsius" summary="Hottest NVMe composite temperature, 0 if no sensor or the kernel lacks CONFIG_NVME_HWMON" />
+    <gauge name="CpuPowerMicrowatts" summary="CPU package power from the powercap (RAPL) energy counters, averaged over 5 s, 0 if unavailable" />
+    <gauge name="SystemPowerMicrowatts" summary="Whole-system power draw from the ACPI power meter, averaged over its interval, 0 if no meter" />
+    <counter name="MemoryEccCorrected" ambiguous-kind="true" summary="Corrected memory ECC errors across all memory controllers since boot (EDAC), 0 if firmware handles errors instead" />
+    <counter name="MemoryEccUncorrected" ambiguous-kind="true" summary="Uncorrected memory ECC errors across all memory controllers since boot (EDAC), 0 if firmware handles errors instead" />
+
+    <gauge name="SystemLoadCenti" enum="LoadAverageType" summary="Load average over each window, times 100 (/proc/loadavg has two decimals)" />
+    <gauge name="ThreadRunnableCount" summary="Runnable threads on the host (/proc/loadavg)" />
+    <counter name="SystemCpuDurationNanos" enum="SystemCpuState" summary="CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution" />
+    <gauge name="MemoryAvailableBytes" summary="Host memory available without swapping (/proc/meminfo available)" />
+    <gauge name="MemoryFreeBytes" summary="Host memory not in use at all (/proc/meminfo free)" />
+    <counter name="SwapInBytes" ambiguous-kind="true" summary="Bytes swapped in from disk since boot (pswpin)" lint-allow="action" />
+    <counter name="SwapOutBytes" ambiguous-kind="true" summary="Bytes swapped out to disk since boot (pswpout)" lint-allow="action" />
+    <counter name="SystemPageFaultMajor" ambiguous-kind="true" summary="Major page faults across the host since boot (pgmajfault)" />
+    <counter name="OomKilled" summary="Processes killed by the kernel OOM killer since boot (oom_kill)" />
+    <counter name="CpuPressureDurationNanos" summary="Time at least one task stalled waiting for CPU since boot (PSI some), 0 if the kernel lacks PSI" />
+    <counter name="MemoryPressureDurationNanos" summary="Time at least one task stalled on memory reclaim or swap since boot (PSI some), 0 if the kernel lacks PSI" />
+    <counter name="MemoryPressureFullDurationNanos" summary="Time all non-idle tasks stalled on memory together since boot (PSI full), a subset of MemoryPressureDurationNanos" />
+    <counter name="IoPressureDurationNanos" summary="Time at least one task stalled on IO since boot (PSI some), 0 if the kernel lacks PSI" />
+    <counter name="IoPressureFullDurationNanos" summary="Time all non-idle tasks stalled on IO together since boot (PSI full), a subset of IoPressureDurationNanos" />
 </tile>
 
 <tile name="genesi">

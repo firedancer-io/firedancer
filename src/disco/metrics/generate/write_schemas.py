@@ -45,7 +45,7 @@ def _description(metric: Metric, el: ET.Element) -> str:
 
 def _histogram_buckets(metric: HistogramMetric) -> dict:
     from .write_codegen import _histogram_edges
-    unit = { 'Nanos': 'nanos', 'Bytes': 'bytes', 'Lamports': 'lamports', 'Pct': 'pct' }.get(re.findall(r'[A-Z][a-z0-9]*', metric.name)[-1], '')
+    unit = { 'Nanos': 'nanos', 'Bytes': 'bytes', 'Lamports': 'lamports', 'Pct': 'pct', 'Millicelsius': 'millicelsius', 'Microwatts': 'microwatts', 'Centi': 'centi' }.get(re.findall(r'[A-Z][a-z0-9]*', metric.name)[-1], '')
     bounds = [0] + _histogram_edges(metric)   # left edge of each of the 16 buckets
     fields = {}
     for i in range(16):
