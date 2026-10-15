@@ -4,18 +4,19 @@
 # lo_tx_fd: Send-only raw IPv4 socket bound to lo, owned by iavf:0.
 uint logfile_fd, uint lo_tx_fd
 
-# logging: write log messages to the logfile and/or STDERR pipe
+# logging: all log messages are written to a file and/or pipe
 #
-# The configured severity thresholds determine which messages are
-# written to STDERR and when the logfile is flushed.
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
 #
-# arg 0 is STDERR (descriptor 2) or the configured logfile descriptor.
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
-# logging: flush messages at or above the configured flush threshold
+# logging: 'WARNING' and above fsync the logfile to disk immediately
 #
-# arg 0 is the logfile descriptor to fsync.
+# arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
 # iavf: send loopback packets through the raw IPv4 socket
@@ -25,17 +26,3 @@ fsync: (eq (arg 0) logfile_fd)
 sendmmsg: (and (eq (arg 0) lo_tx_fd)
                (<= (arg 2) 64)
                (eq (arg 3) MSG_DONTWAIT))
-
-# power saving: park until another tile wakes us or the next deadline
-#
-# arg 0 is the tile's sleep word. arg 1 selects FUTEX_WAIT_BITSET and
-# arg 2 is the expected value, zero while parked. arg 4 is unused and
-# arg 5 is FUTEX_BITSET_MATCH_ANY so any wakeup bit can wake the tile.
-futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
-            (eq (arg 2) 0)
-            (eq (arg 4) 0)
-            (eq (arg 5) FUTEX_BITSET_MATCH_ANY))
-
-# logging: return from the crash signal handler without replacing the
-# original crash signal with SIGSYS.
-rt_sigreturn

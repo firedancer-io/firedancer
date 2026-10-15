@@ -20,7 +20,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <linux/rtnetlink.h>
-#include <linux/futex.h>
 #include <linux/if_bonding.h>
 
 #include "../../../util/pod/fd_pod_format.h"
@@ -1150,17 +1149,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-static inline long
-next_deadline( fd_iavf_tile_t * ctx ) {
-  long deadline = fd_tickcount() + ctx->tx_flush_timeout_ticks;
-  if( ctx->lo_tx_cnt ) deadline = fd_long_min( deadline, ctx->lo_tx_deadline_ticks );
-  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
-    fd_iavf_tile_vf_t const * vf = &ctx->vfs[i];
-    if( vf->tx_queue.prod!=vf->tx_queue.posted ) deadline = fd_long_min( deadline, vf->tx_flush_deadline_ticks );
-  }
-  return deadline;
-}
-
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_iavf_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_iavf_tile_t)
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
@@ -1170,7 +1158,7 @@ next_deadline( fd_iavf_tile_t * ctx ) {
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
+#define STEM_NEVER_PARK                   1
 /* Reserve output credit for one RX batch per VF and one direct loopback
    delivery in the same stem iteration. */
 #define STEM_BURST (FD_IAVF_MEMBER_MAX*FD_IAVF_BATCH_SIZE+1UL)

@@ -161,7 +161,6 @@ setup_iavf_tile( fd_topo_t *             topo,
     owner = &topo->tiles[ owner_id ];
     fd_topob_tile_uses( topo, tile, &topo->objs[ owner->tile_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
-  tile->sleep_eventfd = topo->sleep_obj_id!=ULONG_MAX;
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL,         "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "iavf", tile_kind_id,               "net_netlnk", tile_kind_id );
