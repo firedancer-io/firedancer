@@ -275,6 +275,15 @@ FD_FN_PURE fd_reasm_fec_t const * fd_reasm_child_const  ( fd_reasm_t const * rea
 FD_FN_PURE fd_reasm_fec_t       * fd_reasm_sibling      ( fd_reasm_t       * reasm, fd_reasm_fec_t       * sibling );
 FD_FN_PURE fd_reasm_fec_t const * fd_reasm_sibling_const( fd_reasm_t const * reasm, fd_reasm_fec_t const * sibling );
 
+/* fd_reasm_has_xid returns 1 if reasm holds a FEC set received from
+   the network (not our own leader FEC) for (slot, fec_set_idx), 0
+   otherwise. */
+
+int
+fd_reasm_has_xid( fd_reasm_t * reasm,
+                  ulong        slot,
+                  uint         fec_set_idx );
+
 /* FIXME manifest_block_id */
 
 ulong
@@ -296,6 +305,13 @@ fd_reasm_free( fd_reasm_t * reasm );
 
 fd_reasm_fec_t *
 fd_reasm_peek( fd_reasm_t * reasm );
+
+/* fd_reasm_blocked returns 1 if the delivery queue is non-empty, 0
+   otherwise.  When fd_reasm_peek returns NULL, every queued FEC set
+   equivocates and awaits confirmation. */
+
+int
+fd_reasm_blocked( fd_reasm_t * reasm );
 
 /* fd_reasm_pop returns the next successfully reassembled FEC set, NULL
    if there is no FEC set to return.  This pops and returns the head of
