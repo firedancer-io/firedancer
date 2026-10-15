@@ -87,7 +87,9 @@ struct fd_diag_tile {
   int schedstat_fds[ FD_TILE_MAX ];
 
   ulong       irq_cnt[ FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT ][ FD_TILE_MAX ];
-  fd_cpuset_t cpu_has_tile[ fd_cpuset_word_cnt ];
+  fd_cpuset_t cpu_live_tile[ fd_cpuset_word_cnt ]; /* CPUs hosting a live pinned tile */
+  ulong       on_tile_softirq[ FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT ]; /* accumulated while the CPU hosts a live tile */
+  ulong       on_tile_device_irq;
   int         proc_interrupts_fd;
   int         proc_softirqs_fd;
   int         proc_stat_fd;
@@ -97,10 +99,12 @@ struct fd_diag_tile {
   int         psi_fd[ 3 ]; /* /proc/pressure/{cpu,memory,io}, -1 if absent */
   ulong       host_cpu_baseline[ FD_METRICS_ENUM_SYSTEM_CPU_STATE_CNT ]; /* /proc/stat ticks at diag start */
   ulong       host_cpu_ticks   [ FD_METRICS_ENUM_SYSTEM_CPU_STATE_CNT ]; /* highest ticks since then published */
-  ulong       device_irq_baseline[ FD_TILE_MAX ];
+  ulong       device_irq_boot    [ FD_TILE_MAX ]; /* /proc/interrupts at diag start */
+  ulong       device_irq_baseline[ FD_TILE_MAX ]; /* at the last sweep */
   ulong       tlb_baseline[ FD_TILE_MAX ];
   ulong       loc_baseline[ FD_TILE_MAX ];
   ulong       irq_ticks_baseline[ FD_TILE_MAX ];
+  ulong       softirq_boot    [ FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT ][ FD_TILE_MAX ];
   ulong       softirq_baseline[ FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT ][ FD_TILE_MAX ];
 
   ulong volatile * metrics    [ FD_TILE_MAX ];
@@ -536,6 +540,7 @@ cpu_owner_refresh( fd_diag_tile_t *  ctx,
                    fd_topo_t const * topo ) {
   ushort owner[ FD_TILE_MAX ];
   ushort cnt  [ FD_TILE_MAX ] = {0};
+  fd_cpuset_new( ctx->cpu_live_tile );
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( topo ) {
       ulong cpu_idx = topo->tiles[ i ].cpu_idx;
@@ -545,6 +550,7 @@ cpu_owner_refresh( fd_diag_tile_t *  ctx,
     if( cpu_idx==USHORT_MAX || ( !topo && 2UL==ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATE_OFF ] ) ) continue;
     owner[ cpu_idx ] = (ushort)i;
     cnt  [ cpu_idx ]++;
+    fd_cpuset_insert( ctx->cpu_live_tile, cpu_idx );
   }
   for( ulong c=0UL; c<FD_TILE_MAX; c++ ) {
     ushort o = cnt[ c ]==1 ? owner[ c ] : USHORT_MAX;
@@ -566,17 +572,15 @@ irq_metrics( fd_diag_tile_t * ctx ) {
   ulong volatile * softirq_total     = &fd_metrics_tl[ MIDX( COUNTER, DIAG, SYSTEM_SOFTIRQ      ) ];
   ulong volatile * softirq_undesired = &fd_metrics_tl[ MIDX( COUNTER, DIAG, SOFTIRQ_ON_TILE_CPU ) ];
   for( ulong j=0UL; j<FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT; j++ ) {
-    ulong tot_cnt       = 0UL;
-    ulong undesired_cnt = 0UL;
+    ulong tot_cnt = 0UL;
     for( ulong i=0UL; i<softirq_cpu_cnt; i++ ) {
-      ulong since = fd_ulong_sat_sub( ctx->irq_cnt[ j ][ i ], ctx->softirq_baseline[ j ][ i ] );
-      tot_cnt += since;
-      if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
-        undesired_cnt += since;
-      }
+      tot_cnt += fd_ulong_sat_sub( ctx->irq_cnt[ j ][ i ], ctx->softirq_boot[ j ][ i ] );
+      ulong delta = fd_ulong_sat_sub( ctx->irq_cnt[ j ][ i ], ctx->softirq_baseline[ j ][ i ] );
+      if( fd_cpuset_test( ctx->cpu_live_tile, i ) ) ctx->on_tile_softirq[ j ] += delta;
+      ctx->softirq_baseline[ j ][ i ] = ctx->irq_cnt[ j ][ i ];
     }
     softirq_total    [ j ] = tot_cnt;
-    softirq_undesired[ j ] = undesired_cnt;
+    softirq_undesired[ j ] = ctx->on_tile_softirq[ j ];
   }
 
   ulong * cpu_irq = ctx->irq_cnt[ 0 ]; /* re-use as scratch memory */
@@ -586,17 +590,15 @@ irq_metrics( fd_diag_tile_t * ctx ) {
   ulong cpu_cnt = fd_proc_interrupts_read( ctx->proc_interrupts_fd, cpu_irq, cpu_tlb, cpu_loc );
   if( FD_UNLIKELY( !cpu_cnt ) ) return; /* parse fail */
 
-  ulong tot_cnt       = 0UL;
-  ulong undesired_cnt = 0UL;
+  ulong tot_cnt = 0UL;
   for( ulong i=0UL; i<cpu_cnt; i++ ) {
-    ulong since = fd_ulong_sat_sub( cpu_irq[ i ], ctx->device_irq_baseline[ i ] );
-    tot_cnt += since;
-    if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
-      undesired_cnt += since;
-    }
+    tot_cnt += fd_ulong_sat_sub( cpu_irq[ i ], ctx->device_irq_boot[ i ] );
+    ulong delta = fd_ulong_sat_sub( cpu_irq[ i ], ctx->device_irq_baseline[ i ] );
+    if( fd_cpuset_test( ctx->cpu_live_tile, i ) ) ctx->on_tile_device_irq += delta;
+    ctx->device_irq_baseline[ i ] = cpu_irq[ i ];
   }
-  FD_MCNT_SET( DIAG, SYSTEM_DEVICE_IRQ,      tot_cnt       );
-  FD_MCNT_SET( DIAG, DEVICE_IRQ_ON_TILE_CPU, undesired_cnt );
+  FD_MCNT_SET( DIAG, SYSTEM_DEVICE_IRQ,      tot_cnt                 );
+  FD_MCNT_SET( DIAG, DEVICE_IRQ_ON_TILE_CPU, ctx->on_tile_device_irq );
 
   for( ulong i=0UL; i<cpu_cnt; i++ ) {
     ulong tile_id = ctx->cpu_to_tile[ i ];
@@ -1713,6 +1715,10 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !stat_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read irq tick baseline from /proc/stat" ));
   char stat_buf[ 16384 ];
   if( FD_UNLIKELY( host_cpu_ticks( ctx, stat_buf, sizeof(stat_buf), ctx->host_cpu_baseline ) ) ) memset( ctx->host_cpu_baseline, 0, sizeof(ctx->host_cpu_baseline) );
+  memcpy( ctx->softirq_boot,        ctx->softirq_baseline,    sizeof(ctx->softirq_boot)        );
+  memcpy( ctx->device_irq_boot,     ctx->device_irq_baseline, sizeof(ctx->device_irq_boot)     );
+  memset( ctx->on_tile_softirq,     0,                        sizeof(ctx->on_tile_softirq)     );
+  ctx->on_tile_device_irq = 0UL;
   memcpy( ctx->owner_irq_baseline,  ctx->device_irq_baseline, sizeof(ctx->owner_irq_baseline)  );
   memcpy( ctx->owner_tlb_baseline,  ctx->tlb_baseline,        sizeof(ctx->owner_tlb_baseline)  );
   memcpy( ctx->owner_loc_baseline,  ctx->loc_baseline,        sizeof(ctx->owner_loc_baseline)  );
@@ -1738,13 +1744,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tiles.tower_idx  = fd_topo_find_tile( topo, "tower",  0UL );
   ctx->tiles.votor_idx  = fd_topo_find_tile( topo, "votor",  0UL );
   ctx->tiles.replay_idx = fd_topo_find_tile( topo, "replay", 0UL );
-
-  fd_cpuset_new( &ctx->cpu_has_tile );
-  for( ulong i=0UL; i<(topo->tile_cnt); i++ ) {
-    ulong cpu_idx = topo->tiles[ i ].cpu_idx;
-    if( cpu_idx>=FD_TILE_MAX ) continue;
-    fd_cpuset_insert( ctx->cpu_has_tile, cpu_idx );
-  }
 
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) ctx->cpu_to_tile[ i ] = USHORT_MAX;
   cpu_owner_refresh( ctx, topo );
