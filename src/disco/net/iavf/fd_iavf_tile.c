@@ -250,9 +250,9 @@ fd_iavf_hw_poll_rx( fd_iavf_tile_vf_t *      vf,
   uint const comp_limit = fd_uint_min( comp_capacity, rx_queue->depth );
   uint       comp_cnt   = 0U;
   while( comp_cnt<comp_limit && rx_cons<rx_queue->posted ) {
-    uint const            desc_idx = (uint)(rx_cons & (rx_queue->depth-1U));
+    uint const             desc_idx = (uint)(rx_cons & (rx_queue->depth-1U));
     fd_iavf_hw_rx_desc_t * desc     = (fd_iavf_hw_rx_desc_t *)rx_queue->ring + desc_idx;
-    ulong const           status   = FD_VOLATILE_CONST( desc->qword[1] );
+    ulong const            status   = FD_VOLATILE_CONST( desc->qword[1] );
     if( !(status & FD_IAVF_RX_DESC_DONE) ) break;
 
     /* Drop frames that do not fit in one RX buffer. */
@@ -335,18 +335,22 @@ fd_iavf_tile_poll_rx( fd_iavf_tile_t *    ctx,
   ulong const start_vf_idx  = ctx->rx_next_vf;
   ctx->rx_next_vf           = (start_vf_idx+1UL)%ctx->vf_cnt;
   for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
-    ulong const actual_vf_idx = (start_vf_idx+vf_idx)%ctx->vf_cnt;
-    fd_iavf_tile_vf_t * vf = &ctx->vfs[ actual_vf_idx ];
+    ulong const         actual_vf_idx = (start_vf_idx+vf_idx)%ctx->vf_cnt;
+    fd_iavf_tile_vf_t * vf            = &ctx->vfs[ actual_vf_idx ];
+
     fd_iavf_tile_rx_comp_t comp[ FD_IAVF_BATCH_SIZE ];
     int comp_cnt = fd_iavf_hw_poll_rx( vf, comp, ctx->batch_size );
     if( !comp_cnt ) continue;
-    busy        = 1;
-    int active  = fd_iavf_tile_vf_usable( ctx, vf, LACP_STATE_COLLECTING );
-    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    busy = 1;
+
+    int   active = fd_iavf_tile_vf_usable( ctx, vf, LACP_STATE_COLLECTING );
+    ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+
     for( uint i=0U; i<(uint)comp_cnt; i++ ) {
       ulong chunk = comp[i].chunk;
       if( FD_UNLIKELY( chunk<ctx->net.pkt_buf_chunk0 || chunk>ctx->net.pkt_buf_wmark ) ) {
-        FD_LOG_CRIT(( "VF %lu RX completion chunk %lu out of bounds [%lu,%lu]", actual_vf_idx, chunk, ctx->net.pkt_buf_chunk0, ctx->net.pkt_buf_wmark ));
+        FD_LOG_CRIT(( "VF %lu RX completion chunk %lu out of bounds [%lu,%lu]",
+                      actual_vf_idx, chunk, ctx->net.pkt_buf_chunk0, ctx->net.pkt_buf_wmark ));
       }
       ulong freed_chunk = chunk;
       if( FD_UNLIKELY( !active ) ) ctx->metrics.rx_no_link_cnt += comp[i].end_of_packet;
