@@ -428,8 +428,10 @@ test_invalid_transitions( void ) {
 
 
   /* Invalid to dropped after 60s no rx */
+  FD_TEST( !fd_ping_tracker_metrics( ping_tracker )->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_STALE_IDX ] );
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+61), &out_pubkey, &out_address, &out_token ) );
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+62), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( fd_ping_tracker_metrics( ping_tracker )->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_STALE_IDX ]==1UL );
 
   free( bytes );
 }
@@ -467,6 +469,7 @@ test_remove( void ) {
   fd_ping_tracker_track( ping_tracker, p_unpinged.pubkey, 0UL, p_unpinged.address, now );
   fd_ping_tracker_remove( ping_tracker, p_unpinged.pubkey, now );
   FD_TEST( change_ctx->invoke_cnt==0UL );
+  FD_TEST( fd_ping_tracker_metrics( ping_tracker )->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_IDENTITY_IDX ]==1UL );
   /* Peer should no longer be tracked. */
   FD_TEST( !fd_ping_tracker_active( ping_tracker, p_unpinged.pubkey, p_unpinged.address ) );
   /* Removing again should be a no-op. */
