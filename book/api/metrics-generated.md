@@ -1687,6 +1687,34 @@
 | <span class="metrics-name">diag_&#8203;softirq_&#8203;on_&#8203;tile_&#8203;cpu</span><br/>{softirq_&#8203;type="<span class="metrics-enum">net</span>"} | counter | Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq (NET_TX, NET_RX) |
 | <span class="metrics-name">diag_&#8203;softirq_&#8203;on_&#8203;tile_&#8203;cpu</span><br/>{softirq_&#8203;type="<span class="metrics-enum">disk</span>"} | counter | Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq (BLOCK) |
 | <span class="metrics-name">diag_&#8203;softirq_&#8203;on_&#8203;tile_&#8203;cpu</span><br/>{softirq_&#8203;type="<span class="metrics-enum">other</span>"} | counter | Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq (e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ...) |
+| <span class="metrics-name">diag_&#8203;cpu_&#8203;package_&#8203;millicelsius</span> | gauge | Hottest CPU package temperature (k10temp Tctl or coretemp Package), 0 if no sensor |
+| <span class="metrics-name">diag_&#8203;nic_&#8203;millicelsius</span> | gauge | Hottest NIC ASIC temperature (mlx5 or ice), 0 if no sensor |
+| <span class="metrics-name">diag_&#8203;nvme_&#8203;millicelsius</span> | gauge | Hottest NVMe composite temperature, 0 if no sensor or the kernel lacks CONFIG_NVME_HWMON |
+| <span class="metrics-name">diag_&#8203;cpu_&#8203;power_&#8203;microwatts</span> | gauge | CPU package power from the powercap (RAPL) energy counters, averaged over 5 s, 0 if unavailable |
+| <span class="metrics-name">diag_&#8203;system_&#8203;power_&#8203;microwatts</span> | gauge | Whole-system power draw from the ACPI power meter, averaged over its interval, 0 if no meter |
+| <span class="metrics-name">diag_&#8203;memory_&#8203;ecc_&#8203;corrected</span> | counter | Corrected memory ECC errors across all memory controllers since boot (EDAC), 0 if firmware handles errors instead |
+| <span class="metrics-name">diag_&#8203;memory_&#8203;ecc_&#8203;uncorrected</span> | counter | Uncorrected memory ECC errors across all memory controllers since boot (EDAC), 0 if firmware handles errors instead |
+| <span class="metrics-name">diag_&#8203;system_&#8203;load_&#8203;centi</span><br/>{load_&#8203;average_&#8203;type="<span class="metrics-enum">minute1</span>"} | gauge | Load average over each window, times 100 (/proc/loadavg has two decimals) (1 minute) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;load_&#8203;centi</span><br/>{load_&#8203;average_&#8203;type="<span class="metrics-enum">minute5</span>"} | gauge | Load average over each window, times 100 (/proc/loadavg has two decimals) (5 minutes) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;load_&#8203;centi</span><br/>{load_&#8203;average_&#8203;type="<span class="metrics-enum">minute15</span>"} | gauge | Load average over each window, times 100 (/proc/loadavg has two decimals) (15 minutes) |
+| <span class="metrics-name">diag_&#8203;thread_&#8203;runnable_&#8203;count</span> | gauge | Runnable threads on the host (/proc/loadavg) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{system_&#8203;cpu_&#8203;state="<span class="metrics-enum">user</span>"} | counter | CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution (User (including nice)) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{system_&#8203;cpu_&#8203;state="<span class="metrics-enum">system</span>"} | counter | CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution (System) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{system_&#8203;cpu_&#8203;state="<span class="metrics-enum">idle</span>"} | counter | CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution (Idle) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{system_&#8203;cpu_&#8203;state="<span class="metrics-enum">io_&#8203;wait</span>"} | counter | CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution (Idle waiting on IO) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{system_&#8203;cpu_&#8203;state="<span class="metrics-enum">interrupt</span>"} | counter | CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution (Hardirq and softirq handlers) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{system_&#8203;cpu_&#8203;state="<span class="metrics-enum">steal</span>"} | counter | CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution (Stolen by the hypervisor) |
+| <span class="metrics-name">diag_&#8203;memory_&#8203;available_&#8203;bytes</span> | gauge | Host memory available without swapping (/proc/meminfo available) |
+| <span class="metrics-name">diag_&#8203;memory_&#8203;free_&#8203;bytes</span> | gauge | Host memory not in use at all (/proc/meminfo free) |
+| <span class="metrics-name">diag_&#8203;swap_&#8203;in_&#8203;bytes</span> | counter | Bytes swapped in from disk since boot (pswpin) |
+| <span class="metrics-name">diag_&#8203;swap_&#8203;out_&#8203;bytes</span> | counter | Bytes swapped out to disk since boot (pswpout) |
+| <span class="metrics-name">diag_&#8203;system_&#8203;page_&#8203;fault_&#8203;major</span> | counter | Major page faults across the host since boot (pgmajfault) |
+| <span class="metrics-name">diag_&#8203;oom_&#8203;killed</span> | counter | Processes killed by the kernel OOM killer since boot (oom_kill) |
+| <span class="metrics-name">diag_&#8203;cpu_&#8203;pressure_&#8203;duration_&#8203;nanos</span> | counter | Time at least one task stalled waiting for CPU since boot (PSI some), 0 if the kernel lacks PSI |
+| <span class="metrics-name">diag_&#8203;memory_&#8203;pressure_&#8203;duration_&#8203;nanos</span> | counter | Time at least one task stalled on memory reclaim or swap since boot (PSI some), 0 if the kernel lacks PSI |
+| <span class="metrics-name">diag_&#8203;memory_&#8203;pressure_&#8203;full_&#8203;duration_&#8203;nanos</span> | counter | Time all non-idle tasks stalled on memory together since boot (PSI full), a subset of MemoryPressureDurationNanos |
+| <span class="metrics-name">diag_&#8203;io_&#8203;pressure_&#8203;duration_&#8203;nanos</span> | counter | Time at least one task stalled on IO since boot (PSI some), 0 if the kernel lacks PSI |
+| <span class="metrics-name">diag_&#8203;io_&#8203;pressure_&#8203;full_&#8203;duration_&#8203;nanos</span> | counter | Time all non-idle tasks stalled on IO together since boot (PSI full), a subset of IoPressureDurationNanos |
 
 </div>
 

@@ -5523,6 +5523,32 @@ message MetricsRpcRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution
+message MetricsDiagSystemCpuDurationNanos {
+  // User (including nice)
+  uint64 user = 1;
+  // System
+  uint64 system = 2;
+  // Idle
+  uint64 idle = 3;
+  // Idle waiting on IO
+  uint64 io_wait = 4;
+  // Hardirq and softirq handlers
+  uint64 interrupt = 5;
+  // Stolen by the hypervisor
+  uint64 steal = 6;
+}
+
+// Load average over each window, times 100 (/proc/loadavg has two decimals)
+message MetricsDiagSystemLoadCenti {
+  // 1 minute
+  uint64 minute1 = 1;
+  // 5 minutes
+  uint64 minute5 = 2;
+  // 15 minutes
+  uint64 minute15 = 3;
+}
+
 // counter: cumulative since tile start, query deltas. Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq
 message MetricsDiagSoftirqOnTileCpu {
   // NET_TX, NET_RX
@@ -10389,6 +10415,48 @@ message MetricsDiag {
   MetricsDiagSystemSoftirq system_softirq = 32;
   // counter: cumulative since tile start, query deltas. Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq
   MetricsDiagSoftirqOnTileCpu softirq_on_tile_cpu = 33;
+  // Hottest CPU package temperature (k10temp Tctl or coretemp Package), 0 if no sensor
+  uint64 cpu_package_millicelsius = 34;
+  // Hottest NIC ASIC temperature (mlx5 or ice), 0 if no sensor
+  uint64 nic_millicelsius = 35;
+  // Hottest NVMe composite temperature, 0 if no sensor or the kernel lacks CONFIG_NVME_HWMON
+  uint64 nvme_millicelsius = 36;
+  // CPU package power from the powercap (RAPL) energy counters, averaged over 5 s, 0 if unavailable
+  uint64 cpu_power_microwatts = 37;
+  // Whole-system power draw from the ACPI power meter, averaged over its interval, 0 if no meter
+  uint64 system_power_microwatts = 38;
+  // counter: cumulative since tile start, query deltas. Corrected memory ECC errors across all memory controllers since boot (EDAC), 0 if firmware handles errors instead
+  uint64 memory_ecc_corrected = 39;
+  // counter: cumulative since tile start, query deltas. Uncorrected memory ECC errors across all memory controllers since boot (EDAC), 0 if firmware handles errors instead
+  uint64 memory_ecc_uncorrected = 40;
+  // Load average over each window, times 100 (/proc/loadavg has two decimals)
+  MetricsDiagSystemLoadCenti system_load_centi = 41;
+  // Runnable threads on the host (/proc/loadavg)
+  uint64 thread_runnable_count = 42;
+  // CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution
+  MetricsDiagSystemCpuDurationNanos system_cpu_duration_nanos = 43;
+  // Host memory available without swapping (/proc/meminfo available)
+  uint64 memory_available_bytes = 44;
+  // Host memory not in use at all (/proc/meminfo free)
+  uint64 memory_free_bytes = 45;
+  // counter: cumulative since tile start, query deltas. Bytes swapped in from disk since boot (pswpin)
+  uint64 swap_in_bytes = 46;
+  // counter: cumulative since tile start, query deltas. Bytes swapped out to disk since boot (pswpout)
+  uint64 swap_out_bytes = 47;
+  // counter: cumulative since tile start, query deltas. Major page faults across the host since boot (pgmajfault)
+  uint64 system_page_fault_major = 48;
+  // Processes killed by the kernel OOM killer since boot (oom_kill)
+  uint64 oom_killed = 49;
+  // Time at least one task stalled waiting for CPU since boot (PSI some), 0 if the kernel lacks PSI
+  uint64 cpu_pressure_duration_nanos = 50;
+  // Time at least one task stalled on memory reclaim or swap since boot (PSI some), 0 if the kernel lacks PSI
+  uint64 memory_pressure_duration_nanos = 51;
+  // Time all non-idle tasks stalled on memory together since boot (PSI full), a subset of MemoryPressureDurationNanos
+  uint64 memory_pressure_full_duration_nanos = 52;
+  // Time at least one task stalled on IO since boot (PSI some), 0 if the kernel lacks PSI
+  uint64 io_pressure_duration_nanos = 53;
+  // Time all non-idle tasks stalled on IO together since boot (PSI full), a subset of IoPressureDurationNanos
+  uint64 io_pressure_full_duration_nanos = 54;
 }
 
 // Metrics of one genesi tile instance, one row per sweep

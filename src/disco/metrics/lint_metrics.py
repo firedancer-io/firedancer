@@ -17,7 +17,7 @@ from pathlib import Path
 
 METRIC_TAGS = ( 'counter', 'gauge', 'histogram', 'bool', 'time' )
 
-UNITS   = ( 'Nanos', 'Bytes', 'Lamports', 'Pct', 'Slot' )
+UNITS   = ( 'Nanos', 'Bytes', 'Lamports', 'Pct', 'Slot', 'Millicelsius', 'Microwatts', 'Centi' )
 BAD_UNITS = ( 'Seconds', 'Millis', 'Micros', 'Timestamp' )
 BAD_UNIT_SUFFIX = ( 'Ms', 'Us' )  # only as the last word
 
