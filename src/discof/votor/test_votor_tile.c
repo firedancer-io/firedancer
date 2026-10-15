@@ -249,7 +249,7 @@ test_pool( ag_epoch_info_t const * epoch_info,
   FD_TEST( fd_ulong_is_aligned( (ulong)pool_scratch, ag_pool_align() ) );
   ag_pool_t * pool = ag_pool_join( ag_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
   FD_TEST( pool );
-  ag_pool_init( pool, &(ag_block_id_t){ .slot = 0UL } );
+  ag_pool_from_genesis( pool, &(ag_block_id_t){ .slot = 0UL } );
   ag_pool_advance_epoch( pool, epoch_info, rank, 0UL );
   return pool;
 }
@@ -581,7 +581,7 @@ votor_wfs_test_ctx_new( fd_votor_tile_t * ctx,
   ctx->votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   FD_TEST( ctx->votor );
 
-  /* Not ag_pool_init: the boot SLOT_COMPLETED is what calls that. */
+  /* Not ag_pool_from_*: the boot SLOT_COMPLETED is what calls that. */
   FD_TEST( ag_pool_footprint( TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST )<=sizeof(pool_scratch) );
   ctx->pool = ag_pool_join( ag_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
   FD_TEST( ctx->pool );
@@ -773,7 +773,7 @@ test_votor_wfs_keyswitch_during_wait( void ) {
   static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
 
   /* A boot slot that is the last of its window, which is what makes
-     ag_pool_init queue a ParentReady. */
+     ag_pool_from_snapshot queue a ParentReady. */
   ulong boot_slot = AG_SLOTS_PER_WINDOW-1UL;
   votor_wfs_test_ctx_new( &ctx, boot_slot );
 
@@ -1307,7 +1307,7 @@ test_ctx_new( fd_votor_tile_t * ctx,
   FD_TEST( ag_pool_footprint( AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST )<=sizeof(pool_mem) );
   ctx->pool          = ag_pool_join( ag_pool_new( pool_mem, AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL ) );
   FD_TEST( ctx->peers && ctx->contact_infos && ctx->reconn_prq && ctx->pool );
-  ag_pool_init( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
+  ag_pool_from_genesis( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
   fd_clock_tile_init( ctx->clock );
   memset( &ctx->id_key, 0, sizeof(fd_pubkey_t) ); ctx->id_key.uc[ 0 ] = 1;
   test_peer( ctx, 1, 0 );
@@ -1368,7 +1368,7 @@ test_connect_peer( void ) {
   for( ulong i=0UL; i<sizeof(win)/sizeof(win[0]); i++ ) {
     self->prev_rank = win[i].prev; self->next_rank = win[i].next;
     if( win[i].root==ULONG_MAX ) ag_pool_fini( ctx.pool );
-    else                         ag_pool_init( ctx.pool, &(ag_block_id_t){ .slot = win[i].root } );
+    else                         ag_pool_from_snapshot( ctx.pool, &(ag_block_id_t){ .slot = win[i].root } );
     quic_client_connect( &ctx, other, ci, now );
     FD_TEST( !!other->tx_conn==win[i].ok );
     if( other->tx_conn ) test_drop_conn( other );
@@ -1628,11 +1628,11 @@ test_conn_ahead( void ) {
   peer_t * b = test_peer( &ctx, 3, 0 ); test_ci( &ctx, b, 8001 );
   test_peer( &ctx, 4, 0 ); /* no contact info: nothing to connect to */
 
-  ag_pool_init( ctx.pool, &(ag_block_id_t){ .slot = 200000UL-51UL } );
+  ag_pool_from_snapshot( ctx.pool, &(ag_block_id_t){ .slot = 200000UL-51UL } );
   during_housekeeping( &ctx );
   FD_TEST( !reconn_prq_cnt( ctx.reconn_prq ) && ctx.conn_ahead_slot!=ctx.next_epoch_slot );
 
-  ag_pool_init( ctx.pool, &(ag_block_id_t){ .slot = 200000UL-50UL } );
+  ag_pool_from_snapshot( ctx.pool, &(ag_block_id_t){ .slot = 200000UL-50UL } );
   long t = fd_clock_tile_now( ctx.clock );
   during_housekeeping( &ctx );
   FD_TEST( reconn_prq_cnt( ctx.reconn_prq )==2UL && a->reconn_pending && b->reconn_pending );
@@ -1738,7 +1738,7 @@ test_park( void ) {
      domain. */
   long now = fd_clock_tile_now( ctx->clock );
   uchar bls_pubkey[ FD_BLS_PUB_COMPRESSED_SZ ] = { 1 };
-  ag_pool_init ( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
+  ag_pool_from_genesis( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
   ctx->standstill_slot = 0UL;
   ctx->standstill_ts   = now+AG_DELTA_STANDSTILL_NS;
   ag_votor_init( ctx->votor, &(ag_block_id_t){ .slot = 0UL }, now, ctx->ns_per_slot, 1, park_sign, ctx );
@@ -1911,7 +1911,7 @@ test_standstill( void ) {
   build_stakes( stakes, 3UL, 10UL );
   ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
   long now = fd_clock_tile_now( ctx->clock );
-  ag_pool_init          ( ctx->pool,  &(ag_block_id_t){ .slot = 0UL } );
+  ag_pool_from_genesis  ( ctx->pool,  &(ag_block_id_t){ .slot = 0UL } );
   ctx->standstill_slot = 0UL;
   ctx->standstill_ts   = now+AG_DELTA_STANDSTILL_NS;
   ag_pool_advance_epoch ( ctx->pool,  epoch_info, USHORT_MAX, 0UL );
