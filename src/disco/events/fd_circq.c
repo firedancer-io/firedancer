@@ -30,6 +30,7 @@ fd_circq_new( void * shmem,
               ulong  sz ) {
   fd_circq_t * circq = (fd_circq_t *)shmem;
   circq->cnt  = 0UL;
+  circq->bytes_used = 0UL;
   circq->head = 0UL;
   circq->tail = 0UL;
   circq->size = sz;
@@ -110,6 +111,7 @@ evict( fd_circq_t * circq,
     ulong end = fd_ulong_align_up( start + sizeof( fd_circq_message_t ), head->align ) + head->footprint;
 
     if( FD_UNLIKELY( (start<to && end>from) ) ) {
+      circq->bytes_used -= end-start;
       circq->cnt--;
       circq->metrics.drop_cnt++;
       if( FD_LIKELY( !circq->cnt ) ) circq->head = circq->tail = 0UL;
@@ -163,6 +165,7 @@ fd_circq_push_back( fd_circq_t * circq,
   }
 
   circq->cnt++;
+  circq->bytes_used += fd_ulong_align_up( circq->tail+sizeof( fd_circq_message_t ), align ) + footprint - circq->tail; /* the extent pop and evict subtract */
   fd_circq_message_t * next_message = (fd_circq_message_t *)(buf+circq->tail);
   next_message->align = align;
   next_message->footprint = footprint;
@@ -180,6 +183,7 @@ fd_circq_resize_back( fd_circq_t * circq,
   fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->tail);
   FD_TEST( new_footprint<=message->footprint );
 
+  circq->bytes_used -= message->footprint-new_footprint;
   message->footprint = new_footprint;
 }
 
@@ -236,6 +240,7 @@ fd_circq_pop_until( fd_circq_t * circq,
   uchar * buf = (uchar *)(circq+1);
   for( ulong i=0UL; i<to_pop; i++ ) {
     fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->head);
+    circq->bytes_used -= fd_ulong_align_up( circq->head+sizeof( fd_circq_message_t ), message->align ) + message->footprint - circq->head;
     circq->cnt--;
 
     if( FD_UNLIKELY( !circq->cnt ) ) {
@@ -258,15 +263,7 @@ fd_circq_reset_cursor( fd_circq_t * circq ) {
 
 ulong
 fd_circq_bytes_used( fd_circq_t const * circq ) {
-  if( FD_UNLIKELY( !circq->cnt ) ) return 0UL;
-
-  uchar const * buf = (uchar const *)(circq+1);
-
-  fd_circq_message_t const * tail_msg = (fd_circq_message_t const *)(buf+circq->tail);
-  ulong tail_end = fd_ulong_align_up( circq->tail + sizeof(fd_circq_message_t), tail_msg->align ) + tail_msg->footprint;
-
-  if( FD_LIKELY( circq->tail>=circq->head ) ) return tail_end - circq->head;
-  else return (circq->size - circq->head) + tail_end;
+  return circq->bytes_used;
 }
 
 ulong
