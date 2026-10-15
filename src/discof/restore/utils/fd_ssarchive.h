@@ -84,6 +84,46 @@ fd_ssarchive_parse_filename( char const * _name,
   return 0;
 }
 
+/* Parses a fast boot stream filename into components.
+
+    fast-boot-stream-457390553-7TAkZtkYM1HrSzYKqH71gsHkZsdQmfnT1JumapYpACRg.tar.zst
+
+   Returns -1 on failure and 0 on success. */
+
+static inline int
+fd_ssarchive_parse_fast_boot_filename( char const * _name,
+                                       ulong *      slot,
+                                       uchar        hash[ static FD_HASH_FOOTPRINT ] ) {
+  char name[ PATH_MAX ];
+  fd_cstr_ncpy( name, _name, sizeof(name) );
+
+  char * ptr = name;
+  if( FD_UNLIKELY( strncmp( ptr, "fast-boot-stream-", 17UL ) ) ) return -1;
+  ptr += 17UL;
+
+  char * next = strchr( ptr, '-' );
+  if( FD_UNLIKELY( !next ) ) return -1;
+  *next = '\0';
+  char * endptr;
+  if( FD_UNLIKELY( *ptr<'0' || *ptr>'9' ) ) return -1;
+  *slot = strtoul( ptr, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr!='\0' || endptr==ptr || *slot==ULONG_MAX ) ) return -1;
+
+  ptr = next + 1;
+  next = strchr( ptr, '.' );
+  if( FD_UNLIKELY( !next ) ) return -1;
+  *next = '\0';
+  ulong sz = (ulong)(next - ptr);
+  if( FD_UNLIKELY( sz>FD_BASE58_ENCODED_32_LEN ) ) return -1;
+  uchar * result = fd_base58_decode_32( ptr, hash );
+  if( FD_UNLIKELY( result!=hash ) ) return -1;
+
+  ptr = next + 1;
+  if( FD_UNLIKELY( 0!=strcmp( ptr, "tar.zst" ) ) ) return -1;
+
+  return 0;
+}
+
 /* Given a directory on the filesystem, determine the most recent (full,
    incremental) slot pair, whether each snapshot is zstd compressed, the
    associated full and incremental hashes, and the snapshot paths.  The

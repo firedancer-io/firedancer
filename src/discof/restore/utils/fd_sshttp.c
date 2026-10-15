@@ -222,6 +222,7 @@ fd_sshttp_new( void * shmem,
   sshttp->sockfd   = -1;
   sshttp->epoll_fd = epoll_fd;
   sshttp->content_len = 0UL;
+  sshttp->range_start = 0UL;
   fd_cstr_fini( sshttp->snapshot_name );
   sshttp->resolved_slot = 0UL;
   fd_memset( sshttp->resolved_hash, 0, FD_HASH_FOOTPRINT );

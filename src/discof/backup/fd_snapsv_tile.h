@@ -32,7 +32,8 @@
 
 /* FD_SNAPSV_MSG_* give message types */
 
-#define FD_SNAPSV_MSG_SNAP 1 /* fd_snapsv_msg_snap_t */
+#define FD_SNAPSV_MSG_SNAP      1 /* fd_snapsv_msg_snap_t for a snapshot */
+#define FD_SNAPSV_MSG_FAST_BOOT 2 /* fd_snapsv_msg_snap_t for a fast boot stream */
 
 /* FD_SNAPSV_CLOSE_* give reasons an upload ended */
 
