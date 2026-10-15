@@ -1023,16 +1023,18 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
 
   fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
   ulong vote_scratch_cnt = 0UL;
-  ulong vote_accounts_sz = manifest->vote_accounts_len;
-  if( FD_UNLIKELY( vote_accounts_sz>FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
-    FD_LOG_WARNING(( "vote accounts %lu exceeds maximum %lu", vote_accounts_sz, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
-    vote_accounts_sz = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS;
+  fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes = fd_snapshot_manifest_wfs_epoch_stakes( manifest );
+  ulong vote_stakes_sz = epoch_stakes ? epoch_stakes->vote_stakes_len : 0UL;
+  if( FD_UNLIKELY( vote_stakes_sz>FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) ) {
+    FD_LOG_WARNING(( "vote stakes %lu exceeds maximum %lu", vote_stakes_sz, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ));
+    vote_stakes_sz = FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS;
   }
-  for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
-    if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-    vote_scratch[ vote_scratch_cnt ].stake = manifest->vote_accounts[ i ].stake;
+  for( ulong i=0UL; i<vote_stakes_sz; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * vs = &epoch_stakes->vote_stakes[ i ];
+    if( FD_UNLIKELY( vs->stake==0UL ) ) continue;
+    fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   vs->identity, sizeof(fd_pubkey_t) );
+    fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, vs->vote,     sizeof(fd_pubkey_t) );
+    vote_scratch[ vote_scratch_cnt ].stake = vs->stake;
     vote_scratch_cnt++;
   }
 
