@@ -45,9 +45,11 @@ struct metrics_snap {
   ulong req[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT ];
   ulong pkt_tx;
   ulong rerequest;
-  ulong meta_failed;   /* shred_block_id + fec_root + parent_fec_count verify failures */
+  ulong meta_failed;   /* fec_root + parent_fec_count verify failures */
+  ulong unmatched;     /* replies matching no outstanding message: duplicates, strays, expired */
   ulong shred_old;
-  ulong resp_cnt;      /* responses matched to an inflight request (latency histogram count) */
+  ulong resp_cnt;      /* replies matched to an outstanding message */
+  ulong lat_cnt;       /* latency histogram count, one per request */
   ulong resp_sum_ns;   /* latency histogram sum */
 
   ulong inflight, slot_current, slot_highest_repaired, slot_last_requested, orphan_last_requested, peers;
@@ -158,8 +160,12 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
   /* The rotor tile does not produce SHRED_REREQUESTED. */
   s->rerequest   = 0UL;
   s->shred_old   = r[ MIDX( COUNTER, ROTOR, SHRED_OLD_IGNORED ) ];
-  s->meta_failed = r[ MIDX( COUNTER, ROTOR, SHRED_RX_UNMATCHED ) ] + r[ MIDX( COUNTER, ROTOR, FEC_SET_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_FEC_SET_COUNT_FAILED ) ];
-  for( ulong k=0UL; k<FD_HISTF_BUCKET_CNT; k++ ) s->resp_cnt += r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+k ];
+  s->meta_failed = r[ MIDX( COUNTER, ROTOR, FEC_SET_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_FEC_SET_COUNT_FAILED ) ];
+  s->unmatched   = r[ MIDX( COUNTER, ROTOR, SHRED_RX_UNMATCHED ) ];
+  s->resp_cnt    = r[ MIDX( COUNTER, ROTOR, SHRED_RX_FOR_BLOCK_ID ) ] + r[ MIDX( COUNTER, ROTOR, SHRED_RX_SLOT_INDEX ) ] + r[ MIDX( COUNTER, ROTOR, META_RX ) ];
+  ulong lat_cnt = 0UL;
+  for( ulong k=0UL; k<FD_HISTF_BUCKET_CNT; k++ ) lat_cnt += r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+k ];
+  s->lat_cnt     = lat_cnt;
   s->resp_sum_ns = r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+FD_HISTF_BUCKET_CNT ];
 
   s->inflight              = r[ MIDX( GAUGE, ROTOR, REQUEST_IN_FLIGHT ) ];
@@ -263,7 +269,7 @@ metrics_snap_print( metrics_snap_t const * s,
   }
   double resp_pct  = req_tot ? 100.0*(double)s->resp_cnt /(double)req_tot : 0.0;
   double rereq_pct = req_tot ? 100.0*(double)s->rerequest/(double)req_tot : 0.0;
-  double lat_ms    = s->resp_cnt ? (double)s->resp_sum_ns/(double)s->resp_cnt/1e6 : 0.0;
+  double lat_ms    = s->lat_cnt ? (double)s->resp_sum_ns/(double)s->lat_cnt/1e6 : 0.0;
   long   gap       = (long)s->slot_current-(long)s->slot_highest_repaired;
 
 # define T(field) ((double)s->field)
@@ -301,6 +307,7 @@ metrics_snap_print( metrics_snap_t const * s,
   printf( "  responses    " );
   col_pct( "matched", T( resp_cnt ), resp_pct ); printf( " of requests   " );
   printf( "%-12s %9.1f ms   ", "latency", lat_ms );
+  col( "unmatched",   T( unmatched ) );
   col( "meta_failed", T( meta_failed ) );
   col( "shred_old",   T( shred_old ) );
   printf( "\n" );

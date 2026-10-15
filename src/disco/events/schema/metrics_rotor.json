@@ -116,9 +116,9 @@
                 "all": ["for_block_id", "slot_index", "unmatched"]
             },
             "fields": {
-                "for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "First response to a WindowIndexForBlockId request" },
-                "slot_index":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "First response to a WindowIndex or HighestWindowIndex request" },
-                "unmatched":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Matched no pending request, including later answers to an already matched or expired request" }
+                "for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Response to an outstanding WindowIndexForBlockId message" },
+                "slot_index":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Response to an outstanding WindowIndex or HighestWindowIndex message" },
+                "unmatched":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Matched no outstanding message: a duplicate, stray, or expired reply" }
             }
         },
         "meta_rx":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Alpenglow repair metadata responses received" },
