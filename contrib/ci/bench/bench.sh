@@ -13,6 +13,7 @@ mkdir -p "$bin"
 quiesce() { # identical host state before every timed run; args: files to pre-read
   sudo killall firedancer-dev 2>/dev/null || true
   sudo rm -f "$DUMP_DIR/accounts.db" "$SHREDB"
+  sudo rm -rf "$HOME/.firedancer/fd1"
   sudo sysctl -q -w vm.dirty_background_bytes=268435456 vm.dirty_bytes=2147483648 \
                     vm.dirty_expire_centisecs=1000 vm.dirty_writeback_centisecs=100
   sync; sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'

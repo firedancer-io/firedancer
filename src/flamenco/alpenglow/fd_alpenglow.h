@@ -44,6 +44,20 @@ ulong
 fd_alpenglow_migration_slot( fd_bank_t *  bank,
                              fd_accdb_t * accdb );
 
+/* fd_alpenglow_producer_time_bounds writes the inclusive range a
+   block footer's producer_time_nanos must fall in to *lo and *hi.  The
+   range is relative to the parent's timestamp: the Alpenclock PDA, or
+   the clock sysvar until the first footer writes the PDA (the first
+   block after genesis or the migration).
+
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor.rs#L698-L726 */
+
+void
+fd_alpenglow_producer_time_bounds( fd_bank_t const * bank,
+                                   fd_accdb_t *      accdb,
+                                   long *            lo,
+                                   long *            hi );
+
 /* fd_alpenglow_footer_verify verifies every cert's aggregate BLS
    signature in the footer.  It also checks the following:
 

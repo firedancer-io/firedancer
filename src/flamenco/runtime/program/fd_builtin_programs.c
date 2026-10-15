@@ -52,10 +52,10 @@ static const fd_core_bpf_migration_config_t STATELESS_TO_CORE_BPF_SLASHING_PROGR
 };
 static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG = &STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG;
 
-#define SYSTEM_PROGRAM_BUILTIN            BUILTIN_PROGRAM(&fd_solana_system_program_id,                 "system_program",                        NO_ENABLE_FEATURE_ID,                                      NULL)
-#define VOTE_PROGRAM_BUILTIN              BUILTIN_PROGRAM(&fd_solana_vote_program_id,                   "vote_program",                          NO_ENABLE_FEATURE_ID,                                      NULL)
+#define SYSTEM_PROGRAM_BUILTIN            BUILTIN_PROGRAM(&fd_solana_system_program_id,                 "solana_system_program",                 NO_ENABLE_FEATURE_ID,                                      NULL)
+#define VOTE_PROGRAM_BUILTIN              BUILTIN_PROGRAM(&fd_solana_vote_program_id,                   "solana_vote_program",                   NO_ENABLE_FEATURE_ID,                                      NULL)
 #define LOADER_V4_BUILTIN                 BUILTIN_PROGRAM(&fd_solana_bpf_loader_v4_program_id,          "loader_v4",                             offsetof(fd_features_t, enable_loader_v4),                 NULL)
-#define BPF_LOADER_DEPRECATED_BUILTIN     BUILTIN_PROGRAM(&fd_solana_bpf_loader_deprecated_program_id,  "solana_bpf_loader_deprecated_program",  NO_ENABLE_FEATURE_ID,                                      NULL)
+#define BPF_LOADER_DEPRECATED_BUILTIN     BUILTIN_PROGRAM(&fd_solana_bpf_loader_deprecated_program_id,  "solana_bpf_loader_program",             NO_ENABLE_FEATURE_ID,                                      NULL)
 #define BPF_LOADER_BUILTIN                BUILTIN_PROGRAM(&fd_solana_bpf_loader_program_id,             "solana_bpf_loader_program",             NO_ENABLE_FEATURE_ID,                                      NULL)
 #define BPF_LOADER_UPGRADEABLE_BUILTIN    BUILTIN_PROGRAM(&fd_solana_bpf_loader_upgradeable_program_id, "solana_bpf_loader_upgradeable_program", NO_ENABLE_FEATURE_ID,                                      NULL)
 #define COMPUTE_BUDGET_PROGRAM_BUILTIN    BUILTIN_PROGRAM(&fd_solana_compute_budget_program_id,         "compute_budget_program",                NO_ENABLE_FEATURE_ID,                                      NULL)

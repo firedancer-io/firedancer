@@ -6,6 +6,7 @@
 #include "../runtime/fd_pubkey_utils.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
+#include "../runtime/sysvar/fd_sysvar_clock.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
@@ -429,6 +430,30 @@ fd_alpenglow_migration_slot( fd_bank_t *  bank,
   if( FD_LIKELY( acc.lamports && acc.data_len>=8UL ) ) migration_slot = FD_LOAD( ulong, acc.data );
   fd_accdb_unread_one( accdb, &acc );
   return migration_slot;
+}
+
+void
+fd_alpenglow_producer_time_bounds( fd_bank_t const * bank,
+                                   fd_accdb_t *      accdb,
+                                   long *            lo,
+                                   long *            hi ) {
+  fd_pubkey_t alpenclock_addr;
+  fd_alpenglow_pda( "alpenclock", &alpenclock_addr );
+
+  long     parent_nanos;
+  fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, alpenclock_addr.uc );
+  int      has_alpenclock = acc.lamports && acc.data_len>=sizeof(ulong);
+  if( FD_LIKELY( has_alpenclock ) ) parent_nanos = (long)FD_LOAD( ulong, acc.data );
+  fd_accdb_unread_one( accdb, &acc );
+  if( FD_UNLIKELY( !has_alpenclock ) ) {
+    fd_sol_sysvar_clock_t clock[1];
+    if( FD_UNLIKELY( !fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock ) ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
+    parent_nanos = fd_long_sat_mul( clock->unix_timestamp, 1000000000L );
+  }
+
+  ulong elapsed = fd_slot_params_slot_range_duration_ns( bank, bank->f.parent_slot+1UL, bank->f.slot+1UL /* inclusive */ );
+  *lo = fd_long_sat_add( parent_nanos, 1L );
+  *hi = fd_long_sat_add( parent_nanos, (long)fd_ulong_min( fd_ulong_sat_mul( elapsed, 2UL ), (ulong)LONG_MAX ) );
 }
 
 /* slot_timestamp backdates the footer timestamp by the duration of
