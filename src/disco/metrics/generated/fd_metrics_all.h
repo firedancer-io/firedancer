@@ -225,7 +225,7 @@ enum {
 
 #define FD_METRICS_COUNTER_TILE_THREAD_DURATION_NANOS_NAME "tile_thread_duration_nanos"
 #define FD_METRICS_COUNTER_TILE_THREAD_DURATION_NANOS_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_TILE_THREAD_DURATION_NANOS_DESC "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned"
+#define FD_METRICS_COUNTER_TILE_THREAD_DURATION_NANOS_DESC "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU"
 #define FD_METRICS_COUNTER_TILE_THREAD_DURATION_NANOS_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_COUNTER_TILE_THREAD_DURATION_NANOS_CNT  (5UL)
 
@@ -237,17 +237,17 @@ enum {
 
 #define FD_METRICS_COUNTER_TILE_DEVICE_IRQ_NAME "tile_device_irq"
 #define FD_METRICS_COUNTER_TILE_DEVICE_IRQ_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_TILE_DEVICE_IRQ_DESC "Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned"
+#define FD_METRICS_COUNTER_TILE_DEVICE_IRQ_DESC "Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there"
 #define FD_METRICS_COUNTER_TILE_DEVICE_IRQ_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_NAME "tile_tlb_shootdown"
 #define FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_DESC "TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned"
+#define FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_DESC "TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there"
 #define FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_TILE_TIMER_IRQ_NAME "tile_timer_irq"
 #define FD_METRICS_COUNTER_TILE_TIMER_IRQ_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_TILE_TIMER_IRQ_DESC "Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned"
+#define FD_METRICS_COUNTER_TILE_TIMER_IRQ_DESC "Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there"
 #define FD_METRICS_COUNTER_TILE_TIMER_IRQ_CVT  (FD_METRICS_CONVERTER_NONE)
 
 

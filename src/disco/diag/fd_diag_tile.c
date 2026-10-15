@@ -85,7 +85,14 @@ struct fd_diag_tile {
   ulong       softirq_baseline[ FD_METRICS_ENUM_SOFTIRQ_TYPE_CNT ][ FD_TILE_MAX ];
 
   ulong volatile * metrics    [ FD_TILE_MAX ];
-  ushort           cpu_to_tile[ FD_TILE_MAX ];
+  ushort           cpu_to_tile[ FD_TILE_MAX ]; /* the one live tile pinned to the CPU, USHORT_MAX if none or shared */
+  ushort           tile_cpu   [ FD_TILE_MAX ]; /* pinned CPU of each tile, USHORT_MAX if floating */
+  fd_cpuset_t      irq_rebase [ fd_cpuset_word_cnt ]; /* owner changed, irq_metrics takes new baselines */
+  fd_cpuset_t      tick_rebase[ fd_cpuset_word_cnt ]; /* owner changed, interrupt_metrics takes new baselines */
+  ulong            owner_irq_baseline [ FD_TILE_MAX ];   /* per-CPU tile baselines, start at the boot baselines */
+  ulong            owner_tlb_baseline [ FD_TILE_MAX ];
+  ulong            owner_loc_baseline [ FD_TILE_MAX ];
+  ulong            owner_tick_baseline[ FD_TILE_MAX ];
 
   int    gui_enabled;
   long   next_system_report_nanos;
@@ -494,6 +501,32 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
 }
 
 static void
+cpu_owner_refresh( fd_diag_tile_t *  ctx,
+                   fd_topo_t const * topo ) {
+  ushort owner[ FD_TILE_MAX ];
+  ushort cnt  [ FD_TILE_MAX ] = {0};
+  for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
+    if( topo ) {
+      ulong cpu_idx = topo->tiles[ i ].cpu_idx;
+      ctx->tile_cpu[ i ] = (ushort)fd_ulong_if( cpu_idx<FD_TILE_MAX && !topo->tiles[ i ].floats, cpu_idx, USHORT_MAX );
+    }
+    ulong cpu_idx = ctx->tile_cpu[ i ];
+    if( cpu_idx==USHORT_MAX || ( !topo && 2UL==ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATE_OFF ] ) ) continue;
+    owner[ cpu_idx ] = (ushort)i;
+    cnt  [ cpu_idx ]++;
+  }
+  for( ulong c=0UL; c<FD_TILE_MAX; c++ ) {
+    ushort o = cnt[ c ]==1 ? owner[ c ] : USHORT_MAX;
+    if( FD_LIKELY( o==ctx->cpu_to_tile[ c ] ) ) continue;
+    ctx->cpu_to_tile[ c ] = o;
+    if( !topo ) { /* the new owner counts from its next sample */
+      fd_cpuset_insert( ctx->irq_rebase,  c );
+      fd_cpuset_insert( ctx->tick_rebase, c );
+    }
+  }
+}
+
+static void
 irq_metrics( fd_diag_tile_t * ctx ) {
   if( FD_UNLIKELY( -1==lseek( ctx->proc_softirqs_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
   ulong softirq_cpu_cnt = fd_proc_softirqs_sum( ctx->proc_softirqs_fd, ctx->irq_cnt );
@@ -530,28 +563,22 @@ irq_metrics( fd_diag_tile_t * ctx ) {
     if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
       undesired_cnt += since;
     }
-    ulong tile_id = ctx->cpu_to_tile[ i ];
-    if( tile_id!=USHORT_MAX ) {
-      ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_DEVICE_IRQ_OFF ] = since;
-    }
   }
   FD_MCNT_SET( DIAG, SYSTEM_DEVICE_IRQ,      tot_cnt       );
   FD_MCNT_SET( DIAG, DEVICE_IRQ_ON_TILE_CPU, undesired_cnt );
 
   for( ulong i=0UL; i<cpu_cnt; i++ ) {
     ulong tile_id = ctx->cpu_to_tile[ i ];
-    if( tile_id!=USHORT_MAX ) {
-      ulong since = fd_ulong_sat_sub( cpu_tlb[ i ], ctx->tlb_baseline[ i ] );
-      ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_OFF ] = since;
+    if( tile_id==USHORT_MAX ) continue;
+    if( FD_UNLIKELY( fd_cpuset_test( ctx->irq_rebase, i ) ) ) {
+      ctx->owner_irq_baseline[ i ] = cpu_irq[ i ];
+      ctx->owner_tlb_baseline[ i ] = cpu_tlb[ i ];
+      ctx->owner_loc_baseline[ i ] = cpu_loc[ i ];
+      fd_cpuset_remove( ctx->irq_rebase, i );
     }
-  }
-
-  for( ulong i=0UL; i<cpu_cnt; i++ ) {
-    ulong tile_id = ctx->cpu_to_tile[ i ];
-    if( tile_id!=USHORT_MAX ) {
-      ulong since = fd_ulong_sat_sub( cpu_loc[ i ], ctx->loc_baseline[ i ] );
-      ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_TIMER_IRQ_OFF ] = since;
-    }
+    ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_DEVICE_IRQ_OFF    ] = fd_ulong_sat_sub( cpu_irq[ i ], ctx->owner_irq_baseline[ i ] );
+    ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_OFF ] = fd_ulong_sat_sub( cpu_tlb[ i ], ctx->owner_tlb_baseline[ i ] );
+    ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_TIMER_IRQ_OFF     ] = fd_ulong_sat_sub( cpu_loc[ i ], ctx->owner_loc_baseline[ i ] );
   }
 }
 
@@ -572,11 +599,14 @@ interrupt_metrics( fd_diag_tile_t * ctx ) {
 
   for( ulong i=0UL; i<cpu_cnt; i++ ) {
     ulong tile_id = ctx->cpu_to_tile[ i ];
-    if( tile_id!=USHORT_MAX ) {
-      /* CLK_TCK is always 100, so 1 tick = 10ms = 10,000,000 ns */
-      ulong since = fd_ulong_sat_sub( cpu_ticks[ i ], ctx->irq_ticks_baseline[ i ] );
-      ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_THREAD_DURATION_NANOS_INTERRUPT_OFF ] = since*10000000UL;
+    if( tile_id==USHORT_MAX ) continue;
+    if( FD_UNLIKELY( fd_cpuset_test( ctx->tick_rebase, i ) ) ) {
+      ctx->owner_tick_baseline[ i ] = cpu_ticks[ i ];
+      fd_cpuset_remove( ctx->tick_rebase, i );
     }
+    /* CLK_TCK is always 100, so 1 tick = 10ms = 10,000,000 ns */
+    ulong since = fd_ulong_sat_sub( cpu_ticks[ i ], ctx->owner_tick_baseline[ i ] );
+    ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_THREAD_DURATION_NANOS_INTERRUPT_OFF ] = since*10000000UL;
   }
 }
 
@@ -742,6 +772,7 @@ before_credit( fd_diag_tile_t *    ctx,
   if( FD_UNLIKELY( -1==clock_gettime( CLOCK_BOOTTIME, &boottime ) ) ) FD_LOG_ERR(( "clock_gettime(CLOCK_BOOTTIME) failed (%i-%s)", errno, strerror( errno ) ));
   ulong now_since_boot_nanos = (ulong)boottime.tv_sec*1000000000UL + (ulong)boottime.tv_nsec;
 
+  cpu_owner_refresh( ctx, NULL );
   interrupt_metrics( ctx ); /* before idle computation below, which subtracts it */
 
   int sched_due = now>=ctx->next_sched_report_nanos;
@@ -1383,6 +1414,12 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( -1==lseek( ctx->proc_stat_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
   ulong stat_cpu_cnt = fd_proc_stat_irq_ticks( ctx->proc_stat_fd, ctx->irq_ticks_baseline );
   if( FD_UNLIKELY( !stat_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read irq tick baseline from /proc/stat" ));
+  memcpy( ctx->owner_irq_baseline,  ctx->device_irq_baseline, sizeof(ctx->owner_irq_baseline)  );
+  memcpy( ctx->owner_tlb_baseline,  ctx->tlb_baseline,        sizeof(ctx->owner_tlb_baseline)  );
+  memcpy( ctx->owner_loc_baseline,  ctx->loc_baseline,        sizeof(ctx->owner_loc_baseline)  );
+  memcpy( ctx->owner_tick_baseline, ctx->irq_ticks_baseline,  sizeof(ctx->owner_tick_baseline) );
+  fd_cpuset_new( ctx->irq_rebase  );
+  fd_cpuset_new( ctx->tick_rebase );
 
   /* Read starttime (field 22) once at init for idle time calculation.
      CLK_TCK is always 100, so 1 tick = 10ms = 10,000,000 ns. */
@@ -1411,11 +1448,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) ctx->cpu_to_tile[ i ] = USHORT_MAX;
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    ulong cpu_idx = topo->tiles[ i ].cpu_idx;
-    if( cpu_idx>=FD_TILE_MAX || topo->tiles[ i ].floats ) continue;
-    ctx->cpu_to_tile[ cpu_idx ] = (ushort)i;
-  }
+  cpu_owner_refresh( ctx, topo );
 
   ctx->is_voting = tile->diag.is_voting;
   ctx->check_engine.vote_slot_changed_ns    = ctx->next_report_nanos;

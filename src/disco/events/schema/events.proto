@@ -1397,7 +1397,7 @@ message MetricsNetParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsNetThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -1481,7 +1481,7 @@ message MetricsMlx5ParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsMlx5ThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -1545,7 +1545,7 @@ message MetricsSockParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSockThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -1845,7 +1845,7 @@ message MetricsQuicParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsQuicThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -1941,7 +1941,7 @@ message MetricsBundleParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsBundleThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -2003,7 +2003,7 @@ message MetricsVerifyParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsVerifyThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -2061,7 +2061,7 @@ message MetricsDedupParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsDedupThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -2185,7 +2185,7 @@ message MetricsResolvParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsResolvThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -2753,7 +2753,7 @@ message MetricsPackParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsPackThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -3091,7 +3091,7 @@ message MetricsExecleParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsExecleThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -3377,7 +3377,7 @@ message MetricsShredBatchSizeBytes {
   uint64 sum = 17;
 }
 
-// Shred destinations in each cluster contact info update
+// Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)
 message MetricsShredDestPerUpdate {
   // [0, 1)
   uint64 b0 = 1;
@@ -3425,7 +3425,7 @@ message MetricsShredParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsShredThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -3629,7 +3629,7 @@ message MetricsAccdbParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsAccdbThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -3921,7 +3921,7 @@ message MetricsReplayParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsReplayThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -4083,7 +4083,7 @@ message MetricsRotorParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsRotorThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -4305,7 +4305,7 @@ message MetricsRserveParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsRserveThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -4595,7 +4595,7 @@ message MetricsGossipParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsGossipThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -4807,7 +4807,7 @@ message MetricsGossvfParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsGossvfThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -4893,7 +4893,7 @@ message MetricsSignParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSignThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -4967,7 +4967,7 @@ message MetricsNetlnkParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsNetlnkThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5047,7 +5047,7 @@ message MetricsSnapctParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSnapctThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5095,7 +5095,7 @@ message MetricsSnapldParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSnapldThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5159,7 +5159,7 @@ message MetricsSnapdcParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSnapdcThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5225,7 +5225,7 @@ message MetricsSnapinParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSnapinThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5273,7 +5273,7 @@ message MetricsMetricParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsMetricThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5485,7 +5485,7 @@ message MetricsRpcParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsRpcThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5553,7 +5553,7 @@ message MetricsDiagParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsDiagThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5601,7 +5601,7 @@ message MetricsGenesiParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsGenesiThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5649,7 +5649,7 @@ message MetricsAdminParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsAdminThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5697,7 +5697,7 @@ message MetricsWakerParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsWakerThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5755,7 +5755,7 @@ message MetricsMwaitxParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsMwaitxThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -5827,7 +5827,7 @@ message MetricsIpechoParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsIpechoThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -6153,7 +6153,7 @@ message MetricsExecrpParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsExecrpThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -6271,7 +6271,7 @@ message MetricsVotorParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsVotorThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -6739,7 +6739,7 @@ message MetricsGuiParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsGuiThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -6787,7 +6787,7 @@ message MetricsEventParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsEventThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -6867,7 +6867,7 @@ message MetricsSnapmkParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSnapmkThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -6915,7 +6915,7 @@ message MetricsSnapzpParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSnapzpThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -6963,7 +6963,7 @@ message MetricsSnaprdParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSnaprdThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -7019,7 +7019,7 @@ message MetricsSnapsvParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsSnapsvThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -7067,7 +7067,7 @@ message MetricsMotorParkAttempted {
   uint64 pending = 3;
 }
 
-// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
 message MetricsMotorThreadDurationNanos {
   // Wait (task was runnable but not scheduled)
   uint64 wait = 1;
@@ -8167,15 +8167,15 @@ message MetricsNet {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsNetRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsNetThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsNetParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Packets successfully published to output links
   uint64 pkt_rx = 25;
@@ -8265,15 +8265,15 @@ message MetricsMlx5 {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsMlx5RegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsMlx5ThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsMlx5ParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Packets successfully published to output links
   uint64 pkt_rx = 25;
@@ -8341,15 +8341,15 @@ message MetricsSock {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSockRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSockThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSockParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // sendmmsg syscalls dispatched, by result
   MetricsSockSyscallTx syscall_tx = 25;
@@ -8407,15 +8407,15 @@ message MetricsQuic {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsQuicRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsQuicThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsQuicParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Txns evicted from reassembly before completing (txn_reassembly_count too small)
   uint64 txn_reassembly_evicted = 25;
@@ -8547,15 +8547,15 @@ message MetricsBundle {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsBundleRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsBundleThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsBundleParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Transactions received, including transactions within bundles
   uint64 txn_rx = 25;
@@ -8629,15 +8629,15 @@ message MetricsVerify {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsVerifyRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsVerifyThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsVerifyParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Transactions processed, by result
   MetricsVerifyTxnProcessed txn_processed = 25;
@@ -8687,15 +8687,15 @@ message MetricsDedup {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsDedupRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsDedupThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsDedupParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Transactions processed, by result
   MetricsDedupTxnProcessed txn_processed = 25;
@@ -8743,15 +8743,15 @@ message MetricsResolv {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsResolvRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsResolvThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsResolvParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Transactions dropped, by reason
   MetricsResolvTxnDropped txn_dropped = 25;
@@ -8815,15 +8815,15 @@ message MetricsPack {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsPackRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsPackThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsPackParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Duration of scheduling one microblock
   MetricsPackMicroblockScheduleDurationNanos microblock_schedule_duration_nanos = 25;
@@ -8913,15 +8913,15 @@ message MetricsExecle {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsExecleRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsExecleThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsExecleParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Transactions loaded and executed, by result
   MetricsExecleTxnProcessed txn_processed = 25;
@@ -9039,17 +9039,17 @@ message MetricsShred {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsShredRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsShredThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsShredParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
-  // Shred destinations in each cluster contact info update
+  // Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)
   MetricsShredDestPerUpdate dest_per_update = 25;
   // Microblock batches abandoned because we switched slots without finishing the current slot
   uint64 batch_abandoned = 26;
@@ -9135,15 +9135,15 @@ message MetricsAccdb {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsAccdbRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsAccdbThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsAccdbParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Account versions in the index; every unrooted fork version counts
   uint64 account_used = 25;
@@ -9235,15 +9235,15 @@ message MetricsReplay {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsReplayRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsReplayThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsReplayParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Identity account balance at the optimistically confirmed slot, or the finalized slot under Alpenglow
   uint64 identity_balance_lamports = 25;
@@ -9471,15 +9471,15 @@ message MetricsRotor {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsRotorRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsRotorThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsRotorParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Network packets sent, including requests, pings and pongs
   uint64 pkt_tx = 25;
@@ -9583,15 +9583,15 @@ message MetricsRserve {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsRserveRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsRserveThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsRserveParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Requests with a supported tag and correct size (pongs on tag alone), by type, before identity, signature and ping checks
   MetricsRserveRequestRx request_rx = 25;
@@ -9691,15 +9691,15 @@ message MetricsGossip {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsGossipRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsGossipThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsGossipParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Peers tracked for ping/pong, by state
   MetricsGossipPingPeerCount ping_peer_count = 25;
@@ -9805,15 +9805,15 @@ message MetricsGossvf {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsGossvfRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsGossvfThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsGossvfParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Gossip messages received, by verification result
   MetricsGossvfMessageRx message_rx = 25;
@@ -9865,15 +9865,15 @@ message MetricsSign {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSignRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSignThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSignParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Duration of signing a message
   MetricsSignSignDurationNanos sign_duration_nanos = 25;
@@ -9919,15 +9919,15 @@ message MetricsNetlnk {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsNetlnkRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsNetlnkThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsNetlnkParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Netlink receive buffer overflows (ENOBUFS); each forces a full resync
   uint64 rx_buffer_overflowed = 25;
@@ -9983,15 +9983,15 @@ message MetricsSnapct {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSnapctRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSnapctThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSnapctParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Snapshot load controller state: 0=init (Initializing), 1=waiting_for_peers, 2=waiting_for_peers_incremental (Waiting for peers (incremental)), 3=collecting_peers, 4=collecting_peers_incremental (Collecting peers (incremental)), 5=reading_full_file (Reading full snapshot file), 6=flushing_full_file_fini (Full file read, draining downstream), 7=flushing_full_file_done (Full file loaded, draining downstream), 8=flushing_full_file_reset (Full file load aborted, resetting downstream), 9=reading_incremental_file (Reading incremental snapshot file), 10=flushing_incremental_file_fini (Incremental file read, draining downstream), 11=flushing_incremental_file_done (Incremental file loaded, draining downstream), 12=flushing_incremental_file_reset (Incremental file load aborted, resetting downstream), 13=reading_full_http (Downloading full snapshot), 14=flushing_full_http_fini (Full download read, draining downstream), 15=flushing_full_http_done (Full download loaded, draining downstream), 16=flushing_full_http_reset (Full download aborted, resetting downstream), 17=reading_incremental_http (Downloading incremental snapshot), 18=flushing_incremental_http_fini (Incremental download read, draining downstream), 19=flushing_incremental_http_done (Incremental download loaded, draining downstream), 20=flushing_incremental_http_reset (Incremental download aborted, resetting downstream), 21=shutdown (Snapshot load complete)
   MetricsSnapctLoadState load_state = 25;
@@ -10047,15 +10047,15 @@ message MetricsSnapld {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSnapldRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSnapldThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSnapldParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Snapshot loader state: 0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown
   MetricsSnapldStreamState stream_state = 25;
@@ -10101,15 +10101,15 @@ message MetricsSnapdc {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSnapdcRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSnapdcThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSnapdcParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Snapshot decompressor state: 0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown
   MetricsSnapdcStreamState stream_state = 25;
@@ -10159,15 +10159,15 @@ message MetricsSnapin {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSnapinRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSnapinThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSnapinParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Snapshot inserter state: 0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown
   MetricsSnapinStreamState stream_state = 25;
@@ -10223,15 +10223,15 @@ message MetricsMetric {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsMetricRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsMetricThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsMetricParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Wall-clock time the validator started
   uint64 boot_time = 25;
@@ -10283,15 +10283,15 @@ message MetricsRpc {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsRpcRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsRpcThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsRpcParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Time to handle one HTTP request or WebSocket message, excluding socket I/O
   MetricsRpcRequestDurationNanos request_duration_nanos = 25;
@@ -10361,15 +10361,15 @@ message MetricsDiag {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsDiagRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsDiagThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsDiagParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Bundle subsystem state: 0=disconnected (All bundle tiles disconnected), 1=connecting (At least one bundle tile connecting, none connected or sleeping), 2=connected (At least one bundle tile connected), 3=sleeping (At least one bundle tile sleeping, none connected), 4=disabled (No bundle tiles configured)
   MetricsDiagBundleState bundle_state = 25;
@@ -10431,15 +10431,15 @@ message MetricsGenesi {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsGenesiRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsGenesiThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsGenesiParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
 }
 
@@ -10483,15 +10483,15 @@ message MetricsAdmin {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsAdminRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsAdminThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsAdminParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
 }
 
@@ -10535,15 +10535,15 @@ message MetricsWaker {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsWakerRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsWakerThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsWakerParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // epoll_pwait calls on the outer epoll set that returned, including timeouts; EINTR not counted
   uint64 epoll_wait_returned = 25;
@@ -10591,15 +10591,15 @@ message MetricsMwaitx {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsMwaitxRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsMwaitxThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsMwaitxParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Hardware idle-wait naps on the doorbell line
   uint64 nap_taken = 25;
@@ -10647,15 +10647,15 @@ message MetricsIpecho {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsIpechoRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsIpechoThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsIpechoParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Open connections to the ipecho service
   uint64 conn_open = 25;
@@ -10713,15 +10713,15 @@ message MetricsExecrp {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsExecrpRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsExecrpThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsExecrpParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing)
   bool is_processing = 25;
@@ -10843,15 +10843,15 @@ message MetricsVotor {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsVotorRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsVotorThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsVotorParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Inbound datagrams dispatched, by result
   MetricsVotorDatagramRx datagram_rx = 25;
@@ -10925,15 +10925,15 @@ message MetricsGui {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsGuiRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsGuiThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsGuiParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Open HTTP connections to the GUI service, excluding connections upgraded to WebSocket
   uint64 conn_open = 25;
@@ -11021,15 +11021,15 @@ message MetricsEvent {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsEventRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsEventThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsEventParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Telemetry server connection state: 0=disconnected, 1=connecting, 2=authenticating, 3=connected
   MetricsEventConnState conn_state = 25;
@@ -11105,15 +11105,15 @@ message MetricsSnapmk {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSnapmkRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSnapmkThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSnapmkParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Snapshot creation job state: 0=idle (Idle, waiting for a job), 1=start (Starting), 2=tar_headers (Writing tar headers), 3=manifest (Writing manifest), 4=accdb_cache (Writing cached accounts), 5=accdb_cache_flush (Flushing cached accounts), 6=accdb_cache_finish (Waiting for cached account flush), 7=accdb_disk (Writing on-disk accounts), 8=accdb_disk_flush (Flushing on-disk accounts), 9=accdb_disk_finish (Waiting for on-disk account flush), 10=accdb_delta (Writing incremental accounts), 11=accdb_delta_flush (Flushing incremental accounts), 12=accdb_delta_finish (Waiting for incremental account flush), 13=status_cache (Writing status cache), 14=eof_marker (Writing tar EOF marker), 15=done (Done, notifying replay), 16=fail (Failed, cleaning up), 17=sleep (Sleeping), 18=startup (Waiting for startup), 19=startup_burst (Publishing pre-existing snapshots)
   MetricsSnapmkJobState job_state = 25;
@@ -11189,15 +11189,15 @@ message MetricsSnapzp {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSnapzpRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSnapzpThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSnapzpParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Accounts compressed
   uint64 account_compressed = 25;
@@ -11253,15 +11253,15 @@ message MetricsSnaprd {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSnaprdRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSnaprdThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSnaprdParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Bytes read from the account database file
   uint64 disk_read_bytes = 25;
@@ -11313,15 +11313,15 @@ message MetricsSnapsv {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsSnapsvRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsSnapsvThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsSnapsvParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
   // Snapshot files currently available for download
   MetricsSnapsvSnapshotAvailable snapshot_available = 25;
@@ -11417,15 +11417,15 @@ message MetricsMotor {
   uint64 backpressure = 18;
   // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
   MetricsMotorRegimeDurationNanos regime_duration_nanos = 19;
-  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
   MetricsMotorThreadDurationNanos thread_duration_nanos = 20;
   // Times the tile tried to park while idle (efficient mode), by result
   MetricsMotorParkAttempted park_attempted = 21;
-  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 device_irq = 22;
-  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 tlb_shootdown = 23;
-  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
 }
 

@@ -192,11 +192,11 @@ deliberate exception with lint-allow="<rule id>")
     <bool name="IsBackpressured" summary="Whether the tile is currently backpressured" />
     <counter name="Backpressure" ambiguous-kind="true" summary="Times the tile waited for one or more consumers to catch up to resume publishing" />
     <counter name="RegimeDurationNanos" enum="TileRegime" source="ticks" summary="Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it" />
-    <counter name="ThreadDurationNanos" enum="ThreadRegime" summary="Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned" />
+    <counter name="ThreadDurationNanos" enum="ThreadRegime" summary="Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU" />
     <counter name="ParkAttempted" enum="ParkResult" summary="Times the tile tried to park while idle (efficient mode), by result" />
-    <counter name="DeviceIrq" ambiguous-kind="true" summary="Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" />
-    <counter name="TlbShootdown" ambiguous-kind="true" summary="TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" />
-    <counter name="TimerIrq" ambiguous-kind="true" summary="Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" />
+    <counter name="DeviceIrq" ambiguous-kind="true" summary="Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" />
+    <counter name="TlbShootdown" ambiguous-kind="true" summary="TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" />
+    <counter name="TimerIrq" ambiguous-kind="true" summary="Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" />
 </common>
 
 <enum name="PktRxDropReason">
