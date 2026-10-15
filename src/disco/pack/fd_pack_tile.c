@@ -207,8 +207,8 @@ typedef struct {
   /* microblock_duration_ns scaled to be in ticks instead of nanoseconds */
   ulong microblock_duration_ticks;
 
-  fd_pack_in_ctx_t in[ 32 ];
-  int              in_kind[ 32 ];
+  fd_pack_in_ctx_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  int              in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   ulong    execle_cnt;
   ulong    execle_idle_bitset; /* bit i is 1 if we've observed *execle_current[i]==execle_expect[i] */

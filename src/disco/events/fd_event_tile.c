@@ -153,8 +153,8 @@ struct fd_event_tile {
   double ns_per_tick;
 
   ulong in_cnt;
-  int in_kind[ 64UL ];
-  fd_event_tile_in_t in[ 64UL ];
+  int in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  fd_event_tile_in_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 };
 
 typedef struct fd_event_tile fd_event_tile_t;
