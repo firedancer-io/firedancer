@@ -240,6 +240,28 @@ struct fd_tower_tile {
     ulong hfork_matched_slot;
     ulong hfork_mismatched_slot;
   } metrics;
+
+  /* Failover, all off unless the topology has the adopt links (see
+     failover_init). */
+
+  int         adoption_enabled;      /* the adopt links are in the topology */
+  int         normal_startup;        /* client keeps ordinary history restore until its first adoption */
+  int         shadow;                /* shadow mode, a standby on its boot key votes in its own tower but signs and sends no vote transactions */
+  int         tower_adopted;         /* an adoption succeeded since the last switch, it authorizes the next one */
+  int         no_vote_authority;     /* a failover switch installed a voting key without an adoption, so we do not vote */
+  int         epoch_refresh_pending; /* an adoption advanced the root, refresh the epoch voter caches on the next completed slot */
+  int         root_publish_pending;  /* report the adopted root to Replay and Repair in the next SLOT_DONE */
+  ulong       adopted_root_slot;
+  fd_hash_t   adopted_root_block_id;
+  fd_pubkey_t boot_identity;         /* identity we booted with, the junk key under failover */
+  ulong       vote_acct_slot;        /* slot of the bank our_vote_acct was last read from */
+
+  /* Adoption responses use a separate output link. */
+  ulong       adopt_out_idx;
+  fd_wksp_t * adopt_out_mem;
+  ulong       adopt_out_chunk0;
+  ulong       adopt_out_wmark;
+  ulong       adopt_out_chunk;
 };
 typedef struct fd_tower_tile fd_tower_tile_t;
 

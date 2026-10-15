@@ -12,7 +12,8 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26576112UL, update_fd_config_to_json_for_the_layout_change );
+/* tower.failover_standby is derived topology state, not a config field. */
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26578160UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -126,6 +127,7 @@ static char const * const jw_redacted_keys[] = {
   "snapshots.sources.servers",
   "snapshots.server.http_listen_address",
   "hugetlbfs.mount_path",
+  "failover.listen_address",
   "net.bind_address",
   "tiles.quic.ssl_key_log_file",
   "tiles.bundle.url",
@@ -426,6 +428,12 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "send_timeout_millis",  f->snapshots.server.send_timeout_millis );
       jw_ulong( &w, "send_buffer_size_kib", f->snapshots.server.send_buffer_size_kib );
     jw_obj_close( &w );
+  jw_obj_close( &w );
+
+  jw_obj_open( &w, "failover" );
+    jw_bool ( &w, "enabled",        f->failover.enabled );
+    jw_path ( &w, "listen_address", f->failover.listen_address );
+    jw_ulong( &w, "listen_port",    f->failover.listen_port );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "hugetlbfs" );

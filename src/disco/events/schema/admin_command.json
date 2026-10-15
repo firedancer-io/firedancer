@@ -11,7 +11,9 @@
                 "get_identity":                 { "description": "Read the running validator identity." },
                 "add_authorized_voter":         { "description": "Add an authorized voter key." },
                 "remove_all_authorized_voters": { "description": "Remove every authorized voter key." },
-                "snapshot_create":              { "description": "Request creation of a snapshot." }
+                "snapshot_create":              { "description": "Request creation of a snapshot." },
+                "failover_promote":             { "description": "Promote the running standby validator to active." },
+                "failover_status":              { "description": "Read the running validator's failover state." }
             }
         },
         "result": {
