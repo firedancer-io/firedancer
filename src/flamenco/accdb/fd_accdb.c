@@ -1961,9 +1961,12 @@ allocate_next_write( fd_accdb_t * accdb,
 
 ulong
 fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
-                                 ulong        sz ) {
-  FD_TEST( sz && sz<=accdb->shmem->partition_sz );
-  return allocate_next_write( accdb, sz );
+                                 ulong        sz,
+                                 ulong        dead_tail_sz ) {
+  FD_TEST( sz && sz<=accdb->shmem->partition_sz && dead_tail_sz<=sz );
+  ulong off = allocate_next_write( accdb, sz );
+  if( dead_tail_sz ) fd_accdb_shmem_bytes_freed( accdb->shmem, off+sz-dead_tail_sz, dead_tail_sz );
+  return off;
 }
 
 /* Compaction write allocation.  Single-threaded: only the compaction

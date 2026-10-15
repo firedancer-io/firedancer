@@ -1361,7 +1361,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
      FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
      layer-0 writers during the load, and every reservation they make
      is a multiple of FD_SNAPIN_DIRECT_ALIGN. */
-  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded );
+  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded, padded-used );
   FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
   writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
 
