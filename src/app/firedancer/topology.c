@@ -76,7 +76,7 @@ wire_event_links( fd_topo_t * topo ) {
     /* The dcache must cover depth*MTU (a smaller region risks undetected
        torn reads), so big-MTU links trade depth away to fit the budget. */
     ulong const event_link_dcache_max = 64UL<<20; /* 64 MiB data region per event link */
-    ulong depth = 128UL;
+    ulong depth = 1024UL;
     while( depth>1UL && fd_dcache_req_data_sz( max_sz, depth, 1UL, 1 )>event_link_dcache_max ) depth >>= 1;
 
     fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", depth, max_sz, 1UL );
