@@ -22,6 +22,7 @@
 #include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../discof/backup/fd_backup.h"
 #include "../../../../discof/backup/fd_snap_pool.h"
+#include "../../../../discof/backup/fd_strmk_tile.h"
 #include "../../../../discof/restore/utils/fd_ssarchive.h"
 #include "../../../../disco/waker/fd_waker.h"
 #include "../../../../disco/sleep/fd_sleep.h"
@@ -366,9 +367,11 @@ main_pid_namespace( void * _args ) {
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
   int   has_store     = store_obj_id!=ULONG_MAX;
   ulong snap_max                = 0UL;
+  ulong fast_boot_max           = 0UL;
   int   snapshot_upload_enabled = 0;
   int   snapshot_dio_enabled    = 0;
     snap_max                = initialize_snapshot_fds( config );
+    fast_boot_max           = initialize_fast_boot_fds( config );
     snapshot_upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
     snapshot_dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
 
@@ -470,7 +473,8 @@ main_pid_namespace( void * _args ) {
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         int tile_uses_vote_stakes = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
-                                    !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapmk" );
+                                    !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapmk" ) ||
+                                    !strcmp( tile->name, "strmk"  );
         if( FD_UNLIKELY( -1==fcntl( FD_VOTE_STAKES_FD, F_SETFD, tile_uses_vote_stakes ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -494,6 +498,17 @@ main_pid_namespace( void * _args ) {
             if( FD_UNLIKELY( -1==fcntl( FD_SNAP_RO_FD( j ), F_SETFD, tile_uses_snap_rd_fd ? 0 : FD_CLOEXEC ) ) )
               FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
+        }
+
+        /* the fast boot stream pool: the stream maker writes, the file
+           server reads */
+        int tile_uses_fast_boot_fd    = !strcmp( tile->name, "strmk"  );
+        int tile_uses_fast_boot_ro_fd = !strcmp( tile->name, "snapsv" );
+        for( ulong j=0UL; j<fast_boot_max; j++ ) {
+          if( FD_UNLIKELY( -1==fcntl( FD_STRMK_FD( j ), F_SETFD, tile_uses_fast_boot_fd ? 0 : FD_CLOEXEC ) ) )
+            FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( FD_STRMK_RO_FD( j ), F_SETFD, tile_uses_fast_boot_ro_fd ? 0 : FD_CLOEXEC ) ) )
+            FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
       int is_waker = !strcmp( tile->name, "waker" );
@@ -561,6 +576,10 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==close( FD_SNAP_DIO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( snapshot_upload_enabled )
         if( FD_UNLIKELY( -1==close( FD_SNAP_RO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    for( ulong j=0UL; j<fast_boot_max; j++ ) {
+      if( FD_UNLIKELY( -1==close( FD_STRMK_FD( j ) ) ) )    FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( FD_STRMK_RO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
 
   if( FD_UNLIKELY( -1==close( FD_WAKER_OUTER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1409,6 +1428,40 @@ initialize_snapshot_fds( config_t const * config ) {
 
   if( FD_UNLIKELY( -1==close( dir_fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
   return snap_max;
+}
+
+/* initialize_fast_boot_fds opens the fast boot stream pool like the
+   snapshot pool: a read-write handle for the stream maker at
+   FD_STRMK_FD(*) and a read-only one for the file server at
+   FD_STRMK_RO_FD(*).  The files are emptied, because a stream from a
+   previous run cannot be resumed. */
+
+ulong
+initialize_fast_boot_fds( config_t const * config ) {
+  if( FD_LIKELY( fd_topo_find_tile( &config->topo, "strmk", 0UL )==ULONG_MAX ) ) return 0UL;
+
+  char const * snap_dir = config->paths.snapshots;
+  int dir_fd = open( snap_dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
+  if( FD_UNLIKELY( -1==dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+
+  for( ulong i=0UL; i<FD_STRMK_POOL; i++ ) {
+    char name[ FD_SNAP_NAME_MAX ];
+    fd_strmk_stream_name( name, i );
+    int fd = openat( dir_fd, name, O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC|O_NOFOLLOW, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "openat(%s/%s) failed (%i-%s)", snap_dir, name, errno, fd_io_strerror( errno ) ));
+    snap_check_fd ( snap_dir, name, fd );
+    snap_reperm_fd( snap_dir, name, fd, config->uid, config->gid );
+    if( FD_UNLIKELY( -1==dup2( fd, FD_STRMK_FD( i ) ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    int ro_fd = openat( dir_fd, name, O_RDONLY|O_NOFOLLOW );
+    if( FD_UNLIKELY( -1==ro_fd ) ) FD_LOG_ERR(( "openat(%s/%s, O_RDONLY) failed (%i-%s)", snap_dir, name, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==dup2( ro_fd, FD_STRMK_RO_FD( i ) ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( -1==close( dir_fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+  return FD_STRMK_POOL;
 }
 
 /* The boot sequence is a little bit involved...

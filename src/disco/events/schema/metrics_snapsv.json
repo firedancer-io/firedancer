@@ -96,6 +96,9 @@
         "http_request_served":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "HTTP requests served" },
         "conn_open":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Open HTTP connections to the snapshot service" },
         "http_rx_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes received in requests to the snapshot service" },
-        "http_tx_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes sent in responses from the snapshot service" }
+        "http_tx_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes sent in responses from the snapshot service" },
+        "fast_boot_stream_available": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Fast boot stream files currently available for download", "field_number": 508853788 },
+        "fast_boot_request_served":   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "HTTP requests for fast boot streams served", "field_number": 488607948 },
+        "fast_boot_tx_bytes":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes sent in fast boot stream responses", "field_number": 453950772 }
     }
 }

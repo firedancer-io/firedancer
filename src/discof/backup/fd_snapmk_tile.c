@@ -56,6 +56,7 @@
 #include "fd_snapmk_tile.h"
 
 #include "fd_backup.h"
+#include "fd_backup_wake.h"
 #include "fd_snap_pool.h"
 #include "fd_backup_cache.h"
 #include "fd_backup_disk.h"
@@ -687,21 +688,6 @@ zip_align( fd_snapmk_t * ctx ) {
   atomic_store_explicit( ctx->file_off_p, aoff, memory_order_release );
 }
 
-/* snapmk_status_cache_tar_hdr builds the TAR header of the status cache
-   file for a payload of sz bytes. */
-
-static fd_tar_meta_t *
-snapmk_status_cache_tar_hdr( fd_tar_meta_t * meta,
-                             ulong           sz ) {
-  fd_backup_tar_file_hdr( meta, sz );
-  if( FD_UNLIKELY( !fd_tar_meta_set_size( meta, sz ) ) ) {
-    FD_LOG_ERR(( "status cache (%lu bytes) too large for a TAR size field", sz ));
-  }
-  fd_cstr_ncpy( meta->name, "snapshots/status_cache", sizeof(meta->name) );
-  fd_tar_meta_set_chksum( meta );
-  return meta;
-}
-
 /* snapmk_status_cache_prepare starts status cache serialization and
    writes its TAR header.  The writer counts the status cache up front,
    so its size is known before the first byte is streamed. */
@@ -720,7 +706,7 @@ snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
 
   zip_reset( ctx );
   fd_tar_meta_t meta;
-  snapmk_status_cache_tar_hdr( &meta, ctx->status_cache_expected_sz );
+  fd_backup_tar_named_hdr( &meta, "snapshots/status_cache", ctx->status_cache_expected_sz );
   zip_append( ctx, &meta, sizeof(fd_tar_meta_t) );
 }
 
@@ -1118,36 +1104,12 @@ snapmk_tar_headers( fd_snapmk_t * ctx ) {
   ulong slot = ctx->bank->f.slot;
 
   ctx->raw_buf.pos = ctx->raw_buf.size = 0UL;
-  uchar * p = ctx->raw;
-  fd_tar_meta_t meta;
-
-  fd_backup_tar_file_hdr( &meta, 5UL );
-  fd_cstr_ncpy( meta.name, "version", sizeof(meta.name) );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
-
-  memcpy( p,   "1.2.0",       5UL );
-  memset( p+5, 0,       512UL-5UL );
-  p += 512UL;
-
-  fd_backup_tar_dir_hdr( &meta );
-  fd_cstr_ncpy( meta.name, "snapshots/", sizeof(meta.name) );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
-
-  fd_backup_tar_dir_hdr( &meta );
-  fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/", slot );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
+  uchar * p = ctx->raw + fd_backup_tar_open_entries( ctx->raw, RAW_BUF_SZ, slot );
 
   ctx->manifest_sz = ctx->manifest_writer->serialized_sz;
-  fd_backup_tar_file_hdr( &meta, ctx->manifest_sz );
-  fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/%lu", slot, slot );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+  char          name[ FD_TAR_NAME_SZ ];
+  fd_tar_meta_t meta;
+  memcpy( p, fd_backup_tar_named_hdr( &meta, fd_backup_manifest_name( name, slot ), ctx->manifest_sz ), sizeof(fd_tar_meta_t) );
   p += sizeof(fd_tar_meta_t);
   ctx->raw_buf.size = (ulong)( p - ctx->raw );
   ctx->manifest_pad = fd_ulong_align_up( ctx->manifest_sz, 512UL ) - ctx->manifest_sz;
@@ -1283,20 +1245,9 @@ snapmk_msg_alloc( fd_snapmk_t * ctx ) {
   return fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
 }
 
-/* wake all reliable consumers by unconditionally waking them (snapsv
-   tiles).  This is inefficient (does a FUTEX_WAKE syscall), but
-   acceptable given the very low frag production rate.  */
-
-static void
-snapmk_out_wake( fd_snapmk_t *       ctx,
-                 fd_stem_context_t * stem ) {
-  fd_mcache_seq_update( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
-  if( FD_UNLIKELY( -1==syscall( SYS_futex, (uint *)ctx->out.seq_prod, FUTEX_WAKE, INT_MAX, NULL, NULL, 0 ) ) ) {
-    FD_LOG_ERR(( "FUTEX_WAKE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-}
-
-/* snapmk_msg_publish publishes a msg and frag on snapmk_out. */
+/* snapmk_msg_publish publishes a msg and frag on snapmk_out.  Every
+   message wakes the file server, which is a syscall per message and
+   acceptable given the very low frag production rate. */
 
 static void
 snapmk_msg_publish( fd_snapmk_t *       ctx,
@@ -1316,7 +1267,7 @@ snapmk_msg_publish( fd_snapmk_t *       ctx,
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->out.out_idx, msg_type, chunk, sz, 0UL, 0UL, tspub );
   ctx->out.chunk = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
-  snapmk_out_wake( ctx, stem );
+  fd_backup_out_wake( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
 }
 
 static int

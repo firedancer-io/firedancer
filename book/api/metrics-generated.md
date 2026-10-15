@@ -1891,6 +1891,9 @@
 | <span class="metrics-name">snapsv_&#8203;conn_&#8203;open</span> | gauge | Open HTTP connections to the snapshot service |
 | <span class="metrics-name">snapsv_&#8203;http_&#8203;rx_&#8203;bytes</span> | counter | Bytes received in requests to the snapshot service |
 | <span class="metrics-name">snapsv_&#8203;http_&#8203;tx_&#8203;bytes</span> | counter | Bytes sent in responses from the snapshot service |
+| <span class="metrics-name">snapsv_&#8203;fast_&#8203;boot_&#8203;stream_&#8203;available</span> | gauge | Fast boot stream files currently available for download |
+| <span class="metrics-name">snapsv_&#8203;fast_&#8203;boot_&#8203;request_&#8203;served</span> | counter | HTTP requests for fast boot streams served |
+| <span class="metrics-name">snapsv_&#8203;fast_&#8203;boot_&#8203;tx_&#8203;bytes</span> | counter | Bytes sent in fast boot stream responses |
 
 </div>
 

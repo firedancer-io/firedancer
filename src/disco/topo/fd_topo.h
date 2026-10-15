@@ -630,6 +630,7 @@ struct fd_topo_tile {
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
       ulong snapmk_epoch_obj_id;
+      ulong strmk_epoch_obj_id;
       ulong snapzp_epoch_obj_ids[ 64 ];
       ulong snapzp_epoch_obj_cnt;
     } accdb;
@@ -782,7 +783,15 @@ struct fd_topo_tile {
       ulong         send_buffer_size_kib;
       fd_ip6_addr_t listen_addr;
       ushort        listen_port;
+      ulong         fast_boot_stream_max;
     } snapsv;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong accdb_epoch_obj_id;
+      ulong banks_obj_id;
+      ulong max_live_slots;
+    } strmk;
   };
 };
 

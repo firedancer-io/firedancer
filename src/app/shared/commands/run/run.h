@@ -50,6 +50,13 @@ initialize_store_fds( config_t const * config );
 ulong
 initialize_snapshot_fds( config_t const * config );
 
+/* initialize_fast_boot_fds opens the fast boot stream pool at
+   FD_STRMK_FD(*) and FD_STRMK_RO_FD(*) like the snapshot pool.
+   Returns the pool size, 0 if fast boot streams are not served. */
+
+ulong
+initialize_fast_boot_fds( config_t const * config );
+
 void
 run_firedancer_init( config_t * config,
                      int        init_workspaces,

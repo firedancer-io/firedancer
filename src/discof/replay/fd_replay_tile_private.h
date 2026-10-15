@@ -605,6 +605,12 @@ struct fd_replay_tile {
     fd_epoch_credits_view_t epoch_credits_view[1];
   } snapmk;
 
+  /* fast boot stream maker */
+  struct {
+    uint supported:1;
+    uint active:1;    /* still reading the snapshot bank */
+  } strmk;
+
   struct {
     fd_histf_t store_query_work[1];
     ulong      store_query_cnt;
