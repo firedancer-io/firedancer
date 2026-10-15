@@ -786,7 +786,7 @@ failover_operator_begin( fd_admin_tile_ctx_t * ctx,
     fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
     sign->param = FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR;
   }
-  find_identity_keyswitch( ctx, "tower" )->operator = 1UL;
+  find_identity_keyswitch( ctx, ctx->voter_name )->operator = 1UL;
   ctx->operator_pending = 1;
 }
 
@@ -897,7 +897,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     failover_operator_begin( ctx, req->keypair+32UL );
   }
 
-  if( ctx->failov_out_idx!=ULONG_MAX ) find_identity_keyswitch( ctx, "tower" )->operator = 1UL;
+  if( ctx->failov_out_idx!=ULONG_MAX ) find_identity_keyswitch( ctx, ctx->voter_name )->operator = 1UL;
 
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong identity_outset = (ulong)fd_log_wallclock();
@@ -1791,7 +1791,7 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     fd_memset( keypair,      0,            32UL );
     fd_memcpy( keypair+32UL, req.identity, 32UL );
 
-    find_identity_keyswitch( ctx, "tower" )->operator = 0UL; /* the tower keeps the failover rules */
+    find_identity_keyswitch( ctx, ctx->voter_name )->operator = 0UL; /* the tower or the votor keeps the failover rules */
     ctx->failover_switch = 1;
     ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
     ulong identity_outset = (ulong)fd_log_wallclock();
@@ -1802,11 +1802,12 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     fd_memcpy( ctx->identity_pubkey, req.identity, 32UL );
 
     /* The watermark is the tower's output sequence at its halt, which
-       the tower tile leaves in its keyswitch result. */
+       the tower tile leaves in its keyswitch result.  Under Alpenglow
+       the votor leaves its votor_hist sequence there. */
     response.result          = FD_FAILOVER_SWITCH_OK;
-    response.tower_watermark = find_identity_keyswitch( ctx, "tower" )->result;
+    response.tower_watermark = find_identity_keyswitch( ctx, ctx->voter_name )->result;
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
-    FD_LOG_NOTICE(( "failover: every tile switched to `%s`, the tower halted signing at sequence %lu", new_identity, response.tower_watermark ));
+    FD_LOG_NOTICE(( "failover: every tile switched to `%s`, the %s halted signing at sequence %lu", new_identity, ctx->voter_name, response.tower_watermark ));
   } else {
     FD_LOG_WARNING(( "the failover tile asked for an identity switch but failover is off, refusing" ));
   }
