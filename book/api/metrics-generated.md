@@ -709,7 +709,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">shred_&#8203;dest_&#8203;per_&#8203;update</span> | histogram | Shred destinations in each cluster contact info update |
+| <span class="metrics-name">shred_&#8203;dest_&#8203;per_&#8203;update</span> | histogram | Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count) |
 | <span class="metrics-name">shred_&#8203;batch_&#8203;abandoned</span> | counter | Microblock batches abandoned because we switched slots without finishing the current slot |
 | <span class="metrics-name">shred_&#8203;parent_&#8203;block_&#8203;id_&#8203;zeroed</span> | counter | Leader blocks whose parent block_id was unknown, so the chained merkle root was zeroed |
 | <span class="metrics-name">shred_&#8203;batch_&#8203;size_&#8203;bytes</span> | histogram | Size of each microblock batch that is shredded |
