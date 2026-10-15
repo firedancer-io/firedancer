@@ -362,24 +362,11 @@ fd_iavf_tile_poll_rx( fd_iavf_tile_t *    ctx,
 static inline int
 fd_iavf_tile_poll_tx( fd_iavf_tile_t *    ctx,
                       fd_iavf_tile_vf_t * vf ) {
-  ulong tx_pkt_cnt     = 0UL;
-  ulong tx_bytes_total = 0UL;
-
-  int busy = 0;
-  for( uint poll_cnt=0U; poll_cnt<ctx->batch_size; poll_cnt++ ) {
-    ulong tx_bytes;
-
-    ulong comp_cnt = fd_iavf_hw_poll_tx( vf, &tx_bytes );
-    if( FD_UNLIKELY( !comp_cnt ) ) break;
-
-    busy = 1;
-    tx_pkt_cnt     += comp_cnt;
-    tx_bytes_total += tx_bytes;
-  }
-  ctx->net.metrics.tx_pkt_cnt     += tx_pkt_cnt;
-  ctx->net.metrics.tx_bytes_total += tx_bytes_total;
-
-  return busy;
+  ulong comp_bytes;
+  ulong comp_cnt = fd_iavf_hw_poll_tx( vf, &comp_bytes );
+  ctx->net.metrics.tx_pkt_cnt     += comp_cnt;
+  ctx->net.metrics.tx_bytes_total += comp_bytes;
+  return !!comp_cnt;
 }
 
 /* fd_iavf_tile_lo_tx_flush drops unsent packets so socket backpressure

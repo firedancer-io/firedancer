@@ -454,7 +454,7 @@ test_tx_poll( void ) {
   ushort frame_sz[ 64 ]        = {0};
   uint tail                    = 0U;
   fd_memset( &test_tile, 0, sizeof(test_tile) );
-  test_tile.batch_size                 = 2U;
+  test_tile.batch_size                 = FD_IAVF_BATCH_SIZE;
   test_tile.net.metrics.tx_pkt_cnt     = 10UL;
   test_tile.net.metrics.tx_bytes_total = 100UL;
   fd_iavf_tile_vf_t * vf = &test_tile.vfs[0];
@@ -470,6 +470,9 @@ test_tx_poll( void ) {
     desc[ tx_queue->prod-1UL ].cmd_type_offset_buffer_sz = FD_IAVF_TX_DESC_DONE;
   }
 
+  FD_TEST( fd_iavf_tile_poll_tx( &test_tile, vf ) );
+  FD_TEST( tx_queue->cons==3UL && tx_queue->comp_cons==1UL && tx_queue->comp_prod==3UL );
+  FD_TEST( test_tile.net.metrics.tx_pkt_cnt==13UL && test_tile.net.metrics.tx_bytes_total==100UL+3UL*64UL );
   FD_TEST( fd_iavf_tile_poll_tx( &test_tile, vf ) );
   FD_TEST( tx_queue->cons==6UL && tx_queue->comp_cons==2UL && tx_queue->comp_prod==3UL );
   FD_TEST( test_tile.net.metrics.tx_pkt_cnt==16UL && test_tile.net.metrics.tx_bytes_total==100UL+6UL*64UL );
