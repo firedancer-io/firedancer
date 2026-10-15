@@ -156,6 +156,52 @@ test_iterated( void ) {
   FD_TEST( n==10620388038139726539UL );
 }
 
+void
+test_decreasing( void ) {
+  fd_chacha_rng_t _rng1[1];
+  fd_chacha_rng_t _rng2[1];
+  fd_chacha_rng_t * rng1 = fd_chacha_rng_join( fd_chacha_rng_new( _rng1, FD_CHACHA_RNG_MODE_SHIFT ) );
+  fd_chacha_rng_t * rng2 = fd_chacha_rng_join( fd_chacha_rng_new( _rng2, FD_CHACHA_RNG_MODE_SHIFT ) );
+  FD_TEST( rng1 );
+  FD_TEST( rng2 );
+
+  uchar key[ 32 ];
+  memset( key, 0x41, 32UL );
+  fd_chacha_rng_init( rng1, key, FD_CHACHA_RNG_ALGO_CHACHA8 );
+  fd_chacha_rng_init( rng2, key, FD_CHACHA_RNG_ALGO_CHACHA8 );
+
+  const ulong OUTER = 200000UL;
+
+  ulong sum = 0UL;
+  ulong output[500UL];
+  long time = -fd_log_wallclock();
+  for( ulong outer=0UL; outer<OUTER; outer++ ) {
+    fd_chacha_rng_ulong_roll_decreasing( rng2, 3068UL, output, 500UL );
+    for( ulong i=0UL; i<500UL; i++ ) sum += output[i];
+  }
+  time += fd_log_wallclock();
+  FD_LOG_NOTICE(( "%lx in %f ns/roll optimized", sum, (double)time/(double)(OUTER*500UL) ));
+  ulong sum0 = sum;
+
+  sum = 0UL;
+  time = -fd_log_wallclock();
+  for( ulong outer=0UL; outer<OUTER-1UL; outer++ ) {
+    for( ulong i=0UL; i<500UL; i++ ) sum += fd_chacha_rng_ulong_roll( rng1, 3068UL-i );
+  }
+  time += fd_log_wallclock();
+  for( ulong i=0UL; i<500UL; i++ ) {
+    ulong v = fd_chacha_rng_ulong_roll( rng1, 3068UL-i );
+    FD_TEST( output[i]==v );
+    sum += v;
+  }
+  FD_TEST( sum0==sum );
+  FD_LOG_NOTICE(( "%lx in %f ns/roll default", sum, (double)time/(double)((OUTER-1UL)*500UL) ));
+
+
+  FD_TEST( (ulong)fd_chacha_rng_delete( fd_chacha_rng_leave( rng2 ) )==(ulong)_rng2 );
+  FD_TEST( (ulong)fd_chacha_rng_delete( fd_chacha_rng_leave( rng1 ) )==(ulong)_rng1 );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -164,7 +210,6 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   /* Use debug logging, as debug contains the interesting info */
-
   fd_log_level_logfile_set( 0 );
   fd_log_level_stderr_set ( 0 );
 
@@ -172,6 +217,8 @@ main( int     argc,
   test_matches_rust_sample();
 
   test_iterated();
+
+  test_decreasing();
 
   FD_LOG_NOTICE(( "Passed built-in tests" ));
 

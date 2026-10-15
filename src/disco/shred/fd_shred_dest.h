@@ -59,9 +59,12 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
 
   fd_wsample_t * staked;
   struct {
-    /* These two variables are maintained by the unstaked sampling functions. */
+    /* These five variables are maintained by the unstaked sampling functions. */
     ulong * unstaked;
     ulong   unstaked_unremoved_cnt;
+    ulong   rng_avail;
+    ulong   rng_ptr;
+    ulong   rng_pregen[ 256UL ];
   };
   ulong staked_cnt;
   ulong unstaked_cnt;

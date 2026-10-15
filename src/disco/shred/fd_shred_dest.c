@@ -207,13 +207,23 @@ prepare_unstaked_sampling( fd_shred_dest_t  * sdest,
   ulong i=0UL;
   for( ; i<direct_index_up_to; i++ ) sdest->unstaked[i] = i+sdest->staked_cnt;
   for( ; i<unstaked_cnt;       i++ ) sdest->unstaked[i] = i+sdest->staked_cnt + 1UL;
+  sdest->rng_avail = fd_ulong_min( unstaked_cnt, 256UL );
+  sdest->rng_ptr   = 0UL;
+  fd_chacha_rng_ulong_roll_decreasing( sdest->rng, unstaked_cnt, sdest->rng_pregen, sdest->rng_avail );
+
 }
 
 static inline ulong
 sample_unstaked( fd_shred_dest_t * sdest ) {
   if( FD_UNLIKELY( sdest->unstaked_unremoved_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
-  ulong sample = fd_chacha_rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
+  if( FD_UNLIKELY( sdest->rng_avail==0UL ) ) {
+    sdest->rng_avail = fd_ulong_min( sdest->unstaked_unremoved_cnt, 256UL );
+    sdest->rng_ptr   = 0UL;
+    fd_chacha_rng_ulong_roll_decreasing( sdest->rng, sdest->unstaked_unremoved_cnt, sdest->rng_pregen, sdest->rng_avail );
+  }
+  ulong sample = sdest->rng_pregen[ sdest->rng_ptr++ ];
+  sdest->rng_avail--;
   ulong to_return = sdest->unstaked[sample];
   sdest->unstaked[sample] = sdest->unstaked[--sdest->unstaked_unremoved_cnt];
   return to_return;
