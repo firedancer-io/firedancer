@@ -103,7 +103,7 @@ struct fd_crds_entry_private {
   uchar  value_bytes[ FD_GOSSIP_VALUE_MAX_SZ ];
   uchar  value_hash[ 32UL ];
 
-  ulong num_duplicates;
+  ulong num_push_recv;
   ulong stake;
 
   struct {
@@ -846,7 +846,8 @@ fd_crds_insert( fd_crds_t *               crds,
                 ulong                     origin_stake,
                 int                       origin_ping_tracked,
                 int                       is_me,
-                long                      now ,
+                int                       is_push,
+                long                      now,
                 fd_stem_context_t *       stem ) {
   fd_crds_key_t candidate_key = {
     .tag = (uchar)value->tag,
@@ -875,14 +876,14 @@ fd_crds_insert( fd_crds_t *               crds,
   } else {
     /* Fast duplicate check by signature before computing expensive
        sha256 hash. */
-    if( FD_UNLIKELY( fd_ulong_load_8( incumbent->value_bytes )==fd_ulong_load_8( value->signature ) ) ) return (long)(++incumbent->num_duplicates);
+    if( FD_UNLIKELY( fd_ulong_load_8( incumbent->value_bytes )==fd_ulong_load_8( value->signature ) ) ) return is_push ? (long)(1UL+incumbent->num_push_recv++) : 1L;
 
     fd_sha256_hash( value_bytes, value_bytes_len, value_hash );
     switch( crds_compare( incumbent, value ) ) {
       case -1: break; /* upserting */
       case 0: {
         int result = memcmp( value_hash, incumbent->value_hash, 32UL );
-        if( FD_UNLIKELY( !result ) ) return (long)(++incumbent->num_duplicates);
+        if( FD_UNLIKELY( !result ) ) return is_push ? (long)(1UL+incumbent->num_push_recv++) : 1L;
         else if( FD_UNLIKELY( result<0 ) ) {
           fd_gossip_purged_insert_failed_insert( crds->purged, value_hash, now );
           return -1L; /* stale */
@@ -909,7 +910,7 @@ fd_crds_insert( fd_crds_t *               crds,
 
   incumbent->wallclock              = value->wallclock;
   incumbent->stake                  = origin_stake;
-  incumbent->num_duplicates         = 0UL;
+  incumbent->num_push_recv          = (ulong)!!is_push;
   incumbent->expire.wallclock_nanos = now;
   incumbent->value_sz               = (ushort)value_bytes_len;
   fd_memcpy( incumbent->value_bytes, value_bytes, value_bytes_len );

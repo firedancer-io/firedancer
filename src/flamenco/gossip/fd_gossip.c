@@ -260,7 +260,7 @@ fd_gossip_sign_response( fd_gossip_t *       gossip,
     fd_gossip_value_t * value = gossip->sign_pend[ idx ].value;
     fd_memcpy( value->signature, signature, 64UL );
     int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
-    if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, now, stem ) ) ) break;
+    if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem ) ) ) break;
     fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     break;
   }
@@ -273,7 +273,7 @@ fd_gossip_sign_response( fd_gossip_t *       gossip,
     fd_memcpy( gossip->my_contact_info.crds_val, data, sz );
     gossip->my_contact_info.crds_val_sz = sz;
     int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
-    fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, now, stem );
+    fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem );
     fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     break;
   }
@@ -760,6 +760,7 @@ rx_values( fd_gossip_t *             gossip,
            uchar const *             payload,
            uchar const *             failed,
            fd_stem_context_t *       stem,
+           int                       is_push,
            long                      now,
            long                      results[ static 17UL ] ) {
   for( ulong i=0UL; i<values_len; i++ ) {
@@ -786,7 +787,7 @@ rx_values( fd_gossip_t *             gossip,
       origin_ping_tracker_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr );
     }
 
-    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, now, stem );
+    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, is_push, now, stem );
     if( FD_UNLIKELY( results[ i ] ) ) continue;
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
@@ -812,7 +813,7 @@ rx_pull_response( fd_gossip_t *                     gossip,
                   fd_stem_context_t *               stem,
                   long                              now ) {
   long results[ 17UL ];
-  rx_values( gossip, pull_response->values_len, pull_response->values, payload, failed, stem, now, results );
+  rx_values( gossip, pull_response->values_len, pull_response->values, payload, failed, stem, 0, now, results );
   for( ulong i=0UL; i<pull_response->values_len; i++ ) {
     if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
     if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_RESULT_V_INSERTED_PULL_RESPONSE_IDX ]++;
@@ -903,7 +904,7 @@ rx_push( fd_gossip_t *            gossip,
          long                     now,
          fd_stem_context_t *      stem ) {
   long results[ 17UL ];
-  rx_values( gossip, push->values_len, push->values, payload, failed, stem, now, results );
+  rx_values( gossip, push->values_len, push->values, payload, failed, stem, 1, now, results );
 
   for( ulong i=0UL; i<push->values_len; i++ ) {
     if( FD_UNLIKELY( failed[ i ] && failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) continue;
@@ -914,7 +915,7 @@ rx_push( fd_gossip_t *            gossip,
     ulong num_dups;
     if( FD_LIKELY( !results[ i ] ) )          num_dups = 0UL;
     else if( FD_UNLIKELY( results[ i ]<0L ) ) num_dups = ULONG_MAX; /* stale => never timely */
-    else                                      num_dups = (ulong)results[ i ];
+    else                                      num_dups = (ulong)results[ i ]-1UL;
 
     ulong origin_stake = get_stake( gossip, push->values[ i ].origin );
     fd_prune_finder_record( gossip->prune_finder, push->values[ i ].origin, origin_stake, push->from, get_stake( gossip, push->from ), num_dups );
