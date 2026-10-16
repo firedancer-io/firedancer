@@ -45,6 +45,10 @@
 #include <sys/stat.h>
 #include <linux/capability.h>
 
+#if defined(__x86_64__)
+#include <cpuid.h>
+#endif
+
 #include "../../../../util/tile/fd_tile_private.h"
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
@@ -1008,6 +1012,18 @@ initialize_stacks( config_t const * config ) {
 
 void
 fdctl_check_configure( config_t const * config ) {
+# if defined(__x86_64__)
+  uint eax, ebx, ecx, edx;
+  if( FD_LIKELY( __get_cpuid_count( 7U, 0U, &eax, &ebx, &ecx, &edx ) ) ) {
+    int cpu_avx512 = ((ebx>>16)&1U) && ((ebx>>21)&1U); /* avx512f, avx512ifma */
+    int cpu_gfni   = (int)((ecx>>8)&1U);
+    if( FD_UNLIKELY( (cpu_avx512 && !FD_HAS_AVX512) || (cpu_gfni && !FD_HAS_GFNI) ) )
+      FD_LOG_WARNING(( "This CPU supports%s%s but the binary was built without them, so it runs slower code paths. "
+                       "Rebuild on this host with MACHINE=native, or with a MACHINE matching this CPU.",
+                       (cpu_avx512 && !FD_HAS_AVX512) ? " AVX-512" : "", (cpu_gfni && !FD_HAS_GFNI) ? " GFNI" : "" ));
+  }
+# endif
+
   configure_result_t check = fd_cfg_stage_hugetlbfs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `%s configure init hugetlbfs` "

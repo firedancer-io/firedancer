@@ -316,6 +316,16 @@ collect_cpu( fd_boot_report_t * r ) {
     r->cpu_model_id = (ushort)( base_model | fd_uint_if( base_family==0x6U || base_family==0xFU, ext_model<<4, 0U ) );
     r->cpu_stepping = (uchar)( eax&0xFU );
   }
+
+  uint ecx1 = 0U, ebx7 = 0U, ecx7 = 0U;
+  if( FD_LIKELY( __get_cpuid( 1U, &eax, &ebx, &ecx, &edx ) ) ) ecx1 = ecx;
+  if( FD_LIKELY( __get_cpuid_count( 7U, 0U, &eax, &ebx, &ecx, &edx ) ) ) { ebx7 = ebx; ecx7 = ecx; }
+  if( (ecx1>>20)&1U )                      FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "sse"    ) );
+  if( (ebx7>>5)&1U )                       FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "avx"    ) );
+  if( ((ebx7>>16)&1U) && ((ebx7>>21)&1U) ) FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "avx512" ) );
+  if( (ebx7>>29)&1U )                      FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "shani"  ) );
+  if( (ecx1>>25)&1U )                      FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "aesni"  ) );
+  if( (ecx7>>8)&1U )                       FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "gfni"   ) );
 # endif /* defined(__x86_64__) */
 
   char cpuinfo[ 16384 ];
@@ -1563,6 +1573,7 @@ fd_boot_report_publish( fd_boot_report_t *  r,
   if( r->process_start_time_nanos ) ok &= !!fd_pb_push_uint64( encoder, 74U, r->process_start_time_nanos );
   if( r->feature_set_id )           ok &= !!fd_pb_push_uint32( encoder, 75U, r->feature_set_id );
   for( ulong i=0UL; i<r->l3_cpu_to_domain_cnt; i++ ) ok &= !!fd_pb_push_uint32( encoder, 76U, r->l3_cpu_to_domain[ i ] );
+  for( ulong i=0UL; i<r->cpu_features_cnt; i++ )     ok &= push_cstr( encoder, 77U, r->cpu_features[ i ] );
 
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );

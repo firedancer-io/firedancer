@@ -151,6 +151,7 @@ main( int     argc,
   ulong l3_domains = 0UL;
   for( ulong i=0UL; i<report->l3_cpu_to_domain_cnt; i++ ) if( report->l3_cpu_to_domain[ i ]!=USHORT_MAX ) l3_domains = fd_ulong_max( l3_domains, report->l3_cpu_to_domain[ i ]+1UL );
   FD_LOG_NOTICE(( "l3 domains %lu over %lu cpus", l3_domains, report->l3_cpu_to_domain_cnt ));
+  FD_TEST( report->cpu_features_cnt>=2UL ); /* every supported x86 CPU has sse and avx */
   FD_TEST( report->accounts_fs_idx!=255 );
   FD_LOG_NOTICE(( "root fs device_idx %u", report->filesystems[ report->accounts_fs_idx ].device_idx ));
   FD_LOG_NOTICE(( "dimms %lu nics %lu blocks %lu nvme %lu md %lu fs %lu",
@@ -225,6 +226,7 @@ main( int     argc,
   PAD( maxed->dmi_bios_version ); PAD( maxed->dmi_bios_date ); PAD( maxed->dmi_board_vendor ); PAD( maxed->dmi_board_name );
   for( ulong i=0UL; i<32UL; i++ ) PAD( maxed->mitigations[ i ] );
   for( ulong i=0UL; i<16UL; i++ ) PAD( maxed->build_features[ i ] );
+  for( ulong i=0UL; i<16UL; i++ ) PAD( maxed->cpu_features[ i ] );
   for( ulong i=0UL; i<16UL; i++ ) PAD( maxed->nic_bond_slaves[ i ] );
   for( ulong i=0UL; i<64UL; i++ ) {
     fd_boot_report_dimm_t * d = &maxed->dmi_dimms[ i ];
@@ -247,6 +249,7 @@ main( int     argc,
 #undef PAD
   maxed->mitigations_cnt      = 32UL;
   maxed->build_features_cnt   = 16UL;
+  maxed->cpu_features_cnt     = 16UL;
   maxed->numa_cpu_to_node_cnt = 1024UL;
   maxed->isolated_cpus_cnt    = 1024UL;
   maxed->l3_cpu_to_domain_cnt = 1024UL;
