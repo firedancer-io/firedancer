@@ -294,11 +294,13 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
-        fd_strmk_keys_publish(
-          stem, ctx->execrp_strmk_out->idx, ctx->execrp_strmk_out->mem,
-          ctx->execrp_strmk_out->chunk0, ctx->execrp_strmk_out->wmark,
-          &ctx->execrp_strmk_out->chunk, ctx->bank, &ctx->txn_in, &ctx->txn_out
-        );
+        if( FD_UNLIKELY( ctx->execrp_strmk_out->idx!=ULONG_MAX && ctx->txn_out.err.is_committable ) ) {
+          fd_strmk_keys_publish(
+            stem, ctx->execrp_strmk_out->idx, ctx->execrp_strmk_out->mem,
+            ctx->execrp_strmk_out->chunk0, ctx->execrp_strmk_out->wmark,
+            &ctx->execrp_strmk_out->chunk, ctx->bank, &ctx->txn_in, &ctx->txn_out
+          );
+        }
 
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
         ctx->metrics.txn_version[ fd_execle_version_from_txn( TXN( ctx->txn_in.txn ) ) ]++;
