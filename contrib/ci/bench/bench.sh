@@ -63,7 +63,7 @@ case $what in
     "$bin/firedancer-dev" mem --testnet --json > "$out.mem.testnet.json"
     ;;
   replay)   backtest "${BENCH_LEDGER:-mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat}" \
-                     -e "${BENCH_END_SLOT:-424669200}" -m 4000000 ;;
+                     -e "${BENCH_END_SLOT:-424669200}" -m 4000000 --cache-size-gib 12 --partition-size-gib 4 ;;
   snapshot) # load-only ledger: no shreds
     if ! mountpoint -q $RAMDB; then  # brd allocates on first write: one untimed load touches the pages both sides reuse
       { findmnt -rn -o TARGET -S /dev/ram0 || true; } | xargs -r sudo umount  # findmnt exits 1 when nothing is mounted
