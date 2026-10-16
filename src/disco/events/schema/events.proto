@@ -6229,6 +6229,470 @@ message MetricsExecrpRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of processing one received packet
+message MetricsVotorServerPktRxDurationNanos {
+  // [0, 10) nanos
+  uint64 b0 = 1;
+  // [10, 32) nanos
+  uint64 b1 = 2;
+  // [32, 101) nanos
+  uint64 b2 = 3;
+  // [101, 319) nanos
+  uint64 b3 = 4;
+  // [319, 1008) nanos
+  uint64 b4 = 5;
+  // [1008, 3185) nanos
+  uint64 b5 = 6;
+  // [3185, 10064) nanos
+  uint64 b6 = 7;
+  // [10064, 31800) nanos
+  uint64 b7 = 8;
+  // [31800, 100480) nanos
+  uint64 b8 = 9;
+  // [100480, 317492) nanos
+  uint64 b9 = 10;
+  // [317492, 1003197) nanos
+  uint64 b10 = 11;
+  // [1003197, 3169857) nanos
+  uint64 b11 = 12;
+  // [3169857, 10015972) nanos
+  uint64 b12 = 13;
+  // [10015972, 31648020) nanos
+  uint64 b13 = 14;
+  // [31648020, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Duration of one fd_quic_service call that processed a due connection timer
+message MetricsVotorServerServiceDurationNanos {
+  // [0, 10) nanos
+  uint64 b0 = 1;
+  // [10, 32) nanos
+  uint64 b1 = 2;
+  // [32, 101) nanos
+  uint64 b2 = 3;
+  // [101, 319) nanos
+  uint64 b3 = 4;
+  // [319, 1008) nanos
+  uint64 b4 = 5;
+  // [1008, 3185) nanos
+  uint64 b5 = 6;
+  // [3185, 10064) nanos
+  uint64 b6 = 7;
+  // [10064, 31800) nanos
+  uint64 b7 = 8;
+  // [31800, 100480) nanos
+  uint64 b8 = 9;
+  // [100480, 317492) nanos
+  uint64 b9 = 10;
+  // [317492, 1003197) nanos
+  uint64 b10 = 11;
+  // [1003197, 3169857) nanos
+  uint64 b11 = 12;
+  // [3169857, 10015972) nanos
+  uint64 b12 = 13;
+  // [10015972, 31648020) nanos
+  uint64 b13 = 14;
+  // [31648020, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Received packets processed for acknowledgement, by result
+message MetricsVotorServerPktAckProcessed {
+  // Packet had no packet number to acknowledge
+  uint64 no_pkt_number = 1;
+  // New ACK range
+  uint64 new_range = 2;
+  // Merged into existing ACK range
+  uint64 merged = 3;
+  // Out of buffers
+  uint64 queue_full = 4;
+  // ACK suppressed by handler
+  uint64 cancelled = 5;
+}
+
+// Attempts to acquire packet metadata for transmission, by result
+message MetricsVotorServerPktMetaAcquireAttempted {
+  // Success
+  uint64 success = 1;
+  // Packet metadata pool empty
+  uint64 pool_empty = 2;
+  // Connection reached its in-flight frame limit
+  uint64 conn_limit = 3;
+}
+
+// QUIC frames received, by frame type
+message MetricsVotorServerFrameRx {
+  // Unknown frame type
+  uint64 unknown = 1;
+  // ACK frame
+  uint64 ack = 2;
+  // RESET_STREAM frame
+  uint64 reset_stream = 3;
+  // STOP_SENDING frame
+  uint64 stop_sending = 4;
+  // CRYPTO frame
+  uint64 crypto = 5;
+  // NEW_TOKEN frame
+  uint64 new_token = 6;
+  // STREAM frame
+  uint64 stream = 7;
+  // MAX_DATA frame
+  uint64 max_data = 8;
+  // MAX_STREAM_DATA frame
+  uint64 max_stream_data = 9;
+  // MAX_STREAMS frame
+  uint64 max_streams = 10;
+  // DATA_BLOCKED frame
+  uint64 data_blocked = 11;
+  // STREAM_DATA_BLOCKED frame
+  uint64 stream_data_blocked = 12;
+  // STREAMS_BLOCKED(bidi) frame
+  uint64 streams_blocked = 13;
+  // NEW_CONN_ID frame
+  uint64 new_conn_id = 14;
+  // RETIRE_CONN_ID frame
+  uint64 retire_conn_id = 15;
+  // PATH_CHALLENGE frame
+  uint64 path_challenge = 16;
+  // PATH_RESPONSE frame
+  uint64 path_response = 17;
+  // CONN_CLOSE(transport) frame
+  uint64 conn_close_quic = 18;
+  // CONN_CLOSE(app) frame
+  uint64 conn_close_app = 19;
+  // HANDSHAKE_DONE frame
+  uint64 handshake_done = 20;
+  // PING frame
+  uint64 ping = 21;
+  // PADDING frame
+  uint64 padding = 22;
+  // DATAGRAM frame
+  uint64 datagram = 23;
+}
+
+// QUIC packets retransmitted, by encryption level
+message MetricsVotorServerPktRetransmitted {
+  // Initial
+  uint64 initial = 1;
+  // Early data
+  uint64 early = 2;
+  // Handshake
+  uint64 handshake = 3;
+  // App data
+  uint64 app = 4;
+}
+
+// Packets with an unknown connection ID, by packet type
+message MetricsVotorServerPktNoConnDropped {
+  // Initial
+  uint64 initial = 1;
+  // Retry
+  uint64 retry = 2;
+  // Handshake
+  uint64 handshake = 3;
+  // 1-RTT
+  uint64 one_rtt = 4;
+}
+
+// Received packets dropped, by reason
+message MetricsVotorServerPktDropped {
+  // QUIC packet too small
+  uint64 undersize = 1;
+  // QUIC packet too large
+  uint64 oversize = 2;
+  // Wrong source IP
+  uint64 src_ip_mismatch = 3;
+  // Invalid QUIC header
+  uint64 header_invalid = 4;
+  // Invalid IPv4 or UDP header
+  uint64 net_header_invalid = 5;
+  // Version negotiation or unsupported version
+  uint64 version_unsupported = 6;
+}
+
+// Packets dropped because the decryption key was missing, by encryption level
+message MetricsVotorServerPktNoKeyDropped {
+  // Initial
+  uint64 initial = 1;
+  // Early data
+  uint64 early = 2;
+  // Handshake
+  uint64 handshake = 3;
+  // App data
+  uint64 app = 4;
+}
+
+// Packets that failed decryption, by encryption level
+message MetricsVotorServerPktDecryptFailed {
+  // Initial
+  uint64 initial = 1;
+  // Early data
+  uint64 early = 2;
+  // Handshake
+  uint64 handshake = 3;
+  // App data
+  uint64 app = 4;
+}
+
+// Connection slots in use, by state; sum + ConnFree = ConnCapacity
+message MetricsVotorServerConnUsed {
+  // Handshaking peer
+  uint64 handshake = 1;
+  // Handshake complete, confirming with peer
+  uint64 handshake_complete = 2;
+  // Active connection
+  uint64 active = 3;
+  // Peer requested close
+  uint64 peer_close = 4;
+  // Connection terminating due to error
+  uint64 abort = 5;
+  // Connection is closing
+  uint64 close_pending = 6;
+  // Connection about to be freed
+  uint64 dead = 7;
+}
+
+// Duration of processing one received packet
+message MetricsVotorClientPktRxDurationNanos {
+  // [0, 10) nanos
+  uint64 b0 = 1;
+  // [10, 32) nanos
+  uint64 b1 = 2;
+  // [32, 101) nanos
+  uint64 b2 = 3;
+  // [101, 319) nanos
+  uint64 b3 = 4;
+  // [319, 1008) nanos
+  uint64 b4 = 5;
+  // [1008, 3185) nanos
+  uint64 b5 = 6;
+  // [3185, 10064) nanos
+  uint64 b6 = 7;
+  // [10064, 31800) nanos
+  uint64 b7 = 8;
+  // [31800, 100480) nanos
+  uint64 b8 = 9;
+  // [100480, 317492) nanos
+  uint64 b9 = 10;
+  // [317492, 1003197) nanos
+  uint64 b10 = 11;
+  // [1003197, 3169857) nanos
+  uint64 b11 = 12;
+  // [3169857, 10015972) nanos
+  uint64 b12 = 13;
+  // [10015972, 31648020) nanos
+  uint64 b13 = 14;
+  // [31648020, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Duration of one fd_quic_service call that processed a due connection timer
+message MetricsVotorClientServiceDurationNanos {
+  // [0, 10) nanos
+  uint64 b0 = 1;
+  // [10, 32) nanos
+  uint64 b1 = 2;
+  // [32, 101) nanos
+  uint64 b2 = 3;
+  // [101, 319) nanos
+  uint64 b3 = 4;
+  // [319, 1008) nanos
+  uint64 b4 = 5;
+  // [1008, 3185) nanos
+  uint64 b5 = 6;
+  // [3185, 10064) nanos
+  uint64 b6 = 7;
+  // [10064, 31800) nanos
+  uint64 b7 = 8;
+  // [31800, 100480) nanos
+  uint64 b8 = 9;
+  // [100480, 317492) nanos
+  uint64 b9 = 10;
+  // [317492, 1003197) nanos
+  uint64 b10 = 11;
+  // [1003197, 3169857) nanos
+  uint64 b11 = 12;
+  // [3169857, 10015972) nanos
+  uint64 b12 = 13;
+  // [10015972, 31648020) nanos
+  uint64 b13 = 14;
+  // [31648020, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Received packets processed for acknowledgement, by result
+message MetricsVotorClientPktAckProcessed {
+  // Packet had no packet number to acknowledge
+  uint64 no_pkt_number = 1;
+  // New ACK range
+  uint64 new_range = 2;
+  // Merged into existing ACK range
+  uint64 merged = 3;
+  // Out of buffers
+  uint64 queue_full = 4;
+  // ACK suppressed by handler
+  uint64 cancelled = 5;
+}
+
+// Attempts to acquire packet metadata for transmission, by result
+message MetricsVotorClientPktMetaAcquireAttempted {
+  // Success
+  uint64 success = 1;
+  // Packet metadata pool empty
+  uint64 pool_empty = 2;
+  // Connection reached its in-flight frame limit
+  uint64 conn_limit = 3;
+}
+
+// QUIC frames received, by frame type
+message MetricsVotorClientFrameRx {
+  // Unknown frame type
+  uint64 unknown = 1;
+  // ACK frame
+  uint64 ack = 2;
+  // RESET_STREAM frame
+  uint64 reset_stream = 3;
+  // STOP_SENDING frame
+  uint64 stop_sending = 4;
+  // CRYPTO frame
+  uint64 crypto = 5;
+  // NEW_TOKEN frame
+  uint64 new_token = 6;
+  // STREAM frame
+  uint64 stream = 7;
+  // MAX_DATA frame
+  uint64 max_data = 8;
+  // MAX_STREAM_DATA frame
+  uint64 max_stream_data = 9;
+  // MAX_STREAMS frame
+  uint64 max_streams = 10;
+  // DATA_BLOCKED frame
+  uint64 data_blocked = 11;
+  // STREAM_DATA_BLOCKED frame
+  uint64 stream_data_blocked = 12;
+  // STREAMS_BLOCKED(bidi) frame
+  uint64 streams_blocked = 13;
+  // NEW_CONN_ID frame
+  uint64 new_conn_id = 14;
+  // RETIRE_CONN_ID frame
+  uint64 retire_conn_id = 15;
+  // PATH_CHALLENGE frame
+  uint64 path_challenge = 16;
+  // PATH_RESPONSE frame
+  uint64 path_response = 17;
+  // CONN_CLOSE(transport) frame
+  uint64 conn_close_quic = 18;
+  // CONN_CLOSE(app) frame
+  uint64 conn_close_app = 19;
+  // HANDSHAKE_DONE frame
+  uint64 handshake_done = 20;
+  // PING frame
+  uint64 ping = 21;
+  // PADDING frame
+  uint64 padding = 22;
+  // DATAGRAM frame
+  uint64 datagram = 23;
+}
+
+// QUIC packets retransmitted, by encryption level
+message MetricsVotorClientPktRetransmitted {
+  // Initial
+  uint64 initial = 1;
+  // Early data
+  uint64 early = 2;
+  // Handshake
+  uint64 handshake = 3;
+  // App data
+  uint64 app = 4;
+}
+
+// Packets with an unknown connection ID, by packet type
+message MetricsVotorClientPktNoConnDropped {
+  // Initial
+  uint64 initial = 1;
+  // Retry
+  uint64 retry = 2;
+  // Handshake
+  uint64 handshake = 3;
+  // 1-RTT
+  uint64 one_rtt = 4;
+}
+
+// Received packets dropped, by reason
+message MetricsVotorClientPktDropped {
+  // QUIC packet too small
+  uint64 undersize = 1;
+  // QUIC packet too large
+  uint64 oversize = 2;
+  // Wrong source IP
+  uint64 src_ip_mismatch = 3;
+  // Invalid QUIC header
+  uint64 header_invalid = 4;
+  // Invalid IPv4 or UDP header
+  uint64 net_header_invalid = 5;
+  // Version negotiation or unsupported version
+  uint64 version_unsupported = 6;
+}
+
+// Packets dropped because the decryption key was missing, by encryption level
+message MetricsVotorClientPktNoKeyDropped {
+  // Initial
+  uint64 initial = 1;
+  // Early data
+  uint64 early = 2;
+  // Handshake
+  uint64 handshake = 3;
+  // App data
+  uint64 app = 4;
+}
+
+// Packets that failed decryption, by encryption level
+message MetricsVotorClientPktDecryptFailed {
+  // Initial
+  uint64 initial = 1;
+  // Early data
+  uint64 early = 2;
+  // Handshake
+  uint64 handshake = 3;
+  // App data
+  uint64 app = 4;
+}
+
+// Connection slots in use, by state; sum + ConnFree = ConnCapacity
+message MetricsVotorClientConnUsed {
+  // Handshaking peer
+  uint64 handshake = 1;
+  // Handshake complete, confirming with peer
+  uint64 handshake_complete = 2;
+  // Active connection
+  uint64 active = 3;
+  // Peer requested close
+  uint64 peer_close = 4;
+  // Connection terminating due to error
+  uint64 abort = 5;
+  // Connection is closing
+  uint64 close_pending = 6;
+  // Connection about to be freed
+  uint64 dead = 7;
+}
+
 // Inbound certificates processed, by result
 message MetricsVotorCertRx {
   // Cert was handed to the pool and accepted
@@ -8479,13 +8943,13 @@ message MetricsQuic {
   uint64 udp_txn_undersize_dropped = 35;
   // Packets received on the non-QUIC port that were too large to be a valid transaction
   uint64 udp_txn_oversize_dropped = 36;
-  // UDP datagrams received on the QUIC port (one may carry several coalesced QUIC packets)
+  // UDP datagrams received (one may carry several coalesced QUIC packets)
   uint64 pkt_rx = 37;
-  // Bytes of UDP datagrams received on the QUIC port, including IP and UDP headers
+  // Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers
   uint64 pkt_rx_bytes = 38;
-  // IP packets sent
+  // UDP datagrams sent
   uint64 pkt_tx = 39;
-  // Bytes sent (including IP, UDP, QUIC headers)
+  // Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers
   uint64 pkt_tx_bytes = 40;
   // Connection slots in use, by state; sum + ConnFree = ConnCapacity
   MetricsQuicConnUsed conn_used = 41;
@@ -8505,7 +8969,7 @@ message MetricsQuic {
   uint64 conn_retried = 48;
   // Connections that failed to create due to lack of slots
   uint64 conn_no_slot_rejected = 49;
-  // Connections that failed during retry (e.g. invalid token)
+  // Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client
   uint64 conn_retry_rejected = 50;
   // Received packets dropped, by reason
   MetricsQuicPktDropped pkt_dropped = 51;
@@ -10955,8 +11419,8 @@ message MetricsVotor {
   uint64 highest_pool_finalized_slot = 33;
   // Rank of this validator in the current epoch (0 is the highest rank), ULONG_MAX if unranked (unstaked)
   uint64 rank = 34;
-  // Peers with an open outbound connection
-  uint64 peer_conn_open = 35;
+  // Peers with an open outbound connection; replaced by ClientConnUsed
+  uint64 peer_conn_open = 35 [deprecated = true];
   // Times the vote history file was written
   uint64 vote_history_file_written = 36;
   // Root of the last written vote history file, which votor waits to vote past, 0 if not written yet
@@ -10967,6 +11431,122 @@ message MetricsVotor {
   uint64 vote_history_file_skipped = 39 [deprecated = true];
   // Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once
   uint64 bls_signature_checked = 40;
+  // UDP datagrams received (one may carry several coalesced QUIC packets)
+  uint64 client_pkt_rx = 41;
+  // Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers
+  uint64 client_pkt_rx_bytes = 42;
+  // UDP datagrams sent
+  uint64 client_pkt_tx = 43;
+  // Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers
+  uint64 client_pkt_tx_bytes = 44;
+  // Connection slots in use, by state; sum + ConnFree = ConnCapacity
+  MetricsVotorClientConnUsed client_conn_used = 45;
+  // Connection slots free
+  uint64 client_conn_free = 46;
+  // Connection slots
+  uint64 client_conn_capacity = 47;
+  // Connections created
+  uint64 client_conn_created = 48;
+  // Connections gracefully closed
+  uint64 client_conn_closed = 49;
+  // Connections aborted
+  uint64 client_conn_aborted = 50;
+  // Connections timed out
+  uint64 client_conn_timed_out = 51;
+  // Connections that failed to create due to lack of slots
+  uint64 client_conn_no_slot_rejected = 52;
+  // Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client
+  uint64 client_conn_retry_rejected = 53;
+  // Packets that failed decryption, by encryption level
+  MetricsVotorClientPktDecryptFailed client_pkt_decrypt_failed = 54;
+  // Packets dropped because the decryption key was missing, by encryption level
+  MetricsVotorClientPktNoKeyDropped client_pkt_no_key_dropped = 55;
+  // Received packets dropped, by reason
+  MetricsVotorClientPktDropped client_pkt_dropped = 56;
+  // Packets with an unknown connection ID, by packet type
+  MetricsVotorClientPktNoConnDropped client_pkt_no_conn_dropped = 57;
+  // QUIC packets retransmitted, by encryption level
+  MetricsVotorClientPktRetransmitted client_pkt_retransmitted = 58;
+  // Handshake flows created
+  uint64 client_handshake_created = 59;
+  // Handshakes dropped due to alloc fail
+  uint64 client_handshake_pool_full_rejected = 60;
+  // Handshakes dropped due to eviction
+  uint64 client_handshake_evicted = 61;
+  // Stream receive events
+  uint64 client_stream_rx = 62;
+  // Stream payload bytes received
+  uint64 client_stream_rx_bytes = 63;
+  // QUIC frames received, by frame type
+  MetricsVotorClientFrameRx client_frame_rx = 64;
+  // QUIC frames that failed to parse
+  uint64 client_frame_parse_failed = 65;
+  // Attempts to acquire packet metadata for transmission, by result
+  MetricsVotorClientPktMetaAcquireAttempted client_pkt_meta_acquire_attempted = 66;
+  // Received packets processed for acknowledgement, by result
+  MetricsVotorClientPktAckProcessed client_pkt_ack_processed = 67;
+  // Duration of one fd_quic_service call that processed a due connection timer
+  MetricsVotorClientServiceDurationNanos client_service_duration_nanos = 68;
+  // Duration of processing one received packet
+  MetricsVotorClientPktRxDurationNanos client_pkt_rx_duration_nanos = 69;
+  // UDP datagrams received (one may carry several coalesced QUIC packets)
+  uint64 server_pkt_rx = 70;
+  // Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers
+  uint64 server_pkt_rx_bytes = 71;
+  // UDP datagrams sent
+  uint64 server_pkt_tx = 72;
+  // Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers
+  uint64 server_pkt_tx_bytes = 73;
+  // Connection slots in use, by state; sum + ConnFree = ConnCapacity
+  MetricsVotorServerConnUsed server_conn_used = 74;
+  // Connection slots free
+  uint64 server_conn_free = 75;
+  // Connection slots
+  uint64 server_conn_capacity = 76;
+  // Connections created
+  uint64 server_conn_created = 77;
+  // Connections gracefully closed
+  uint64 server_conn_closed = 78;
+  // Connections aborted
+  uint64 server_conn_aborted = 79;
+  // Connections timed out
+  uint64 server_conn_timed_out = 80;
+  // Connections that failed to create due to lack of slots
+  uint64 server_conn_no_slot_rejected = 81;
+  // Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client
+  uint64 server_conn_retry_rejected = 82;
+  // Packets that failed decryption, by encryption level
+  MetricsVotorServerPktDecryptFailed server_pkt_decrypt_failed = 83;
+  // Packets dropped because the decryption key was missing, by encryption level
+  MetricsVotorServerPktNoKeyDropped server_pkt_no_key_dropped = 84;
+  // Received packets dropped, by reason
+  MetricsVotorServerPktDropped server_pkt_dropped = 85;
+  // Packets with an unknown connection ID, by packet type
+  MetricsVotorServerPktNoConnDropped server_pkt_no_conn_dropped = 86;
+  // QUIC packets retransmitted, by encryption level
+  MetricsVotorServerPktRetransmitted server_pkt_retransmitted = 87;
+  // Handshake flows created
+  uint64 server_handshake_created = 88;
+  // Handshakes dropped due to alloc fail
+  uint64 server_handshake_pool_full_rejected = 89;
+  // Handshakes dropped due to eviction
+  uint64 server_handshake_evicted = 90;
+  // Stream receive events
+  uint64 server_stream_rx = 91;
+  // Stream payload bytes received
+  uint64 server_stream_rx_bytes = 92;
+  // QUIC frames received, by frame type
+  MetricsVotorServerFrameRx server_frame_rx = 93;
+  // QUIC frames that failed to parse
+  uint64 server_frame_parse_failed = 94;
+  // Attempts to acquire packet metadata for transmission, by result
+  MetricsVotorServerPktMetaAcquireAttempted server_pkt_meta_acquire_attempted = 95;
+  // Received packets processed for acknowledgement, by result
+  MetricsVotorServerPktAckProcessed server_pkt_ack_processed = 96;
+  // Duration of one fd_quic_service call that processed a due connection timer
+  MetricsVotorServerServiceDurationNanos server_service_duration_nanos = 97;
+  // Duration of processing one received packet
+  MetricsVotorServerPktRxDurationNanos server_pkt_rx_duration_nanos = 98;
 }
 
 // Metrics of one gui tile instance, one row per sweep

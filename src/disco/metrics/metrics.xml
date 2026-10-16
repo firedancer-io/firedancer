@@ -389,10 +389,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="UdpTxnUndersizeDropped" summary="Packets received on the non-QUIC port that were too small to be a valid IP packet" />
     <counter name="UdpTxnOversizeDropped" summary="Packets received on the non-QUIC port that were too large to be a valid transaction" />
 
-    <counter name="PktRx" summary="UDP datagrams received on the QUIC port (one may carry several coalesced QUIC packets)" />
-    <counter name="PktRxBytes" summary="Bytes of UDP datagrams received on the QUIC port, including IP and UDP headers" />
-    <counter name="PktTx" summary="IP packets sent" />
-    <counter name="PktTxBytes" summary="Bytes sent (including IP, UDP, QUIC headers)" />
+    <counter name="PktRx" summary="UDP datagrams received (one may carry several coalesced QUIC packets)" />
+    <counter name="PktRxBytes" summary="Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" />
+    <counter name="PktTx" summary="UDP datagrams sent" />
+    <counter name="PktTxBytes" summary="Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" />
 
     <gauge name="ConnUsed" enum="QuicConnState" summary="Connection slots in use, by state; sum + ConnFree = ConnCapacity" />
     <gauge name="ConnFree" summary="Connection slots free" />
@@ -403,7 +403,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="ConnTimedOut" summary="Connections timed out" />
     <counter name="ConnRetried" summary="Connections established with retry" />
     <counter name="ConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
-    <counter name="ConnRetryRejected" summary="Connections that failed during retry (e.g. invalid token)" />
+    <counter name="ConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
 
     <counter name="PktDropped" enum="QuicPktDropReason" summary="Received packets dropped, by reason" />
     <counter name="PktNoConnDropped" enum="QuicPktType" summary="Packets with an unknown connection ID, by packet type" />
@@ -437,10 +437,10 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="txsend" telemetry="false">
     <!-- QUIC packet metrics -->
-    <counter name="PktRx" summary="QUIC packets received" />
-    <counter name="PktRxBytes" summary="Bytes received via QUIC" />
-    <counter name="PktTx" summary="QUIC packets sent" />
-    <counter name="PktTxBytes" summary="Bytes sent via QUIC" />
+    <counter name="PktRx" summary="UDP datagrams received (one may carry several coalesced QUIC packets)" />
+    <counter name="PktRxBytes" summary="Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" />
+    <counter name="PktTx" summary="UDP datagrams sent" />
+    <counter name="PktTxBytes" summary="Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" />
 
     <!-- QUIC connection metrics -->
     <gauge name="ConnUsed" enum="QuicConnState" summary="Connection slots in use, by state; sum + ConnFree = ConnCapacity" />
@@ -453,7 +453,7 @@ deliberate exception with lint-allow="<rule id>")
 
     <!-- QUIC connection error metrics -->
     <counter name="ConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
-    <counter name="ConnRetryRejected" summary="Server Retry packets rejected: late, invalid token, or a repeated original connection ID" />
+    <counter name="ConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
 
     <!-- QUIC packet error metrics -->
     <counter name="PktDecryptFailed" enum="QuicEncryptionLevel" summary="Packets that failed decryption, by encryption level" />
@@ -2066,7 +2066,79 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="PoolSlotFree" summary="Free entries in the vote and cert pool's slot table" />
     <gauge name="HighestPoolFinalizedSlot" summary="Highest slot the pool has finalized (slow-final also needs the slot notarized), 0 if none" />
     <gauge name="Rank" summary="Rank of this validator in the current epoch (0 is the highest rank), ULONG_MAX if unranked (unstaked)" />
-    <gauge name="PeerConnOpen" summary="Peers with an open outbound connection" />
+    <gauge name="PeerConnOpen" deprecated="true" summary="Peers with an open outbound connection; replaced by ClientConnUsed" />
+
+    <!-- QUIC client (outbound conns to peers) -->
+
+    <counter name="ClientPktRx" summary="UDP datagrams received (one may carry several coalesced QUIC packets)" />
+    <counter name="ClientPktRxBytes" summary="Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" />
+    <counter name="ClientPktTx" summary="UDP datagrams sent" />
+    <counter name="ClientPktTxBytes" summary="Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" />
+    <gauge name="ClientConnUsed" enum="QuicConnState" summary="Connection slots in use, by state; sum + ConnFree = ConnCapacity" />
+    <gauge name="ClientConnFree" summary="Connection slots free" />
+    <gauge name="ClientConnCapacity" summary="Connection slots" />
+    <counter name="ClientConnCreated" summary="Connections created" />
+    <counter name="ClientConnClosed" summary="Connections gracefully closed" />
+    <counter name="ClientConnAborted" summary="Connections aborted" />
+    <counter name="ClientConnTimedOut" summary="Connections timed out" />
+    <counter name="ClientConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
+    <counter name="ClientConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
+    <counter name="ClientPktDecryptFailed" enum="QuicEncryptionLevel" summary="Packets that failed decryption, by encryption level" />
+    <counter name="ClientPktNoKeyDropped" enum="QuicEncryptionLevel" summary="Packets dropped because the decryption key was missing, by encryption level" />
+    <counter name="ClientPktDropped" enum="QuicPktDropReason" summary="Received packets dropped, by reason" />
+    <counter name="ClientPktNoConnDropped" enum="QuicPktType" summary="Packets with an unknown connection ID, by packet type" />
+    <counter name="ClientPktRetransmitted" enum="QuicEncryptionLevel" summary="QUIC packets retransmitted, by encryption level" />
+    <counter name="ClientHandshakeCreated" summary="Handshake flows created" />
+    <counter name="ClientHandshakePoolFullRejected" summary="Handshakes dropped due to alloc fail" />
+    <counter name="ClientHandshakeEvicted" summary="Handshakes dropped due to eviction" />
+    <counter name="ClientStreamRx" summary="Stream receive events" />
+    <counter name="ClientStreamRxBytes" summary="Stream payload bytes received" />
+    <counter name="ClientFrameRx" enum="QuicFrameType" summary="QUIC frames received, by frame type" />
+    <counter name="ClientFrameParseFailed" summary="QUIC frames that failed to parse" />
+    <counter name="ClientPktMetaAcquireAttempted" enum="PktMetaAcquireResult" summary="Attempts to acquire packet metadata for transmission, by result" />
+    <counter name="ClientPktAckProcessed" enum="AckResult" summary="Received packets processed for acknowledgement, by result" />
+    <histogram name="ClientServiceDurationNanos" min="10" max="100000000" source="ticks">
+        <summary>Duration of one fd_quic_service call that processed a due connection timer</summary>
+    </histogram>
+    <histogram name="ClientPktRxDurationNanos" min="10" max="100000000" source="ticks">
+        <summary>Duration of processing one received packet</summary>
+    </histogram>
+
+    <!-- QUIC server (inbound conns from peers) -->
+
+    <counter name="ServerPktRx" summary="UDP datagrams received (one may carry several coalesced QUIC packets)" />
+    <counter name="ServerPktRxBytes" summary="Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" />
+    <counter name="ServerPktTx" summary="UDP datagrams sent" />
+    <counter name="ServerPktTxBytes" summary="Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" />
+    <gauge name="ServerConnUsed" enum="QuicConnState" summary="Connection slots in use, by state; sum + ConnFree = ConnCapacity" />
+    <gauge name="ServerConnFree" summary="Connection slots free" />
+    <gauge name="ServerConnCapacity" summary="Connection slots" />
+    <counter name="ServerConnCreated" summary="Connections created" />
+    <counter name="ServerConnClosed" summary="Connections gracefully closed" />
+    <counter name="ServerConnAborted" summary="Connections aborted" />
+    <counter name="ServerConnTimedOut" summary="Connections timed out" />
+    <counter name="ServerConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
+    <counter name="ServerConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
+    <counter name="ServerPktDecryptFailed" enum="QuicEncryptionLevel" summary="Packets that failed decryption, by encryption level" />
+    <counter name="ServerPktNoKeyDropped" enum="QuicEncryptionLevel" summary="Packets dropped because the decryption key was missing, by encryption level" />
+    <counter name="ServerPktDropped" enum="QuicPktDropReason" summary="Received packets dropped, by reason" />
+    <counter name="ServerPktNoConnDropped" enum="QuicPktType" summary="Packets with an unknown connection ID, by packet type" />
+    <counter name="ServerPktRetransmitted" enum="QuicEncryptionLevel" summary="QUIC packets retransmitted, by encryption level" />
+    <counter name="ServerHandshakeCreated" summary="Handshake flows created" />
+    <counter name="ServerHandshakePoolFullRejected" summary="Handshakes dropped due to alloc fail" />
+    <counter name="ServerHandshakeEvicted" summary="Handshakes dropped due to eviction" />
+    <counter name="ServerStreamRx" summary="Stream receive events" />
+    <counter name="ServerStreamRxBytes" summary="Stream payload bytes received" />
+    <counter name="ServerFrameRx" enum="QuicFrameType" summary="QUIC frames received, by frame type" />
+    <counter name="ServerFrameParseFailed" summary="QUIC frames that failed to parse" />
+    <counter name="ServerPktMetaAcquireAttempted" enum="PktMetaAcquireResult" summary="Attempts to acquire packet metadata for transmission, by result" />
+    <counter name="ServerPktAckProcessed" enum="AckResult" summary="Received packets processed for acknowledgement, by result" />
+    <histogram name="ServerServiceDurationNanos" min="10" max="100000000" source="ticks">
+        <summary>Duration of one fd_quic_service call that processed a due connection timer</summary>
+    </histogram>
+    <histogram name="ServerPktRxDurationNanos" min="10" max="100000000" source="ticks">
+        <summary>Duration of processing one received packet</summary>
+    </histogram>
 
     <!-- Vote history file -->
 

@@ -184,22 +184,22 @@ enum {
 
 #define FD_METRICS_COUNTER_QUIC_PKT_RX_NAME "quic_pkt_rx"
 #define FD_METRICS_COUNTER_QUIC_PKT_RX_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_QUIC_PKT_RX_DESC "UDP datagrams received on the QUIC port (one may carry several coalesced QUIC packets)"
+#define FD_METRICS_COUNTER_QUIC_PKT_RX_DESC "UDP datagrams received (one may carry several coalesced QUIC packets)"
 #define FD_METRICS_COUNTER_QUIC_PKT_RX_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_QUIC_PKT_RX_BYTES_NAME "quic_pkt_rx_bytes"
 #define FD_METRICS_COUNTER_QUIC_PKT_RX_BYTES_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_QUIC_PKT_RX_BYTES_DESC "Bytes of UDP datagrams received on the QUIC port, including IP and UDP headers"
+#define FD_METRICS_COUNTER_QUIC_PKT_RX_BYTES_DESC "Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers"
 #define FD_METRICS_COUNTER_QUIC_PKT_RX_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_QUIC_PKT_TX_NAME "quic_pkt_tx"
 #define FD_METRICS_COUNTER_QUIC_PKT_TX_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_QUIC_PKT_TX_DESC "IP packets sent"
+#define FD_METRICS_COUNTER_QUIC_PKT_TX_DESC "UDP datagrams sent"
 #define FD_METRICS_COUNTER_QUIC_PKT_TX_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_QUIC_PKT_TX_BYTES_NAME "quic_pkt_tx_bytes"
 #define FD_METRICS_COUNTER_QUIC_PKT_TX_BYTES_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_QUIC_PKT_TX_BYTES_DESC "Bytes sent (including IP, UDP, QUIC headers)"
+#define FD_METRICS_COUNTER_QUIC_PKT_TX_BYTES_DESC "Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers"
 #define FD_METRICS_COUNTER_QUIC_PKT_TX_BYTES_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_QUIC_CONN_USED_NAME "quic_conn_used"
@@ -250,7 +250,7 @@ enum {
 
 #define FD_METRICS_COUNTER_QUIC_CONN_RETRY_REJECTED_NAME "quic_conn_retry_rejected"
 #define FD_METRICS_COUNTER_QUIC_CONN_RETRY_REJECTED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_QUIC_CONN_RETRY_REJECTED_DESC "Connections that failed during retry (e.g. invalid token)"
+#define FD_METRICS_COUNTER_QUIC_CONN_RETRY_REJECTED_DESC "Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client"
 #define FD_METRICS_COUNTER_QUIC_CONN_RETRY_REJECTED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_QUIC_PKT_DROPPED_NAME "quic_pkt_dropped"
