@@ -598,7 +598,9 @@ run_many_entries_case( int   alpenglow,
                        ulong bad_hash_cnt,
                        int   expect_ingest_ok,
                        int   expect_dead_reason ) {
-  ulong depth         = 1UL<<17;
+  /* Each entry keeps one txn and one microblock live; the extra 2048
+     covers the ~1420 free microblocks FEC admission may need. */
+  ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, entry_cnt+2048UL );
   ulong block_cnt_max = 4UL;
   ulong footprint     = fd_sched_footprint( depth, block_cnt_max, MANY_ENTRIES_MAX_SHREDS, MANY_ENTRIES_MAX_TXN );
   void * mem          = aligned_alloc( fd_sched_align(), footprint );
