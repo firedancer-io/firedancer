@@ -1280,6 +1280,17 @@ during_housekeeping( fd_rotor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
     ctx->halt_signing = 0;
+
+    /* Peers key their ping-pong cache by our pubkey, so every peer is
+       cold for the new identity.  Re-warm them all. */
+    ping_deque_remove_all( ctx->ping_deque );
+    for( ulong i=0UL; i<FD_ROTOR_STRAT_PEER_MAX && !ping_deque_full( ctx->ping_deque ); i++ ) {
+      fd_rotor_strat_peer_t * peer = &ctx->strat->cur.peers[ i ];
+      if( FD_LIKELY( !peer->ip4 ) ) continue; /* free slot, or no address */
+      peer->ping_ts = 0L;
+      ping_deque_push_tail( ctx->ping_deque, peer->id_key );
+    }
+
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
