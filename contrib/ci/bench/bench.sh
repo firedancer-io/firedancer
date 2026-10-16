@@ -7,6 +7,7 @@ BENCH_DIR=${BENCH_DIR:-$(realpath ..)/bench}
 DUMP_DIR=${DUMP_DIR:-$(realpath ..)/dump}
 SHREDB=/dev/shm/fd-bench-shreds.db  # tmpfs: on disk, writeback holds its inode lock and stalls shred/rserve pwrite() for whole slots
 RAMDB=/mnt/fd-bench-ramdb           # snapshot row's accounts.db: brd, so the row times snapin rather than flash write state
+BINDIR=/mnt/fd-bench-bin            # timed runs exec firedancer-dev from here
 bin=$BENCH_DIR/$side/bin
 out=$BENCH_DIR/$side.$what
 mkdir -p "$bin"
@@ -24,11 +25,23 @@ quiesce() { # identical host state before every timed run; args: files to pre-re
   done
 }
 
+inplace() { # binary into the one tmpfs file, rewritten in place: tmpfs keeps each offset's page, so both sides' code gets the same physical frames
+  if ! mountpoint -q $BINDIR; then
+    sudo mkdir -p $BINDIR
+    sudo mount -t tmpfs -o huge=never,size=1g,uid=$(id -u),gid=$(id -g) fdbenchbin $BINDIR
+  fi
+  mkdir -p $BINDIR/bin
+  dd if="$bin/firedancer-dev" of=$BINDIR/bin/firedancer-dev bs=4M conv=notrunc status=none
+  truncate -s "$(stat -c %s "$bin/firedancer-dev")" $BINDIR/bin/firedancer-dev
+  chmod 755 $BINDIR/bin/firedancer-dev
+}
+
 backtest() { # ledger, then run_ledger_backtest.sh args
   local ledger=$DUMP_DIR/$1
   quiesce "$ledger"/shreds.pcapng.zst "$ledger"/snapshot-*.tar.zst "$ledger"/genesis.bin
+  inplace
   rm -f "$out.log"  # fd_log appends
-  OBJDIR=$BENCH_DIR/$side CI=1 DUMP_DIR=$DUMP_DIR setarch -R \
+  OBJDIR=$BINDIR CI=1 DUMP_DIR=$DUMP_DIR setarch -R \
     ./src/flamenco/runtime/tests/run_ledger_backtest.sh -l "$@" --log "$out.log"
 }
 
@@ -65,8 +78,9 @@ case $what in
   bench)
     { cat "$BENCH_DIR/$side/bench.toml"; printf '[paths]\n    accounts = "%s"\n    shredb = "%s"\n' "$DUMP_DIR/accounts.db" "$SHREDB"; } > "$out.toml"
     quiesce
+    inplace
     rm -f "$out.log"
-    sudo "$bin/firedancer-dev" bench --alpenglow --no-watch --duration 10 --config "$out.toml" \
+    sudo $BINDIR/bin/firedancer-dev bench --alpenglow --no-watch --duration 10 --config "$out.toml" \
          --log-path "$out.log" > /dev/null 2>&1
     ;;
   *) echo "bench.sh: unknown measurement $what" >&2; exit 1 ;;
