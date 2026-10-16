@@ -13,11 +13,18 @@ on:
         type: string
         default: testnet-438272759-snapload
         description: 'load-only testnet ledger (genesis.bin + full snapshot) for the snapshot row'
+      epoch-ledger:
+        type: string
+        default: mainnet-epoch-450144000-minimized
+        description: 'minimized mainnet ledger whose first replayed slots cross an epoch boundary, for the epoch row'
   workflow_dispatch:
     inputs:
       snapshot-ledger:
         type: string
         default: testnet-438272759-snapload
+      epoch-ledger:
+        type: string
+        default: mainnet-epoch-450144000-minimized
 
 permissions:
   contents: read
@@ -158,6 +165,7 @@ jobs:
       BENCH_DIR: ${{ github.workspace }}/../bench
       DUMP_DIR: ${{ github.workspace }}/../dump
       BENCH_SNAP_LEDGER: ${{ inputs.snapshot-ledger }}
+      BENCH_EPOCH_LEDGER: ${{ inputs.epoch-ledger }}
 
     steps:
     - uses: actions/checkout@v7
@@ -223,6 +231,9 @@ jobs:
     - run: contrib/ci/bench/bench.sh snapshot base
       continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
     - run: contrib/ci/bench/bench.sh snapshot new
+    - run: contrib/ci/bench/bench.sh epoch base
+      continue-on-error: true
+    - run: contrib/ci/bench/bench.sh epoch new
 
     - name: Update PR comment (done)
       if: always() && github.event_name == 'pull_request'
