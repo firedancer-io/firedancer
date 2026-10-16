@@ -1137,6 +1137,65 @@ test_flushing_full_file_done_wfs_floor( void ) {
   FD_LOG_NOTICE(( "pass: test_flushing_full_file_done_wfs_floor" ));
 }
 
+/* After a full snapshot download, a servers-only node whose servers
+   offer no incremental on that full (they rotated mid-download) loads
+   the full alone instead of aborting.  With gossip, or when some server
+   still offers one, it keeps waiting for the incremental. */
+
+static void
+test_full_http_fini_full_only_fallback( void ) {
+  static struct {
+    char const * name;
+    int          gossip_enabled;
+    ulong        server_full_slot;
+    ulong        expected_sig;
+    int          expected_load_incremental;
+  } const cases[] = {
+    { "servers rotated: full only", 0, 200UL, FD_SNAPSHOT_MSG_CTRL_DONE, 0 },
+    { "servers still match",        0, 100UL, FD_SNAPSHOT_MSG_CTRL_NEXT, 1 },
+    { "gossip may find one",        1, 200UL, FD_SNAPSHOT_MSG_CTRL_NEXT, 1 },
+  };
+
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx = scratch;
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    fd_memset( ctx, 0, sizeof(*ctx) );
+    test_ctx_wake_init( ctx );
+    ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+    FD_TEST( ctx->selector );
+
+    fd_sspeer_key_t key  = test_key( (uchar)(0xC0+i) );
+    fd_ip4_port_t   addr = test_addr( 0x0E0F1000U+(uint)i, 9900 );
+    fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL, cases[ i ].server_full_slot, cases[ i ].server_full_slot+50UL, NULL, NULL );
+    fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+    ctx->state                           = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI;
+    ctx->gossip_enabled                  = cases[ i ].gossip_enabled;
+    ctx->download_enabled                = 1;
+    ctx->load_incremental                = 1;
+    ctx->predicted_incremental.full_slot = 100UL;
+    ctx->local_out.full_snapshot_fd      = -1;
+    ctx->out_ld.mem   = (fd_wksp_t *)output;
+    ctx->out_ld.wmark = 128UL;
+    test_output       = output;
+
+    int busy = 0;
+    after_credit( ctx, NULL, NULL, &busy );
+
+    FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE );
+    if( FD_UNLIKELY( test_publish_sig!=cases[ i ].expected_sig || ctx->load_incremental!=cases[ i ].expected_load_incremental ) ) {
+      FD_LOG_ERR(( "case `%s`: sig %lu load_incremental %i", cases[ i ].name, test_publish_sig, ctx->load_incremental ));
+    }
+  }
+
+  free( sel );
+  free( scratch );
+  FD_LOG_NOTICE(( "pass: test_full_http_fini_full_only_fallback" ));
+}
+
 static void
 test_incremental_selection_wfs_floor( void ) {
   static struct {
@@ -1421,6 +1480,7 @@ main( int     argc,
   test_flushing_full_file_done_incremental_source();
   test_flushing_full_file_done_wfs_floor();
   test_incremental_selection_wfs_floor();
+  test_full_http_fini_full_only_fallback();
   test_collecting_peers_wfs_selection();
 
   fd_ssping_delete( fd_ssping_leave( ssping ) );
