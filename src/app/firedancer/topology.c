@@ -1611,6 +1611,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossvf.tcache_depth          = 1<<22UL; /* TODO: user defined option */
     tile->gossvf.shred_version         = 0U;
     tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
+    tile->gossvf.alpenglow             = config->firedancer.consensus.alpenglow;
     tile->gossvf.boot_timestamp_nanos   = config->boot_timestamp_nanos;
 
     tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
