@@ -624,6 +624,25 @@ fd_quic_reconstruct_pkt_num( ulong pktnum_comp,
   return candidate_pn;
 }
 
+/* fd_quic_pkt_num_rx records receipt of pkt_number in pn_space.  Returns
+   1 if it was already received or is too old to tell (RFC 9000 s12.3). */
+static int
+fd_quic_pkt_num_rx( fd_quic_conn_t * conn,
+                    uint             pn_space,
+                    ulong            pkt_number ) {
+  ulong exp = conn->exp_pkt_number[ pn_space ];
+  if( FD_LIKELY( pkt_number>=exp ) ) {
+    ulong shift = pkt_number+1UL-exp;
+    conn->rx_pn_mask    [ pn_space ] = fd_ulong_if( shift<64UL, conn->rx_pn_mask[ pn_space ]<<( shift&63UL ), 0UL ) | 1UL;
+    conn->exp_pkt_number[ pn_space ] = pkt_number+1UL;
+    return 0;
+  }
+  ulong age = exp-1UL-pkt_number;
+  if( FD_UNLIKELY( age>=64UL || fd_ulong_extract_bit( conn->rx_pn_mask[ pn_space ], (int)age ) ) ) return 1;
+  conn->rx_pn_mask[ pn_space ] = fd_ulong_set_bit( conn->rx_pn_mask[ pn_space ], (int)age );
+  return 0;
+}
+
 /* fd_quic_svc_prep_schedule sets conn->svc_meta.next_timeout to
    min of current and provided expiry time. */
 static inline void
@@ -1782,6 +1801,11 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     conn->established = 1;
   }
 
+  if( FD_UNLIKELY( fd_quic_pkt_num_rx( conn, 0U, pkt_number ) ) ) {
+    quic->metrics.pkt_dup_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
@@ -1812,9 +1836,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   /* update last activity */
   conn->last_activity = state->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
-
-  /* update expected packet number */
-  conn->exp_pkt_number[0] = fd_ulong_max( conn->exp_pkt_number[0], pkt_number+1UL );
 
   /* insert into service queue */
   fd_quic_svc_prep_schedule( conn, state->now );
@@ -1929,6 +1950,11 @@ fd_quic_handle_v1_handshake(
     return FD_QUIC_PARSE_FAIL;
   }
 
+  if( FD_UNLIKELY( fd_quic_pkt_num_rx( conn, 1U, pkt_number ) ) ) {
+    quic->metrics.pkt_dup_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
@@ -1974,9 +2000,6 @@ fd_quic_handle_v1_handshake(
   /* update last activity */
   conn->last_activity = fd_quic_get_state( quic )->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
-
-  /* update expected packet number */
-  conn->exp_pkt_number[1] = fd_ulong_max( conn->exp_pkt_number[1], pkt_number+1UL );
 
   /* return number of bytes consumed */
   return tot_sz;
@@ -2209,6 +2232,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   /* set packet number on the context */
   pkt->pkt_number = pkt_number;
 
+  if( FD_UNLIKELY( fd_quic_pkt_num_rx( conn, 2U, pkt_number ) ) ) {
+    quic->metrics.pkt_dup_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   if( !current_key_phase ) {
     /* Decryption succeeded.  Commit the key phase update and throw
        away the old keys.  (May cause a few decryption failures if old
@@ -2252,9 +2280,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 
   /* update last activity */
   conn->last_activity = state->now;
-
-  /* update expected packet number */
-  conn->exp_pkt_number[2] = fd_ulong_max( conn->exp_pkt_number[2], pkt_number+1UL );
 
   return tot_sz;
 }
