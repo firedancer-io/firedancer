@@ -588,6 +588,9 @@ votor_wfs_test_ctx_new( fd_votor_tile_t * ctx,
   /* The sentinels unprivileged_init sets, which memset does not. */
   ctx->boot_block_id       = (ag_block_id_t){ .slot = ULONG_MAX };
   ctx->conn_ahead_slot     = ULONG_MAX;
+  ctx->next_leader_slot    = ULONG_MAX;
+  ctx->standstill_slot     = ULONG_MAX;
+  ctx->standstill_ts       = LONG_MAX;
   ctx->vote_history_dir_fd = -1;
   ctx->vote_history_new.fd = -1;
   ctx->vote_history_old.fd = -1;
@@ -890,6 +893,58 @@ test_votor_wfs_parent_ready_survives_wait( void ) {
   after_credit( &ctx, NULL, &poll_in, &charge_busy );
   FD_TEST( !ag_pool_metrics( ctx.pool ).pool_events_cnt );
   FD_TEST( ctx.highest_parent_ready_slot==boot_slot+1UL );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+static void
+test_votor_wfs_standstill_from_resume( int ipecho_first ) {
+  static fd_votor_tile_t ctx;
+  static peer_t          peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
+  static contact_info_t  contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+  static uchar           reconn_mem[ 1UL<<19 ] __attribute__((aligned(128)));
+  static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+  static fd_aio_t        aio_mem[1];
+
+  votor_wfs_test_ctx_new( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+
+  ctx.peers         = peers_join        ( peers_new        ( peers_mem         ) );
+  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  ctx.mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
+  FD_TEST( reconn_prq_footprint( RECONN_MAX )<=sizeof(reconn_mem) );
+  ctx.reconn_prq    = reconn_prq_join   ( reconn_prq_new   ( reconn_mem, RECONN_MAX ) );
+  FD_TEST( ctx.peers && ctx.contact_infos && ctx.mleaders && ctx.reconn_prq );
+  ag_pool_standstill_iter_init( ctx.standstill_iter, ctx.pool );
+
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( aio_mem, NULL, drop_aio_send ) );
+  FD_TEST( aio );
+  ctx.quic_client = test_quic( quic_client_scratch, sizeof(quic_client_scratch), FD_QUIC_ROLE_CLIENT, &ctx, aio );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, aio );
+
+  long boot = fd_clock_tile_now( ctx.clock );
+  votor_wfs_test_slot_completed( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+  if( ipecho_first ) votor_wfs_test_ipecho( &ctx );
+  FD_TEST( !ctx.init );
+
+  /* A pass while held must not arm it. */
+  int held_busy = 0;
+  int held_poll_in;
+  after_credit( &ctx, NULL, &held_poll_in, &held_busy );
+  FD_TEST( ctx.standstill_ts==LONG_MAX );
+
+  long resume = boot+2L*AG_DELTA_STANDSTILL_NS;
+  fd_clock_tile_set( ctx.clock, resume );
+  votor_wfs_test_done( &ctx, 1UL );
+  if( !ipecho_first ) votor_wfs_test_ipecho( &ctx );
+  FD_TEST( ctx.init );
+  FD_TEST( ctx.standstill_ts==LONG_MAX );
+
+  /* Bounded both ways: LONG_MAX if never armed, and the 1 s cycle if
+     armed at boot, due on entry and already fired. */
+  int charge_busy = 0;
+  int poll_in;
+  after_credit( &ctx, NULL, &poll_in, &charge_busy );
+  FD_TEST( ctx.standstill_ts>=resume+AG_DELTA_STANDSTILL_NS && ctx.standstill_ts<=fd_clock_tile_now( ctx.clock )+AG_DELTA_STANDSTILL_NS );
 
   votor_wfs_test_ctx_delete( &ctx );
 }
@@ -2399,6 +2454,8 @@ main( int     argc,
   test_votor_wfs_done_before_epoch();
   test_votor_wfs_keyswitch_during_wait();
   test_votor_wfs_parent_ready_survives_wait();
+  test_votor_wfs_standstill_from_resume( 1 );
+  test_votor_wfs_standstill_from_resume( 0 );
   test_sign_bls_request();
   test_connect_peer();
   test_conn_final_backoff();
