@@ -1788,9 +1788,16 @@ replay_block_complete( fd_replay_tile_t *        ctx,
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
       FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
 
-      /* A bank hash mismatch detected now is only considered a true
-         BHM if the block_id also becomes finalized. */
+      /* A bank hash mismatch detected now is only considered a true BHM
+         if the block_id also becomes finalized.  If the finalization
+         already arrived, ahead of replay, check the parked
+         finalized_block_id_lo/hi. */
       ag_block_id_t const * block_id = &ctx->block_id_arr[ bank->idx ].block_info;
+      if( FD_UNLIKELY( ag_block_id_eq( block_id, &ctx->finalized_block_id_lo ) || ag_block_id_eq( block_id, &ctx->finalized_block_id_hi ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( block_id->hash, block_id_b58 );
+        FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", block_id->slot, block_id_b58 ));
+      }
+
       if( FD_LIKELY( !fd_bhm_map_ele_query( ctx->bhm_map, block_id, NULL, ctx->bhm_arr ) ) ) {
         fd_bhm_ele_t * ele = &ctx->bhm_arr[ ctx->bhm_next ];
         if( FD_UNLIKELY( ele->block_id.slot!=ULONG_MAX ) ) FD_TEST( fd_bhm_map_ele_remove( ctx->bhm_map, &ele->block_id, NULL, ctx->bhm_arr )==ele );
