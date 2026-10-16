@@ -154,6 +154,9 @@ fd_dev_main( int                        argc,
   int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, 1 /* dev */ );
   if( FD_LIKELY( load_topo ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
 
+  if( FD_UNLIKELY( config.is_live_cluster && (no_clone || no_sandbox) ) )
+    FD_LOG_ERR(( "trying to join a live cluster, but %s is a development only flag", no_clone ? "--no-clone" : "--no-sandbox" ));
+
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
 

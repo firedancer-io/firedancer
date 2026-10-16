@@ -33,7 +33,7 @@ uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0 ) ] __attribute__((aligned(FD_MET
 fd_shredder_t _shredder[ 1 ];
 
 #define SHRED_VER   (ushort)6051 /* An arbitrary value */
-#define MAX         (32UL*1024UL)
+#define MAX         ((ulong)FD_SHRED_BLK_MAX)
 #define SEED        10388431120836828144UL
 #define SLOT_MAX    (4096UL)
 

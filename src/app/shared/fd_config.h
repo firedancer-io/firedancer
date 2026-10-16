@@ -133,8 +133,9 @@ struct fd_configf {
   } gossip;
 
   struct {
-    char wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
-    int  alpenglow;
+    ulong wait_for_supermajority_at_slot;
+    char  wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    int   alpenglow;
   } consensus;
 
   struct {
@@ -200,10 +201,6 @@ struct fd_configf {
       char  affinity[ AFFINITY_SZ ];
       ulong root_distance;
     } backtest;
-
-    struct {
-      char affinity[ AFFINITY_SZ ];
-    } forktest;
   } development;
 
   struct {
@@ -265,6 +262,7 @@ struct fd_config {
   double tick_per_ns_sigma;
 
   long boot_timestamp_nanos;
+  ulong launch_cpus[ 1024UL/64UL ]; /* affinity inherited from the launcher */
 
   /* Sizing ceilings for every per-slot structure, derived at load: the
      largest values the consensus limits can take, or the raised
@@ -560,10 +558,6 @@ struct fd_config {
     struct {
       int write_vote_history_file;
     } tower;
-
-    struct {
-      int write_vote_history_file;
-    } votor;
 
     struct {
       ulong max_transaction_lookahead_buffer_size;

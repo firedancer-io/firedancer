@@ -20,7 +20,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340269866-v4.2.0-be
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-v4.2.0-beta.1-vat -m 10000000 -e 254462598
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.2.0-beta.1-vat -m 2000000 -e 346556337
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v4.2.0-beta.1-vat -m 2000000 -e 380592006
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-vat-v4.2.0-beta.1-vat -m 3000 -e 1352 -g
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-vat-alpenglow-agave-v4.4-968b24ce --alpenglow -g -m 3000 -e 1360
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.2.0-beta.1-vat -m 2000000 -e 385786452
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.2.0-beta.1-vat -m 3000 -e 1000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347-v4.2.0-beta.1-vat -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64

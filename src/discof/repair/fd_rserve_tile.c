@@ -664,7 +664,7 @@ returnable_frag( ctx_t             * ctx,
     if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
       ctx->metrics->disk_inserted++;
       ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
-    } else ctx->metrics->disk_write_failed++;
+    } else if( FD_UNLIKELY( result==FD_STORE_DISK_INSERT_ERR ) ) ctx->metrics->disk_write_failed++;
     return 0;
   }
   case IN_KIND_ROTOR: return 0; /* after_frag */

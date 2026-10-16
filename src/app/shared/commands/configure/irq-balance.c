@@ -4,6 +4,7 @@
 #define _DEFAULT_SOURCE
 #include "configure.h"
 #include "../../../../util/tile/fd_tile_private.h"
+#include "fd_cpu_isolation.h"
 #include "fd_irqbalance_client.h"
 
 #include <errno.h>
@@ -48,18 +49,6 @@ cpuset_to_list_sample( char *               buf,
   return buf;
 }
 
-static fd_cpuset_t *
-topo_banned_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ],
-                  fd_topo_t const * topo ) {
-  fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_shmem_cpu_cnt();
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    if( tile->cpu_idx < cpu_cnt ) fd_cpuset_insert( cpuset, tile->cpu_idx );
-  }
-  return cpuset;
-}
-
 static configure_result_t
 check( config_t const * config,
        int              check_type ) {
@@ -102,7 +91,7 @@ check( config_t const * config,
   }
 
   FD_CPUSET_DECL( required );
-  topo_banned_cpus( required, &config->topo );
+  fd_cpu_isolation_banned_cpus( required, &config->topo );
 
   if( FD_LIKELY( !fd_cpuset_cnt( actual ) ) ) {
     if( FD_LIKELY( !fd_cpuset_cnt( required ) ) ) CONFIGURE_OK();
@@ -120,7 +109,7 @@ check( config_t const * config,
 static void
 init( config_t const * config ) {
   FD_CPUSET_DECL( firedancer );
-  topo_banned_cpus( firedancer, &config->topo );
+  fd_cpu_isolation_banned_cpus( firedancer, &config->topo );
 
   if( FD_UNLIKELY( -1==fd_irqbalance_ban_cpus_set( firedancer ) ) ) {
     int err = errno;

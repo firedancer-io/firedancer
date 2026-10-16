@@ -40,7 +40,25 @@
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 
-FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_TYPE_CNT==FD_GUI_HIST_CNT, gui_db_enum );
+/* We're not going to use the TOWER DB, but need to keep its metric
+   for backwards compatibility, so then we need an explicit mapping. */
+
+FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_TYPE_CNT==FD_GUI_HIST_CNT+1UL, gui_db_enum );
+
+static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
+  [ FD_GUI_HIST_SCHEDULER_COUNTS ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_SCHEDULER_COUNTS_IDX,
+  [ FD_GUI_HIST_TILE_TIMERS      ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TILE_TIMERS_IDX,
+  [ FD_GUI_HIST_SHRED_EVENTS     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_SHRED_EVENTS_IDX,
+  [ FD_GUI_HIST_TXN_START        ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TXN_START_IDX,
+  [ FD_GUI_HIST_TXN_END          ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TXN_END_IDX,
+  [ FD_GUI_HIST_SLOT             ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_SLOT_IDX,
+  [ FD_GUI_HIST_LEADER_SLOT      ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_LEADER_SLOT_IDX,
+  [ FD_GUI_HIST_EPOCH            ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_EPOCH_IDX,
+  [ FD_GUI_HIST_TILE_STATS       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TILE_STATS_IDX,
+  [ FD_GUI_HIST_TXN_WATERFALL    ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TXN_WATERFALL_IDX,
+  [ FD_GUI_HIST_TIMELINE_DAY     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_DAY_IDX,
+  [ FD_GUI_HIST_REPLAY_TXN       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_IDX,
+};
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
 #define IN_KIND_PACK_POH      ( 3UL)
@@ -70,8 +88,10 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
 #define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (32UL<<20)
-/* Agg revenue has three ulong-string arrays: at most 3*23=69 bytes per
-   bucket including commas, within the shared 512-byte budget. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
+/* Agg txn has four numeric arrays, and agg revenue has three
+   ulong-string arrays: at most 4*21=84 or 3*23=69 bytes per bucket
+   including commas, within the shared 512-byte budget. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
 FD_STATIC_ASSERT( 2UL*FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8)<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ,
                   compressed_response_bound );
@@ -209,6 +229,12 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
 }
 
 static inline void
+gui_db_metric_copy( ulong         off,
+                    ulong const * values ) {
+  for( ulong i=0UL; i<FD_GUI_HIST_CNT; i++ ) fd_metrics_tl[ off+gui_db_type_idx[ i ] ] = values[ i ];
+}
+
+static inline void
 metrics_write( fd_gui_ctx_t * ctx ) {
   FD_MGAUGE_SET( GUI, CONN_OPEN,           ctx->gui_server->metrics.connection_cnt    );
   FD_MGAUGE_SET( GUI, WEBSOCKET_CONN_OPEN, ctx->gui_server->metrics.ws_connection_cnt );
@@ -240,27 +266,27 @@ metrics_write( fd_gui_ctx_t * ctx ) {
                              &cap_slots[ i ],  &free_slots[ i ] );
   }
 
-  FD_MGAUGE_ENUM_COPY( GUI, DB_USED_BYTES,        used_bytes      );
-  FD_MGAUGE_ENUM_COPY( GUI, DB_ALLOCATED_BYTES,   cap_bytes       );
-  FD_MGAUGE_SET      ( GUI, DB_FREE_BYTES,        free_bytes[ 0 ] ); /* shared by every ring */
-  FD_MGAUGE_ENUM_COPY( GUI, DB_RECORD_USED,       used_slots      );
-  FD_MGAUGE_ENUM_COPY( GUI, DB_RECORD_ALLOCATED,  cap_slots       );
+  gui_db_metric_copy( MIDX( GAUGE, GUI, DB_USED_BYTES       ), used_bytes );
+  gui_db_metric_copy( MIDX( GAUGE, GUI, DB_ALLOCATED_BYTES  ), cap_bytes  );
+  FD_MGAUGE_SET( GUI, DB_FREE_BYTES, fd_gui_store_free_region_cnt( ctx->db )*FD_GUI_STORE_REGION_SZ ); /* shared by every ring */
+  gui_db_metric_copy( MIDX( GAUGE, GUI, DB_RECORD_USED      ), used_slots );
+  gui_db_metric_copy( MIDX( GAUGE, GUI, DB_RECORD_ALLOCATED ), cap_slots  );
 
   fd_gui_store_metrics_t const * dm = fd_gui_store_metrics( ctx->db );
   fd_gui_hist_metrics_t const * hist = fd_gui_hist_metrics( ctx->gui );
   static ulong const zero_hist_metrics[ FD_GUI_HIST_CNT ] = { 0UL };
   ulong const * hist_map_full = hist ? hist->map_full : zero_hist_metrics;
   ulong const * hist_reserves = hist ? hist->reserves  : zero_hist_metrics;
-  FD_MCNT_ENUM_COPY( GUI, DB_KV_QUERIED,                   dm->kv_lookups      );
-  FD_MCNT_ENUM_COPY( GUI, DB_TIME_SERIES_RECORD_APPENDED,  dm->ts_appends      );
-  FD_MCNT_ENUM_COPY( GUI, DB_TIME_SERIES_SCANNED,          dm->ts_reads        );
-  FD_MCNT_ENUM_COPY( GUI, DB_TIME_SERIES_RECORD_READ,      dm->ts_read_records );
-  FD_MCNT_ENUM_COPY( GUI, DB_RECORD_EVICTED,               dm->evict_records   );
-  FD_MCNT_ENUM_COPY( GUI, DB_EVICTION_PASS_COMPLETED,      dm->evicts          );
-  FD_MCNT_ENUM_COPY( GUI, DB_REGION_CLAIMED,               dm->region_grows    );
-  FD_MCNT_ENUM_COPY( GUI, DB_REGION_RELEASED,              dm->region_reclaims );
-  FD_MCNT_ENUM_COPY( GUI, DB_RECORD_DROPPED,               hist_map_full       );
-  FD_MCNT_ENUM_COPY( GUI, DB_FORCED_EVICT_WRITE_COMPLETED, hist_reserves       );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_KV_QUERIED                   ), dm->kv_lookups      );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_TIME_SERIES_RECORD_APPENDED  ), dm->ts_appends      );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_TIME_SERIES_SCANNED          ), dm->ts_reads        );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_TIME_SERIES_RECORD_READ      ), dm->ts_read_records );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_RECORD_EVICTED               ), dm->evict_records   );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_EVICTION_PASS_COMPLETED      ), dm->evicts          );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_REGION_CLAIMED               ), dm->region_grows    );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_REGION_RELEASED              ), dm->region_reclaims );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_RECORD_DROPPED               ), hist_map_full       );
+  gui_db_metric_copy( MIDX( COUNTER, GUI, DB_FORCED_EVICT_WRITE_COMPLETED ), hist_reserves       );
 }
 
 static inline void
@@ -501,7 +527,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_SNAPIN_MANIF: {
       if( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) {
-        fd_gui_peers_commit_snapshot_manifest( ctx->peers );
+        if( fd_gui_wfs_mode( ctx->gui )!=FD_WFS_MODE_NOOP ) fd_gui_peers_commit_snapshot_manifest( ctx->peers );
       } else {
         fd_gui_stage_snapshot_manifest( ctx->gui, (fd_snapshot_manifest_t const *)src );
         fd_gui_peers_stage_snapshot_manifest( ctx->peers, (fd_snapshot_manifest_t const *)src, fd_clock_tile_now( ctx->clock ) );
@@ -963,7 +989,7 @@ unprivileged_init( fd_topo_t const *      topo,
     accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
     FD_TEST( accdb_shmem );
   }
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, tile->gui.is_alpenglow, tile->gui.max_live_slots, tile->gui.max_txn_per_slot, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, tile->gui.is_alpenglow, tile->gui.max_live_slots, tile->gui.max_txn_per_slot, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.wfs_slot, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
   FD_TEST( ctx->db );
 
@@ -993,7 +1019,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_slot"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;

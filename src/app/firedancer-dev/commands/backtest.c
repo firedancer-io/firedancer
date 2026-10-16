@@ -129,7 +129,7 @@ backtest_topo( config_t * config ) {
       config->firedancer.runtime.max_live_slots,
       FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT,
       8192UL,
-      1UL<<35UL,
+      config->development.accdb.partition_size_gib*(1UL<<30UL),
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
       execrp_tile_cnt+2UL+fd_ulong_if( disable_snap_loader, 1UL, snapin_tile_cnt ),
@@ -299,7 +299,7 @@ backtest_topo( config_t * config ) {
   /* Setup replay->stake/send/poh links in topo w/o consumers         */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_epoch"    );
-  fd_topob_link( topo, "replay_epoch", "replay_epoch", 16UL, FD_EPOCH_OUT_MTU, 1UL );
+  fd_topob_link( topo, "replay_epoch", "replay_epoch", 32UL, FD_EPOCH_OUT_MTU, 1UL );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_epoch",   0UL );
   topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_epoch",   0 ) ] ].permit_no_consumers = 1;
 
@@ -368,7 +368,7 @@ backtest_topo( config_t * config ) {
     FOR(snapin_tile_cnt) fd_topob_tile_out( topo, "snapin", i, "snapin_gui", i );
 
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "tower_out",     0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_slot",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_epoch",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "genesi_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "execrp_replay", i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -471,12 +471,20 @@ backtest_topo( config_t * config ) {
 
   if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
 
-  // fd_topob_auto_layout( topo, 0 );
   if( FD_UNLIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
       FD_LOG_ERR(( "topology has %lu tiles but [layout.affinity] only provides %lu entries", topo->tile_cnt, affinity_tile_cnt ));
     if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
       FD_LOG_WARNING(( "topology has %lu tiles but [layout.affinity] provides %lu entries, extra entries will be unused", topo->tile_cnt, affinity_tile_cnt ));
+  } else {
+    ushort blocklist_cores[ FD_TILE_MAX ];
+    topo->blocklist_cores_cnt = fd_topob_parse_affinity_cstr( config->layout.blocklist_cores, blocklist_cores, 0, 0 );
+    if( FD_UNLIKELY( topo->blocklist_cores_cnt>FD_TILE_MAX ) ) FD_LOG_ERR(( "[layout.blocklist_cores] specifies more than %lu CPUs", FD_TILE_MAX ));
+    for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
+      if( FD_UNLIKELY( blocklist_cores[ i ]==USHORT_MAX ) ) FD_LOG_ERR(( "[layout.blocklist_cores] must not contain `f`" ));
+      topo->blocklist_cores_cpu_idx[ i ] = blocklist_cores[ i ];
+    }
+    fd_topob_auto_layout( topo, 0 );
   }
 
   fd_topob_waker( topo );

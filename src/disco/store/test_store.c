@@ -861,7 +861,7 @@ test_disk_versions( fd_wksp_t * wksp ) {
 
   /* Re-inserting a stored (root,idx) does not take a ring cell */
   ulong head = atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed );
-  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xb1U ), &root_b )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xb1U ), &root_b )==FD_STORE_DISK_INSERT_DUP );
   FD_TEST( atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed )==head );
   FD_TEST( fd_store_disk_query_root( store, disk_fd, root_b.uc, idx, out )>0 && out[ FD_SHRED_DATA_HEADER_SZ ]==0xb0U );
 
@@ -920,7 +920,7 @@ test_disk_no_root_map( fd_wksp_t * wksp ) {
   uchar out[ FD_SHRED_MAX_SZ ];
 
   FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xa0U ), &root_a )==FD_STORE_DISK_INSERT_SUCCESS );
-  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xb0U ), &root_b )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_insert( store, disk_fd, disk_make_shred( buf, slot, idx, 0xb0U ), &root_b )==FD_STORE_DISK_INSERT_DUP );
 
   /* The second version is dropped and only the first is readable */
   FD_TEST( atomic_load_explicit( &store->disk_cnt, memory_order_relaxed )==1UL );
@@ -1132,7 +1132,7 @@ test_disk_lazy_highest( fd_wksp_t * wksp ) {
   int disk_fd = store_file_open( store, O_RDWR );
   FD_TEST( disk_fd>=0 );
   uchar buf[ FD_SHRED_MAX_SZ ];
-  uint idxs[3] = { 30000U, 0U, 0U };
+  uint idxs[3] = { 15000U, 0U, 0U };
   ulong slots[3] = { 7UL, 7UL, 8UL };
   for( ulong i=0UL; i<3UL; i++ ) {
     fd_memset( buf, 0, sizeof(buf) );

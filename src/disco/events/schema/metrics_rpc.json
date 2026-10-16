@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -48,7 +56,12 @@
         },
         "thread_duration_nanos": {
             "type": "Tuple",
-            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,15 +73,18 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "tlb_shootdown":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "timer_irq":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "device_irq":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "request_duration_nanos": {
             "type": "Tuple",
             "description": "Time to handle one HTTP request or WebSocket message, excluding socket I/O",
@@ -95,6 +111,9 @@
         "request_handled": {
             "type": "Tuple",
             "description": "RPC requests handled, by method, before parameter validation",
+            "aliases": {
+                "all": ["genesis", "unknown", "get_account_info", "get_balance", "get_block_height", "get_cluster_nodes", "get_epoch_info", "get_genesis_hash", "get_health", "get_identity", "get_inflation_governor", "get_latest_blockhash", "get_minimum_balance_for_rent_exemption", "get_multiple_accounts", "get_slot", "get_transaction_count", "get_version", "get_max_retransmit_slot", "get_slot_leader", "get_slot_leaders", "get_leader_schedule", "get_ag_genesis_cert", "slot_subscribe", "slot_unsubscribe", "vote_subscribe", "vote_unsubscribe", "unimplemented", "invalid", "health"]
+            },
             "fields": {
                 "genesis":                                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GET /genesis.tar.bz2" },
                 "unknown":                                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Unknown method" },
@@ -140,6 +159,9 @@
         "websocket_notification_published": {
             "type": "Tuple",
             "description": "Notifications published to at least one subscriber, by notification type",
+            "aliases": {
+                "all": ["vote", "slot"]
+            },
             "fields": {
                 "vote": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote" },
                 "slot": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" }
@@ -148,6 +170,9 @@
         "websocket_notification_tx": {
             "type": "Tuple",
             "description": "Notifications sent, counting each subscriber, by notification type",
+            "aliases": {
+                "all": ["vote", "slot"]
+            },
             "fields": {
                 "vote": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "vote" },
                 "slot": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" }
@@ -156,6 +181,9 @@
         "accdb_account_readonly_acquired": {
             "type": "Tuple",
             "description": "Readonly accounts acquired from the account database, by cache size class of the account's current data size",
+            "aliases": {
+                "all": ["le128_b", "le512_b", "le2_kib", "le8_kib", "le32_kib", "le128_kib", "le1_mib", "le10_mib"]
+            },
             "fields": {
                 "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
                 "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
@@ -170,6 +198,9 @@
         "accdb_account_cache_missed": {
             "type": "Tuple",
             "description": "Accounts not found in the account database cache and read from disk, by cache size class",
+            "aliases": {
+                "all": ["le128_b", "le512_b", "le2_kib", "le8_kib", "le32_kib", "le128_kib", "le1_mib", "le10_mib"]
+            },
             "fields": {
                 "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
                 "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },

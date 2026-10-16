@@ -12,9 +12,9 @@
 #define FD_BLOCKDB_ALIGN (128UL)
 
 /* The double-merkle tree has at most FD_FEC_BLK_MAX+1 leaves (FEC roots
-   plus the parent-info leaf), so at most 12 layers and 11 proof nodes. */
+   plus the parent-info leaf), so at most 11 layers and 10 proof nodes. */
 
-#define FD_BLOCKDB_TREE_LAYER_MAX (12UL)
+#define FD_BLOCKDB_TREE_LAYER_MAX (11UL)
 #define FD_BLOCKDB_PROOF_NODE_MAX (FD_BLOCKDB_TREE_LAYER_MAX-1UL)
 
 struct fd_blockdb_key {

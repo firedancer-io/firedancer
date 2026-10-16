@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -48,7 +56,12 @@
         },
         "thread_duration_nanos": {
             "type": "Tuple",
-            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,19 +73,26 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "tlb_shootdown":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "timer_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "device_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "is_processing":                 { "type": "Bool",                                                           "description": "Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing)" },
         "txn_processed": {
             "type": "Tuple",
             "description": "Transactions loaded and executed, by result",
+            "aliases": {
+                "all":     ["success", "instruction_error", "account_not_found", "program_account_not_found", "insufficient_funds_for_fee", "invalid_account_for_fee", "already_processed", "blockhash_not_found", "invalid_program_for_execution", "address_lookup_table_not_found", "invalid_address_lookup_table_owner", "invalid_address_lookup_table_data", "invalid_address_lookup_table_index", "max_loaded_accounts_data_size_exceeded", "duplicate_instruction", "invalid_loaded_accounts_data_size_limit", "nonce_already_advanced", "nonce_advance_failed", "nonce_wrong_blockhash", "unsupported_version", "sanitize_failure", "account_in_use", "account_loaded_twice", "signature_failure", "too_many_account_locks", "insufficient_funds_for_rent", "unbalanced_transaction", "bundle_peer"],
+                "failure": ["instruction_error", "account_not_found", "program_account_not_found", "insufficient_funds_for_fee", "invalid_account_for_fee", "already_processed", "blockhash_not_found", "invalid_program_for_execution", "address_lookup_table_not_found", "invalid_address_lookup_table_owner", "invalid_address_lookup_table_data", "invalid_address_lookup_table_index", "max_loaded_accounts_data_size_exceeded", "duplicate_instruction", "invalid_loaded_accounts_data_size_limit", "nonce_already_advanced", "nonce_advance_failed", "nonce_wrong_blockhash", "unsupported_version", "sanitize_failure", "account_in_use", "account_loaded_twice", "signature_failure", "too_many_account_locks", "insufficient_funds_for_rent", "unbalanced_transaction", "bundle_peer"]
+            },
             "fields": {
                 "success":                                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction executed successfully" },
                 "instruction_error":                       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An error occurred while processing an instruction" },
@@ -107,6 +127,9 @@
         "txn_processed_by_version": {
             "type": "Tuple",
             "description": "Transactions processed, by transaction version",
+            "aliases": {
+                "all": ["legacy", "v0", "v1"]
+            },
             "fields": {
                 "legacy": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Legacy transaction format" },
                 "v0":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version 0 transaction format" },
@@ -121,6 +144,9 @@
         "txn_regime_duration_nanos": {
             "type": "Tuple",
             "description": "Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases",
+            "aliases": {
+                "all": ["load", "execute", "commit"]
+            },
             "fields": {
                 "load":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction checks and account loading" },
                 "execute": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction execution, including VM setup" },
@@ -130,6 +156,10 @@
         "vm_regime_duration_nanos": {
             "type": "Tuple",
             "description": "Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute",
+            "aliases": {
+                "all": ["setup", "commit", "setup_cpi", "commit_cpi", "interpreter"],
+                "cpi": ["setup_cpi", "commit_cpi"]
+            },
             "fields": {
                 "setup":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "VM setup" },
                 "commit":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "VM commit" },
@@ -152,6 +182,9 @@
         "progcache_hit": {
             "type": "Tuple",
             "description": "Program cache hits, by size class",
+            "aliases": {
+                "all": ["le128_kib", "le512_kib", "le1_mib", "le2_mib", "le4_mib", "le11_mib"]
+            },
             "fields": {
                 "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 KiB" },
                 "le512_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128-512 KiB" },
@@ -164,6 +197,9 @@
         "progcache_inserted": {
             "type": "Tuple",
             "description": "Programs inserted into the program cache, by size class",
+            "aliases": {
+                "all": ["le128_kib", "le512_kib", "le1_mib", "le2_mib", "le4_mib", "le11_mib"]
+            },
             "fields": {
                 "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 KiB" },
                 "le512_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128-512 KiB" },
@@ -176,6 +212,9 @@
         "progcache_evicted": {
             "type": "Tuple",
             "description": "Program cache slots reclaimed by an insert's eviction sweep, by size class (housekeeping preevicts are counted by the accdb tile)",
+            "aliases": {
+                "all": ["le128_kib", "le512_kib", "le1_mib", "le2_mib", "le4_mib", "le11_mib"]
+            },
             "fields": {
                 "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 KiB" },
                 "le512_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128-512 KiB" },
@@ -188,6 +227,9 @@
         "progcache_spilled": {
             "type": "Tuple",
             "description": "Programs loaded into spill memory because no cache slot could be freed, by size class",
+            "aliases": {
+                "all": ["le128_kib", "le512_kib", "le1_mib", "le2_mib", "le4_mib", "le11_mib"]
+            },
             "fields": {
                 "le128_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 KiB" },
                 "le512_kib": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "128-512 KiB" },
@@ -200,6 +242,9 @@
         "accdb_account_readonly_acquired": {
             "type": "Tuple",
             "description": "Readonly accounts acquired from the account database, by cache size class of the account's current data size",
+            "aliases": {
+                "all": ["le128_b", "le512_b", "le2_kib", "le8_kib", "le32_kib", "le128_kib", "le1_mib", "le10_mib"]
+            },
             "fields": {
                 "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
                 "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
@@ -214,6 +259,9 @@
         "accdb_account_writable_acquired": {
             "type": "Tuple",
             "description": "Writable accounts acquired from the account database, by cache size class of the account's current data size",
+            "aliases": {
+                "all": ["le128_b", "le512_b", "le2_kib", "le8_kib", "le32_kib", "le128_kib", "le1_mib", "le10_mib"]
+            },
             "fields": {
                 "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
                 "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
@@ -228,6 +276,9 @@
         "accdb_account_evicted": {
             "type": "Tuple",
             "description": "Accounts evicted from the account database cache to make space, by cache size class",
+            "aliases": {
+                "all": ["le128_b", "le512_b", "le2_kib", "le8_kib", "le32_kib", "le128_kib", "le1_mib", "le10_mib"]
+            },
             "fields": {
                 "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
                 "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
@@ -242,6 +293,9 @@
         "accdb_account_new_committed": {
             "type": "Tuple",
             "description": "New account versions committed to the index, by destination cache size class",
+            "aliases": {
+                "all": ["le128_b", "le512_b", "le2_kib", "le8_kib", "le32_kib", "le128_kib", "le1_mib", "le10_mib"]
+            },
             "fields": {
                 "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
                 "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
@@ -256,6 +310,9 @@
         "accdb_account_overwrite_committed": {
             "type": "Tuple",
             "description": "Account versions committed over an existing version of the same fork and generation, by destination cache size class",
+            "aliases": {
+                "all": ["le128_b", "le512_b", "le2_kib", "le8_kib", "le32_kib", "le128_kib", "le1_mib", "le10_mib"]
+            },
             "fields": {
                 "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
                 "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },
@@ -270,6 +327,9 @@
         "accdb_account_cache_missed": {
             "type": "Tuple",
             "description": "Accounts not found in the account database cache and read from disk, by cache size class",
+            "aliases": {
+                "all": ["le128_b", "le512_b", "le2_kib", "le8_kib", "le32_kib", "le128_kib", "le1_mib", "le10_mib"]
+            },
             "fields": {
                 "le128_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "0-128 B" },
                 "le512_b":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "129-512 B" },

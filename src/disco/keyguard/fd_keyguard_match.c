@@ -412,23 +412,17 @@ fd_keyguard_payload_matches_tower( uchar const * data,
   return votes_cnt>=1UL && votes_cnt<=31UL;
 }
 
-/* VoteHistory: node_pubkey, voted, voted_notar, voted_notar_fallback */
+/* VoteHistory, as the votor writes it: node_pubkey, nine empty
+   collections, root */
 
 FD_FN_PURE static int
 fd_keyguard_payload_matches_vote_history( uchar const * data,
                                           ulong         sz,
                                           int           sign_type ) {
   if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-  if( sz<32UL+9UL*8UL+8UL                      ) return 0;
-  ulong left      = sz-(32UL+9UL*8UL+8UL);
-  ulong voted_cnt = FD_LOAD( ulong, data+32UL );
-  if( voted_cnt>left/8UL                       ) return 0;
-  left -= voted_cnt*8UL;
-  ulong notar_cnt = FD_LOAD( ulong, data+40UL+voted_cnt*8UL );
-  if( notar_cnt>left/40UL                      ) return 0;
-  left -= notar_cnt*40UL;
-  ulong notar_fallback_cnt = FD_LOAD( ulong, data+48UL+voted_cnt*8UL+notar_cnt*40UL );
-  return notar_fallback_cnt<=left/16UL;
+  if( sz!=32UL+9UL*8UL+8UL                     ) return 0;
+  for( ulong i=0UL; i<9UL; i++ ) if( FD_LOAD( ulong, data+32UL+i*8UL ) ) return 0;
+  return 1;
 }
 
 FD_FN_PURE ulong

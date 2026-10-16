@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -48,7 +56,12 @@
         },
         "thread_duration_nanos": {
             "type": "Tuple",
-            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,15 +73,18 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "tlb_shootdown":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "timer_irq":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "device_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "microblock_schedule_duration_nanos": {
             "type": "Tuple",
             "description": "Duration of scheduling one microblock",
@@ -211,6 +227,11 @@
         "txn_insert_attempted": {
             "type": "Tuple",
             "description": "Insert attempts, by result; bundle members are counted individually with the bundle's result",
+            "aliases": {
+                "all":      ["instr_too_many_accounts", "nonce_conflict", "account_blocklisted", "bundle_blocklisted", "invalid_nonce", "write_sysvar", "estimation_failed", "duplicate_account", "too_many_accounts", "too_many_cu", "expired", "lut_unsupported", "unaffordable", "duplicate", "nonce_priority_too_low", "priority_too_low", "nonvote_add", "vote_add", "nonvote_replace", "vote_replace", "nonce_nonvote_add", "unused", "nonce_nonvote_replace"],
+                "rejected": ["instr_too_many_accounts", "nonce_conflict", "account_blocklisted", "bundle_blocklisted", "invalid_nonce", "write_sysvar", "estimation_failed", "duplicate_account", "too_many_accounts", "too_many_cu", "expired", "lut_unsupported", "unaffordable", "duplicate", "nonce_priority_too_low", "priority_too_low"],
+                "replaced": ["nonvote_replace", "vote_replace", "nonce_nonvote_replace"]
+            },
             "fields": {
                 "instr_too_many_accounts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction has an instruction that references too many accounts" },
                 "nonce_conflict":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle with two conflicting durable nonce transactions" },
@@ -240,6 +261,12 @@
         "schedule_regime_duration_nanos": {
             "type": "Tuple",
             "description": "Time pack spent, by scheduling regime",
+            "aliases": {
+                "all":                  ["none", "txn", "execle", "txn_execle", "leader", "txn_leader", "execle_leader", "txn_execle_leader", "microblock", "txn_microblock", "execle_microblock", "txn_execle_microblock", "leader_microblock", "txn_leader_microblock", "execle_leader_microblock", "txn_execle_leader_microblock"],
+                "any_leader":           ["leader", "txn_leader", "execle_leader", "txn_execle_leader", "leader_microblock", "txn_leader_microblock", "execle_leader_microblock", "txn_execle_leader_microblock"],
+                "any_microblock":       ["microblock", "txn_microblock", "execle_microblock", "txn_execle_microblock", "leader_microblock", "txn_leader_microblock", "execle_leader_microblock", "txn_execle_leader_microblock"],
+                "leader_no_microblock": ["leader", "txn_leader", "execle_leader", "txn_execle_leader"]
+            },
             "fields": {
                 "none":                         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: not leader, no transactions, no available execle" },
                 "txn":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No microblock: not leader, transactions available, no available execle" },
@@ -262,6 +289,9 @@
         "txn_dropped": {
             "type": "Tuple",
             "description": "Transactions dropped from pack after insertion, by reason",
+            "aliases": {
+                "all": ["expired", "already_executed", "partial_bundle"]
+            },
             "fields": {
                 "expired":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TTL expired" },
                 "already_executed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Already executed in the replay or leader pipeline" },
@@ -286,6 +316,9 @@
         "txn_schedule_attempted": {
             "type": "Tuple",
             "description": "Times a pending transaction was considered for a microblock, by outcome; one transaction may be considered many times",
+            "aliases": {
+                "all": ["taken", "cu_limit", "conflict_fast", "byte_limit", "alloc_limit", "write_cost", "conflict_slow", "write_cost_deferred"]
+            },
             "fields": {
                 "taken":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack included the transaction in the microblock" },
                 "cu_limit":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack skipped the transaction because it would have exceeded the block CU limit" },
@@ -300,6 +333,9 @@
         "bundle_crank_attempted": {
             "type": "Tuple",
             "description": "Times pack checked whether the bundle tip state needed cranking, by outcome",
+            "aliases": {
+                "all": ["up_to_date", "inserted", "creation_failed", "insertion_failed"]
+            },
             "fields": {
                 "up_to_date":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "On-chain state was already up to date" },
                 "inserted":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Inserted an initializer bundle to update the on-chain state" },

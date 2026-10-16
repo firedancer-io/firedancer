@@ -276,27 +276,16 @@ telemetry = true
 
     # Absolute directory path for the tower/vote history file used for
     # safe identity switching. If no path is provided, it defaults to
-    # the base directory above. File(s) will only be created here if the
-    # respective write_vote_history_file option is set to true.  The
+    # the base directory above. The tower file is only created here if
+    # `[tiles.tower.write_vote_history_file]` is set to true.  The
     # directory must exist, be writable by the Firedancer user.
     #
-    # The files will be written differently based on if the validator is
-    # using Tower or Alpenglow consensus. In the former case, the
-    # validator saves its last vote to `tower-1_9-<identity>.bin` in
-    # this directory after each vote, which is the file name Agave
-    # uses. In the latter case, with Alpenglow, the validator saves the
-    # votes since the root to `vote_history-<identity>.bin`, also
-    # matching what Agave does. A vote history larger than 32688 bytes
-    # empties the file until the history fits again. This file is only
-    # ever read by the validator during set-identity and never at boot.
-    # Do not move or replace the files while the validator runs.
-    #
-    # After `set-identity` changes the identity, the validator renames
-    # the files to the new identity key before it saves the first vote
-    # of that identity, so the old identity's last vote keeps its name
-    # until then.  If a file with the new identity's name was placed in
-    # the directory, it is not replaced but renamed with an `.old`
-    # suffix.
+    # In Tower, the validator saves its last vote to
+    # `tower-1_9-<identity>.bin` in this directory after each vote,
+    # which is the file name Agave uses. In Alpenglow, the validator
+    # instead writes `vote_history-<identity>.bin`. This is an
+    # Agave-compatible vote history file and it protects against
+    # equivocation, both double voting and double producing blocks.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
@@ -446,7 +435,9 @@ telemetry = true
     # but download a more recent incremental snapshot from the network.
     #
     # If set to false, the validator will only load from a full
-    # snapshot.
+    # snapshot.  Note that during wait for supermajority this option
+    # may be overridden: if a full snapshot falls short of the WFS
+    # slot, the validator may attempt to load an incremental.
     incremental_snapshots = true
 
     # Whether to allow downloading a new genesis file from a peer when
@@ -692,18 +683,34 @@ telemetry = true
     # same slot number but different blockhash) in cases where the
     # primary node may still be alive.
     #
-    # If `wait_for_supermajority_with_bank_hash` is set, then this
-    # option must be set to `false` otherwise the client will not boot.
-    # This prevents the chain from deadlocking on a hard restart if all
-    # nodes enable this option.
-    wait_for_vote_to_start_leader = true
-
-    # If set to a valid bank hash, the client will wait until 80% of
-    # stake-weighted nodes are visible on gossip before attempting to
-    # make progress.
+    # During wait-for-supermajority (WFS) this option must be disabled,
+    # in order to prevent the chain from deadlocking on a hard restart
+    # (explicitly enabling it during WFS is rejected).  However, if the
+    # validator is booting after the chain has already moved forward,
+    # this flag must be enabled.  Therefore, set it to "auto" (default)
+    # so that WFS logic handles it automatically (when WFS is not
+    # configured, "auto" resolves to enabled).
     #
-    # This parameter ensures that the correct slot and consensus fork
-    # are selected during a hard fork event.
+    # Allowed values are: "auto", true, "true", false or "false".
+    wait_for_vote_to_start_leader = "auto"
+
+    # Wait-for-supermajority (WFS) is used during a coordinated hard
+    # fork restart, so that all validators agree on the fork before
+    # resuming: the network waits until at least 80% of stake is
+    # visible on gossip before replaying.
+    #
+    # Slot and bank hash below must be set together, and also
+    # `expected_shred_version` must be nonzero.  Slot 0 means disabled.
+    #
+    # If the loaded snapshot is exactly at the WFS slot, the bank hash
+    # is verified against `wait_for_supermajority_with_bank_hash`.  If
+    # it is ahead (the network already moved on), WFS is a no-op: both
+    # the bank hash check and the wait are skipped.  If it cannot reach
+    # the WFS slot, the validator refuses to boot.
+    #
+    # Remove obsolete local snapshots before a coordinated restart, and
+    # restrict downloads to trusted sources.
+    wait_for_supermajority_at_slot = 0
     wait_for_supermajority_with_bank_hash = ""
 
     # Whether to run Alpenglow consensus.  Firedancer runs exactly one
@@ -1859,13 +1866,6 @@ telemetry = true
     [tiles.tower]
         write_vote_history_file = true
 
-    # The votor tile replaces the tower tile when Alpenglow is enabled.
-    # Its vote history file is optional, but used for safer identity
-    # switches that avoid consensus violations like double voting. If
-    # Alpenglow is not yet enabled, this option will be ignored.
-    [tiles.votor]
-        write_vote_history_file = true
-
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just
     # used to send votes that our validator produces.
@@ -1943,13 +1943,14 @@ telemetry = true
         # runs out, the connections with the slowest recipients are
         # dropped.  Larger values make the GUI server more tolerant to
         # slow clients but also increase memory usage.
-        send_buffer_size_mb = 5120
+        send_buffer_size_mb = 512
 
         # The maximum size of the on disk event database.  This is an
         # upper bound on the disk space used.  The GUI tile will start
         # with an empty database and grow the storage file on disk up to
         # the limit as needed.  When the database is full, the oldest
-        # values are evicted to make space for new data.
+        # values are evicted to make space for new data.  Must be at
+        # least 2 GiB.
         db_size_gib = 100
 
     [tiles.rpc]
@@ -2233,15 +2234,15 @@ telemetry = true
         # validator and the rest of the network.
         max_cost_per_block = 0
 
-        # Solana has a consensus-agreed-upon limit of 32,768 data shreds
-        # (and as many parity shreds) per block.  This limit prevents a
-        # malicious (or mistaken) validator from slowing down the
-        # network by producing a huge block.  When benchmarking, this
-        # limit can be the bottleneck of the whole system, so this
-        # option is provided to raise the limit.  0 keeps the consensus
-        # limit; any other value is the raised number of data shreds per
-        # block, which must be a multiple of 32,768, and the block data
-        # byte limit scales with it.
+        # Solana has a consensus-agreed-upon limit of 16,384 data shreds
+        # (and as many parity shreds) per block with 200ms slots.  This
+        # limit prevents a malicious (or mistaken) validator from
+        # slowing down the network by producing a huge block.  When
+        # benchmarking, this limit can be the bottleneck of the whole
+        # system, so this option is provided to raise the limit.  0
+        # keeps the consensus limit; any other value is the raised
+        # number of data shreds per block, which must be a multiple of
+        # 16,384, and the block data byte limit scales with it.
         #
         # This option should not be used in a production network, since
         # it would cause consensus violations between the validator and
@@ -2326,7 +2327,7 @@ telemetry = true
         affinity = "auto"
 
     # Inject shreds (block data) into the system to replay.
-    # Used by 'firedancer-dev {backtest,forktest}'.
+    # Used by 'firedancer-dev backtest'.
     [development.ledger_input]
         # The following input ledger formats are supported:
         #
@@ -2358,11 +2359,6 @@ telemetry = true
 
         # Delays rooting by the given number of slots.
         root_distance = 32
-
-    # 'firedancer-dev forktest' specific options
-    [development.forktest]
-        # See [layout.affinity]
-        affinity = "auto"
 
     # Tuning for the accounts database.  These options are for advanced
     # users and should not be changed in production.

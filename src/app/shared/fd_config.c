@@ -5,6 +5,7 @@
 
 #include "../platform/fd_net_util.h"
 #include "../platform/fd_sys_util.h"
+#include "../../util/tile/fd_tile_private.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
@@ -14,6 +15,8 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
+#include "../../discof/restore/utils/fd_wfs.h"
+#include "../../util/fd_boolau.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -318,6 +321,52 @@ fd_config_fill_net( fd_config_t * config ) {
 }
 
 void
+fd_config_validate_consensus( fd_config_t const * config ) {
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    int has_bank_hash = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
+    int has_slot      = !!config->firedancer.consensus.wait_for_supermajority_at_slot;
+
+    if( FD_UNLIKELY( has_bank_hash && !has_slot ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] is set but "
+                   "[consensus.wait_for_supermajority_at_slot] is 0 (disabled). "
+                   "Both must be configured together." ));
+    }
+    if( FD_UNLIKELY( has_slot && !has_bank_hash ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_at_slot] is set but "
+                   "[consensus.wait_for_supermajority_with_bank_hash] is empty. "
+                   "Both must be configured together." ));
+    }
+    /* Makes string-empty and byte-zero hash_is_zero agree (fd_wfs.h).
+       Canonical base58 makes this the only all-zeros encoding. */
+    if( FD_UNLIKELY( has_bank_hash && !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash,
+                                              "11111111111111111111111111111111" ) ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] decodes to all zeros, "
+                   "which is not a valid bank hash." ));
+    }
+    if( FD_UNLIKELY( has_bank_hash && !config->consensus.expected_shred_version ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] requires "
+                   "[consensus.expected_shred_version] to be nonzero." ));
+    }
+    if( FD_UNLIKELY( config->firedancer.consensus.wait_for_supermajority_at_slot==ULONG_MAX ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_at_slot] is ULONG_MAX. "
+                   "No boot slot could ever match it." ));
+    }
+    int wfs_configured = fd_wfs_configured( config->firedancer.consensus.wait_for_supermajority_at_slot,
+                                            !has_bank_hash,
+                                            (ulong)config->consensus.expected_shred_version );
+    if( FD_UNLIKELY( wfs_configured && config->consensus.wait_for_vote_to_start_leader==FD_BOOLAU_TRUE ) ) {
+      FD_LOG_ERR(( "wait-for-supermajority is configured, which requires "
+                   "[consensus.wait_for_vote_to_start_leader] to be false or \"auto\"." ));
+    }
+  } else {
+    if( FD_UNLIKELY( config->consensus.wait_for_vote_to_start_leader==FD_BOOLAU_AUTO ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_vote_to_start_leader] is \"auto\". "
+                   "Allowed values are true and false." ));
+    }
+  }
+}
+
+void
 fd_config_fill( fd_config_t * config,
                 int           is_local_cluster,
                 int           dev ) {
@@ -486,7 +535,7 @@ fd_config_fill( fd_config_t * config,
 
       /* When starting from a new genesis block, this needs to be off else
         the validator will get stuck forever. */
-      config->frankendancer.consensus.wait_for_vote_to_start_leader = 0;
+      config->frankendancer.consensus.wait_for_vote_to_start_leader = FD_BOOLAU_FALSE;
 
       /* We have to wait until we get a snapshot before we can join a
         second validator to this one, so make this smaller than the
@@ -495,9 +544,7 @@ fd_config_fill( fd_config_t * config,
     }
   }
 
-  if( FD_UNLIKELY( config->is_firedancer && strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) && (!config->consensus.expected_shred_version || config->consensus.wait_for_vote_to_start_leader) ) ) {
-    FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
-  }
+  fd_config_validate_consensus( config );
 
 }
 
@@ -638,8 +685,8 @@ fd_config_validate( fd_config_t const * config ) {
      match what the Firedancer side used to hardcode for them. */
   if( FD_UNLIKELY( !config->is_firedancer && bench_cost && bench_cost!=18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND ) )
     FD_LOG_ERR(( "invalid [development.bench.max_cost_per_block]: Frankendancer supports 0 or %lu", 18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND ));
-  if( FD_UNLIKELY( !config->is_firedancer && bench_shreds && bench_shreds!=32UL*FD_SHRED_BLK_MAX ) )
-    FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: Frankendancer supports 0 or %lu", 32UL*FD_SHRED_BLK_MAX ));
+  if( FD_UNLIKELY( !config->is_firedancer && bench_shreds && bench_shreds!=32UL*FD_SHRED_PROTOCOL_BLK_MAX ) )
+    FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: Frankendancer supports 0 or %lu", 32UL*FD_SHRED_PROTOCOL_BLK_MAX ));
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
@@ -746,6 +793,9 @@ fd_config_load( int           is_firedancer,
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = is_firedancer;
   config->boot_timestamp_nanos = fd_log_wallclock();
+
+  FD_STATIC_ASSERT( sizeof(config->launch_cpus)==8UL*fd_cpuset_word_cnt, launch_cpus );
+  if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, (fd_cpuset_t *)config->launch_cpus ) ) ) memset( config->launch_cpus, 0, sizeof(config->launch_cpus) );
 
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );
   fd_config_validate( config );

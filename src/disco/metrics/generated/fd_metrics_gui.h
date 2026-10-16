@@ -327,7 +327,7 @@ enum {
 
 #define FD_METRICS_COUNTER_GUI_DB_RECORD_DROPPED_NAME "gui_db_record_dropped"
 #define FD_METRICS_COUNTER_GUI_DB_RECORD_DROPPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_GUI_DB_RECORD_DROPPED_DESC "Records dropped because the database was full (MAP_FULL), by database"
+#define FD_METRICS_COUNTER_GUI_DB_RECORD_DROPPED_DESC "Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database"
 #define FD_METRICS_COUNTER_GUI_DB_RECORD_DROPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_COUNTER_GUI_DB_RECORD_DROPPED_CNT  (13UL)
 

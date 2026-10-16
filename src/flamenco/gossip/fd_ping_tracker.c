@@ -286,7 +286,7 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
     if( FD_UNLIKELY( !pool_free( ping_tracker->pool ) ) ) {
       peer = lru_list_ele_peek_head( ping_tracker->lru, ping_tracker->pool );
       remove_peer( ping_tracker, peer, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
-      ping_tracker->metrics->peers_evicted++;
+      ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_EVICTED_IDX ]++;
     }
     peer = pool_ele_acquire( ping_tracker->pool );
 
@@ -309,7 +309,7 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
       /* Node went from unstaked (or low staked) to
          >=FD_GOSSIP_STAKED_THRESHOLD lamports.  No longer need to ping
          it. */
-      ping_tracker->metrics->stake_changed_cnt++;
+      ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_STAKED_IDX ]++;
       remove_peer( ping_tracker, peer, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED );
       return;
     }
@@ -444,6 +444,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
       /* The peer is no longer sending us contact information, no need
          to ping it and instead remove it from the table. */
       remove_peer( ping_tracker, next, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
+      ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_STALE_IDX ]++;
       continue;
     }
 
@@ -491,6 +492,7 @@ fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
   if( FD_UNLIKELY( !peer ) ) return;
 
   remove_peer( ping_tracker, peer, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
+  ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_IDENTITY_IDX ]++;
 }
 
 fd_ping_tracker_metrics_t const *

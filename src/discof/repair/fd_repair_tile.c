@@ -117,7 +117,6 @@
 
 #define _GNU_SOURCE
 
-#include "../genesis/fd_genesi_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_clock_tile.h"
 #include <linux/futex.h>
@@ -154,8 +153,7 @@
 #define IN_KIND_SIGN    (4)
 #define IN_KIND_SNAP    (5)
 #define IN_KIND_GOSSIP  (6)
-#define IN_KIND_GENESIS (7)
-#define IN_KIND_REPLAY  (8)
+#define IN_KIND_REPLAY  (7)
 
 /* static map from request type to metric array index */
 static uint metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
@@ -340,11 +338,6 @@ during_frag( ctx_t * ctx,
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
     uchar const * dcache_entry = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
     fd_memcpy( ctx->net_buf, dcache_entry, sz );
-    return;
-  }
-
-  if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
-    FD_TEST( sizeof(fd_genesis_meta_t)<=sig );
     return;
   }
 
@@ -787,11 +780,6 @@ after_frag( ctx_t *             ctx,
       after_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
       break;
     }
-    case IN_KIND_GENESIS: {
-      fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
-      if( meta->bootstrap ) fd_forest_init( ctx->forest, 0 );
-      break;
-    }
     case IN_KIND_GOSSIP: {
       fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
       after_gossip( ctx, msg, sig );
@@ -1217,7 +1205,6 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( 0==strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
     else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
-    else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
     else if( 0==strcmp( link->name, "replay_slot"  ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
 

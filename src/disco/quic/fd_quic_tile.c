@@ -165,9 +165,9 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET( QUIC, TXN_OVERSIZE_DROPPED,      ctx->metrics.quic_txn_too_large );
 
   FD_MCNT_SET(   QUIC, PKT_RX,           ctx->quic->metrics.net_rx_pkt_cnt );
-  FD_MCNT_SET(   QUIC, PKT_RX_BYTES,     ctx->quic->metrics.net_rx_byte_cnt );
+  FD_MCNT_SET(   QUIC, PKT_RX_BYTES,     ctx->quic->metrics.net_rx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, PKT_TX,           ctx->quic->metrics.net_tx_pkt_cnt );
-  FD_MCNT_SET(   QUIC, PKT_TX_BYTES,     ctx->quic->metrics.net_tx_byte_cnt );
+  FD_MCNT_SET(   QUIC, PKT_TX_BYTES,     ctx->quic->metrics.net_tx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic->metrics.net_tx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RETRY_PKT_TX,     ctx->quic->metrics.retry_tx_cnt );
   FD_MGAUGE_ENUM_COPY( QUIC, CONN_USED, (ctx->quic->metrics.conn_state_cnt+1) ); /* skip FD_QUIC_CONN_STATE_INVALID (free slots) */
   FD_MGAUGE_SET( QUIC, CONN_FREE,     ctx->quic->limits.conn_cnt-ctx->quic->metrics.conn_alloc_cnt );
@@ -534,10 +534,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   if( FD_UNLIKELY( tile->in_cnt==0 ) ) {
     FD_LOG_ERR(( "quic tile has no input links" ));
-  }
-  if( FD_UNLIKELY( tile->in_cnt > FD_QUIC_TILE_IN_MAX ) ) {
-    FD_LOG_ERR(( "quic tile has too many input links (%lu), max %lu",
-                 tile->in_cnt, FD_QUIC_TILE_IN_MAX ));
   }
 
   if( FD_UNLIKELY( tile->out_cnt!=2UL ||

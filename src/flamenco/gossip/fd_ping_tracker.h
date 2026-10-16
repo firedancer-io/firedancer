@@ -48,10 +48,8 @@ struct fd_ping_tracker_metrics {
   ulong valid_cnt;
   ulong refreshing_cnt;
 
-  ulong peers_evicted;
-
   ulong tracked_cnt;
-  ulong stake_changed_cnt;
+  ulong removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_CNT ];
   ulong address_changed_cnt;
 
   ulong pong_result[ FD_METRICS_ENUM_PONG_RESULT_CNT ];

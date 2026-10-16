@@ -113,14 +113,17 @@ fd_quic_ack_gen_abandon_enc_level( fd_quic_ack_gen_t * ack_gen,
 
 /* fd_quic_gen_ack_frames writes ACK frames to the memory region
    [payload_ptr,payload_end).  Returns a pointer one past the last byte
-   written (in [payload_ptr,payload_end]). */
+   written (in [payload_ptr,payload_end]).  piggyback is set when the
+   frames go in a packet that is ack-eliciting anyway, so they are sent
+   even if only non-eliciting packets were received. */
 
 uchar *
 fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
                         uchar *             payload_ptr,
                         uchar *             payload_end,
                         uint                enc_level,
-                        long                now );
+                        long                now,
+                        int                 piggyback );
 
 FD_PROTOTYPES_END
 

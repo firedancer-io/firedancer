@@ -11,6 +11,8 @@
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/program/fd_system_program.h"
+#include "../../flamenco/stakes/fd_vote_stakes.h"
+#include "../../choreo/votor/ag_vote_serde.h"
 #include "../../util/tmpl/fd_unit_test.c"
 #include <unistd.h>
 
@@ -471,6 +473,81 @@ FD_UNIT_TEST( execrp_poh_hash ) {
     FD_TEST( !memcmp( out_msg->poh_hash->hash+j, expected+j, sizeof(fd_hash_t) ) );
   }
   FD_TEST( env->execrp->metrics.poh_hash_cnt==in_msg->hashcnt*in_msg->cnt );
+
+  test_env_destroy( env );
+}
+
+/* CERT_VERIFY answers with one done frag for the bank: err set iff
+   the cert does not verify. */
+
+#define CERT_VAL_CNT (8UL)
+
+FD_UNIT_TEST( execrp_cert_verify ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  ushort const sv   = 4242;
+
+  /* rank CERT_VAL_CNT real BLS keys in the t-2 set, sum their secrets */
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
+  blst_scalar        sum         = { 0 };
+  for( ulong i=0UL; i<CERT_VAL_CNT; i++ ) {
+    uchar ikm[ 32 ] = { 0 };
+    FD_STORE( ulong, ikm, 77UL+i );
+    fd_bls_sec_t sk; fd_bls_sec_derive( &sk, ikm, sizeof(ikm) );
+    blst_sk_add_n_check( &sum, &sum, &sk );
+    fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( &sk, pub );
+    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; blst_p1_affine_compress( bls, pub );
+    fd_pubkey_t vote = { .ul = { 0x7000UL+i } };
+    fd_pubkey_t node = { .ul = { 0x8000UL+i } };
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote, &node, 1000UL, 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  }
+  fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
+
+  /* notar(1,bid) by every rank */
+  fd_hash_t bid = { .ul = { 1UL, 9UL } };
+  uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, 1UL, bid.uc, sv, msg );
+  fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
+  fd_bls_sig_t sig[1]; fd_bls_sec_sign( &sum, msg, sz, sig );
+  blst_p2_from_affine( &agg->sig, sig );
+  for( ulong r=0UL; r<CERT_VAL_CNT; r++ ) fd_bls_set_insert( agg->set, r );
+  fd_block_footer_cert_t good[1];
+  FD_TEST( fd_block_footer_cert_from_agg( good, 1UL, bid.uc, agg ) );
+
+  uchar          pl[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
+  blst_p2_affine hm[ 2 ];
+  fd_bls_hash_msg( pl, fd_alpenglow_cert_payload( good, AG_VOTE_SERDE_TAG_NOTAR, sv, pl ), hm+0 );
+  good->slot++; fd_bls_hash_msg( pl, fd_alpenglow_cert_payload( good, AG_VOTE_SERDE_TAG_NOTAR, sv, pl ), hm+1 ); good->slot--;
+
+  /* bad 0 malformed sig, 1 signed another slot, 2 good, 3 good with its
+     H(m), 4 good with another payload's H(m) */
+  for( ulong bad=0UL; bad<=4UL; bad++ ) {
+    ulong in_chunk = env->execrp->replay_in->chunk0;
+    fd_execrp_cert_verify_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
+    in_msg->bank_idx      = env->bank_idx;
+    in_msg->quorum        = 0UL; /* reward cert */
+    in_msg->tag           = AG_VOTE_SERDE_TAG_NOTAR;
+    in_msg->shred_version = sv;
+    *in_msg->cert         = *good;
+    in_msg->has_hm        = bad>=3UL;
+    in_msg->hm            = hm[ bad==4UL ];
+    if( bad==0UL ) in_msg->cert->sig[ 9 ] ^= 1; /* malformed */
+    if( bad==1UL ) in_msg->cert->slot      = 2UL; /* signed another slot */
+
+    fd_stem_context_t stem[1];
+    test_stem( env->execrp, stem );
+    ulong seq = stem->seqs[ env->execrp->execrp_replay_out->idx ];
+    ulong const sig = (FD_EXECRP_TT_CERT_VERIFY<<32) | env->execrp->tile_idx;
+    FD_TEST( !returnable_frag( env->execrp, env->execrp->replay_in->idx, 0UL, sig, in_chunk,
+                               sizeof(fd_execrp_cert_verify_msg_t), 0UL, 0UL, 0UL, stem ) );
+    FD_TEST( stem->seqs[ env->execrp->execrp_replay_out->idx ]==seq+1UL );
+    fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, seq, FD_EXECRP_TT_CERT_VERIFY );
+    FD_TEST( out_msg->bank_idx==env->bank_idx );
+    FD_TEST( out_msg->cert_verify->err==( bad<2UL || bad==4UL ) );
+    FD_TEST( out_msg->cert_verify->has_hm==( bad==2UL ) ); /* hashed here and verified */
+    if( bad==2UL ) FD_TEST( blst_p2_affine_is_equal( &out_msg->cert_verify->hm, hm+0 ) );
+  }
 
   test_env_destroy( env );
 }

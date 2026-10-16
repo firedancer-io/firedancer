@@ -9,6 +9,7 @@
 #define AG_EQVOC_BLOCK_HASH_MAX    (7UL)    /* Corollary 50 */
 #define AG_NOTAR_FALLBACK_VOTE_MAX (3UL)    /* Definition 12 */
 #define AG_NOTAR_FALLBACK_CERT_MAX (4UL)    /* Lemma 48 */
+#define AG_SLOT_VOTE_SIG_MAX       (5UL)    /* notar + 3 notar_fallback + skip_fallback */
 
 #define AG_DELTA_TIMEOUT_NS    (400000000L)   /* skip timeout */
 #define AG_DELTA_STANDSTILL_NS (10000000000L) /* 10s since last finalize */

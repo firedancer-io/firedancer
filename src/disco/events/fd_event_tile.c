@@ -6,6 +6,7 @@
 #include "../fd_txn_m.h"
 #include "../fd_clock_tile.h"
 #include "../metrics/fd_metrics.h"
+#include "../metrics/fd_metrics_sample.h"
 #include "../net/fd_net_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "generated/fd_event_gen.h"
@@ -47,6 +48,8 @@ FD_STATIC_ASSERT( FD_EVENT_CLIENT_FITS( FD_EVENT_BOOT_BUF_MAX, GRPC_BUF_MAX ), b
 /* Sized so the event workspace (circq + ~144 MiB client/ctx) fits in one
    gigantic page. */
 #define EVENT_CIRCQ_SZ ((1UL<<30UL)-(160UL<<20UL))
+
+#define METRICS_SAMPLE_INTERVAL_SECS (10L)
 
 /* The worst-case size of a Txn event:
    - Fixed overhead:
@@ -141,9 +144,17 @@ struct fd_event_tile {
 
   fd_boot_report_t boot_report[1];
 
+  long   metrics_sample_next_nanos;
+  ulong  metrics_sample_id;
+  ulong  metrics_sample_tile_cnt;
+
+  fd_metrics_sample_schema_t const * sample_schema[ FD_TOPO_MAX_TILES ]; /* NULL: tile not sampled */
+
+  double ns_per_tick;
+
   ulong in_cnt;
-  int in_kind[ 64UL ];
-  fd_event_tile_in_t in[ 64UL ];
+  int in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  fd_event_tile_in_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 };
 
 typedef struct fd_event_tile fd_event_tile_t;
@@ -190,10 +201,101 @@ metrics_write( fd_event_tile_t * ctx ) {
   FD_MGAUGE_SET( EVENT, CONN_STATE,        fd_event_client_state( ctx->client ) );
 }
 
+static void
+metrics_sample_push( fd_event_tile_t *                  ctx,
+                     fd_metrics_sample_schema_t const * schema,
+                     fd_topo_tile_t const *             tile,
+                     ulong                              link_idx,
+                     fd_topo_link_t const *             link,
+                     ulong const volatile *             area,
+                     uint                               reason,
+                     ulong                              slot,
+                     ulong                              snapct_state,
+                     int                                caught_up,
+                     long                               now ) {
+  ulong   buf_max = schema->buf_max;
+  uchar * buffer  = fd_circq_push_back( ctx->circq, 1UL, buf_max );
+  FD_TEST( buffer );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, buf_max );
+
+  int ok = 1;
+  FD_TEST( ctx->circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, fd_event_client_id_reserve( ctx->client ) );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, 0UL ); /* link_seq */
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)now );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, schema->id );
+  ok &= !!fd_pb_push_uint64( encoder, FD_METRICS_SAMPLE_F_SAMPLE_ID, ctx->metrics_sample_id );
+  ok &= !!fd_pb_push_int32 ( encoder, FD_METRICS_SAMPLE_F_SAMPLE_REASON, (int)reason );
+  if( slot ) ok &= !!fd_pb_push_uint64( encoder, FD_METRICS_SAMPLE_F_SAMPLE_SLOT, slot );
+  if( snapct_state<FD_METRICS_SAMPLE_SNAPCT_STATE_CNT ) {
+    ok &= !!fd_pb_push_int32( encoder, FD_METRICS_SAMPLE_F_SAMPLE_SNAPCT_STATE, (int)fd_metrics_sample_snapct_state[ snapct_state ] );
+  }
+  if( caught_up ) ok &= !!fd_pb_push_bool( encoder, FD_METRICS_SAMPLE_F_SAMPLE_CAUGHT_UP, 1 );
+  ok &= !!fd_pb_push_uint64( encoder, FD_METRICS_SAMPLE_F_SAMPLE_TILE_CNT, ctx->metrics_sample_tile_cnt );
+  if( tile->kind_id ) ok &= !!fd_pb_push_uint64( encoder, FD_METRICS_SAMPLE_F_KIND_ID, tile->kind_id );
+  if( link_idx!=ULONG_MAX ) {
+    ok &= !!fd_pb_push_cstr  ( encoder, FD_METRICS_SAMPLE_F_TILE, tile->name );
+    ok &= !!fd_pb_push_cstr  ( encoder, FD_METRICS_SAMPLE_F_LINK, link->name );
+    if( link_idx ) ok &= !!fd_pb_push_uint64( encoder, FD_METRICS_SAMPLE_F_LINK_IDX, link_idx );
+  }
+  ok &= !fd_metrics_sample_encode( encoder, schema, area, ctx->ns_per_tick );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+static void
+metrics_sample_sweep( fd_event_tile_t * ctx,
+                      uint              reason,
+                      ulong             slot,
+                      ulong             snapct_state ) {
+  fd_topo_t const * topo = ctx->topo;
+  long now = fd_clock_tile_now( ctx->clock );
+
+  int caught_up = 0;
+  ulong replay_idx = fd_topo_find_tile( topo, "replay", 0UL );
+  if( FD_LIKELY( replay_idx!=ULONG_MAX ) ) {
+    caught_up = !!FD_VOLATILE_CONST( fd_metrics_tile( topo->tiles[ replay_idx ].metrics )[ MIDX( GAUGE, REPLAY, IS_CAUGHT_UP ) ] );
+  }
+
+  ctx->metrics_sample_tile_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) ctx->metrics_sample_tile_cnt += ctx->sample_schema[ i ] && !ctx->tile_shutdown_rendered[ i ];
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_metrics_sample_schema_t const * schema = ctx->sample_schema[ i ];
+
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    ulong state = FD_VOLATILE_CONST( fd_metrics_tile( tile->metrics )[ MIDX( GAUGE, TILE, STATE ) ] );
+    FD_COMPILER_MFENCE();
+    if( FD_UNLIKELY( ctx->tile_shutdown_rendered[ i ] ) ) continue;
+    if( FD_LIKELY( schema ) ) metrics_sample_push( ctx, schema, tile, ULONG_MAX, NULL, fd_metrics_tile( tile->metrics ), reason, slot, snapct_state, caught_up, now );
+
+    ulong polled_in_idx = 0UL;
+    for( ulong k=0UL; k<tile->in_cnt; k++ ) {
+      if( FD_UNLIKELY( !tile->in_link_poll[ k ] ) ) continue;
+      fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ k ] ];
+      metrics_sample_push( ctx, &fd_metrics_sample_link, tile, polled_in_idx, link, fd_metrics_link_in( tile->metrics, polled_in_idx ), reason, slot, snapct_state, caught_up, now );
+      polled_in_idx++;
+    }
+
+    if( FD_UNLIKELY( state==FD_METRICS_ENUM_TILE_STATE_V_SHUTDOWN_IDX ) ) ctx->tile_shutdown_rendered[ i ] = 1;
+  }
+
+  ctx->metrics_sample_id++;
+  ctx->next_poll_deadline = 0L;
+}
+
 static long
 next_deadline( fd_event_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->next_poll_deadline==LONG_MAX ) ) return LONG_MAX;
-  return fd_clock_tile_wallclock_to_tickcount( ctx->clock, ctx->next_poll_deadline );
+  long due = fd_long_min( ctx->next_poll_deadline, ctx->metrics_sample_next_nanos );
+  if( FD_UNLIKELY( due==LONG_MAX ) ) return LONG_MAX;
+  return fd_clock_tile_wallclock_to_tickcount( ctx->clock, due );
 }
 
 static void
@@ -208,6 +310,12 @@ before_credit( fd_event_tile_t *   ctx,
 
   int  fired = fd_fseq_query( ctx->waker_fseq )==1UL;
   long now   = fd_clock_tile_now( ctx->clock );
+
+  if( FD_UNLIKELY( now>=ctx->metrics_sample_next_nanos ) ) {
+    ctx->metrics_sample_next_nanos = now + METRICS_SAMPLE_INTERVAL_SECS*(long)1e9;
+    metrics_sample_sweep( ctx, FD_METRICS_SAMPLE_REASON_PERIODIC, 0UL, ULONG_MAX );
+  }
+
   if( FD_UNLIKELY( fired | ( now>=ctx->next_poll_deadline ) ) ) {
     if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
     int busy = 0;
@@ -385,6 +493,12 @@ after_frag( fd_event_tile_t *   ctx,
       fd_event_client_init_shred_version( ctx->client, (ushort)sig );
       break;
     case IN_KIND_EVENT: {
+      if( FD_UNLIKELY( ctx->event_type==FD_EVENT_TYPE_METRICS_TRIGGER ) ) {
+        FD_TEST( ctx->event_sz==sizeof(fd_event_metrics_trigger_t) );
+        fd_event_metrics_trigger_t const * t = (fd_event_metrics_trigger_t const *)ctx->event_buf;
+        metrics_sample_sweep( ctx, t->reason, t->slot, t->snapct_state );
+        break;
+      }
       long timestamp_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
       fd_event_serialize_by_type( ctx->event_type, ctx->circq, ctx->client, timestamp_nanos, seq, ctx->event_buf, ctx->event_sz );
       break;
@@ -541,6 +655,23 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->topo = topo;
   fd_memset( ctx->tile_shutdown_rendered, 0, sizeof(ctx->tile_shutdown_rendered) );
 
+  ctx->metrics_sample_id = 0UL;
+  ctx->ns_per_tick = 1.0/fd_tempo_tick_per_ns( NULL );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    ctx->sample_schema[ i ] = NULL;
+    for( fd_metrics_sample_schema_t const * s=fd_metrics_sample_tiles; s->tile; s++ ) {
+      if( !strcmp( s->tile, topo->tiles[ i ].name ) ) {
+        ctx->sample_schema[ i ] = s;
+        break;
+      }
+    }
+    if( FD_LIKELY( ctx->sample_schema[ i ] ) ) continue;
+
+    int skip = 0;
+    for( char const * const * t=fd_metrics_sample_skip; *t; t++ ) skip |= !strcmp( *t, topo->tiles[ i ].name );
+    if( FD_UNLIKELY( !skip ) ) FD_LOG_WARNING(( "tile %s has no metrics schema, only its in-links are reported", topo->tiles[ i ].name ));
+  }
+
   ctx->idle_cnt = 0UL;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
@@ -593,6 +724,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   fd_clock_tile_init( ctx->clock );
+  ctx->metrics_sample_next_nanos = fd_clock_tile_now( ctx->clock ) + METRICS_SAMPLE_INTERVAL_SECS*(long)1e9;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
