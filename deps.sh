@@ -40,31 +40,16 @@ cat <<EOF
 
     check
     - Runs system requirement checks for the build
-    - Installs missing system packages and rustup
-
-    fetch
-    - Check out Agave submodule
+    - Installs missing system packages
 
 EOF
   exit 0
-}
-
-fetch () {
-  git submodule update --init
 }
 
 check_fedora_pkgs () {
   local REQUIRED_RPMS=(
     make               # build system
     gcc                # C compiler
-
-    curl               # Agave (rustup)
-    cmake              # Agave (RocksDB)
-    clang-devel        # Agave (bindgen)
-    systemd-devel      # Agave (hidapi)
-    pkgconf            # Agave (hidapi)
-    perl               # Agave (OpenSSL)
-    protobuf-compiler  # Agave, solfuzz
   )
 
   echo "[~] Checking for required RPM packages"
@@ -91,13 +76,6 @@ check_fedora_pkgs () {
 check_debian_pkgs () {
   local REQUIRED_DEBS=(
     build-essential    # C compiler
-
-    curl               # Agave (rustup)
-    cmake              # Agave (protobuf-src)
-    libclang-dev       # Agave (bindgen)
-    pkgconf            # Agave (hidapi)
-    libudev-dev        # Agave (hidapi)
-    protobuf-compiler  # Agave
   )
 
   echo "[~] Checking for required DEB packages"
@@ -127,8 +105,6 @@ check_alpine_pkgs () {
     linux-headers    # base dependency
     grep             # build system
     make             # build system
-
-    curl             # Agave (download rustup)
   )
 
   echo "[~] Checking for required APK packages"
@@ -177,13 +153,6 @@ check_macos_pkgs () {
 check_arch_pkgs () {
   local REQUIRED_PKGS=(
     base-devel        # C compiler, make, etc.
-
-    curl              # Agave (rustup)
-    cmake             # Agave (protobuf-src)
-    clang             # Agave (bindgen)
-    perl              # Agave (OpenSSL)
-    protobuf          # Agave, solfuzz
-    systemd-libs      # Agave
   )
 
   echo "[~] Checking for required Arch Linux packages"
@@ -242,29 +211,6 @@ check () {
         ;;
     esac
   fi
-
-  if [[ ! -x "$(command -v cargo)" ]]; then
-    echo "[!] cargo is not in PATH"
-    source "$HOME/.cargo/env" || true
-  fi
-  if [[ ! -x "$(command -v cargo)" ]]; then
-    if [[ "${FD_AUTO_INSTALL_PACKAGES:-}" == "1" ]]; then
-      choice=y
-    else
-      read -r -p "[?] Install rustup? (y/N) " choice
-    fi
-    case "$choice" in
-      y|Y)
-        echo "[+] Installing rustup"
-        # Keep this in sync with agave/rust-toolchain.toml
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.95.0 --profile minimal
-        source "$HOME/.cargo/env"
-        ;;
-      *)
-        echo "[-] Skipping rustup install"
-        ;;
-    esac
-  fi
 }
 
 ACTION=0
@@ -272,11 +218,6 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     -h|--help|help)
       help
-      ;;
-    fetch)
-      shift
-      fetch
-      ACTION=1
       ;;
     check)
       shift
@@ -295,10 +236,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $ACTION == 0 ]]; then
-  echo "[~] This will check out submodules and check/install system dependencies"
+  echo "[~] This will check/install system dependencies"
   echo "[~] For help, run: $0 help"
   echo
-  echo "[~] Running $0 fetch check"
+  echo "[~] Running $0 check"
 
   if [[ "${FD_AUTO_INSTALL_PACKAGES:-}" == "1" ]]; then
     choice=y
@@ -308,7 +249,6 @@ if [[ $ACTION == 0 ]]; then
   case "$choice" in
     y|Y)
       echo
-      fetch
       check
       ;;
     *)
