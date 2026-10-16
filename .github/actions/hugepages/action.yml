@@ -24,8 +24,12 @@ runs:
         # processes and workspace files holding pages.  Reset those every
         # time; a min_size= mount option from a previous run is harmless
         # (`configure init hugetlbfs` remounts if it needs different options).
-        sudo killall firedancer-dev firedancer 2>/dev/null || true
+        sudo killall -w firedancer-dev firedancer 2>/dev/null || true
         sudo find /mnt/.fd -type f -delete 2>/dev/null || true
+        # The benchmark's RAM disk pins its pages until rmmod.
+        findmnt -rn -o TARGET -S /dev/ram0 | xargs -r sudo umount || true
+        sudo umount /mnt/fd-bench-bin 2>/dev/null || true
+        sudo rmmod brd 2>/dev/null || true
         findmnt -t hugetlbfs -o TARGET,OPTIONS || true
 
         if findmnt -t hugetlbfs /mnt/.fd/.gigantic >/dev/null 2>&1 && \
