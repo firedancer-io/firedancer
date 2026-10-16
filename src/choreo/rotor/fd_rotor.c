@@ -247,9 +247,20 @@ unlink( fd_rotor_t *     rotor,
 }
 
 static void
+purge( fd_rotor_t *           rotor,
+       fd_rotor_blk_t const * blk ) {
+  uint idx = (uint)fd_rotor_blk_pool_idx( rotor->blk_pool, blk );
+  for( ulong n=fd_rotor_deque_cnt( rotor->reasm_deque ); n; n-- ) {
+    fd_rotor_deque_t out = fd_rotor_deque_pop_head( rotor->reasm_deque );
+    if( FD_LIKELY( out.blk_idx!=idx ) ) fd_rotor_deque_push_tail( rotor->reasm_deque, out );
+  }
+}
+
+static void
 prune( fd_rotor_t *     rotor,
        fd_rotor_blk_t * blk ) {
   fd_rotor_blk_t * pool = rotor->blk_pool;
+  purge( rotor, blk );
   if( FD_UNLIKELY( !blk->telemetry.reported && rotor->telemetry.report ) ) rotor->telemetry.report( rotor->telemetry.ctx, blk );
   for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) {
     if( FD_LIKELY( blk->fecs[ k ]==fd_rotor_fec_pool_idx_null( rotor->fec_pool ) ) ) continue;
@@ -786,6 +797,7 @@ fd_rotor_root_advanced( fd_rotor_t *      rotor,
                           blk = next ) {
       next = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
       if( FD_UNLIKELY( !blk->telemetry.reported && rotor->telemetry.report ) ) { blk->telemetry.reported = 1; rotor->telemetry.report( rotor->telemetry.ctx, blk ); }
+      purge( rotor, blk ); /* the new root's FEC sets are freed too */
       for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) {
         ulong idx = blk->fecs[ k ];
         blk->fecs[ k ] = fd_rotor_fec_pool_idx_null( rotor->fec_pool );
