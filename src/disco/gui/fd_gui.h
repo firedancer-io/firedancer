@@ -861,13 +861,6 @@ typedef struct fd_gui_snapsv_pending fd_gui_snapsv_pending_t;
 
 #define FD_GUI_ACCDB_EMA_HALF_LIFE_NS (600L*1000L*1000L*1000L) /* 10 minutes */
 
-/* Per-tile accdb stats.  At init we walk the topology and assign a
-   slot to each tile that uses the account database (execle, execrp,
-   replay, tower, rpc, resolv, accdb).  Each slot keeps cumulative
-   previous values for delta computation and a triangular-weighted
-   delta ring (same cadence / weighting as the aggregate rings). */
-#define FD_GUI_MAX_ACCDB_TILES 64UL
-
 /* Tile kinds.  Determines which subset of metrics to read. */
 #define FD_GUI_ACCDB_TILE_KIND_RW     0  /* execle, execrp, replay, tower */
 #define FD_GUI_ACCDB_TILE_KIND_RO     1  /* rpc, resolv */
@@ -937,62 +930,67 @@ struct fd_gui_accdb_stats {
   double next_compaction_remaining_secs;
   ulong  next_compaction_partition_idx;
 
+  /* Per-tile accdb stats.  At init we walk the topology and assign a
+     slot to each tile that uses the account database (execle, execrp,
+     replay, tower, rpc, resolv, accdb).  Each slot keeps cumulative
+     previous values for delta computation and a triangular-weighted
+     delta ring (same cadence / weighting as the aggregate rings). */
   ulong  accdb_tile_cnt;
-  ushort accdb_tile_topo_idx [ FD_GUI_MAX_ACCDB_TILES ]; /* index into topo->tiles */
-  uchar  accdb_tile_kind     [ FD_GUI_MAX_ACCDB_TILES ];
+  ushort accdb_tile_topo_idx [ FD_TOPO_MAX_TILES ]; /* index into topo->tiles */
+  uchar  accdb_tile_kind     [ FD_TOPO_MAX_TILES ];
 
   /* Most-recent cumulative values per tile, plus the snapshot from
      the previous snap for delta computation. */
-  ulong tile_cur_acquired          [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_acquired_writable [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_bytes_read        [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_bytes_copied      [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_bytes_written     [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_read_ops          [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_write_ops         [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_misses            [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_evicted           [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_committed         [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_cur_acquire_calls     [ FD_GUI_MAX_ACCDB_TILES ];
-  uchar tile_cur_status            [ FD_GUI_MAX_ACCDB_TILES ]; /* 1=running, 2=shutdown */
+  ulong tile_cur_acquired          [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_acquired_writable [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_bytes_read        [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_bytes_copied      [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_bytes_written     [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_read_ops          [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_write_ops         [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_misses            [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_evicted           [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_committed         [ FD_TOPO_MAX_TILES ];
+  ulong tile_cur_acquire_calls     [ FD_TOPO_MAX_TILES ];
+  uchar tile_cur_status            [ FD_TOPO_MAX_TILES ]; /* 1=running, 2=shutdown */
 
-  ulong tile_prev_acquired         [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_acquired_writable[ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_bytes_read       [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_bytes_copied     [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_bytes_written    [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_read_ops         [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_write_ops        [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_misses           [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_evicted          [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_committed        [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_prev_acquire_calls    [ FD_GUI_MAX_ACCDB_TILES ];
+  ulong tile_prev_acquired         [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_acquired_writable[ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_bytes_read       [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_bytes_copied     [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_bytes_written    [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_read_ops         [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_write_ops        [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_misses           [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_evicted          [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_committed        [ FD_TOPO_MAX_TILES ];
+  ulong tile_prev_acquire_calls    [ FD_TOPO_MAX_TILES ];
 
   /* Per-tile delta rings. */
-  ulong tile_acquired_win         [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_acquired_writable_win[ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_bytes_read_win       [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_bytes_copied_win     [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_bytes_written_win    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_read_ops_win         [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_write_ops_win        [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_misses_win           [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_evicted_win          [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_committed_win        [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
-  ulong tile_acquire_calls_win    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_acquired_win         [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_acquired_writable_win[ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_bytes_read_win       [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_bytes_copied_win     [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_bytes_written_win    [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_read_ops_win         [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_write_ops_win        [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_misses_win           [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_evicted_win          [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_committed_win        [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+  ulong tile_acquire_calls_win    [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
 
-  long  tile_sparkline_bucket_start_nanos [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_sparkline_acq_bucket         [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_sparkline_acq_wr_bucket      [ FD_GUI_MAX_ACCDB_TILES ];
+  long  tile_sparkline_bucket_start_nanos [ FD_TOPO_MAX_TILES ];
+  ulong tile_sparkline_acq_bucket         [ FD_TOPO_MAX_TILES ];
+  ulong tile_sparkline_acq_wr_bucket      [ FD_TOPO_MAX_TILES ];
   /* Per-second rates of the last N completed buckets as the JSON array
      body they are emitted as: the "%.2f," elements concatenated oldest
      first in text[ 0, text_len ).  Elements contain no comma but the
      one that ends them, so the boundaries are the commas. */
-  char  tile_sparkline_acq_text        [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES*FD_GUI_ACCDB_SPARKLINE_TEXT_MAX ];
-  char  tile_sparkline_acq_wr_text     [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES*FD_GUI_ACCDB_SPARKLINE_TEXT_MAX ];
-  ulong tile_sparkline_acq_text_len    [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_sparkline_acq_wr_text_len [ FD_GUI_MAX_ACCDB_TILES ];
-  ulong tile_sparkline_count           [ FD_GUI_MAX_ACCDB_TILES ];  /* completed buckets, capped at FD_GUI_ACCDB_SPARKLINE_SAMPLES */
+  char  tile_sparkline_acq_text        [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES*FD_GUI_ACCDB_SPARKLINE_TEXT_MAX ];
+  char  tile_sparkline_acq_wr_text     [ FD_TOPO_MAX_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES*FD_GUI_ACCDB_SPARKLINE_TEXT_MAX ];
+  ulong tile_sparkline_acq_text_len    [ FD_TOPO_MAX_TILES ];
+  ulong tile_sparkline_acq_wr_text_len [ FD_TOPO_MAX_TILES ];
+  ulong tile_sparkline_count           [ FD_TOPO_MAX_TILES ];  /* completed buckets, capped at FD_GUI_ACCDB_SPARKLINE_SAMPLES */
 };
 
 typedef struct fd_gui_accdb_stats fd_gui_accdb_stats_t;

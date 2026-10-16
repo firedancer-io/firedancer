@@ -359,9 +359,6 @@ fd_gui_new( void *                   shmem,
     for( ulong i=0UL; i<cnt; i++ ) {
       ulong t_idx = fd_topo_find_tile( gui->topo, accdb_kinds[ k ].name, i );
       if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;
-      if( FD_UNLIKELY( gui->summary.accdb->accdb_tile_cnt>=FD_GUI_MAX_ACCDB_TILES ) ) {
-        FD_LOG_ERR(( "too many accdb consumer tiles (limit %lu)", FD_GUI_MAX_ACCDB_TILES ));
-      }
       ulong slot = gui->summary.accdb->accdb_tile_cnt++;
       gui->summary.accdb->accdb_tile_topo_idx[ slot ] = (ushort)t_idx;
       gui->summary.accdb->accdb_tile_kind    [ slot ] = accdb_kinds[ k ].kind;
