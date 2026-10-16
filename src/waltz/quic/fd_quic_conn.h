@@ -93,6 +93,7 @@ struct fd_quic_conn {
   uint               visited : 1;         /* scratch bit, no strict definition */
   uint               key_phase : 1;
   uint               key_update : 1;
+  uint               key_phase_ack_sent : 1; /* sent a 1-RTT ACK since the last key update? */
 
   /* metadata used by service queue */
   fd_quic_svc_timers_conn_meta_t svc_meta;
