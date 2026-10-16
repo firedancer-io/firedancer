@@ -535,10 +535,6 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( tile->in_cnt==0 ) ) {
     FD_LOG_ERR(( "quic tile has no input links" ));
   }
-  if( FD_UNLIKELY( tile->in_cnt > FD_QUIC_TILE_IN_MAX ) ) {
-    FD_LOG_ERR(( "quic tile has too many input links (%lu), max %lu",
-                 tile->in_cnt, FD_QUIC_TILE_IN_MAX ));
-  }
 
   if( FD_UNLIKELY( tile->out_cnt!=2UL ||
                    strcmp( topo->links[ tile->out_link_id[ OUT_IDX_VERIFY ] ].name, "quic_verify" ) ||
