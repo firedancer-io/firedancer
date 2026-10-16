@@ -499,6 +499,7 @@ pair_setup_vf( pair_node_t * node,
   ctx->seed                  = seed;
   ctx->shred_version         = PAIR_SHRED_VERSION;
   ctx->allow_private_address = 0;
+  ctx->alpenglow             = 0;
   ctx->gossip_addr           = node->addr;
   ctx->src_addr              = node->addr;
   ctx->round_robin_cnt       = 1UL;

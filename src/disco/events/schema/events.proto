@@ -4675,6 +4675,10 @@ message MetricsGossvfCrdsRxBytes {
   uint64 dropped_push_inactive = 13;
   // Push (wallclock)
   uint64 dropped_push_wallclock = 14;
+  // Pull Response (deprecated value type)
+  uint64 dropped_pull_response_deprecated = 15;
+  // Push (deprecated value type)
+  uint64 dropped_push_deprecated = 16;
 }
 
 // CRDS values in push and pull-response messages, by outcome; Verified and Duplicate only for messages forwarded to gossip, Dropped counted as each check fails
@@ -4707,6 +4711,10 @@ message MetricsGossvfCrdsRx {
   uint64 dropped_push_inactive = 13;
   // Push (wallclock)
   uint64 dropped_push_wallclock = 14;
+  // Pull Response (deprecated value type)
+  uint64 dropped_pull_response_deprecated = 15;
+  // Push (deprecated value type)
+  uint64 dropped_push_deprecated = 16;
 }
 
 // Wire bytes of gossip messages received, by verification result
