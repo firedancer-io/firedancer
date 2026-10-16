@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_topo.h"
+#include "fd_cpu_topo.h"
 
 #include "../waker/fd_waker.h"
 #include "../sleep/fd_sleep.h"
@@ -263,7 +264,7 @@ run_tile_thread( fd_topo_t *         topo,
                  uint                uid,
                  uint                gid,
                  fd_cpuset_t const * float_cpu_set,
-                 fd_cpuset_t const * floating_cpu_set,
+                 fd_cpuset_t const * cpuless_cpu_set,
                  int                 floating_priority,
                  fd_topo_run_thread_args_t * args ) {
   /* tpool will assign a thread later */
@@ -289,8 +290,7 @@ run_tile_thread( fd_topo_t *         topo,
     if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_cpuset_insert( cpu_set, tile->cpu_idx );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
-    fd_cpuset_intersect( cpu_set, float_cpu_set, floating_cpu_set );
-    if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
+    fd_cpuset_copy( cpu_set, cpuless_cpu_set );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -367,22 +367,13 @@ fd_topo_run_single_process( fd_topo_t *       topo,
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  /* The CPUs of the floating tiles (efficient mode): floaters share
-     these among themselves and never a pinned tile's CPU */
   FD_CPUSET_DECL( float_cpu_set );
+  FD_CPUSET_DECL( cpuless_cpu_set );
+  static fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+  fd_topo_cpus_floating( cpus, topo, floating_cpu_set, float_cpu_set, cpuless_cpu_set );
   int any_floats = 0;
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( FD_LIKELY( !topo->tiles[ i ].floats ) ) continue;
-    fd_cpuset_insert( float_cpu_set, topo->tiles[ i ].cpu_idx );
-    any_floats = 1;
-  }
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    if( FD_UNLIKELY( tile->floats || tile->cpu_idx==ULONG_MAX ) ) continue;
-    fd_cpuset_remove( float_cpu_set, tile->cpu_idx );
-    ulong sibling = fd_tile_private_sibling_idx( tile->cpu_idx );
-    if( FD_LIKELY( sibling!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, sibling );
-  }
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) any_floats |= topo->tiles[ i ].floats;
 
   errno = 0;
   int save_priority = getpriority( PRIO_PROCESS, 0 );
@@ -397,7 +388,7 @@ fd_topo_run_single_process( fd_topo_t *       topo,
 
     fd_topo_run_tile_t run_tile = tile_run( tile );
     int floating_priority = ( any_floats && !strcmp( tile->name, "waker" ) ) ? -19 : save_priority; /* the waker delivers floaters' fd readiness: never behind them */
-    run_tile_thread( topo, tile, run_tile, uid, gid, float_cpu_set, floating_cpu_set, floating_priority, &args[ i ] );
+    run_tile_thread( topo, tile, run_tile, uid, gid, float_cpu_set, cpuless_cpu_set, floating_priority, &args[ i ] );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

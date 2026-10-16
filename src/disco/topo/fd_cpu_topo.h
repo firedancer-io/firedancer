@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_disco_topo_fd_cpu_topo_h
 #define HEADER_fd_src_disco_topo_fd_cpu_topo_h
 
-#include "../fd_disco_base.h"
-#include "../../util/tile/fd_tile.h"
+#include "fd_topo.h"
+#include "../../util/tile/fd_tile_private.h"
 
 struct fd_topo_cpu {
   ulong idx;
@@ -11,6 +11,8 @@ struct fd_topo_cpu {
   ulong sibling;
   ulong die_idx;
   ulong l3_idx;
+  int   isolated;
+  int   nohz_full;
 };
 
 typedef struct fd_topo_cpu fd_topo_cpu_t;
@@ -43,6 +45,20 @@ fd_topo_cpus_printf( fd_topo_cpus_t * cpus );
 
 int
 fd_topo_cpus_l3_complete( fd_topo_cpus_t const * cpus );
+
+/* fd_topo_cpus_floating computes where the launcher runs unpinned
+   tiles, given launch, the launcher's affinity.  float_cpu_set gets the
+   CPUs of the floats tiles minus pinned CPUs and their siblings.
+   cpuless_cpu_set, for tiles with no cpu_idx, gets the first non-empty
+   of float_cpu_set & launch, launch minus pinned CPUs and siblings of
+   non-floating pinned tiles, both minus isolated CPUs, and launch. */
+
+void
+fd_topo_cpus_floating( fd_topo_cpus_t const * cpus,
+                       fd_topo_t const *      topo,
+                       fd_cpuset_t const *    launch,
+                       fd_cpuset_t *          float_cpu_set,
+                       fd_cpuset_t *          cpuless_cpu_set );
 
 FD_PROTOTYPES_END
 
