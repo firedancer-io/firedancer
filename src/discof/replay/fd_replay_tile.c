@@ -1648,10 +1648,39 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   return ctx->leader_bank;
 }
 
+static int
+identity_is_staked( fd_bank_t const *   bank,
+                    fd_pubkey_t const * identity ) {
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+    if( ele->stake && fd_pubkey_eq( &ele->node_account, identity ) ) return 1;
+  }
+  return 0;
+}
+
 static inline void
 maybe_switch_identity( fd_replay_tile_t * ctx ) {
 
   if( FD_LIKELY( fd_keyswitch_state_query( ctx->keyswitch )!=FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) return;
+
+  /* Refuse to switch between two identities that are both staked in
+     the root bank's epoch.  Unlike Agave, this includes switching a
+     staked identity to itself. */
+
+  fd_pubkey_t const * new_identity = fd_type_pun_const( ctx->keyswitch->bytes );
+  fd_bank_t const *   root_bank    = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  if( FD_UNLIKELY( identity_is_staked( root_bank, ctx->identity_pubkey ) &&
+                   identity_is_staked( root_bank, new_identity ) ) ) {
+    ctx->halt_replay = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_FAILED );
+    return;
+  }
 
   /* Switch identity */
 
