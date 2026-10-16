@@ -401,6 +401,35 @@ after_credit( fd_resolv_ctx_t *   ctx,
   ctx->flush_pool_idx = next;
 }
 
+static void
+blockhash_insert( fd_resolv_ctx_t * ctx,
+                  fd_hash_t const * block_hash,
+                  ulong             slot,
+                  ulong             block_height ) {
+  /* if we've already inserted BLOCKHASH_RING_LEN, then we need to
+      delete the one we're overwriting */
+  if( FD_UNLIKELY( ctx->blockhash_ring_idx>=BLOCKHASH_RING_LEN ) ) {
+    map_idx_remove_fast( ctx->blockhash_map,       ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->blockhash_ring       );
+    map_idx_remove_fast( ctx->nonce_blockhash_map, ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->nonce_blockhash_ring );
+  }
+  blockhash_map_t * entry       = ctx->blockhash_ring      +(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
+  blockhash_map_t * nonce_entry = ctx->nonce_blockhash_ring+(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
+
+  /* See fd_durable_nonce_from_blockhash */
+  struct {
+    char      tag[13];
+    fd_hash_t bh[1];
+  } hash_buf[1] = {{ .tag = "DURABLE_NONCE", .bh = { *block_hash } }};
+
+  memcpy( entry->key.b, block_hash->uc, 32UL );  fd_sha256_hash( hash_buf, sizeof(hash_buf), nonce_entry->key.b );
+  entry->slot         = slot;                    nonce_entry->slot         = slot;
+  entry->block_height = block_height;            nonce_entry->block_height = block_height;
+
+  map_ele_insert( ctx->blockhash_map,       entry,       ctx->blockhash_ring       );
+  map_ele_insert( ctx->nonce_blockhash_map, nonce_entry, ctx->nonce_blockhash_ring );
+  ctx->blockhash_ring_idx++;
+}
+
 static inline void
 after_frag( fd_resolv_ctx_t *   ctx,
             ulong               in_idx,
@@ -426,28 +455,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
           return;
         }
 
-        /* if we've already inserted BLOCKHASH_RING_LEN, then we need to
-           delete the one we're overwriting */
-        if( FD_UNLIKELY( ctx->blockhash_ring_idx>=BLOCKHASH_RING_LEN ) ) {
-          map_idx_remove_fast( ctx->blockhash_map,       ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->blockhash_ring       );
-          map_idx_remove_fast( ctx->nonce_blockhash_map, ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->nonce_blockhash_ring );
-        }
-        blockhash_map_t * entry       = ctx->blockhash_ring      +(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
-        blockhash_map_t * nonce_entry = ctx->nonce_blockhash_ring+(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
-
-        /* See fd_durable_nonce_from_blockhash */
-        struct {
-          char      tag[13];
-          fd_hash_t bh[1];
-        } hash_buf[1] = {{ .tag = "DURABLE_NONCE", .bh = { msg->block_hash } }};
-
-        memcpy( entry->key.b, msg->block_hash.uc, 32UL );  fd_sha256_hash( hash_buf, sizeof(hash_buf), nonce_entry->key.b );
-        entry->slot         = msg->slot;                   nonce_entry->slot         = msg->slot;
-        entry->block_height = msg->block_height;           nonce_entry->block_height = msg->block_height;
-
-        map_ele_insert( ctx->blockhash_map,       entry,       ctx->blockhash_ring       );
-        map_ele_insert( ctx->nonce_blockhash_map, nonce_entry, ctx->nonce_blockhash_ring );
-        ctx->blockhash_ring_idx++;
+        blockhash_insert( ctx, &msg->block_hash, msg->slot, msg->block_height );
 
         blockhash_t * hash = (blockhash_t *)msg->block_hash.uc;
         ctx->flush_pool_idx  = map_chain_idx_query_const( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
@@ -465,6 +473,21 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
+
+        /* The first root is the snapshot bank, whose earlier blockhashes
+           never complete a slot here.  Seed the maps from its queue,
+           oldest first. */
+        if( FD_UNLIKELY( !prev_bank ) ) {
+          fd_blockhashes_t const *    queue = &ctx->bank->f.block_hash_queue;
+          fd_blockhash_info_t const * deq   = queue->d.deque;
+          for( fd_blockhash_deq_iter_t iter = fd_blockhash_deq_iter_init( deq );
+               !fd_blockhash_deq_iter_done( deq, iter );
+               iter = fd_blockhash_deq_iter_next( deq, iter ) ) {
+            fd_blockhash_info_t const * info = fd_blockhash_deq_iter_ele_const( deq, iter );
+            if( FD_UNLIKELY( map_ele_query_const( ctx->blockhash_map, (blockhash_t const *)info->hash.uc, NULL, ctx->blockhash_ring ) ) ) continue;
+            blockhash_insert( ctx, &info->hash, 0UL, fd_ulong_sat_sub( ctx->bank->f.block_height, fd_blockhashes_age( queue, info ) ) );
+          }
+        }
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */

@@ -425,6 +425,39 @@ FD_UNIT_TEST( resolv_blockhash_expired ) {
   test_env_destroy( env );
 }
 
+/* The first ROOT_ADVANCED seeds the maps from the snapshot bank's
+   queue, so a txn on a pre-snapshot blockhash is forwarded, not
+   stranded in the stash, with the block height implied by its age. */
+
+FD_UNIT_TEST( resolv_snapshot_blockhashes ) {
+  test_env_t env[1];
+  test_env_create( env );
+
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  fd_bank_t * root = fd_banks_bank_query( mini->banks, root_idx );
+  FD_TEST( root );
+  fd_blockhashes_t * queue = &root->f.block_hash_queue;
+  for( ulong i=0UL; i<200UL; i++ ) fd_blockhashes_push_new( queue, &(fd_hash_t){ .ul = { 0x1000UL+i } } );
+  root->f.block_height = 300UL;
+
+  env->ctx->banks = mini->banks;
+  env->ctx->_rooted_slot_msg.bank_idx = root_idx;
+  after_frag( env->ctx, 1UL, 0UL, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, env->stem );
+
+  fd_hash_t recent = { .ul = { 0x1000UL+190UL } }; /* 9 behind the newest */
+  test_ingest_txn( env, &recent, 0 );
+  FD_TEST( env->stem_seqs[0]==1UL );
+  FD_TEST( !env->ctx->metrics.stash_inserted );
+  fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
+  fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
+  FD_TEST( published->reference_block_height==291UL );
+
+  env->ctx->bank = NULL;
+  test_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
