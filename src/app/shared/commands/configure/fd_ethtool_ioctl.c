@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 
 #include "fd_ethtool_ioctl.h"
+#include "../../../../disco/net/fd_linux_bond.h"
 #include "../../../../util/fd_util.h"
 #include "../../../../util/net/fd_ip4.h"
 
@@ -633,4 +634,121 @@ fd_ethtool_ioctl_rxfh_set_flow_hash_udp4( fd_ethtool_ioctl_t * ioc ) {
   };
   TRY_RUN_IOCTL( ioc, "ETHTOOL_SRXFH", &nfc );
   return 0;
+}
+
+static int
+is_modified_device( char const * device ) {
+  fd_ethtool_ioctl_t ioc __attribute__((cleanup(fd_ethtool_ioctl_fini)));
+  if( FD_UNLIKELY( &ioc!=fd_ethtool_ioctl_init( &ioc, device ) ) )
+    FD_LOG_ERR(( "error configuring network device (%s), unable to init ethtool ioctl", device ));
+
+  fd_ethtool_ioctl_channels_t channels;
+  FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
+  if( channels.current!=channels.max ) return 1;
+
+  uint rxfh_queue_cnt;
+  FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_queue_cnt( &ioc, &rxfh_queue_cnt ) );
+
+  uint rxfh_table[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
+  uint rxfh_table_ele_cnt;
+  FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_ele_cnt ) );
+  for( uint j=0U, q=0U; j<rxfh_table_ele_cnt; j++) {
+    if( rxfh_table[ j ]!=q++ ) return 1;
+    if( q>=rxfh_queue_cnt ) q = 0;
+  }
+
+  int ntuple_rules_empty;
+  FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty ) );
+  if( !ntuple_rules_empty ) return 1;
+
+  return 0;
+}
+
+static int
+reset_device( char const * device ) {
+  if( !is_modified_device( device ) ) return 0;
+
+  int error = 0;
+
+  fd_ethtool_ioctl_t ioc;
+  if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
+    FD_LOG_ERR(( "error configuring network device (%s), unable to init ethtool ioctl", device ));
+
+  /* Compare states to report whether the reset changed the device. */
+  fd_ethtool_ioctl_channels_t channels_orig;
+  error |= (0!=fd_ethtool_ioctl_channels_get_num( &ioc, &channels_orig ));
+  uint rxfh_table_orig[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
+  uint rxfh_table_orig_ele_cnt;
+  error |= (0!=fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table_orig, &rxfh_table_orig_ele_cnt ));
+  int ntuple_rules_empty_orig;
+  error |= (0!=fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty_orig ));
+  if( FD_UNLIKELY( error ) )
+    FD_LOG_ERR(( "error configuring network device (%s), unable to determine initial state", device ));
+
+  /* Leave the ntuple feature flag unchanged. */
+  error |= (0!=fd_ethtool_ioctl_ntuple_clear( &ioc ));
+
+  /* This should happen first, otherwise changing the number of channels may fail */
+  error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
+
+  int channels_error = fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ );
+  error |= (0!=channels_error);
+
+  /* Some drivers (i40e) do not always evenly redistribute the RXFH table
+     when increasing the channel count, so we run this again just in case. */
+  error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
+
+  if( FD_UNLIKELY( error ) ) {
+    if( FD_LIKELY( channels_error==EBUSY ) )
+      FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state. "
+                   "This is most commonly caused by an issue with the Intel ice driver on certain versions "
+                   "of Ubuntu.  If you are using the ice driver, `sudo dmesg | grep %s` contains "
+                   "messages about RDMA, and you do not need RDMA, try running `rmmod irdma` and/or "
+                   "blacklisting the irdma kernel module.", device, device ));
+    else
+      FD_LOG_ERR(( "error configuring network device (%s), unable to set to default state", device ));
+  }
+
+  fd_ethtool_ioctl_channels_t channels_new;
+  error |= (0!=fd_ethtool_ioctl_channels_get_num( &ioc, &channels_new ));
+  uint rxfh_table_new[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
+  uint rxfh_table_new_ele_cnt;
+  error |= (0!=fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table_new, &rxfh_table_new_ele_cnt ));
+  int ntuple_rules_empty_new;
+  error |= (0!=fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty_new ));
+  if( FD_UNLIKELY( error ) )
+    FD_LOG_ERR(( "error configuring network device (%s), unable to determine final state", device ));
+
+  fd_ethtool_ioctl_fini( &ioc );
+
+  int modified = (0!=memcmp( &channels_orig, &channels_new, sizeof(fd_ethtool_ioctl_channels_t) )) ||
+                 (rxfh_table_orig_ele_cnt != rxfh_table_new_ele_cnt) ||
+                 (0!=memcmp( rxfh_table_orig, rxfh_table_new, rxfh_table_orig_ele_cnt * sizeof(uint) )) ||
+                 (ntuple_rules_empty_orig!=ntuple_rules_empty_new);
+  return modified;
+}
+
+int
+fd_ethtool_ioctl_is_modified( char const * device ) {
+  if( !fd_bonding_is_master( device ) ) return is_modified_device( device );
+
+  fd_bonding_slave_iter_t iter_[1];
+  fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, device );
+  for( ; !fd_bonding_slave_iter_done( iter ); fd_bonding_slave_iter_next( iter ) ) {
+    if( is_modified_device( fd_bonding_slave_iter_ele( iter ) ) ) return 1;
+  }
+  return 0;
+}
+
+int
+fd_ethtool_ioctl_reset( char const * device ) {
+  if( !fd_bonding_is_master( device ) ) return reset_device( device );
+
+  int modified = 0;
+  fd_bonding_slave_iter_t iter_[1];
+  fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, device );
+  for( ; !fd_bonding_slave_iter_done( iter ); fd_bonding_slave_iter_next( iter ) ) {
+    modified |= reset_device( fd_bonding_slave_iter_ele( iter ) );
+  }
+  return modified;
 }
