@@ -106,14 +106,17 @@ fd_crds_len( fd_crds_t const * crds );
    sidetable of ContactInfo entries and the peer samplers if the entry
    is a ContactInfo.  is_from_me indicates the CRDS entry originates
    from this node.  We exclude our own entries from peer samplers.
-   origin_stake is used to weigh the peer in the samplers.
+   origin_stake is used to weigh the peer in the samplers.  is_push is
+   set if the value arrived in a push message.
 
    stem is used to publish updates to {ContactInfo, Vote, DuplicateShred,
    SnapshotHashes} entries.
 
    Returns 0L on successful upsert, -1L if the candidate was stale
-   (not inserted), or >0 if the candidate was a duplicate (the return
-   value is the running duplicate count). */
+   (not inserted), or >0 if the candidate was a duplicate.  For a push
+   duplicate the return is 1 plus the number of earlier pushes of the
+   value, counting the push that inserted it; a pull duplicate returns
+   1 and does not count. */
 
 long
 fd_crds_insert( fd_crds_t *               crds,
@@ -123,6 +126,7 @@ fd_crds_insert( fd_crds_t *               crds,
                 ulong                     origin_stake,
                 int                       origin_ping_tracked,
                 int                       is_me,
+                int                       is_push,
                 long                      now,
                 fd_stem_context_t *       stem );
 

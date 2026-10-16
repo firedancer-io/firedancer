@@ -117,7 +117,43 @@ crds_upsert( fd_crds_t * crds, fd_rng_t * rng, fd_stem_context_t * stem, ulong o
   uchar bytes[ 128 ];
   memcpy( bytes, value->signature, 64UL );
   for( ulong i=64UL; i<128UL; i++ ) bytes[ i ] = fd_rng_uchar( rng );
-  fd_crds_insert( crds, value, bytes, 128UL, 1UL, 0, 0, now, stem );
+  fd_crds_insert( crds, value, bytes, 128UL, 1UL, 0, 0, 0, now, stem );
+}
+
+/* Push duplicate counts follow the route: a push insert counts as the
+   first push, a pull insert and pull duplicates do not count. */
+
+static void
+test_push_dups( fd_rng_t * rng ) {
+  ulong                ele_max    = 64UL;
+  void *               purged_mem = aligned_alloc( fd_gossip_purged_align(), fd_gossip_purged_footprint( ele_max ) );
+  void *               crds_mem   = aligned_alloc( fd_crds_align(),          fd_crds_footprint( ele_max )          );
+  fd_gossip_purged_t * purged     = fd_gossip_purged_join( fd_gossip_purged_new( purged_mem, rng, ele_max ) );
+  fd_gossip_out_ctx_t  out[ FD_GOSSIP_UPDATE_LINK_CNT ] = {{0}};
+  fd_stem_context_t    stem[1];
+  memset( stem, 0, sizeof(stem) );
+  fd_crds_t * crds = fd_crds_join( fd_crds_new( crds_mem, NULL, 0UL, NULL, NULL, rng, ele_max, purged, dummy_activity, NULL, out ) );
+  FD_TEST( crds );
+
+  /* route per insert (1 push, 0 pull) and expected return, which is 1
+     plus the earlier pushes for a duplicate */
+  static int  const route[ 3 ][ 3 ] = { { 0, 1, 1 }, { 1, 1, 1 }, { 0, 0, 1 } };
+  static long const want [ 3 ][ 3 ] = { { 0, 1, 2 }, { 0, 2, 3 }, { 0, 1, 1 } };
+  for( ulong t=0UL; t<3UL; t++ ) {
+    fd_gossip_value_t value[1];
+    memset( value, 0, sizeof(value) );
+    value->tag       = FD_GOSSIP_VALUE_EPOCH_SLOTS;
+    value->wallclock = 1UL;
+    FD_STORE( ulong, value->origin, t+1UL );
+    for( ulong i=0UL; i<64UL; i++ ) value->signature[ i ] = fd_rng_uchar( rng );
+    uchar bytes[ 128 ];
+    memcpy( bytes, value->signature, 64UL );
+    for( ulong i=64UL; i<128UL; i++ ) bytes[ i ] = fd_rng_uchar( rng );
+    for( ulong k=0UL; k<3UL; k++ ) FD_TEST( fd_crds_insert( crds, value, bytes, 128UL, 1UL, 0, 0, route[ t ][ k ], 1L<<40, stem )==want[ t ][ k ] );
+  }
+
+  free( crds_mem );
+  free( purged_mem );
 }
 
 static void
@@ -313,6 +349,7 @@ main( int     argc,
   test_hset_ref( rng, 8UL );
   test_hset_ref( rng, 1024UL );
   test_hset_ref( rng, 16384UL );
+  test_push_dups( rng );
   if( bench ) { bench_update( rng ); test_tables( rng, 524288UL, 230000UL, 423000UL, 1 ); }
   else        test_tables( rng, 16384UL, 7000UL, 12000UL, 0 );
 
