@@ -516,7 +516,6 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "mwaitx", ALWAYS|PIN_EFF               }, /* FIREDANCER only */
 
   /* Must shut down after snapshot load */
-  { "genesi", STARTUP|FLOATING             }, /* FIREDANCER only, also floats */
   { "snapct", STARTUP                      }, /* FIREDANCER only */
   { "snapld", STARTUP                      }, /* FIREDANCER only */
   { "snapdc", STARTUP|THRUPUT              }, /* FIREDANCER only */
@@ -538,6 +537,7 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "waker",  FLOATING                     },
   { "bencho", FLOATING                     },
   { "l4swap", FLOATING                     },
+  { "genesi", FLOATING                     }, /* FIREDANCER only */
   { "ipecho", FLOATING                     }, /* FIREDANCER only */
   { "admin",  FLOATING                     }, /* FIREDANCER only */
   { "snapsv", FLOATING|PIN_EFF             }, /* FIREDANCER only */
@@ -715,9 +715,9 @@ fd_topob_parse_affinity_cstr( char const * cstr,
 #define FD_TOPOB_LIVE_POSTSTART (3)
 
 static int
-fd_topob_tile_live_phase( char const * name ) {
-  uint cls = fd_topob_tile_class( name );
-  if( cls & FD_TOPOB_TILE_STARTUP ) return FD_TOPOB_LIVE_STARTUP;
+fd_topob_tile_live_phase( fd_topo_tile_t const * tile ) {
+  uint cls = fd_topob_tile_class( tile->name );
+  if( ( cls & FD_TOPOB_TILE_STARTUP ) || tile->allow_shutdown ) return FD_TOPOB_LIVE_STARTUP;
   if( cls & FD_TOPOB_TILE_POSTSTART ) return FD_TOPOB_LIVE_POSTSTART;
   return FD_TOPOB_LIVE_ALWAYS;
 }
@@ -728,8 +728,8 @@ fd_topob_cpu_overlap_allowed( fd_topo_tile_t const * a,
   if( sock_lo_net_tile_id( a )==b->id || sock_lo_net_tile_id( b )==a->id ) return 1;
   if( a->floats && b->floats ) return 1;
 
-  int a_phase = fd_topob_tile_live_phase( a->name );
-  int b_phase = fd_topob_tile_live_phase( b->name );
+  int a_phase = fd_topob_tile_live_phase( a );
+  int b_phase = fd_topob_tile_live_phase( b );
 
   return ( a_phase==FD_TOPOB_LIVE_STARTUP   && b_phase==FD_TOPOB_LIVE_POSTSTART ) ||
          ( a_phase==FD_TOPOB_LIVE_POSTSTART && b_phase==FD_TOPOB_LIVE_STARTUP   );
@@ -938,7 +938,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     uint cls = fd_topob_tile_class( tile->name );
     post_start_tiles_to_assign += (ulong)!!( cls & FD_TOPOB_TILE_POSTSTART );
     always_tiles_to_assign     += (ulong)( ( cls & FD_TOPOB_TILE_ALWAYS  ) && !tile_is_floating( tile ) );
-    startup_tiles_to_assign    += (ulong)!!( cls & FD_TOPOB_TILE_STARTUP );
+    startup_tiles_to_assign    += (ulong)( ( cls & FD_TOPOB_TILE_STARTUP ) && !tile_is_floating( tile ) );
   }
   ulong tiles_to_assign = always_tiles_to_assign +
       fd_ulong_max( startup_tiles_to_assign, post_start_tiles_to_assign );
@@ -1014,7 +1014,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     if( !( TILE_CLASS[ r ].flags & FD_TOPOB_TILE_STARTUP ) ) continue;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
-      if( strcmp( tile->name, TILE_CLASS[ r ].name ) ) continue;
+      if( tile_is_floating( tile ) || strcmp( tile->name, TILE_CLASS[ r ].name ) ) continue;
       auto_tile_cpu( tile, cpus, &cpu_idx_startup, cpu_assigned_startup, cpu_ordering, skip_ht_pairs, &dedicated_budget );
     }
   }

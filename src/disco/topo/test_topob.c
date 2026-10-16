@@ -1126,10 +1126,44 @@ FD_UNIT_TEST( test_tile_uses_dedup ) {
   FD_TEST( tile->uses_obj_id[ 1 ]==9UL && tile->uses_obj_mode[ 1 ]==FD_SHMEM_JOIN_MODE_READ_WRITE );
 }
 
-/* Phase and SMT classes of known tiles */
+/* --- genesi floats ------------------------------------------------------ */
+
+/* Firedancer with snapshot load in efficient mode */
+static tile_spec_t const FIREDANCER_SNAP_EFF_TILES[] = {
+  { "netlnk", 1 }, { "metric", 1 }, { "diag",   1 }, { "genesi", 1 }, { "ipecho", 1 },
+  { "admin",  1 }, { "waker",  1 }, { "mwaitx", 1 },
+  { "net",    1 }, { "quic",   1 }, { "verify", 3 }, { "dedup",  1 }, { "resolv", 1 },
+  { "pack",   1 }, { "execle", 2 }, { "poh",    1 }, { "shred",  1 }, { "sign",   1 },
+  { "gui",    1 }, { "gossvf", 1 }, { "gossip", 1 }, { "repair", 1 }, { "replay", 1 },
+  { "accdb",  1 }, { "execrp",10 }, { "txsend", 1 }, { "tower",  1 },
+  { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 },
+  { NULL, 0 }
+};
+
+/* genesi floats and is not counted as a startup tile: counting it made
+   the L3 layout of an exact fit (38x2, 6 core L3) run out of cores. */
+FD_UNIT_TEST( test_genesi_floats_l3_exact_fit ) {
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 38, 6 );
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, FIREDANCER_SNAP_EFF_TILES );
+  set_blocklist( topo, BLOCKLIST_0H( 38 ) );
+  topo->sleep_obj_id = 0UL;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    int floating = fd_topob_tile_priority_type( tile )==FD_TOPOB_PRIORITY_FLOATING;
+    FD_TEST( floating==( tile->cpu_idx==ULONG_MAX ) );
+  }
+  FD_TEST( topo->tiles[ fd_topo_find_tile( topo, "genesi", 0UL ) ].cpu_idx==ULONG_MAX );
+}
+
+/* Every class table row has exactly one phase */
 FD_UNIT_TEST( test_tile_class_phase ) {
-  char const * names[] = { "net", "snapin", "execrp", "pack", "pohh", "motor", "l4swap", "bogus" };
-  uint const   exp  [] = { FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_STARTUP, FD_TOPOB_TILE_POSTSTART,
+  char const * names[] = { "net", "snapin", "execrp", "genesi", "pack", "pohh", "motor", "l4swap", "bogus" };
+  uint const   exp  [] = { FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_STARTUP, FD_TOPOB_TILE_POSTSTART, FD_TOPOB_TILE_FLOATING,
                            FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_POSTSTART, FD_TOPOB_TILE_FLOATING, 0U };
   for( ulong i=0UL; i<sizeof(names)/sizeof(names[0]); i++ ) FD_TEST( ( fd_topob_tile_class( names[ i ] ) & FD_TOPOB_TILE_PHASE )==exp[ i ] );
   FD_TEST( fd_topob_tile_class( "pack"  ) & FD_TOPOB_TILE_SMT_CRITICAL );
