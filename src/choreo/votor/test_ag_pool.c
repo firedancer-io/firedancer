@@ -2213,6 +2213,20 @@ test_bls_verify_cnt( void ) {
   FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==2UL );
 
   teardown_pool( pool );
+
+  /* A vote reports when it began verifying, only for the vote that
+     completed an aggregate. */
+
+  pool = setup_pool();
+  random_hash( h );
+  for( ulong v=0UL; v<NV; v++ ) {
+    ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, 1UL, h, (ushort)v, TEST_SHRED_VERSION );
+    ulong cnt0 = ag_pool_metrics( pool ).bls_verify_cnt;
+    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ( ag_pool_vote_verify_start( pool )!=0L )==( ag_pool_metrics( pool ).bls_verify_cnt!=cnt0 ) );
+  }
+  FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt );
+  teardown_pool( pool );
 }
 
 int
