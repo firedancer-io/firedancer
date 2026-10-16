@@ -1454,6 +1454,18 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
+      /* Without gossip only the configured servers can supply an
+         incremental.  If they rotated to a newer full mid-download, none
+         offers one on this full, so boot from the full alone rather than
+         abort; it is minutes old and replay catches up. */
+      if( FD_UNLIKELY( ctx->load_incremental && !ctx->gossip_enabled &&
+                       !wfs_short_of_target( ctx, ctx->predicted_incremental.full_slot ) &&
+                       !fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) ).addr.l ) ) {
+        FD_LOG_WARNING(( "no snapshot server offers an incremental snapshot for the full snapshot at slot %lu, "
+                         "loading the full snapshot only.", ctx->predicted_incremental.full_slot ));
+        ctx->load_incremental = 0;
+      }
+
       set_state( ctx, FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE );
       fd_stem_publish( stem, ctx->out_ld.idx, ctx->load_incremental ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->flush_ack = 0;
