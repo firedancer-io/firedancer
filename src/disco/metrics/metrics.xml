@@ -2007,6 +2007,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DatagramRx" enum="DatagramRxResult" summary="Inbound datagrams dispatched, by result" />
     <counter name="VoteRx" enum="VoteRxResult" summary="Inbound votes processed, by result" />
     <counter name="CertRx" enum="CertRxResult" summary="Inbound certificates processed, by result" />
+    <counter name="BlsSignatureChecked" summary="Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once" />
 
     <gauge name="VotingSlotUsed" summary="Slots tracked by the voting state machine" />
     <gauge name="VotingSlotFree" summary="Free entries in the voting state machine's slot table" />

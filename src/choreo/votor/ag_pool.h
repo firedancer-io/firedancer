@@ -54,6 +54,7 @@ struct ag_pool_metrics {
   ulong slot_state_pool_free;
   ulong finalized_slot;
   ulong pool_events_cnt;
+  ulong bls_verify_cnt;
 };
 typedef struct ag_pool_metrics ag_pool_metrics_t;
 

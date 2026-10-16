@@ -374,6 +374,7 @@ struct fd_votor_tile {
     ulong datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_CNT ];
     ulong vote_rx    [ FD_METRICS_ENUM_VOTE_RX_RESULT_CNT     ];
     ulong cert_rx    [ FD_METRICS_ENUM_CERT_RX_RESULT_CNT     ];
+    ulong bls_verify;
 
     ulong vote_history_write;
     ulong vote_history_slot;
@@ -608,6 +609,7 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
   if( FD_LIKELY( notar ) ) {
     ag_slot_state_sigs( state, states, AG_VOTE_KIND_NOTAR, hash, reward->agg_notar.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, reward_slot, hash, ctx->shred_version, msg );
+    ctx->metrics.bls_verify++;
     err    = fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_notar );
@@ -619,6 +621,7 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
     reward->agg_skip = *skip;
     ag_slot_state_sigs( state, states, AG_VOTE_KIND_SKIP, NULL, reward->agg_skip.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, reward_slot, NULL, ctx->shred_version, msg );
+    ctx->metrics.bls_verify++;
     err    = fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_skip );
@@ -1727,6 +1730,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MGAUGE_SET( VOTOR, POOL_SLOT_USED,                    pool_metrics.slot_state_pool_used );
   FD_MGAUGE_SET( VOTOR, POOL_SLOT_FREE,                    pool_metrics.slot_state_pool_free );
   FD_MGAUGE_SET( VOTOR, HIGHEST_POOL_FINALIZED_SLOT,       fd_ulong_if( pool_metrics.finalized_slot!=ULONG_MAX, pool_metrics.finalized_slot, 0UL ) );
+  FD_MCNT_SET  ( VOTOR, BLS_SIGNATURE_CHECKED,             pool_metrics.bls_verify_cnt+ctx->metrics.bls_verify );
 
   peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
   ulong rank = self && self->curr_rank!=USHORT_MAX ? self->curr_rank : ULONG_MAX;

@@ -244,6 +244,7 @@ ag_pool_new( void * mem,
   pool->slot_states->shared.next_epoch_info                = NULL;
   pool->slot_states->shared.next_epoch_rank                = USHORT_MAX;
   pool->slot_states->shared.next_epoch_slot                = ULONG_MAX;
+  pool->slot_states->shared.bls_verify_cnt                 = 0UL;
 
   pool->parent_ready_tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( parent_ready_tracker, ready_max, seed ) );
 
@@ -339,7 +340,8 @@ ag_pool_metrics( ag_pool_t const * self ) {
     .slot_state_pool_used = slot_state_pool_used( self->slot_states->pool ),
     .slot_state_pool_free = slot_state_pool_free( self->slot_states->pool ),
     .finalized_slot       = ag_pool_finalized_slot( self ),
-    .pool_events_cnt      = pool_events_cnt( self->pool_events )
+    .pool_events_cnt      = pool_events_cnt( self->pool_events ),
+    .bls_verify_cnt       = self->slot_states->shared.bls_verify_cnt
   };
 }
 
@@ -545,7 +547,10 @@ ag_pool_add_cert( ag_pool_t *       self,
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
-  if( FD_UNLIKELY( !verified && !ag_cert_verify( cert, epoch_info ) ) ) return AG_POOL_ERR_CERT_VERIFY;
+  int err = AG_CERT_VERIFY_SUCCESS;
+  if( FD_LIKELY( !verified ) ) err = ag_cert_verify( cert, epoch_info );
+  self->slot_states->shared.bls_verify_cnt += (ulong)( !verified && err!=AG_CERT_VERIFY_ERR_THRESHOLD );
+  if( FD_UNLIKELY( err ) ) return AG_POOL_ERR_CERT_VERIFY;
 
   switch( cert->kind ) { /* a skip cert excludes finalization certs, Lemmas 23 and 28 */
   case AG_CERT_KIND_FINAL:

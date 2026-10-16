@@ -10883,6 +10883,8 @@ message MetricsVotor {
   uint64 vote_history_file_size_bytes = 38;
   // Vote history writes skipped because the history was too large; the file is emptied until it fits
   uint64 vote_history_file_skipped = 39 [deprecated = true];
+  // Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once
+  uint64 bls_signature_checked = 40;
 }
 
 // Metrics of one gui tile instance, one row per sweep

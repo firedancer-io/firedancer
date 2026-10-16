@@ -2349,6 +2349,7 @@
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Inbound certificates processed, by result (Cert was already in the pool) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Inbound certificates processed, by result (Cert failed the stake threshold or the aggregate signature check) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Inbound certificates processed, by result (Sender is banned for a failed signature verification) |
+| <span class="metrics-name">votor_&#8203;bls_&#8203;signature_&#8203;checked</span> | counter | Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once |
 | <span class="metrics-name">votor_&#8203;voting_&#8203;slot_&#8203;used</span> | gauge | Slots tracked by the voting state machine |
 | <span class="metrics-name">votor_&#8203;voting_&#8203;slot_&#8203;free</span> | gauge | Free entries in the voting state machine's slot table |
 | <span class="metrics-name">votor_&#8203;highest_&#8203;final_&#8203;cert_&#8203;slot</span> | gauge | Highest slot with a final or fast-final cert seen by votor, 0 if none |

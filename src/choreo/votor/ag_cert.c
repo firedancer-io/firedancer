@@ -130,30 +130,7 @@ check_sig( ag_cert_t const *       self,
 int
 ag_cert_verify( ag_cert_t const *       self,
                 ag_epoch_info_t const * epoch_info ) {
-  return check_threshold( self, epoch_info ) && check_sig( self, epoch_info );
-}
-
-char *
-ag_cert_to_cstr( ag_cert_t const * self,
-                 char              cstr[ static AG_CERT_CSTR_MAX ] ) {
-  static char const * kind_cstr[] = { "Final", "FastFinal", "Notar", "NotarFallback", "Skip" };
-  fd_bls_agg_t const * aggs[2] = { NULL, NULL };
-  ulong                stake;
-  switch( self->kind ) {
-  case AG_CERT_KIND_FINAL:          aggs[0] = &self->final.agg;                                                                  stake = self->final.stake;          break;
-  case AG_CERT_KIND_FAST_FINAL:     aggs[0] = &self->fast_final.agg;                                                             stake = self->fast_final.stake;     break;
-  case AG_CERT_KIND_NOTAR:          aggs[0] = &self->notar.agg;                                                                  stake = self->notar.stake;          break;
-  case AG_CERT_KIND_NOTAR_FALLBACK: aggs[0] = &self->notar_fallback.agg_notar; aggs[1] = &self->notar_fallback.agg_notar_fallback; stake = self->notar_fallback.stake; break;
-  case AG_CERT_KIND_SKIP:           aggs[0] = &self->skip.agg_skip;            aggs[1] = &self->skip.agg_skip_fallback;            stake = self->skip.stake;           break;
-  default:                          FD_LOG_CRIT(( "unreachable" ));
-  }
-  uchar const * block_hash = ag_cert_block_hash( self );
-  char *        p          = cstr;
-  p = fd_cstr_append_printf( p, "%s { slot: %lu", kind_cstr[ self->kind ], ag_cert_slot( self ) );
-  if( FD_LIKELY( block_hash ) ) p = fd_cstr_append_printf( p, ", hash: %02x%02x%02x...", block_hash[0], block_hash[1], block_hash[2] );
-  p = fd_cstr_append_printf( p, ", sig: %lu", fd_bls_set_cnt( aggs[0]->set ) );
-  if( FD_LIKELY( aggs[1] ) ) p = fd_cstr_append_printf( p, ", sig_fallback: %lu", fd_bls_set_cnt( aggs[1]->set ) );
-  p = fd_cstr_append_printf( p, ", stake: %lu }", stake );
-  *p = '\0';
-  return cstr;
+  if( FD_UNLIKELY( !check_threshold( self, epoch_info ) ) ) return AG_CERT_VERIFY_ERR_THRESHOLD;
+  if( FD_UNLIKELY( !check_sig      ( self, epoch_info ) ) ) return AG_CERT_VERIFY_ERR_SIG;
+  return AG_CERT_VERIFY_SUCCESS;
 }

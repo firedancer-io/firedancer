@@ -127,6 +127,7 @@
         "vote_history_file_written":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the vote history file was written" },
         "vote_history_file_slot":       { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Root of the last written vote history file, which votor waits to vote past, 0 if not written yet" },
         "vote_history_file_size_bytes": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Size of the last written vote history file" },
-        "vote_history_file_skipped":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Vote history writes skipped because the history was too large; the file is emptied until it fits", "deprecated": true }
+        "vote_history_file_skipped":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Vote history writes skipped because the history was too large; the file is emptied until it fits", "deprecated": true },
+        "bls_signature_checked":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once" }
     }
 }
