@@ -672,7 +672,10 @@ replay_block_start( fd_replay_tile_t * ctx,
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
-  bank->f.slot = slot;
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot );
+  FD_TEST( leader );
+  bank->f.slot               = slot;
+  bank->leader               = *leader;
   bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
   bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
@@ -1609,6 +1612,7 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   ctx->leader_bank->preparation_begin_nanos = now;
 
   ctx->leader_bank->f.slot = slot;
+  ctx->leader_bank->leader = ctx->identity_pubkey[ 0 ];
 
   /* Clear the previous occupant of this reused bank idx from whichever
      map it is currently keyed in. */
@@ -2346,6 +2350,9 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      (which is needed for voting on the next epoch). */
   publish_epoch_info( ctx, stem, bank, 0 );
   publish_epoch_info( ctx, stem, bank, 1 );
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, bank->f.slot );
+  FD_TEST( leader );
+  bank->leader = *leader;
 
   fd_progcache_reset( ctx->progcache );
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
@@ -4960,14 +4967,12 @@ snapmk_start( fd_replay_tile_t *  ctx,
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
 
   /* Send SNAP_START message to snapmk. */
-  fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot );
-  FD_CHECK_CRIT( leader, "no leader for snapshot slot" );
   fd_replay_snap_start_t * msg = fd_chunk_to_laddr( ctx->snapmk_out->mem, ctx->snapmk_out->chunk );
   *msg = (fd_replay_snap_start_t) {
     .bank_idx  = ctx->published_root_bank_idx,
     .base_slot = incremental ? ctx->snapmk.base_slot : bank->f.slot,
     .slot      = bank->f.slot,
-    .leader    = *leader
+    .leader    = bank->leader
   };
   ulong out_idx = ctx->snapmk_out->idx;
   ulong sig     = REPLAY_SIG_SNAP_START;
