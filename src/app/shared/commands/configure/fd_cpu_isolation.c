@@ -13,7 +13,7 @@ fd_cpuset_t *
 fd_cpu_isolation_tile_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
                             fd_topo_t const * topo ) {
   fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX );
+  ulong cpu_cnt = fd_shmem_cpu_cnt();
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
     if( tile->cpu_idx<cpu_cnt ) fd_cpuset_insert( cpuset, tile->cpu_idx );
@@ -22,10 +22,10 @@ fd_cpu_isolation_tile_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt 
 }
 
 fd_cpuset_t *
-fd_cpu_isolation_host_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
-  fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX );
-  for( ulong cpu_idx=0UL; cpu_idx<cpu_cnt; cpu_idx++ ) fd_cpuset_insert( cpuset, cpu_idx );
+fd_cpu_isolation_online_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
+  if( FD_UNLIKELY( !fd_cpu_isolation_read_list( "/sys/devices/system/cpu/online", cpuset ) ||
+                   !fd_cpuset_cnt( cpuset ) ) )
+    FD_LOG_ERR(( "could not determine online host CPUs" ));
   return cpuset;
 }
 
@@ -166,7 +166,7 @@ char *
 fd_cpu_isolation_format_mask( char *              buf,
                               ulong               buf_sz,
                               fd_cpuset_t const * cpuset ) {
-  ulong cpu_cnt  = fd_ulong_max( fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX ), 1UL );
+  ulong cpu_cnt  = fd_ulong_max( fd_shmem_cpu_cnt(), 1UL );
   ulong word_cnt = fd_ulong_max( (cpu_cnt+31UL)/32UL, 1UL );
   char * p = buf;
 

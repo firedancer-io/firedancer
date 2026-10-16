@@ -10,6 +10,8 @@
 #include "../../fd_config.h"
 #include "../../../../util/tile/fd_tile_private.h"
 
+FD_STATIC_ASSERT( FD_SHMEM_CPU_MAX<=FD_TILE_MAX, cpuset_holds_all_cpus );
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_cpu_isolation_tile_cpus fills cpuset with the CPUs hosting fixed
@@ -20,11 +22,12 @@ fd_cpuset_t *
 fd_cpu_isolation_tile_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
                             fd_topo_t const * topo );
 
-/* fd_cpu_isolation_host_cpus fills cpuset with all host CPUs
-   [0,fd_shmem_cpu_cnt()).  Returns cpuset. */
+/* fd_cpu_isolation_online_cpus fills cpuset with the currently online
+   host CPUs.  Offline CPUs cannot serve as housekeeping or IRQ targets.
+   Returns cpuset. */
 
 fd_cpuset_t *
-fd_cpu_isolation_host_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] );
+fd_cpu_isolation_online_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] );
 
 /* fd_cpu_isolation_parse_list parses a kernel CPU range list like
    "0-3,7,9-11\n" (e.g. contents of /sys/devices/system/cpu/nohz_full

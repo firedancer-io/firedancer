@@ -117,30 +117,6 @@ read_l3_id( ulong cpu_idx ) {
   return -1;
 }
 
-static ulong
-fd_topo_cpu_cnt( void ) {
-  char path[ PATH_MAX ];
-  fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/devices/system/cpu/present" );
-
-  char line[ 128 ];
-  int fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  long bytes_read = read( fd, line, sizeof( line ) );
-  if( FD_UNLIKELY( -1==bytes_read ) ) FD_LOG_ERR(( "read( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  else if ( FD_UNLIKELY( (ulong)bytes_read>=sizeof( line ) ) ) FD_LOG_ERR(( "read( \"%s\" ) failed: buffer too small", path ));
-
-  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  line[ bytes_read ] = '\0';
-  char * saveptr;
-  char * token = strtok_r( line, "-", &saveptr );
-  token = strtok_r( NULL, "-", &saveptr );
-  ulong end = fd_cstr_to_ulong( token ? token : line );
-
-  return end+1UL;
-}
-
 static int
 fd_topo_cpus_online( ulong cpu_idx ) {
   if( FD_UNLIKELY( cpu_idx==0UL ) ) return 1; /* Cannot set cpu0 to offline */
@@ -153,7 +129,8 @@ fd_topo_cpus_online( ulong cpu_idx ) {
 void
 fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
   cpus->numa_node_cnt = fd_numa_node_cnt();
-  cpus->cpu_cnt = fd_topo_cpu_cnt();
+  cpus->cpu_cnt = fd_numa_cpu_cnt();
+  if( FD_UNLIKELY( !cpus->cpu_cnt ) ) FD_LOG_ERR(( "could not determine the number of CPUs" ));
   if( FD_UNLIKELY( cpus->cpu_cnt > FD_TILE_MAX ) ) {
     FD_LOG_ERR(( "unsupported system: Firedancer supports up to %lu CPUs", FD_TILE_MAX ));
   }
