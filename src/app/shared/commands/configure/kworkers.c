@@ -92,7 +92,7 @@ init( config_t const * config ) {
   fd_cpu_isolation_tile_cpus( tile_cpus, &config->topo );
 
   FD_CPUSET_DECL( allowed );
-  fd_cpu_isolation_host_cpus( allowed );
+  fd_cpu_isolation_online_cpus( allowed );
   fd_cpuset_subtract( allowed, allowed, tile_cpus );
 
   if( FD_UNLIKELY( !fd_cpuset_cnt( allowed ) ) )
@@ -107,7 +107,8 @@ fini( config_t const * config,
   (void)config; (void)pre_init;
 
   FD_CPUSET_DECL( all );
-  fd_cpu_isolation_host_cpus( all );
+  ulong cpu_cnt = fd_shmem_cpu_cnt();
+  for( ulong cpu=0UL; cpu<cpu_cnt; cpu++ ) fd_cpuset_insert( all, cpu );
 
   FD_CPUSET_DECL( excluded );
   read_wq_cpumask( excluded );
@@ -130,7 +131,7 @@ check( config_t const * config,
 
   if( FD_UNLIKELY( fd_cpuset_is_null( tile_cpus ) ) ) {
     FD_CPUSET_DECL( missing );
-    fd_cpu_isolation_host_cpus( missing );
+    fd_cpu_isolation_online_cpus( missing );
     fd_cpuset_subtract( missing, missing, current );
     if( FD_UNLIKELY( !fd_cpuset_is_null( missing ) ) ) {
       char list[ FD_CPU_ISOLATION_LIST_MAX ];

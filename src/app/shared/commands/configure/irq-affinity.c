@@ -247,7 +247,7 @@ update_irq_smp_affinities( fd_cpuset_t const * add_cpus,
   }
 
   FD_CPUSET_DECL( fallback );
-  if( FD_LIKELY( remove_cpus ) ) fd_cpuset_subtract( fallback, fd_cpu_isolation_host_cpus( fallback ), remove_cpus );
+  if( FD_LIKELY( remove_cpus ) ) fd_cpuset_subtract( fallback, fd_cpu_isolation_online_cpus( fallback ), remove_cpus );
 
   struct dirent * entry;
   while( (entry = readdir( dir )) ) {
@@ -330,7 +330,7 @@ init( config_t const * config ) {
   topo_banned_cpus( banned, &config->topo );
 
   FD_CPUSET_DECL( allowed );
-  fd_cpuset_subtract( allowed, fd_cpu_isolation_host_cpus( allowed ), banned );
+  fd_cpuset_subtract( allowed, fd_cpu_isolation_online_cpus( allowed ), banned );
 
   if( FD_UNLIKELY( !fd_cpuset_cnt( allowed ) ) ) {
     FD_LOG_ERR(( "all host CPUs are assigned to Firedancer tiles; cannot reserve any CPU for device interrupts" ));
@@ -365,7 +365,7 @@ check( config_t const * config,
   }
 
   FD_CPUSET_DECL( allowed );
-  fd_cpuset_subtract( allowed, fd_cpu_isolation_host_cpus( allowed ), banned );
+  fd_cpuset_subtract( allowed, fd_cpu_isolation_online_cpus( allowed ), banned );
 
   DIR * dir = opendir( "/proc/irq" );
   if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "opendir(/proc/irq) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
