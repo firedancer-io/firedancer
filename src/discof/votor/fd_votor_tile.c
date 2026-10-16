@@ -1450,12 +1450,8 @@ handle_epoch( fd_votor_tile_t *           ctx,
     peers_remove( ctx->peers, peer ); /* relocates, so reconsider the freed slot */
   }
 
-  /* update slot time.  It's ok if ns_per_slot is a little off around
-     epoch boundaries (for example, a slot in the previous or next epoch
-     becomes ParentReady and we need to set skip timers).
-
-     We still vote skip regardless, just a little early or late, which
-     is ok especially given network jitter. */
+  /* The latest epoch's slot time, only for the connect-ahead estimate:
+     votor times each window's skip deadlines by its own epoch's. */
 
   ctx->ns_per_slot     = (long)msg->ns_per_slot;
   ctx->slots_per_epoch = msg->epoch_schedule.slots_per_epoch;
