@@ -1055,9 +1055,9 @@ fdctl_check_configure( config_t const * config ) {
   }
 
   if( FD_LIKELY( 0==strcmp( config->net.provider, "mlx5" ) ) ) {
-    check = fd_cfg_stage_uverbs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    check = fd_cfg_stage_mlx5.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `%s configure init uverbs` to load the ib_uverbs kernel module.",
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init mlx5` to configure mlx5 network devices and load the ib_uverbs kernel module.",
                    check.message, FD_BINARY_NAME ));
   }
 

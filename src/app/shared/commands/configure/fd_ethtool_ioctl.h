@@ -232,6 +232,21 @@ fd_ethtool_ioctl_ntuple_validate( fd_ethtool_ioctl_t * ioc,
 int
 fd_ethtool_ioctl_rxfh_set_flow_hash_udp4( fd_ethtool_ioctl_t * ioc );
 
+/* fd_ethtool_ioctl_is_modified returns nonzero if device has a nondefault
+   channel count, a nondefault RSS indirection table, or ntuple rules.
+   For a bond master, checks its members and returns nonzero if any is
+   modified.  Terminates on query failure. */
+int
+fd_ethtool_ioctl_is_modified( char const * device );
+
+/* fd_ethtool_ioctl_reset clears all ntuple rules and restores the maximum
+   channel count and default RSS indirection table on device.  Leaves
+   the ntuple feature flag unchanged.  For a bond master, resets each
+   member.  Skips devices already at defaults.  Returns nonzero if any
+   state changed.  Terminates on failure.  Call before configuring VFs
+   or installing rules. */
+int
+fd_ethtool_ioctl_reset( char const * device );
 
 FD_PROTOTYPES_END
 
