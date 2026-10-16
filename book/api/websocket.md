@@ -3265,9 +3265,9 @@ This message is Tower-only and is not published by an Alpenglow validator.
 :::
 
 #### `slot.missed_vote_history`
-| frequency | type                | example |
-|-----------|---------------------|---------|
-| *Once*    | `MissedVoteHistory` | below   |
+| frequency        | type                | example |
+|------------------|---------------------|---------|
+| *Once* + *100ms* | `MissedVoteHistory` | below   |
 
 An Alpenglow-only collection of resolved slots from the current epoch
 for which this validator was an eligible voter for that slot but was not

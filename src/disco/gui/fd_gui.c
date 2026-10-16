@@ -417,8 +417,9 @@ fd_gui_new( void *                   shmem,
 
   gui->block_engine.has_block_engine = 0;
 
-  gui->epoch.current_epoch      = ULONG_MAX;
-  gui->epoch.has_epoch_schedule = 0;
+  gui->epoch.current_epoch             = ULONG_MAX;
+  gui->epoch.has_epoch_schedule        = 0;
+  gui->epoch.missed_vote_history_dirty = ULONG_MAX;
 
   gui->shreds.leader_shred_cnt        = 0UL;
   gui->shreds.leader_shred_slot       = ULONG_MAX;
@@ -1929,6 +1930,12 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_gui_printf_health( gui );
     fd_http_server_ws_broadcast( gui->http );
 
+    if( FD_UNLIKELY( gui->epoch.missed_vote_history_dirty!=ULONG_MAX ) ) {
+      fd_gui_printf_missed_vote_history( gui, gui->epoch.missed_vote_history_dirty );
+      fd_http_server_ws_broadcast( gui->http );
+      gui->epoch.missed_vote_history_dirty = ULONG_MAX;
+    }
+
     gui->next_sample_100millis += 100L*1000L*1000L;
     return 1;
   }
@@ -2937,10 +2944,7 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
       epoch->vote_count[ idx ]    = vote_count;
       int is_missed = vote_rewarded==FD_GUI_VOTE_REWARDED_NO && is_voter==FD_GUI_IS_VOTER_YES;
 
-      if( FD_UNLIKELY( was_missed!=is_missed ) ) {
-        fd_gui_printf_missed_vote_history( gui, epoch->epoch );
-        fd_http_server_ws_broadcast( gui->http );
-      }
+      if( FD_UNLIKELY( was_missed!=is_missed ) ) gui->epoch.missed_vote_history_dirty = epoch->epoch; /* coalesced into one broadcast per poll */
     }
   }
 

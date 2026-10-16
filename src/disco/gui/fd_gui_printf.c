@@ -2285,7 +2285,7 @@ fd_gui_printf_missed_vote_history( fd_gui_t * gui,
         if( FD_LIKELY( gui->summary.is_alpenglow && fd_gui_skipped_history_bounds( gui, rec, &lo, &hi ) ) ) {
           ulong run_start = ULONG_MAX;
           for( ulong i=lo; i<hi; i++ ) {
-            int missed = rec->vote_rewarded[ i ]==FD_GUI_VOTE_REWARDED_NO && fd_gui_slot_is_voter( gui, rec->start_slot+i );
+            int missed = rec->vote_rewarded[ i ]==FD_GUI_VOTE_REWARDED_NO && rec->is_voter[ i ]==FD_GUI_IS_VOTER_YES;
             if( FD_UNLIKELY( missed && run_start==ULONG_MAX ) ) run_start = rec->start_slot+i;
             if( FD_UNLIKELY( !missed && run_start!=ULONG_MAX ) ) {
               jsonp_ulong( gui->http, NULL, run_start );
