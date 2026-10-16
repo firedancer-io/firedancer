@@ -4,6 +4,7 @@
 
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
+#include "../../discof/backup/fd_strmk_keys.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -44,6 +45,7 @@ struct fd_execrp_tile {
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            execrp_strmk_out[ 1 ];
 
   fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
   fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
@@ -258,6 +260,12 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
+        fd_strmk_keys_publish(
+          stem, ctx->execrp_strmk_out->idx, ctx->execrp_strmk_out->mem,
+          ctx->execrp_strmk_out->chunk0, ctx->execrp_strmk_out->wmark,
+          &ctx->execrp_strmk_out->chunk, ctx->bank, &ctx->txn_in, &ctx->txn_out
+        );
+
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
         ctx->metrics.txn_version[ fd_execle_version_from_txn( TXN( ctx->txn_in.txn ) ) ]++;
 
@@ -422,6 +430,15 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->execrp_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->execrp_replay_out->mem, execrp_replay_link->dcache );
     ctx->execrp_replay_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_replay_out->mem, execrp_replay_link->dcache, execrp_replay_link->mtu );
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
+  }
+
+  ctx->execrp_strmk_out->idx = fd_topo_find_tile_out_link( topo, tile, "execrp_strmk", ctx->tile_idx );
+  if( FD_UNLIKELY( ctx->execrp_strmk_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * execrp_strmk_link = &topo->links[ tile->out_link_id[ ctx->execrp_strmk_out->idx ] ];
+    ctx->execrp_strmk_out->mem    = topo->workspaces[ topo->objs[ execrp_strmk_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->execrp_strmk_out->chunk0 = fd_dcache_compact_chunk0( ctx->execrp_strmk_out->mem, execrp_strmk_link->dcache );
+    ctx->execrp_strmk_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_strmk_out->mem, execrp_strmk_link->dcache, execrp_strmk_link->mtu );
+    ctx->execrp_strmk_out->chunk  = ctx->execrp_strmk_out->chunk0;
   }
 
   ctx->capture_ctx = NULL;

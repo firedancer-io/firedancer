@@ -15,6 +15,7 @@
 #include "../../discof/backup/fd_snapmk_tile.h"
 #include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../discof/backup/fd_strmk_tile.h"
+#include "../../discof/backup/fd_strmk_keys.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/store/fd_store.h"
 #include "../../discof/rotor/fd_rotor_tile.h"
@@ -446,6 +447,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "strmk"        );
     fd_topob_wksp( topo, "strmk_replay" );
     fd_topob_wksp( topo, "strmk_out"    );
+    fd_topob_wksp( topo, "execrp_strmk" );
+    fd_topob_wksp( topo, "execle_strmk" );
   }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -492,6 +495,10 @@ fd_topo_initialize( config_t * config ) {
   FOR(snapsv_tile_cnt) fd_topob_link( topo, "snapsv_out",    "snapsv_out",    16384UL,                                  sizeof(fd_snapsv_msg_t),       1UL )->permit_no_consumers = 1;
   if( strmk_enabled )  fd_topob_link( topo, "strmk_replay",  "strmk_replay",  128UL,                                    0UL,                           1UL );
   if( strmk_enabled )  fd_topob_link( topo, "strmk_out",     "strmk_out",     128UL,                                    sizeof(fd_strmk_msg_t),        1UL );
+  if( strmk_enabled ) {
+    FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_strmk",  "execrp_strmk",  256UL,                                    sizeof(fd_strmk_keys_msg_t),   1UL );
+    FOR(execle_tile_cnt) fd_topob_link( topo, "execle_strmk",  "execle_strmk",  256UL,                                    sizeof(fd_strmk_keys_msg_t),   1UL );
+  }
   fd_topo_obj_t * zp_fseq = NULL;
   if( snapmk_enabled ) {
     zp_fseq = fd_topob_obj( topo, "fseq", "snapmk" );
@@ -766,6 +773,13 @@ fd_topo_initialize( config_t * config ) {
     /*               */fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "strmk_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /*               */fd_topob_tile_out(   topo, "strmk",   0UL,                       "strmk_out",     0UL                                                );
     FOR(snapsv_tile_cnt) fd_topob_tile_in ( topo, "snapsv",  i,            "metric_in", "strmk_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /* The exec tiles send the stream maker the account keys of every
+       transaction; replay tells it which blocks the storage root has
+       passed. */
+    FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp",  i,                         "execrp_strmk",  i                                                  );
+    FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "strmk",   0UL,          "metric_in", "execrp_strmk",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(execle_tile_cnt) fd_topob_tile_out( topo, "execle",  i,                         "execle_strmk",  i                                                  );
+    FOR(execle_tile_cnt) fd_topob_tile_in ( topo, "strmk",   0UL,          "metric_in", "execle_strmk",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "admin_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_admin",  0UL                                                );

@@ -10,6 +10,8 @@ $(call make-unit-test,test_snapsv,test_snapsv,fd_discof fd_disco fd_waltz fd_tan
 $(call run-unit-test,test_snapsv)
 $(call make-unit-test,test_snapsv_tile,test_snapsv_tile,fd_discof fd_disco fd_waltz fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_snapsv_tile)
+$(call make-unit-test,test_strmk_tile,test_strmk_tile,fd_discof fd_disco fd_flamenco fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_strmk_tile)
 endif # FD_HAS_LINUX
 endif # FD_HAS_ATOMIC
 

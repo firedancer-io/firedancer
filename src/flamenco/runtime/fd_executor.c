@@ -1503,6 +1503,34 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+ulong
+fd_executor_read_keys( fd_txn_in_t const *  txn_in,
+                       fd_txn_out_t const * txn_out,
+                       fd_pubkey_t *        out_keys ) {
+  ulong cnt = txn_out->accounts.cnt;
+
+  /* Static account keys */
+  memcpy( out_keys, txn_out->accounts.keys, cnt*sizeof(fd_pubkey_t) );
+
+  /* Executable account keys */
+  for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
+    memcpy( out_keys[ cnt++ ].uc, txn_out->accounts.executable[ i ]->pubkey, 32UL );
+  }
+
+  /* Executable skipped account keys */
+  memcpy( out_keys+cnt, txn_out->accounts.executable_skipped_key, txn_out->accounts.executable_skipped_cnt*sizeof(fd_pubkey_t) );
+  cnt += txn_out->accounts.executable_skipped_cnt;
+
+  /* Lookup tables */
+  fd_txn_t const *               txn  = TXN( txn_in->txn );
+  fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( txn );
+  for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
+    memcpy( out_keys[ cnt++ ].uc, txn_in->txn->payload+luts[ i ].addr_off, 32UL );
+  }
+
+  return cnt;
+}
+
 int
 fd_executor_txn_verify( fd_txn_p_t *         txn_p,
                         fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
