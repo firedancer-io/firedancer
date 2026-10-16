@@ -1215,6 +1215,8 @@ struct fd_gui {
     int                 has_epoch_schedule;
     fd_epoch_schedule_t epoch_schedule;
 
+    ulong missed_vote_history_dirty; /* epoch whose missed vote history changed since the last broadcast, ULONG_MAX if none */
+
     uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) lsched_scratch[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
     fd_vote_stake_weight_t stakes_scratch[ MAX_STAKE_WEIGHTS ];
   } epoch;
@@ -1768,11 +1770,6 @@ fd_gui_slot_voter_state( fd_gui_t * gui, ulong _slot ) {
   if( FD_UNLIKELY( !epoch || _slot<epoch->start_slot ) ) return FD_GUI_IS_VOTER_UNKNOWN;
   ulong idx = _slot - epoch->start_slot;
   return idx<epoch->slot_cnt ? epoch->is_voter[ idx ] : FD_GUI_IS_VOTER_UNKNOWN;
-}
-
-static inline int
-fd_gui_slot_is_voter( fd_gui_t * gui, ulong _slot ) {
-  return fd_gui_slot_voter_state( gui, _slot )==FD_GUI_IS_VOTER_YES;
 }
 
 static inline uchar
