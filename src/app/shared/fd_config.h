@@ -262,6 +262,7 @@ struct fd_config {
   double tick_per_ns_sigma;
 
   long boot_timestamp_nanos;
+  ulong launch_cpus[ 1024UL/64UL ]; /* affinity inherited from the launcher */
 
   /* Sizing ceilings for every per-slot structure, derived at load: the
      largest values the consensus limits can take, or the raised

@@ -1550,6 +1550,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( fd_cstr_printf_check( tile->event.guidb_path,     sizeof(tile->event.guidb_path),     NULL, "%s", config->paths.guidb     ) );
     FD_TEST( fd_cstr_printf_check( tile->event.net_interface,  sizeof(tile->event.net_interface),  NULL, "%s", config->net.interface   ) );
     tile->event.boot_timestamp_nanos = config->boot_timestamp_nanos;
+    fd_memcpy( tile->event.launch_cpus, config->launch_cpus, sizeof(tile->event.launch_cpus) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "net"   ) ||
                           !strcmp( tile->name, "sock"  ) ||

@@ -5,6 +5,7 @@
 
 #include "../platform/fd_net_util.h"
 #include "../platform/fd_sys_util.h"
+#include "../../util/tile/fd_tile_private.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
@@ -792,6 +793,9 @@ fd_config_load( int           is_firedancer,
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = is_firedancer;
   config->boot_timestamp_nanos = fd_log_wallclock();
+
+  FD_STATIC_ASSERT( sizeof(config->launch_cpus)==8UL*fd_cpuset_word_cnt, launch_cpus );
+  if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, (fd_cpuset_t *)config->launch_cpus ) ) ) memset( config->launch_cpus, 0, sizeof(config->launch_cpus) );
 
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );
   fd_config_validate( config );

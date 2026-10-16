@@ -722,11 +722,12 @@ fd_topob_tile_live_phase( fd_topo_tile_t const * tile ) {
   return FD_TOPOB_LIVE_ALWAYS;
 }
 
-static int
+int
 fd_topob_cpu_overlap_allowed( fd_topo_tile_t const * a,
-                              fd_topo_tile_t const * b ) {
+                              fd_topo_tile_t const * b,
+                              int                    floats_share ) {
   if( sock_lo_net_tile_id( a )==b->id || sock_lo_net_tile_id( b )==a->id ) return 1;
-  if( a->floats && b->floats ) return 1;
+  if( floats_share && a->floats && b->floats ) return 1;
 
   int a_phase = fd_topob_tile_live_phase( a );
   int b_phase = fd_topob_tile_live_phase( b );
@@ -744,7 +745,7 @@ fd_topob_validate_cpu_overlaps( fd_topo_t const * topo ) {
     for( ulong j=i+1UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t const * b = &topo->tiles[ j ];
       if( b->cpu_idx!=a->cpu_idx ) continue;
-      if( FD_LIKELY( fd_topob_cpu_overlap_allowed( a, b ) ) ) continue;
+      if( FD_LIKELY( fd_topob_cpu_overlap_allowed( a, b, 1 ) ) ) continue;
 
       FD_LOG_ERR(( "tile `%s:%lu` and tile `%s:%lu` are both assigned to CPU %lu and may try to run at the same time",
                    a->name, a->kind_id, b->name, b->kind_id, a->cpu_idx ));

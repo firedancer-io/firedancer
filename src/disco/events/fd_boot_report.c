@@ -2,6 +2,8 @@
 #include "fd_boot_report.h"
 
 #include "../../ballet/pb/fd_pb_encode.h"
+#include "../topo/fd_topob.h"
+#include "../../util/tile/fd_tile_private.h"
 
 /* manually include just fd_features_generated.h so we can get
    FD_FEATURE_SET_ID without anything else that we don't need. */
@@ -350,13 +352,15 @@ collect_cpu( fd_boot_report_t * r ) {
       continue;                         /* offline cpu */
     }
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/core_id", cpu ) );
-    ulong core;
-    if( read_ulong( path, &core ) ) continue;
+    long core;
+    if( read_long( path, &core ) ) continue;
     logical++;
-    ulong pair = (pkg<<32) | (core&0xFFFFFFFFUL);
     int seen = 0;
-    for( ulong i=0UL; i<pair_cnt; i++ ) if( pairs[ i ]==pair ) { seen = 1; break; }
-    if( !seen && pair_cnt<4096UL ) pairs[ pair_cnt++ ] = pair;
+    if( (long)pkg>=0L && core>=0L ) { /* -1 is unknown */
+      ulong pair = (pkg<<32) | ((ulong)core&0xFFFFFFFFUL);
+      for( ulong i=0UL; i<pair_cnt; i++ ) if( pairs[ i ]==pair ) { seen = 1; break; }
+      if( !seen && pair_cnt<4096UL ) pairs[ pair_cnt++ ] = pair;
+    }
     seen = 0;
     for( ulong i=0UL; i<pkg_cnt; i++ ) if( pkgs[ i ]==pkg ) { seen = 1; break; }
     if( !seen && pkg_cnt<64UL ) pkgs[ pkg_cnt++ ] = pkg;
@@ -445,6 +449,36 @@ collect_l3( fd_boot_report_t * r ) {
     r->l3_cpu_to_domain[ cpu ] = (ushort)d;
     r->l3_cpu_to_domain_cnt = cpu+1UL;
   }
+}
+
+static void
+collect_cores( fd_boot_report_t * r ) {
+  static ulong key[ 1024 ];
+  ulong key_cnt = 0UL;
+  r->cpu_to_core_cnt = r->numa_cpu_to_node_cnt;
+  for( ulong cpu=0UL; cpu<r->cpu_to_core_cnt; cpu++ ) {
+    char path[ 128 ];
+    r->cpu_to_core[ cpu ] = USHORT_MAX;
+    long pkg, core;
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/physical_package_id", cpu ) );
+    if( read_long( path, &pkg ) || pkg<0L ) continue; /* -1 is unknown */
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/core_id", cpu ) );
+    if( read_long( path, &core ) || core<0L ) continue;
+    ulong id = ((ulong)pkg<<32) | ((ulong)core&0xFFFFFFFFUL);
+    ulong c = 0UL;
+    while( c<key_cnt && key[ c ]!=id ) c++;
+    if( c==key_cnt ) key[ key_cnt++ ] = id;
+    r->cpu_to_core[ cpu ] = (ushort)c;
+  }
+}
+
+static void
+collect_affinity( fd_boot_report_t *     r,
+                  fd_topo_tile_t const * tile ) {
+  FD_STATIC_ASSERT( sizeof(tile->event.launch_cpus)==8UL*fd_cpuset_word_cnt, launch_cpus );
+  fd_cpuset_t const * launch = (fd_cpuset_t const *)tile->event.launch_cpus;
+  for( ulong cpu=fd_cpuset_const_iter_init( launch ); !fd_cpuset_const_iter_done( cpu ); cpu=fd_cpuset_const_iter_next( launch, cpu ) )
+    r->launch_cpus[ r->launch_cpus_cnt++ ] = (ushort)cpu;
 }
 
 static void
@@ -1289,6 +1323,19 @@ fd_boot_report_collect( fd_boot_report_t *     r,
   collect_cpu( r );
   collect_mem( r );
   collect_l3( r ); /* after collect_mem: sized by the numa cpu map */
+  collect_cores( r );
+  collect_affinity( r, tile );
+
+  FD_CPUSET_DECL( pool );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) if( topo->tiles[ i ].floats ) fd_cpuset_insert( pool, topo->tiles[ i ].cpu_idx );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * t = &topo->tiles[ i ];
+    if( t->floats || t->cpu_idx==ULONG_MAX ) continue;
+    fd_cpuset_remove( pool, t->cpu_idx );
+    ulong sibling = fd_tile_private_sibling_idx( t->cpu_idx );
+    if( FD_LIKELY( sibling!=ULONG_MAX ) ) fd_cpuset_remove( pool, sibling );
+  }
+  r->float_pool = !!fd_cpuset_cnt( pool );
   collect_dimms( r );
   collect_net( r, tile->event.net_interface );
   collect_platform( r, tile->event.net_interface );
@@ -1316,12 +1363,27 @@ render_topology_json( fd_boot_report_t * r,
     cur += _n; rem -= _n;                                          \
   } while( 0 )
 
+
   PRINT( "{\"tiles\":[" );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    PRINT( "%s{\"kind\":\"%s\",\"kind_id\":%lu,\"cpu_idx\":%ld,\"floats\":%s,\"in\":[",
+    ulong cpu  = tile->cpu_idx;
+    ulong core = cpu<r->cpu_to_core_cnt ? r->cpu_to_core[ cpu ] : USHORT_MAX;
+    long  sibling = -1L;
+    for( ulong c=0UL; c<r->cpu_to_core_cnt && core!=USHORT_MAX && sibling<0L; c++ ) {
+      if( c!=cpu && r->cpu_to_core[ c ]==core ) sibling = (long)c;
+    }
+    /* another pinned tile runs concurrently on the same core */
+    int shared = 0;
+    for( ulong j=0UL; j<topo->tile_cnt && core!=USHORT_MAX && ( !tile->floats || !r->float_pool ); j++ ) {
+      fd_topo_tile_t const * other = &topo->tiles[ j ];
+      if( j==i || ( other->floats && r->float_pool ) || other->cpu_idx>=r->cpu_to_core_cnt || r->cpu_to_core[ other->cpu_idx ]!=core ) continue;
+      shared |= !fd_topob_cpu_overlap_allowed( tile, other, r->float_pool );
+    }
+    PRINT( "%s{\"kind\":\"%s\",\"kind_id\":%lu,\"cpu_idx\":%ld,\"floats\":%s,\"core_shared\":%s,\"sibling_cpu\":%ld,\"in\":[",
            i ? "," : "", tile->name, tile->kind_id,
-           tile->cpu_idx<FD_TILE_MAX ? (long)tile->cpu_idx : -1L, tile->floats ? "true" : "false" );
+           cpu<FD_TILE_MAX ? (long)cpu : -1L, tile->floats ? "true" : "false",
+           shared ? "true" : "false", sibling );
     for( ulong in=0UL; in<tile->in_cnt; in++ ) PRINT( "%s%lu", in ? "," : "", tile->in_link_id[ in ] );
     PRINT( "],\"out\":[" );
     for( ulong out=0UL; out<tile->out_cnt; out++ ) PRINT( "%s%lu", out ? "," : "", tile->out_link_id[ out ] );
@@ -1574,6 +1636,8 @@ fd_boot_report_publish( fd_boot_report_t *  r,
   if( r->feature_set_id )           ok &= !!fd_pb_push_uint32( encoder, 75U, r->feature_set_id );
   for( ulong i=0UL; i<r->l3_cpu_to_domain_cnt; i++ ) ok &= !!fd_pb_push_uint32( encoder, 76U, r->l3_cpu_to_domain[ i ] );
   for( ulong i=0UL; i<r->cpu_features_cnt; i++ )     ok &= push_cstr( encoder, 77U, r->cpu_features[ i ] );
+  for( ulong i=0UL; i<r->cpu_to_core_cnt; i++ )      ok &= !!fd_pb_push_uint32( encoder, 78U, r->cpu_to_core[ i ] );
+  for( ulong i=0UL; i<r->launch_cpus_cnt; i++ )      ok &= !!fd_pb_push_uint32( encoder, 79U, r->launch_cpus[ i ] );
 
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
