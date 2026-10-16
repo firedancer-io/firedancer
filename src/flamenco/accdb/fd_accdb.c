@@ -486,15 +486,23 @@ void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   fd_accdb_flush_metrics( accdb );
 
-  /* Force the next layer-0 write onto a fresh Hot partition so we do
-     not keep appending live execution writes to the tail of a partition
-     that was tagged Cold during snapshot load.  Must run while
-     snapshot_loading is still set so the partition we just closed
-     (the snapshot-tagged Cold one) is not enqueued for compaction by
-     change_partition's tail-credit try_enqueue.  change_partition will
-     retag the newly-allocated partition as Cold (because the flag is
-     still set), so we fix it back to Hot below. */
-  if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] ) ) change_partition( accdb, &accdb->shmem->whead[ 0 ], &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
+  /* Once the snapshot is done loading, the cold partition we were
+     writing into is left open as the layer 2 head, and we switch the
+     layer 0 head to a new hot partition. */
+  ulong const cold = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
+  if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] ) ) {
+    if( FD_LIKELY( !accdb->shmem->has_partition[ cold ] ) ) {
+      accdb_offset_t snap_head = accdb->shmem->whead[ 0 ];
+      int            no_head   = 0;
+      change_partition( accdb, &snap_head, &accdb->shmem->whead[ 0 ], &no_head, 0 );
+      spin_lock_acquire( &accdb->shmem->partition_lock );
+      accdb->shmem->whead[ cold ]         = snap_head;
+      accdb->shmem->has_partition[ cold ] = 1;
+      spin_lock_release( &accdb->shmem->partition_lock );
+    } else {
+      change_partition( accdb, &accdb->shmem->whead[ 0 ], &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
+    }
+  }
 
   spin_lock_acquire( &accdb->shmem->partition_lock );
   if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] ) ) {
