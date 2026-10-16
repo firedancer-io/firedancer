@@ -1084,6 +1084,18 @@ fdctl_check_configure( config_t const * config ) {
     }
   }
 
+  FD_CPUSET_DECL( partition );
+  fd_cpu_isolation_partition_cpus( partition, &config->topo );
+  FD_CPUSET_DECL( housekeeping );
+  fd_cpuset_subtract( housekeeping, fd_cpu_isolation_online_cpus( housekeeping ), partition );
+  if( FD_UNLIKELY( fd_cpuset_cnt( partition ) && fd_cpuset_cnt( housekeeping )<2UL ) ) {
+    char list[ FD_CPU_ISOLATION_LIST_MAX ];
+    FD_LOG_WARNING(( "only %lu online CPU(s) (%s) remain outside Firedancer tile CPUs and their isolated hyperthread "
+                     "siblings for the kernel, interrupts and other processes. Consider reducing tile counts or "
+                     "adding to [layout.blocklist_cores].", fd_cpuset_cnt( housekeeping ),
+                     fd_cpu_isolation_format_list( list, sizeof(list), housekeeping ) ));
+  }
+
   if( FD_LIKELY( fd_cfg_stage_cpuset.enabled( config ) ) ) {
     check = fd_cfg_stage_cpuset.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result==CONFIGURE_PARTIALLY_CONFIGURED ) )

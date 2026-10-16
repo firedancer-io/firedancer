@@ -2,7 +2,8 @@
    unbound kernel workqueues, so that deferred kernel work (writeback,
    vmstat refresh, various driver bottom halves, and notably the
    nohz_full remote tick offload) runs on housekeeping CPUs instead of
-   stealing time from spinning tiles.
+   stealing time from spinning tiles.  The idle hyperthread siblings
+   the cpuset stage isolates are excluded too.
 
    The kernel exposes this as a global hex mask at
    /sys/devices/virtual/workqueue/cpumask.  Per-CPU (bound) kworkers
@@ -89,7 +90,7 @@ fini_perm( fd_cap_chk_t *   chk,
 static void
 init( config_t const * config ) {
   FD_CPUSET_DECL( tile_cpus );
-  fd_cpu_isolation_tile_cpus( tile_cpus, &config->topo );
+  fd_cpu_isolation_banned_cpus( tile_cpus, &config->topo );
 
   FD_CPUSET_DECL( allowed );
   fd_cpu_isolation_online_cpus( allowed );
@@ -127,7 +128,7 @@ check( config_t const * config,
   read_wq_cpumask( current );
 
   FD_CPUSET_DECL( tile_cpus );
-  fd_cpu_isolation_tile_cpus( tile_cpus, &config->topo );
+  fd_cpu_isolation_banned_cpus( tile_cpus, &config->topo );
 
   if( FD_UNLIKELY( fd_cpuset_is_null( tile_cpus ) ) ) {
     FD_CPUSET_DECL( missing );
@@ -146,7 +147,7 @@ check( config_t const * config,
   if( FD_UNLIKELY( !fd_cpuset_is_null( overlap ) ) ) {
     char list[ FD_CPU_ISOLATION_LIST_MAX ];
     fd_cpu_isolation_format_list( list, sizeof(list), overlap );
-    NOT_CONFIGURED( "kernel workqueue cpumask includes Firedancer tile CPUs %s", list );
+    NOT_CONFIGURED( "kernel workqueue cpumask includes Firedancer tile CPUs or their isolated siblings %s", list );
   }
 
   CONFIGURE_OK();
