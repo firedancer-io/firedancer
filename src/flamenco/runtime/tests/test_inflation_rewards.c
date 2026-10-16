@@ -104,7 +104,7 @@ patch_vote_account( fd_svm_mini_t *     mini,
 
   fd_vote_state_versioned_t versioned[1];
   FD_TEST( fd_vote_state_versioned_deserialize( versioned, data_copy, data_sz ) );
-  fd_vsv_set_commission( versioned, new_commission );
+  fd_vsv_set_commission( versioned, new_commission, 0UL );
   fd_vote_epoch_credits_t * epoch_credits = fd_vsv_get_epoch_credits_mutable( versioned );
   fd_vote_epoch_credits_t * ec = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits );
   *ec = (fd_vote_epoch_credits_t){ .epoch=epoch, .credits=credits, .prev_credits=prev_credits };
@@ -1144,7 +1144,7 @@ set_vote_epoch_credits( fd_svm_mini_t *                 mini,
 
   fd_vote_state_versioned_t versioned[1];
   FD_TEST( fd_vote_state_versioned_deserialize( versioned, data_copy, data_sz ) );
-  fd_vsv_set_commission( versioned, commission );
+  fd_vsv_set_commission( versioned, commission, 0UL );
   fd_vote_epoch_credits_t * epoch_credits = fd_vsv_get_epoch_credits_mutable( versioned );
   deq_fd_vote_epoch_credits_t_remove_all( epoch_credits );
   for( ulong i=0UL; i<entry_cnt; i++ ) {
