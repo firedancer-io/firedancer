@@ -3990,3 +3990,6 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
   lslot = fd_gui_slot_leader_get( gui, _slot, bank_seq );
   if( FD_LIKELY( lslot ) ) lslot->end_microblocks += (uint)txn_cnt;
 }
+
+/* noise validation: shifts .text layout without touching hot code */
+__attribute__((noinline,used)) ulong fd_gui_private_layout_pad( ulong x ) { return x*0x9E3779B97F4A7C15UL ^ (x>>7); }
