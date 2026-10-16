@@ -608,7 +608,8 @@ struct fd_replay_tile {
   /* fast boot stream maker */
   struct {
     uint supported:1;
-    uint active:1;    /* still reading the snapshot bank */
+    uint active:1;
+    uint stopping:1;
   } strmk;
 
   struct {

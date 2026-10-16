@@ -2,13 +2,14 @@
 
    A fast boot stream is a snapshot archive that never finishes: it
    opens with the manifest of an incremental snapshot's slot and later
-   grows by one appendvec per block, so that a peer can start
-   executing before its own snapshot has loaded.  Replay tells this
-   tile about every snapshot it starts, the same message the snapshot
-   maker gets, and holds the snapshot's bank until both have said they
-   are done with it.  At every incremental snapshot the tile ends the
-   stream it is writing and starts the next one.  The snapsv tile
-   serves the files over HTTP.
+   grows by one appendvec per transaction, with the accounts the
+   transaction touched as they were at that slot, so that a peer can
+   start executing before its own snapshot has loaded.  Replay tells
+   this tile about every snapshot it starts, the same message the
+   snapshot maker gets, and holds the published root at the snapshot's
+   slot until the tile is done with it: for a stream, until replay
+   ends the stream for the next snapshot.  The snapsv tile serves the
+   files over HTTP.
 
    The files are a small pool opened by run.c before the tiles start,
    like the snapshot pool.  A peer still downloading a file that is
@@ -43,33 +44,16 @@
 
 #define STRMK_COMP_BUF_SZ (1UL<<20)
 
-/* One fast boot stream: a growing archive file. */
-
-struct strmk_stream {
-  int   open;
-  int   announced;  /* OPEN sent to the file server? */
-  ulong start_slot; /* the slot the stream starts at */
-  uchar hash[ 32 ];
-  int   fd;
-  ulong file_sz;
-};
-
-typedef struct strmk_stream strmk_stream_t;
-
-#define STRMK_WINDOW  (64UL)    /* slots of blocks whose keys are kept */
+#define STRMK_WINDOW  (64UL)    /* slots a key is kept for when the pool is full */
 #define STRMK_KEY_MAX (1UL<<19) /* map key capacity */
 
-struct strmk_key_id {
-  ulong       bank_seq;
-  fd_pubkey_t key;
-};
-
-typedef struct strmk_key_id strmk_key_id_t;
+/* One account key a block touched.  While a stream is open, being in
+   the set means the stream sent the key. */
 
 struct strmk_key {
-  strmk_key_id_t id;
-  uint           next;
-  uint           block_next;
+  fd_pubkey_t key;
+  ulong       slot; /* newest slot that touched it, ULONG_MAX if free */
+  uint        next;
 };
 
 typedef struct strmk_key strmk_key_t;
@@ -81,26 +65,31 @@ typedef struct strmk_key strmk_key_t;
 
 #define MAP_NAME               strmk_key_map
 #define MAP_ELE_T              strmk_key_t
-#define MAP_KEY_T              strmk_key_id_t
-#define MAP_KEY                id
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_KEY                key
 #define MAP_IDX_T              uint
-#define MAP_KEY_EQ(k0,k1)      ( ((k0)->bank_seq==(k1)->bank_seq) & !memcmp( (k0)->key.uc, (k1)->key.uc, 32UL ) )
-#define MAP_KEY_HASH(k,s)      fd_hash32( (k)->key.uc, (s)+(k)->bank_seq )
+#define MAP_KEY_EQ(k0,k1)      ( !memcmp( (k0)->uc, (k1)->uc, 32UL ) )
+#define MAP_KEY_HASH(k,s)      fd_hash32( (k)->uc, (s) )
 #include "../../util/tmpl/fd_map_chain.c"
-
-/* One block in the window, in the table slot of its bank. */
-
-struct strmk_block {
-  ulong bank_seq; /* ULONG_MAX while unused */
-  ulong slot;
-  uint  key_head_idx; /* head of the block's account keys, UINT_MAX if none */
-};
-
-typedef struct strmk_block strmk_block_t;
 
 #define IN_KIND_SNAP_START (0) /* replay_snapmk */
 #define IN_KIND_SNAPMK     (1) /* snapmk_out */
 #define IN_KIND_KEYS       (2) /* execrp_strmk, execle_strmk */
+
+/* One fast boot stream: a growing archive file. */
+
+struct strmk_stream {
+  int   open;
+  int   announced;  /* OPEN sent to the file server? */
+  ulong start_slot; /* the slot the stream starts at */
+  uchar hash[ 32 ];
+  int   fd;
+  ulong file_sz;
+
+  fd_accdb_fork_id_t fork_id;
+};
+
+typedef struct strmk_stream strmk_stream_t;
 
 struct fd_strmk {
   uint  cur;       /* the stream being written, UINT_MAX if none */
@@ -120,22 +109,25 @@ struct fd_strmk {
     fd_strmk_keys_msg_t    keys;
   } frag;
 
-  /* keys of the blocks in the window */
+  /* keys the blocks touched */
   ulong             key_seed;
   strmk_key_map_t * key_map;
   strmk_key_t *     key_pool;
-  strmk_block_t *   block;
-  ulong             block_max;
-  ulong             block_cnt;
   ulong             current_slot;
 
   struct {
     ulong key_cnt;
     ulong key_stored_cnt;
     ulong key_dropped_cnt;
+    ulong key_skipped_cnt;
+    ulong appendvec_cnt;
+    ulong account_cnt;
+    ulong disk_read_cnt;
+    ulong tombstone_cnt;
   } metrics;
 
   uchar *        raw;
+  ulong          raw_sz;
   uchar          comp[ STRMK_COMP_BUF_SZ ];
   ZSTD_CStream * zstd;
 
@@ -172,7 +164,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, 64UL,                ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL )    );
   l = FD_LAYOUT_APPEND( l, strmk_key_map_align(),  strmk_key_map_footprint( strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ) ) );
   l = FD_LAYOUT_APPEND( l, strmk_key_pool_align(), strmk_key_pool_footprint( STRMK_KEY_MAX )                             );
-  l = FD_LAYOUT_APPEND( l, alignof(strmk_block_t), tile->strmk.max_live_slots*sizeof(strmk_block_t)                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -284,14 +275,13 @@ strmk_announce( fd_strmk_t *        ctx,
   fd_backup_out_wake( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
 }
 
-/* strmk_done tells replay the tile is finished reading the bank of
-   the snapshot at slot. */
+/* strmk_done tells replay the tile is finished reading the snapshot
+   bank, so the published root can move on. */
 
 static void
 strmk_done( fd_strmk_t *        ctx,
-            fd_stem_context_t * stem,
-            ulong               slot ) {
-  fd_stem_publish( stem, ctx->replay_out_idx, slot, 0UL, 0UL, 0UL, 0UL, 0UL );
+            fd_stem_context_t * stem ) {
+  fd_stem_publish( stem, ctx->replay_out_idx, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 /* strmk_stream_close ends the stream being written.  A peer still
@@ -328,86 +318,134 @@ strmk_announce_open( fd_strmk_t *        ctx,
 }
 
 /**********************************************************************/
-/* Block account keys                                                 */
+/* Account keys                                                       */
 /**********************************************************************/
 
-/* strmk_block_free releases all keys for a given block. */
+/* strmk_key_prune frees the keys last touched at or below slot. */
 
 static void
-strmk_block_free( fd_strmk_t *    ctx,
-                  strmk_block_t * block ) {
-  uint idx = block->key_head_idx;
-  while( idx!=UINT_MAX ) {
-    strmk_key_t * key = strmk_key_pool_ele( ctx->key_pool, idx );
-    idx = key->block_next;
-    strmk_key_map_ele_remove( ctx->key_map, &key->id, NULL, ctx->key_pool );
+strmk_key_prune( fd_strmk_t * ctx,
+                 ulong        slot ) {
+  for( ulong i=0UL; i<STRMK_KEY_MAX; i++ ) {
+    strmk_key_t * key = strmk_key_pool_ele( ctx->key_pool, i );
+    if( key->slot==ULONG_MAX || key->slot>slot ) continue;
+    strmk_key_map_ele_remove( ctx->key_map, &key->key, NULL, ctx->key_pool );
+    key->slot = ULONG_MAX;
     strmk_key_pool_ele_release( ctx->key_pool, key );
   }
-  block->bank_seq = ULONG_MAX;
-  ctx->block_cnt--;
 }
 
-/* strmk_window_slide frees the blocks that fell out of the window
-   once slot is the newest. */
+/* strmk_key_insert adds a key first touched at slot.  A pool full of
+   keys touched in the last STRMK_WINDOW slots drops it. */
 
 static void
-strmk_window_slide( fd_strmk_t * ctx,
-                    ulong        slot ) {
-  ctx->current_slot = fd_ulong_max( ctx->current_slot, slot );
-  for( ulong i=0UL; i<ctx->block_max; i++ ) {
-    strmk_block_t * block = &ctx->block[ i ];
-    if( block->bank_seq==ULONG_MAX ) continue;
-    if( block->slot+STRMK_WINDOW<=ctx->current_slot ) strmk_block_free( ctx, block );
+strmk_key_insert( fd_strmk_t *        ctx,
+                  fd_pubkey_t const * key,
+                  ulong               slot ) {
+  if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) strmk_key_prune( ctx, fd_ulong_sat_sub( ctx->current_slot, STRMK_WINDOW ) );
+  if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) {
+    ctx->metrics.key_dropped_cnt++;
+    return;
   }
+  strmk_key_t * ele = strmk_key_pool_ele_acquire( ctx->key_pool );
+  ele->key  = *key;
+  ele->slot = slot;
+  strmk_key_map_ele_insert( ctx->key_map, ele, ctx->key_pool );
+  ctx->metrics.key_stored_cnt++;
 }
 
-/* strmk_store_keys records the keys of one transaction, the first
-   time its block touches them.  Bank sequence numbers only grow: a
-   bigger one in a bank's slot means the bank was reused and the block
-   that was there is gone, a smaller one is a late message from such a
-   block and is dropped. */
+/**********************************************************************/
+/* Stream body                                                        */
+/**********************************************************************/
+
+/* A key that does not exist goes out as a record with no lamports. */
+
+/* strmk_appendvec_flush writes the staged records as one appendvec
+   entry. */
+
+static void
+strmk_appendvec_flush( fd_strmk_t *     ctx,
+                       strmk_stream_t * stream ) {
+  char name[ FD_TAR_NAME_SZ ];
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "accounts/%lu.0", stream->start_slot ) );
+  fd_tar_meta_t meta;
+  zip_push( ctx, stream, fd_backup_tar_named_hdr( &meta, name, ctx->raw_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+  zip_push( ctx, stream, ctx->raw, ctx->raw_sz, ZSTD_e_continue );
+  zip_pad ( ctx, stream, ctx->raw_sz );
+  ctx->raw_sz = 0UL;
+  ctx->metrics.appendvec_cnt++;
+}
+
+/* strmk_appendvec_add reads a key at the start slot and stages its
+   record, flushing first if the biggest account would not fit. */
+
+static void
+strmk_appendvec_add( fd_strmk_t *        ctx,
+                     strmk_stream_t *    stream,
+                     fd_pubkey_t const * key ) {
+  if( FD_UNLIKELY( ctx->raw_sz+sizeof(snap_acc_hdr_t)+FD_RUNTIME_ACC_SZ_MAX>FD_SSMANIFEST_BUF_MIN ) ) strmk_appendvec_flush( ctx, stream );
+  snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw+ctx->raw_sz );
+  memset( hdr, 0, sizeof(snap_acc_hdr_t) );
+  hdr->pubkey = *key;
+
+  ulong lamports   = 0UL;
+  ulong data_len   = 0UL;
+  int   executable = 0;
+  int   source = fd_accdb_read_one_nocache( ctx->accdb, stream->fork_id, key->uc, &lamports, &executable, hdr->owner.uc, (uchar *)( hdr+1 ), &data_len );
+  FD_CHECK_CRIT( data_len<=FD_RUNTIME_ACC_SZ_MAX, "accdb returned an oversized account" );
+  hdr->lamports   = lamports;
+  hdr->executable = (uchar)!!executable;
+  hdr->data_len   = data_len;
+
+  ulong data_pad = fd_ulong_align_up( data_len, 8UL )-data_len;
+  memset( (uchar *)( hdr+1 )+data_len, 0, data_pad );
+  ctx->raw_sz += sizeof(snap_acc_hdr_t)+data_len+data_pad;
+  ctx->metrics.account_cnt   += source!=FD_ACCDB_READ_ONE_NOCACHE_MISS;
+  ctx->metrics.disk_read_cnt += source==FD_ACCDB_READ_ONE_NOCACHE_DISK;
+  ctx->metrics.tombstone_cnt += source==FD_ACCDB_READ_ONE_NOCACHE_MISS;
+}
+
+/* strmk_catch_up frees the keys at or below the stream start, which
+   the snapshot has, and sends the rest: blocks above the start
+   touched them before the stream opened. */
+
+static void
+strmk_catch_up( fd_strmk_t *     ctx,
+                strmk_stream_t * stream ) {
+  strmk_key_prune( ctx, stream->start_slot );
+  for( ulong i=0UL; i<STRMK_KEY_MAX; i++ ) {
+    strmk_key_t * key = strmk_key_pool_ele( ctx->key_pool, i );
+    if( key->slot!=ULONG_MAX ) strmk_appendvec_add( ctx, stream, &key->key );
+  }
+
+  if( ctx->raw_sz ) strmk_appendvec_flush( ctx, stream );
+}
+
+/* strmk_store_keys records the keys of one transaction and sends the
+   new ones to the open stream.  Keys of blocks at or below the stream
+   start are in the snapshot, so those messages are skipped. */
 
 static void
 strmk_store_keys( fd_strmk_t *                ctx,
                   fd_strmk_keys_msg_t const * msg ) {
   ctx->metrics.key_cnt += msg->key_cnt;
+  ctx->current_slot = fd_ulong_max( ctx->current_slot, msg->slot );
 
-  FD_CHECK_CRIT( msg->bank_idx<ctx->block_max, "bank index out of range" );
-  strmk_block_t * block    = &ctx->block[ msg->bank_idx ];
-  int             occupied = block->bank_seq!=ULONG_MAX;
+  strmk_stream_t * stream = ctx->cur!=UINT_MAX ? &ctx->stream[ ctx->cur ] : NULL;
+  if( stream && msg->slot<=stream->start_slot ) return;
 
-  /* Received a late message from a block that is gone.  Practically
-     unreachable. */
-  if( FD_UNLIKELY( occupied && msg->bank_seq<block->bank_seq ) ) return;
-
-  /* Start a new block */
-  if( FD_UNLIKELY( block->bank_seq!=msg->bank_seq ) ) {
-    if( occupied ) strmk_block_free( ctx, block );
-
-    block->bank_seq     = msg->bank_seq;
-    block->slot         = msg->slot;
-    block->key_head_idx = UINT_MAX;
-    ctx->block_cnt++;
-    strmk_window_slide( ctx, msg->slot );
-  }
-
-  /* Store unique keys seen within the block */
   for( ulong i=0UL; i<msg->key_cnt; i++ ) {
-    strmk_key_id_t id = { .bank_seq = msg->bank_seq, .key = msg->keys[ i ] };
-    if( FD_LIKELY( strmk_key_map_ele_query( ctx->key_map, &id, NULL, ctx->key_pool ) ) ) continue;
-
-    if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) {
-      ctx->metrics.key_dropped_cnt++;
+    fd_pubkey_t const * key = &msg->keys[ i ];
+    strmk_key_t *       ele = strmk_key_map_ele_query( ctx->key_map, key, NULL, ctx->key_pool );
+    if( FD_LIKELY( ele ) ) {
+      ele->slot = fd_ulong_max( ele->slot, msg->slot );
+      ctx->metrics.key_skipped_cnt += !!stream;
       continue;
     }
-    
-    strmk_key_t * key = strmk_key_pool_ele_acquire( ctx->key_pool );
-    key->id         = id;
-    key->block_next = block->key_head_idx;
-    strmk_key_map_ele_insert( ctx->key_map, key, ctx->key_pool );
-    block->key_head_idx = (uint)strmk_key_pool_idx( ctx->key_pool, key );
-    ctx->metrics.key_stored_cnt++;
+    strmk_key_insert( ctx, key, msg->slot );
+    if( stream ) strmk_appendvec_add( ctx, stream, key );
   }
+  if( ctx->raw_sz ) strmk_appendvec_flush( ctx, stream );
 }
 
 /**********************************************************************/
@@ -415,11 +453,11 @@ strmk_store_keys( fd_strmk_t *                ctx,
 /**********************************************************************/
 
 /* strmk_stream_start starts the next stream.  It runs on replay's
-   snapshot start message: an incremental snapshot ends the stream
-   being written and starts the next one in the other pool file, with
-   the version entry and the manifest from the bank replay is holding,
-   then gives the bank back.  A full snapshot starts no stream; replay
-   only waits for this tile on incrementals. */
+   snapshot start message: an incremental snapshot starts a stream in
+   the other pool file, with the version entry, the manifest and the
+   keys of the blocks above the snapshot slot.  Replay keeps the
+   published root at that slot until the stream ends.  A full snapshot
+   starts no stream. */
 
 static void
 strmk_stream_start( fd_strmk_t *                   ctx,
@@ -460,7 +498,9 @@ strmk_stream_start( fd_strmk_t *                   ctx,
   strmk_preamble( ctx, stream );
   strmk_manifest( ctx, stream );
   ctx->cur = idx;
-  strmk_done( ctx, stem, msg->slot );
+
+  stream->fork_id = bank->accdb_fork_id;
+  strmk_catch_up( ctx, stream );
 
   FD_LOG_NOTICE(( "fast boot stream at slot %lu opened in %ld millis (%lu bytes)",
                   stream->start_slot, ( fd_log_wallclock()-now )/(1000L*1000L), stream->file_sz ));
@@ -509,6 +549,10 @@ after_frag( fd_strmk_t *        ctx,
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_SNAP_START:
     if( FD_LIKELY( sig==REPLAY_SIG_SNAP_START ) ) strmk_stream_start( ctx, stem, &ctx->frag.start );
+    if( FD_LIKELY( sig==REPLAY_SIG_STREAM_STOP ) ) {
+      strmk_stream_close( ctx, stem );
+      strmk_done( ctx, stem );
+    }
     break;
   case IN_KIND_SNAPMK:
     if( FD_LIKELY( sig==FD_SNAPMK_MSG_CREATED ) ) strmk_snapshot_created( ctx, stem, &ctx->frag.snapmk.created );
@@ -522,11 +566,15 @@ after_frag( fd_strmk_t *        ctx,
 
 static void
 metrics_write( fd_strmk_t * ctx ) {
-  FD_MCNT_SET  ( STRMK, KEY_RECEIVED, ctx->metrics.key_cnt         );
-  FD_MCNT_SET  ( STRMK, KEY_STORED,   ctx->metrics.key_stored_cnt  );
-  FD_MCNT_SET  ( STRMK, KEY_DROPPED,  ctx->metrics.key_dropped_cnt );
-  FD_MGAUGE_SET( STRMK, BLOCK_COUNT,  ctx->block_cnt );
-  FD_MGAUGE_SET( STRMK, KEY_COUNT,    strmk_key_pool_used( ctx->key_pool ) );
+  FD_MCNT_SET  ( STRMK, KEY_RECEIVED,      ctx->metrics.key_cnt         );
+  FD_MCNT_SET  ( STRMK, KEY_STORED,        ctx->metrics.key_stored_cnt  );
+  FD_MCNT_SET  ( STRMK, KEY_DROPPED,       ctx->metrics.key_dropped_cnt );
+  FD_MCNT_SET  ( STRMK, KEY_SKIPPED,       ctx->metrics.key_skipped_cnt );
+  FD_MCNT_SET  ( STRMK, APPENDVEC_WRITTEN, ctx->metrics.appendvec_cnt   );
+  FD_MCNT_SET  ( STRMK, ACCOUNT_WRITTEN,   ctx->metrics.account_cnt     );
+  FD_MCNT_SET  ( STRMK, ACCOUNT_DISK_READ, ctx->metrics.disk_read_cnt   );
+  FD_MCNT_SET  ( STRMK, TOMBSTONE_WRITTEN, ctx->metrics.tombstone_cnt   );
+  FD_MGAUGE_SET( STRMK, KEY_COUNT,         strmk_key_pool_used( ctx->key_pool ) );
 }
 
 /**********************************************************************/
@@ -587,7 +635,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void *       _zst   = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                zst_sz );
   void *       _map   = FD_SCRATCH_ALLOC_APPEND( l, strmk_key_map_align(),  strmk_key_map_footprint( strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ) ) );
   void *       _pool  = FD_SCRATCH_ALLOC_APPEND( l, strmk_key_pool_align(), strmk_key_pool_footprint( STRMK_KEY_MAX ) );
-  void *       _block = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_block_t), tile->strmk.max_live_slots*sizeof(strmk_block_t) );
   ulong end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   FD_CHECK_CRIT( end==(ulong)scratch + scratch_footprint( tile ), "bug when calculating tile memory layout" );
 
@@ -604,14 +651,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   for( uint i=0U; i<FD_STRMK_POOL; i++ ) ctx->stream[ i ].fd = FD_STRMK_FD( i );
 
+  ctx->current_slot = 0UL;
   ctx->key_map  = strmk_key_map_join( strmk_key_map_new( _map, strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ), ctx->key_seed ) );
   ctx->key_pool = strmk_key_pool_join( strmk_key_pool_new( _pool, STRMK_KEY_MAX ) );
   FD_TEST( ctx->key_map && ctx->key_pool );
-  ctx->block        = _block;
-  ctx->block_max    = tile->strmk.max_live_slots;
-  ctx->block_cnt    = 0UL;
-  ctx->current_slot = 0UL;
-  for( ulong i=0UL; i<ctx->block_max; i++ ) ctx->block[ i ].bank_seq = ULONG_MAX;
+  for( ulong i=0UL; i<STRMK_KEY_MAX; i++ ) strmk_key_pool_ele( ctx->key_pool, i )->slot = ULONG_MAX;
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->strmk.banks_obj_id ) );
   FD_TEST( ctx->banks );

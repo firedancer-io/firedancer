@@ -86,9 +86,13 @@
         "tlb_shootdown":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "timer_irq":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "key_received":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account keys received from the exec tiles" },
-        "key_stored":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account keys stored, the first time a block touched them" },
+        "key_stored":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account keys stored, the first time a block touched them since the last stream start" },
         "key_dropped":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account keys not stored because the key pool was full" },
-        "block_count":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Blocks in the key window" },
-        "key_count":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Account keys stored for the blocks in the key window" }
+        "key_skipped":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account keys not written because the stream already sent them" },
+        "appendvec_written":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Appendvec entries written to the stream, one per transaction" },
+        "account_written":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account records written to the stream" },
+        "account_disk_read":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account records read from disk rather than the cache" },
+        "tombstone_written":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Records written for accounts that do not exist" },
+        "key_count":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Account keys stored" }
     }
 }

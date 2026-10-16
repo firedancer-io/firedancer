@@ -1975,6 +1975,8 @@ returnable_frag( fd_snapmk_t *       ctx,
       if( res==0 ) return 1; /* not ready yet */
       break;
     }
+    case REPLAY_SIG_STREAM_STOP: /* for the stream maker */
+      break;
     default:
       FD_LOG_ERR(( "unexpected replay_snapmk message (sig=%lu)", sig ));
     }

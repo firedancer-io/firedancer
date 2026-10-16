@@ -118,6 +118,7 @@
 #define REPLAY_SIG_MISSING_FEC    (13)
 #define REPLAY_SIG_NEXT_LEADER    (14)
 #define REPLAY_SIG_SLOT_STATES    (15)
+#define REPLAY_SIG_STREAM_STOP    (16)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */

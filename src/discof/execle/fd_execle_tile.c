@@ -390,11 +390,13 @@ handle_microblock( fd_execle_tile_t *  ctx,
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
 
-    fd_strmk_keys_publish(
-      stem, ctx->out_strmk->idx, ctx->out_strmk->mem,
-      ctx->out_strmk->chunk0, ctx->out_strmk->wmark,
-      &ctx->out_strmk->chunk, bank, txn_in, txn_out
-    );
+    if( FD_UNLIKELY( ctx->out_strmk->idx!=ULONG_MAX ) ) {
+      fd_strmk_keys_publish(
+        stem, ctx->out_strmk->idx, ctx->out_strmk->mem,
+        ctx->out_strmk->chunk0, ctx->out_strmk->wmark,
+        &ctx->out_strmk->chunk, bank, txn_in, txn_out
+      );
+    }
 
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
@@ -582,12 +584,14 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_strmk_keys_publish(
-        stem, ctx->out_strmk->idx, ctx->out_strmk->mem,
-        ctx->out_strmk->chunk0, ctx->out_strmk->wmark,
-        &ctx->out_strmk->chunk, bank, txn_in, txn_out
-      );
-      
+      if( FD_UNLIKELY( ctx->out_strmk->idx!=ULONG_MAX ) ) {
+        fd_strmk_keys_publish(
+          stem, ctx->out_strmk->idx, ctx->out_strmk->mem,
+          ctx->out_strmk->chunk0, ctx->out_strmk->wmark,
+          &ctx->out_strmk->chunk, bank, txn_in, txn_out
+        );
+      }
+
       fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
 
       txn_end_ticks[ i ] = fd_tickcount();

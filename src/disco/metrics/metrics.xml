@@ -2044,10 +2044,14 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="strmk">
     <counter name="KeyReceived" summary="Account keys received from the exec tiles" />
-    <counter name="KeyStored" summary="Account keys stored, the first time a block touched them" />
+    <counter name="KeyStored" summary="Account keys stored, the first time a block touched them since the last stream start" />
     <counter name="KeyDropped" summary="Account keys not stored because the key pool was full" />
-    <gauge name="BlockCount" summary="Blocks in the key window" />
-    <gauge name="KeyCount" summary="Account keys stored for the blocks in the key window" />
+    <counter name="KeySkipped" summary="Account keys not written because the stream already sent them" />
+    <counter name="AppendvecWritten" summary="Appendvec entries written to the stream, one per transaction" />
+    <counter name="AccountWritten" summary="Account records written to the stream" />
+    <counter name="AccountDiskRead" summary="Account records read from disk rather than the cache" />
+    <counter name="TombstoneWritten" summary="Records written for accounts that do not exist" />
+    <gauge name="KeyCount" summary="Account keys stored" />
 </tile>
 
 </metrics>
