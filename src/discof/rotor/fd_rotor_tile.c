@@ -141,6 +141,7 @@ struct fd_rotor_tile {
   /* Signing */
 
   fd_pubkey_t      identity_key;
+  int              staked;
   fd_keyswitch_t * keyswitch;
   int              halt_signing;
   sign_t *         sign_pool;
@@ -159,7 +160,7 @@ struct fd_rotor_tile {
 
   ulong     cert_slot0;      /* staked: first cert slot, 0 if none yet */
   ulong     turbine_slot0;   /* unstaked: first turbine slot, 0 if none yet */
-  ulong     catchup_slot;    /* staked: highest slot past the window with a verified cert, 0 if none yet */
+  ulong     catchup_slot;    /* highest slot past the window with a verified cert (staked) or signed future shred (unstaked), 0 if none yet */
   ulong     highest_fec_complete_slot; /* highest slot a FEC set completed for off the network, our leader sets excluded: the cluster tip, 0 if none yet */
 
   /* Snapshot */
@@ -473,8 +474,7 @@ handle_shred( fd_rotor_tile_t * ctx,
   ctx->turbine_slot0 = fd_ulong_if( turbine_first, slot, ctx->turbine_slot0 );
   if( FD_UNLIKELY( slot<=ctx->rotor->root || slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
 
-  fd_rotor_strat_peer_t const * self = fd_rotor_strat_query( ctx->strat, &ctx->identity_key );
-  if( FD_UNLIKELY( turbine_first && !( self && (ulong)( self-ctx->strat->cur.peers )<ctx->strat->staked_cnt ) ) ) fd_rotor_slot_catchup( ctx->rotor, slot ); /* unstaked has no certs, turbine is untrusted so staked never does this */
+  if( FD_UNLIKELY( turbine_first && !ctx->staked ) ) fd_rotor_slot_catchup( ctx->rotor, slot ); /* unstaked has no certs, turbine is untrusted so staked never does this */
 
   switch( fd_shred_sig_src( sig ) ) {
   case SHRED_SIG_FEC_COMPLETE:
@@ -573,16 +573,14 @@ static inline void
 handle_votor( fd_rotor_tile_t * ctx,
               ulong             sig,
               uchar const *     chunk ) {
-  fd_votor_msg_t const *        msg    = (fd_votor_msg_t const *)fd_type_pun_const( chunk );
-  long                          now    = fd_clock_tile_now( ctx->clock );
-  fd_rotor_strat_peer_t const * self   = fd_rotor_strat_query( ctx->strat, &ctx->identity_key );
-  int                           staked = self && (ulong)( self-ctx->strat->cur.peers )<ctx->strat->staked_cnt; /* unstaked catches up from turbine, see handle_shred */
+  fd_votor_msg_t const * msg = (fd_votor_msg_t const *)fd_type_pun_const( chunk );
+  long                   now = fd_clock_tile_now( ctx->clock );
 
   switch( sig ) {
   case FD_VOTOR_SIG_CERTED: {
     fd_votor_certed_t const * certed = &msg->certed;
     if( FD_UNLIKELY( certed->slot<=ctx->rotor->root || certed->slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
-    if( FD_UNLIKELY( staked && !ctx->cert_slot0 ) ) {
+    if( FD_UNLIKELY( ctx->staked && !ctx->cert_slot0 ) ) {
       ctx->cert_slot0 = certed->slot;
       fd_rotor_slot_catchup( ctx->rotor, certed->slot );
     }
@@ -600,7 +598,7 @@ handle_votor( fd_rotor_tile_t * ctx,
     ulong slot = msg->repair.slot;
     if( FD_UNLIKELY( slot<=ctx->rotor->root ) ) return;
     if( FD_UNLIKELY( slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) {
-      if( FD_UNLIKELY( !staked || slot<=ctx->catchup_slot ) ) return;
+      if( FD_UNLIKELY( !ctx->staked || slot<=ctx->catchup_slot ) ) return;
       ctx->catchup_slot = slot;
       fd_rotor_slot_catchup( ctx->rotor, ctx->rotor->root+ctx->rotor->slot_max );
       return;
@@ -1161,9 +1159,15 @@ before_frag( fd_rotor_tile_t * ctx,
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_GENESIS:
     return 0;
-  case IN_KIND_SHRED:
+  case IN_KIND_SHRED: {
     if( FD_UNLIKELY( ctx->rotor->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
-    return 0;
+    if( FD_LIKELY( fd_shred_sig_src( sig )!=SHRED_SIG_FUTURE ) ) return 0;
+    ulong slot = fd_shred_sig_future_slot( sig );
+    if( FD_LIKELY( ctx->staked || slot<ctx->rotor->root+ctx->rotor->slot_max || slot<=ctx->catchup_slot ) ) return 1;
+    ctx->catchup_slot = slot;
+    fd_rotor_slot_catchup( ctx->rotor, ctx->rotor->root+ctx->rotor->slot_max );
+    return 1;
+  }
   case IN_KIND_SNAP: {
     ulong msg = fd_ssmsg_sig_message( sig );
     return msg!=FD_SSMSG_MANIFEST_FULL && msg!=FD_SSMSG_MANIFEST_INCREMENTAL && msg!=FD_SSMSG_DONE;
@@ -1258,6 +1262,8 @@ after_frag( fd_rotor_tile_t *   ctx,
   case IN_KIND_EPOCH: {
     fd_epoch_info_msg_t const * msg = (fd_epoch_info_msg_t const *)fd_type_pun_const( src );
     fd_rotor_strat_epoch_advanced( ctx->strat, fd_epoch_info_msg_id_weights( msg ), msg->staked_id_cnt );
+    fd_rotor_strat_peer_t const * self = fd_rotor_strat_query( ctx->strat, &ctx->identity_key );
+    ctx->staked = self && (ulong)( self-ctx->strat->cur.peers )<ctx->strat->staked_cnt;
     fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
     fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
     break;
@@ -1297,6 +1303,8 @@ during_housekeeping( fd_rotor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ctx->halt_signing = 1;
     memcpy( ctx->identity_key.uc, ctx->keyswitch->bytes, 32UL );
+    fd_rotor_strat_peer_t const * self = fd_rotor_strat_query( ctx->strat, &ctx->identity_key );
+    ctx->staked = self && (ulong)( self-ctx->strat->cur.peers )<ctx->strat->staked_cnt;
     if( FD_LIKELY( sign_pool_free( ctx->sign_pool )==sign_pool_max( ctx->sign_pool ) ) ) fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED ); /* every sign request returned */
   }
 }
