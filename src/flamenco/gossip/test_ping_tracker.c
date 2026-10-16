@@ -228,17 +228,38 @@ test_change_address( void ) {
   FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
   FD_TEST( !memcmp( change_ctx->last.pubkey, p.pubkey, 32UL ) );
 
+  /* A second socket for the same pubkey is a separate entry: the first
+     stays active, the second must pong on its own. */
+  fd_ip4_port_t old_address = p.address;
   ulong seq = generate_random_peer_seq++;
   p.address.addr = (uint)seq;
   p.address.port = (ushort)(seq & 0xFFFFUL);
 
-  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now+seconds(3) );
+  FD_TEST( change_ctx->invoke_cnt==1UL );
+  FD_TEST( fd_ping_tracker_active( ping_tracker, p.pubkey, old_address ) );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey, p.address ) );
+  FD_TEST( fd_ping_tracker_metrics( ping_tracker )->address_changed_cnt==1UL );
+
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now+seconds(4), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( out_address->l==p.address.l );
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, out_token, 32UL );
+  fd_sha256_fini( sha, valid_pong_token );
+  fd_ping_tracker_register( ping_tracker, p.pubkey, 0UL, p.address, valid_pong_token, now+seconds(5) );
   FD_TEST( change_ctx->invoke_cnt==2UL );
-  FD_TEST( change_ctx->last.now==now );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
+  FD_TEST( change_ctx->last.address.l==p.address.l );
+  FD_TEST( fd_ping_tracker_active( ping_tracker, p.pubkey, old_address ) );
+  FD_TEST( fd_ping_tracker_active( ping_tracker, p.pubkey, p.address ) );
+
+  /* Removing the identity drops both, one INACTIVE each */
+  fd_ping_tracker_remove( ping_tracker, p.pubkey, now+seconds(6) );
+  FD_TEST( change_ctx->invoke_cnt==4UL );
   FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
-  FD_TEST( !memcmp( change_ctx->last.pubkey, p.pubkey, 32UL ) );
-  FD_TEST( change_ctx->last.address.addr==p.address.addr );
-  FD_TEST( change_ctx->last.address.port==p.address.port );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey, old_address ) );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey, p.address ) );
 
   free( bytes );
 }

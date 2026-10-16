@@ -90,11 +90,11 @@ fd_ping_tracker_join( void * shpt );
    called every time a peer sends us a valid gossip contact info message
    so that we can start pinging them.
 
-   The tracker is idempotent, and will only refresh and update
-   information about the peer, based on knowledge that it sent us a new
-   message and is still alive.  It is valid to register a peer pubkey
-   with a new stake amount, or peer address, and the tracker will
-   internally update the information. */
+   Peers are tracked per (pubkey, address): a peer seen at a new
+   address gets a separate entry that must pong on its own, and the
+   old one ages out.  Tracking is idempotent and refreshes liveness.
+   A peer that reaches FD_GOSSIP_STAKED_THRESHOLD stake is dropped at
+   every address. */
 
 void
 fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
@@ -125,15 +125,24 @@ fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         fd_ip4_port_t       peer_address );
 
-/* fd_ping_tracker_remove removes a peer from the ping tracker by
-   pubkey.  If the peer was active (VALID or VALID_REFRESHING), the
-   change_fn callback is fired with INACTIVE change type.  If the peer
-   is not in the tracker, this is a no-op. */
+/* fd_ping_tracker_remove removes every address of a peer from the
+   ping tracker.  change_fn fires with INACTIVE for each address that
+   was active (VALID or VALID_REFRESHING).  No-op for an untracked
+   peer. */
 
 void
 fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         long                now );
+
+/* fd_ping_tracker_remove_all is fd_ping_tracker_remove with the given
+   change type.  Returns the entries removed. */
+
+ulong
+fd_ping_tracker_remove_all( fd_ping_tracker_t * ping_tracker,
+                            uchar const *       peer_pubkey,
+                            long                now,
+                            int                 change_type );
 
 /* fd_ping_tracker_pop_request informs the caller if a ping request
    needs to be sent to a peer.  If a ping request needs to be sent, the

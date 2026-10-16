@@ -611,8 +611,9 @@ inject_ping_update( fuzz_env_t * env,
   update->gossip_addr.addr = addr;
   update->gossip_addr.port = fd_ushort_bswap( port );
   update->remove = 0;
+  ping_key_t key = { .pubkey = update->pubkey, .addr = { .l = update->gossip_addr.l } };
   if( FD_LIKELY( !ping_map_ele_query( env->ctx->ping_map,
-                                      &update->pubkey,
+                                      &key,
                                       NULL,
                                       env->ctx->pings ) ) )
     handle_ping_update( env->ctx, update );
