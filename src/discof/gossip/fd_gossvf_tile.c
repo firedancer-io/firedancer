@@ -47,9 +47,15 @@ struct peer {
 
 typedef struct peer peer_t;
 
-struct ping {
-  fd_pubkey_t pubkey;
+struct ping_key {
+  fd_pubkey_t   pubkey;
   fd_ip4_port_t addr;
+};
+
+typedef struct ping_key ping_key_t;
+
+struct ping {
+  ping_key_t key;
 
   struct {
     ulong prev;
@@ -102,13 +108,13 @@ typedef struct stake stake_t;
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               ping_map
-#define MAP_KEY                pubkey
+#define MAP_KEY                key
 #define MAP_ELE_T              ping_t
-#define MAP_KEY_T              fd_pubkey_t
+#define MAP_KEY_T              ping_key_t
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
-#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) fd_hash32( (key)->uc, (seed) )
+#define MAP_KEY_EQ(k0,k1)      ( fd_pubkey_eq( &(k0)->pubkey, &(k1)->pubkey ) && (k0)->addr.l==(k1)->addr.l )
+#define MAP_KEY_HASH(key,seed) fd_hash32( (key)->pubkey.uc, (seed)^(ulong)(key)->addr.l )
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME  stake_pool
@@ -633,8 +639,8 @@ is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
   if( FD_LIKELY( stake && stake->stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) return 1;
 
   /* 2. If the node has actively ponged a ping, it is active */
-  ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );
-  return ping!=NULL && ping->addr.addr==addr.addr && ping->addr.port==addr.port;
+  ping_key_t key = { .pubkey = *pubkey, .addr = { .l = addr.l } };
+  return !!ping_map_ele_query_const( ctx->ping_map, &key, NULL, ctx->pings );
 }
 
 static int
@@ -763,7 +769,8 @@ handle_ping_update( fd_gossvf_tile_ctx_t *    ctx,
     FD_LOG_NOTICE(( "removing ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
 #endif
 
-    ping_t * ping = ping_map_ele_remove( ctx->ping_map, &ping_update->pubkey, NULL, ctx->pings );
+    ping_key_t key = { .pubkey = ping_update->pubkey, .addr = { .l = ping_update->gossip_addr.l } };
+    ping_t * ping = ping_map_ele_remove( ctx->ping_map, &key, NULL, ctx->pings );
     FD_TEST( ping );
     ping_pool_ele_release( ctx->pings, ping );
   } else {
@@ -772,11 +779,11 @@ handle_ping_update( fd_gossvf_tile_ctx_t *    ctx,
     FD_LOG_NOTICE(( "adding ping for %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( ping_update->gossip_addr.addr ), fd_ushort_bswap( ping_update->gossip_addr.port ), ctx->ping_cnt ));
 #endif
 
+    ping_key_t key = { .pubkey = ping_update->pubkey, .addr = { .l = ping_update->gossip_addr.l } };
     FD_TEST( ping_pool_free( ctx->pings ) );
-    FD_TEST( !ping_map_ele_query( ctx->ping_map, &ping_update->pubkey, NULL, ctx->pings ) );
+    FD_TEST( !ping_map_ele_query( ctx->ping_map, &key, NULL, ctx->pings ) );
     ping_t * ping = ping_pool_ele_acquire( ctx->pings );
-    ping->addr.l = ping_update->gossip_addr.l;
-    fd_memcpy( ping->pubkey.uc, ping_update->pubkey.uc, 32UL );
+    ping->key = key;
     ping_map_ele_insert( ctx->ping_map, ping, ctx->pings );
   }
 }
