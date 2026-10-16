@@ -171,3 +171,36 @@ fd_topo_cpus_printf( fd_topo_cpus_t * cpus ) {
     FD_LOG_NOTICE(( "cpu%lu: online=%i sibling=%lu numa_node=%lu die_idx=%lu l3_idx=%lu", i, cpus->cpu[ i ].online, cpus->cpu[ i ].sibling, cpus->cpu[ i ].numa_node, cpus->cpu[ i ].die_idx, cpus->cpu[ i ].l3_idx ));
   }
 }
+
+void
+fd_topo_cpus_floating( fd_topo_cpus_t const * cpus,
+                       fd_topo_t const *      topo,
+                       fd_cpuset_t const *    launch,
+                       fd_cpuset_t *          float_cpu_set,
+                       fd_cpuset_t *          cpuless_cpu_set ) {
+  FD_CPUSET_DECL( pinned );
+  fd_cpuset_new( float_cpu_set );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( FD_UNLIKELY( tile->cpu_idx>=FD_TILE_MAX ) ) continue;
+    fd_cpuset_insert( tile->floats ? float_cpu_set : pinned, tile->cpu_idx );
+  }
+
+  FD_CPUSET_DECL( claimed );
+  fd_cpuset_copy( claimed, pinned );
+  for( ulong cpu=0UL; cpu<fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ); cpu++ ) {
+    ulong sibling = cpus->cpu[ cpu ].sibling;
+    if( fd_cpuset_test( pinned, cpu ) && sibling<FD_TILE_MAX ) fd_cpuset_insert( claimed, sibling );
+  }
+  fd_cpuset_subtract( float_cpu_set, float_cpu_set, claimed );
+
+  fd_cpuset_intersect( cpuless_cpu_set, float_cpu_set, launch );
+  if( FD_LIKELY( !fd_cpuset_cnt( cpuless_cpu_set ) ) ) {
+    /* floats tiles are claimed too: they share their own pool */
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      if( topo->tiles[ i ].cpu_idx<FD_TILE_MAX ) fd_cpuset_insert( claimed, topo->tiles[ i ].cpu_idx );
+    }
+    fd_cpuset_subtract( cpuless_cpu_set, launch, claimed );
+  }
+  if( FD_UNLIKELY( !fd_cpuset_cnt( cpuless_cpu_set ) ) ) fd_cpuset_copy( cpuless_cpu_set, launch );
+}

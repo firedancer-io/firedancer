@@ -1172,6 +1172,90 @@ FD_UNIT_TEST( test_tile_class_phase ) {
   FD_TEST( fd_topob_tile_class( "motor" ) & FD_TOPOB_TILE_SMT_CRITICAL );
 }
 
+/* ---- Launcher sets for unpinned tiles ----------------------------------- */
+
+static ulong
+floating_set_tile( fd_topo_t *  topo,
+                   char const * name,
+                   ulong        cpu_idx,
+                   int          floats ) {
+  fd_topo_tile_t * tile = &topo->tiles[ topo->tile_cnt ];
+  fd_memset( tile, 0, sizeof(*tile) );
+  fd_cstr_ncpy( tile->name, name, sizeof(tile->name) );
+  tile->id      = topo->tile_cnt;
+  tile->cpu_idx = cpu_idx;
+  tile->floats  = floats;
+  return topo->tile_cnt++;
+}
+
+FD_UNIT_TEST( test_cpus_floating ) {
+  static fd_topo_t topo[1];
+  fd_topo_cpus_t cpus[1];
+  FD_CPUSET_DECL( launch );
+  FD_CPUSET_DECL( float_set );
+  FD_CPUSET_DECL( cpuless );
+
+  /* Performance mode, 8x2: pinned 1,2 and their siblings 9,10 are
+     claimed; the rest of the launch mask is used */
+  make_cpus( cpus, 8UL, 0UL );
+  fd_memset( topo, 0, sizeof(*topo) );
+  floating_set_tile( topo, "pack",   1UL,       0 );
+  floating_set_tile( topo, "verify", 2UL,       0 );
+  floating_set_tile( topo, "metric", ULONG_MAX, 0 );
+  fd_cpuset_new( launch ); for( ulong c=0UL; c<16UL; c++ ) fd_cpuset_insert( launch, c );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( !fd_cpuset_cnt( float_set ) );
+  FD_TEST( fd_cpuset_cnt( cpuless )==12UL );
+  FD_TEST( !fd_cpuset_test( cpuless, 1UL ) && !fd_cpuset_test( cpuless, 9UL ) );
+  FD_TEST( !fd_cpuset_test( cpuless, 2UL ) && !fd_cpuset_test( cpuless, 10UL ) );
+  FD_TEST(  fd_cpuset_test( cpuless, 0UL ) &&  fd_cpuset_test( cpuless, 8UL ) );
+
+  /* Restricted launch mask: never widened */
+  fd_cpuset_new( launch ); fd_cpuset_insert( launch, 0UL ); fd_cpuset_insert( launch, 9UL );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( fd_cpuset_cnt( cpuless )==1UL && fd_cpuset_test( cpuless, 0UL ) );
+
+  /* Everything in the launch mask claimed: today's fallback */
+  fd_cpuset_new( launch ); fd_cpuset_insert( launch, 1UL ); fd_cpuset_insert( launch, 9UL );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( fd_cpuset_eq( cpuless, launch ) );
+
+  /* Efficient mode: floats tiles share 3,4; cpuless tiles use them
+     when the launch mask overlaps */
+  floating_set_tile( topo, "quic",   3UL, 1 );
+  floating_set_tile( topo, "gossip", 4UL, 1 );
+  fd_cpuset_new( launch ); for( ulong c=0UL; c<16UL; c++ ) fd_cpuset_insert( launch, c );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( fd_cpuset_cnt( float_set )==2UL && fd_cpuset_test( float_set, 3UL ) && fd_cpuset_test( float_set, 4UL ) );
+  FD_TEST( fd_cpuset_eq( cpuless, float_set ) );
+
+  /* Efficient mode with a partition: the launch mask excludes the
+     float CPUs, so cpuless tiles avoid pinned, siblings and float CPUs */
+  fd_cpuset_new( launch );
+  for( ulong c=0UL; c<16UL; c++ ) if( c!=1UL && c!=2UL && c!=3UL && c!=4UL && c!=9UL ) fd_cpuset_insert( launch, c );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( fd_cpuset_cnt( cpuless )==10UL );
+  FD_TEST( !fd_cpuset_test( cpuless, 10UL ) );
+  FD_TEST(  fd_cpuset_test( cpuless, 11UL ) && fd_cpuset_test( cpuless, 12UL ) ); /* floats tiles' siblings stay usable */
+
+  /* A floats tile sharing a pinned tile's sibling loses that CPU */
+  floating_set_tile( topo, "diag", 9UL, 1 );
+  fd_cpuset_new( launch ); for( ulong c=0UL; c<16UL; c++ ) fd_cpuset_insert( launch, c );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( !fd_cpuset_test( float_set, 9UL ) );
+
+  /* SMT off: no siblings to claim */
+  make_cpus( cpus, 8UL, 0UL );
+  for( ulong c=8UL; c<16UL; c++ ) { cpus->cpu[ c ].online = 0; cpus->cpu[ c ].sibling = ULONG_MAX; }
+  for( ulong c=0UL; c<8UL;  c++ ) cpus->cpu[ c ].sibling = ULONG_MAX;
+  fd_memset( topo, 0, sizeof(*topo) );
+  floating_set_tile( topo, "pack",   1UL,       0 );
+  floating_set_tile( topo, "metric", ULONG_MAX, 0 );
+  fd_cpuset_new( launch ); for( ulong c=0UL; c<8UL; c++ ) fd_cpuset_insert( launch, c );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( fd_cpuset_cnt( cpuless )==7UL && !fd_cpuset_test( cpuless, 1UL ) );
+}
+
 /* ======================================================================== */
 
 int
