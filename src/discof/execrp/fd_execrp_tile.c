@@ -4,6 +4,7 @@
 
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
+#include "../../ballet/ed25519/fd_ed25519_verifier.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -45,9 +46,11 @@ struct fd_execrp_tile {
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
 
-  fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
-  fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
-  fd_ed25519_cache_t *  ed25519_cache;
+  /* Signatures the batch verifier holds pending all belong to bank
+     sigverify_bank_idx; replay flushes or clears them before sending a
+     sigverify task for another bank. */
+  fd_ed25519_batch_verifier_t * batch_verifier;
+  ulong                         sigverify_bank_idx;
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -100,10 +103,6 @@ struct fd_execrp_tile {
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
 
-/* Signer precomputation cache entries (vote authorities and frequent
-   fee payers) */
-#define ED25519_CACHE_ENT_CNT (2048UL)
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -116,7 +115,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-  l = FD_LAYOUT_APPEND(   l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
+  l = FD_LAYOUT_APPEND(   l, fd_ed25519_batch_verifier_align(), fd_ed25519_batch_verifier_footprint( FD_ED25519_VERIFIER_CACHE_DEFAULT ) );
 
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
     l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
@@ -290,14 +289,49 @@ returnable_frag( fd_execrp_tile_t *  ctx,
       }
       case FD_EXECRP_TT_TXN_SIGVERIFY: {
         fd_execrp_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        int res = fd_executor_txn_verify( msg->txn, ctx->sha_lj, ctx->ed25519_cache );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_SIGVERIFY_SIG_PARA, "invalid sigverify batch" );
+        FD_CHECK_CRIT( !fd_ed25519_batch_verifier_pending_cnt( ctx->batch_verifier ) || msg->bank_idx==ctx->sigverify_bank_idx, "sigverify batch of another bank while signatures are pending" );
+        ctx->sigverify_bank_idx = msg->bank_idx;
+
+        int err = 0;
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        out_msg->bank_idx               = msg->bank_idx;
-        out_msg->txn_sigverify->txn_idx = msg->txn_idx;
-        out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
+        for( ulong i=0UL; i<msg->cnt; i++ ) {
+          fd_txn_p_t const * txn_p = msg->txn+i;
+          fd_txn_t const *   txn   = TXN( txn_p );
+          ulong pending = fd_ed25519_batch_verifier_pending_cnt( ctx->batch_verifier );
+          err |= fd_ed25519_batch_verifier_verify_txn( ctx->batch_verifier, txn, txn_p->payload, txn_p->payload_sz )<0;
+          ulong pending_after = fd_ed25519_batch_verifier_pending_cnt( ctx->batch_verifier );
+          ctx->metrics.sigverify_cnt += pending+txn->signature_cnt-pending_after;
+          out_msg->txn_sigverify->txn_idx[ i ] = msg->txn_idx[ i ];
+        }
+        out_msg->bank_idx                   = msg->bank_idx;
+        out_msg->txn_sigverify->cnt         = msg->cnt;
+        out_msg->txn_sigverify->err         = err;
+        out_msg->txn_sigverify->pending_cnt = fd_ed25519_batch_verifier_pending_cnt( ctx->batch_verifier );
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
-        ctx->metrics.sigverify_cnt += TXN( msg->txn )->signature_cnt;
+        break;
+      }
+      case FD_EXECRP_TT_SIGVERIFY_FLUSH: {
+        fd_execrp_sigverify_flush_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        ulong pending = fd_ed25519_batch_verifier_pending_cnt( ctx->batch_verifier );
+        FD_CHECK_CRIT( !pending || msg->bank_idx==ctx->sigverify_bank_idx, "sigverify flush of another bank while signatures are pending" );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx             = msg->bank_idx;
+        out_msg->sigverify_flush->err = fd_ed25519_batch_verifier_flush( ctx->batch_verifier )<0;
+        ctx->metrics.sigverify_cnt   += pending;
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_SIGVERIFY_FLUSH<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
+      case FD_EXECRP_TT_SIGVERIFY_CLEAR: {
+        fd_execrp_sigverify_clear_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        FD_CHECK_CRIT( !fd_ed25519_batch_verifier_pending_cnt( ctx->batch_verifier ) || msg->bank_idx==ctx->sigverify_bank_idx, "sigverify clear of another bank while signatures are pending" );
+        fd_ed25519_batch_verifier_clear( ctx->batch_verifier );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx = msg->bank_idx;
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_SIGVERIFY_CLEAR<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
       }
       case FD_EXECRP_TT_POH_HASH: {
@@ -358,7 +392,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-  void * _ed25519_cache     = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
+  void * _batch_verifier    = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_batch_verifier_align(), fd_ed25519_batch_verifier_footprint( FD_ED25519_VERIFIER_CACHE_DEFAULT ) );
 
   void * _capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -376,14 +410,9 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  for( ulong i=0UL; i<FD_TXN_SIG_MAX; i++ ) {
-    fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
-    FD_TEST( sha );
-    ctx->sha_lj[ i ] = sha;
-  }
-
-  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, ED25519_CACHE_ENT_CNT, ctx->ed25519_cache_seed ) );
-  FD_TEST( ctx->ed25519_cache );
+  ctx->batch_verifier = fd_ed25519_batch_verifier_join( fd_ed25519_batch_verifier_new( _batch_verifier, FD_ED25519_VERIFIER_CACHE_DEFAULT, ctx->ed25519_cache_seed ) );
+  FD_TEST( ctx->batch_verifier );
+  ctx->sigverify_bank_idx = ULONG_MAX;
 
   ctx->txn_in.bundle.is_bundle = 0;
   ctx->tile_idx = tile->kind_id;

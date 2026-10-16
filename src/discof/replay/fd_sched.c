@@ -79,8 +79,10 @@ struct fd_sched_block {
   /*                  txn_queued_cnt = txn_parsed_cnt-txn_in_flight_cnt-txn_done_cnt */
   uint                txn_exec_in_flight_cnt;
   uint                txn_exec_done_cnt;
-  uint                txn_sigverify_in_flight_cnt;
+  uint                txn_sigverify_in_flight_cnt;  /* number of individual transactions in in-flight sigverify batches */
   uint                txn_sigverify_done_cnt;
+  uint                sigverify_task_in_flight_cnt; /* number of in-flight sigverify batch tasks */
+  uint                sigverify_flush_in_flight_cnt; /* number of in-flight SIGVERIFY_FLUSH and SIGVERIFY_CLEAR tasks */
   uint                poh_hashing_in_flight_cnt; /* number of in-flight PoH batch tasks */
   uint                poh_mblk_in_flight_cnt;    /* number of individual in-flight PoH jobs across batches */
   uint                poh_hashing_done_cnt;
@@ -100,6 +102,10 @@ struct fd_sched_block {
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
   ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
   ulong               block_pool_max_popcnt; /* Peak block pool occupancy. */
+  ulong               sigverify_pending_tiles; /* bit t set if exec tile t holds signatures of this block that it has not
+                                                  verified and no FLUSH or CLEAR task has been dispatched for them; a
+                                                  tile is in at most one block's set, and only an active or dying block
+                                                  has a non-empty set */
   uint                txn_idx_tail;           /* Most recently parsed rdisp pool index. */
   uint                txn_sigverify_next_idx; /* Next rdisp pool index to dispatch for sigverify, or 0 if caught up. */
   uint                parse_mblk_idx;         /* mblk pool index currently receiving parsed transactions. */
@@ -229,7 +235,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==104UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==184UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75776UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75808UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -268,6 +274,9 @@ struct fd_sched_metrics {
   ulong txn_parsed_cnt;
   ulong txn_exec_done_cnt;
   ulong txn_sigverify_done_cnt;
+  ulong txn_sigverify_pending_cnt; /* TXN_SIGVERIFY tasks that left signatures pending on the tile */
+  ulong sigverify_flush_cnt;
+  ulong sigverify_clear_cnt;
   ulong txn_mixin_done_cnt;
   ulong txn_done_cnt;
   ulong mblk_parsed_cnt;
@@ -326,6 +335,12 @@ struct fd_sched {
   uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
   fd_sched_poh_hash_t   poh_inflight[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* PoH dispatch metadata, indexed by exec tile. */
+  fd_sched_txn_sigverify_t sigverify_inflight[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* indexed by exec tile */
+  ulong                 sigverify_pending_bitset; /* OR of sigverify_pending_tiles over all blocks. */
+  ulong                 sigverify_clear_bitset;   /* Subset of sigverify_pending_bitset whose block is dying; a CLEAR task
+                                                     goes to each of these tiles as soon as it is idle. */
+  ulong                 sigverify_pending_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Block whose signatures the exec tile holds pending,
+                                                                                     ULONG_MAX if none. */
   txn_bitset_t          exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
   txn_bitset_t          sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
   txn_bitset_t          poh_mixin_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
@@ -365,7 +380,13 @@ FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx );
 
 static void
-dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out );
+dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, ulong ready_bitset, fd_sched_task_t * out );
+
+static void
+dispatch_sigverify_flush( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, ulong task_type, fd_sched_task_t * out );
+
+static void
+sigverify_pending_set( fd_sched_t * sched, fd_sched_block_t * block, int exec_tile_idx, int pending );
 
 static uint
 shred_split( fd_sched_t *       sched,
@@ -448,7 +469,7 @@ block_should_signal_end( fd_sched_block_t * block ) {
   /* Under the current policy of eager synchronous PoH mixin, hashing
      done plus fec_eos imply that all mixins have been done. */
   if( FD_UNLIKELY( !( !block->fec_eos || ((block->mblk_cnt==block->poh_hashing_done_cnt&&block->mblk_cnt==block->poh_hash_cmp_done_cnt)||block->mblk_cnt!=block->poh_hashing_done_cnt) ) ) ) FD_LOG_CRIT(( "invariant violation: slot %lu fec_eos %d mblk_cnt %u poh_hashing_done_cnt %u poh_hash_cmp_done_cnt %u", block->slot, block->fec_eos, block->mblk_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt ));
-  return block->fec_eos && block->txn_parsed_cnt==block->txn_done_cnt && block->mblk_cnt==block->poh_hashing_done_cnt && block->block_start_done && !block->block_end_signaled;
+  return block->fec_eos && block->txn_parsed_cnt==block->txn_done_cnt && block->mblk_cnt==block->poh_hashing_done_cnt && !block->sigverify_pending_tiles && !block->sigverify_flush_in_flight_cnt && block->block_start_done && !block->block_end_signaled;
 }
 
 static inline int
@@ -471,9 +492,12 @@ block_is_dispatchable( fd_sched_block_t * block ) {
          block_will_signal_end( block );
 }
 
+/* Does an exec tile hold state of the block?  Signatures pending on a
+   tile count: they keep the block active, or in the dispatcher while
+   dying, until a FLUSH or CLEAR task retires them. */
 static inline int
 block_is_in_flight( fd_sched_block_t * block ) {
-  return block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->poh_hashing_in_flight_cnt || block->cert_in_flight_cnt || (block->block_end_signaled && !block->block_end_done);
+  return block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->poh_hashing_in_flight_cnt || block->cert_in_flight_cnt || block->sigverify_flush_in_flight_cnt || block->sigverify_pending_tiles || (block->block_end_signaled && !block->block_end_done);
 }
 
 static inline int
@@ -688,8 +712,8 @@ print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, cert_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->cert_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, sigverify_task_in_flight_cnt %u, sigverify_flush_in_flight_cnt %u, sigverify_pending_tiles 0x%lx, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, cert_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->sigverify_task_in_flight_cnt, block->sigverify_flush_in_flight_cnt, block->sigverify_pending_tiles, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->cert_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -701,14 +725,14 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_sigverify_pending_cnt %lu, sigverify_flush_cnt %lu, sigverify_clear_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_sigverify_pending_cnt, sched->metrics->sigverify_flush_cnt, sched->metrics->sigverify_clear_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
 }
 
 FD_FN_UNUSED static void
 print_sched( fd_sched_t * sched ) {
-  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, cert_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, staged_popcnt_wmk %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
-                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->cert_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->staged_popcnt_wmk, sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
+  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, cert_ready_bitset[ 0 ] 0x%lx, sigverify_pending_bitset 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, staged_popcnt_wmk %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
+                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->cert_ready_bitset[ 0 ], sched->sigverify_pending_bitset, sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->staged_popcnt_wmk, sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
   fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
   if( active_block ) print_block_debug( sched, active_block );
   for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
@@ -924,6 +948,9 @@ fd_sched_new( void *     mem,
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->poh_ready_bitset[ 0 ]       = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->cert_ready_bitset[ 0 ]      = fd_ulong_mask_lsb( (int)exec_cnt );
+  sched->sigverify_pending_bitset    = 0UL;
+  sched->sigverify_clear_bitset      = 0UL;
+  for( ulong i=0UL; i<FD_SCHED_MAX_EXEC_TILE_CNT; i++ ) sched->sigverify_pending_bank_idx[ i ] = ULONG_MAX;
 
   sched->txn_pool_free_cnt = depth-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
 
@@ -1027,7 +1054,7 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
 int
 fd_sched_is_drained( fd_sched_t * sched ) {
   int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ]&sched->cert_ready_bitset[ 0 ] );
-  int nothing_queued = sched->active_bank_idx==ULONG_MAX;
+  int nothing_queued = sched->active_bank_idx==ULONG_MAX && !sched->sigverify_pending_bitset; /* pending signatures await a FLUSH or CLEAR */
   return nothing_inflight && nothing_queued;
 }
 
@@ -1375,6 +1402,21 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     return 0UL;
   }
 
+  /* A tile holding signatures of a dying block drops them as soon as it
+     is idle, so that the block can leave the dispatcher and the tile
+     can sigverify for another block.  The dying block is not active. */
+  ulong clear_bitset = sched->sigverify_clear_bitset & exec_fully_ready_bitset;
+  if( FD_UNLIKELY( clear_bitset ) ) {
+    int                exec_tile_idx = fd_ulong_find_lsb( clear_bitset );
+    ulong              bank_idx      = sched->sigverify_pending_bank_idx[ exec_tile_idx ];
+    fd_sched_block_t * block         = block_pool_ele( sched, bank_idx );
+    FD_TEST( block && block->dying );
+    dispatch_sigverify_flush( sched, block, bank_idx, exec_tile_idx, FD_SCHED_TT_SIGVERIFY_CLEAR, out );
+    sched->next_ready_last_tick     = fd_tickcount();
+    sched->next_ready_last_bank_idx = bank_idx;
+    return 1UL;
+  }
+
   if( FD_UNLIKELY( sched->active_bank_idx==ULONG_MAX ) ) {
     /* No need to try activating a block.  If we're in this state,
        there's truly nothing to execute.  We will activate something
@@ -1459,11 +1501,12 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
          executing transactions or completely idle.  Allow at most one
          sigverify task in-flight per tile, and only dispatch to
          completely idle tiles. */
-      ulong sigverify_ready_bitset = exec_fully_ready_bitset;
+      ulong sigverify_ready_bitset = exec_fully_ready_bitset & ~(sched->sigverify_pending_bitset & ~block->sigverify_pending_tiles); /* tiles holding another block's signatures are out */
       ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
-      if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 ) ) ) {
-        dispatch_sigverify( sched, block, bank_idx, fd_ulong_find_lsb( sigverify_ready_bitset ), out );
-        sched->next_ready_last_tick = sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
+      if( FD_LIKELY( sigverify_queued_cnt>0UL && sigverify_ready_bitset && fd_ulong_popcnt( exec_fully_ready_bitset )>fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 ) ) ) {
+        dispatch_sigverify( sched, block, bank_idx, sigverify_ready_bitset, out );
+        sched->next_ready_last_tick = fd_tickcount();
+        for( ulong i=0UL; i<out->txn_sigverify->cnt; i++ ) sched->txn_info_pool[ out->txn_sigverify->txn_idx[ i ] ].tick_sigverify_disp = sched->next_ready_last_tick;
         sched->next_ready_last_bank_idx = bank_idx;
         return 1UL;
       }
@@ -1494,7 +1537,7 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 
     if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
     ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
-    if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->txn_sigverify_in_flight_cnt+block->poh_hashing_in_flight_cnt!=total_exec_busy_cnt ) ) {
+    if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->sigverify_task_in_flight_cnt+block->sigverify_flush_in_flight_cnt+block->poh_hashing_in_flight_cnt!=total_exec_busy_cnt ) ) {
       /* Ideally we'd simply assert that the two sides of the equation
          are equal.  But abandoned blocks throw a wrench into this.  We
          allow abandoned blocks to have in-flight transactions that are
@@ -1517,7 +1560,8 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
             FD_LOG_CRIT(( "invariant violation: in-flight block is neither active nor dying" ));
           }
           total_in_flight += staged_block->txn_exec_in_flight_cnt;
-          total_in_flight += staged_block->txn_sigverify_in_flight_cnt;
+          total_in_flight += staged_block->sigverify_task_in_flight_cnt;
+          total_in_flight += staged_block->sigverify_flush_in_flight_cnt;
           total_in_flight += staged_block->poh_hashing_in_flight_cnt;
         }
       }
@@ -1551,11 +1595,25 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
      critical path execution, unless there's not going to be any more
      real transactions for the critical path.  In the degenerate case of
      only one exec tile, keep it busy. */
-  ulong sigverify_ready_bitset = exec_fully_ready_bitset;
+  ulong sigverify_ready_bitset = exec_fully_ready_bitset & ~(sched->sigverify_pending_bitset & ~block->sigverify_pending_tiles); /* tiles holding another block's signatures are out */
   ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
-  if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 ) ) ) {
-    dispatch_sigverify( sched, block, bank_idx, fd_ulong_find_lsb( sigverify_ready_bitset ), out );
-    sched->next_ready_last_tick     = sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
+  if( FD_LIKELY( sigverify_queued_cnt>0UL && sigverify_ready_bitset && fd_ulong_popcnt( exec_fully_ready_bitset )>fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 ) ) ) {
+    dispatch_sigverify( sched, block, bank_idx, sigverify_ready_bitset, out );
+    sched->next_ready_last_tick = fd_tickcount();
+    for( ulong i=0UL; i<out->txn_sigverify->cnt; i++ ) sched->txn_info_pool[ out->txn_sigverify->txn_idx[ i ] ].tick_sigverify_disp = sched->next_ready_last_tick;
+    sched->next_ready_last_bank_idx = bank_idx;
+    return 1UL;
+  }
+
+  /* Signatures left pending on a tile are verified once no sigverify
+     task can join them in a group: when the block has been fully
+     ingested, or when it ran dry and has nothing else in flight, so
+     that it can be deactivated.  While FEC sets are still streaming in
+     with tasks in flight, they wait for the next sigverify task. */
+  ulong flush_bitset = block->sigverify_pending_tiles & exec_fully_ready_bitset;
+  if( FD_UNLIKELY( flush_bitset && sigverify_queued_cnt==0UL && (block->fec_eos || !(block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->poh_hashing_in_flight_cnt)) ) ) {
+    dispatch_sigverify_flush( sched, block, bank_idx, fd_ulong_find_lsb( flush_bitset ), FD_SCHED_TT_SIGVERIFY_FLUSH, out );
+    sched->next_ready_last_tick     = fd_tickcount();
     sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
   }
@@ -1637,15 +1695,17 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       bank_idx = sched->active_bank_idx;
       break;
     }
-    case FD_SCHED_TT_TXN_EXEC:
-    case FD_SCHED_TT_TXN_SIGVERIFY: {
+    case FD_SCHED_TT_TXN_EXEC: {
       (void)data;
       FD_TEST( txn_idx < sched->depth );
       bank_idx = sched->tile_to_bank_idx[ exec_idx ];
       break;
     }
+    case FD_SCHED_TT_TXN_SIGVERIFY:
     case FD_SCHED_TT_POH_HASH:
-    case FD_SCHED_TT_CERT_VERIFY: {
+    case FD_SCHED_TT_CERT_VERIFY:
+    case FD_SCHED_TT_SIGVERIFY_FLUSH:
+    case FD_SCHED_TT_SIGVERIFY_CLEAR: {
       (void)txn_idx;
       bank_idx = sched->tile_to_bank_idx[ exec_idx ];
       break;
@@ -1725,23 +1785,34 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
-      sched->txn_info_pool[ txn_idx ].tick_sigverify_done = fd_tickcount();
-      block->txn_sigverify_done_cnt++;
-      block->txn_sigverify_in_flight_cnt--;
+      fd_sched_txn_sigverify_t const * task = sched->sigverify_inflight+exec_tile_idx;
+      FD_TEST( task->cnt && task->cnt<=FD_SCHED_SIGVERIFY_SIG_PARA );
+      block->sigverify_task_in_flight_cnt--;
       FD_TEST( !fd_ulong_extract_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx ) );
       sched->sigverify_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
-      sched->metrics->txn_sigverify_done_cnt++;
-      txn_bitset_insert( sched->sigverify_done_set, txn_idx );
-      sched->txn_info_pool[ txn_idx ].flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
-      if( txn_bitset_test( sched->exec_done_set, txn_idx ) && txn_bitset_test( sched->poh_mixin_done_set, txn_idx ) ) {
-        /* Release the txn_idx if all tasks on it are done.  This is
-           guaranteed to only happen once per transaction because
-           whichever one completed first would not release. */
-        if( FD_UNLIKELY( block->txn_idx_tail==(uint)txn_idx ) ) block->txn_idx_tail = 0U;
-        fd_rdisp_complete_txn( sched->rdisp, txn_idx, 1 );
-        sched->txn_pool_free_cnt++;
-        block->txn_done_cnt++;
-        sched->metrics->txn_done_cnt++;
+      fd_execrp_txn_sigverify_done_msg_t const * msg = fd_type_pun_const( data );
+      sigverify_pending_set( sched, block, exec_tile_idx, msg && msg->pending_cnt );
+      sched->metrics->txn_sigverify_pending_cnt += (ulong)( msg && msg->pending_cnt );
+      long now = fd_tickcount();
+      for( ulong i=0UL; i<task->cnt; i++ ) {
+        ulong sv_txn_idx = task->txn_idx[ i ];
+        FD_TEST( sv_txn_idx && sv_txn_idx<sched->depth );
+        sched->txn_info_pool[ sv_txn_idx ].tick_sigverify_done = now;
+        block->txn_sigverify_done_cnt++;
+        block->txn_sigverify_in_flight_cnt--;
+        sched->metrics->txn_sigverify_done_cnt++;
+        txn_bitset_insert( sched->sigverify_done_set, sv_txn_idx );
+        sched->txn_info_pool[ sv_txn_idx ].flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
+        if( txn_bitset_test( sched->exec_done_set, sv_txn_idx ) && txn_bitset_test( sched->poh_mixin_done_set, sv_txn_idx ) ) {
+          /* Release the txn_idx if all tasks on it are done.  This is
+             guaranteed to only happen once per transaction because
+             whichever one completed first would not release. */
+          if( FD_UNLIKELY( block->txn_idx_tail==(uint)sv_txn_idx ) ) block->txn_idx_tail = 0U;
+          fd_rdisp_complete_txn( sched->rdisp, sv_txn_idx, 1 );
+          sched->txn_pool_free_cnt++;
+          block->txn_done_cnt++;
+          sched->metrics->txn_done_cnt++;
+        }
       }
       break;
     }
@@ -1781,6 +1852,14 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       FD_TEST( !fd_ulong_extract_bit( sched->cert_ready_bitset[ 0 ], exec_tile_idx ) );
       sched->cert_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->cert_ready_bitset[ 0 ], exec_tile_idx );
       if( FD_UNLIKELY( block_is_done( block ) ) ) slot_state_close( sched, block );
+      break;
+    }
+    case FD_SCHED_TT_SIGVERIFY_FLUSH:
+    case FD_SCHED_TT_SIGVERIFY_CLEAR: {
+      FD_TEST( block->sigverify_flush_in_flight_cnt );
+      block->sigverify_flush_in_flight_cnt--;
+      FD_TEST( !fd_ulong_extract_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx ) );
+      sched->sigverify_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
       break;
     }
   }
@@ -2219,6 +2298,9 @@ add_block( fd_sched_t * sched,
   block->txn_exec_done_cnt           = 0U;
   block->txn_sigverify_in_flight_cnt = 0U;
   block->txn_sigverify_done_cnt      = 0U;
+  block->sigverify_task_in_flight_cnt = 0U;
+  block->sigverify_flush_in_flight_cnt = 0U;
+  block->sigverify_pending_tiles     = 0UL;
   block->poh_hashing_in_flight_cnt   = 0U;
   block->poh_mblk_in_flight_cnt      = 0U;
   block->poh_hashing_done_cnt        = 0U;
@@ -2923,19 +3005,68 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 #undef CHECK_LEFT
 
 static void
-dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out ) {
+dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, ulong ready_bitset, fd_sched_task_t * out ) {
+  /* Prefer a tile that already holds signatures of the block, so they
+     fill up a group with the ones dispatched here. */
+  ulong pending_ready_bitset = ready_bitset & block->sigverify_pending_tiles;
+  int   exec_tile_idx = fd_ulong_find_lsb( fd_ulong_if( !!pending_ready_bitset, pending_ready_bitset, ready_bitset ) );
+  if( FD_UNLIKELY( sched->sigverify_pending_bank_idx[ exec_tile_idx ]!=ULONG_MAX && sched->sigverify_pending_bank_idx[ exec_tile_idx ]!=bank_idx ) ) {
+    FD_LOG_CRIT(( "invariant violation: exec tile %d holds pending signatures of block %lu, dispatching sigverify of block %lu", exec_tile_idx, sched->sigverify_pending_bank_idx[ exec_tile_idx ], bank_idx ));
+  }
+
   /* Dispatch transactions for sigverify in parse order. */
-  uint txn_idx = block->txn_sigverify_next_idx;
-  FD_TEST( txn_idx && txn_idx<sched->depth );
+  fd_sched_txn_sigverify_t * sigverify = out->txn_sigverify;
   out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
-  out->txn_sigverify->bank_idx = bank_idx;
-  out->txn_sigverify->txn_idx  = txn_idx;
-  out->txn_sigverify->exec_idx = (ulong)exec_tile_idx;
-  sched->txn_info_pool[ out->txn_sigverify->txn_idx ].sigverify_exec_tile_idx = (ulong)exec_tile_idx;
+  sigverify->bank_idx = bank_idx;
+  sigverify->exec_idx = (ulong)exec_tile_idx;
+  sigverify->cnt      = 0UL;
+  ulong queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
+  ulong sig_cnt    = 0UL;
+  uint  txn_idx    = block->txn_sigverify_next_idx;
+  while( sigverify->cnt<queued_cnt && sig_cnt<FD_SCHED_SIGVERIFY_SIG_PARA ) {
+    FD_TEST( txn_idx && txn_idx<sched->depth );
+    sig_cnt += (ulong)TXN( sched->txn_pool+txn_idx )->signature_cnt;
+    sigverify->txn_idx[ sigverify->cnt++ ] = txn_idx;
+    sched->txn_info_pool[ txn_idx ].sigverify_exec_tile_idx = (ulong)exec_tile_idx;
+    txn_idx = sched->txn_info_pool[ txn_idx ].next_idx;
+  }
+  sched->sigverify_inflight[ exec_tile_idx ] = *sigverify;
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
-  block->txn_sigverify_in_flight_cnt++;
-  block->txn_sigverify_next_idx = sched->txn_info_pool[ txn_idx ].next_idx;
+  block->sigverify_task_in_flight_cnt++;
+  block->txn_sigverify_in_flight_cnt += (uint)sigverify->cnt;
+  block->txn_sigverify_next_idx = txn_idx;
+  if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
+}
+
+/* Record whether exec_tile_idx holds signatures of the block after a
+   sigverify, FLUSH or CLEAR task of the block completed on it. */
+static void
+sigverify_pending_set( fd_sched_t * sched, fd_sched_block_t * block, int exec_tile_idx, int pending ) {
+  ulong bank_idx = block_to_idx( sched, block );
+  ulong bit      = fd_ulong_mask_bit( exec_tile_idx );
+  block->sigverify_pending_tiles    = fd_ulong_if( pending, block->sigverify_pending_tiles   |bit, block->sigverify_pending_tiles   &~bit );
+  sched->sigverify_pending_bitset   = fd_ulong_if( pending, sched->sigverify_pending_bitset  |bit, sched->sigverify_pending_bitset  &~bit );
+  sched->sigverify_clear_bitset     = fd_ulong_if( pending && block->dying, sched->sigverify_clear_bitset|bit, sched->sigverify_clear_bitset&~bit );
+  sched->sigverify_pending_bank_idx[ exec_tile_idx ] = fd_ulong_if( pending, bank_idx, ULONG_MAX );
+}
+
+/* Dispatch a SIGVERIFY_FLUSH or SIGVERIFY_CLEAR task to a tile that
+   holds pending signatures of the block.  The tile leaves the pending
+   sets right away: the task retires the signatures either way. */
+static void
+dispatch_sigverify_flush( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, ulong task_type, fd_sched_task_t * out ) {
+  FD_TEST( sched->sigverify_pending_bank_idx[ exec_tile_idx ]==bank_idx );
+  FD_TEST( fd_ulong_extract_bit( block->sigverify_pending_tiles, exec_tile_idx ) );
+  out->task_type = task_type;
+  out->sigverify_flush->bank_idx = bank_idx;
+  out->sigverify_flush->exec_idx = (ulong)exec_tile_idx;
+  sigverify_pending_set( sched, block, exec_tile_idx, 0 );
+  sched->sigverify_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
+  sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
+  block->sigverify_flush_in_flight_cnt++;
+  if( task_type==FD_SCHED_TT_SIGVERIFY_FLUSH ) sched->metrics->sigverify_flush_cnt++;
+  else                                         sched->metrics->sigverify_clear_cnt++;
   if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
 }
 
@@ -3351,6 +3482,7 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 
   /* Setting the flag is non-optional and can happen more than once. */
   block->dying = 1;
+  sched->sigverify_clear_bitset |= block->sigverify_pending_tiles;
   slot_state_close( sched, block );
 
   /* Removal from dispatcher should only happen once. */

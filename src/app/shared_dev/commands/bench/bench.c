@@ -10,6 +10,7 @@
 #include "../../../../disco/net/fd_net_tile.h"
 
 #include <errno.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sched.h>
 #include <fcntl.h>
@@ -202,8 +203,14 @@ bench_cmd_fn( args_t *   args,
     .configure.command = CONFIGURE_CMD_INIT,
   };
 
-  for( ulong i=0UL; STAGES[ i ]; i++ )
-    configure_args.configure.stages[ i ] = STAGES[ i ];
+  /* FD_BACKTEST_SHARED_HOST skips the host-global stages (irq-affinity,
+     irq-balance, kworkers) so another instance on the host keeps its setup. */
+  int shared_host = !!getenv( "FD_BACKTEST_SHARED_HOST" );
+  ulong stage_cnt = 0UL;
+  for( ulong i=0UL; STAGES[ i ]; i++ ) {
+    if( shared_host && ( STAGES[ i ]==&fd_cfg_stage_irq_affinity || STAGES[ i ]==&fd_cfg_stage_irq_balance || STAGES[ i ]==&fd_cfg_stage_kworkers ) ) continue;
+    configure_args.configure.stages[ stage_cnt++ ] = STAGES[ i ];
+  }
   configure_cmd_fn( &configure_args, config );
 
   /* Everything past configure runs in a child: the tiles join the

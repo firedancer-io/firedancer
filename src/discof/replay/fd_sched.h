@@ -151,6 +151,8 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_POH_HASH      (6UL) /* (e) PoH hashing. */
 #define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
 #define FD_SCHED_TT_CERT_VERIFY   (8UL) /* (e) Footer cert verify. */
+#define FD_SCHED_TT_SIGVERIFY_FLUSH (9UL)  /* (e) Verify the signatures pending on an exec tile. */
+#define FD_SCHED_TT_SIGVERIFY_CLEAR (10UL) /* (e) Drop the signatures pending on an exec tile. */
 
 /* Slot-level replay states.  States are tracked for one block at a
    time, the one the scheduler is working on.  A block's interval opens
@@ -209,12 +211,29 @@ struct fd_sched_txn_exec {
 };
 typedef struct fd_sched_txn_exec fd_sched_txn_exec_t;
 
+/* A sigverify task takes consecutive transactions of one block until
+   it holds FD_SCHED_SIGVERIFY_SIG_PARA signatures.  The exec tile may
+   complete it with signatures still pending, verified by a later
+   sigverify task of the same block on the same tile or by a
+   SIGVERIFY_FLUSH; a SIGVERIFY_CLEAR drops them when the block dies.
+   A tile holding pending signatures of a block receives no sigverify
+   task of another block before one of the two. */
+#define FD_SCHED_SIGVERIFY_SIG_PARA 8
 struct fd_sched_txn_sigverify {
   ulong bank_idx;
-  ulong txn_idx;
   ulong exec_idx;
+  ulong cnt;
+  ulong txn_idx[ FD_SCHED_SIGVERIFY_SIG_PARA ];
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
+
+/* SIGVERIFY_FLUSH and SIGVERIFY_CLEAR name the block whose signatures
+   exec_idx holds pending. */
+struct fd_sched_sigverify_flush {
+  ulong bank_idx;
+  ulong exec_idx;
+};
+typedef struct fd_sched_sigverify_flush fd_sched_sigverify_flush_t;
 
 #define FD_SCHED_POH_PARA 16
 struct fd_sched_poh_hash {
@@ -241,6 +260,7 @@ struct fd_sched_task {
     fd_sched_txn_sigverify_t txn_sigverify[ 1 ];
     fd_sched_poh_hash_t      poh_hash[ 1 ];
     fd_sched_mark_dead_t     mark_dead[ 1 ];
+    fd_sched_sigverify_flush_t sigverify_flush[ 1 ]; /* SIGVERIFY_FLUSH and SIGVERIFY_CLEAR */
   };
 };
 typedef struct fd_sched_task fd_sched_task_t;
@@ -442,6 +462,13 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    completing.  Then, in the immediate ensuing stem run loop,
    sched_pruned_next() will return the index for the corresponding bank
    so the refcnt can be decremented for sched.
+
+   A sigverify task retires every transaction dispatched to exec_idx;
+   txn_idx is ignored for it.  data points to the exec tile's
+   fd_execrp_txn_sigverify_done_msg_t, whose pending_cnt says whether
+   the tile still holds signatures of the block; NULL means it holds
+   none.  A SIGVERIFY_FLUSH or SIGVERIFY_CLEAR task completing means
+   exec_idx holds none; txn_idx and data are ignored for it.
 
    The transaction at the given index may be freed upon return from this
    function.  Nonetheless, as long as there is no intervening FEC
