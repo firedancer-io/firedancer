@@ -540,50 +540,102 @@ smbios_string( uchar const * raw,
   return "";
 }
 
+/* decode_dimm appends the type 17 structure raw[0,raw_sz), formatted
+   area plus string set, to the report. */
+
+static void
+decode_dimm( fd_boot_report_t * r,
+             uchar const *      raw,
+             ulong              raw_sz ) {
+  if( raw_sz<2UL ) return;
+  ulong fmt_len = raw[ 1 ]; /* formatted area; raw_sz also spans the string table */
+  if( fmt_len>raw_sz || fmt_len<0x17UL ) return; /* need through the speed word */
+
+  ulong size_bytes = 0UL;
+  uint  size_w = (uint)raw[ 0x0C ] | ((uint)raw[ 0x0D ]<<8);
+  if( size_w==0U || size_w==0xFFFFU ) return; /* empty or unknown slot */
+  if( size_w==0x7FFFU && fmt_len>=0x20UL ) {
+    uint ext = (uint)raw[ 0x1C ] | ((uint)raw[ 0x1D ]<<8) | ((uint)raw[ 0x1E ]<<16) | ((uint)raw[ 0x1F ]<<24);
+    size_bytes = (ulong)( ext&0x7FFFFFFFU )<<20;
+  } else if( size_w&0x8000U ) size_bytes = (ulong)( size_w&0x7FFFU )<<10;
+  else                        size_bytes = (ulong)size_w<<20;
+
+  fd_boot_report_dimm_t * d = &r->dmi_dimms[ r->dmi_dimms_cnt++ ];
+  d->size_bytes = size_bytes;
+
+  switch( raw[ 0x12 ] ) {
+    case 0x12: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR"    ) ); break;
+    case 0x13: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR2"   ) ); break;
+    case 0x18: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR3"   ) ); break;
+    case 0x1A: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR4"   ) ); break;
+    case 0x1E: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "LPDDR4" ) ); break;
+    case 0x22: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR5"   ) ); break;
+    case 0x23: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "LPDDR5" ) ); break;
+    default:   FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "other"  ) ); break;
+  }
+
+  d->rated_speed_mts = (ulong)raw[ 0x15 ] | ((ulong)raw[ 0x16 ]<<8);
+  if( fmt_len>=0x22UL ) d->speed_mts = (ulong)raw[ 0x20 ] | ((ulong)raw[ 0x21 ]<<8);
+  if( fmt_len>=0x18UL ) fd_cstr_printf( d->manufacturer, sizeof(d->manufacturer), NULL, "%s", smbios_string( raw, raw_sz, raw[ 0x17 ] ) );
+  if( fmt_len>=0x1BUL ) fd_cstr_printf( d->part_number, sizeof(d->part_number), NULL, "%s", smbios_string( raw, raw_sz, raw[ 0x1A ] ) );
+  ulong n = strlen( d->part_number );
+  while( n && d->part_number[ n-1UL ]==' ' ) d->part_number[ --n ] = '\0';
+  n = strlen( d->manufacturer );
+  while( n && d->manufacturer[ n-1UL ]==' ' ) d->manufacturer[ --n ] = '\0';
+}
+
 static void
 collect_dimms( fd_boot_report_t * r ) {
+  int have_entries = 0;
   for( ulong i=0UL; i<256UL && r->dmi_dimms_cnt<64UL; i++ ) {
     char path[ 128 ];
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/firmware/dmi/entries/17-%lu/raw", i ) );
     uchar raw[ 4096 ];
     ulong raw_sz;
     if( read_file( path, (char *)raw, sizeof(raw), &raw_sz ) ) break;
-    if( raw_sz<2UL ) continue;
-    ulong fmt_len = raw[ 1 ]; /* formatted area; raw_sz also spans the string table */
-    if( fmt_len>raw_sz || fmt_len<0x17UL ) continue; /* need through the speed word */
+    have_entries = 1;
+    decode_dimm( r, raw, raw_sz );
+  }
+  if( have_entries ) return;
 
-    ulong size_bytes = 0UL;
-    uint  size_w = (uint)raw[ 0x0C ] | ((uint)raw[ 0x0D ]<<8);
-    if( size_w==0U || size_w==0xFFFFU ) continue; /* empty or unknown slot */
-    if( size_w==0x7FFFU && fmt_len>=0x20UL ) {
-      uint ext = (uint)raw[ 0x1C ] | ((uint)raw[ 0x1D ]<<8) | ((uint)raw[ 0x1E ]<<16) | ((uint)raw[ 0x1F ]<<24);
-      size_bytes = (ulong)( ext&0x7FFFFFFFU )<<20;
-    } else if( size_w&0x8000U ) size_bytes = (ulong)( size_w&0x7FFFU )<<10;
-    else                        size_bytes = (ulong)size_w<<20;
-
-    fd_boot_report_dimm_t * d = &r->dmi_dimms[ r->dmi_dimms_cnt++ ];
-    d->size_bytes = size_bytes;
-
-    switch( raw[ 0x12 ] ) {
-      case 0x12: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR"    ) ); break;
-      case 0x13: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR2"   ) ); break;
-      case 0x18: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR3"   ) ); break;
-      case 0x1A: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR4"   ) ); break;
-      case 0x1E: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "LPDDR4" ) ); break;
-      case 0x22: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR5"   ) ); break;
-      case 0x23: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "LPDDR5" ) ); break;
-      default:   FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "other"  ) ); break;
+  /* No dmi-sysfs module (systemd <252 with a modular build): walk the
+     SMBIOS table the kernel always exports.  SMBIOS 3 tables can be
+     large, so stream it, keeping only the unparsed tail in the window. */
+  int fd = open( "/sys/firmware/dmi/tables/DMI", O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( fd<0 ) ) return;
+  static uchar win[ 65536 ];
+  ulong win_sz = 0UL;
+  int   eof    = 0;
+  while( r->dmi_dimms_cnt<64UL ) {
+    if( !eof && win_sz<sizeof(win) ) {
+      long n = read( fd, win+win_sz, sizeof(win)-win_sz );
+      if( FD_UNLIKELY( n<0L && errno==EINTR ) ) continue;
+      if( n<=0L ) eof = 1;
+      else        win_sz += (ulong)n;
     }
 
-    d->rated_speed_mts = (ulong)raw[ 0x15 ] | ((ulong)raw[ 0x16 ]<<8);
-    if( fmt_len>=0x22UL ) d->speed_mts = (ulong)raw[ 0x20 ] | ((ulong)raw[ 0x21 ]<<8);
-    if( fmt_len>=0x18UL ) fd_cstr_printf( d->manufacturer, sizeof(d->manufacturer), NULL, "%s", smbios_string( raw, raw_sz, raw[ 0x17 ] ) );
-    if( fmt_len>=0x1BUL ) fd_cstr_printf( d->part_number, sizeof(d->part_number), NULL, "%s", smbios_string( raw, raw_sz, raw[ 0x1A ] ) );
-    ulong n = strlen( d->part_number );
-    while( n && d->part_number[ n-1UL ]==' ' ) d->part_number[ --n ] = '\0';
-    n = strlen( d->manufacturer );
-    while( n && d->manufacturer[ n-1UL ]==' ' ) d->manufacturer[ --n ] = '\0';
+    /* Parse every structure that is complete in the window */
+    ulong off  = 0UL;
+    int   done = 0;
+    while( off+4UL<=win_sz && r->dmi_dimms_cnt<64UL ) {
+      uchar type    = win[ off   ];
+      ulong fmt_len = win[ off+1UL ];
+      if( FD_UNLIKELY( fmt_len<4UL ) ) { done = 1; break; }
+      if( off+fmt_len>win_sz ) break;
+      ulong end = off+fmt_len;
+      while( end+1UL<win_sz && ( win[ end ] || win[ end+1UL ] ) ) end++;
+      if( end+1UL>=win_sz ) break; /* string set not complete yet */
+      end += 2UL; /* past the double NUL */
+      if( type==17 ) decode_dimm( r, win+off, end-off );
+      off = end;
+      if( type==127 ) { done = 1; break; }
+    }
+
+    if( done || ( eof && !off ) || ( !off && win_sz==sizeof(win) ) ) break; /* end, truncated, or a structure larger than the window */
+    memmove( win, win+off, win_sz-off );
+    win_sz -= off;
   }
+  close( fd );
 }
 
 static int
