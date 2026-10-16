@@ -1126,6 +1126,18 @@ FD_UNIT_TEST( test_tile_uses_dedup ) {
   FD_TEST( tile->uses_obj_id[ 1 ]==9UL && tile->uses_obj_mode[ 1 ]==FD_SHMEM_JOIN_MODE_READ_WRITE );
 }
 
+/* Phase and SMT classes of known tiles */
+FD_UNIT_TEST( test_tile_class_phase ) {
+  char const * names[] = { "net", "snapin", "execrp", "pack", "pohh", "motor", "l4swap", "bogus" };
+  uint const   exp  [] = { FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_STARTUP, FD_TOPOB_TILE_POSTSTART,
+                           FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_ALWAYS, FD_TOPOB_TILE_POSTSTART, FD_TOPOB_TILE_FLOATING, 0U };
+  for( ulong i=0UL; i<sizeof(names)/sizeof(names[0]); i++ ) FD_TEST( ( fd_topob_tile_class( names[ i ] ) & FD_TOPOB_TILE_PHASE )==exp[ i ] );
+  FD_TEST( fd_topob_tile_class( "pack"  ) & FD_TOPOB_TILE_SMT_CRITICAL );
+  FD_TEST( fd_topob_tile_class( "poh"   ) & FD_TOPOB_TILE_SMT_CRITICAL );
+  FD_TEST( fd_topob_tile_class( "pohh"  ) & FD_TOPOB_TILE_SMT_CRITICAL );
+  FD_TEST( fd_topob_tile_class( "motor" ) & FD_TOPOB_TILE_SMT_CRITICAL );
+}
+
 /* ======================================================================== */
 
 int
