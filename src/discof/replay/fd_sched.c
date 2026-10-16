@@ -828,7 +828,7 @@ fd_sched_new( void *     mem,
   FD_TEST( fd_chkdup_new( sched->chkdup, rng ) );
 
   fd_memset( sched->metrics, 0, sizeof(fd_sched_metrics_t) );
-  sched->txn_in_flight_last_tick  = LONG_MAX;
+  sched->txn_in_flight_last_tick  = fd_tickcount(); /* boot counts as idle */
   sched->next_ready_last_tick     = LONG_MAX;
   sched->next_ready_last_bank_idx = ULONG_MAX;
 
@@ -1406,7 +1406,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     long now = fd_tickcount();
     ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
     ulong txn_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( exec_ready_bitset0 );
-    sched->metrics->txn_none_in_flight_tickcount     += fd_ulong_if( txn_exec_busy_cnt==0UL && sched->txn_in_flight_last_tick!=LONG_MAX, delta, 0UL );
+    sched->metrics->txn_none_in_flight_tickcount     += fd_ulong_if( txn_exec_busy_cnt==0UL, delta, 0UL );
     sched->metrics->txn_weighted_in_flight_tickcount += fd_ulong_if( txn_exec_busy_cnt!=0UL, delta, 0UL );
     sched->metrics->txn_weighted_in_flight_cnt       += delta*txn_exec_busy_cnt;
     sched->txn_in_flight_last_tick = now;
@@ -2080,9 +2080,12 @@ fd_sched_metrics_write( fd_sched_t *            sched,
   FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED_ABANDONED, sched->metrics->txn_abandoned_parsed_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED_ABANDONED, sched->metrics->txn_abandoned_exec_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_DONE_ABANDONED, sched->metrics->txn_abandoned_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_IN_FLIGHT_INTEGRAL_NANOS, sched->metrics->txn_weighted_in_flight_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_BUSY_DURATION_NANOS, sched->metrics->txn_weighted_in_flight_tickcount );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_IDLE_DURATION_NANOS, sched->metrics->txn_none_in_flight_tickcount );
+  /* Fold in the open interval, which the next dispatch or completion credits */
+  ulong open_ticks = (ulong)( fd_tickcount()-sched->txn_in_flight_last_tick );
+  ulong busy_cnt   = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ] );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_IN_FLIGHT_INTEGRAL_NANOS, sched->metrics->txn_weighted_in_flight_cnt+open_ticks*busy_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_BUSY_DURATION_NANOS, sched->metrics->txn_weighted_in_flight_tickcount+fd_ulong_if( !!busy_cnt, open_ticks, 0UL ) );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_IDLE_DURATION_NANOS, sched->metrics->txn_none_in_flight_tickcount+fd_ulong_if( !busy_cnt, open_ticks, 0UL ) );
   FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED, sched->metrics->txn_parsed_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED, sched->metrics->txn_exec_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_SIGNATURE_VERIFIED, sched->metrics->txn_sigverify_done_cnt );
