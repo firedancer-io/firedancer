@@ -440,16 +440,60 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
        am not staked, then prepare_unstaked_sampling was already called
        earlier. */
     if( FD_LIKELY( (cursor<=last_dest_idx) & !!i_am_staked ) ) prepare_unstaked_sampling( sdest, leader_idx );
-    while( cursor<=last_dest_idx ) {
-      ulong sample = sample_unstaked( sdest );
-      if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY ) ) break;
 
-      if( FD_UNLIKELY( cursor == my_idx + stride*(stored_cnt+1UL) ) ) {
-        out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
-        stored_cnt++;
+    /* sample_unstaked over buffered rng runs: resolve accepts (bounds
+       n,n-1,...) first, then swap */
+    fd_chacha_rng_t * rng  = sdest->rng;
+    ulong *           u    = sdest->unstaked;
+    ulong             n    = sdest->unstaked_unremoved_cnt;
+    ulong             emit = my_idx + stride*(stored_cnt+1UL);
+    ulong             end  = fd_ulong_min( last_dest_idx+1UL, cursor+n );
+    while( cursor<end ) {
+      if( FD_UNLIKELY( rng->buf_off==rng->buf_fill ) ) {
+        if( rng->algo==FD_CHACHA_RNG_ALGO_CHACHA8 ) fd_chacha8_rng_private_refill ( rng );
+        else                                        fd_chacha20_rng_private_refill( rng );
       }
-      cursor++;
+      ulong         off  = rng->buf_off;
+      ulong         boff = off%FD_CHACHA_RNG_BUFSZ;
+      uchar const * wbuf = rng->buf + boff;
+      ulong         wcnt = fd_ulong_min( rng->buf_fill-off, FD_CHACHA_RNG_BUFSZ-boff )/8UL;
+      ulong         need = end-cursor;
+      uint          h[ FD_CHACHA_RNG_BUFSZ/8UL ];
+      ulong         nj   = n; /* n-accepts */
+      ulong         nend = n-need;
+      ulong         k    = 0UL;
+      while( k<wcnt ) {
+        ulong zone = nj << (63-fd_ulong_find_msb( nj )); /* MODE_SHIFT zone */
+        ulong q    = n-nj;
+        ulong lo, hi;
+#if FD_HAS_X86 && defined(__BMI2__)
+        /* nj -= lo<zone; asm keeps lo out of memory */
+        __asm__( "mulx %3, %0, %1; cmpq %4, %0; sbbq $0, %2"
+                 : "=&r"(lo), "=&r"(hi), "+d"(nj) : "m"(*(ulong const *)(wbuf+8UL*k)), "r"(zone) : "cc" );
+#else
+        fd_uwide_mul( &hi, &lo, FD_LOAD( ulong, wbuf+8UL*k ), nj );
+        nj -= (ulong)( lo<zone );
+#endif
+        h[ q ] = (uint)hi;
+        k++;
+        if( FD_UNLIKELY( nj==nend ) ) break;
+      }
+      ulong j = n-nj;
+      rng->buf_off = off + 8UL*k;
+
+      for( ulong q=0UL; q<j; q++ ) {
+        ulong sample = u[ h[ q ] ];
+        u[ h[ q ] ] = u[ n-1UL-q ];
+        if( FD_UNLIKELY( cursor+q==emit ) ) {
+          out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
+          stored_cnt++;
+          emit += stride;
+        }
+      }
+      n      -= j;
+      cursor += j;
     }
+    sdest->unstaked_unremoved_cnt = n;
     max_dest_cnt = fd_ulong_max( max_dest_cnt, stored_cnt );
 
     /* The rest of my destinations are past the end of the tree */
