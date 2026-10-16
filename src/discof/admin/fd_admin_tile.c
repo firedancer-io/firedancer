@@ -714,6 +714,15 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     err        = fd_tower_file_de( req->tower_file, req->tower_file_sz, &public_key, tower_file_ );
     tower_file = tower_file_;
   }
+
+  if( FD_LIKELY( !err ) ) {
+    ulong last = tower_file && tower_file->votes_cnt ? tower_file->votes[ tower_file->votes_cnt-1UL ].slot : 0UL;
+    FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len,
+                                   "{\"old_identity\":\"%s\",\"vote_history\":%s,\"wait_to_vote_slot\":%lu,\"tower_last_vote_slot\":%lu,\"tower_root\":%lu}",
+                                   old_identity, ( req->wait_to_vote_slot || req->tower_file_sz ) ? "true" : "false",
+                                   req->wait_to_vote_slot, last, tower_file ? tower_file->root : 0UL ) );
+  }
+
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "set-identity failed: invalid vote history file (%i)", err ));
     report_admin_command_custom_result( &event, "invalid_vote_history" );
