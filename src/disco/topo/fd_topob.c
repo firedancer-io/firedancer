@@ -775,6 +775,20 @@ fd_topob_validate_cpu_overlaps( fd_topo_t const * topo ) {
   }
 }
 
+static char const *
+offline_note( fd_topo_cpus_t const * cpus,
+              char                   buf[ static 128 ] ) {
+  ulong offline_cnt = 0UL;
+  ulong core_cnt    = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    fd_topo_cpu_t const * cpu = &cpus->cpu[ i ];
+    offline_cnt += (ulong)!cpu->online;
+    core_cnt    += (ulong)( cpu->online && ( cpu->sibling==ULONG_MAX || cpu->sibling>i ) );
+  }
+  if( FD_LIKELY( !offline_cnt ) ) return "";
+  return fd_cstr_printf( buf, 128UL, NULL, " (%lu CPUs are offline, leaving %lu online physical cores; reduce tile counts)", offline_cnt, core_cnt );
+}
+
 static void
 auto_tile_cpu( fd_topo_tile_t * tile,
                fd_topo_cpus_t * cpus,
@@ -788,7 +802,8 @@ auto_tile_cpu( fd_topo_tile_t * tile,
   ulong cpu_cnt = cpus->cpu_cnt;
   while( cpu_idx<cpu_cnt && cpu_bv_test( cpu_assigned, cpu_ordering[ cpu_idx ] ) ) cpu_idx++;
   if( FD_UNLIKELY( cpu_idx>=cpu_cnt ) ) {
-    FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
+    char note[ 128 ];
+    FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned%s", tile->name, tile->kind_id, offline_note( cpus, note ) ));
   }
 
   /* Certain tiles are latency and throughput critical and
@@ -812,7 +827,8 @@ auto_tile_cpu( fd_topo_tile_t * tile,
       try_assign++;
     }
     if( FD_UNLIKELY( try_assign>=cpu_cnt ) ) {
-      if( FD_UNLIKELY( !is_dedicated ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
+      char note[ 128 ];
+      if( FD_UNLIKELY( !is_dedicated ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned%s", tile->name, tile->kind_id, offline_note( cpus, note ) ));
       /* Spare logical CPUs can be half cores */
       *dedicated_budget = 0UL;
       whole_core        = 0;
@@ -860,7 +876,8 @@ auto_tile_cpu_l3( fd_topo_tile_t * tile,
       ulong cnt = l3_free_core_cnt( cpus, cpu_assigned, l3 );
       if( cnt>best_cnt ) { best_cnt = cnt; *hot_l3 = l3; }
     }
-    if( FD_UNLIKELY( !best_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
+    char note[ 128 ];
+    if( FD_UNLIKELY( !best_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned%s", tile->name, tile->kind_id, offline_note( cpus, note ) ));
   }
 
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
@@ -922,6 +939,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     FD_TEST( topo->blocklist_cores_cpu_idx[ i ]<FD_TILE_MAX );
     cpu_bv_insert( cpu_assigned, topo->blocklist_cores_cpu_idx[ i ] );
   }
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) if( !cpus->cpu[ i ].online ) cpu_bv_insert( cpu_assigned, i );
 
   /* Compute total number of available physical cores */
   ulong available_physical = 0UL;
