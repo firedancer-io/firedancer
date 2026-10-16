@@ -101,12 +101,14 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
                         uchar *             payload_ptr,
                         uchar *             payload_end,
                         uint                enc_level,
-                        long                now ) {
+                        long                now,
+                        int                 piggyback ) {
 
   FD_ACK_DEBUG( FD_LOG_DEBUG(( "[ACK gen] elicited=%d", gen->is_elicited )); )
-  /* Never generate an ACK frame if no ACK-eliciting packet is pending.
-     This prevents an infinite ACK loop. */
-  if( !gen->is_elicited ) return payload_ptr;
+  /* Never send an ACK-only packet unless an ACK-eliciting packet is
+     pending: two such peers would ACK each other's ACKs forever.  ACKs
+     riding in an already ack-eliciting packet are always fine. */
+  if( !gen->is_elicited && !piggyback ) return payload_ptr;
 
   /* Attempt to send all ACK ranges */
   ulong ranges_sent = 0UL;
