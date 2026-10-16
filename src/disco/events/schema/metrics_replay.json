@@ -193,11 +193,12 @@
             "type": "Tuple",
             "description": "Transactions with address lookup tables the replay scheduler tried to resolve, by result",
             "aliases": {
-                "all": ["success", "failed"]
+                "all": ["success", "failed", "deferred"]
             },
             "fields": {
-                "success": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Address lookup tables expanded successfully" },
-                "failed":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Address lookup table expansion failed" }
+                "success":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Address lookup tables expanded successfully" },
+                "failed":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Address lookup table expansion failed" },
+                "deferred": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Address lookup table expansion failed on the published root while the parent block was still replaying, retried once it is done" }
             }
         },
         "sched_txn_parsed_abandoned":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transactions that were parsed but ended up being in abandoned blocks" },
@@ -370,6 +371,29 @@
         "accdb_disk_written_bytes":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
         "accdb_disk_written":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
         "accdb_copied_bytes":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" },
-        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" }
+        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" },
+        "sched_block_serialized": {
+            "type": "Tuple",
+            "description": "Blocks whose remaining transactions the replay scheduler serialized, by reason",
+            "aliases": {
+                "all": ["poison_overflow", "lut_unresolved"]
+            },
+            "fields": {
+                "poison_overflow": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The block's loader v3 poison set overflowed" },
+                "lut_unresolved":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A loader v3 candidate wrote through an address lookup table that failed to resolve" }
+            }
+        },
+        "sched_txn_serialized": {
+            "type": "Tuple",
+            "description": "Transactions the replay scheduler dispatched as serializing barriers, by reason",
+            "aliases": {
+                "all": ["lut_unresolved", "poison_hit", "block_serialized"]
+            },
+            "fields": {
+                "lut_unresolved":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Its address lookup tables failed to resolve" },
+                "poison_hit":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "It writes an account in the block's loader v3 poison set" },
+                "block_serialized": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An earlier transaction serialized the rest of the block" }
+            }
+        }
     }
 }

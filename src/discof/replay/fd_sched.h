@@ -337,6 +337,19 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 ulong
 fd_sched_can_ingest_cnt( fd_sched_t * sched );
 
+/* A transaction whose address lookup tables fail to resolve while the
+   parent block is still replaying pauses the parse of its block, and
+   with it all FEC ingestion.  fd_sched_parse_paused returns the bank
+   idx of that block once its parent is done, ULONG_MAX otherwise.
+   fd_sched_parse_resume then continues the parse with alut_ctx, now on
+   the parent's fork, and returns 1 on success, 0 if the block is bad
+   and should be marked dead. */
+ulong
+fd_sched_parse_paused( fd_sched_t * sched );
+
+int
+fd_sched_parse_resume( fd_sched_t * sched, fd_sched_alut_ctx_t * alut_ctx );
+
 /* Returns 1 if sched is drained, 0 otherwise.  A drained scheduler will
    not return more work.  Otherwise, next_ready will return more work,
    so long as there are exec tiles available. */

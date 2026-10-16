@@ -3202,6 +3202,42 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
   }
 }
 
+/* Resolve ALTs the way the executor will, on the parent's fork as of
+   the block's slot.  Before the parent freezes, fall back to the
+   published root; sched defers a failed resolution until it is done. */
+static void
+sched_alut_ctx( fd_replay_tile_t *    ctx,
+                fd_sched_alut_ctx_t * alut_ctx,
+                ulong                 parent_bank_idx,
+                ulong                 slot ) {
+  fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
+  alut_ctx->accdb = ctx->accdb;
+  if( FD_LIKELY( parent_bank && parent_bank->state==FD_BANK_STATE_FROZEN ) ) {
+    alut_ctx->fork_id = parent_bank->accdb_fork_id;
+    alut_ctx->els     = slot;
+  } else {
+    alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
+    alut_ctx->els     = ctx->published_root_slot;
+  }
+}
+
+static int
+try_resume_parse( fd_replay_tile_t *  ctx,
+                  fd_stem_context_t * stem ) {
+  ulong bank_idx = fd_sched_parse_paused( ctx->sched );
+  if( FD_LIKELY( bank_idx==ULONG_MAX ) ) return 0;
+
+  fd_sched_alut_ctx_t alut_ctx[ 1 ];
+  sched_alut_ctx( ctx, alut_ctx, fd_banks_bank_query( ctx->banks, bank_idx )->parent_idx, ctx->block_id_arr[ bank_idx ].slot );
+  if( FD_UNLIKELY( !fd_sched_parse_resume( ctx->sched, alut_ctx ) ) ) {
+    int dr = sched_block_dead_reason_to_event( ctx, bank_idx );
+    int ar = dr==FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED
+                                                               : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
+    mark_bank_dead( ctx, stem, bank_idx, dr, ar, NULL );
+  }
+  return 1;
+}
+
 static int
 try_replay( fd_replay_tile_t *  ctx,
             fd_stem_context_t * stem ) {
@@ -3672,9 +3708,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
 
   sched_fec->data              = data_view->data;
   sched_fec->completed_ns      = (long)reasm_fec->fec_completed_ts_nanos;
-  sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
-  sched_fec->alut_ctx->accdb   = ctx->accdb;
-  sched_fec->alut_ctx->els     = ctx->published_root_slot;
+  sched_alut_ctx( ctx, sched_fec->alut_ctx, sched_fec->parent_bank_idx, sched_fec->slot );
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
   if( sched_fec->is_first_in_block ) {
@@ -3763,7 +3797,7 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
 
   ulong sched_capacity = fd_sched_can_ingest_cnt( ctx->sched );
   ulong path_idx_min   = path_cnt - fd_ulong_min( sched_capacity, path_cnt );
-  for( ulong i=path_cnt; i>path_idx_min; i-- ) {
+  for( ulong i=path_cnt; i>path_idx_min && fd_sched_can_ingest_cnt( ctx->sched ); i-- ) { /* a FEC may pause the parse */
     if( FD_UNLIKELY( insert_fec_set( ctx, stem, path[ i-1UL ] ) ) ) return;
   }
 }
@@ -4313,6 +4347,12 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( try_resume_parse( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   if( FD_LIKELY( try_replay( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
@@ -4804,9 +4844,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   sched_fec->is_first_in_block = fec->fec_set_idx==0U;
   sched_fec->fec               = store_fec;
   sched_fec->data              = data_view->data;
-  sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
-  sched_fec->alut_ctx->accdb   = ctx->accdb;
-  sched_fec->alut_ctx->els     = ctx->published_root_slot;
+  sched_alut_ctx( ctx, sched_fec->alut_ctx, sched_fec->parent_bank_idx, sched_fec->slot );
   sched_fec->completed_ns      = fec->metrics.fec_completed_ts_nanos;
 
   if( sched_fec->is_first_in_block ) {

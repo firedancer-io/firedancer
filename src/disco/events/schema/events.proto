@@ -3667,6 +3667,24 @@ message MetricsAccdbRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Transactions the replay scheduler dispatched as serializing barriers, by reason
+message MetricsReplaySchedTxnSerialized {
+  // Its address lookup tables failed to resolve
+  uint64 lut_unresolved = 1;
+  // It writes an account in the block's loader v3 poison set
+  uint64 poison_hit = 2;
+  // An earlier transaction serialized the rest of the block
+  uint64 block_serialized = 3;
+}
+
+// Blocks whose remaining transactions the replay scheduler serialized, by reason
+message MetricsReplaySchedBlockSerialized {
+  // The block's loader v3 poison set overflowed
+  uint64 poison_overflow = 1;
+  // A loader v3 candidate wrote through an address lookup table that failed to resolve
+  uint64 lut_unresolved = 2;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsReplayAccdbAccountCacheMissed {
   // 0-128 B
@@ -3837,6 +3855,8 @@ message MetricsReplaySchedTxnLutResolveAttempted {
   uint64 success = 1;
   // Address lookup table expansion failed
   uint64 failed = 2;
+  // Address lookup table expansion failed on the published root while the parent block was still replaying, retried once it is done
+  uint64 deferred = 3;
 }
 
 // Times the replay scheduler stopped dispatching a block, by reason
@@ -9931,6 +9951,10 @@ message MetricsReplay {
   uint64 accdb_copied_bytes = 115;
   // Whether the runtime has loaded a bank and can replay
   bool is_runtime_loaded = 116;
+  // Blocks whose remaining transactions the replay scheduler serialized, by reason
+  MetricsReplaySchedBlockSerialized sched_block_serialized = 117;
+  // Transactions the replay scheduler dispatched as serializing barriers, by reason
+  MetricsReplaySchedTxnSerialized sched_txn_serialized = 118;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
