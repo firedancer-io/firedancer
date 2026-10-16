@@ -1943,7 +1943,7 @@ telemetry = true
         # runs out, the connections with the slowest recipients are
         # dropped.  Larger values make the GUI server more tolerant to
         # slow clients but also increase memory usage.
-        send_buffer_size_mb = 5120
+        send_buffer_size_mb = 512
 
         # The maximum size of the on disk event database.  This is an
         # upper bound on the disk space used.  The GUI tile will start
