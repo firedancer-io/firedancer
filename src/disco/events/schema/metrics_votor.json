@@ -209,7 +209,7 @@
             "type": "Tuple",
             "description": "Received packets dropped, by reason",
             "aliases": {
-                "all": ["undersize", "oversize", "src_ip_mismatch", "header_invalid", "net_header_invalid", "version_unsupported"]
+                "all": ["undersize", "oversize", "src_ip_mismatch", "header_invalid", "net_header_invalid", "version_unsupported", "duplicate"]
             },
             "fields": {
                 "undersize":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "QUIC packet too small" },
@@ -217,7 +217,8 @@
                 "src_ip_mismatch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wrong source IP" },
                 "header_invalid":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Invalid QUIC header" },
                 "net_header_invalid":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Invalid IPv4 or UDP header" },
-                "version_unsupported": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version negotiation or unsupported version" }
+                "version_unsupported": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version negotiation or unsupported version" },
+                "duplicate":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Packet number already received or too old" }
             }
         },
         "client_pkt_no_conn_dropped": {
@@ -411,7 +412,7 @@
             "type": "Tuple",
             "description": "Received packets dropped, by reason",
             "aliases": {
-                "all": ["undersize", "oversize", "src_ip_mismatch", "header_invalid", "net_header_invalid", "version_unsupported"]
+                "all": ["undersize", "oversize", "src_ip_mismatch", "header_invalid", "net_header_invalid", "version_unsupported", "duplicate"]
             },
             "fields": {
                 "undersize":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "QUIC packet too small" },
@@ -419,7 +420,8 @@
                 "src_ip_mismatch":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wrong source IP" },
                 "header_invalid":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Invalid QUIC header" },
                 "net_header_invalid":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Invalid IPv4 or UDP header" },
-                "version_unsupported": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version negotiation or unsupported version" }
+                "version_unsupported": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version negotiation or unsupported version" },
+                "duplicate":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Packet number already received or too old" }
             }
         },
         "server_pkt_no_conn_dropped": {
