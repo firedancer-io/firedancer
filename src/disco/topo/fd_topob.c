@@ -692,6 +692,7 @@ fd_topob_parse_affinity_cstr( char const * cstr,
     ulong cpu0   = fd_cstr_to_ulong( p );
     ulong cpu1   = cpu0;
     ulong stride = 1UL;
+    int   rev    = 0; /* Nh lists N first */
     p++; while( fd_isdigit( (int)p[0] ) ) p++;
     while( fd_isspace( (int)p[0] ) ) p++;
     if( p[0]=='-' ) {
@@ -712,8 +713,12 @@ fd_topob_parse_affinity_cstr( char const * cstr,
     else if( p[0]=='h' ) {
       p++;
       ulong sibling = fd_tile_private_sibling_idx( cpu0 );
-      cpu1 =   fd_ulong_if( sibling==ULONG_MAX, cpu0, sibling );
-      stride = fd_ulong_if( sibling==ULONG_MAX, 1,    sibling-cpu0 );
+      if( sibling!=ULONG_MAX ) {
+        rev    = sibling<cpu0;
+        cpu1   = fd_ulong_max( cpu0, sibling );
+        cpu0   = fd_ulong_min( cpu0, sibling );
+        stride = cpu1-cpu0;
+      }
     }
     while( fd_isspace( (int)p[0] ) ) p++;
     if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (bad range delimiter)" ));
@@ -729,6 +734,7 @@ fd_topob_parse_affinity_cstr( char const * cstr,
       tile_to_cpu[ cnt++ ] = (ushort)(cpu | shared);
       if( !shared ) cpu_bv_insert( cpu_assigned, cpu );
     }
+    if( rev ) { ushort t = tile_to_cpu[ cnt-2UL ]; tile_to_cpu[ cnt-2UL ] = tile_to_cpu[ cnt-1UL ]; tile_to_cpu[ cnt-1UL ] = t; }
   }
 
   return cnt;

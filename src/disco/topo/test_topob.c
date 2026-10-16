@@ -905,6 +905,52 @@ FD_UNIT_TEST( test_offline_critical_siblings ) {
   run_layout( 32, 0, (ulong const[]){ 38, 41, ULONG_MAX }, 0, FRANKENDANCER_TILES, BLOCKLIST_0H( 32 ), 1, FRANK_32X2_LEN, FRANK_32X2 );
 }
 
+/* --- Adjacent sibling enumeration (cpu i pairs with i^1) ---------------- */
+
+FD_UNIT_TEST( test_adjacent_siblings ) {
+  for( int efficient=0; efficient<2; efficient++ ) {
+    fd_topo_cpus_t cpus[1];
+    make_cpus( cpus, 48, efficient ? 6UL : 0UL );
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+      cpus->cpu[ i ].sibling = i^1UL;
+      cpus->cpu[ i ].l3_idx  = efficient ? (i/2UL)/6UL : ULONG_MAX;
+    }
+    static fd_topo_t _topo[1];
+    fd_topo_t * topo = _topo;
+    fd_memset( topo, 0, sizeof(*topo) );
+    make_tiles( topo, efficient ? FIREDANCER_EFF_TILES : FIREDANCER_TILES );
+    set_blocklist( topo, (ulong const[]){ 0, 1, ULONG_MAX } );
+    topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX;
+    fd_topob_auto_layout_cpus( topo, cpus, 0 );
+
+    /* 47 free cores fit every pinned tile on a whole core */
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      ulong cpu = topo->tiles[ i ].cpu_idx;
+      if( cpu==ULONG_MAX ) continue;
+      FD_TEST( cpu>1UL );
+      for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+        if( !strcmp( topo->tiles[ j ].name, "genesi" ) || topo->tiles[ j ].cpu_idx!=(cpu^1UL) ) continue;
+        int startup_pair = fd_topob_tile_priority_type( &topo->tiles[ i ] )==FD_TOPOB_PRIORITY_STARTUP ||
+                           fd_topob_tile_priority_type( &topo->tiles[ j ] )==FD_TOPOB_PRIORITY_STARTUP;
+        FD_TEST( startup_pair );
+      }
+    }
+  }
+}
+
+/* "Nh" on the upper sibling of a pair covers the pair */
+FD_UNIT_TEST( test_parse_affinity_upper_sibling ) {
+  ulong sibling = fd_tile_private_sibling_idx( 0UL );
+  if( sibling==ULONG_MAX ) return;
+  char cstr[ 32 ];
+  FD_TEST( fd_cstr_printf_check( cstr, sizeof(cstr), NULL, "%luh", sibling ) );
+  ushort cpu[ FD_TILE_MAX ];
+  FD_TEST( fd_topob_parse_affinity_cstr( cstr, cpu, 0, 0 )==2UL );
+  FD_TEST( cpu[ 0 ]==(ushort)sibling && cpu[ 1 ]==0 );
+  FD_TEST( fd_tile_private_cpus_parse( cstr, cpu )==2UL );
+  FD_TEST( cpu[ 0 ]==(ushort)sibling && cpu[ 1 ]==0 );
+}
+
 static fd_topo_tile_t *
 add_test_tile( fd_topo_t *  topo,
                char const * name,

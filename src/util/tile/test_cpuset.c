@@ -181,6 +181,23 @@ test_cpu_set( fd_rng_t * rng ) {
 
 }
 
+static void
+test_sibling_parse( void ) {
+  char const * list[] = { "0,48\n", "0,48\n", "0-1\n", "0-1\n", "6-7\n", "5\n", "5",         "1,0\n", "64,0",
+                          "0-2\n", "0,1,2", "3,4\n", "", "x\n", "0,\n", "0-\n", "1-0\n", "0,48\n\n", "0 48\n" };
+  ulong        cpu [] = { 0,         48,        0,         1,         7,         5,       5,           0,        0,
+                          1,          1,       5,        0,  0,      0,         0,         0,         0,            0         };
+  ulong        exp [] = { 48,        0,         1,         0,         6,         ULONG_MAX, ULONG_MAX, 1,       64,
+                          ULONG_MAX-1UL, ULONG_MAX-1UL, ULONG_MAX-1UL, ULONG_MAX-1UL, ULONG_MAX-1UL, ULONG_MAX-1UL,
+                          ULONG_MAX-1UL, ULONG_MAX-1UL, ULONG_MAX-1UL, ULONG_MAX-1UL };
+  FD_STATIC_ASSERT( sizeof(list)/sizeof(list[0])==sizeof(cpu)/sizeof(cpu[0]), test );
+  FD_STATIC_ASSERT( sizeof(list)/sizeof(list[0])==sizeof(exp)/sizeof(exp[0]), test );
+  for( ulong i=0UL; i<sizeof(list)/sizeof(list[0]); i++ ) {
+    ulong got = fd_tile_private_sibling_parse( list[ i ], cpu[ i ] );
+    if( FD_UNLIKELY( got!=exp[ i ] ) ) FD_LOG_ERR(( "sibling_parse( \"%s\", %lu ) = %lu, expected %lu", list[ i ], cpu[ i ], got, exp[ i ] ));
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -193,6 +210,7 @@ main( int     argc,
   test_cpu_insert( rng );
   test_cpu_remove( rng );
   test_cpu_set   ( rng );
+  test_sibling_parse();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );
