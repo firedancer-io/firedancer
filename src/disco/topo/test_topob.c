@@ -185,6 +185,21 @@ make_cpus( fd_topo_cpus_t * cpus,
   }
 }
 
+/* Take the listed CPUs offline as the kernel reports them: no sibling
+   or cache, and the online partner loses its sibling.  offline[] is
+   terminated by ULONG_MAX, NULL for none. */
+static void
+make_cpus_offline( fd_topo_cpus_t * cpus,
+                   ulong const *    offline ) {
+  for( ulong const * p = offline; p && *p!=ULONG_MAX; p++ ) {
+    fd_topo_cpu_t * cpu = &cpus->cpu[ *p ];
+    if( cpu->sibling!=ULONG_MAX ) cpus->cpu[ cpu->sibling ].sibling = ULONG_MAX;
+    cpu->online  = 0;
+    cpu->sibling = ULONG_MAX;
+    cpu->l3_idx  = ULONG_MAX;
+  }
+}
+
 /* Add tiles to the topology from a NULL-terminated spec array.
    Only sets fields used by the layout algorithm. */
 static void
@@ -261,6 +276,7 @@ print_layout( fd_topo_t const * topo,
 static void
 run_layout( ulong                 physical_cores,
             ulong                 l3_cores,
+            ulong const *         offline,        /* ULONG_MAX terminated, NULL for none */
             int                   efficient,
             tile_spec_t const *   tiles,
             ulong const *         blocklist,      /* ULONG_MAX terminated */
@@ -270,6 +286,7 @@ run_layout( ulong                 physical_cores,
   /* Build CPU topology */
   fd_topo_cpus_t cpus[1];
   make_cpus( cpus, physical_cores, l3_cores );
+  make_cpus_offline( cpus, offline );
   ulong cpu_cnt = cpus->cpu_cnt;
 
   /* Build tile topology */
@@ -317,7 +334,7 @@ run_test( ulong                 physical_cores,
           int                   reserve_agave,
           ulong                 expected_len,
           char const * const *  expected ) {
-  run_layout( physical_cores, 0UL, 0, tiles, blocklist, reserve_agave, expected_len, expected );
+  run_layout( physical_cores, 0UL, NULL, 0, tiles, blocklist, reserve_agave, expected_len, expected );
 }
 
 /* ======================================================================== */
@@ -716,17 +733,17 @@ FD_UNIT_TEST( test_firedancer_128x2 ) {
 
 /* Performance mode ignores the cache topology */
 FD_UNIT_TEST( test_firedancer_48x2_l3_performance ) {
-  run_layout( 48, 6, 0, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+  run_layout( 48, 6, NULL, 0, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
 }
 
 /* One L3 domain, or none known, keeps the sequential layout */
 FD_UNIT_TEST( test_firedancer_48x2_efficient_one_l3 ) {
-  run_layout( 48, 48, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
-  run_layout( 48,  0, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
+  run_layout( 48, 48, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
+  run_layout( 48,  0, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
 }
 
 FD_UNIT_TEST( test_firedancer_48x2_efficient_l3 ) {
-  run_layout( 48, 6, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_48X2_L3_LEN, FD_EFF_48X2_L3 );
+  run_layout( 48, 6, NULL, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_48X2_L3_LEN, FD_EFF_48X2_L3 );
 }
 
 /* Too few cores to give every hot tile its own: sequential layout */
@@ -804,6 +821,88 @@ FD_UNIT_TEST( test_frankendancer_32x2_more_bank ) {
 FD_UNIT_TEST( test_firedancer_32x2_extra_blocklist ) {
   run_test( 32, FIREDANCER_TILES, (ulong[]){ 0, 32, 5, 37, ULONG_MAX },
             0, FD_32X2_EXTRA_BL_LEN, FD_32X2_EXTRA_BL );
+}
+
+/* --- Offline CPUs ------------------------------------------------------- */
+
+/* Lay out tiles on physical_cores x 2 with the offline CPUs removed and
+   check no tile lands on one.  Returns the topology. */
+static fd_topo_t *
+layout_offline( ulong               physical_cores,
+                ulong const *       offline,
+                tile_spec_t const * tiles ) {
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, physical_cores, 0UL );
+  make_cpus_offline( cpus, offline );
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, tiles );
+  set_blocklist( topo, BLOCKLIST_0H( physical_cores ) );
+  topo->sleep_obj_id = ULONG_MAX;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    ulong cpu = topo->tiles[ i ].cpu_idx;
+    if( cpu!=ULONG_MAX ) FD_TEST( cpus->cpu[ cpu ].online );
+  }
+  return topo;
+}
+
+/* An auto layout that runs out of CPUs is a FD_LOG_ERR */
+static void
+layout_offline_fails( ulong               physical_cores,
+                      ulong const *       offline,
+                      tile_spec_t const * tiles ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( pid==0 ) {
+    fd_log_level_logfile_set( 6 );
+    fd_log_level_core_set( 5 );
+    layout_offline( physical_cores, offline, tiles );
+    _exit( 0 );
+  }
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+}
+
+/* Runtime SMT off: the siblings are present but offline, so a host has
+   only its physical cores */
+FD_UNIT_TEST( test_offline_smt_off ) {
+  ulong offline[ 49 ];
+  for( ulong i=0UL; i<48UL; i++ ) offline[ i ] = 48UL+i;
+  offline[ 48 ] = ULONG_MAX;
+  run_layout( 48, 0, offline, 0, FIREDANCER_TILES, (ulong const[]){ 0, ULONG_MAX }, 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+
+  for( ulong i=0UL; i<32UL; i++ ) offline[ i ] = 32UL+i;
+  offline[ 32 ] = ULONG_MAX;
+  run_layout( 32, 0, offline, 0, FD_FEWER_TILES, (ulong const[]){ 0, ULONG_MAX }, 0, FD_32X2_FEWER_LEN, FD_32X2_FEWER );
+  layout_offline_fails( 32, offline, FIREDANCER_TILES );
+}
+
+/* A low index offline CPU (#4428) is skipped and its sibling becomes a
+   whole core */
+FD_UNIT_TEST( test_offline_low_index ) {
+  for( ulong off=5UL; off<=13UL; off+=8UL ) {
+    fd_topo_t * topo = layout_offline( 24, (ulong const[]){ off, ULONG_MAX }, FIREDANCER_TILES );
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) FD_TEST( topo->tiles[ i ].cpu_idx!=ULONG_MAX || fd_topob_tile_priority_type( &topo->tiles[ i ] )==FD_TOPOB_PRIORITY_FLOATING );
+  }
+}
+
+/* 36x2 is one physical core short of skipping HT pairs.  Offline
+   siblings must not count as free cores: with them the layout would
+   skip pairs and place tiles on the offline CPUs. */
+FD_UNIT_TEST( test_offline_skip_ht_threshold ) {
+  fd_topo_t * topo = layout_offline( 36, (ulong const[]){ 48, 61, ULONG_MAX }, FIREDANCER_TILES );
+  int on_sibling = 0;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) on_sibling |= topo->tiles[ i ].cpu_idx!=ULONG_MAX && topo->tiles[ i ].cpu_idx>=36UL;
+  FD_TEST( on_sibling );
+}
+
+/* Unused siblings of critical tiles taken offline change nothing */
+FD_UNIT_TEST( test_offline_critical_siblings ) {
+  run_layout( 48, 6, (ulong const[]){ 72, 84, ULONG_MAX }, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_48X2_L3_LEN, FD_EFF_48X2_L3 );
+  run_layout( 32, 0, (ulong const[]){ 38, 41, ULONG_MAX }, 0, FRANKENDANCER_TILES, BLOCKLIST_0H( 32 ), 1, FRANK_32X2_LEN, FRANK_32X2 );
 }
 
 static fd_topo_tile_t *
