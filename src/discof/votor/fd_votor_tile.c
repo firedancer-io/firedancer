@@ -310,7 +310,7 @@ struct fd_votor_tile {
   /* Standstill */
 
   ulong                     standstill_slot; /* the finalized slot when standstill_ts was last reset */
-  long                      standstill_ts;   /* next standstill broadcast: AG_DELTA_STANDSTILL_NS after standstill_slot changes, then every STANDSTILL_TX_INTERVAL_NS */
+  long                      standstill_ts;   /* LONG_MAX until votor runs, then AG_DELTA_STANDSTILL_NS after standstill_slot changes, then every STANDSTILL_TX_INTERVAL_NS */
   ag_pool_standstill_iter_t standstill_iter[1];
 
   /* Networking */
@@ -1547,8 +1547,6 @@ handle_replay( fd_votor_tile_t *           ctx,
       ctx->boot_block_id = block_id;
       if( block_id.slot==0UL ) ag_pool_from_genesis ( ctx->pool, &block_id );
       else                     ag_pool_from_snapshot( ctx->pool, &block_id );
-      ctx->standstill_slot = block_id.slot;
-      ctx->standstill_ts   = fd_clock_tile_now( ctx->clock )+AG_DELTA_STANDSTILL_NS;
       int wfs_green = votor_wfs_is_green( ctx );
       /* Without ipecho's shred version, init must be deferred. */
       if( FD_LIKELY( ctx->shred_version ) ) {
@@ -2212,10 +2210,11 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  /* 6. Standstill re-broadcast. */
+  /* 6. Standstill re-broadcast.  Unarmed until the first pass votor
+     runs: under WFS that is the restart, not the boot. */
 
   ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
-  if( FD_UNLIKELY( finalized_slot>ctx->standstill_slot ) ) {
+  if( FD_UNLIKELY( finalized_slot>ctx->standstill_slot || ctx->standstill_ts==LONG_MAX ) ) {
     ctx->standstill_slot = finalized_slot;
     ctx->standstill_ts   = now+AG_DELTA_STANDSTILL_NS;
   }
