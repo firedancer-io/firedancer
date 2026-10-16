@@ -56,7 +56,7 @@ blk_insert( fd_rotor_t *      rotor,
   memset( &blk->telemetry, 0, sizeof(blk->telemetry) );
   blk->telemetry.last_cmpl_fec_idx = UINT_MAX;
   blk->rcvd_fec_ts   = 0L;
-  for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) blk->fecs[ k ] = fd_rotor_fec_pool_idx_null( rotor->fec_pool );
+  for( ulong k=0UL; k<rotor->fec_blk_max; k++ ) blk->fecs[ k ] = fd_rotor_fec_pool_idx_null( rotor->fec_pool );
   fd_rotor_blk_map_ele_insert( rotor->blk_map, blk, rotor->blk_pool );
   if     ( !memcmp( dmr, &hash_null, sizeof(fd_mr32_t) )    ) meta->eager = fd_rotor_blk_pool_idx( rotor->blk_pool, blk );
   else if( meta->notar==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) ) meta->notar = fd_rotor_blk_pool_idx( rotor->blk_pool, blk );
@@ -251,7 +251,7 @@ prune( fd_rotor_t *     rotor,
        fd_rotor_blk_t * blk ) {
   fd_rotor_blk_t * pool = rotor->blk_pool;
   if( FD_UNLIKELY( !blk->telemetry.reported && rotor->telemetry.report ) ) rotor->telemetry.report( rotor->telemetry.ctx, blk );
-  for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) {
+  for( ulong k=0UL; k<rotor->fec_blk_max; k++ ) {
     if( FD_LIKELY( blk->fecs[ k ]==fd_rotor_fec_pool_idx_null( rotor->fec_pool ) ) ) continue;
     int held = 0;
     for( fd_rotor_blk_t const * other = fd_rotor_blk_map_ele_query_const( rotor->blk_map, &blk->slot, NULL, pool );
@@ -358,9 +358,11 @@ fd_rotor_align( void ) {
 
 FD_FN_CONST ulong
 fd_rotor_footprint( ulong slot_max,
-                    ulong fec_max ) {
+                    ulong fec_max,
+                    ulong fec_blk_max ) {
   ulong blk_max = fd_rotor_blk_max( slot_max );
   return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -375,6 +377,7 @@ fd_rotor_footprint( ulong slot_max,
       fd_rotor_align(),              sizeof(fd_rotor_t)                                                        ),
       alignof(fd_rotor_slot_meta_t), sizeof(fd_rotor_slot_meta_t)*slot_max                                     ),
       fd_rotor_blk_pool_align(),     fd_rotor_blk_pool_footprint ( blk_max                                   ) ),
+      alignof(ulong),                sizeof(ulong)*blk_max*fec_blk_max                                         ),
       fd_rotor_blk_map_align(),      fd_rotor_blk_map_footprint  ( fd_rotor_blk_map_chain_cnt_est( blk_max ) ) ),
       fd_rotor_fec_pool_align(),     fd_rotor_fec_pool_footprint ( fec_max                                   ) ),
       fd_rotor_fec_map_align(),      fd_rotor_fec_map_footprint  ( fd_rotor_fec_map_chain_cnt_est( fec_max ) ) ),
@@ -389,10 +392,11 @@ void *
 fd_rotor_new( void * shmem,
               ulong  slot_max,
               ulong  fec_max,
+              ulong  fec_blk_max,
               ulong  seed ) {
-  ulong footprint = fd_rotor_footprint( slot_max, fec_max );
-  if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "bad footprint: %lu %lu", slot_max, fec_max ));
+  ulong footprint = fd_rotor_footprint( slot_max, fec_max, fec_blk_max );
+  if( FD_UNLIKELY( !footprint || fec_blk_max<FD_FEC_BLK_MAX || fec_blk_max>UINT_MAX ) ) {
+    FD_LOG_WARNING(( "bad footprint: %lu %lu %lu", slot_max, fec_max, fec_blk_max ));
     return NULL;
   }
 
@@ -405,6 +409,7 @@ fd_rotor_new( void * shmem,
   rotor              = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_align(),              sizeof(fd_rotor_t)                                                        );
   void * slot_meta   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rotor_slot_meta_t), sizeof(fd_rotor_slot_meta_t)*slot_max                                     );
   void * blk_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_blk_pool_align(),     fd_rotor_blk_pool_footprint ( blk_max                                   ) );
+  ulong * blk_fecs   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                sizeof(ulong)*blk_max*fec_blk_max                                         );
   void * blk_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_blk_map_align(),      fd_rotor_blk_map_footprint  ( fd_rotor_blk_map_chain_cnt_est( blk_max ) ) );
   void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_fec_pool_align(),     fd_rotor_fec_pool_footprint ( fec_max                                   ) );
   void * fec_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_fec_map_align(),      fd_rotor_fec_map_footprint  ( fd_rotor_fec_map_chain_cnt_est( fec_max ) ) );
@@ -416,9 +421,11 @@ fd_rotor_new( void * shmem,
 
   rotor->root        = ULONG_MAX;
   rotor->slot_max    = slot_max;
+  rotor->fec_blk_max = fec_blk_max;
   rotor->slot_meta   = (fd_rotor_slot_meta_t *)slot_meta;
   for( ulong i=0UL; i<slot_max; i++ ) rotor->slot_meta[ i ].slot = ULONG_MAX;
   rotor->blk_pool    = fd_rotor_blk_pool_join( fd_rotor_blk_pool_new( blk_pool,    blk_max                                         ) );
+  for( ulong i=0UL; i<blk_max; i++ ) rotor->blk_pool[ i ].fecs = blk_fecs + i*fec_blk_max;
   rotor->blk_map     = fd_rotor_blk_map_join ( fd_rotor_blk_map_new ( blk_map,     fd_rotor_blk_map_chain_cnt_est( blk_max ), seed ) );
   rotor->fec_pool    = fd_rotor_fec_pool_join( fd_rotor_fec_pool_new( fec_pool,    fec_max                                         ) );
   rotor->fec_map     = fd_rotor_fec_map_join ( fd_rotor_fec_map_new ( fec_map,     fd_rotor_fec_map_chain_cnt_est( fec_max ), seed ) );
@@ -683,7 +690,7 @@ fd_rotor_fec_complete( fd_rotor_t *       rotor,
                         blk;
                         blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, pool ) ) {
     if( FD_LIKELY( blk->fecs[ fec->fec_idx ]!=fd_rotor_fec_pool_idx( rotor->fec_pool, fec ) ) ) continue;
-    uint end = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, (uint)FD_FEC_BLK_MAX );
+    uint end = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, (uint)rotor->fec_blk_max );
     while(    blk->buff_fec_cnt<end
            && blk->fecs[ blk->buff_fec_cnt ]!=fd_rotor_fec_pool_idx_null( rotor->fec_pool )
            && fd_rotor_fec_pool_ele( rotor->fec_pool, blk->fecs[ blk->buff_fec_cnt ] )->complete ) {
@@ -760,7 +767,7 @@ fd_rotor_fec_notarized( fd_rotor_t *      rotor,
   blk->fecs[ fec_idx ] = fd_rotor_fec_pool_idx( rotor->fec_pool, fec );
   if( FD_LIKELY( !fec->complete ) ) return fec;
 
-  uint end = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, (uint)FD_FEC_BLK_MAX );
+  uint end = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, (uint)rotor->fec_blk_max );
   while(    blk->buff_fec_cnt<end
          && blk->fecs[ blk->buff_fec_cnt ]!=fd_rotor_fec_pool_idx_null( rotor->fec_pool )
          && fd_rotor_fec_pool_ele( rotor->fec_pool, blk->fecs[ blk->buff_fec_cnt ] )->complete ) {
@@ -786,7 +793,7 @@ fd_rotor_root_advanced( fd_rotor_t *      rotor,
                           blk = next ) {
       next = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
       if( FD_UNLIKELY( !blk->telemetry.reported && rotor->telemetry.report ) ) { blk->telemetry.reported = 1; rotor->telemetry.report( rotor->telemetry.ctx, blk ); }
-      for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) {
+      for( ulong k=0UL; k<rotor->fec_blk_max; k++ ) {
         ulong idx = blk->fecs[ k ];
         blk->fecs[ k ] = fd_rotor_fec_pool_idx_null( rotor->fec_pool );
         if( FD_LIKELY( idx==fd_rotor_fec_pool_idx_null( rotor->fec_pool ) ) ) continue;

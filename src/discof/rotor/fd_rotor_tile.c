@@ -459,7 +459,7 @@ handle_shred( fd_rotor_tile_t * ctx,
   if( FD_UNLIKELY( fd_shred_sig_src( sig )==SHRED_SIG_FEC_EVICTED ) ) {
     fd_fec_evicted_t const * evicted = (fd_fec_evicted_t const *)fd_type_pun_const( chunk );
     if( FD_UNLIKELY( evicted->slot<=ctx->rotor->root || evicted->slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
-    if( FD_UNLIKELY( evicted->fec_set_idx>=FD_SHRED_BLK_MAX ) ) return;
+    if( FD_UNLIKELY( evicted->fec_set_idx>=ctx->rotor->fec_blk_max*FD_FEC_SHRED_CNT ) ) return;
     fd_mr20_t key; memcpy( key.uc, evicted->merkle_root.uc, sizeof(fd_mr20_t) );
     fd_rotor_fec_evicted( ctx->rotor, evicted->slot, evicted->fec_set_idx, &key );
     return;
@@ -483,7 +483,7 @@ handle_shred( fd_rotor_tile_t * ctx,
     fd_shred_t const *        shred    = &complete->last_shred_hdr;
 
     ctx->highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, shred->slot );
-    if( FD_UNLIKELY( shred->idx>=FD_SHRED_BLK_MAX                                                   ) ) return;
+    if( FD_UNLIKELY( shred->idx>=ctx->rotor->fec_blk_max*FD_FEC_SHRED_CNT                           ) ) return;
     if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->rotor->root ) ) return; /* parent is the slot itself, or below the root */
 
     fd_rotor_fec_t const * fec = fd_rotor_fec_complete( ctx->rotor, shred, &complete->merkle_root, sig==SHRED_SIG_FEC_COMPLETE_LEADER, (uint)complete->turbine_shred_cnt, (uint)complete->repair_shred_cnt, (uint)complete->reconstructed_shred_cnt, rx_ts );
@@ -507,7 +507,7 @@ handle_shred( fd_rotor_tile_t * ctx,
     }
 
     if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return;
-    if( FD_UNLIKELY( shred->idx>=FD_SHRED_BLK_MAX ) ) return;
+    if( FD_UNLIKELY( shred->idx>=ctx->rotor->fec_blk_max*FD_FEC_SHRED_CNT ) ) return;
 
     /* A repair shred answers the request whose nonce it carries: the
        first one ends that request's pick.  A HighestWindowIndex answer
@@ -515,7 +515,7 @@ handle_shred( fd_rotor_tile_t * ctx,
 
     int         normal  = fd_rnonce_ss_normal_repair( msg->rnonce );
     int         reply   = fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR || fd_shred_sig_src( sig )==SHRED_SIG_SRC_BAD_REPAIR;
-    ulong       key     = (ulong)(uint)slot<<32 | fd_uint_if( normal, shred->idx/FD_FEC_SHRED_CNT, (uint)FD_FEC_BLK_MAX );
+    ulong       key     = (ulong)(uint)slot<<32 | fd_uint_if( normal, shred->idx/FD_FEC_SHRED_CNT, (uint)ctx->rotor->fec_blk_max );
     pending_t * pending = reply ? pending_map_ele_query( ctx->pending_map, &key, NULL, ctx->pending_pool ) : NULL;
     for( ; pending; pending = (pending_t *)pending_map_ele_next_const( pending, NULL, ctx->pending_pool ) ) {
       if( FD_LIKELY( fd_rnonce_ss_compute( ctx->rnonce_ss, normal, slot, shred->idx, pending->ts )!=msg->rnonce ) ) continue;
@@ -918,7 +918,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong chain_cnt   = pending_map_chain_cnt_est( pending_max );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_rotor_tile_t),           sizeof(fd_rotor_tile_t)                         );
-  l = FD_LAYOUT_APPEND( l, fd_rotor_align(),                   fd_rotor_footprint( tile->rotor.slot_max, tile->rotor.fec_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_rotor_align(),                   fd_rotor_footprint( tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
   l = FD_LAYOUT_APPEND( l, fd_rotor_strat_align(),             fd_rotor_strat_footprint()                      );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(),     fd_multi_epoch_leaders_footprint()              );
   l = FD_LAYOUT_APPEND( l, ping_deque_align(),                 ping_deque_footprint( FD_ROTOR_STRAT_PEER_MAX ) );
@@ -968,7 +968,7 @@ after_credit( fd_rotor_tile_t *   ctx,
     ctx->metrics->fec_delivered++;
     ctx->metrics->slot_highest_repaired = fd_ulong_if( msg->slot_complete, fd_ulong_max( ctx->metrics->slot_highest_repaired, blk->slot ), ctx->metrics->slot_highest_repaired );
 
-    if( FD_UNLIKELY( msg->slot_complete && ctx->rserve_out_idx!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( msg->slot_complete && ctx->rserve_out_idx!=ULONG_MAX && blk->cmpl_fec_cnt<=FD_FEC_BLK_MAX ) ) { /* rserve serves protocol sized blocks only */
       fd_rotor_block_t * block = fd_chunk_to_laddr( ctx->rserve_out_mem, ctx->rserve_out_chunk );
       block->slot            = blk->slot;
       block->block_id        = blk->dmr;
@@ -1086,7 +1086,7 @@ after_credit( fd_rotor_tile_t *   ctx,
       pending_pool_ele_release   ( ctx->pending_pool, oldest );
     }
     pending_t * pending = pending_pool_ele_acquire( ctx->pending_pool );
-    pending->key         = fd_ulong_if( meta, (ulong)nonce, (ulong)(uint)blk->slot<<32 | fd_uint_if( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX || req.tag==FD_ROTOR_SERDE_TAG_ORPHAN, (uint)FD_FEC_BLK_MAX, req.fec_idx ) ); /* an ORPHAN's first reply is of the slot itself, matched like a HIGHEST */
+    pending->key         = fd_ulong_if( meta, (ulong)nonce, (ulong)(uint)blk->slot<<32 | fd_uint_if( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX || req.tag==FD_ROTOR_SERDE_TAG_ORPHAN, (uint)ctx->rotor->fec_blk_max, req.fec_idx ) ); /* an ORPHAN's first reply is of the slot itself, matched like a HIGHEST */
     pending->ts          = now;
     pending->slot        = blk->slot;
     pending->blk         = req.blk;
@@ -1331,7 +1331,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rotor_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rotor_tile_t),           sizeof(fd_rotor_tile_t)                         );
-  ctx->rotor             = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_align(),                   fd_rotor_footprint( tile->rotor.slot_max, tile->rotor.fec_max ) );
+  ctx->rotor             = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_align(),                   fd_rotor_footprint( tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT ) );
   void * strat           = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_strat_align(),             fd_rotor_strat_footprint()                      );
   void * mleaders        = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(),     fd_multi_epoch_leaders_footprint()              );
   void * ping_deque      = FD_SCRATCH_ALLOC_APPEND( l, ping_deque_align(),                 ping_deque_footprint( FD_ROTOR_STRAT_PEER_MAX ) );
@@ -1347,7 +1347,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  ctx->rotor = fd_rotor_join( fd_rotor_new( ctx->rotor, tile->rotor.slot_max, tile->rotor.fec_max, ctx->seed ) );
+  ctx->rotor = fd_rotor_join( fd_rotor_new( ctx->rotor, tile->rotor.slot_max, tile->rotor.fec_max, tile->rotor.max_shreds_per_block/FD_FEC_SHRED_CNT, ctx->seed ) );
   FD_TEST( ctx->rotor );
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );

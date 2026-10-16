@@ -4,6 +4,7 @@
 
 #define SLOT_MAX (16UL)
 #define FEC_MAX  (SLOT_MAX*AG_EQVOC_BLOCK_HASH_MAX*FD_FEC_BLK_MAX)
+#define BLK_FECS (FD_FEC_BLK_MAX)
 
 static uchar mem    [ 64UL<<20 ] __attribute__((aligned(128UL)));
 static uchar scratch[ 64UL<<20 ] __attribute__((aligned(128UL)));
@@ -126,8 +127,8 @@ is_eager( fd_rotor_t const *     rotor,
 
 static fd_rotor_t *
 setup_in( uchar * buf ) {
-  FD_TEST( fd_rotor_footprint( SLOT_MAX, FEC_MAX )<=sizeof(mem) );
-  fd_rotor_t * rotor = fd_rotor_join( fd_rotor_new( buf, SLOT_MAX, FEC_MAX, 42UL ) );
+  FD_TEST( fd_rotor_footprint( SLOT_MAX, FEC_MAX, BLK_FECS )<=sizeof(mem) );
+  fd_rotor_t * rotor = fd_rotor_join( fd_rotor_new( buf, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
   fd_mr32_t    root  = hash( 0xEE );
   fd_rotor_init( rotor, 0UL, &root, NULL, NULL );
   return rotor;
@@ -415,7 +416,7 @@ test_telemetry_cancelled( void ) {
   fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER, 60L );
   FD_TEST( e1->telemetry.cancelled_reason==FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER && e1->telemetry.cancelled_ts==50L );
 
-  rotor = fd_rotor_join( fd_rotor_new( mem, SLOT_MAX, FEC_MAX, 42UL ) );
+  rotor = fd_rotor_join( fd_rotor_new( mem, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
   fd_rotor_init( rotor, 0UL, &root, report_cancelled, NULL );
   reported_cancelled_ts = 0L; reported_cancelled_reason = 0;
   notar( rotor, 1UL, 0x40 );
@@ -1109,7 +1110,7 @@ test_eager_bit( void ) {
   e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( !e1->eager && !e1->in_blk_treap ); check_eager( rotor, e1 );
 
-  rotor = fd_rotor_join( fd_rotor_new( mem, SLOT_MAX, FEC_MAX, 42UL ) );
+  rotor = fd_rotor_join( fd_rotor_new( mem, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
   fd_rotor_init( rotor, 0UL, &hash_null, NULL, NULL );
   fd_rotor_blk_t * r = fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool );
   FD_TEST( role( rotor, r )==ROLE_FINAL && !r->in_blk_treap ); check_eager( rotor, r );
@@ -1121,7 +1122,7 @@ test_eager_bit( void ) {
 
 static void
 test_genesis( void ) {
-  fd_rotor_t * rotor = fd_rotor_join( fd_rotor_new( mem, SLOT_MAX, FEC_MAX, 42UL ) );
+  fd_rotor_t * rotor = fd_rotor_join( fd_rotor_new( mem, SLOT_MAX, FEC_MAX, BLK_FECS, 42UL ) );
   fd_rotor_init( rotor, 0UL, &hash_null, NULL, NULL );
   fd_mr32_t m10 = hash( 0x11 ), m20 = hash( 0x21 );
 
@@ -1145,6 +1146,33 @@ test_genesis( void ) {
   fecs    ( rotor, 3UL, 0x30, 1U );
   complete( rotor, 3UL, 0UL, 0U, 1, &m30 );
   expect( rotor, n3, 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+}
+
+/* A rotor sized for a raised bench shred limit completes a slot whose
+   last FEC set is past FD_FEC_BLK_MAX. */
+
+static void
+test_raised_blk_max( void ) {
+  ulong        blk_fecs = 4UL*FD_FEC_BLK_MAX;
+  ulong        fec_max  = SLOT_MAX*blk_fecs;
+  FD_TEST( fd_rotor_footprint( SLOT_MAX, fec_max, blk_fecs )<=sizeof(mem) );
+  FD_TEST( !fd_rotor_new( mem, SLOT_MAX, fec_max, FD_FEC_BLK_MAX-1UL, 42UL ) );
+  fd_rotor_t * rotor = fd_rotor_join( fd_rotor_new( mem, SLOT_MAX, fec_max, blk_fecs, 42UL ) );
+  fd_rotor_init( rotor, 0UL, &hash_null, NULL, NULL );
+
+  fd_mr32_t m0 = hash( 0x11 );
+  shred0     ( rotor, 1UL, 0UL, &hash_null, &m0 );
+  complete   ( rotor, 1UL, 0UL, 0U, 0, &m0 );
+  for( uint k=1U; k<(uint)blk_fecs; k++ ) {
+    fd_mr32_t mr; memset( mr.uc, 0, sizeof(fd_mr32_t) ); FD_STORE( uint, mr.uc, k );
+    FD_TEST( complete( rotor, 1UL, 0UL, k, k+1U==(uint)blk_fecs, &mr ) );
+  }
+  ulong            one = 1UL;
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  FD_TEST( e1->cmpl_fec_cnt==blk_fecs && e1->cons_fec_cnt==blk_fecs );
+  FD_TEST( memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  for( uint k=0U; k<(uint)blk_fecs; k++ ) expect( rotor, e1, k );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
 
@@ -2193,6 +2221,7 @@ main( int     argc,
   test_telemetry_final_src();
   test_notarized_shreds_build_eager();
   test_genesis();
+  test_raised_blk_max();
   test_skipped_not_consumed();
   test_complete_below_rcvd();
   test_invalidated_after_whole();

@@ -96,7 +96,7 @@ struct fd_rotor_blk {
   uchar orphan_req   : 1; /* tile: an ORPHAN req was made */
   schar connected    : 2; /* 1 if the root or parent is connected, 0 if not, -1 if stale: relinked by connect_ancestors until connect_descendants */
 
-  ulong fecs[FD_FEC_BLK_MAX]; /* fec_pool idx of each FEC set, null if none */
+  ulong * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
 
   long rcvd_fec_ts; /* when rcvd_fec_cnt last grew */
   struct {
@@ -192,6 +192,7 @@ struct fd_rotor {
   ulong            catchup_slot;
   int              reconsume;    /* replay sent a MISSING_FEC: the next FEC pushed onto reasm_deque goes with its ancestry from the root */
   ulong            slot_max;
+  ulong            fec_blk_max;  /* FEC sets per blk */
 
   fd_rotor_slot_meta_t * slot_meta;   /* indexed by slot % slot_max */
   fd_rotor_blk_t *       blk_pool;
@@ -217,12 +218,14 @@ fd_rotor_align( void );
 
 FD_FN_CONST ulong
 fd_rotor_footprint( ulong slot_max,
-                    ulong fec_max );
+                    ulong fec_max,
+                    ulong fec_blk_max );
 
 void *
 fd_rotor_new( void * shmem,
               ulong  slot_max,
               ulong  fec_max,
+              ulong  fec_blk_max,
               ulong  seed );
 
 fd_rotor_t *
