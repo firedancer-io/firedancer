@@ -5,6 +5,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/sysinfo.h>
 #include <netinet/in.h>
 
 #include "fd_ethtool_ioctl.h"
@@ -86,7 +87,7 @@ fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
   ech.cmd = ETHTOOL_SCHANNELS;
   if( num == 0 ) {
     uint max_queue_count = ech.max_combined ? ech.max_combined : ech.max_rx;
-    num = fd_uint_min( max_queue_count, (uint)fd_shmem_cpu_cnt() );
+    num = fd_uint_min( max_queue_count, (uint)get_nprocs() );
   }
   if( ech.max_combined ) {
     ech.combined_count = num;
@@ -123,7 +124,7 @@ fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t * ioc,
 
   if( FD_LIKELY( ech.combined_count ) ) {
     channels->current = ech.combined_count;
-    channels->max = fd_uint_min( ech.max_combined, (uint)fd_shmem_cpu_cnt() );
+    channels->max = fd_uint_min( ech.max_combined, (uint)get_nprocs() );
     return 0;
   }
   if( ech.rx_count || ech.tx_count ) {
@@ -131,7 +132,7 @@ fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t * ioc,
       FD_LOG_WARNING(( "device `%s` has unbalanced channel count: (got %u rx, %u tx)",
                        ioc->ifr.ifr_name, ech.rx_count, ech.tx_count ));
     channels->current = ech.rx_count;
-    channels->max = fd_uint_min( ech.max_rx, (uint)fd_shmem_cpu_cnt() );
+    channels->max = fd_uint_min( ech.max_rx, (uint)get_nprocs() );
     return 0;
   }
   return EINVAL;

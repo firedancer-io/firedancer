@@ -798,6 +798,8 @@ rx_values( fd_gossip_t *             gossip,
       if( FD_LIKELY( fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr ) ) ) fd_gossip_purged_drain_no_contact_info( gossip->purged, value->origin );
     }
 
+    ulong now_ms = (ulong)FD_NANOSEC_TO_MILLI( now );
+    if( FD_UNLIKELY( value->wallclock+15000UL<now_ms || value->wallclock>now_ms+15000UL ) ) continue;
     fd_active_set_push( gossip->active_set, payload+value->offset, value->length, value->origin, origin_stake, stem, now, 0 );
   }
 }

@@ -80,7 +80,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.2.0-be
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346179946-v4.2.0-beta.1-vat -m 90000000 -e 346179950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v4.2.0-beta.1-vat -m 1000 -e 108
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary-v4.2.0-beta.1-vat -m 1000 -e 2325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-vat-v4.2.0-beta.1-vat -m 3000 -e 1352 -g
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-vat-alpenglow-agave-v4.4-968b24ce --alpenglow -g -m 3000 -e 1360
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-stake-v4.2.0-beta.1-vat -m 3000 -e 541
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-v4.2.0-beta.1-vat -m 2000000 -e 376969880
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347-v4.2.0-beta.1-vat -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64

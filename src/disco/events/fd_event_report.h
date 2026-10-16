@@ -133,6 +133,24 @@ fd_event_report_gather_( ulong                         type,
   fd_event_report_ring_( r );
 }
 
+#define FD_EVENT_TYPE_METRICS_TRIGGER (255UL)
+
+struct fd_event_metrics_trigger {
+  uint  reason;
+  ulong slot;
+  ulong snapct_state;
+};
+
+typedef struct fd_event_metrics_trigger fd_event_metrics_trigger_t;
+
+static inline void
+fd_event_metrics_trigger( uint  reason,
+                          ulong slot,
+                          ulong snapct_state ) {
+  fd_event_metrics_trigger_t t = { .reason = reason, .slot = slot, .snapct_state = snapct_state };
+  fd_event_report_( FD_EVENT_TYPE_METRICS_TRIGGER, &t, sizeof(t) );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_events_fd_event_report_h */

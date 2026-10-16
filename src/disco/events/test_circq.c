@@ -15,6 +15,50 @@ test_fuzz( void ) {
   }
 }
 
+/* bytes_used equals the extents of the queued messages, so a push that
+   wraps does not count the skipped tail, and it returns to 0 when the
+   queue drains.  Extents are recomputed by walking the queue. */
+
+static ulong
+walk_bytes( fd_circq_t const * circq ) {
+  ulong total = 0UL;
+  ulong off   = circq->head;
+  uchar const * buf = (uchar const *)(circq+1);
+  for( ulong i=0UL; i<circq->cnt; i++ ) {
+    ulong const * m = (ulong const *)(buf+off); /* align, footprint, next */
+    total += fd_ulong_align_up( off+3UL*sizeof(ulong), m[0] ) + m[1] - off;
+    off = m[2];
+  }
+  return total;
+}
+
+static void
+test_bytes_used( void ) {
+  static uchar buf[ 4096UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1U, 0UL ) );
+
+  for( ulong i=0UL; i<200000UL; i++ ) {
+    ulong r = fd_rng_ulong_roll( rng, 8UL );
+    if( r<5UL ) {
+      ulong sz = 1UL+fd_rng_ulong_roll( rng, 900UL );
+      FD_TEST( fd_circq_push_back( circq, fd_ulong_pow2( (int)fd_rng_ulong_roll( rng, 6 ) ), sz ) );
+      if( fd_rng_uint_roll( rng, 2U ) ) fd_circq_resize_back( circq, fd_rng_ulong_roll( rng, sz+1UL ) );
+    } else if( circq->cnt ) {
+      ulong msg_sz;
+      while( fd_rng_uint_roll( rng, 2U ) && fd_circq_cursor_advance( circq, &msg_sz ) );
+      if( circq->cursor_seq ) FD_TEST( !fd_circq_pop_until( circq, circq->cursor_seq-1UL ) );
+    }
+    FD_TEST( fd_circq_bytes_used( circq )==walk_bytes( circq ) );
+    FD_TEST( fd_circq_bytes_used( circq )<=circq->size );
+  }
+
+  FD_TEST( !circq->cnt || fd_circq_bytes_used( circq ) );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
 static void
 test_cursor_lifecycle( void ) {
   uchar buf[ 256UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
@@ -333,6 +377,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_fuzz();                         FD_LOG_NOTICE(( "pass: fuzz" ));
+  test_bytes_used();                   FD_LOG_NOTICE(( "pass: bytes_used" ));
   test_cursor_lifecycle();             FD_LOG_NOTICE(( "pass: cursor_lifecycle" ));
   test_ack_protocol();                 FD_LOG_NOTICE(( "pass: ack_protocol" ));
   test_pop_until_rejects_unadvanced_cursor();

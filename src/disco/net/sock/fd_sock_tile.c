@@ -211,6 +211,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->repair_shred_sock_idx = UINT_MAX;
   ctx->tx_sock = -1;
   ctx->bind_address = tile->sock.net.bind_address;
+  ctx->tick_per_ns  = fd_tempo_tick_per_ns( NULL );
   if( tile->sock.only_recv_lo ) {
     ctx->lo_ifindex = if_nametoindex( "lo" );
     if( FD_UNLIKELY( !ctx->lo_ifindex ) ) {
@@ -347,6 +348,17 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   FD_CHECK_ERR( tile->in_cnt<=MAX_NET_INS, "too many input links" );
+
+  /* The loopback-only sock tile has no TX links and is not counted */
+  ctx->tx_tile_idx = 0UL;
+  ctx->tx_tile_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * t = &topo->tiles[ i ];
+    if( strcmp( t->name, "sock" ) || t->sock.only_recv_lo ) continue;
+    if( t->id==tile->id ) ctx->tx_tile_idx = ctx->tx_tile_cnt;
+    ctx->tx_tile_cnt++;
+  }
+  ctx->tx_tile_cnt = fd_ulong_max( ctx->tx_tile_cnt, 1UL );
 
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     if( !strstr( topo->links[ tile->in_link_id[ i ] ].name, "_net" ) ) {
@@ -510,9 +522,11 @@ poll_rx( fd_sock_tile_t *    ctx,
     FD_LOG_ERR(( "Batch is not clean" ));
   }
   ctx->tx_idle_cnt = 0; /* restart TX polling */
-  if( FD_UNLIKELY( fd_syscall_poll( ctx->pollfd, ctx->sock_cnt, ctx->lo_ifindex ? -1 : 0 )<0 ) ) {
+  long wait_ns = ctx->lo_ifindex ? (long)((double)fd_long_max( stem->then-fd_tickcount(), 0L )/ctx->tick_per_ns) : 0L;
+  struct timespec ts = { .tv_sec = wait_ns/1000000000L, .tv_nsec = wait_ns%1000000000L };
+  if( FD_UNLIKELY( ppoll( ctx->pollfd, ctx->sock_cnt, &ts, NULL )<0 ) ) {
     if( FD_UNLIKELY( errno==EINTR ) ) return 0UL;
-    FD_LOG_ERR(( "fd_syscall_poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "ppoll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   for( uint j=0U; j<ctx->sock_cnt; j++ ) {
     if( ctx->pollfd[ j ].revents & (POLLIN|POLLERR) ) {
@@ -590,18 +604,17 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
   ctx->batch_cnt = 0;
 }
 
-/* before_frag is called when a new frag has been detected.  The sock
-   tile can do early filtering here in the future.  For example, it may
-   want to install routing logic here to take turns with an XDP tile.
-   (Fast path with slow fallback) */
+/* before_frag is called when a new frag has been detected.  Every sock
+   tile reads every TX link, so each sends only its share of packets. */
 
 static inline int
-before_frag( fd_sock_tile_t * ctx    FD_PARAM_UNUSED,
+before_frag( fd_sock_tile_t * ctx,
              ulong            in_idx FD_PARAM_UNUSED,
              ulong            seq    FD_PARAM_UNUSED,
              ulong            sig ) {
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
+  if( fd_disco_netmux_sig_hash( sig )%ctx->tx_tile_cnt!=ctx->tx_tile_idx ) return 1;
   return 0; /* continue */
 }
 

@@ -529,6 +529,7 @@ fd_store_has_disk( fd_store_t const * store ) {
 }
 
 #define FD_STORE_DISK_INSERT_ERR       (-1)
+#define FD_STORE_DISK_INSERT_DUP       ( 0)
 #define FD_STORE_DISK_INSERT_SUCCESS   ( 1)
 
 #define FD_STORE_DISK_QUERY_BUSY       (-2)
@@ -550,7 +551,8 @@ typedef struct fd_store_disk_stats fd_store_disk_stats_t;
    version is indexed by (root,idx) and re-inserting a stored (root,idx)
    is a no-op.  The first version stored for a (slot,idx) is also
    indexed by (slot,idx), and without a root map later versions are
-   dropped.  Returns FD_STORE_DISK_INSERT_SUCCESS or
+   dropped.  Returns FD_STORE_DISK_INSERT_SUCCESS if written,
+   FD_STORE_DISK_INSERT_DUP if already stored or dropped, or
    FD_STORE_DISK_INSERT_ERR. */
 
 int

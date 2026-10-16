@@ -45,7 +45,7 @@ def _description(metric: Metric, el: ET.Element) -> str:
 
 def _histogram_buckets(metric: HistogramMetric) -> dict:
     from .write_codegen import _histogram_edges
-    unit = { 'Nanos': 'nanos', 'Bytes': 'bytes', 'Lamports': 'lamports', 'Pct': 'pct' }.get(re.findall(r'[A-Z][a-z0-9]*', metric.name)[-1], '')
+    unit = { 'Nanos': 'nanos', 'Bytes': 'bytes', 'Lamports': 'lamports', 'Pct': 'pct', 'Millicelsius': 'millicelsius', 'Microwatts': 'microwatts', 'Centi': 'centi' }.get(re.findall(r'[A-Z][a-z0-9]*', metric.name)[-1], '')
     bounds = [0] + _histogram_edges(metric)   # left edge of each of the 16 buckets
     fields = {}
     for i in range(16):
@@ -54,13 +54,18 @@ def _histogram_buckets(metric: HistogramMetric) -> dict:
     fields['sum'] = { 'type': 'UInt64', 'compression': 'DoubleDelta, ZSTD', 'description': f'Sum of samples{" (" + unit + ")" if unit else ""}' }
     return fields
 
+def _history(renamed_from: str) -> list:
+    """renamed_from lists every earlier name, oldest first, so a server that
+    missed an intermediate rename still finds its column."""
+    return [ snake(n) for n in renamed_from.split() ]
+
 def _variants(e: MetricEnum) -> dict:
     """LowCardinality variants of an enum; '_from' carries renamed_from."""
     out = {}
     for v in e.values:
         d = { 'description': v.label }
         if v.deprecated:   d['deprecated'] = True
-        if v.renamed_from: d['_from'] = snake(v.renamed_from)
+        if v.renamed_from: d['_from'] = _history(v.renamed_from)
         out[snake(v.name)] = d
     return out
 
@@ -78,9 +83,14 @@ def metric_field(metric: Metric, el: ET.Element) -> dict:
             e = { 'type': t, 'description': v.label }
             if t == 'UInt64': e['compression'] = codec
             if v.deprecated: e['deprecated'] = True
-            if v.renamed_from: e['_from'] = snake(v.renamed_from)
+            if v.renamed_from: e['_from'] = _history(v.renamed_from)
             sub[snake(v.name)] = e
         f = { 'type': 'Tuple', 'description': desc, 'fields': sub }
+        # Summed ALIAS columns <metric>_<name>, one per <group>, plus all live
+        # values for counters (a gauge enum need not be additive)
+        aliases = { snake(g.name): [ snake(v.name) for v in g.values ] for g in metric.enum.groups }
+        if metric.type == MetricType.COUNTER: aliases = { 'all': [ snake(v.name) for v in metric.enum.live() ], **aliases }
+        if t == 'UInt64' and aliases: f['aliases'] = aliases
     elif isinstance(metric, GaugeMetric) and metric.states:
         f = { 'type': 'LowCardinality(String)', 'description': desc, 'variants': _variants(metric.states) }
     elif isinstance(metric, GaugeMetric) and metric.is_bool:
@@ -89,7 +99,7 @@ def metric_field(metric: Metric, el: ET.Element) -> dict:
         f = { 'type': 'DateTime64(9)', 'compression': 'Delta, ZSTD', 'description': desc }
     else:
         f = { 'type': 'UInt64', 'compression': codec, 'description': desc }
-    if 'renamed_from' in el.attrib: f['_from'] = snake(el.attrib['renamed_from'])
+    if 'renamed_from' in el.attrib: f['_from'] = _history(el.attrib['renamed_from'])
     return f
 
 def _shared_types(snapct_states: MetricEnum) -> dict:
@@ -125,12 +135,21 @@ def _sample_fields(link: bool) -> dict:
     return f
 
 def _read(fields: dict) -> list:
-    """Committed message as [(name, field_number, subfields, variants, deprecated, type)];
-    variants are [(name, deprecated)]."""
+    """Committed message as [(name, field_number, subfields, variants, deprecated, type, renamed_from, aliases)];
+    variants are [(name, deprecated, renamed_from)]."""
     return [ ( k, v.get('field_number'), _read(v['fields']) if 'fields' in v else None,
-               [ ( n, bool(d.get('deprecated')) ) for n, d in v['variants'].items() ] if 'variants' in v else None,
-               bool(v.get('deprecated')), v['type'] )
+               [ ( n, bool(d.get('deprecated')), d.get('renamed_from', []) ) for n, d in v['variants'].items() ] if 'variants' in v else None,
+               bool(v.get('deprecated')), v['type'], v.get('renamed_from', []), list(v.get('aliases', {})) )
              for k, v in fields.items() ]
+
+def _check_history(where: str, name: str, hist: list, chist: list, cname: str):
+    """A server may still hold a column or value under any earlier name, so the
+    history only grows: it keeps the committed one and adds the name being
+    renamed away from."""
+    want = chist + ( [ cname ] if name != cname else [] )
+    if hist != want:
+        pascal = lambda n: ''.join( w.capitalize() for w in n.split('_') )
+        raise SystemExit(f'{where}.{name}: renamed_from must list every earlier name, oldest first: renamed_from="{" ".join( pascal( n ) for n in want )}"')
 
 def _committed() -> dict:
     """{schema name: (id, committed fields, deprecated)} from the schema
@@ -153,9 +172,9 @@ def _order(where: str, fields: dict, committed: Optional[list], assign: bool) ->
         out = { k: v for k, v in fields.items() if not v.get('deprecated') }   # never landed: just gone
         csubs = {}
     else:
-        by_from = { v['_from']: k for k, v in fields.items() if '_from' in v }
+        by_from = { old: k for k, v in fields.items() for old in v.get('_from', []) }
         out, csubs = {}, {}
-        for cname, cnum, cfields, cvariants, cdep, ctype in committed:
+        for cname, cnum, cfields, cvariants, cdep, ctype, chist, caliases in committed:
             if cnum is not None: continue   # a provisional entry is an addition
             k = cname if cname in fields else by_from.get(cname)
             if k is None:
@@ -166,6 +185,14 @@ def _order(where: str, fields: dict, committed: Optional[list], assign: bool) ->
                 raise SystemExit(f'{where}.{cname}: committed as {ctype}, now {fields[k]["type"]}; a column type never changes, deprecate it and add a new metric')
             if cdep and not fields[k].get('deprecated'):
                 raise SystemExit(f'{where}.{cname}: committed as deprecated; a tombstone is permanent, add a new metric with a new name instead')
+            hist = fields[k].get('_from', [])
+            _check_history(where, k, hist, chist, cname)
+            if hist: fields[k]['renamed_from'] = hist
+            # An alias is a ClickHouse column; the server refuses to boot when a
+            # live column leaves the schema
+            for a in caliases:
+                if a not in fields[k].get('aliases', {}):
+                    raise SystemExit(f'{where}.{k}: committed alias column {k}_{a} is gone; keep the <group> (an alias column cannot be removed or renamed), or restore the schema from main if it never landed')
             out[k] = fields[k]
             csubs[k] = ( cfields, cvariants )
         for k, v in fields.items():
@@ -189,18 +216,38 @@ def _order_variants(where: str, variants: dict, committed: Optional[list]) -> di
     if committed is None:
         out = { n: d for n, d in variants.items() if not d.get('deprecated') }
     else:
-        by_from = { d['_from']: n for n, d in variants.items() if '_from' in d }
+        by_from = { old: n for n, d in variants.items() for old in d.get('_from', []) }
         out = {}
-        for c, cdep in committed:
+        for c, cdep, chist in committed:
             n = c if c in variants else by_from.get(c)
             if n is None:
                 raise SystemExit(f'{where}: committed value {c} is gone; removing one would renumber the rest.  Mark it deprecated="true" in metrics.xml (or rename with renamed_from)')
             if cdep and not variants[n].get('deprecated'):
                 raise SystemExit(f'{where}: committed value {c} is deprecated; a tombstone is permanent, add a new value with a new name instead')
+            hist = variants[n].get('_from', [])
+            _check_history(where, n, hist, chist, c)
+            if hist: variants[n]['renamed_from'] = hist
             out[n] = variants[n]
         out.update({ n: d for n, d in variants.items() if n not in out and not d.get('deprecated') })
     for d in out.values(): d.pop('_from', None)
     return out
+
+# Columns the event server adds to every table
+SERVER_COLUMNS = { 'timestamp', 'server_timestamp', 'client_ip', 'action', 'identity', 'version', 'commit_hash',
+                   'genesis_hash', 'shred_version', 'instance_id', 'machine_id', 'boot_id', 'event_id', 'link_seq',
+                   'unparsed', 'cluster' }
+
+def _check_columns(name: str, fields: dict):
+    """Every field, Tuple leaf <tuple>_<leaf> and alias <tuple>_<alias> is one
+    ClickHouse column; no two may share a name."""
+    seen = { c: 'server column' for c in SERVER_COLUMNS }
+    def add(col: str, what: str):
+        if col in seen: raise SystemExit(f'{name}: column {col} ({what}) collides with {seen[col]}')
+        seen[col] = what
+    for k, v in fields.items():
+        add(k, k)
+        for leaf in v.get('fields', {}): add(f'{k}_{leaf}', f'{k} value {leaf}')
+        for a in v.get('aliases', {}):   add(f'{k}_{a}', f'{k} alias {a}')
 
 def write_schemas(metrics: Metrics, root: ET.Element, assign: bool = False) -> dict:
     """The sample and <common> fields are inlined in every tile schema
@@ -237,8 +284,9 @@ def write_schemas(metrics: Metrics, root: ET.Element, assign: bool = False) -> d
         if final:      sid = cid
         elif assign:   sid = next_id; next_id += 1
         else:          sid = provisional(name)
-        return { 'name': name, 'id': sid, 'description': description, 'local': True,
-                 'fields': _order(name, fields, cfields if final else None, assign) }
+        ordered = _order(name, fields, cfields if final else None, assign)
+        _check_columns(name, ordered)
+        return { 'name': name, 'id': sid, 'description': description, 'local': True, 'fields': ordered }
 
     common = fields_of('common', metrics.common)
     out = {}

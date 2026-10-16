@@ -254,6 +254,7 @@ struct fd_bank {
   ulong state;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
   uchar is_leader;   /* whether the bank is the leader */
+  fd_pubkey_t leader; /* slot leader of this block */
 
   fd_txncache_fork_id_t  txncache_fork_id __attribute__((aligned(64UL)));
   fd_progcache_fork_id_t progcache_fork_id;
@@ -276,6 +277,10 @@ struct fd_bank {
   long first_transaction_scheduled_nanos;
   long last_transaction_finished_nanos;
   long block_completed_nanos;
+
+  ulong cert_task_cnt; /* footer cert verify tasks out on exec tiles */
+  ulong execution_fees_pre_settle; /* for publish once those are done */
+  ulong priority_fees_pre_settle;
 
   /* This field should only be accessed by the replay and executor
      tiles.  Taken per transaction, so on its own line. */

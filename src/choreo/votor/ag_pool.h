@@ -8,10 +8,11 @@
 #include "ag_vote.h"
 
 #define AG_POOL_SUCCESS                ( 0)
-#define AG_POOL_ERR_SLOT_OUT_OF_BOUNDS (-1)
-#define AG_POOL_ERR_DUPLICATE          (-2)
-#define AG_POOL_ERR_SLASHABLE          (-3)
-#define AG_POOL_ERR_CERT_VERIFY        (-4)
+#define AG_POOL_ERR_SLOT_TOO_OLD       (-1)
+#define AG_POOL_ERR_SLOT_TOO_NEW       (-2)
+#define AG_POOL_ERR_DUPLICATE          (-3)
+#define AG_POOL_ERR_SLASHABLE          (-4)
+#define AG_POOL_ERR_CERT_VERIFY        (-5)
 
 #define AG_POOL_QUORUM_REACHED_FINAL          (AG_CERT_KIND_FINAL)
 #define AG_POOL_QUORUM_REACHED_FAST_FINAL     (AG_CERT_KIND_FAST_FINAL)
@@ -54,6 +55,7 @@ struct ag_pool_metrics {
   ulong slot_state_pool_free;
   ulong finalized_slot;
   ulong pool_events_cnt;
+  ulong bls_verify_cnt;
 };
 typedef struct ag_pool_metrics ag_pool_metrics_t;
 
@@ -93,18 +95,23 @@ ag_pool_leave( ag_pool_t const * pool );
 void *
 ag_pool_delete( void * mem );
 
-/* ag_pool_init starts the pool at root, a finalized block that is
-   treated as notarized (Section 2.9). */
+/* ag_pool_from_snapshot starts the pool at root, a finalized block
+   that is treated as notarized (Section 2.9). */
 
 void
-ag_pool_init( ag_pool_t *           self,
-              ag_block_id_t const * root );
+ag_pool_from_snapshot( ag_pool_t *           self,
+                       ag_block_id_t const * root );
+
+/* ag_pool_from_genesis starts the pool at the genesis block.  Like
+   ag_pool_from_snapshot, but also makes genesis+1 ParentReady (see
+   ag_parent_ready_tracker_mark_root). */
+
+void
+ag_pool_from_genesis( ag_pool_t *           self,
+                      ag_block_id_t const * genesis );
 
 void
 ag_pool_fini( ag_pool_t * self );
-
-FD_FN_CONST char const *
-ag_pool_strerror( int err );
 
 FD_FN_PURE ag_pool_metrics_t
 ag_pool_metrics( ag_pool_t const * self );

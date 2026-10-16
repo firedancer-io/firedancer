@@ -8,10 +8,13 @@
 #include "../../../disco/keyguard/fd_keyload.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
+#include "../../../choreo/votor/ag_vote_history_serde.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <strings.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <sys/resource.h>
 
@@ -41,29 +44,6 @@ set_identity_cmd_args( int *    pargc,
   (*pargc)--;
   (*pargv)++;
 
-  /* Copy in the contents of the vote history or tower file into a fixed
-     size buffer.*/
-  args->set_identity.vote_history_sz = 0UL;
-  if( vote_history_file ) {
-    int fd = open( vote_history_file, O_RDONLY );
-    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
-
-    int err = fd_io_read( fd, args->set_identity.vote_history,
-                         sizeof(args->set_identity.vote_history), sizeof(args->set_identity.vote_history),
-                         &args->set_identity.vote_history_sz );
-    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( err>0 ) ) FD_LOG_ERR(( "read(%s) failed (%i-%s)", vote_history_file, err, fd_io_strerror( err ) ));
-    if( FD_UNLIKELY( !args->set_identity.vote_history_sz ) ) {
-      FD_LOG_ERR(( "vote history file %s is empty.  If you wish to change a running validator's identity without "
-                   "a vote history file, you can omit the --vote-history-file argument.", vote_history_file ));
-    }
-    if( FD_UNLIKELY( args->set_identity.vote_history_sz>AG_VOTE_HISTORY_FILE_MAX ) ) {
-      FD_LOG_ERR(( "vote history file %s exceeds %lu bytes.  The firedancer validator will not be able to process this file. "
-                   "Retry without the --vote-history-file argument.", vote_history_file, AG_VOTE_HISTORY_FILE_MAX ));
-
-    }
-  }
-
   if( FD_UNLIKELY( !strcmp( path, "-" ) ) ) {
     uchar * keypair_wr = fd_keyload_alloc_protected_pages( 1UL, 2UL );
     FD_LOG_STDOUT(( "Reading identity keypair from stdin.  Press Ctrl-D when done.\n" ));
@@ -73,6 +53,41 @@ set_identity_cmd_args( int *    pargc,
     args->set_identity.keypair = fd_keyload_load( path, 0 );
   }
 
+  /* Scan a vote history file for the slot to wait to vote past, which
+     is all the validator needs, or copy in a tower file. */
+
+  args->set_identity.wait_to_vote_slot = 0UL;
+  args->set_identity.tower_file_sz     = 0UL;
+  if( vote_history_file ) {
+    int fd = open( vote_history_file, O_RDONLY );
+    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
+    struct stat st;
+    if( FD_UNLIKELY( -1==fstat( fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
+    ulong sz = (ulong)st.st_size;
+    if( FD_UNLIKELY( !sz ) ) {
+      FD_LOG_ERR(( "vote history file %s is empty.  If you wish to change a running validator's identity without "
+                   "a vote history file, you can omit the --vote-history-file argument.", vote_history_file ));
+    }
+    uchar const * file = mmap( NULL, sz, PROT_READ, MAP_PRIVATE, fd, 0 );
+    if( FD_UNLIKELY( file==MAP_FAILED ) ) FD_LOG_ERR(( "mmap(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    if( FD_LIKELY( sz>=sizeof(uint) && FD_LOAD( uint, file )==AG_VOTE_HISTORY_SERDE_KIND ) ) {
+      int err = ag_vote_history_de( file, sz, args->set_identity.keypair+32UL, &args->set_identity.wait_to_vote_slot );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_ERR(( "vote history file %s is invalid (%i) or does not belong to the new identity.  If you believe the "
+                     "vote history file is valid, please contact the Firedancer team for additional assistance.", vote_history_file, err ));
+      }
+    } else {
+      if( FD_UNLIKELY( sz>sizeof(args->set_identity.tower_file) ) ) {
+        FD_LOG_ERR(( "tower file %s exceeds %lu bytes.  The firedancer validator will not be able to process this file. "
+                     "Retry without the --vote-history-file argument.", vote_history_file, sizeof(args->set_identity.tower_file) ));
+      }
+      fd_memcpy( args->set_identity.tower_file, file, sz );
+      args->set_identity.tower_file_sz = sz;
+    }
+    if( FD_UNLIKELY( munmap( (void *)file, sz ) ) ) FD_LOG_ERR(( "munmap(%s) failed (%i-%s)", vote_history_file, errno, fd_io_strerror( errno ) ));
+  }
   return;
 
 err:
@@ -107,10 +122,11 @@ set_identity( args_t *   args,
   if( FD_UNLIKELY( sizeof(fd_adminctl_set_identity_t)>payload_max ) ) FD_LOG_ERR(( "adminctl set-identity payload too large" ));
 
   fd_adminctl_set_identity_t * req = (fd_adminctl_set_identity_t *)payload;
-  req->version         = FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION;
-  req->vote_history_sz = args->set_identity.vote_history_sz;
+  req->version           = FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION;
+  req->wait_to_vote_slot = args->set_identity.wait_to_vote_slot;
+  req->tower_file_sz     = args->set_identity.tower_file_sz;
   memcpy( req->keypair, args->set_identity.keypair, 64UL );
-  memcpy( req->vote_history, args->set_identity.vote_history, args->set_identity.vote_history_sz );
+  memcpy( req->tower_file, args->set_identity.tower_file, args->set_identity.tower_file_sz );
 
   uchar * keypair_wr = fd_keyload_mprotect_wr( args->set_identity.keypair, 0 );
   fd_memzero_explicit( keypair_wr, 64UL );

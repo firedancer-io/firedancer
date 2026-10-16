@@ -2174,16 +2174,16 @@ FD_UNIT_TEST( spill_lock ) {
 }
 
 #if FD_HAS_THREADS
-/* test_spill_concurrent: many threads share one progcache sized so that the
-   records they hold outnumber the class's slots.  Eviction therefore cannot
-   satisfy everyone and the surplus must come from the spill, whose ws lock has
-   a single holder cache-wide -- so the threads serialise on it.  A watchdog
-   fails the test if forward progress stalls (deadlock or a lost wakeup); an
-   integrity check on every pulled program (rodata_sz must match the reference)
-   catches spad corruption from a broken lock.  CONC_HOLD stays
-   <= FD_MAX_INSTRUCTION_STACK_DEPTH so whoever holds the spill can always run
-   to completion and release it, which is what makes the serialisation
-   progress rather than deadlock. */
+/* test_spill_concurrent: many threads share one progcache whose class the
+   admin pins down to fewer free slots than one thread holds.  Eviction
+   therefore cannot satisfy everyone and the surplus must come from the spill,
+   whose ws lock has a single holder cache-wide -- so the threads serialise on
+   it.  A watchdog fails the test if forward progress stalls (deadlock or a
+   lost wakeup); an integrity check on every pulled program (rodata_sz must
+   match the reference) catches spad corruption from a broken lock.  CONC_HOLD
+   stays <= FD_MAX_INSTRUCTION_STACK_DEPTH so whoever holds the spill can
+   always run to completion and release it, which is what makes the
+   serialisation progress rather than deadlock. */
 
 #define CONC_NTHREAD 8UL
 #define CONC_HOLD    4UL
@@ -2338,9 +2338,6 @@ FD_UNIT_TEST( cancel_concurrent_readers ) {
 FD_UNIT_TEST( spill_concurrent ) {
   ulong wksp_tag = 1UL;
   ulong txn_max  = 64UL;
-  /* Class 0 sits at its 50-slot minimum and the CONC_NTHREAD*CONC_HOLD records
-     held at once fit in it: the spills come from sweeps whose draws all land on
-     records whose fork lock a peer holds. */
   ulong progcache_sz = fd_progcache_shmem_min_sz( txn_max );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_sz ), wksp_tag );
@@ -2364,6 +2361,20 @@ FD_UNIT_TEST( spill_concurrent ) {
   FD_TEST( rr && rr->rodata_sz>0U );
   ulong ref_rodata_sz = rr->rodata_sz;
   fd_progcache_rec_close( admin, rr );
+
+  /* Pin class 0 down to CONC_HOLD-1 free slots so every worker iteration
+     spills. */
+  ulong pin_cnt = shmem->cache.class_max[ 0 ] - CONC_HOLD + 1UL;
+  fd_progcache_rec_t ** pin = fd_wksp_alloc_laddr( wksp, alignof(fd_progcache_rec_t *), pin_cnt*sizeof(fd_progcache_rec_t *), wksp_tag );
+  FD_TEST( pin );
+  ulong spill0 = admin->metrics->spill_cnt;
+  for( ulong i=0UL; i<pin_cnt; i++ ) {
+    fd_pubkey_t pk = test_key( 900000000UL + i );
+    test_account_init( racc, &pk, &fd_solana_bpf_loader_program_id, 1, valid_program_data, valid_program_data_sz );
+    pin[i] = fd_progcache_pull( admin, fork, &pk, &load_env, racc->entry );
+    FD_TEST( pin[i] && pin[i]->data_gaddr );
+  }
+  FD_TEST( admin->metrics->spill_cnt==spill0 );
 
   atomic_int stop; atomic_store( &stop, 0 );
   struct conc_ctx ctx[ CONC_NTHREAD ];
@@ -2399,7 +2410,9 @@ FD_UNIT_TEST( spill_concurrent ) {
     FD_TEST( 0==pthread_join( th[i], NULL ) );
     spills += atomic_load_explicit( &ctx[i].spills, memory_order_relaxed );
   }
-  FD_TEST( spills>0UL );                              /* the spill path was actually exercised */
+  FD_TEST( spills>=prev );                            /* every iteration spilled */
+  for( ulong i=pin_cnt; i>0UL; i-- ) fd_progcache_rec_close( admin, pin[i-1UL] );
+  fd_wksp_free_laddr( pin );
   FD_TEST( !fd_progcache_verify( admin->join ) );     /* structural integrity after the storm */
   FD_LOG_NOTICE(( "spill_concurrent: %lu threads x %lu-deep, iters=%lu, spills=%lu -> no deadlock, no corruption",
                   CONC_NTHREAD, CONC_HOLD, prev, spills ));

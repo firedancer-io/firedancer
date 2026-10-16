@@ -2,17 +2,6 @@
 
 #include "../../third_party/blst/bindings/blst.h"
 
-/* Compressed public keys are only needed to exercise the compressed arm
-   of fd_bls_pub_de; ag_bls has no compressor of its own. */
-
-static void
-pub_compress( uchar                out[ FD_BLS_PUB_COMPRESSED_SZ ],
-              fd_bls_pub_t const * pub ) {
-  blst_p1_affine a[1];
-  blst_p1_to_affine( a, pub );
-  blst_p1_affine_compress( out, a );
-}
-
 /* Golden bitmap vectors.
 
    ag_bls_agg_ser and ag_bls_agg_de speak the solana_signer_store bitmap
@@ -208,10 +197,12 @@ test_roundtrip( void ) {
     fd_bls_sec_to_pub( &sk[i], pk+i );
     fd_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
     blst_p2 one; blst_p2_from_affine( &one, sig+i );
+    blst_p1 own; blst_p1_from_affine( &own, pk+i );
+    blst_p1 oth; blst_p1_from_affine( &oth, pk+(i+1UL)%N );
 
-    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, pk+i,         &one ) );
-    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, pk+(i+1UL)%N, &one ) );
-    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    pk+i,         &one ) );
+    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, &own, &one ) );
+    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, &oth, &one ) );
+    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    &own, &one ) );
   }
 
   FD_LOG_NOTICE(( "blst sig round trip pass" ));
@@ -235,7 +226,8 @@ test_derive( void ) {
   ulong         msg_sz = 16UL;
   fd_bls_sig_t  sig; fd_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
   blst_p2       one; blst_p2_from_affine( &one, &sig );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pk, &one ) );
+  blst_p1       pub; blst_p1_from_affine( &pub, &pk );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pub, &one ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
@@ -259,11 +251,10 @@ test_ref_api( void ) {
   }
 
   /* PublicKey::try_from_bytes -- compressed and affine both round trip */
-  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ];
-  pub_compress( comp, pk );
+  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_affine_compress ( comp, pk );
+  uchar aff [ FD_BLS_PUB_SZ ];            blst_p1_affine_serialize( aff,  pk );
   fd_bls_pub_t from_comp, from_aff;
   FD_TEST( !fd_bls_pub_de( &from_comp, comp,        sizeof(comp)     ) );
-  uchar aff[ FD_BLS_PUB_SZ ]; { blst_p1_affine a[1]; blst_p1_to_affine( a, pk ); blst_p1_affine_serialize( aff, a ); }
   FD_TEST( !fd_bls_pub_de( &from_aff,  aff,         FD_BLS_PUB_SZ    ) );
   FD_TEST( !memcmp( &from_comp, pk, sizeof(fd_bls_pub_t) ) );
   FD_TEST( !memcmp( &from_aff,  pk, sizeof(fd_bls_pub_t) ) );
@@ -276,17 +267,16 @@ test_ref_api( void ) {
 
 static void
 test_pub_sum( void ) {
-  ulong const    N = 64UL;
-  blst_p1_affine key[ 64 ];
-  fd_bls_sec_t   sk;
+  ulong const  N = 64UL;
+  fd_bls_pub_t key[ 64 ];
+  fd_bls_sec_t sk;
   for( ulong i=0UL; i<N; i++ ) {
     fd_memset( &sk, 0, FD_BLS_SEC_SZ );
     sk.b[0] = (uchar)( i+1UL ); sk.b[1] = (uchar)( i*7UL );
-    fd_bls_pub_t pk; fd_bls_sec_to_pub( &sk, &pk );
-    blst_p1_to_affine( key+i, &pk );
+    fd_bls_sec_to_pub( &sk, key+i );
   }
   fd_bls_set_t set[ fd_bls_set_word_cnt ];
-  fd_bls_pub_t full[1], bad[1];
+  blst_p1 full[1], bad[1];
   fd_bls_pub_sum( full, key, N, fd_bls_set_range( set, 0UL, N ), NULL );
   fd_bls_pub_sum( bad,  key, N, fd_bls_set_range( set, 1UL, N ), NULL );
 
@@ -294,8 +284,8 @@ test_pub_sum( void ) {
   for( ulong cnt=0UL; cnt<=N; cnt++ ) {
     fd_bls_set_null( set );
     while( fd_bls_set_cnt( set )<cnt ) fd_bls_set_insert( set, fd_rng_ulong_roll( rng, N ) );
-    fd_bls_pub_t exp[1], got[1], neg[1];
-    fd_memset( exp, 0, sizeof(fd_bls_pub_t) );
+    blst_p1 exp[1], got[1], neg[1];
+    fd_memset( exp, 0, sizeof(blst_p1) );
     for( ulong i=0UL; i<N; i++ ) if( fd_bls_set_test( set, i ) ) blst_p1_add_or_double_affine( exp, exp, key+i );
     fd_bls_pub_sum( got, key, N, set, full );
     FD_TEST( blst_p1_is_equal( got, exp ) );
@@ -306,6 +296,132 @@ test_pub_sum( void ) {
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pub sum pass" ));
+}
+
+/* fd_bls_agg_verify_bisect must agree with the linear scan for any
+   pattern of bad signers: none, one, several straddling the splits,
+   the whole set, and a set whose signatures cancel to infinity. */
+
+static void
+test_bisect( void ) {
+  uchar const * msg    = (uchar const *)"bisect";
+  ulong         msg_sz = 6UL;
+  ulong const   N      = 100UL;
+
+  fd_bls_sec_t sk  [ 100 ];
+  fd_bls_pub_t pk  [ 100 ];
+  fd_bls_sig_t good[ 100 ];
+  fd_bls_sig_t sig [ 100 ];
+  for( ulong i=0UL; i<N; i++ ) {
+    fd_memset( &sk[i], 0, FD_BLS_SEC_SZ );
+    sk[i].b[0] = (uchar)( i+1UL ); sk[i].b[1] = (uchar)( i*3UL );
+    fd_bls_sec_to_pub( &sk[i], pk+i );
+    fd_bls_sec_sign( &sk[i], msg, msg_sz, good+i );
+  }
+
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 42U, 0UL ) );
+  fd_bls_set_t set[ fd_bls_set_word_cnt ], poison[ fd_bls_set_word_cnt ], exp[ fd_bls_set_word_cnt ], got[ fd_bls_set_word_cnt ];
+  for( ulong trial=0UL; trial<40UL; trial++ ) {
+    ulong set_cnt = 1UL+fd_rng_ulong_roll( rng, N );
+    fd_bls_set_null( set );
+    while( fd_bls_set_cnt( set )<set_cnt ) fd_bls_set_insert( set, fd_rng_ulong_roll( rng, N ) );
+
+    /* trial 0: nothing bad, trial 1: everything bad, else a random subset */
+    ulong bad_cnt = trial==0UL ? 0UL : trial==1UL ? set_cnt : fd_rng_ulong_roll( rng, set_cnt+1UL );
+    fd_bls_set_null( poison );
+    while( fd_bls_set_cnt( poison )<bad_cnt ) {
+      ulong rank = fd_rng_ulong_roll( rng, N );
+      if( fd_bls_set_test( set, rank ) ) fd_bls_set_insert( poison, rank );
+    }
+    for( ulong i=0UL; i<N; i++ ) sig[i] = fd_bls_set_test( poison, i ) ? good[ (i+1UL)%N ] : good[i];
+
+    fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
+    fd_bls_agg_construct( agg, pk, sig, set );
+
+    fd_bls_agg_verify_linear( agg, msg, msg_sz, pk, sig, exp );
+    FD_TEST( fd_bls_set_eq( exp, poison ) );
+    fd_bls_agg_verify_bisect( agg, msg, msg_sz, pk, sig, got );
+    FD_TEST( fd_bls_set_eq( got, poison ) );
+
+    fd_bls_agg_t sub[1] = { *agg };
+    int err = fd_bls_agg_verify_subtract( sub, msg, msg_sz, pk, sig, got );
+    FD_TEST( fd_bls_set_eq( got, poison ) );
+    FD_TEST( ( err!=0 )==( bad_cnt==set_cnt ) );
+    fd_bls_set_subtract( exp, set, poison );
+    FD_TEST( fd_bls_set_eq( sub->set, exp ) );
+    if( FD_LIKELY( !err ) ) FD_TEST( fd_bls_agg_verify( msg, msg_sz, &sub->pub, &sub->sig ) );
+  }
+
+  /* two signers whose bogus signatures cancel: the aggregate sig is the
+     point at infinity, so the top level fails without implicating a
+     half, and both signers must still be found */
+  sig[0] = good[1];
+  sig[1] = good[1]; blst_fp2_cneg( &sig[1].y, &sig[1].y, 1 );
+  fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
+  fd_bls_agg_construct( agg, pk, sig, fd_bls_set_range( set, 0UL, 2UL ) );
+  FD_TEST( blst_p2_is_inf( &agg->sig ) );
+  fd_bls_agg_verify_bisect( agg, msg, msg_sz, pk, sig, got );
+  FD_TEST( fd_bls_set_eq( got, set ) );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+  FD_LOG_NOTICE(( "bisect pass" ));
+}
+
+/* Benchmark the bad-signer search.  N signers of which bad_cnt are
+   poisoned; reports the mean cost of one fd_bls_agg_verify_bisect
+   call and the linear scan for comparison. */
+
+static void
+bench_bisect( ulong N,
+              ulong bad_cnt,
+              int   scattered,
+              fd_bls_pub_t const * pk,
+              fd_bls_sig_t const * good,
+              fd_bls_sig_t *       sig ) {
+  fd_bls_set_t set[ fd_bls_set_word_cnt ], bad[ fd_bls_set_word_cnt ];
+  fd_bls_set_range( set, 0UL, N );
+  for( ulong i=0UL; i<N; i++ ) sig[i] = good[i];
+  /* scattered: bad signers spread evenly across the rank order (worst
+     case for the bisect); otherwise clustered at the lowest-stake end
+     (the case the stake-sorted descent is tuned for) */
+  for( ulong j=0UL; j<bad_cnt; j++ ) {
+    ulong i = scattered ? ( j*N )/bad_cnt + N/( 2UL*bad_cnt ) : N-1UL-j;
+    sig[i] = good[ (i+1UL)%N ];
+  }
+  fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
+  fd_bls_agg_construct( agg, pk, sig, set );
+
+  uchar const * msg = (uchar const *)"bisect"; ulong msg_sz = 6UL;
+  ulong iter = 5UL;
+  long dt_b = fd_log_wallclock();
+  for( ulong it=0UL; it<iter; it++ ) fd_bls_agg_verify_bisect( agg, msg, msg_sz, pk, sig, bad );
+  dt_b = fd_log_wallclock()-dt_b;
+  FD_TEST( fd_bls_set_cnt( bad )==bad_cnt );
+  long dt_l = fd_log_wallclock();
+  for( ulong it=0UL; it<iter; it++ ) fd_bls_agg_verify_linear( agg, msg, msg_sz, pk, sig, bad );
+  dt_l = fd_log_wallclock()-dt_l;
+  FD_LOG_NOTICE(( "N=%4lu bad=%3lu %-9s bisect %9.3f ms  linear %9.3f ms", N, bad_cnt, scattered ? "scattered" : "clustered",
+                  (double)dt_b/(double)iter*1e-6, (double)dt_l/(double)iter*1e-6 ));
+}
+
+static void
+test_bench( void ) {
+  ulong const N = 1000UL;
+  static fd_bls_pub_t pk  [ 1000 ];
+  static fd_bls_sig_t good[ 1000 ];
+  static fd_bls_sig_t sig [ 1000 ];
+  uchar const * msg = (uchar const *)"bisect"; ulong msg_sz = 6UL;
+  for( ulong i=0UL; i<N; i++ ) {
+    fd_bls_sec_t sk; fd_memset( &sk, 0, FD_BLS_SEC_SZ );
+    sk.b[0] = (uchar)( i+1UL ); sk.b[1] = (uchar)( i>>8 ); sk.b[2] = 7;
+    fd_bls_sec_to_pub( &sk, pk+i );
+    fd_bls_sec_sign( &sk, msg, msg_sz, good+i );
+  }
+  ulong const bad_cnts[] = { 1UL, 2UL, 8UL, 32UL };
+  for( ulong k=0UL; k<sizeof(bad_cnts)/sizeof(bad_cnts[0]); k++ ) {
+    bench_bisect( N, bad_cnts[k], 0, pk, good, sig );
+    bench_bisect( N, bad_cnts[k], 1, pk, good, sig );
+  }
 }
 
 int
@@ -319,6 +435,8 @@ main( int     argc,
   test_derive();
   test_ref_api();
   test_pub_sum();
+  test_bisect();
+  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( &argc, &argv, "--bench" ) ) ) test_bench();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

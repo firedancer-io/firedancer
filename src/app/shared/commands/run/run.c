@@ -26,6 +26,7 @@
 #include "../../../../disco/waker/fd_waker.h"
 #include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
+#include "../../../../discof/restore/utils/fd_wfs.h"
 
 #include "../configure/configure.h"
 #include "../configure/fd_cpu_isolation.h"
@@ -43,6 +44,10 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/capability.h>
+
+#if defined(__x86_64__)
+#include <cpuid.h>
+#endif
 
 #include "../../../../util/tile/fd_tile_private.h"
 
@@ -1007,6 +1012,18 @@ initialize_stacks( config_t const * config ) {
 
 void
 fdctl_check_configure( config_t const * config ) {
+# if defined(__x86_64__)
+  uint eax, ebx, ecx, edx;
+  if( FD_LIKELY( __get_cpuid_count( 7U, 0U, &eax, &ebx, &ecx, &edx ) ) ) {
+    int cpu_avx512 = ((ebx>>16)&1U) && ((ebx>>21)&1U); /* avx512f, avx512ifma */
+    int cpu_gfni   = (int)((ecx>>8)&1U);
+    if( FD_UNLIKELY( (cpu_avx512 && !FD_HAS_AVX512) || (cpu_gfni && !FD_HAS_GFNI) ) )
+      FD_LOG_WARNING(( "This CPU supports%s%s but the binary was built without them, so it runs slower code paths. "
+                       "Rebuild on this host with MACHINE=native, or with a MACHINE matching this CPU.",
+                       (cpu_avx512 && !FD_HAS_AVX512) ? " AVX-512" : "", (cpu_gfni && !FD_HAS_GFNI) ? " GFNI" : "" ));
+  }
+# endif
+
   configure_result_t check = fd_cfg_stage_hugetlbfs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `%s configure init hugetlbfs` "
@@ -1081,6 +1098,18 @@ fdctl_check_configure( config_t const * config ) {
                      "Floating tiles need their CPUs scheduled: drop them from isolcpus= and isolate them with "
                      "`%s configure init cpuset` instead.", tile->name, tile->kind_id, tile->cpu_idx, FD_BINARY_NAME ));
     }
+  }
+
+  FD_CPUSET_DECL( partition );
+  fd_cpu_isolation_partition_cpus( partition, &config->topo );
+  FD_CPUSET_DECL( housekeeping );
+  fd_cpuset_subtract( housekeeping, fd_cpu_isolation_online_cpus( housekeeping ), partition );
+  if( FD_UNLIKELY( fd_cpuset_cnt( partition ) && fd_cpuset_cnt( housekeeping )<2UL ) ) {
+    char list[ FD_CPU_ISOLATION_LIST_MAX ];
+    FD_LOG_WARNING(( "only %lu online CPU(s) (%s) remain outside Firedancer tile CPUs and their isolated hyperthread "
+                     "siblings for the kernel, interrupts and other processes. Consider reducing tile counts or "
+                     "adding to [layout.blocklist_cores].", fd_cpuset_cnt( housekeeping ),
+                     fd_cpu_isolation_format_list( list, sizeof(list), housekeeping ) ));
   }
 
   if( FD_LIKELY( fd_cfg_stage_cpuset.enabled( config ) ) ) {
@@ -1334,7 +1363,10 @@ initialize_snapshot_fds( config_t const * config ) {
   int dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
   fd_snap_pool_layout_t layout = fd_snap_pool_layout( config->firedancer.snapshots.max_full_snapshots_to_keep,
                                                       config->firedancer.snapshots.max_incremental_snapshots_to_keep,
-                                                      config->firedancer.snapshots.incremental_snapshots,
+                                                      fd_wfs_needs_incr( config->firedancer.snapshots.incremental_snapshots,
+                                                                         config->firedancer.consensus.wait_for_supermajority_at_slot,
+                                                                         !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ),
+                                                                         (ulong)config->consensus.expected_shred_version ),
                                                       download_enabled );
   ulong snap_full_max     = layout.full_max;
   ulong snap_incr_max     = layout.incr_max;

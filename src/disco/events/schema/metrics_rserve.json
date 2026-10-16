@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -48,7 +56,12 @@
         },
         "thread_duration_nanos": {
             "type": "Tuple",
-            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,18 +73,24 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "tlb_shootdown":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "timer_irq":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "device_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "request_rx": {
             "type": "Tuple",
             "description": "Requests with a supported tag and correct size (pongs on tag alone), by type, before identity, signature and ping checks",
+            "aliases": {
+                "all": ["pong", "window_index", "highest_window_index", "orphan", "parent_fec_set_count", "fec_set_root", "window_index_for_block_id"]
+            },
             "fields": {
                 "pong":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong" },
                 "window_index":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index" },
@@ -86,6 +105,9 @@
         "request_malformed": {
             "type": "Tuple",
             "description": "Packets dropped before parsing, by reason",
+            "aliases": {
+                "all": ["too_small", "unsupported_ping", "unknown_tag", "wrong_size", "unsupported_ancestor_hashes"]
+            },
             "fields": {
                 "too_small":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Packet shorter than a message tag" },
                 "unsupported_ping":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ping sent to the repair server port" },
@@ -97,6 +119,9 @@
         "request_dropped": {
             "type": "Tuple",
             "description": "Requests dropped during validation, by reason",
+            "aliases": {
+                "all": ["signature_failed", "from_self", "wrong_recipient", "timestamp_skew", "pong_token_invalid", "shred_index_invalid", "fec_set_index_invalid"]
+            },
             "fields": {
                 "signature_failed":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Signature failed to verify" },
                 "from_self":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sent by our own identity" },
@@ -110,6 +135,9 @@
         "request_unanswered": {
             "type": "Tuple",
             "description": "Valid requests that could not be answered, by type",
+            "aliases": {
+                "all": ["pong", "window_index", "highest_window_index", "orphan", "parent_fec_set_count", "fec_set_root", "window_index_for_block_id"]
+            },
             "fields": {
                 "pong":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong" },
                 "window_index":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index" },
@@ -124,6 +152,9 @@
         "response_tx": {
             "type": "Tuple",
             "description": "Response packets sent, by type; Orphan sends up to 11 per request",
+            "aliases": {
+                "all": ["ping", "window_index", "highest_window_index", "orphan", "parent_fec_set_count", "fec_set_root", "window_index_for_block_id"]
+            },
             "fields": {
                 "ping":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ping sent to a requester not yet in the ping cache" },
                 "window_index":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index" },
@@ -138,6 +169,9 @@
         "disk_read_attempted": {
             "type": "Tuple",
             "description": "Store reads for repair responses, by result",
+            "aliases": {
+                "all": ["success", "miss", "busy", "scan_limit"]
+            },
             "fields": {
                 "success":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Read served from the store" },
                 "miss":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Not in the store" },

@@ -586,7 +586,7 @@ test_identity_partition( void ) {
   ulong n = 11UL;
   generate_validators( n );
   fd_bls_pub_t neg; FD_TEST( !fd_bls_pub_de( &neg, g_info[3].bls_key, sizeof(ag_bls_key_t) ) );
-  blst_p1_cneg( &neg, 1 ); blst_p1_compress( g_info[4].bls_key, &neg );
+  blst_fp_cneg( &neg.y, &neg.y, 1 ); blst_p1_affine_compress( g_info[4].bls_key, &neg );
   void * em; ag_epoch_info_t * epoch_info = make_epoch( n, &em );
   ulong slot = 5UL;
   ag_block_hash_t hash; random_hash( hash );
@@ -612,7 +612,7 @@ test_identity_partition( void ) {
   FD_TEST( t.ok && fd_bls_set_is_null( t.o.bad ) && t.o.certs_cnt==1UL && t.o.certs[0].kind==AG_CERT_KIND_NOTAR_FALLBACK );
   ag_cert_notar_fallback_t const * cert = &t.o.certs[0].notar_fallback;
   FD_TEST( cert->stake==7UL && fd_bls_set_is_null( cert->agg_notar.set ) && fd_bls_set_cnt( cert->agg_notar_fallback.set )==7UL );
-  FD_TEST( ag_cert_verify( &t.o.certs[0], epoch_info ) );
+  FD_TEST( ag_cert_verify( &t.o.certs[0], epoch_info )==AG_CERT_VERIFY_SUCCESS );
 
   ag_vote_t v9 = ag_vote_construct_notar( sec_sign_fn, &g_sk[9], test_bls_public_key, slot, hash, 9UL, TEST_SHRED_VERSION );
   add_vote_helper( ss, &v9, epoch_info, &t );
@@ -921,7 +921,7 @@ test_notar_fallback_removes_head_middle_tail( void ) {
   ag_vote_t honest = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, hash[1], 1UL, TEST_SHRED_VERSION );
   add_vote_helper( ss, &honest, epoch_info, &t );
   FD_TEST( t.ok && fd_bls_set_is_null( t.o.bad ) && t.o.certs_cnt==1UL && t.o.certs[0].kind==AG_CERT_KIND_NOTAR_FALLBACK && t.o.certs[0].notar_fallback.stake==21UL );
-  FD_TEST( ag_cert_verify( &t.o.certs[0], epoch_info ) );
+  FD_TEST( ag_cert_verify( &t.o.certs[0], epoch_info )==AG_CERT_VERIFY_SUCCESS );
   ag_slot_state_null( ss, &g_states );
   assert_maps_empty( ss );
   free( em );

@@ -136,6 +136,7 @@ struct ag_slot_states {
   ag_epoch_info_t const * next_epoch_info;
   ulong                   next_epoch_rank;
   ulong                   next_epoch_slot;
+  ulong                   bls_verify_cnt;
 };
 typedef struct ag_slot_states ag_slot_states_t;
 

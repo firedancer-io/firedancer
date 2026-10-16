@@ -43,7 +43,7 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 398
+        count_gigantic: 220
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v7
@@ -166,7 +166,7 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 398
+        count_gigantic: 220
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v7
@@ -223,6 +223,10 @@ jobs:
     - run: contrib/ci/bench/bench.sh snapshot base
       continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
     - run: contrib/ci/bench/bench.sh snapshot new
+    - name: Free RAM disk  # brd keeps its pages until rmmod
+      if: always()
+      continue-on-error: true
+      run: sudo killall -w firedancer-dev 2>/dev/null || true; findmnt -rn -o TARGET -S /dev/ram0 | xargs -r sudo umount || true; sudo rmmod brd 2>/dev/null || true
 
     - name: Update PR comment (done)
       if: always() && github.event_name == 'pull_request'
@@ -269,7 +273,7 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 398
+        count_gigantic: 220
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v7

@@ -58,7 +58,7 @@ struct __attribute__((aligned(16))) fd_fib4_hop {
 
 #define FD_FIB4_FLAG_RTA_UNSUPPORTED   ((uchar)0x01U) /* unsupported route attribute */
 #define FD_FIB4_FLAG_RTA_PARSE_ERR     ((uchar)0x02U) /* failed to interpret route attribute */
-#define FD_FIB4_FLAG_RTYPE_UNSUPPORTED ((uchar)0x03U) /* unsupported route type */
+#define FD_FIB4_FLAG_RTYPE_UNSUPPORTED ((uchar)0x04U) /* unsupported route type */
 
 typedef struct fd_fib4_hop fd_fib4_hop_t;
 

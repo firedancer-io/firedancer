@@ -472,6 +472,7 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
 
   /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L94-L112 */
   if( TXN( txn_in->txn )->transaction_version==FD_TXN_V1 ) {
+    fd_compute_budget_count_instrs( bank, txn_in, &txn_out->details.compute_budget ); /* telemetry only, v1 sets the CU limit */
     err = fd_executor_sanitize_txn_v1_config( txn_in, txn_out );
   } else {
     err = fd_executor_compute_budget_program_execute_instructions( bank, txn_in, txn_out );

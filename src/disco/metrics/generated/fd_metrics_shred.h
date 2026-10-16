@@ -48,7 +48,7 @@ enum {
 
 #define FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_NAME "shred_dest_per_update"
 #define FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_TYPE (FD_METRICS_TYPE_HISTOGRAM)
-#define FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_DESC "Shred destinations in each cluster contact info update"
+#define FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_DESC "Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)"
 #define FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_MIN  (0UL)
 #define FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_MAX  (40200UL)

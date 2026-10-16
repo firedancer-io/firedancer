@@ -10,7 +10,7 @@
 static uchar request_mcache_mem [ FD_MCACHE_FOOTPRINT( TEST_DEPTH, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
 static uchar response_mcache_mem[ FD_MCACHE_FOOTPRINT( TEST_DEPTH, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
 static uchar request_data [ FD_KEYGUARD_SIGN_REQ_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-static uchar response_data[ FD_KEYGUARD_BLS_SIG_SZ   ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static uchar response_data[ FD_BLS_SIG_SZ            ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
 static fd_sign_ctx_t         ctx;
 static fd_keyguard_client_t  client;
@@ -44,7 +44,7 @@ setup( void ) {
   client.request_mem    = (fd_wksp_t *)request_data;
   client.response_mem   = (fd_wksp_t *)response_data;
   client.request_mtu    = FD_KEYGUARD_SIGN_REQ_MTU;
-  client.response_mtu   = FD_KEYGUARD_BLS_SIG_SZ;
+  client.response_mtu   = FD_BLS_SIG_SZ;
   ctx.in[0].role        = FD_KEYGUARD_ROLE_VOTOR;
   ctx.in[0].mem         = client.request_mem;
   ctx.in[0].mtu         = client.request_mtu;
@@ -87,7 +87,7 @@ test_bls_request_signing( void ) {
      51, 129, 127, 165, 142,   4, 248, 195,  91,  93,  33,  19,  91, 130, 175,   9,
     229, 142, 180, 156,  23, 173, 190, 249, 207,   5, 181,  31, 251,  76,   2, 208
   };
-  static uchar const expected_public_key[ FD_KEYGUARD_BLS_PUBKEY_SZ ] = {
+  static uchar const expected_public_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {
     149, 157, 254, 148, 170,  68,   3,  78,  50,  10,   2, 167,  49,  36, 104, 157,
     220, 152, 181, 228,  47, 146, 210, 186, 254, 247,  17,  30, 130, 234, 224, 119,
     213, 125,  40, 244,  22,  34,  81,   8, 254, 105, 239,  43, 186, 178, 113,   1
@@ -106,7 +106,7 @@ test_bls_request_signing( void ) {
   FD_TEST( !memcmp( keys[1].public_key, expected_public_key, sizeof(expected_public_key) ) );
 
   fd_bls_pub_t public_keys[2];
-  FD_TEST( !fd_bls_pub_de( &public_keys[0], keys[0].public_key, FD_KEYGUARD_BLS_PUBKEY_SZ ) );
+  FD_TEST( !fd_bls_pub_de( &public_keys[0], keys[0].public_key, FD_BLS_PUB_COMPRESSED_SZ ) );
   FD_TEST( !fd_bls_pub_de( &public_keys[1], expected_public_key, sizeof(expected_public_key) ) );
 
   ulong     request_cnt = 12UL;
@@ -114,27 +114,28 @@ test_bls_request_signing( void ) {
   FD_TEST( !pthread_create( &signer, NULL, sign_requests, &request_cnt ) );
   for( ulong i=0UL; i<2UL; i++ ) {
     ulong authority_idx = i ? 0UL : ULONG_MAX;
-    uchar public_key[ FD_KEYGUARD_BLS_PUBKEY_SZ+16UL ];
+    uchar public_key[ FD_BLS_PUB_COMPRESSED_SZ+16UL ];
     memset( public_key, 0xA5, sizeof(public_key) );
     fd_keyguard_client_bls_pubkey( &client, public_key, authority_idx );
     FD_TEST( FD_LOAD( ulong, request_data )==authority_idx );
     fd_frag_meta_t const * response = client.response+fd_mcache_line_idx( client.response_seq-1UL, TEST_DEPTH );
-    FD_TEST( response->sig==FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY && response->sz==FD_KEYGUARD_BLS_PUBKEY_SZ );
-    FD_TEST( !memcmp( public_key, keys[i].public_key, FD_KEYGUARD_BLS_PUBKEY_SZ ) );
-    for( ulong j=FD_KEYGUARD_BLS_PUBKEY_SZ; j<sizeof(public_key); j++ ) FD_TEST( public_key[j]==0xA5 );
+    FD_TEST( response->sig==FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY && response->sz==FD_BLS_PUB_COMPRESSED_SZ );
+    FD_TEST( !memcmp( public_key, keys[i].public_key, FD_BLS_PUB_COMPRESSED_SZ ) );
+    for( ulong j=FD_BLS_PUB_COMPRESSED_SZ; j<sizeof(public_key); j++ ) FD_TEST( public_key[j]==0xA5 );
     for( uchar tag=1U; tag<=5U; tag++ ) {
       uchar payload[43];
       for( ulong j=0UL; j<sizeof(payload); j++ ) payload[j] = (uchar)(0x20UL+j);
       payload[0] = tag;
       ulong payload_sz = ( tag==1U || tag==4U ) ? 43UL : 11UL;
-      uchar signature[ FD_KEYGUARD_BLS_SIG_SZ ];
+      uchar signature[ FD_BLS_SIG_SZ ];
       fd_keyguard_client_ag_vote_sign( &client, signature, authority_idx, payload, payload_sz );
       FD_TEST( !memcmp( request_data, payload, payload_sz ) );
       fd_bls_sig_t sig[1];
       FD_TEST( !fd_bls_sig_de( sig, signature ) );
       blst_p2 one[1]; blst_p2_from_affine( one, sig );
-      FD_TEST(  fd_bls_agg_verify( payload, payload_sz, &public_keys[i], one ) );
-      FD_TEST( !fd_bls_agg_verify( payload, payload_sz, &public_keys[1UL-i], one ) );
+      blst_p1 pub[2]; blst_p1_from_affine( pub, public_keys ); blst_p1_from_affine( pub+1, public_keys+1 );
+      FD_TEST(  fd_bls_agg_verify( payload, payload_sz, &pub[i], one ) );
+      FD_TEST( !fd_bls_agg_verify( payload, payload_sz, &pub[1UL-i], one ) );
     }
   }
   FD_TEST( !pthread_join( signer, NULL ) );
@@ -239,7 +240,7 @@ static void
 test_bls_pubkey_generic_client( void ) {
   setup();
   ulong authority_idx = ULONG_MAX;
-  uchar public_key[ FD_KEYGUARD_BLS_PUBKEY_SZ+16UL ];
+  uchar public_key[ FD_BLS_PUB_COMPRESSED_SZ+16UL ];
   memset( public_key, 0xA5, sizeof(public_key) );
 
   ulong     request_cnt = 1UL;
@@ -247,8 +248,8 @@ test_bls_pubkey_generic_client( void ) {
   FD_TEST( !pthread_create( &signer, NULL, sign_requests, &request_cnt ) );
   fd_keyguard_client_sign( &client, public_key, (uchar const *)&authority_idx, sizeof(authority_idx), FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY );
   FD_TEST( !pthread_join( signer, NULL ) );
-  FD_TEST( !memcmp( public_key, keys[0].public_key, FD_KEYGUARD_BLS_PUBKEY_SZ ) );
-  for( ulong i=FD_KEYGUARD_BLS_PUBKEY_SZ; i<sizeof(public_key); i++ ) FD_TEST( public_key[i]==0xA5 );
+  FD_TEST( !memcmp( public_key, keys[0].public_key, FD_BLS_PUB_COMPRESSED_SZ ) );
+  for( ulong i=FD_BLS_PUB_COMPRESSED_SZ; i<sizeof(public_key); i++ ) FD_TEST( public_key[i]==0xA5 );
 }
 
 static void
@@ -262,7 +263,7 @@ test_bls_pubkey_last_authority( void ) {
   ulong     request_cnt = 1UL;
   pthread_t signer;
   FD_TEST( !pthread_create( &signer, NULL, sign_requests, &request_cnt ) );
-  uchar bls_pubkey[ FD_KEYGUARD_BLS_PUBKEY_SZ ];
+  uchar bls_pubkey[ FD_BLS_PUB_COMPRESSED_SZ ];
   fd_keyguard_client_bls_pubkey( &client, bls_pubkey, 15UL );
   FD_TEST( !pthread_join( signer, NULL ) );
   FD_TEST( !memcmp( bls_pubkey, keys[16].public_key, sizeof(bls_pubkey) ) );

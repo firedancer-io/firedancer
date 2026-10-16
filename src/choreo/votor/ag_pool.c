@@ -244,6 +244,7 @@ ag_pool_new( void * mem,
   pool->slot_states->shared.next_epoch_info                = NULL;
   pool->slot_states->shared.next_epoch_rank                = USHORT_MAX;
   pool->slot_states->shared.next_epoch_slot                = ULONG_MAX;
+  pool->slot_states->shared.bls_verify_cnt                 = 0UL;
 
   pool->parent_ready_tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( parent_ready_tracker, ready_max, seed ) );
 
@@ -303,16 +304,33 @@ ag_pool_delete( void * mem ) {
   return mem;
 }
 
-void
-ag_pool_init( ag_pool_t *           self,
-              ag_block_id_t const * root ) {
+static void
+pool_init( ag_pool_t *           self,
+           ag_block_id_t const * root ) {
   ag_finality_tracker_init( self->finality_tracker, root->slot );
   self->parent_ready_tracker->root = fd_ulong_sat_sub( root->slot, AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW );
+}
 
-  ulong ready_cnt = ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys );
+static void
+pool_push_parent_readys( ag_pool_t * self,
+                         ulong       ready_cnt ) {
   for( ulong i=0UL; i<ready_cnt; i++ ) {
     pool_events_push( self->pool_events, (ag_pool_event_t){ .kind = AG_POOL_EVENT_PARENT_READY, .parent_ready = self->scratch.parent_readys[i] } );
   }
+}
+
+void
+ag_pool_from_snapshot( ag_pool_t *           self,
+                       ag_block_id_t const * root ) {
+  pool_init( self, root );
+  pool_push_parent_readys( self, ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys ) );
+}
+
+void
+ag_pool_from_genesis( ag_pool_t *           self,
+                      ag_block_id_t const * genesis ) {
+  pool_init( self, genesis );
+  pool_push_parent_readys( self, ag_parent_ready_tracker_mark_root( self->parent_ready_tracker, genesis, self->scratch.parent_readys ) );
 }
 
 void
@@ -321,25 +339,14 @@ ag_pool_fini( ag_pool_t * self ) {
   self->parent_ready_tracker->root = ULONG_MAX;
 }
 
-FD_FN_CONST char const *
-ag_pool_strerror( int err ) {
-  switch( err ) {
-  case AG_POOL_SUCCESS:                return "success";
-  case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: return "slot is either too old or too far in the future";
-  case AG_POOL_ERR_DUPLICATE:          return "duplicate vote or cert";
-  case AG_POOL_ERR_SLASHABLE:          return "vote constitutes a slashable offence";
-  case AG_POOL_ERR_CERT_VERIFY:        return "cert failed the signature or threshold check";
-  default:                             return "unknown";
-  }
-}
-
 FD_FN_PURE ag_pool_metrics_t
 ag_pool_metrics( ag_pool_t const * self ) {
   return (ag_pool_metrics_t){
     .slot_state_pool_used = slot_state_pool_used( self->slot_states->pool ),
     .slot_state_pool_free = slot_state_pool_free( self->slot_states->pool ),
     .finalized_slot       = ag_pool_finalized_slot( self ),
-    .pool_events_cnt      = pool_events_cnt( self->pool_events )
+    .pool_events_cnt      = pool_events_cnt( self->pool_events ),
+    .bls_verify_cnt       = self->slot_states->shared.bls_verify_cnt
   };
 }
 
@@ -527,11 +534,12 @@ ag_pool_add_cert( ag_pool_t *       self,
   fd_bls_set_null( bad );
 
   ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_REWARD_SLOT_DELTA;
-  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) ) ) return AG_POOL_ERR_SLOT_TOO_OLD;
+  if( FD_UNLIKELY( slot>=slot_far_in_future                                            ) ) return AG_POOL_ERR_SLOT_TOO_NEW;
 
   ag_slot_states_t const * states     = &self->slot_states->shared;
   ag_epoch_info_t const *  epoch_info = fd_ptr_if( slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
-  if( FD_UNLIKELY( !epoch_info ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  if( FD_UNLIKELY( !epoch_info ) ) return fd_int_if( slot<states->curr_epoch_slot, AG_POOL_ERR_SLOT_TOO_OLD, AG_POOL_ERR_SLOT_TOO_NEW );
 
   ag_slot_state_t * state = slot_state( self, slot );
   int duplicate = 0;
@@ -545,7 +553,10 @@ ag_pool_add_cert( ag_pool_t *       self,
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
-  if( FD_UNLIKELY( !verified && !ag_cert_verify( cert, epoch_info ) ) ) return AG_POOL_ERR_CERT_VERIFY;
+  int err = AG_CERT_VERIFY_SUCCESS;
+  if( FD_LIKELY( !verified ) ) err = ag_cert_verify( cert, epoch_info );
+  self->slot_states->shared.bls_verify_cnt += (ulong)( !verified && err!=AG_CERT_VERIFY_ERR_THRESHOLD );
+  if( FD_UNLIKELY( err ) ) return AG_POOL_ERR_CERT_VERIFY;
 
   switch( cert->kind ) { /* a skip cert excludes finalization certs, Lemmas 23 and 28 */
   case AG_CERT_KIND_FINAL:
@@ -572,14 +583,11 @@ ag_pool_add_vote( ag_pool_t *       self,
   ulong first_unpruned_slot = ag_finality_tracker_first_unpruned_slot( self->finality_tracker );
   ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA );
   ulong slot_far_in_future  = first_unpruned_slot + self->slot_max - AG_REWARD_SLOT_DELTA;
-  if( FD_UNLIKELY( slot<retained_slot || slot>=slot_far_in_future ) ) {
-    return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
-  }
+  if( FD_UNLIKELY( slot<retained_slot       ) ) return AG_POOL_ERR_SLOT_TOO_OLD;
+  if( FD_UNLIKELY( slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_TOO_NEW;
   ag_slot_states_t *      states     = &self->slot_states->shared;
   ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
-  if( FD_UNLIKELY( !epoch_info ) ) {
-    return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
-  }
+  if( FD_UNLIKELY( !epoch_info ) ) return fd_int_if( slot<states->curr_epoch_slot, AG_POOL_ERR_SLOT_TOO_OLD, AG_POOL_ERR_SLOT_TOO_NEW );
 
   ulong             voter       = ag_vote_rank( vote );
   ag_slot_state_t * slot_state_ = slot_state( self, slot );
@@ -633,9 +641,10 @@ ag_pool_add_block( ag_pool_t *           self,
   uchar const * parent_hash = parent_id->hash;
 
   ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_REWARD_SLOT_DELTA;
-  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) ) ) return AG_POOL_ERR_SLOT_TOO_OLD;
+  if( FD_UNLIKELY( slot>=slot_far_in_future                                            ) ) return AG_POOL_ERR_SLOT_TOO_NEW;
   ag_slot_states_t * states = &self->slot_states->shared;
-  if( FD_UNLIKELY( !fd_ptr_if( slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) ) ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  if( FD_UNLIKELY( !fd_ptr_if( slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) ) ) ) return fd_int_if( slot<states->curr_epoch_slot, AG_POOL_ERR_SLOT_TOO_OLD, AG_POOL_ERR_SLOT_TOO_NEW );
 
   ag_finalization_event_t finalization_event = finalization_event_default( self );
   ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id, &finalization_event );

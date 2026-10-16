@@ -1288,7 +1288,7 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   ulong data_lens[ 1 ] = { data_len };
   int executables[ 1 ] = { executable };
   ulong file_offsets[ 1 ] = {
-    fd_accdb_snapshot_reserve_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len )
+    fd_accdb_snapshot_reserve_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len, 0UL )
   };
   ulong ignored, replaced, loaded, ignored_lamports;
   uchar results[ 1 ];
@@ -1301,6 +1301,22 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   if( replaced ) return 2;
   FD_TEST( loaded==1UL );
   return 1;
+}
+
+/* test_reserve_write_dead_tail: the padded tail of a snapshot write
+   range is counted as freed in its partition. */
+static void
+test_reserve_write_dead_tail( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 11UL<<20UL );
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong off0 = fd_accdb_snapshot_reserve_write( accdb, 8192UL, 0UL    );
+  ulong off1 = fd_accdb_snapshot_reserve_write( accdb, 8192UL, 1000UL );
+  FD_TEST( off1==off0+8192UL );
+  fd_accdb_partition_t const * pool = (fd_accdb_partition_t const *)( (uchar const *)test_shmem_mem + test_shmem_mem->partition_pool_off );
+  FD_TEST( pool[ off0/test_shmem_mem->partition_sz ].bytes_freed==1000UL );
+  fd_accdb_snapshot_load_end( accdb );
+  test_teardown( accdb, fd );
 }
 
 /* test_revert_whead: revert_whead releases partitions and restores
@@ -1614,7 +1630,7 @@ test_write_batch( fd_accdb_t *                         accdb,
   for( ulong i=0UL; i<cnt; i++ ) total_sz += sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
 
   ulong file_offsets[ 8 ];
-  ulong file_off = fd_accdb_snapshot_reserve_write( accdb, total_sz );
+  ulong file_off = fd_accdb_snapshot_reserve_write( accdb, total_sz, 0UL );
   FD_TEST( store->cnt<TEST_STORE_MAX );
   store->ranges[ store->cnt++ ] = (test_range_t){ .off=file_off, .sz=total_sz };
 
@@ -2314,6 +2330,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_compact ..." ));
   test_compact();
+
+  FD_LOG_NOTICE(( "test_reserve_write_dead_tail ..." ));
+  test_reserve_write_dead_tail();
 
   FD_LOG_NOTICE(( "test_overwrite_same_fork ..." ));
   test_overwrite_same_fork();

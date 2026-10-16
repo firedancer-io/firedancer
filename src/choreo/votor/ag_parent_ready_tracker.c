@@ -162,6 +162,16 @@ ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
 }
 
 ulong
+ag_parent_ready_tracker_mark_root( ag_parent_ready_tracker_t * self,
+                                   ag_block_id_t const *       root,
+                                   ag_parent_ready_t *         newly_certified ) {
+  ulong newly_certified_cnt = ag_parent_ready_tracker_mark_notar_fallback( self, root, newly_certified );
+  ag_parent_ready_state_t * next = slot_state( self, root->slot+1UL );
+  if( FD_LIKELY( next->parent_ready_lo.slot==ULONG_MAX ) ) next->parent_ready_lo = *root;
+  return newly_certified_cnt;
+}
+
+ulong
 ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
                                       ulong                       skipped_slot,
                                       ag_parent_ready_t *         newly_certified ) {

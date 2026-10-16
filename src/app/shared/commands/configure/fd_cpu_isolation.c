@@ -1,6 +1,6 @@
 #include "fd_cpu_isolation.h"
 
-#include "../../../../disco/topo/fd_cpu_topo.h"
+#include "../../../../disco/topo/fd_topob.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -13,7 +13,7 @@ fd_cpuset_t *
 fd_cpu_isolation_tile_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
                             fd_topo_t const * topo ) {
   fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX );
+  ulong cpu_cnt = fd_shmem_cpu_cnt();
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
     if( tile->cpu_idx<cpu_cnt ) fd_cpuset_insert( cpuset, tile->cpu_idx );
@@ -22,10 +22,10 @@ fd_cpu_isolation_tile_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt 
 }
 
 fd_cpuset_t *
-fd_cpu_isolation_host_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
-  fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX );
-  for( ulong cpu_idx=0UL; cpu_idx<cpu_cnt; cpu_idx++ ) fd_cpuset_insert( cpuset, cpu_idx );
+fd_cpu_isolation_online_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
+  if( FD_UNLIKELY( !fd_cpu_isolation_read_list( "/sys/devices/system/cpu/online", cpuset ) ||
+                   !fd_cpuset_cnt( cpuset ) ) )
+    FD_LOG_ERR(( "could not determine online host CPUs" ));
   return cpuset;
 }
 
@@ -95,12 +95,6 @@ fd_cpu_isolation_format_list( char *              buf,
   return buf;
 }
 
-/* Tiles whose per-core throughput is sensitive enough to SMT resource
-   sharing that their hyperthread sibling should be kept quiet.  Keep
-   in sync with the hyperthreads configure stage. */
-
-static char const * const smt_sensitive_tiles[] = { "pack", "pohh", "poh", NULL };
-
 char const *
 fd_cpu_isolation_partition_type( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) if( topo->tiles[ i ].floats ) return "root";
@@ -115,22 +109,49 @@ fd_cpu_isolation_partition_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
 
-  for( char const * const * name=smt_sensitive_tiles; *name; name++ ) {
-    ulong tile_idx = fd_topo_find_tile( topo, *name, 0UL );
-    if( FD_LIKELY( tile_idx==ULONG_MAX ) ) continue;
+  FD_CPUSET_DECL( blocklist );
+  for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) fd_cpuset_insert( blocklist, topo->blocklist_cores_cpu_idx[ i ] );
+  FD_CPUSET_DECL( online );
+  fd_cpu_isolation_online_cpus( online );
 
-    ulong cpu_idx = topo->tiles[ tile_idx ].cpu_idx;
-    if( FD_UNLIKELY( cpu_idx>=fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ) ) ) continue;
-    if( FD_UNLIKELY( topo->tiles[ tile_idx ].floats ) ) continue; /* not alone on that core anyway */
+  for( uint pass=0U; pass<2U; pass++ ) {
+    uint cls = pass ? FD_TOPOB_TILE_DEDICATED : FD_TOPOB_TILE_SMT_CRITICAL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topo_tile_t const * tile = &topo->tiles[ i ];
+      if( FD_LIKELY( !( fd_topob_tile_class( tile->name ) & cls ) ) ) continue;
 
-    ulong sibling = cpus->cpu[ cpu_idx ].sibling;
-    if( FD_UNLIKELY( sibling==ULONG_MAX || sibling>=FD_TILE_MAX ) ) continue;      /* no sibling */
-    if( FD_UNLIKELY( !cpus->cpu[ sibling ].online ) ) continue;                    /* offline is even better */
-    if( FD_UNLIKELY( fd_cpuset_test( cpuset, sibling ) ) ) continue;               /* used by another tile */
+      ulong cpu_idx = tile->cpu_idx;
+      if( FD_UNLIKELY( cpu_idx>=fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ) ) ) continue;
+      if( FD_UNLIKELY( tile->floats ) ) continue; /* not alone on that core anyway */
 
-    fd_cpuset_insert( cpuset, sibling );
+      ulong sibling = cpus->cpu[ cpu_idx ].sibling;
+      if( FD_UNLIKELY( sibling==ULONG_MAX || sibling>=FD_TILE_MAX ) ) continue; /* no sibling */
+      if( FD_UNLIKELY( !cpus->cpu[ sibling ].online ) ) continue;               /* offline is even better */
+      if( FD_UNLIKELY( fd_cpuset_test( cpuset, sibling ) ) ) continue;          /* used by another tile */
+      if( pass ) {
+        FD_CPUSET_DECL( housekeeping );
+        fd_cpuset_subtract( housekeeping, online, cpuset );
+        if( FD_UNLIKELY( fd_cpuset_test( blocklist, sibling ) || fd_cpuset_cnt( housekeeping )<=1UL ) ) continue;
+      }
+
+      fd_cpuset_insert( cpuset, sibling );
+    }
   }
   return cpuset;
+}
+
+fd_cpuset_t *
+fd_cpu_isolation_banned_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
+                              fd_topo_t const * topo ) {
+  fd_cpu_isolation_partition_cpus( cpuset, topo );
+
+  FD_CPUSET_DECL( housekeeping );
+  fd_cpuset_subtract( housekeeping, fd_cpu_isolation_online_cpus( housekeeping ), cpuset );
+  if( FD_LIKELY( fd_cpuset_cnt( housekeeping ) ) ) return cpuset;
+
+  FD_LOG_WARNING(( "excluding the idle hyperthread siblings of critical and dedicated tiles would leave no "
+                   "housekeeping CPU; excluding only tile CPUs" ));
+  return fd_cpu_isolation_tile_cpus( cpuset, topo );
 }
 
 int
@@ -166,7 +187,7 @@ char *
 fd_cpu_isolation_format_mask( char *              buf,
                               ulong               buf_sz,
                               fd_cpuset_t const * cpuset ) {
-  ulong cpu_cnt  = fd_ulong_max( fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX ), 1UL );
+  ulong cpu_cnt  = fd_ulong_max( fd_shmem_cpu_cnt(), 1UL );
   ulong word_cnt = fd_ulong_max( (cpu_cnt+31UL)/32UL, 1UL );
   char * p = buf;
 

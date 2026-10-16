@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -48,7 +56,12 @@
         },
         "thread_duration_nanos": {
             "type": "Tuple",
-            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,15 +73,18 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "tlb_shootdown":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "timer_irq":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "device_irq":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "conn_open":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Open HTTP connections to the GUI service, excluding connections upgraded to WebSocket" },
         "websocket_conn_open":        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Open WebSocket connections to the GUI service" },
         "websocket_frame_tx":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "WebSocket frames sent to all connections to the GUI service" },
@@ -85,7 +101,7 @@
                 "shred_events":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "T64, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "epoch" },
@@ -104,7 +120,7 @@
                 "shred_events":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "T64, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "epoch" },
@@ -124,7 +140,7 @@
                 "shred_events":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "T64, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "epoch" },
@@ -143,7 +159,7 @@
                 "shred_events":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "T64, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "T64, ZSTD", "description": "epoch" },
@@ -156,13 +172,16 @@
         "db_kv_queried": {
             "type": "Tuple",
             "description": "Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -175,13 +194,16 @@
         "db_time_series_record_appended": {
             "type": "Tuple",
             "description": "Time-series records appended, by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -194,13 +216,16 @@
         "db_time_series_scanned": {
             "type": "Tuple",
             "description": "Time-series scans, by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -213,13 +238,16 @@
         "db_time_series_record_read": {
             "type": "Tuple",
             "description": "Time-series records returned by scans, by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -232,13 +260,16 @@
         "db_record_evicted": {
             "type": "Tuple",
             "description": "Records evicted from the database, by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -251,13 +282,16 @@
         "db_eviction_pass_completed": {
             "type": "Tuple",
             "description": "Eviction passes that removed at least one record, by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -270,13 +304,16 @@
         "db_region_claimed": {
             "type": "Tuple",
             "description": "Regions claimed from the free list, by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -289,13 +326,16 @@
         "db_region_released": {
             "type": "Tuple",
             "description": "Regions returned to the free list, by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -307,14 +347,17 @@
         },
         "db_record_dropped": {
             "type": "Tuple",
-            "description": "Records dropped because the database was full (MAP_FULL), by database",
+            "description": "Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },
@@ -327,13 +370,16 @@
         "db_forced_evict_write_completed": {
             "type": "Tuple",
             "description": "Writes that evicted records before succeeding, by database",
+            "aliases": {
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn"]
+            },
             "fields": {
                 "scheduler_counts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
                 "tile_timers":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tile_timers" },
                 "shred_events":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "shred_events" },
                 "txn_start":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_start" },
                 "txn_end":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_end" },
-                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "tower" },
+                "tower":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Retired: no longer a database, always zero" },
                 "slot":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "slot" },
                 "leader_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "leader_slot" },
                 "epoch":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "epoch" },

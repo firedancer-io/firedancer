@@ -12,6 +12,7 @@
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../ballet/bls/fd_bls.h"
 #include "../../discof/backup/fd_snapmk_tile.h"
 #include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -76,7 +77,7 @@ wire_event_links( fd_topo_t * topo ) {
     /* The dcache must cover depth*MTU (a smaller region risks undetected
        torn reads), so big-MTU links trade depth away to fit the budget. */
     ulong const event_link_dcache_max = 64UL<<20; /* 64 MiB data region per event link */
-    ulong depth = 128UL;
+    ulong depth = 1024UL;
     while( depth>1UL && fd_dcache_req_data_sz( max_sz, depth, 1UL, 1 )>event_link_dcache_max ) depth >>= 1;
 
     fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", depth, max_sz, 1UL );
@@ -536,7 +537,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, sizeof(fd_tpu_msg_t),          config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  1024UL,                                   FD_TPU_PARSED_MTU,             1UL ); /* shallow enough to stay in cache */
-  /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  16UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* min pow2 >= replay's STEM_BURST (14); ideally 2, needs per-link burst */
+  /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  32UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* replay publishes two epochs at boot and must keep STEM_BURST (15) credits after; ideally 2, needs per-link burst */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL )->permit_no_consumers = 1;
   /**/                 fd_topob_link( topo, "replay_slot",   "replay_slot",   4096UL,                                   sizeof(fd_replay_message_t),   1UL );
   if( alpenglow_enabled ) fd_topob_link( topo, "replay_rotor",  "replay_slot",   16UL,                                     sizeof(fd_replay_message_t),   1UL ); /* REPLAY_SIG_MISSING_FEC; min pow2 >= replay's STEM_BURST (15) */
@@ -779,7 +780,7 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_manif",  0UL                                                );
   }
 
-  /**/                 fd_topob_tile_in(    topo, repair,    0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  if( alpenglow_enabled ) fd_topob_tile_in(   topo, repair,    0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, repair,    0UL,          "metric_in", "gossip_ciaddr", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( alpenglow_enabled ) fd_topob_tile_in(   topo, repair,    0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, repair,    0UL,          "metric_in", "replay_slot",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -913,7 +914,7 @@ fd_topo_initialize( config_t * config ) {
       /* TODO: This needs to be reliable, else we could miss shreds that
          are required to replay the chain, but we can't change it yet as
          the XDP tile does not support reliable consumers. */
-      FOR(shred_tile_cnt) fd_topob_tile_in(  topo, "event", 0UL, "metric_in", "net_shred", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+      FOR(net_tile_cnt) fd_topob_tile_in(  topo, "event", 0UL, "metric_in", "net_shred", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
 
     if( FD_UNLIKELY( config->development.event.report_transactions && leader_enabled ) ) {
@@ -1182,7 +1183,7 @@ fd_topo_initialize( config_t * config ) {
     if( !alpenglow_enabled ) {
       /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_slot",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "diag_gui",      0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -1207,10 +1208,10 @@ fd_topo_initialize( config_t * config ) {
   /* Alpenglow links and tile connections.  The optional GUI tile has
      been created by this point. */
   if( alpenglow_enabled ) {
-    /**/               fd_topob_link( topo, "votor_out",     "votor_out",     1024UL,                                   sizeof(fd_votor_msg_t),                        FD_VOTOR_OUT_BURST );
+    /**/               fd_topob_link( topo, "votor_out",     "votor_out",     8192UL,                                   sizeof(fd_votor_msg_t),                        FD_VOTOR_OUT_BURST );
     /**/               fd_topob_link( topo, "votor_net",     "net_votor",     32768UL,                                  FD_NET_MTU,                                    FD_VOTOR_NET_BURST ); /* as shred_net: fan-out publishes as it goes and rides depth, burst covers only the deferred aio flush */
     /**/               fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,                      1UL ); /* TLS 1.3 CertificateVerify payload or vote history file body */
-    /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    FD_KEYGUARD_BLS_SIG_SZ,                        1UL ); /* ed25519 sig (TLS) or BLS sig (vote) */
+    /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    FD_BLS_SIG_SZ,                                 1UL ); /* ed25519 sig (TLS) or BLS sig (vote) */
     FOR(net_tile_cnt)  fd_topos_net_rx_link( topo, "net_votor", i, config->net.ingress_buffer_size );
 
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "replay_slot",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -1288,8 +1289,7 @@ fd_topo_initialize( config_t * config ) {
 
       Without Alpenglow, this value is derived by first multiplying
       max_live_slots by the maximum number of FEC sets per slot.  Fixed
-      32-data-shred sets need 1024; legacy variable sets can contain one
-      data shred and need up to 32768.
+      32-data-shred sets need 512.
 
       However, the downstream structure reasm also has the same bound.
       Replay relies on the guarantee that if a FEC set is present in
@@ -1484,7 +1484,14 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
-  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
+  if( FD_LIKELY( telemetry_enabled ) ) {
+    wire_event_links( topo );
+
+    fd_topo_tile_t * event_tile = &topo->tiles[ fd_topo_find_tile( topo, "event", 0UL ) ];
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topob_tile_uses( topo, event_tile, &topo->objs[ topo->tiles[ i ].metrics_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    }
+  }
 
   if( FD_LIKELY( telemetry_enabled ) ) {
     topo->resolved_config_json_len = fd_config_to_json( config, topo->resolved_config_json, sizeof(topo->resolved_config_json) );
@@ -1505,6 +1512,21 @@ parse_listen_addr( char const *    cstr,
   if( FD_UNLIKELY( fd_ip6_addr_is_scoped( out->addr ) && !out->scope_id ) )
     FD_LOG_ERR(( "[%s] `%s` is scoped to a network interface, which must be named by a "
                  "zone ID (e.g. `%s%%eth0`)", key, cstr, cstr ));
+}
+
+static int
+wfs_hash_is_zero( fd_config_t const * config ) {
+  return !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
+}
+
+static void
+wfs_decode_bank_hash( fd_config_t const * config,
+                      fd_hash_t *         out ) {
+  if( FD_LIKELY( wfs_hash_is_zero( config ) ) ) {
+    memset( out->uc, 0, sizeof(fd_hash_t) );
+  } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, out->uc ) ) ) {
+    FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
+  }
 }
 
 void
@@ -1528,6 +1550,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( fd_cstr_printf_check( tile->event.guidb_path,     sizeof(tile->event.guidb_path),     NULL, "%s", config->paths.guidb     ) );
     FD_TEST( fd_cstr_printf_check( tile->event.net_interface,  sizeof(tile->event.net_interface),  NULL, "%s", config->net.interface   ) );
     tile->event.boot_timestamp_nanos = config->boot_timestamp_nanos;
+    fd_memcpy( tile->event.launch_cpus, config->launch_cpus, sizeof(tile->event.launch_cpus) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "net"   ) ||
                           !strcmp( tile->name, "sock"  ) ||
@@ -1605,19 +1628,16 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
 
     fd_cstr_ncpy( tile->gossip.gossip_host, config->firedancer.gossip.host, sizeof(tile->gossip.gossip_host) );
-    tile->gossip.net_ip_addr = config->net.ip_addr;
-    tile->gossip.ip_addr     = config->net.ip_addr;
-    tile->gossip.bind_ip_addr        = config->net.ip_addr;
+    tile->gossip.net_ip_addr            = config->net.ip_addr;
+    tile->gossip.ip_addr                = config->net.ip_addr;
+    tile->gossip.bind_ip_addr           = config->net.ip_addr;
     fd_cstr_ncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
-    tile->gossip.shred_version       = config->consensus.expected_shred_version;
-    tile->gossip.max_entries         = config->tiles.gossip.max_entries;
-    tile->gossip.boot_timestamp_nanos = config->boot_timestamp_nanos;
+    tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
+    tile->gossip.max_entries            = config->tiles.gossip.max_entries;
+    tile->gossip.boot_timestamp_nanos   = config->boot_timestamp_nanos;
 
-    if( FD_LIKELY( !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) ) ) {
-      memset( tile->gossip.wait_for_supermajority_with_bank_hash.uc, 0, sizeof(fd_pubkey_t) );
-    } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->gossip.wait_for_supermajority_with_bank_hash.uc ) ) ) {
-      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
-    }
+    tile->gossip.wait_for_supermajority_at_slot      = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->gossip.wait_for_supermajority_hash_is_zero = wfs_hash_is_zero( config );
 
     tile->gossip.ports.gossip           = config->gossip.port;
     tile->gossip.ports.tvu              = config->tiles.shred.shred_listen_port;
@@ -1646,6 +1666,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
     tile->snapct.wait_for_peers_timeout_nanos         = (long)( config->firedancer.snapshots.wait_for_peers_timeout_seconds * (ulong)1e9 );
+    tile->snapct.wfs_slot                             = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->snapct.wfs_hash_is_zero                     = wfs_hash_is_zero( config );
+    tile->snapct.wfs_shred_version                    = config->consensus.expected_shred_version;
     tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;
     tile->snapct.sources.gossip.allow_list_cnt        = config->firedancer.snapshots.sources.gossip.allow_list_cnt;
     tile->snapct.sources.gossip.block_list_cnt        = config->firedancer.snapshots.sources.gossip.block_list_cnt;
@@ -1671,11 +1694,17 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_memcpy( tile->snapld.snapshots_path, config->paths.snapshots, PATH_MAX );
     tile->snapld.incremental_snapshots             = config->firedancer.snapshots.incremental_snapshots;
     tile->snapld.min_download_speed_mibs           = config->firedancer.snapshots.min_download_speed_mibs;
+    tile->snapld.wfs_slot                          = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->snapld.wfs_hash_is_zero                  = wfs_hash_is_zero( config );
+    tile->snapld.wfs_shred_version                 = config->consensus.expected_shred_version;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
+    tile->snapin.wait_for_supermajority_at_slot = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    wfs_decode_bank_hash( config, &tile->snapin.wait_for_supermajority_with_bank_hash );
+    tile->snapin.expected_shred_version = config->consensus.expected_shred_version;
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.max_txn_per_slot = config->limits.max_txn_per_slot;
     tile->snapin.alpenglow        = config->firedancer.consensus.alpenglow;
@@ -1702,6 +1731,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
     tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;
     tile->rotor.fec_max  = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "obj.%lu.fec_max", fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX ) ); /* as many FEC sets as Store */
+    tile->rotor.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->rotor.allow_private_address = config->development.gossip.allow_private_address;
 
@@ -1743,11 +1773,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.alpenglow = config->firedancer.consensus.alpenglow;
 
     tile->replay.sched_depth = config->tiles.replay.max_transaction_lookahead_buffer_size;
-    if( FD_LIKELY( !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) ) ) {
-      memset( tile->replay.wait_for_supermajority_with_bank_hash.uc, 0, sizeof(fd_pubkey_t) );
-    } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->replay.wait_for_supermajority_with_bank_hash.uc ) ) ) {
-      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
-    }
+    wfs_decode_bank_hash( config, &tile->replay.wait_for_supermajority_with_bank_hash );
+    tile->replay.wait_for_supermajority_at_slot = config->firedancer.consensus.wait_for_supermajority_at_slot;
 
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
     tile->replay.genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib << 20;
@@ -1804,10 +1831,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.ip_addr                 = config->net.ip_addr;
     tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->votor.identity_key_path, config->paths.identity_key, sizeof(tile->votor.identity_key_path) );
-    fd_cstr_ncpy( tile->votor.vote_history_path, config->tiles.votor.write_vote_history_file ? config->paths.vote_history : "", sizeof(tile->votor.vote_history_path) );
+    fd_cstr_ncpy( tile->votor.vote_history_path, config->paths.vote_history, sizeof(tile->votor.vote_history_path) );
     tile->votor.target_gid = config->gid;
     tile->votor.target_uid = config->uid;
     tile->votor.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
+    tile->votor.wait_for_supermajority_at_slot      = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->votor.wait_for_supermajority_hash_is_zero = wfs_hash_is_zero( config );
+    tile->votor.expected_shred_version              = config->consensus.expected_shred_version;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
@@ -1818,7 +1848,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->tower.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
-    tile->tower.wait_for_supermajority = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
+    tile->tower.wait_for_supermajority_at_slot      = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->tower.wait_for_supermajority_hash_is_zero = wfs_hash_is_zero( config );
+    tile->tower.expected_shred_version              = config->consensus.expected_shred_version;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
@@ -2005,6 +2037,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.websocket_compression     = 1;
     tile->gui.max_live_slots            = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->gui.wfs_bank_hash, config->firedancer.consensus.wait_for_supermajority_with_bank_hash, sizeof(tile->gui.wfs_bank_hash) );
+    tile->gui.wfs_slot               = config->firedancer.consensus.wait_for_supermajority_at_slot;
     tile->gui.expected_shred_version = config->consensus.expected_shred_version;
     tile->gui.cache_size_gib         = config->firedancer.accounts.cache_size_gib;
     tile->gui.accdb_obj_id           = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
@@ -2049,15 +2082,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->backtest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
     tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;
     tile->backtest.boot_timestamp_nanos = config->boot_timestamp_nanos;
-
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "forkt" ) ) ) {
-
-    fd_cstr_ncpy( tile->forktest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->forktest.ledger_format) );
-    fd_cstr_ncpy( tile->forktest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
-    if( FD_UNLIKELY( 0==strlen( tile->forktest.ledger_path ) ) ) {
-      FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
-    }
-    tile->forktest.end_slot = config->firedancer.development.ledger_input.end_slot;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
     fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );

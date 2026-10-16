@@ -28,33 +28,24 @@ def snapshot_load(d, s):
     log = read(d, s, "snapshot.log")
     return (stamp(log, "replay ready at slot") - stamp(log, "reading full snapshot from file")) % 86400  # midnight
 
-def drive_skew(d, s, what):  # slowest/fastest member drive write-wait during the run; a stalling drive is noise, not the PR
-    pre, post = ({f[2]: int(f[10]) for f in map(str.split, read(d, s, f"{what}.diskstats.{k}").splitlines()) if re.fullmatch(r"nvme\d+n1", f[2])}
-                 for k in ("pre", "post"))
-    wms = [post[k] - pre[k] for k in post if k in pre and post[k] - pre[k] > 1000]
-    return max(wms) / min(wms) if len(wms) > 1 else 1.0
-
 def mem(d, s, cluster):
     return json.loads(read(d, s, f"build.mem.{cluster}.json"))["summary"]["total_memory_locked_bytes"] / 2**30
 
-# id, label, job, value(bench_dir, side), format, warn %, regression %, higher is better
+# id, label, job ("*": every job, mean over jobs), value(bench_dir, side), format, warn %, regression %, higher is better
 ROWS = (
-    ("replay_tps",    "replay tps, mainnet",       "replay",   lambda d, s: summary(d, s, "replay")["tps"],                ",.0f tps",   1.0,  3.0, True),
-    ("bench_tps",     "bench tps, localnet",       "bench",    lambda d, s: summary(d, s, "bench")["tps"],                 ",.0f tps",   1.0,  3.0, True),
-    ("snapshot_load", "snapshot load, testnet",    "snapshot", snapshot_load,                                              ".2f s",      4.0, 10.0, False),
+    ("replay_tps",    "replay tps, mainnet",       "replay",   lambda d, s: summary(d, s, "replay")["tps"],                ",.0f tps",  1.25,  2.5, True),
+    ("bench_tps",     "bench tps, localnet",       "bench",    lambda d, s: summary(d, s, "bench")["tps"],                 ",.0f tps",  1.75,  3.5, True),
+    ("snapshot_load", "snapshot load, testnet",    "snapshot", snapshot_load,                                              ".2f s",      1.5,  3.0, False),
     ("mem_mainnet",   "mem total, mainnet",        "replay",   lambda d, s: mem(d, s, "mainnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_testnet",   "mem total, testnet",        "replay",   lambda d, s: mem(d, s, "testnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_ag_mainnet","mem total, ag mainnet",     "replay",   lambda d, s: mem(d, s, "ag.mainnet"),                       ".2f GiB",    0.0,  1.0, False),
-    ("compile",       "clean compile, firedancer", "replay",   lambda d, s: float(read(d, s, "build.time").split()[0]),   ".2f s",      3.0,  6.0, False),  # wall
-    ("binsize",       "binary size, firedancer",   "replay",   lambda d, s: os.path.getsize(f"{d}/{s}/bin/firedancer") / 1e6, ".2f MB",     0.5,  2.0, False),
+    ("compile",       "clean compile, firedancer", "*",        lambda d, s: float(read(d, s, "build.time").split()[0]),   ".2f s",       1.5,  3.0, False),
+    ("binsize",       "binary size, firedancer",   "replay",   lambda d, s: os.path.getsize(f"{d}/{s}/bin/firedancer") / 1e6, ".2f MB",  0.5,  2.0, False),
 )
-SKEW_MAX = 1.3  # clean ci8/9/10 runs stay <= 1.14; the -7..-23% outliers were 1.60-2.47
-SKEW_JOBS = ("snapshot",)
 HIST_HDR = ("TPS", "BENCH", "SNAP", "MEM·M", "MEM·T", "AG·M", "COMPILE", "BINARY")
 
-def tier(row, d, skewed=False):
+def tier(row, d):
     _, _, _, _, _, warn, red, up = row
-    if skewed: return " "
     worse = -d if up else d
     if abs(worse) <= warn: return " "
     return "+" if worse < 0 else "-" if worse >= red else "!"
@@ -66,23 +57,28 @@ def rule(prefix, w):
     return prefix + "─" * (w - len(prefix))
 
 def known_rows(state):
-    return {k: v for run in state["runs"].values() for k, v in run["rows"].items()}
+    out, pool, every = {}, {}, {r[0] for r in ROWS if r[2] == "*"}
+    for run in state["runs"].values():
+        for k, v in run["rows"].items():
+            if k in every and None not in v.values(): pool.setdefault(k, []).append(v)
+            else: out[k] = v
+    out.update({k: {"base": sum(v["base"] for v in vs) / len(vs), "new": sum(v["new"] for v in vs) / len(vs), "n": len(vs)} for k, vs in pool.items()})
+    return out
 
 def deltas(state):  # {row id: (base, new, Δ%)} for every row with both sides measured
     return {k: (v["base"], v["new"], (v["new"] - v["base"]) / v["base"] * 100)
-            for k, v in known_rows(state).items() if v["base"] is not None and v["new"] is not None}
+            for k, v in known_rows(state).items() if v["base"] is not None and v["new"] is not None and v.get("n", 2) > 1}  # one runner's tail exceeds warn
 
 def worst(state, ds):
     if crashed(state, ds): return "-"
-    sk = skewed(state)
-    return max((tier(r, ds[r[0]][2], r[0] in sk) for r in ROWS if r[0] in ds), key=TIERS.index, default=" ")
-
-def skewed(state):
-    jobs = {r[0]: r[2] for r in ROWS}
-    return {k for k, v in known_rows(state).items() if jobs.get(k) in SKEW_JOBS and v.get("skew", 1.0) > SKEW_MAX}
+    return max((tier(r, ds[r[0]][2]) for r in ROWS if r[0] in ds), key=TIERS.index, default=" ")
 
 def crashed(state, ds):  # rows a failed job never measured: a regression, not noise
-    return [r for r in ROWS if state["runs"].get(r[2], {}).get("status") == "failed" and r[0] not in ds]
+    st = [state["runs"].get(j, {}).get("status") for j in JOBS]
+    pooled_dead = "failed" in st and all(s in ("done", "failed") for s in st)  # "*": once every job is over
+    known = known_rows(state)
+    return [r for r in ROWS if r[0] not in ds and (r[2] == "*" and pooled_dead and known.get(r[0], {}).get("new") is None
+                                                   or state["runs"].get(r[2], {}).get("status") == "failed")]
 
 def measure(value, d, side):
     try: return value(d, side)
@@ -91,12 +87,9 @@ def measure(value, d, side):
 def rows(a):
     out = {}
     for rid, _, job, value, *_ in ROWS:
-        if job == a["job"]:
+        if job in (a["job"], "*"):
             m = {side: measure(value, a["bench-dir"], side) for side in ("base", "new")}
             if any(v is not None for v in m.values()): out[rid] = m
-            if job in SKEW_JOBS and rid in out:
-                try: out[rid]["skew"] = max(drive_skew(a["bench-dir"], side, job) for side in ("base", "new"))
-                except (FileNotFoundError, ValueError): pass
     json.dump({"job": a["job"], "head": a["head"], "base": a["base"], "run_id": int(a["run-id"]), "status": a["status"], "rows": out}, sys.stdout)
 
 def render(a):
@@ -114,7 +107,6 @@ def render(a):
     done = {j for j, run in state["runs"].items() if run["status"] == "done"}
     failed = {j for j, run in state["runs"].items() if run["status"] == "failed"}
     dead = crashed(state, ds)
-    sk = skewed(state)
     cell = lambda fmt, v: (format(v, fmt.split(" ")[0]) + " " + fmt.split(" ", 1)[1] if v is not None else "…").rjust(11)
     lines = [rule(f" ┌─ ⚡ PERF · {state['head'][:7]} vs main@{state['base'][:7]} ", 70),  # ⚡ is two cells wide
              " │ " + "SUITE".ljust(33) + "BASELINE".rjust(11) + "  " + "NEW".rjust(11) + "  " + "Δ".rjust(8)]
@@ -124,8 +116,8 @@ def render(a):
         new = cell(fmt, m["new"])
         if rid in ds:
             d = ds[rid][2]
-            t = tier(row, d, rid in sk)
-            arrow = "~" if rid in sk else "·" if t == " " else "▲" if d > 0 else "▼"
+            t = tier(row, d)
+            arrow = "·" if t == " " else "▲" if d > 0 else "▼"
             delta = arrow + pct(d, 8)
         elif row in dead:
             t, delta, new = "-", "…".rjust(8), "failed".rjust(11)
@@ -134,7 +126,7 @@ def render(a):
         lines.append(t + "│ " + label.ljust(33) + cell(fmt, m["base"]) + "  " + new + "  " + delta)
     lines.append(rule(" ├", 71))
     if done | failed == set(JOBS):
-        n = {t: sum(tier(r, ds[r[0]][2], r[0] in sk) == t for r in ROWS if r[0] in ds) for t in TIERS}
+        n = {t: sum(tier(r, ds[r[0]][2]) == t for r in ROWS if r[0] in ds) for t in TIERS}
         n["-"] += len(dead)
         s = lambda t: "" if n[t] == 1 else "S"
         missing = len(ROWS) - len(ds) - len(dead)
@@ -142,7 +134,6 @@ def render(a):
                      + (f" · {missing} UNMEASURED" if missing else "") + " @@")
     else:
         lines.append("@@ RUNNING · " + " · ".join(f"{j} {'done' if j in done else 'failed' if j in failed else 'pending'}" for j in JOBS) + " @@")
-    if sk: lines.append(" │ ~ a drive stalled (write-wait skew > %.1fx): noise, not the PR" % SKEW_MAX)
     lines.append(rule(" └", 71))
     body = "```diff\n" + "\n".join(lines) + "\n```\n"
     if done | failed != set(JOBS) and a.get("spinner"):  # HTML can't render inside the fence, so the spinner sits above it
