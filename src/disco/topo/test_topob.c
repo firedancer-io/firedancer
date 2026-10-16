@@ -25,6 +25,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+static fd_topo_t topo[1];
+
 /* ---- CPU topology ------------------------------------------------------ */
 
 FD_UNIT_TEST( test_cpu_topo_parse ) {
@@ -290,8 +292,6 @@ run_layout( ulong                 physical_cores,
   ulong cpu_cnt = cpus->cpu_cnt;
 
   /* Build tile topology */
-  static fd_topo_t _topo[1];   /* static – too large for stack */
-  fd_topo_t * topo = _topo;
   fd_memset( topo, 0, sizeof(*topo) );
   make_tiles( topo, tiles );
   set_blocklist( topo, blocklist );
@@ -677,8 +677,6 @@ FD_UNIT_TEST( test_firedancer_24x2 ) {
 FD_UNIT_TEST( test_execrp_dedicated_order ) {
   fd_topo_cpus_t cpus[1];
   make_cpus( cpus, 24, 0 );
-  static fd_topo_t _topo[1];
-  fd_topo_t * topo = _topo;
   fd_memset( topo, 0, sizeof(*topo) );
   make_tiles( topo, FIREDANCER_TILES );
   set_blocklist( topo, BLOCKLIST_0H( 24 ) );
@@ -701,8 +699,6 @@ FD_UNIT_TEST( test_execrp_dedicated_order ) {
 FD_UNIT_TEST( test_execrp_dedicated_half_cores ) {
   fd_topo_cpus_t cpus[1];
   make_cpus( cpus, 32, 0 );
-  static fd_topo_t _topo[1];
-  fd_topo_t * topo = _topo;
   fd_memset( topo, 0, sizeof(*topo) );
   make_tiles( topo, FIREDANCER_TILES );
   set_blocklist( topo, (ulong const[]){ 0, 32, 24, 25, 26, 27, 28, 29, 30, 31, ULONG_MAX } );
@@ -748,8 +744,6 @@ FD_UNIT_TEST( test_firedancer_48x2_efficient_l3 ) {
 
 /* Too few cores to give every hot tile its own: sequential layout */
 FD_UNIT_TEST( test_firedancer_32x2_efficient_l3 ) {
-  static fd_topo_t _topo[1];
-  fd_topo_t * topo = _topo;
   fd_memset( topo, 0, sizeof(*topo) );
   make_tiles( topo, FIREDANCER_EFF_TILES );
   set_blocklist( topo, BLOCKLIST_0H( 32 ) );
@@ -964,8 +958,6 @@ add_test_tile( fd_topo_t *  topo,
 }
 
 FD_UNIT_TEST( test_cpu_overlap_permitted ) {
-  static fd_topo_t _topo[1];
-  fd_topo_t * topo = _topo;
   fd_memset( topo, 0, sizeof(*topo) );
 
   add_test_tile( topo, "snapct", 0UL, 7UL );
@@ -981,8 +973,6 @@ FD_UNIT_TEST( test_cpu_overlap_banned ) {
   if( pid==0 ) {
     fd_log_level_logfile_set( 6 );
 
-    static fd_topo_t _topo[1];
-    fd_topo_t * topo = _topo;
     fd_memset( topo, 0, sizeof(*topo) );
 
     add_test_tile( topo, "pack",  0UL, 9UL );
@@ -999,8 +989,6 @@ FD_UNIT_TEST( test_cpu_overlap_banned ) {
 }
 
 FD_UNIT_TEST( test_cpu_overlap_shared ) {
-  static fd_topo_t _topo[1];
-  fd_topo_t * topo = _topo;
   fd_memset( topo, 0, sizeof(*topo) );
 
   add_test_tile( topo, "pack",  0UL, 9UL )->floats = 1;
