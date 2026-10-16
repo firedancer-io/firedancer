@@ -1212,6 +1212,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="HighestDeliveredSlot" summary="Highest slot fully delivered to replay, 0 if none" />
     <gauge name="HighestReceivedSlot" summary="Highest slot a shred was received for, 0 if none" />
     <gauge name="FirstTurbineSlot" summary="First turbine slot seen, the catchup target, 0 if none" />
+    <gauge name="CatchupSlot" summary="Highest slot past the window with a verified cert, the staked catchup target, 0 if none" />
     <gauge name="BlockPending" summary="Blocks in the eager, notar and final block treaps, waiting for discovery" />
     <gauge name="RequestInFlight" summary="Pending request attempts awaiting a first response; a hedge is another attempt" />
     <counter name="FecDelivered" summary="FEC sets published to replay" />

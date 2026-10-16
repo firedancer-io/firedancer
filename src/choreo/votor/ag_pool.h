@@ -8,10 +8,11 @@
 #include "ag_vote.h"
 
 #define AG_POOL_SUCCESS                ( 0)
-#define AG_POOL_ERR_SLOT_OUT_OF_BOUNDS (-1)
-#define AG_POOL_ERR_DUPLICATE          (-2)
-#define AG_POOL_ERR_SLASHABLE          (-3)
-#define AG_POOL_ERR_CERT_VERIFY        (-4)
+#define AG_POOL_ERR_SLOT_TOO_OLD       (-1)
+#define AG_POOL_ERR_SLOT_TOO_NEW       (-2)
+#define AG_POOL_ERR_DUPLICATE          (-3)
+#define AG_POOL_ERR_SLASHABLE          (-4)
+#define AG_POOL_ERR_CERT_VERIFY        (-5)
 
 #define AG_POOL_QUORUM_REACHED_FINAL          (AG_CERT_KIND_FINAL)
 #define AG_POOL_QUORUM_REACHED_FAST_FINAL     (AG_CERT_KIND_FAST_FINAL)
@@ -103,9 +104,6 @@ ag_pool_init( ag_pool_t *           self,
 
 void
 ag_pool_fini( ag_pool_t * self );
-
-FD_FN_CONST char const *
-ag_pool_strerror( int err );
 
 FD_FN_PURE ag_pool_metrics_t
 ag_pool_metrics( ag_pool_t const * self );

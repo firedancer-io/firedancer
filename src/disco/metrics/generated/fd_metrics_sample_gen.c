@@ -1813,7 +1813,7 @@ static fd_metrics_sample_field_t const fields_replay[ 238 ] = {
   { FD_METRICS_GAUGE_REPLAY_IS_RUNTIME_LOADED_OFF, 116U, FD_METRICS_SAMPLE_BOOL, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_rotor[ 120 ] = {
+static fd_metrics_sample_field_t const fields_rotor[ 121 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1865,6 +1865,7 @@ static fd_metrics_sample_field_t const fields_rotor[ 120 ] = {
   { FD_METRICS_GAUGE_ROTOR_HIGHEST_DELIVERED_SLOT_OFF, 27U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ROTOR_HIGHEST_RECEIVED_SLOT_OFF, 28U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ROTOR_FIRST_TURBINE_SLOT_OFF, 29U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_ROTOR_CATCHUP_SLOT_OFF, 55U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ROTOR_BLOCK_PENDING_OFF, 30U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ROTOR_REQUEST_IN_FLIGHT_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_FEC_DELIVERED_OFF, 32U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4060,7 +4061,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "shred", 32U, fields_shred, 195UL, 2147UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
   { "replay", 34U, fields_replay, 238UL, 2555UL },
-  { "rotor", 35U, fields_rotor, 120UL, 1368UL },
+  { "rotor", 35U, fields_rotor, 121UL, 1380UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
   { "gossip", 37U, fields_gossip, 179UL, 1913UL },
   { "gossvf", 38U, fields_gossvf, 120UL, 1370UL },

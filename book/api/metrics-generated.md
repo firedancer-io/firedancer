@@ -2282,6 +2282,7 @@
 | <span class="metrics-name">rotor_&#8203;highest_&#8203;delivered_&#8203;slot</span> | gauge | Highest slot fully delivered to replay, 0 if none |
 | <span class="metrics-name">rotor_&#8203;highest_&#8203;received_&#8203;slot</span> | gauge | Highest slot a shred was received for, 0 if none |
 | <span class="metrics-name">rotor_&#8203;first_&#8203;turbine_&#8203;slot</span> | gauge | First turbine slot seen, the catchup target, 0 if none |
+| <span class="metrics-name">rotor_&#8203;catchup_&#8203;slot</span> | gauge | Highest slot past the window with a verified cert, the staked catchup target, 0 if none |
 | <span class="metrics-name">rotor_&#8203;block_&#8203;pending</span> | gauge | Blocks in the eager, notar and final block treaps, waiting for discovery |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;in_&#8203;flight</span> | gauge | Pending request attempts awaiting a first response; a hedge is another attempt |
 | <span class="metrics-name">rotor_&#8203;fec_&#8203;delivered</span> | counter | FEC sets published to replay |
