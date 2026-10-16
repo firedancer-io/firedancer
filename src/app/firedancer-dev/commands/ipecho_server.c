@@ -24,14 +24,14 @@ ipecho_topo( fd_topo_t *  topo,
   fd_topob_wksp( topo, "all" );
   fd_topo_link_t * link = fd_topob_link( topo, "ipecho_out", "all", 4UL, 0UL, 1UL );
   link->permit_no_consumers = 1;
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0, 0, 1 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0, 1 );
   tile->ipecho.expected_shred_version = 32;
   tile->ipecho.entrypoints_cnt = 0UL;
   tile->ipecho.bind_address = FD_IP4_ADDR(127,0,0,1);
   tile->ipecho.bind_port    = 12008;
   fd_topob_tile_out( topo, "ipecho", 0UL, "ipecho_out", 0UL );
 
-  fd_topob_auto_layout( topo, 0 );
+  fd_topob_auto_layout( topo );
   fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
@@ -81,7 +81,7 @@ ipecho_server_cmd_fn( args_t *   args,
   ulong volatile * const ipecho_metrics1 = fd_metrics_tile( ipecho_tile1->metrics );
   (void)ipecho_metrics1;
 
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
 
   ulong tile_idx = fd_topo_find_tile( &config->topo, "ipecho", 0UL );
   FD_TEST( tile_idx!=ULONG_MAX );

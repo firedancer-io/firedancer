@@ -92,24 +92,16 @@ fd_stake_ci_t * fd_stake_ci_join( void * mem );
 void * fd_stake_ci_leave ( fd_stake_ci_t * info );
 void * fd_stake_ci_delete( void          * mem  );
 
-/* Frankendancer and Firedancer's Gossip impls follow different regimes
-   for broadcasting Contact Infos. Firedancer employs an update-based
-   regime where we receive update/remove messages for individual contact
-   info entries. Frankendancer (and thusly Agave) performs a full table
-   broadcast. fd_stake_ci offers two sets of APIs that cater to the
-   different regimes. */
+/* fd_stake_ci offers two sets of APIs for contact info: an
+   update-based regime where we receive update/remove messages for
+   individual contact info entries (used by the shred tile), and a full
+   table broadcast. */
 
-/* Frankendancer only:
-   fd_stake_ci_stake_msg_{init, fini} are used to handle messages
-   containing stake weight updates from the Rust side of the splice, and
-   fd_stake_ci_dest_add_{init, fini} are used to handle messages
-   containing contact info (potential shred destinations) updates from
-   the Rust side of the splice.
-
-   These are very specific to the current splices, but rather than parse
-   the message in the pack and shred tiles, we parse it here.  Since
-   these messages arrive on a dcache and can get overrun, both expose a
-   init/fini model.
+/* fd_stake_ci_stake_msg_{init, fini} are used to handle messages
+   containing stake weight updates, and fd_stake_ci_dest_add_{init, fini}
+   are used to handle messages containing full contact info (potential
+   shred destinations) updates.  Since these messages arrive on a dcache
+   and can get overrun, both expose a init/fini model.
 
    Upon returning from a call to fd_stake_ci_{stake_msg, dest_add}_init,
    the stake contact info object will be in a stake-msg-pending or
@@ -135,7 +127,7 @@ void * fd_stake_ci_delete( void          * mem  );
    fd_stake_ci_dest_add_init behaves slightly differently and returns a
    pointer to the first element of an array of size MAX_SHRED_DESTS-1 to
    be populated.  This allows the caller to add augment the information
-   in the message from Rust with additional information (i.e. mac
+   in the message with additional information (i.e. mac
    addresses).  The `cnt` argument to _dest_add_fini specifies the
    number of elements of the array returned by _init that were
    populated. 0<=cnt<MAX_SHRED_DESTS.  _fini will only read the first

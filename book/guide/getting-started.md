@@ -57,7 +57,7 @@ System packages can be installed with the `deps.sh` convenience script.
 First, clone the source code with:
 
 ```sh [bash]
-$ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
+$ git clone https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
 $ git checkout __FD_LATEST_VERSION__ # Or the latest Frankendancer release
 ```
@@ -145,7 +145,6 @@ check out a newer version, update dependencies, and rebuild binaries.
 ```sh [bash]
 git fetch --tags
 git checkout __FD_LATEST_VERSION__
-git submodule update
 make -j fdctl solana
 ```
 

@@ -9,8 +9,7 @@
 #define MAX_SLOTS_PER_EPOCH 432000UL
 #define MAX_STAKE_WEIGHTS   2000UL  /* validator_admission_ticket limit */
 
-/* Follows message structure in fd_stake_ci_stake_msg_init.
-   Frankendancer only */
+/* Follows message structure in fd_stake_ci_stake_msg_init. */
 struct fd_stake_weight_msg_t {
   ulong             epoch;             /* Epoch for which the stake weights are valid */
   ulong             staked_vote_cnt;   /* Number of staked nodes */

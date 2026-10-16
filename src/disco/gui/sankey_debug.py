@@ -33,8 +33,7 @@ def get_link_count(summed: Dict[Tuple[str, str, Optional[str]], int], metric: st
 def print_sankey(summed: Dict[Tuple[str, str, Optional[str]], int]):
     in_block_engine = get_link_count(summed, metric='bundle_txn_rx_total')
     in_gossip = get_link_count(summed, metric='verify_vote_gossip_rx_total') + \
-                get_link_count(summed, metric='verify_own_vote_rx_total') + \
-                get_link_count(summed, metric='dedup_vote_gossip_rx_total')
+                get_link_count(summed, metric='verify_own_vote_rx_total')
     in_udp = get_link_count(summed, metric='quic_txn_rx_total', link='udp')
     in_quic = get_link_count(summed, metric='quic_txn_rx_total', link='quic_fast') + get_link_count(summed, metric='quic_txn_rx_total', link='quic_frag')
 

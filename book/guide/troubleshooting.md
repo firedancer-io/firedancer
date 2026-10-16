@@ -14,15 +14,6 @@ Do a fresh clone of the repository, following the instructions in the
 [Getting Started](./getting-started.md#prerequisites) guide. Remember to
 check if you're using a supported compiler and to run `./deps.sh`!
 
-* If you're updating an existing repository clone, be sure to update
-the solana submodule _after_ pulling the latest changes. For example:
-
-```sh [bash]
-~/firedancer $ git fetch
-~/firedancer $ git checkout __FD_LATEST_VERSION__
-~/firedancer $ git submodule update
-```
-
 ### Specific Errors
 
 * Missing `cargo` binary from rust toolchain

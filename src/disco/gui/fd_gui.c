@@ -1234,27 +1234,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   memset( cur, 0, sizeof(fd_gui_txn_waterfall_t) );
   fd_topo_t const * topo = gui->topo;
 
-  for( ulong i=0UL; i<gui->summary.bank_tile_cnt; i++ ) {
-    fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
-
-    volatile ulong const * bank_metrics = fd_metrics_tile( bank->metrics );
-    cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_SUCCESS ) ];
-
-    cur->out.block_fail +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_FAILED    ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_FEES_ONLY ) ];
-
-    cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_UNINITIALIZED ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_ACCOUNT_NOT_FOUND ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_OWNER ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_ACCOUNT_DATA ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LUT_RESOLVE_ATTEMPTED_INVALID_LOOKUP_INDEX  ) ];
-
-    cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSED_BY_LANDING_DROPPED ) ];
-  }
-
   for( ulong i=0UL; i<gui->summary.execle_tile_cnt; i++ ) {
     fd_topo_tile_t const * execle = &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ];
 

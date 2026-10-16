@@ -72,31 +72,24 @@ check( config_t const * config,
   fd_topo_cpus_init( cpus );
 
   ulong pack_tile_idx = fd_topo_find_tile( &config->topo, "pack", 0UL );
-  ulong pohh_tile_idx  = fd_topo_find_tile( &config->topo, "pohh", 0UL );
-  ulong poh_tile_idx  = fd_topo_find_tile( &config->topo, "poh", 0UL );
+  ulong poh_tile_idx  = fd_topo_find_tile( &config->topo, "poh",  0UL );
 
   ulong pack_pair = determine_ht_pair( config, cpus, "pack", 0UL );
-  ulong pohh_pair  = determine_ht_pair( config, cpus, "pohh",  0UL );
-  ulong poh_pair = determine_ht_pair( config, cpus, "poh",  0UL );
+  ulong poh_pair  = determine_ht_pair( config, cpus, "poh",  0UL );
 
   /* A floating tile (efficient layout mode) shares its cores with
      the other floaters, so an idle sibling buys it nothing */
   if( pack_tile_idx!=ULONG_MAX && config->topo.tiles[ pack_tile_idx ].floats ) pack_pair = ULONG_MAX;
-  if( pohh_tile_idx!=ULONG_MAX && config->topo.tiles[ pohh_tile_idx ].floats ) pohh_pair = ULONG_MAX;
   if( poh_tile_idx !=ULONG_MAX && config->topo.tiles[ poh_tile_idx  ].floats ) poh_pair  = ULONG_MAX;
 
   int pack_pair_used = determine_cpu_used( config, pack_pair );
-  int pohh_pair_used  = determine_cpu_used( config, pohh_pair );
-  int poh_pair_used = determine_cpu_used( config, poh_pair );
+  int poh_pair_used  = determine_cpu_used( config, poh_pair  );
 
   int pack_pair_online = 0;
-  int pohh_pair_online = 0;
   int poh_pair_online  = 0;
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
     if( i==pack_pair && !pack_pair_used ) {
       if( FD_UNLIKELY( cpus->cpu[ i ].online ) ) pack_pair_online = 1;
-    } else if( i==pohh_pair && !pohh_pair_used ) {
-      if( FD_UNLIKELY( cpus->cpu[ i ].online ) ) pohh_pair_online = 1;
     } else if( i==poh_pair && !poh_pair_used ) {
       if( FD_UNLIKELY( cpus->cpu[ i ].online ) ) poh_pair_online = 1;
     }
@@ -106,13 +99,10 @@ check( config_t const * config,
      cpuset partition is permanently idle, which is about as good as
      offline for SMT purposes: no warning needed. */
   if( FD_UNLIKELY( pack_pair_online && sibling_isolated_idle( config, pack_pair ) ) ) pack_pair_online = 0;
-  if( FD_UNLIKELY( pohh_pair_online && sibling_isolated_idle( config, pohh_pair ) ) ) pohh_pair_online = 0;
   if( FD_UNLIKELY( poh_pair_online  && sibling_isolated_idle( config, poh_pair  ) ) ) poh_pair_online  = 0;
 
   if( FD_UNLIKELY( pack_pair_used ) )        FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
   else if( FD_UNLIKELY( pack_pair_online ) ) FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which should be offline or in the isolated cpuset partition (`configure init cpuset`). Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
-  if( FD_UNLIKELY( pohh_pair_used  ) )       FD_LOG_WARNING(( "pohh cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ pohh_tile_idx ].cpu_idx, pohh_pair ));
-  else if( FD_UNLIKELY( pohh_pair_online ) ) FD_LOG_WARNING(( "pohh cpu %lu has hyperthread pair cpu %lu which should be offline or in the isolated cpuset partition (`configure init cpuset`). Proceeding but performance may be reduced.", config->topo.tiles[ pohh_tile_idx ].cpu_idx, pohh_pair ));
   if( FD_UNLIKELY( poh_pair_used  ) )        FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
   else if( FD_UNLIKELY( poh_pair_online ) )  FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which should be offline or in the isolated cpuset partition (`configure init cpuset`). Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
 

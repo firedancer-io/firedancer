@@ -75,7 +75,7 @@ static void
 snapshot_load_layout( config_t *  config,
                       fd_topo_t * topo ) {
   if( FD_LIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) {
-    fd_topob_auto_layout( topo, 0 );
+    fd_topob_auto_layout( topo );
     return;
   }
 
@@ -145,28 +145,28 @@ snapshot_load_topo( config_t * config ) {
   /* metrics tile *****************************************************/
   fd_topob_wksp( topo, "metric_in" );
   fd_topob_wksp( topo, "metric" );
-  fd_topob_tile( topo, "metric",  "metric", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
+  fd_topob_tile( topo, "metric",  "metric", "metric_in", ULONG_MAX, 0, 0, 1 );
 
   /* read() tile */
   fd_topob_wksp( topo, "snapct" );
-  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
+  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "metric_in", ULONG_MAX, 0, 0, 1 );
   snapct_tile->allow_shutdown = 1;
 
   /* load tile */
   fd_topob_wksp( topo, "snapld" );
-  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", ULONG_MAX, 0, 0, 0, 1 );
+  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "metric_in", ULONG_MAX, 0, 0, 1 );
   snapld_tile->allow_shutdown = 1;
 
   /* "snapdc": Zstandard decompress tile */
   fd_topob_wksp( topo, "snapdc" );
   ulong snapdc_tile_cnt = config->firedancer.layout.snapdc_tile_count;
-  FOR(snapdc_tile_cnt) fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", ULONG_MAX, 0, 0, 0, 0 )->allow_shutdown = 1;
+  FOR(snapdc_tile_cnt) fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
 
   /* Parallel snapshot loader tiles. */
   fd_topob_wksp( topo, "snapin" );
   ulong snapin_tile_cnt = config->firedancer.layout.snapin_tile_count;
   FOR(snapin_tile_cnt) {
-    fd_topo_tile_t * tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
+    fd_topo_tile_t * tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", ULONG_MAX, 0, 0, 0 );
     tile->allow_shutdown = 1;
   }
 
@@ -178,8 +178,8 @@ snapshot_load_topo( config_t * config ) {
   FOR(snapdc_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ], dc_ticket_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topob_wksp( topo, "diag" );
-  fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
-  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", ULONG_MAX, 0, 0, 0, 0 );
+  fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", ULONG_MAX, 0, 0, 0 );
 
   fd_topob_wksp( topo, "snapct_ld"    );
   fd_topob_wksp( topo, "snapld_dc"    );
@@ -512,7 +512,7 @@ snapshot_load_cmd_fn( args_t *   args,
   double ns_per_tick = 1.0/tick_per_ns;
 
   long start = fd_log_wallclock();
-  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( topo, config->uid, config->gid, fdctl_tile_run );
 
   ulong volatile * const snapct_metrics = fd_metrics_tile( snapct_tile->metrics );
   ulong volatile * const snapld_metrics = fd_metrics_tile( snapld_tile->metrics );

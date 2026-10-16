@@ -45,7 +45,7 @@ gossip_cmd_topo( config_t * config ) {
 
   fd_topob_tile_in( topo, "gossip", 0UL, "metric_in", "sign_gossip",  0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_net_tile_finish( topo, i );
-  fd_topob_auto_layout( topo, 0 );
+  fd_topob_auto_layout( topo );
   fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
@@ -65,7 +65,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   for( int i=0; i<3; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
 
   fd_topob_wksp( topo, "gossip" );
-  fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 1, 0, 0 );
+  fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 1, 0, 0 );
   fd_cstr_ncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
   gossip_tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
@@ -91,7 +91,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
 
   fd_topob_wksp( topo, "gossvf" );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topo_tile_t * gossvf_tile = fd_topob_tile( topo, "gossvf", "gossvf", "metric_in", 0UL, 0, 1, 0, 0 );
+    fd_topo_tile_t * gossvf_tile = fd_topob_tile( topo, "gossvf", "gossvf", "metric_in", 0UL, 1, 0, 0 );
     fd_cstr_ncpy( gossvf_tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(gossvf_tile->gossvf.identity_key_path) );
     gossvf_tile->gossvf.tcache_depth = 1UL<<22UL;
     gossvf_tile->gossvf.shred_version = config->consensus.expected_shred_version;
@@ -122,7 +122,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_net", 0UL );
 
   fd_topob_wksp( topo, "ipecho" );
-  fd_topo_tile_t * ipecho_tile = fd_topob_tile( topo, "ipecho", "ipecho", "metric_in", 0UL, 0, 0, 0, 1 );
+  fd_topo_tile_t * ipecho_tile = fd_topob_tile( topo, "ipecho", "ipecho", "metric_in", 0UL, 0, 0, 1 );
   ipecho_tile->ipecho.expected_shred_version = config->consensus.expected_shred_version;
   ipecho_tile->ipecho.bind_address = config->net.ip_addr;
   ipecho_tile->ipecho.bind_port = config->gossip.port;
@@ -228,7 +228,7 @@ gossip_cmd_fn( args_t *   args,
   fd_topo_fill( &config->topo );
 
   /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
 
   fd_gossip_diag_ctx_t diag_ctx[1];
   if( FD_UNLIKELY( fd_gossip_diag_init( diag_ctx, &config->topo, config ) ) )

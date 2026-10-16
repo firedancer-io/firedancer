@@ -566,7 +566,7 @@ main( int     argc,
     FD_TEST( fd_pod_insertf_ulong( topo->props, rtx_obj->id, "shred_rtx.%lu", i ) );
   }
 
-  fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0, 1 );
+  fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 1 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
   strcpy( tile->name, "rpc" );
   tile->rpc.max_live_slots            = max_live_slots;

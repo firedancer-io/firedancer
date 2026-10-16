@@ -592,7 +592,7 @@ static fd_metrics_sample_field_t const fields_verify[ 47 ] = {
   { FD_METRICS_COUNTER_VERIFY_OWN_VOTE_RX_OFF, 27U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_dedup[ 44 ] = {
+static fd_metrics_sample_field_t const fields_dedup[ 43 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -636,7 +636,6 @@ static fd_metrics_sample_field_t const fields_dedup[ 44 ] = {
   { FD_METRICS_COUNTER_DEDUP_TXN_PROCESSED_BUNDLE_PEER_FAILED_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_DEDUP_TXN_PROCESSED_DUPLICATE_OFF, 3U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
-  { FD_METRICS_COUNTER_DEDUP_VOTE_GOSSIP_RX_OFF, 26U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_resolv[ 81 ] = {
@@ -1239,7 +1238,7 @@ static fd_metrics_sample_field_t const fields_execle[ 205 ] = {
   { FD_METRICS_COUNTER_EXECLE_ACCDB_COPIED_BYTES_OFF, 61U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_shred[ 195 ] = {
+static fd_metrics_sample_field_t const fields_shred[ 176 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1278,25 +1277,6 @@ static fd_metrics_sample_field_t const fields_shred[ 195 ] = {
   { FD_METRICS_COUNTER_TILE_DEVICE_IRQ_OFF, 22U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_OFF, 23U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_TILE_TIMER_IRQ_OFF, 24U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF, 25U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+0, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+1, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+2, 3U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+3, 4U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+4, 5U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+5, 6U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+6, 7U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+7, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+8, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+9, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+10, 11U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+11, 12U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+12, 13U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+13, 14U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+14, 15U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+15, 16U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_HISTOGRAM_SHRED_DEST_PER_UPDATE_OFF+16, 17U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_SHRED_BATCH_ABANDONED_OFF, 26U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_SHRED_PARENT_BLOCK_ID_ZEROED_OFF, 27U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_HISTOGRAM_SHRED_BATCH_SIZE_BYTES_OFF, 28U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
@@ -4356,11 +4336,11 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "quic", 25U, fields_quic, 195UL, 2087UL },
   { "bundle", 26U, fields_bundle, 75UL, 899UL },
   { "verify", 27U, fields_verify, 47UL, 598UL },
-  { "dedup", 28U, fields_dedup, 44UL, 564UL },
+  { "dedup", 28U, fields_dedup, 43UL, 552UL },
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
   { "pack", 30U, fields_pack, 305UL, 3245UL },
   { "execle", 31U, fields_execle, 205UL, 2159UL },
-  { "shred", 32U, fields_shred, 195UL, 2147UL },
+  { "shred", 32U, fields_shred, 176UL, 1951UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
   { "replay", 34U, fields_replay, 238UL, 2555UL },
   { "rotor", 35U, fields_rotor, 120UL, 1368UL },
@@ -4393,6 +4373,6 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { NULL, 0U, NULL, 0UL, 0UL }
 };
 
-char const * const fd_metrics_sample_skip[] = { "backt", "bank", "benchs", "guih", "poh", "pohh", "repair", "resolh", "solcap", "store", "tower", "txsend", NULL };
+char const * const fd_metrics_sample_skip[] = { "backt", "benchs", "poh", "repair", "resolh", "solcap", "tower", "txsend", NULL };
 
 fd_metrics_sample_schema_t const fd_metrics_sample_link = { "link", 61U, fields_link, 9UL, 284UL };

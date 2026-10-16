@@ -175,7 +175,6 @@ help:
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
 	# "make integration-test" makes all integration-tests for the current platform
-	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make run-integration-test" runs all integration-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
@@ -197,11 +196,10 @@ info: $(OBJDIR)/info
 
 clean: frontend-clean
 	$(RMDIR) $(CLEANDIR) && { [ ! -d $(BASEDIR) ] || $(FIND) $(BASEDIR)/ -maxdepth 1 -type f -perm -u+x -links 1 -delete; } && \
-$(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 distclean: frontend-clean
-	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
+	$(RMDIR) $(BASEDIR) && \
 $(SCRUB)
 
 run-unit-test:
@@ -310,7 +308,7 @@ SCHED_HOT_OBJS?=third_party/blst/% discof/replay/% discof/rpc/% disco/gui/% ball
 sched-hot-objs = $(filter $(foreach lib,$(VENDOR_LINK_LIBS) $(1),$(LIB_OBJS_$(lib))),$(SCHED_HOT_ALL))
 # make 4.3 second-expands every rule at parse: the exe-level hot edge stays on bins and
 # goal tests only; each meta gets one over its exes' lib union, declared first so it leads
-EXE_METAS:=bin rust lib unit-test integration-test fuzz-test
+EXE_METAS:=bin lib unit-test integration-test fuzz-test
 $(EXE_METAS): $$(if $$(META_LIBS_$$@),$$(call sched-hot-objs,$$(sort $$(META_LIBS_$$@))))
 
 # _make-exe usage:
@@ -420,7 +418,6 @@ $(2): publish-$(1)
 endef
 
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin,$(4) $(LDFLAGS_EXE)))$(eval $(call _publish-bin,$(1),bin))
-make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin,$(4) $(LDFLAGS_EXE)))$(eval $(call _publish-bin,$(1),rust))
 make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,$(4) $(LDFLAGS_SO)))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test,$(4) $(LDFLAGS_EXE)))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
@@ -769,22 +766,12 @@ cov-report: $(OBJDIR)/cov/html/index.html
 dist-cov-report: $(BASEDIR)/cov/html/index.html
 	$(LCOV) --summary $(BASEDIR)/cov/cov.lcov
 
-# Builds the frontend bundle and bakes it into the binary.  There are two
-# independent GUI binaries with their own frontend bundle:
-#
-#   FRONTEND_CLIENT=Firedancer -> src/disco/gui      (full client)
-#   FRONTEND_CLIENT=Frankendancer -> src/discoh/guih (frankendancer)
+# Builds the frontend bundle and bakes it into the binary (src/disco/gui)
 #
 # Each client has a single bundle, stored under its dist/ directory; there
 # are no longer per-channel (stable/alpha/dev) variants.
 FRONTEND_CLIENT := Firedancer
-ifeq ($(FRONTEND_CLIENT),Firedancer)
 FRONTEND_DIR := src/disco/gui
-else ifeq ($(FRONTEND_CLIENT),Frankendancer)
-FRONTEND_DIR := src/discoh/guih
-else
-$(error "unexpected FRONTEND_CLIENT (expected Firedancer or Frankendancer)")
-endif
 
 # Regenerates generated/http_import_dist.c from the committed dist/ tree.
 # Hermetic (no npm), so CI can diff it; C collation keeps the order
@@ -837,7 +824,6 @@ frontend-generated:
 	$(frontend-generated-recipe)
 
 frontend-clean:
-	rm -rf src/discoh/guih/dist_cmp
 	rm -rf src/disco/gui/dist_cmp
 
 objdir:

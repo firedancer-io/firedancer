@@ -131,7 +131,6 @@ fd_main_init( int *                      pargc,
               char ***                   pargv,
               config_t   *               config,
               const char *               opt_user_config_path,
-              int                        is_firedancer,
               int                        is_local_cluster,
               char const *               log_path,
               fd_config_file_t * const * configs,
@@ -175,7 +174,7 @@ fd_main_init( int *                      pargc,
     determine_override_config( pargc, pargv, configs,
                                &override_config, &override_config_path, &override_config_sz );
 
-    fd_config_load( is_firedancer, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config, dev );
+    fd_config_load( is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config, dev );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -257,7 +256,6 @@ static config_t config;
 int
 fd_main( int                        argc,
          char **                    _argv,
-         int                        is_firedancer,
          fd_config_file_t * const * configs,
          void (* topo_init )( config_t * config ) ) {
   fd_version_private_boot( &argc, &_argv );
@@ -319,9 +317,9 @@ fd_main( int                        argc,
   }
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
-  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, 0 /* dev */ );
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_local_cluster, NULL, configs, 0 /* dev */ );
   if( FD_LIKELY( load_topo && action ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
-  if( FD_UNLIKELY( load_topo && alpenglow && config.is_firedancer ) ) config.firedancer.consensus.alpenglow = 1;
+  if( FD_UNLIKELY( load_topo && alpenglow ) ) config.firedancer.consensus.alpenglow = 1;
   if( FD_LIKELY( load_topo ) ) topo_init( &config );
 
   if( FD_UNLIKELY( !action ) ) {

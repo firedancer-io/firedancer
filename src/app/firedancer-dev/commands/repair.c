@@ -368,9 +368,9 @@ repair_topo( config_t * config ) {
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
 
-  /*                                              topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch */
-  FOR(shred_tile_cnt)              fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0,                 0 );
-  /**/                             fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0,                 0 );
+  /*                                              topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       uses_id_keyswitch, uses_av_keyswitch */
+  FOR(shred_tile_cnt)              fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,                 0,                 0 );
+  /**/                             fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,                 0,                 0 );
 
   /* Setup a shared wksp object for fec sets. */
 
@@ -383,18 +383,6 @@ repair_topo( config_t * config ) {
     fd_topob_tile_uses( topo, shred_tile,  fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
-
-  /* There's another special fseq that's used to communicate the shred
-    version from the Agave boot path to the shred tile. */
-  fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
-  fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ];
-  fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
-    fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
-    fd_topob_tile_uses( topo, shred_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  }
-  FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
@@ -493,7 +481,7 @@ repair_topo( config_t * config ) {
     fd_topo_configure_tile( tile, config );
   }
 
-  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo );
 
   fd_topob_waker( topo );
   fd_topob_finish( topo, CALLBACKS );
@@ -931,7 +919,7 @@ repair_cmd_fn_catchup( args_t *   args,
   long  last_print    = fd_log_wallclock();
   ulong last_sent     = 0UL;
 
-  fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
   for(;;) {
 
     if( FD_UNLIKELY( !turbine_slot0 ) ) {
@@ -1017,7 +1005,7 @@ repair_cmd_fn_eqvoc( args_t *   args,
   ulong tower_out_wmark = fd_dcache_compact_wmark( tower_out_mem, tower_out_link->dcache, tower_out_link->mtu );
   ulong tower_out_chunk = tower_out_chunk0;
 
-  fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
   int confirmed = 0;
   for(;;) {
     /* publish a confirmation on tower_out */

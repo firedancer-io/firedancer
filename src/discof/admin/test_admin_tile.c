@@ -130,7 +130,7 @@ static fd_keyswitch_t id_keyswitch[ 8 ];
 
 static fd_keyswitch_t *
 mock_tile( char const * name ) {
-  fd_topo_tile_t * tile = fd_topob_tile( test_topo, name, "wksp", "wksp", 0UL, 0, 1, 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( test_topo, name, "wksp", "wksp", 0UL, 1, 0, 0 );
   fd_keyswitch_t * ks   = fd_keyswitch_join( fd_keyswitch_new( &id_keyswitch[ tile->id ], FD_KEYSWITCH_STATE_UNLOCKED ) );
   FD_TEST( ks );
   test_topo->objs[ tile->id_keyswitch_obj_id ].offset = (ulong)ks;
