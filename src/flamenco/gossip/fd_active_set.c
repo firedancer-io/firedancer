@@ -301,32 +301,35 @@ rotate_active_set( fd_active_set_t *   active_set,
 
   /* Sample a new peer BEFORE evicting the oldest.  This prevents the
      case where we evict a peer back into the sampler and then
-     immediately re-sample it, creating a duplicate. */
+     immediately re-sample it, creating a duplicate.  A full entry
+     swaps its oldest peer; a partial one fills up to 12 at once. */
 
-  ulong added_ci_idx = fd_gossip_wsample_sample_remove_bucket( active_set->wsample, bucket );
-  if( FD_UNLIKELY( added_ci_idx==ULONG_MAX ) ) return;
+  do {
+    ulong added_ci_idx = fd_gossip_wsample_sample_remove_bucket( active_set->wsample, bucket );
+    if( FD_UNLIKELY( added_ci_idx==ULONG_MAX ) ) return;
 
-  ulong replace_idx;
-  if( FD_LIKELY( entry->nodes_len==12UL ) ) {
-    replace_idx      = entry->nodes_idx;
-    entry->nodes_idx = (entry->nodes_idx+1UL) % 12UL;
+    ulong replace_idx;
+    if( FD_LIKELY( entry->nodes_len==12UL ) ) {
+      replace_idx      = entry->nodes_idx;
+      entry->nodes_idx = (entry->nodes_idx+1UL) % 12UL;
 
-    /* Add the replaced peer back to the sampler. */
-    ulong old_ci_idx = active_set->peers[ bucket*12UL+replace_idx ].ci_idx;
-    fd_gossip_wsample_add_bucket( active_set->wsample, bucket, old_ci_idx );
-    push_flush( active_set, &active_set->peers[ bucket*12UL+replace_idx ], stem, now );
-  } else {
-    replace_idx = (entry->nodes_idx+entry->nodes_len) % 12UL;
-  }
+      /* Add the replaced peer back to the sampler. */
+      ulong old_ci_idx = active_set->peers[ bucket*12UL+replace_idx ].ci_idx;
+      fd_gossip_wsample_add_bucket( active_set->wsample, bucket, old_ci_idx );
+      push_flush( active_set, &active_set->peers[ bucket*12UL+replace_idx ], stem, now );
+    } else {
+      replace_idx = (entry->nodes_idx+entry->nodes_len) % 12UL;
+      entry->nodes_len++;
+    }
 
-  fd_active_set_peer_t * replace = &active_set->peers[ bucket*12UL+replace_idx ];
-  replace->ci_idx = added_ci_idx;
-  uchar const * new_pubkey = fd_crds_ci_pubkey( active_set->crds, added_ci_idx );
+    fd_active_set_peer_t * replace = &active_set->peers[ bucket*12UL+replace_idx ];
+    replace->ci_idx = added_ci_idx;
+    uchar const * new_pubkey = fd_crds_ci_pubkey( active_set->crds, added_ci_idx );
 
-  fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
-  fd_bloom_insert( replace->bloom, new_pubkey, 32UL );
-  entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
-  fd_gossip_txbuild_init( replace->txbuild, active_set->identity_pubkey, FD_GOSSIP_MESSAGE_PUSH );
+    fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
+    fd_bloom_insert( replace->bloom, new_pubkey, 32UL );
+    fd_gossip_txbuild_init( replace->txbuild, active_set->identity_pubkey, FD_GOSSIP_MESSAGE_PUSH );
+  } while( entry->nodes_len<12UL );
 }
 
 
