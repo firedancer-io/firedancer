@@ -229,6 +229,22 @@ test_v5_accessors( void ) {
   FD_TEST( !fd_vote_account_has_bls_pubkey( v4, sizeof(v4) ) );
 }
 
+static void
+test_update_location_decode( void ) {
+  static fd_vote_instruction_t ix[1];
+  uchar data[ 17 ];
+  FD_STORE( uint, data,      20U     );
+  FD_STORE( int,  data+4UL,  4051542 );
+  FD_STORE( int,  data+8UL,  -618526 );
+  FD_STORE( int,  data+12UL, INT_MIN );
+  data[ 16 ] = 0xFF;
+  FD_TEST( fd_vote_instruction_deserialize( ix, data, 16UL ) );
+  FD_TEST( ix->discriminant==fd_vote_instruction_enum_update_location );
+  FD_TEST( ix->update_location.x==4051542 && ix->update_location.y==-618526 && ix->update_location.z==INT_MIN );
+  FD_TEST( fd_vote_instruction_deserialize( ix, data, 17UL ) );
+  FD_TEST( !fd_vote_instruction_deserialize( ix, data, 15UL ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -282,6 +298,7 @@ main( int     argc,
 
   test_v5_codec();
   test_v5_accessors();
+  test_update_location_decode();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
