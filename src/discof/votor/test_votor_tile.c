@@ -43,14 +43,14 @@ test_rank_voters_resets_total_stake( void ) {
   ag_epoch_info_t *      epoch_info = &epoch_info_mem;
 
   build_stakes( stakes, 3UL, 10UL );
-  FD_TEST( rank_voters( epoch_info, stakes, 3UL )==epoch_info );
+  FD_TEST( rank_voters( epoch_info, stakes, 3UL, NULL, NULL )==epoch_info );
   FD_TEST( epoch_info->validator_cnt==3UL  );
   FD_TEST( epoch_info->total_stake  ==33UL ); /* 10+11+12 */
 
   /* Same buffer, next epoch. */
 
   build_stakes( stakes, 2UL, 5UL );
-  FD_TEST( rank_voters( epoch_info, stakes, 2UL )==epoch_info );
+  FD_TEST( rank_voters( epoch_info, stakes, 2UL, NULL, NULL )==epoch_info );
   FD_TEST( epoch_info->validator_cnt==2UL  );
   FD_TEST( epoch_info->total_stake  ==11UL ); /* 5+6, not 33+11 */
 }
@@ -121,13 +121,33 @@ test_rank_voters_bls_keys( void ) {
   /* Ranked by descending stake: rank r is stakes[2-r]. */
 
   build_stakes( stakes, 3UL, 10UL );
-  rank_voters( epoch_info, stakes, 3UL );
+  rank_voters( epoch_info, stakes, 3UL, NULL, NULL );
   for( ulong rank=0UL; rank<3UL; rank++ ) {
     uchar const * bls_key = stakes[ 2UL-rank ].bls_key;
     FD_TEST( !memcmp( epoch_info->validators[ rank ].bls_key, bls_key, sizeof(ag_bls_key_t) ) );
     fd_bls_pub_t pub; FD_TEST( !fd_bls_pub_de( &pub, bls_key, FD_BLS_PUB_COMPRESSED_SZ ) );
     FD_TEST( blst_p1_affine_is_equal( ag_epoch_info_pubkey( epoch_info, rank ), &pub ) );
   }
+
+  /* The next epoch reuses known points: a planted point for an unchanged
+     key is taken as is, while a changed key is decompressed, and an
+     invalid one is dropped. */
+
+  static ag_epoch_info_t known_mem;
+  ag_epoch_info_t * known = &known_mem;
+  *known = *epoch_info;
+  fd_bls_pub_t marker = *ag_epoch_info_pubkey( known, 1UL );
+  known->pubkeys[ 0 ] = marker; /* rank 0 is stakes[2] */
+
+  fd_bls_sec_t sec; memset( &sec, 0x55, FD_BLS_SEC_SZ );
+  fd_bls_pub_t pub; fd_bls_sec_to_pub( &sec, &pub );
+  blst_p1_affine_compress( stakes[ 1 ].bls_key, &pub );
+  memset( stakes[ 0 ].bls_key, 0xff, FD_BLS_PUB_COMPRESSED_SZ );
+
+  rank_voters( epoch_info, stakes, 3UL, known, NULL );
+  FD_TEST( epoch_info->validator_cnt==2UL );
+  FD_TEST( blst_p1_affine_is_equal( ag_epoch_info_pubkey( epoch_info, 0UL ), &marker ) );
+  FD_TEST( blst_p1_affine_is_equal( ag_epoch_info_pubkey( epoch_info, 1UL ), &pub    ) );
 }
 
 /* Fills bls_keys[0,cnt) from secret keys memset to 7, 8, ... */
@@ -359,7 +379,7 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
 
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
   build_stakes( stakes, 3UL, 10UL );
-  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
   memcpy( ctx.id_key.uc, epoch_info->validators[1].id_key, sizeof(fd_pubkey_t) );
   ctx.curr_epoch_info = epoch_info;
   ctx.curr_epoch_slot = 0UL;
@@ -420,7 +440,7 @@ test_auth_vtr_keyswitch_clear( void ) {
 
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
   build_stakes( stakes, 3UL, 10UL );
-  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
   memcpy( ctx.id_key.uc, epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
   ctx.curr_epoch_info = epoch_info;
   ctx.curr_epoch_slot = 0UL;
@@ -556,7 +576,7 @@ test_id_keyswitch( void ) {
 
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
   build_stakes( stakes, 3UL, 10UL );
-  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
   fd_pubkey_t old_id;  memcpy( old_id.uc,  epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
   fd_pubkey_t new_id;  memcpy( new_id.uc,  epoch_info->validators[1].id_key, sizeof(fd_pubkey_t) );
   fd_pubkey_t peer_id; memcpy( peer_id.uc, epoch_info->validators[2].id_key, sizeof(fd_pubkey_t) );
@@ -1564,7 +1584,7 @@ test_standstill( void ) {
 
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
   build_stakes( stakes, 3UL, 10UL );
-  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
   long now = fd_clock_tile_now( ctx->clock );
   ag_pool_init          ( ctx->pool,  &(ag_block_id_t){ .slot = 0UL } );
   ctx->standstill_slot = 0UL;
@@ -1936,7 +1956,7 @@ test_reward_certs( void ) {
 
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
   build_stakes( stakes, 4UL, 10UL );
-  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 4UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 4UL, NULL, NULL );
   ctx.curr_epoch_info = epoch_info;
   ctx.curr_epoch_slot = 0UL;
   ctx.next_epoch_slot = ULONG_MAX;
