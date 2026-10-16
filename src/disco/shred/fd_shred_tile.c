@@ -189,6 +189,8 @@ typedef struct {
   ulong                      new_dest_cnt;
   ulong                      shredded_txn_cnt;
   ulong                      new_root;
+  ulong                      slot_max;
+  ulong                      future_slot;
 
   ulong poh_in_expect_seq;
 
@@ -339,6 +341,9 @@ typedef struct {
   /* Bank object that we receive from the PoH tile and pass on to
      the store tile for setting the block_id of a slot. */
   void const * leader_bank;
+
+  fd_sha512_t sha512[1];
+  uchar       bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
 } fd_shred_ctx_t;
 
 /* shred features are generally considered active at the epoch *following*
@@ -1368,6 +1373,27 @@ after_frag( fd_shred_ctx_t *    ctx,
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_evicted_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
     }
 
+    /* Send rotor future slots past max_live_slots so that unstaked
+       nodes can catch up. */
+
+    if( FD_UNLIKELY( ctx->alpenglow &&
+                     rv==FD_FEC_RESOLVER_SHRED_IGNORED &&
+                     shred_source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE &&
+                     shred->version==ctx->shredder->shred_version &&
+                     shred->slot>ctx->future_slot &&
+                     ctx->new_root<ULONG_MAX &&
+                     shred->slot>=ctx->new_root+ctx->slot_max &&
+                     fd_shred_type( shred->variant )!=FD_SHRED_TYPE_LEGACY_DATA &&
+                     fd_shred_type( shred->variant )!=FD_SHRED_TYPE_LEGACY_CODE ) ) {
+      fd_bmtree_node_t root[1];
+      int signed_ = fd_shred_merkle_root( shred, ctx->bmtree_mem, root ) &&
+                    FD_ED25519_SUCCESS==fd_ed25519_verify( root->hash, FD_SHRED_MERKLE_ROOT_SZ, shred->signature, slot_leader->uc, ctx->sha512 );
+      if( FD_LIKELY( signed_ ) ) {
+        ctx->future_slot = shred->slot;
+        fd_stem_publish( stem, ctx->shred_out_idx, fd_shred_sig_future( shred->slot ), 0UL, 0UL, 0UL, ctx->tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      }
+    }
+
     if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX  /* Only send to repair/replay in full Firedancer */
                    && ( ( rv==FD_FEC_RESOLVER_SHRED_OKAY )
                       | ( rv==FD_FEC_RESOLVER_SHRED_COMPLETES )
@@ -1624,6 +1650,10 @@ unprivileged_init( fd_topo_t const *      topo,
                                                                         tile->shred.alpenglow ? tile->shred.slot_max : 0UL,
                                                                         resolver_sets,
                                                                         ctx->resolver_seed ) ) );
+  FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
+  ctx->new_root    = 0UL;
+  ctx->slot_max    = tile->shred.slot_max;
+  ctx->future_slot = 0UL;
 
   if( FD_LIKELY( !!expected_shred_version ) ) {
     fd_shredder_set_shred_version    ( ctx->shredder, expected_shred_version );
