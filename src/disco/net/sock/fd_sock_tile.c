@@ -349,6 +349,17 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_CHECK_ERR( tile->in_cnt<=MAX_NET_INS, "too many input links" );
 
+  /* The loopback-only sock tile has no TX links and is not counted */
+  ctx->tx_tile_idx = 0UL;
+  ctx->tx_tile_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * t = &topo->tiles[ i ];
+    if( strcmp( t->name, "sock" ) || t->sock.only_recv_lo ) continue;
+    if( t->id==tile->id ) ctx->tx_tile_idx = ctx->tx_tile_cnt;
+    ctx->tx_tile_cnt++;
+  }
+  ctx->tx_tile_cnt = fd_ulong_max( ctx->tx_tile_cnt, 1UL );
+
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     if( !strstr( topo->links[ tile->in_link_id[ i ] ].name, "_net" ) ) {
       FD_LOG_ERR(( "in link %lu is not a net TX link", i ));
@@ -593,18 +604,17 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
   ctx->batch_cnt = 0;
 }
 
-/* before_frag is called when a new frag has been detected.  The sock
-   tile can do early filtering here in the future.  For example, it may
-   want to install routing logic here to take turns with an XDP tile.
-   (Fast path with slow fallback) */
+/* before_frag is called when a new frag has been detected.  Every sock
+   tile reads every TX link, so each sends only its share of packets. */
 
 static inline int
-before_frag( fd_sock_tile_t * ctx    FD_PARAM_UNUSED,
+before_frag( fd_sock_tile_t * ctx,
              ulong            in_idx FD_PARAM_UNUSED,
              ulong            seq    FD_PARAM_UNUSED,
              ulong            sig ) {
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
+  if( fd_disco_netmux_sig_hash( sig )%ctx->tx_tile_cnt!=ctx->tx_tile_idx ) return 1;
   return 0; /* continue */
 }
 
