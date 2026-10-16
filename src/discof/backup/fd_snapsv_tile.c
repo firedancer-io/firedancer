@@ -833,9 +833,10 @@ static void
 conn_req_next( fd_snapsv_t * ctx,
                uint          conn_idx ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
-  memset( &conn->req,  0, sizeof(conn->req ) );
-  memset( &conn->res,  0, sizeof(conn->res ) );
-  memset( &conn->snap, 0, sizeof(conn->snap) );
+  memset( &conn->req,    0, sizeof(conn->req   ) );
+  memset( &conn->res,    0, sizeof(conn->res   ) );
+  memset( &conn->snap,   0, sizeof(conn->snap  ) );
+  memset( &conn->stream, 0, sizeof(conn->stream) );
   conn->snap.key = (snap_key_t){ ULONG_MAX, ULONG_MAX };
   conn->state = CONN_STATE_REQ_PEEK;
   prep_peek( ctx, conn_idx );
