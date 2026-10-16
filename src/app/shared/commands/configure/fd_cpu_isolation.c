@@ -1,6 +1,6 @@
 #include "fd_cpu_isolation.h"
 
-#include "../../../../disco/topo/fd_cpu_topo.h"
+#include "../../../../disco/topo/fd_topob.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -95,12 +95,6 @@ fd_cpu_isolation_format_list( char *              buf,
   return buf;
 }
 
-/* Tiles whose per-core throughput is sensitive enough to SMT resource
-   sharing that their hyperthread sibling should be kept quiet.  Keep
-   in sync with the hyperthreads configure stage. */
-
-static char const * const smt_sensitive_tiles[] = { "pack", "pohh", "poh", NULL };
-
 char const *
 fd_cpu_isolation_partition_type( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) if( topo->tiles[ i ].floats ) return "root";
@@ -115,13 +109,15 @@ fd_cpu_isolation_partition_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
 
-  for( char const * const * name=smt_sensitive_tiles; *name; name++ ) {
-    ulong tile_idx = fd_topo_find_tile( topo, *name, 0UL );
-    if( FD_LIKELY( tile_idx==ULONG_MAX ) ) continue;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( FD_LIKELY( !( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_SMT_CRITICAL ) ) ) continue;
+    /* The pack/poh/pohh siblings only, the set the hyperthreads stage checks */
+    if( tile->kind_id || !( !strcmp( tile->name, "pack" ) || !strcmp( tile->name, "poh" ) || !strcmp( tile->name, "pohh" ) ) ) continue;
 
-    ulong cpu_idx = topo->tiles[ tile_idx ].cpu_idx;
+    ulong cpu_idx = tile->cpu_idx;
     if( FD_UNLIKELY( cpu_idx>=fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ) ) ) continue;
-    if( FD_UNLIKELY( topo->tiles[ tile_idx ].floats ) ) continue; /* not alone on that core anyway */
+    if( FD_UNLIKELY( tile->floats ) ) continue; /* not alone on that core anyway */
 
     ulong sibling = cpus->cpu[ cpu_idx ].sibling;
     if( FD_UNLIKELY( sibling==ULONG_MAX || sibling>=FD_TILE_MAX ) ) continue;      /* no sibling */

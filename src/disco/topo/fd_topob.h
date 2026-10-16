@@ -36,7 +36,39 @@
 #define FD_TOPOB_PRIORITY_NORMAL   (3)
 #define FD_TOPOB_PRIORITY_CRITICAL (4)
 
+/* Tile classes for the auto layout and the CPU isolation stages.
+
+   Phases, one per known tile:
+     - ALWAYS:    runs for the whole process lifetime
+     - STARTUP:   shuts down after snapshot load
+     - POSTSTART: sleeps until snapshot load finishes
+     - FLOATING:  yields to the kernel scheduler
+
+   Placement flags, any combination:
+     - SMT_CRITICAL:  hyperthread sibling kept idle
+     - DEDICATED:     whole core while spare logical CPUs last
+     - THROUGHPUT:    pinned in efficient mode, with an idle sibling
+     - PIN_EFFICIENT: pinned in efficient mode */
+
+#define FD_TOPOB_TILE_ALWAYS        (1U<<0)
+#define FD_TOPOB_TILE_STARTUP       (1U<<1)
+#define FD_TOPOB_TILE_POSTSTART     (1U<<2)
+#define FD_TOPOB_TILE_FLOATING      (1U<<3)
+#define FD_TOPOB_TILE_SMT_CRITICAL  (1U<<4)
+#define FD_TOPOB_TILE_DEDICATED     (1U<<5)
+#define FD_TOPOB_TILE_THROUGHPUT    (1U<<6)
+#define FD_TOPOB_TILE_PIN_EFFICIENT (1U<<7)
+
+#define FD_TOPOB_TILE_PHASE (FD_TOPOB_TILE_ALWAYS|FD_TOPOB_TILE_STARTUP|FD_TOPOB_TILE_POSTSTART|FD_TOPOB_TILE_FLOATING)
+#define FD_TOPOB_TILE_EFFICIENT_PINNED (FD_TOPOB_TILE_SMT_CRITICAL|FD_TOPOB_TILE_THROUGHPUT|FD_TOPOB_TILE_PIN_EFFICIENT)
+
 FD_PROTOTYPES_BEGIN
+
+/* fd_topob_tile_class returns the FD_TOPOB_TILE_* flags of the tile
+   named name, 0 if the tile is unknown. */
+
+FD_FN_PURE uint
+fd_topob_tile_class( char const * name );
 
 /* Initialize a new fd_topo_t with the given app name and at the memory address
    provided.  Returns the topology at given address.  The topology will be empty
