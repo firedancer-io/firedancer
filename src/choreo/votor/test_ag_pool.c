@@ -2193,6 +2193,28 @@ test_set_rank( void ) {
   teardown_pool( pool );
 }
 
+static void
+test_bls_verify_cnt( void ) {
+  ag_pool_t * pool = setup_pool();
+  ag_block_hash_t h; random_hash( h );
+  ag_vote_notar_t nv[ NV ];
+  for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, 1UL, h, (ushort)v, TEST_SHRED_VERSION ).notar;
+
+  ag_cert_t c = cert_build_notar( nv, 1UL, g_epoch_info );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_ERR_CERT_VERIFY );
+  FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==0UL );
+
+  c = cert_build_notar( nv, NV, g_epoch_info );
+  ag_cert_t forged = c; forged.notar.slot = 2UL;
+  FD_TEST( ag_pool_add_cert( pool, &forged, 0, bad )==AG_POOL_ERR_CERT_VERIFY );
+  FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==1UL );
+
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==2UL );
+
+  teardown_pool( pool );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2251,6 +2273,7 @@ main( int     argc,
   test_parent_ready_pruned_while_queued();
   test_add_block_below_watermark();
   test_set_rank();
+  test_bls_verify_cnt();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
