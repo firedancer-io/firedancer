@@ -1,6 +1,6 @@
 $(call add-hdrs,fd_r43x6.h fd_r43x6_inl.h fd_r43x6_ge.h)
 ifdef FD_HAS_AVX512
-$(call add-objs,fd_r43x6 fd_r43x6_ge,fd_ballet)
+$(call add-objs,fd_r43x6 fd_r43x6_ge fd_ed25519_lane_table,fd_ballet)
 $(call make-unit-test,test_r43x6,test_r43x6,fd_ballet fd_util)
 $(call run-unit-test,test_r43x6)
 

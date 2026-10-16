@@ -193,3 +193,23 @@ noted.  See NOTICE for additional information.
       of your accepting any such warranty or additional liability.
 
    END OF TERMS AND CONDITIONS
+
+=======================================================================
+
+The radix-51 IFMA convolution/carry organization in
+src/ballet/ed25519/avx512/fd_ed25519_lane.h is adapted from Narya
+internal/r51x5/ifma_amd64.s and its arithmetic assurance notes at
+commit c265ee9667131a556cd332c252b79de0860c7640.  The modifications
+are listed in the file.
+
+https://github.com/Overclock-Validator/narya-ed25519/tree/c265ee9667131a556cd332c252b79de0860c7640
+
+From the Narya NOTICE file at that commit:
+
+   Narya
+   Copyright 2026 Overclock Validator
+
+   This product includes software developed at Overclock Validator
+   (https://github.com/Overclock-Validator).
+
+   Licensed under the Apache License, Version 2.0; see LICENSE.
