@@ -922,6 +922,14 @@ alpenglow_marker:
       return;
     };
 
+    /* all shreds in the same FEC set will have the same signature
+       so we can round-robin shreds between the shred tiles based on
+       just the signature without splitting individual FEC sets. */
+    if( FD_LIKELY( fd_ulong_load_8( shred->signature )%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
+      ctx->skip_frag = 1;
+      return;
+    }
+
     if( FD_UNLIKELY( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR ) ) {
       ctx->metrics->repair_rcv_cnt++;
       ctx->metrics->repair_rcv_bytes += sz;
@@ -938,14 +946,6 @@ alpenglow_marker:
       return;
     };
 
-    /* all shreds in the same FEC set will have the same signature
-       so we can round-robin shreds between the shred tiles based on
-       just the signature without splitting individual FEC sets. */
-    ulong sig = fd_ulong_load_8( shred->signature );
-    if( FD_LIKELY( sig%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
-      ctx->skip_frag = 1;
-      return;
-    }
     fd_memcpy( ctx->shred_buffer, dcache_entry+hdr_sz, sz-hdr_sz );
     ctx->shred_buffer_sz = sz-hdr_sz;
   }
