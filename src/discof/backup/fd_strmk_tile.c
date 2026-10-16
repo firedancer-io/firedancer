@@ -23,12 +23,14 @@
 #include <unistd.h>
 
 #include "fd_strmk_tile.h"
+#include "fd_strmk_keys.h"
 #include "fd_backup_wake.h"
 #include "fd_snapmk_tile.h"
 #include "fd_ssmanifest_writer.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../tango/fseq/fd_fseq.h"
@@ -54,6 +56,52 @@ struct strmk_stream {
 
 typedef struct strmk_stream strmk_stream_t;
 
+#define STRMK_WINDOW  (64UL)    /* slots of blocks whose keys are kept */
+#define STRMK_KEY_MAX (1UL<<19) /* map key capacity */
+
+struct strmk_key_id {
+  ulong       bank_seq;
+  fd_pubkey_t key;
+};
+
+typedef struct strmk_key_id strmk_key_id_t;
+
+struct strmk_key {
+  strmk_key_id_t id;
+  uint           next;
+  uint           block_next;
+};
+
+typedef struct strmk_key strmk_key_t;
+
+#define POOL_NAME  strmk_key_pool
+#define POOL_T     strmk_key_t
+#define POOL_IDX_T uint
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               strmk_key_map
+#define MAP_ELE_T              strmk_key_t
+#define MAP_KEY_T              strmk_key_id_t
+#define MAP_KEY                id
+#define MAP_IDX_T              uint
+#define MAP_KEY_EQ(k0,k1)      ( ((k0)->bank_seq==(k1)->bank_seq) & !memcmp( (k0)->key.uc, (k1)->key.uc, 32UL ) )
+#define MAP_KEY_HASH(k,s)      fd_hash32( (k)->key.uc, (s)+(k)->bank_seq )
+#include "../../util/tmpl/fd_map_chain.c"
+
+/* One block in the window, in the table slot of its bank. */
+
+struct strmk_block {
+  ulong bank_seq; /* ULONG_MAX while unused */
+  ulong slot;
+  uint  key_head_idx; /* head of the block's account keys, UINT_MAX if none */
+};
+
+typedef struct strmk_block strmk_block_t;
+
+#define IN_KIND_SNAP_START (0) /* replay_snapmk */
+#define IN_KIND_SNAPMK     (1) /* snapmk_out */
+#define IN_KIND_KEYS       (2) /* execrp_strmk, execle_strmk */
+
 struct fd_strmk {
   uint  cur;       /* the stream being written, UINT_MAX if none */
   ulong incr_slot; /* slot of the newest incremental snapshot on disk */
@@ -61,15 +109,31 @@ struct fd_strmk {
   strmk_stream_t stream[ FD_STRMK_POOL ];
 
   /* in links, and the frag the stem callbacks hand to each other */
-  fd_wksp_t * in_mem   [ 2 ];
-  ulong       in_chunk0[ 2 ];
-  ulong       in_wmark [ 2 ];
-  ulong       in_mtu   [ 2 ];
-  ulong       snapmk_in_idx; /* the other in link is replay_snapmk */
+  uchar       in_kind  [ FD_TOPO_MAX_TILE_IN_LINKS ];
+  fd_wksp_t * in_mem   [ FD_TOPO_MAX_TILE_IN_LINKS ];
+  ulong       in_chunk0[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  ulong       in_wmark [ FD_TOPO_MAX_TILE_IN_LINKS ];
+  ulong       in_mtu   [ FD_TOPO_MAX_TILE_IN_LINKS ];
   union {
     fd_replay_snap_start_t start;
     fd_snapmk_msg_t        snapmk;
+    fd_strmk_keys_msg_t    keys;
   } frag;
+
+  /* keys of the blocks in the window */
+  ulong             key_seed;
+  strmk_key_map_t * key_map;
+  strmk_key_t *     key_pool;
+  strmk_block_t *   block;
+  ulong             block_max;
+  ulong             block_cnt;
+  ulong             current_slot;
+
+  struct {
+    ulong key_cnt;
+    ulong key_stored_cnt;
+    ulong key_dropped_cnt;
+  } metrics;
 
   uchar *        raw;
   uchar          comp[ STRMK_COMP_BUF_SZ ];
@@ -106,6 +170,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),    fd_accdb_footprint( tile->strmk.max_live_slots, 0 )    );
   l = FD_LAYOUT_APPEND( l, 4096UL,              FD_SSMANIFEST_BUF_MIN                               );
   l = FD_LAYOUT_APPEND( l, 64UL,                ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL )    );
+  l = FD_LAYOUT_APPEND( l, strmk_key_map_align(),  strmk_key_map_footprint( strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ) ) );
+  l = FD_LAYOUT_APPEND( l, strmk_key_pool_align(), strmk_key_pool_footprint( STRMK_KEY_MAX )                             );
+  l = FD_LAYOUT_APPEND( l, alignof(strmk_block_t), tile->strmk.max_live_slots*sizeof(strmk_block_t)                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -261,6 +328,89 @@ strmk_announce_open( fd_strmk_t *        ctx,
 }
 
 /**********************************************************************/
+/* Block account keys                                                 */
+/**********************************************************************/
+
+/* strmk_block_free releases all keys for a given block. */
+
+static void
+strmk_block_free( fd_strmk_t *    ctx,
+                  strmk_block_t * block ) {
+  uint idx = block->key_head_idx;
+  while( idx!=UINT_MAX ) {
+    strmk_key_t * key = strmk_key_pool_ele( ctx->key_pool, idx );
+    idx = key->block_next;
+    strmk_key_map_ele_remove( ctx->key_map, &key->id, NULL, ctx->key_pool );
+    strmk_key_pool_ele_release( ctx->key_pool, key );
+  }
+  block->bank_seq = ULONG_MAX;
+  ctx->block_cnt--;
+}
+
+/* strmk_window_slide frees the blocks that fell out of the window
+   once slot is the newest. */
+
+static void
+strmk_window_slide( fd_strmk_t * ctx,
+                    ulong        slot ) {
+  ctx->current_slot = fd_ulong_max( ctx->current_slot, slot );
+  for( ulong i=0UL; i<ctx->block_max; i++ ) {
+    strmk_block_t * block = &ctx->block[ i ];
+    if( block->bank_seq==ULONG_MAX ) continue;
+    if( block->slot+STRMK_WINDOW<=ctx->current_slot ) strmk_block_free( ctx, block );
+  }
+}
+
+/* strmk_store_keys records the keys of one transaction, the first
+   time its block touches them.  Bank sequence numbers only grow: a
+   bigger one in a bank's slot means the bank was reused and the block
+   that was there is gone, a smaller one is a late message from such a
+   block and is dropped. */
+
+static void
+strmk_store_keys( fd_strmk_t *                ctx,
+                  fd_strmk_keys_msg_t const * msg ) {
+  ctx->metrics.key_cnt += msg->key_cnt;
+
+  FD_CHECK_CRIT( msg->bank_idx<ctx->block_max, "bank index out of range" );
+  strmk_block_t * block    = &ctx->block[ msg->bank_idx ];
+  int             occupied = block->bank_seq!=ULONG_MAX;
+
+  /* Received a late message from a block that is gone.  Practically
+     unreachable. */
+  if( FD_UNLIKELY( occupied && msg->bank_seq<block->bank_seq ) ) return;
+
+  /* Start a new block */
+  if( FD_UNLIKELY( block->bank_seq!=msg->bank_seq ) ) {
+    if( occupied ) strmk_block_free( ctx, block );
+
+    block->bank_seq     = msg->bank_seq;
+    block->slot         = msg->slot;
+    block->key_head_idx = UINT_MAX;
+    ctx->block_cnt++;
+    strmk_window_slide( ctx, msg->slot );
+  }
+
+  /* Store unique keys seen within the block */
+  for( ulong i=0UL; i<msg->key_cnt; i++ ) {
+    strmk_key_id_t id = { .bank_seq = msg->bank_seq, .key = msg->keys[ i ] };
+    if( FD_LIKELY( strmk_key_map_ele_query( ctx->key_map, &id, NULL, ctx->key_pool ) ) ) continue;
+
+    if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) {
+      ctx->metrics.key_dropped_cnt++;
+      continue;
+    }
+    
+    strmk_key_t * key = strmk_key_pool_ele_acquire( ctx->key_pool );
+    key->id         = id;
+    key->block_next = block->key_head_idx;
+    strmk_key_map_ele_insert( ctx->key_map, key, ctx->key_pool );
+    block->key_head_idx = (uint)strmk_key_pool_idx( ctx->key_pool, key );
+    ctx->metrics.key_stored_cnt++;
+  }
+}
+
+/**********************************************************************/
 /* Message handling                                                   */
 /**********************************************************************/
 
@@ -318,10 +468,11 @@ strmk_stream_start( fd_strmk_t *                   ctx,
   strmk_announce_open( ctx, stem );
 }
 
-/* strmk_snapmk notes that an incremental snapshot landed on disk. */
+/* strmk_snapshot_created notes that an incremental snapshot landed on
+   disk. */
 
 static void
-strmk_snapmk( fd_strmk_t *                    ctx,
+strmk_snapshot_created( fd_strmk_t *                    ctx,
               fd_stem_context_t *             stem,
               fd_snapmk_msg_created_t const * msg ) {
   if( FD_LIKELY( msg->base_slot==ULONG_MAX ) ) return;
@@ -353,13 +504,29 @@ after_frag( fd_strmk_t *        ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)seq; (void)sz; (void)tsorig; (void)tspub;
+  (void)seq; (void)tsorig; (void)tspub;
 
-  if( FD_UNLIKELY( in_idx==ctx->snapmk_in_idx ) ) {
-    if( FD_LIKELY( sig==FD_SNAPMK_MSG_CREATED ) ) strmk_snapmk( ctx, stem, &ctx->frag.snapmk.created );
-  } else {
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_SNAP_START:
     if( FD_LIKELY( sig==REPLAY_SIG_SNAP_START ) ) strmk_stream_start( ctx, stem, &ctx->frag.start );
+    break;
+  case IN_KIND_SNAPMK:
+    if( FD_LIKELY( sig==FD_SNAPMK_MSG_CREATED ) ) strmk_snapshot_created( ctx, stem, &ctx->frag.snapmk.created );
+    break;
+  case IN_KIND_KEYS:
+    FD_CHECK_CRIT( ctx->frag.keys.key_cnt<=FD_STRMK_READ_KEYS_MAX && sz==sizeof(fd_strmk_keys_msg_t), "bad key message" );
+    strmk_store_keys( ctx, &ctx->frag.keys );
+    break;
   }
+}
+
+static void
+metrics_write( fd_strmk_t * ctx ) {
+  FD_MCNT_SET  ( STRMK, KEY_RECEIVED, ctx->metrics.key_cnt         );
+  FD_MCNT_SET  ( STRMK, KEY_STORED,   ctx->metrics.key_stored_cnt  );
+  FD_MCNT_SET  ( STRMK, KEY_DROPPED,  ctx->metrics.key_dropped_cnt );
+  FD_MGAUGE_SET( STRMK, BLOCK_COUNT,  ctx->block_cnt );
+  FD_MGAUGE_SET( STRMK, KEY_COUNT,    strmk_key_pool_used( ctx->key_pool ) );
 }
 
 /**********************************************************************/
@@ -399,6 +566,15 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 }
 
 static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  fd_strmk_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_strmk_t), sizeof(fd_strmk_t) );
+  memset( ctx, 0, sizeof(fd_strmk_t) );
+  FD_TEST( fd_rng_secure( &ctx->key_seed, sizeof(ulong) ) );
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -409,9 +585,11 @@ unprivileged_init( fd_topo_t const *      topo,
   void *       _accdb = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),    fd_accdb_footprint( tile->strmk.max_live_slots, 0 ) );
   void *       _raw   = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,              FD_SSMANIFEST_BUF_MIN );
   void *       _zst   = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                zst_sz );
+  void *       _map   = FD_SCRATCH_ALLOC_APPEND( l, strmk_key_map_align(),  strmk_key_map_footprint( strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ) ) );
+  void *       _pool  = FD_SCRATCH_ALLOC_APPEND( l, strmk_key_pool_align(), strmk_key_pool_footprint( STRMK_KEY_MAX ) );
+  void *       _block = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_block_t), tile->strmk.max_live_slots*sizeof(strmk_block_t) );
   ulong end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   FD_CHECK_CRIT( end==(ulong)scratch + scratch_footprint( tile ), "bug when calculating tile memory layout" );
-  memset( ctx, 0, sizeof(fd_strmk_t) );
 
   ctx->cur       = UINT_MAX;
   ctx->incr_slot = ULONG_MAX;
@@ -426,6 +604,15 @@ unprivileged_init( fd_topo_t const *      topo,
 
   for( uint i=0U; i<FD_STRMK_POOL; i++ ) ctx->stream[ i ].fd = FD_STRMK_FD( i );
 
+  ctx->key_map  = strmk_key_map_join( strmk_key_map_new( _map, strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ), ctx->key_seed ) );
+  ctx->key_pool = strmk_key_pool_join( strmk_key_pool_new( _pool, STRMK_KEY_MAX ) );
+  FD_TEST( ctx->key_map && ctx->key_pool );
+  ctx->block        = _block;
+  ctx->block_max    = tile->strmk.max_live_slots;
+  ctx->block_cnt    = 0UL;
+  ctx->current_slot = 0UL;
+  for( ulong i=0UL; i<ctx->block_max; i++ ) ctx->block[ i ].bank_seq = ULONG_MAX;
+
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->strmk.banks_obj_id ) );
   FD_TEST( ctx->banks );
 
@@ -439,12 +626,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
 
-  FD_CHECK_ERR( tile->in_cnt==2UL, "the stream maker needs the replay_snapmk and snapmk_out links" );
-  ctx->snapmk_in_idx = ULONG_MAX;
+  FD_CHECK_ERR( fd_topo_find_tile_in_link( topo, tile, "replay_snapmk", 0UL )!=ULONG_MAX, "missing replay_snapmk link" );
+  FD_CHECK_ERR( fd_topo_find_tile_in_link( topo, tile, "snapmk_out",    0UL )!=ULONG_MAX, "missing snapmk_out link"    );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-    if     ( !strcmp( link->name, "snapmk_out"    ) ) ctx->snapmk_in_idx = i;
-    else if(  strcmp( link->name, "replay_snapmk" ) ) FD_LOG_ERR(( "unexpected input link \"%s\"", link->name ));
+    if(      !strcmp( link->name, "replay_snapmk" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP_START;
+    else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
+    else if( !strcmp( link->name, "execrp_strmk"  ) ) ctx->in_kind[ i ] = IN_KIND_KEYS;
+    else if( !strcmp( link->name, "execle_strmk"  ) ) ctx->in_kind[ i ] = IN_KIND_KEYS;
+    else FD_LOG_ERR(( "unexpected input link \"%s\"", link->name ));
     FD_TEST( link->dcache );
     ctx->in_mem   [ i ] = fd_wksp_containing( link->dcache );
     FD_TEST( ctx->in_mem[ i ] );
@@ -453,7 +643,6 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in_mtu   [ i ] = link->mtu;
     FD_CHECK_ERR( link->mtu<=sizeof(ctx->frag), "input link MTU too large" );
   }
-  FD_CHECK_ERR( ctx->snapmk_in_idx!=ULONG_MAX, "missing snapmk_out link" );
 
   /* The tile gives banks back to replay on strmk_replay and tells the
      file server about stream files on strmk_out. */
@@ -480,6 +669,7 @@ unprivileged_init( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_strmk_t)
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_METRICS_WRITE metrics_write
 
 #include "../../disco/stem/fd_stem.c"
 
@@ -490,6 +680,7 @@ fd_topo_run_tile_t fd_tile_strmk = {
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run
 };

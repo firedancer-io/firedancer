@@ -105,6 +105,7 @@ enum {
 #include "fd_metrics_snapsv.h"
 #include "fd_metrics_motor.h"
 #include "fd_metrics_solcap.h"
+#include "fd_metrics_strmk.h"
 
 /* LINK IN metric properties */
 
