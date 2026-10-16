@@ -2,12 +2,17 @@
 #include "fd_keyload.h"
 
 #include <errno.h>
-#include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <string.h>
 #include <stdio.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
+
+#ifndef SYS_memfd_secret
+#if defined(__x86_64__) || defined(__aarch64__)
+#define SYS_memfd_secret 447
+#endif
+#endif
 
 uchar * FD_FN_SENSITIVE
 fd_keyload_read( int          key_fd,
@@ -136,33 +141,73 @@ fd_keyload_unload( uchar const * key,
     FD_LOG_ERR(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
+static uchar * FD_FN_SENSITIVE
+fd_keyload_alloc_secret_pages( ulong data_sz,
+                               ulong guard_sz,
+                               ulong total_sz ) {
+  int secret_fd = (int)syscall( SYS_memfd_secret, FD_CLOEXEC );
+  if( FD_UNLIKELY( secret_fd==-1 ) ) {
+    if( FD_LIKELY( errno==ENOSYS || errno==EINVAL ) ) return NULL;
+    FD_LOG_ERR(( "memfd_secret failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( ftruncate( secret_fd, (off_t)data_sz ) ) )
+    FD_LOG_ERR(( "ftruncate(memfd_secret) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  void * pages = mmap( NULL, total_sz, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0UL );
+  if( FD_UNLIKELY( pages==MAP_FAILED ) )
+    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  uchar * middle_pages = (uchar *)pages + guard_sz;
+  void * secret_pages = mmap( middle_pages, data_sz, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, secret_fd, 0UL );
+  if( FD_UNLIKELY( secret_pages==MAP_FAILED ) )
+    FD_LOG_ERR(( "mmap(memfd_secret) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( secret_pages!=middle_pages ) )
+    FD_LOG_ERR(( "mmap(memfd_secret) returned unexpected address %p, expected %p", (void *)secret_pages, (void *)middle_pages ));
+
+  if( FD_UNLIKELY( close( secret_fd ) ) )
+    FD_LOG_ERR(( "close(memfd_secret) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( madvise( middle_pages, data_sz, MADV_WIPEONFORK ) ) )
+    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return middle_pages;
+}
+
 void * FD_FN_SENSITIVE
 fd_keyload_alloc_protected_pages( ulong page_cnt,
                                   ulong guard_page_cnt ) {
 #define PAGE_SZ (4096UL)
-  void * pages = mmap( NULL, (2UL*guard_page_cnt+page_cnt)*PAGE_SZ, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0UL );
+  ulong data_sz  = page_cnt*PAGE_SZ;
+  ulong guard_sz = guard_page_cnt*PAGE_SZ;
+  ulong total_sz = (2UL*guard_page_cnt+page_cnt)*PAGE_SZ;
+
+  uchar * secret_pages = fd_keyload_alloc_secret_pages( data_sz, guard_sz, total_sz );
+  if( FD_LIKELY( secret_pages ) ) return secret_pages;
+
+  void * pages = mmap( NULL, total_sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0UL );
   if( FD_UNLIKELY( pages==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  uchar * middle_pages = (uchar *)( (ulong)pages + guard_page_cnt*PAGE_SZ );
+  uchar * middle_pages = (uchar *)pages + guard_sz;
 
   /* Make the guard pages untouchable */
-  if( FD_UNLIKELY( mprotect( pages, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
+  if( FD_UNLIKELY( mprotect( pages, guard_sz, PROT_NONE ) ) )
     FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( mprotect( middle_pages+page_cnt*PAGE_SZ, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
+  if( FD_UNLIKELY( mprotect( middle_pages+data_sz, guard_sz, PROT_NONE ) ) )
     FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Lock the key page so that it doesn't page to disk */
-  if( FD_UNLIKELY( mlock( middle_pages, page_cnt*PAGE_SZ ) ) )
+  if( FD_UNLIKELY( mlock( middle_pages, data_sz ) ) )
     FD_LOG_ERR(( "mlock failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Prevent the key page from showing up in core dumps. It shouldn't be
      possible to fork this process typically, but we also prevent any
      forked child from having this page. */
   /* `madvise` supports only a single `advice` per call, so we cannot combine via bitwise or. */
-  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK ) ) )
+  if( FD_UNLIKELY( madvise( middle_pages, data_sz, MADV_WIPEONFORK ) ) )
     FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_DONTDUMP ) ) )
+  if( FD_UNLIKELY( madvise( middle_pages, data_sz, MADV_DONTDUMP ) ) )
     FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return middle_pages;
