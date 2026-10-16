@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "fd_stem.h"
 
 /* fd_stem provides services to multiplex multiple streams of input
@@ -732,7 +733,8 @@ STEM_(run)( fd_topo_t *      topo,
      used here because STEM_(run) executes after the seccomp sandbox
      is applied. */
   fd_rng_t rng[1];
-  FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_ulong_hash( (ulong)fd_tickcount() + tile->id ), 0UL ) ) );
+  ulong stem_entropy = getenv( "FD_STEM_FIXED_SEED" ) ? 0UL : (ulong)fd_tickcount(); /* noise experiment */
+  FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_ulong_hash( stem_entropy + tile->id ), 0UL ) ) );
 
   STEM_CALLBACK_CONTEXT_TYPE * ctx = (STEM_CALLBACK_CONTEXT_TYPE*)fd_ulong_align_up( (ulong)fd_topo_obj_laddr( topo, tile->tile_obj_id ), STEM_CALLBACK_CONTEXT_ALIGN );
 
