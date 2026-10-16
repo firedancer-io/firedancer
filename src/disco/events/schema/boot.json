@@ -411,6 +411,12 @@
             "description": "For each logical processor, the last-level cache domain it shares (one per AMD CCD or CCX, usually one per socket on Intel), numbered from 0 in first-seen order; tiles that exchange data cheaply sit in the same domain. 65535 for an offline processor. Empty when the kernel does not expose level-3 cache topology.",
             "max_len": 1024,
             "element": { "type": "UInt16", "description": "Last-level cache domain of one logical processor, 65535 if offline." }
+        },
+        "cpu_features": {
+            "type": "Array",
+            "description": "Instruction set extensions this processor supports, named as in build_features; one present here but missing from build_features means the binary was built for an older processor and runs slower code paths.",
+            "max_len": 16,
+            "element": { "type": "LowCardinality(String)", "description": "One instruction set extension the processor supports." }
         }
     }
 }

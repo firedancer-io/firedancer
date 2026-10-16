@@ -155,6 +155,8 @@ struct fd_boot_report {
   int    cpu_energy_perf_preference;
   int    cpu_idle_driver;
   char   cpu_max_enabled_cstate[ 17 ];
+  char   cpu_features[ 16 ][ 8 ];
+  ulong  cpu_features_cnt;
 
   ulong host_memory_bytes;
   ulong host_memory_available_bytes;
