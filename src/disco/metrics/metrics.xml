@@ -1063,6 +1063,15 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="StoreFecCacheUsed" summary="FEC payload slots in use in the store RAM cache" />
     <gauge name="StoreFecCacheCapacity" summary="FEC payload capacity of the store RAM cache" />
     <gauge name="StoreFecCachePinned" ambiguous-kind="true" summary="FEC payload views currently pinned against eviction" />
+    <counter name="TxncachePageMiss" summary="Transaction cache lookups under the read lock that found their page not resident and had to retake the write lock" />
+    <counter name="TxncachePageSpilled" summary="Dirty transaction cache pages written to the spill file on eviction" />
+    <counter name="TxncachePageSpillRead" summary="Transaction cache pages read back from the spill file" />
+    <counter name="TxncacheFrameEvicted" summary="Transaction cache frames evicted to load another page" />
+    <counter name="TxncacheSpillDurationNanos" source="ticks" summary="Time in transaction cache spill file reads and writes, all under the exclusive lock" />
+    <gauge name="TxncachePageUsed" summary="Transaction cache logical pages in use, resident or spilled" />
+    <gauge name="TxncachePageCapacity" summary="Maximum transaction cache logical pages" />
+    <gauge name="TxncacheFrameUsed" summary="Transaction cache in-memory frames holding a page" />
+    <gauge name="TxncacheFrameCapacity" summary="Transaction cache in-memory frames, from runtime.transaction_cache_size_mib" />
 
     <bool name="IsCaughtUp" summary="Whether replay has caught up to the cluster tip; set once per run, never cleared" />
     <gauge name="RootSlot" summary="Most recent consensus root, 0 if none" />

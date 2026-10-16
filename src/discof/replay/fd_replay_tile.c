@@ -319,6 +319,18 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_CAPACITY,   store_fec_cache_max                  );
   FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_PINNED,     store_fec_cache_pinned               );
 
+  fd_txncache_metrics_t txncache_metrics[1];
+  fd_txncache_metrics_snap( ctx->txncache, txncache_metrics );
+  FD_MCNT_SET  ( REPLAY, TXNCACHE_PAGE_MISS,            txncache_metrics->page_miss_cnt       );
+  FD_MCNT_SET  ( REPLAY, TXNCACHE_PAGE_SPILLED,         txncache_metrics->page_spilled_cnt    );
+  FD_MCNT_SET  ( REPLAY, TXNCACHE_PAGE_SPILL_READ,      txncache_metrics->page_spill_read_cnt );
+  FD_MCNT_SET  ( REPLAY, TXNCACHE_FRAME_EVICTED,        txncache_metrics->frame_evicted_cnt   );
+  FD_MCNT_SET  ( REPLAY, TXNCACHE_SPILL_DURATION_NANOS, txncache_metrics->spill_ticks         );
+  FD_MGAUGE_SET( REPLAY, TXNCACHE_PAGE_USED,            txncache_metrics->page_used           );
+  FD_MGAUGE_SET( REPLAY, TXNCACHE_PAGE_CAPACITY,        txncache_metrics->page_capacity       );
+  FD_MGAUGE_SET( REPLAY, TXNCACHE_FRAME_USED,           txncache_metrics->frame_used          );
+  FD_MGAUGE_SET( REPLAY, TXNCACHE_FRAME_CAPACITY,       txncache_metrics->frame_capacity      );
+
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
   ulong leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot : 0UL;
 
@@ -2712,6 +2724,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
   FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
 
+  fd_txncache_reset( ctx->txncache );
   bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache, (fd_txncache_fork_id_t){USHORT_MAX} );
   bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, fd_progcache_fork_id_initial()     );
 
@@ -5619,7 +5632,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( ctx->txncache );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->replay.accdb_obj_id );
@@ -5905,7 +5918,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD, FD_EPOCH_CREDITS_FD, FD_COST_TRACKER_FD, FD_VOTE_STAKES_FD );
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD, FD_EPOCH_CREDITS_FD, FD_COST_TRACKER_FD, FD_VOTE_STAKES_FD, (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
@@ -5917,7 +5930,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -5928,6 +5941,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = FD_EPOCH_CREDITS_FD; /* epoch credits disk spill */
   out_fds[ out_cnt++ ] = FD_COST_TRACKER_FD; /* cost tracker disk spill */
   out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
   if( FD_LIKELY( ctx->store_disk_fd>=0 ) )
     out_fds[ out_cnt++ ] = ctx->store_disk_fd;
 
