@@ -195,6 +195,7 @@
         "request_expired":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Pending requests with no response after about 1 s (PENDING_TTL); the peer is not banned, pending-pool evictions not counted" },
         "ping_probe_tx":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Requests sent to elicit a ping from a peer with a new address" },
         "eager_delay_nanos":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled)" },
-        "sign_request_pending":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Messages in the sign pool waiting for a signature from the sign tiles" }
+        "sign_request_pending":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Messages in the sign pool waiting for a signature from the sign tiles" },
+        "catchup_slot":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot past the window with a verified cert, the staked catchup target, 0 if none" }
     }
 }

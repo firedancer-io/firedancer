@@ -163,7 +163,7 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
   s->resp_sum_ns = r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+FD_HISTF_BUCKET_CNT ];
 
   s->inflight              = r[ MIDX( GAUGE, ROTOR, REQUEST_IN_FLIGHT ) ];
-  s->slot_current          = r[ MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT ) ];
+  s->slot_current          = fd_ulong_max( r[ MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT ) ], r[ MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
   s->slot_highest_repaired = r[ MIDX( GAUGE, ROTOR, HIGHEST_DELIVERED_SLOT ) ];
   /* Nor SLOT_LAST_REQUESTED, ORPHAN_LAST_REQUESTED, PEER_USED. */
   s->slot_last_requested   = 0UL;

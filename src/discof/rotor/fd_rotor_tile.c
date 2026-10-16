@@ -159,6 +159,7 @@ struct fd_rotor_tile {
 
   ulong     cert_slot0;      /* staked: first cert slot, 0 if none yet */
   ulong     turbine_slot0;   /* unstaked: first turbine slot, 0 if none yet */
+  ulong     catchup_slot;    /* staked: highest slot past the window with a verified cert, 0 if none yet */
   ulong     highest_fec_complete_slot; /* highest slot a FEC set completed for off the network, our leader sets excluded: the cluster tip, 0 if none yet */
 
   /* Snapshot */
@@ -409,7 +410,7 @@ report_block_received( void *                 ctx_,
   ev->cancelled_time   = fd_ulong_if( ev->cancelled, (ulong)blk->telemetry.cancelled_ts, 0UL );
   ev->notarized        = known_id && !is_leader;
   ev->is_leader        = is_leader;
-  ev->caught_up        = ctx->metrics->slot_current<=ctx->metrics->slot_highest_repaired+4UL;
+  ev->caught_up        = fd_ulong_max( ctx->metrics->slot_current, ctx->catchup_slot )<=ctx->metrics->slot_highest_repaired+4UL;
   ev->fec_set_count    = blk->cmpl_fec_cnt;
   ev->slot_complete    = !!blk->cmpl_fec_cnt;
   ev->equivocation_detected_shred  = blk->telemetry.cancelled_reason==FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH;
@@ -597,7 +598,13 @@ handle_votor( fd_rotor_tile_t * ctx,
   }
   case FD_VOTOR_SIG_REPAIR: {
     ulong slot = msg->repair.slot;
-    if( FD_UNLIKELY( slot<=ctx->rotor->root || slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
+    if( FD_UNLIKELY( slot<=ctx->rotor->root ) ) return;
+    if( FD_UNLIKELY( slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) {
+      if( FD_UNLIKELY( !staked || slot<=ctx->catchup_slot ) ) return;
+      ctx->catchup_slot = slot;
+      fd_rotor_slot_catchup( ctx->rotor, ctx->rotor->root+ctx->rotor->slot_max );
+      return;
+    }
     fd_rotor_blk_notarized( ctx->rotor, slot, &msg->repair.block_id );
     break;
   }
@@ -626,6 +633,7 @@ handle_replay( fd_rotor_tile_t * ctx,
     ctx->metrics->replay_root_advanced++;
     if( FD_UNLIKELY( root->slot<=ctx->rotor->root ) ) return;
     fd_rotor_root_advanced( ctx->rotor, root->slot, &root->block_id );
+    if( FD_UNLIKELY( ctx->catchup_slot>ctx->rotor->root ) ) fd_rotor_slot_catchup( ctx->rotor, fd_ulong_min( ctx->catchup_slot+1UL, ctx->rotor->root+ctx->rotor->slot_max ) );
     break;
   }
   case REPLAY_SIG_SLOT_DEAD: {
@@ -871,6 +879,7 @@ metrics_write( fd_rotor_tile_t * ctx ) {
   FD_MGAUGE_SET( ROTOR, HIGHEST_DELIVERED_SLOT, ctx->metrics->slot_highest_repaired                );
   FD_MGAUGE_SET( ROTOR, HIGHEST_RECEIVED_SLOT,  ctx->metrics->slot_current                         );
   FD_MGAUGE_SET( ROTOR, FIRST_TURBINE_SLOT,     ctx->turbine_slot0                                 );
+  FD_MGAUGE_SET( ROTOR, CATCHUP_SLOT,           ctx->catchup_slot                                  );
   FD_MGAUGE_SET( ROTOR, BLOCK_PENDING,          queued                                             );
   FD_MGAUGE_SET( ROTOR, REQUEST_IN_FLIGHT,      pending_pool_used( ctx->pending_pool )             );
   FD_MGAUGE_SET( ROTOR, TIMEOUT_PENDING,        waiting                                            );
@@ -960,7 +969,7 @@ after_credit( fd_rotor_tile_t *   ctx,
     msg->is_leader       = fec->is_leader;
     msg->known_id        = fd_rotor_slot_meta( ctx->rotor, blk->slot )->eager!=out.blk_idx;
     msg->block_id        = blk->dmr;
-    msg->metrics.highest_fec_complete_slot = ctx->highest_fec_complete_slot;
+    msg->metrics.highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, ctx->catchup_slot );
     msg->metrics.fec_completed_ts_nanos    = fec->cmpl_ts;       /* shred tile rx of the shred that completed it, 0 for our own */
     msg->metrics.votor_repaired            = (uchar)msg->known_id;
     fd_stem_publish( stem, ctx->replay_out_idx, ROTOR_SIG_FEC_REPLAY, ctx->replay_out_chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );

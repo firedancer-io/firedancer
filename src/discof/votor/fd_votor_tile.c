@@ -49,8 +49,6 @@
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
 
-#define VOTE_LOOKAHEAD_MAX (40UL) /* lookahead at most 40 slots from highest ParentReady (matches Agave) */
-
 #define QUIC_K_GRANULARITY_NS    (1000000L) /* RFC 9002 kGranularity (1ms), same as FD_QUIC_K_GRANULARITY_NS */
 #define QUIC_BAN_TIMEOUT_NS      (10L*1000L*1000L*1000L) /* 10 seconds */
 #define QUIC_CONN_BACKOFF_MIN_NS (1L*1000L*1000L*1000L) /* reconnect delay when fd_quic had no free conn to connect with */
@@ -62,24 +60,6 @@
 #define QUIC_CONN_MAX            (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
 #define QUIC_CLIENT_CONN_MAX     (AG_VAT_MAX * 4) /* one conn to every validator of the prev, curr and next epochs, plus an epoch of evicted conns still closing */
 
-/* QUIC_DGRAM_BURST bounds the number of QUIC DATAGRAME frames that can
-   fit in a single net packet.  This can result in a burst of up to 9
-   quic_server_datagram_rx calls in a single tile loop.
-
-       2048 B  FD_NET_MTU
-     -   14 B  Ethernet header
-     -   20 B  IPv4 header
-     -    8 B  UDP header
-     -    1 B  short header flags
-     -    8 B  destination conn id, FD_QUIC_CONN_ID_SZ
-     -    1 B  packet number, at least
-     -   16 B  AEAD tag
-     = 1980 B  DATAGRAM frames
-     /  207 B  smallest frame: 1 B type, 2 B length, 204 B skip or final vote (a cert is at least 212 B)
-     =    9    (9.57, and with a last frame of 205 B without its length, 8*207+205 = 1861 B still fits only 9) */
-
-#define QUIC_DGRAM_BURST (9UL)
-
 #define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
 #define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
 #define REWARD_VOTE_RTT_MAX_NS (200000000L)                               /* retry a reward vote no later than 200ms */
@@ -88,6 +68,8 @@
 
 #define STANDSTILL_TX_INTERVAL_NS    (50000000L)   /* 20 standstill messages a second, Agave's STANDSTILL_REFRESH_BATCH_SIZE per STANDSTILL_REFRESH_INTERVAL */
 #define STANDSTILL_CYCLE_INTERVAL_NS (1000000000L) /* pause between standstill cycles, Agave's STANDSTILL_REFRESH_INTERVAL */
+
+#define VOTE_TOO_NEW (40UL) /* lookahead at most 40 slots from highest ParentReady, Agave's MAX_VOTE_SLOT_DISTANCE_FROM_PARENT_READY */
 
 #define SER_MAX (AG_VOTE_SER_MAX>AG_CERT_SER_MAX ? AG_VOTE_SER_MAX : AG_CERT_SER_MAX)
 
@@ -305,11 +287,9 @@ struct fd_votor_tile {
 
   /* Cluster metadata */
 
-  ushort shred_version;
-  long   ns_per_slot;
-
-  /* Epoch metadata */
-
+  ushort                     shred_version;
+  long                       ns_per_slot;
+  ulong                      slots_per_epoch;
   ag_epoch_info_t *          prev_epoch_info;
   ulong                      prev_epoch_slot;
   ag_epoch_info_t *          curr_epoch_info;
@@ -320,6 +300,7 @@ struct fd_votor_tile {
   ulong                      next_leader_slot;
   ulong                      highest_parent_ready_slot;
   ulong                      highest_certed_final_slot; /* highest slot whose final cert was published paired with its notar cert */
+  ulong                      catchup_slot;              /* highest slot past the pool window with a verified cert, 0 if none */
 
   /* Alpenglow data structures */
 
@@ -373,6 +354,8 @@ struct fd_votor_tile {
 
   ulong                                        net_tx_cnt;
   struct { ulong chunk; ulong sz; ulong sig; } net_tx[ FD_VOTOR_NET_BURST ];
+
+  fd_stem_context_t * stem; /* for publishing from the quic callbacks */
 
   /* Scratch */
 
@@ -989,7 +972,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( block_hash && !memcmp( block_hash, ag_block_hash_null, sizeof(ag_block_hash_t) ) ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_NULL_BLOCK_HASH_IDX ]++; return; } /* null is never a valid block hash */
 
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_UNRANKED_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_UNRANKED_PEER, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; } /* peer is not ranked in their vote slot's epoch */
-    if( FD_UNLIKELY( vote_slot>fd_ulong_max( ag_pool_finalized_slot( ctx->pool ), ctx->highest_parent_ready_slot )+VOTE_LOOKAHEAD_MAX ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
+    if( FD_UNLIKELY( vote_slot>fd_ulong_max( ag_pool_finalized_slot( ctx->pool ), ctx->highest_parent_ready_slot )+VOTE_TOO_NEW ) ) { ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; report_alpenglow_vote( ctx, conn, vote, kind, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, 0L, 0L, NULL ); return; }
 
     long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
     uchar quorum_reached;
@@ -997,7 +980,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     int result;
     switch( err ) {
     case AG_POOL_SUCCESS:                ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SUCCESS_IDX           ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED;                                                                                                                         break;
-    case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; result = fd_int_if( vote_slot<ag_pool_finalized_slot( ctx->pool ), FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW ); break;
+    case AG_POOL_ERR_SLOT_TOO_OLD:       ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD;                                                                                                                    break;
+    case AG_POOL_ERR_SLOT_TOO_NEW:       ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW;                                                                                                                    break;
     case AG_POOL_ERR_DUPLICATE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_DUPLICATE_IDX         ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE;                                                                                                                        break;
     case AG_POOL_ERR_SLASHABLE:          ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SLASHABLE_IDX         ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE;                                                                                                                        break;
     default:
@@ -1043,7 +1027,23 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, verify_start_time, 0L );
       break;
-    case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; break;
+    case AG_POOL_ERR_SLOT_TOO_OLD: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; break;
+    case AG_POOL_ERR_SLOT_TOO_NEW:
+      if( FD_LIKELY( cert_slot<=ctx->catchup_slot || cert_slot>=ctx->next_epoch_slot+ctx->slots_per_epoch ) ) break;
+      if( FD_UNLIKELY( !ag_cert_verify( cert, epoch_info ) ) ) {
+        ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++;
+        report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY, verify_start_time, 0L );
+        ban_peer( peer, fd_clock_tile_now( ctx->clock ) );
+        break;
+      }
+      ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++;
+      report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_NEW, verify_start_time, 0L );
+      ctx->catchup_slot = cert_slot;
+      fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+      chunk->repair = (fd_votor_repair_t){ .slot = cert_slot };
+      fd_stem_publish( ctx->stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REPAIR, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+      break;
     case AG_POOL_ERR_DUPLICATE:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX ]++;
       if( FD_LIKELY( ctx->scratch.cert.kind==AG_CERT_KIND_NOTAR ) ) report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE, 0L, 0L );
@@ -1460,7 +1460,8 @@ handle_epoch( fd_votor_tile_t *           ctx,
      We still vote skip regardless, just a little early or late, which
      is ok especially given network jitter. */
 
-  ctx->ns_per_slot = (long)msg->ns_per_slot;
+  ctx->ns_per_slot     = (long)msg->ns_per_slot;
+  ctx->slots_per_epoch = msg->epoch_schedule.slots_per_epoch;
 
   ag_pool_advance_epoch ( ctx->pool,  epoch_info,       own_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, NULL );
@@ -1617,16 +1618,16 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                           );
-  l = FD_LAYOUT_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                              );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                                           );
+  l = FD_LAYOUT_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                              );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )                          );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
   l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
-  l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
-  l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                 );
-  l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
-  l = FD_LAYOUT_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                );
-  l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
+  l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
+  l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                                 );
+  l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                                         );
+  l = FD_LAYOUT_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
+  l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -2196,7 +2197,8 @@ after_credit( fd_votor_tile_t *   ctx,
       int result;
       switch( err ) {
       case AG_POOL_SUCCESS:                result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED;                                                                                                                         break;
-      case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: result = fd_int_if( vote_slot<ag_pool_finalized_slot( ctx->pool ), FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD, FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW ); break;
+      case AG_POOL_ERR_SLOT_TOO_OLD:       result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD;                                                                                                                    break;
+      case AG_POOL_ERR_SLOT_TOO_NEW:       result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW;                                                                                                                    break;
       case AG_POOL_ERR_DUPLICATE:          result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE;                                                                                                                        break;
       case AG_POOL_ERR_SLASHABLE:          result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE;                                                                                                                        break;
       default:
@@ -2340,6 +2342,7 @@ after_frag( fd_votor_tile_t *   ctx,
     ushort               dport = fd_ushort_bswap( udp->net_dport );
     if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
     fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
+    ctx->stem = stem;
     fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_clock_tile_now( ctx->clock ) );
     for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
     ctx->net_tx_cnt = 0UL;
@@ -2416,16 +2419,16 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_votor_tile_t * ctx           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                           );
-  void *            auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                              );
-  void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
-  void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
+  fd_votor_tile_t * ctx           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                                           );
+  void *            auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                              );
+  void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )                          );
+  void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
   void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
-  void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )  );
-  void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                 );
-  void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
-  void *            reconn_prq    = FD_SCRATCH_ALLOC_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                );
-  void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
+  void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
+  void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                                 );
+  void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                                         );
+  void *            reconn_prq    = FD_SCRATCH_ALLOC_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
+  void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -2495,8 +2498,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_tx_cnt                = 0UL;
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
+  ctx->slots_per_epoch           = 0UL;
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_certed_final_slot = 0UL;
+  ctx->catchup_slot              = 0UL;
   ctx->standstill_slot           = ULONG_MAX;
   ctx->standstill_ts             = LONG_MAX;
   ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );

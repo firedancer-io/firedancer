@@ -1156,6 +1156,7 @@ write_repair( config_t const * config,
   ulong current_off  = is_rotor ? MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT  ) : MIDX( GAUGE, REPAIR, HIGHEST_TURBINE_SLOT  );
   ulong repair_slot  = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+highest_off ];
   ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+current_off ];
+  if( FD_LIKELY( is_rotor ) ) turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
   long repair_lag = (long)repair_slot-(long)turbine_slot;
   PRINT( ROWH( "▲", RED, "%s" )
          K( "rx" ) "%s"
@@ -1272,6 +1273,7 @@ write_replay( config_t const * config,
   ulong turbine_slot;
   if( repair_tile_idx!=ULONG_MAX ) {
     turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+( repair_is_rotor ? MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT ) : MIDX( GAUGE, REPAIR, HIGHEST_TURBINE_SLOT ) ) ];
+    if( FD_LIKELY( repair_is_rotor ) ) turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
   } else {
     turbine_slot = reset_slot;
   }

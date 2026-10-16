@@ -12,7 +12,26 @@
 #define FD_VOTOR_SIG_QUORUM (4)
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
-#define FD_VOTOR_OUT_BURST (2UL+1UL+1UL+AG_SLOTS_PER_WINDOW+1UL) /* 2 certed or 1 quorum + 1 repair + 1 republished reward + 4 reward + 1 leader */
+
+/* QUIC_DGRAM_BURST bounds the number of QUIC DATAGRAME frames that can
+   fit in a single net packet.  This can result in a burst of up to 9
+   quic_server_datagram_rx calls in a single tile loop.
+
+       2048 B  FD_NET_MTU
+     -   14 B  Ethernet header
+     -   20 B  IPv4 header
+     -    8 B  UDP header
+     -    1 B  short header flags
+     -    8 B  destination conn id, FD_QUIC_CONN_ID_SZ
+     -    1 B  packet number, at least
+     -   16 B  AEAD tag
+     = 1980 B  DATAGRAM frames
+     /  207 B  smallest frame: 1 B type, 2 B length, 204 B skip or final vote (a cert is at least 212 B)
+     =    9    (9.57, and with a last frame of 205 B without its length, 8*207+205 = 1861 B still fits only 9) */
+
+#define QUIC_DGRAM_BURST (9UL)
+
+#define FD_VOTOR_OUT_BURST (1UL+AG_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram */
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is
@@ -47,7 +66,9 @@ struct fd_votor_leader {
 typedef struct fd_votor_leader fd_votor_leader_t;
 
 /* fd_votor_repair names a block the pool has certs or votes for but
-   replay has not completed, so rotor fetches it. */
+   replay has not completed, so rotor fetches it.  A slot past the pool
+   window has a verified cert and a null block_id, so rotor
+   catches up toward it. */
 
 struct fd_votor_repair {
   ulong     slot;
