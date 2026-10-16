@@ -146,6 +146,9 @@ ag_pool_add_vote( ag_pool_t *       self,
                   fd_bls_set_t *    bad,
                   uchar *           quorum_reached );
 
+FD_FN_PURE long
+ag_pool_vote_verify_start( ag_pool_t const * self );
+
 /* Definition 16. Pool::add_block */
 
 int

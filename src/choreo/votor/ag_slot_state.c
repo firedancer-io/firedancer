@@ -84,6 +84,7 @@ verify_subtract_votes( ag_slot_state_t *     self,
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz = ag_vote_signing_ser( kind, self->slot, block_hash, self->shred_version, msg );
   states->bls_verify_cnt++;
+  if( FD_LIKELY( !states->bls_verify_start ) ) states->bls_verify_start = fd_tickcount();
   int   err    = fd_bls_agg_verify_subtract( agg, msg, msg_sz, epoch_info->pubkeys, sigs, bad );
   if( FD_LIKELY( !err && fd_bls_set_is_null( bad ) ) ) return 1;
 

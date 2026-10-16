@@ -245,6 +245,7 @@ ag_pool_new( void * mem,
   pool->slot_states->shared.next_epoch_rank                = USHORT_MAX;
   pool->slot_states->shared.next_epoch_slot                = ULONG_MAX;
   pool->slot_states->shared.bls_verify_cnt                 = 0UL;
+  pool->slot_states->shared.bls_verify_start               = 0L;
 
   pool->parent_ready_tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( parent_ready_tracker, ready_max, seed ) );
 
@@ -332,6 +333,11 @@ ag_pool_strerror( int err ) {
   case AG_POOL_ERR_CERT_VERIFY:        return "cert failed the signature or threshold check";
   default:                             return "unknown";
   }
+}
+
+FD_FN_PURE long
+ag_pool_vote_verify_start( ag_pool_t const * self ) {
+  return self->slot_states->shared.bls_verify_start;
 }
 
 FD_FN_PURE ag_pool_metrics_t
@@ -573,6 +579,7 @@ ag_pool_add_vote( ag_pool_t *       self,
   ulong slot = ag_vote_slot( vote );
   fd_bls_set_null( bad );
   *quorum_reached = 0;
+  self->slot_states->shared.bls_verify_start = 0L;
 
   ulong first_unpruned_slot = ag_finality_tracker_first_unpruned_slot( self->finality_tracker );
   ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA );
