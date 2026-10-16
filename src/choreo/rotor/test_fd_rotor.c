@@ -307,6 +307,45 @@ test_eager_wrong_parent( void ) {
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
 
+/* FEC sets queued for replay are dropped when their blk is freed before
+   the tile sends them: by skipping the slot, or by the root advancing
+   past it.  Other blks' queued FEC sets keep their order. */
+
+static void
+test_purge_queued( void ) {
+  fd_rotor_t *     rotor = setup();
+  fd_rotor_blk_t * a     = notar( rotor, 1UL, 0x10 );
+  fd_rotor_blk_t * b     = notar( rotor, 2UL, 0x20 );
+  parented( rotor, 1UL, 0x10, 0UL, 0xEE, 1U );
+  parented( rotor, 2UL, 0x20, 1UL, 0x10, 2U );
+  fecs( rotor, 1UL, 0x10, 1U );
+  fecs( rotor, 2UL, 0x20, 2U );
+  fd_mr32_t mr;
+  mr = hash( 0x11 ); complete( rotor, 1UL, 0UL, 0U, 1, &mr );
+  mr = hash( 0x21 ); complete( rotor, 2UL, 1UL, 0U, 0, &mr );
+  FD_TEST( fd_rotor_deque_cnt( rotor->reasm_deque )==2UL );
+  fd_rotor_slot_skipped( rotor, 2UL );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &(ulong){ 2UL }, NULL, rotor->blk_pool ) );
+  expect( rotor, a, 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+  (void)b;
+
+  rotor = setup();
+  a = notar( rotor, 1UL, 0x10 );
+  b = notar( rotor, 2UL, 0x20 );
+  parented( rotor, 1UL, 0x10, 0UL, 0xEE, 1U );
+  parented( rotor, 2UL, 0x20, 1UL, 0x10, 1U );
+  fecs( rotor, 1UL, 0x10, 1U );
+  fecs( rotor, 2UL, 0x20, 1U );
+  mr = hash( 0x11 ); complete( rotor, 1UL, 0UL, 0U, 1, &mr );
+  mr = hash( 0x21 ); complete( rotor, 2UL, 1UL, 0U, 1, &mr );
+  FD_TEST( fd_rotor_deque_cnt( rotor->reasm_deque )==2UL );
+  fd_mr32_t a_id = hash( 0x10 );
+  fd_rotor_root_advanced( rotor, 1UL, &a_id );
+  expect( rotor, b, 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+}
+
 /* Votor names slot 1's block before turbine completes it, and a notar
    child links under that notar blk.  When slot 1's turbine version
    completes with the same dmr, the notar blk is merged into it: the
@@ -526,8 +565,8 @@ test_notarized_shreds_build_eager( void ) {
   FD_TEST( !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) );
   FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
   FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
-  fd_rotor_deque_t a0 = fd_rotor_deque_pop_head( rotor->reasm_deque ), b0 = fd_rotor_deque_pop_head( rotor->reasm_deque ); /* both versions consumed FEC set 0 */
-  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
+  FD_TEST( n1_idx!=fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
+  expect( rotor, e1, 0U ); /* the merged notar blk's queued FEC set 0 was purged */
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1448,8 +1487,8 @@ test_finalize_moves_child( void ) {
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
   FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].final==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
-  fd_rotor_deque_t a0 = fd_rotor_deque_pop_head( rotor->reasm_deque ), b0 = fd_rotor_deque_pop_head( rotor->reasm_deque ); /* both versions consumed FEC set 0 */
-  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
+  FD_TEST( n1_idx!=fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
+  expect( rotor, e1, 0U ); /* the merged notar blk's queued FEC set 0 was purged */
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -2186,6 +2225,7 @@ main( int     argc,
   test_blk_treap_order();
   test_eager_bit();
   test_twin_merge();
+  test_purge_queued();
   test_twin_merge_ahead();
   test_telemetry();
   test_telemetry_cancelled();
