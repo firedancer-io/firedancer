@@ -61,8 +61,9 @@ Configures the operating system so that it can run Firedancer. See
 [the guide](/guide/initializing) for more information. There are the
 following stages to each configure command:
 
- - `uverbs` Loads the `ib_uverbs` kernel module required by the
-    mlx5 network provider.
+ - `mlx5` Loads the `ib_uverbs` kernel module required by the mlx5
+    network provider. Clears leftover XDP ntuple rules and resets the
+    RSS indirection table and channel count to defaults.
  - `hugetlbfs` Reserves huge and gigantic pages for use by Firedancer
     and mounts huge page filesystems for then under a path in the
     configuration TOML file.
@@ -105,7 +106,8 @@ and configure the number of combined channels on the network device.
 | `root`          | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
 | `root`          | disable network device offloads with `ethtool --offload IFACE FEATURE off`. Only applies for the `ethtool-offloads` stage |
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
-| `root`          | load the `ib_uverbs` kernel module with `modprobe`. Only applies for the `uverbs` stage |
+| `root`          | restore network device defaults and load the `ib_uverbs` kernel module if needed. |
+| `CAP_SYS_MODULE` | load the `ib_uverbs` kernel module with `modprobe` when the uverbs interface is unavailable. |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 
 :::
