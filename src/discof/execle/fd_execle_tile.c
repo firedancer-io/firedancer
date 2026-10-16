@@ -11,6 +11,7 @@
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../discof/fd_startup.h"
+#include "../../discof/backup/fd_strmk_keys.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
@@ -57,6 +58,7 @@ struct fd_execle_tile {
 
   fd_execle_out_t out_poh[1];
   fd_execle_out_t out_pack[1];
+  fd_execle_out_t out_strmk[1];
 
   ulong                rebates_for_slot;
   ulong                rebate_tsorig;
@@ -388,6 +390,12 @@ handle_microblock( fd_execle_tile_t *  ctx,
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+(ulong)fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
 
+    fd_strmk_keys_publish(
+      stem, ctx->out_strmk->idx, ctx->out_strmk->mem,
+      ctx->out_strmk->chunk0, ctx->out_strmk->wmark,
+      &ctx->out_strmk->chunk, bank, txn_in, txn_out
+    );
+
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
        fork and diverge, so the link from here til PoH mixin must be
@@ -574,6 +582,12 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
+      fd_strmk_keys_publish(
+        stem, ctx->out_strmk->idx, ctx->out_strmk->mem,
+        ctx->out_strmk->chunk0, ctx->out_strmk->wmark,
+        &ctx->out_strmk->chunk, bank, txn_in, txn_out
+      );
+      
       fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out );
 
       txn_end_ticks[ i ] = fd_tickcount();
@@ -848,8 +862,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
   ctx->pack_in_wmark  = fd_dcache_compact_wmark ( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
 
-  *ctx->out_poh = out1( topo, tile, "execle_poh" ); FD_TEST( ctx->out_poh->idx!=ULONG_MAX );
-  *ctx->out_pack = out1( topo, tile, "execle_pack" );
+  *ctx->out_poh   = out1( topo, tile, "execle_poh" ); FD_TEST( ctx->out_poh->idx!=ULONG_MAX );
+  *ctx->out_pack  = out1( topo, tile, "execle_pack" );
+  *ctx->out_strmk = out1( topo, tile, "execle_strmk" );
 
   ctx->enable_rebates = ctx->out_pack->idx!=ULONG_MAX;
 

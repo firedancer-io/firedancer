@@ -2042,4 +2042,12 @@ deliberate exception with lint-allow="<rule id>")
 <tile name="solcap" telemetry="false">
 </tile>
 
+<tile name="strmk">
+    <counter name="KeyReceived" summary="Account keys received from the exec tiles" />
+    <counter name="KeyStored" summary="Account keys stored, the first time a block touched them" />
+    <counter name="KeyDropped" summary="Account keys not stored because the key pool was full" />
+    <gauge name="BlockCount" summary="Blocks in the key window" />
+    <gauge name="KeyCount" summary="Account keys stored for the blocks in the key window" />
+</tile>
+
 </metrics>

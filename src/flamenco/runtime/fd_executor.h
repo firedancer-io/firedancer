@@ -102,6 +102,17 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out );
 
+/* fd_executor_read_keys lists every account key the setup above read
+   from the accounts database.  This includes lookup tables (and their
+   resolved addresses) and program data accounts.  out_keys must be
+   sized out to hold at least FD_STRMK_READ_KEYS_MAX keys.  Returns the
+   number of keys written to out_keys. */
+
+ulong
+fd_executor_read_keys( fd_txn_in_t const *  txn_in,
+                       fd_txn_out_t const * txn_out,
+                       fd_pubkey_t *        out_keys );
+
 void
 fd_executor_setup_accounts_for_txn_bundle( fd_runtime_t *      runtime,
                                            fd_txn_in_t const * txn_in,
