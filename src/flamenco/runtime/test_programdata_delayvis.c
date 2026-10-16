@@ -52,6 +52,8 @@ struct test_env {
 };
 typedef struct test_env test_env_t;
 
+static test_env_t env[1];
+
 static void
 put_account( fd_accdb_t *        accdb,
              fd_accdb_fork_id_t  fork_id,
@@ -288,7 +290,6 @@ upgrade_sim( test_env_t * env ) {
 /* Case: no same-slot mutation -> invoke succeeds off the parent copy. */
 static void
 test_invoke_baseline( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
   fd_txn_p_t txn[1];
   build_invoke_txn( env, txn );
@@ -300,7 +301,6 @@ test_invoke_baseline( fd_svm_mini_t * mini ) {
    pd_write -> "Program is not deployed", old bytes never executed. */
 static void
 test_upgrade_then_invoke( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
   upgrade_sim( env );
   fd_txn_p_t txn[1];
@@ -315,7 +315,6 @@ test_upgrade_then_invoke( fd_svm_mini_t * mini ) {
    the parent-fork read it is now both crash-free and Agave-equivalent. */
 static void
 test_lamport_credit_then_invoke( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
   fd_txn_p_t txn[1];
   build_transfer_txn( env, txn, &env->programdata, 1UL );
@@ -331,7 +330,6 @@ test_lamport_credit_then_invoke( fd_svm_mini_t * mini ) {
    does not change deploy status -> no pd_write -> invoke succeeds. */
 static void
 test_setauthority_then_invoke( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
 
   fd_pubkey_t new_authority = { .ul = { 0xa07402UL } };
@@ -355,7 +353,6 @@ test_setauthority_then_invoke( fd_svm_mini_t * mini ) {
    fired and the invoke fails. */
 static void
 test_close_then_invoke( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
 
   fd_pubkey_t recipient = { .ul = { 0x1ec1b1e47UL } };
@@ -380,7 +377,6 @@ test_close_then_invoke( fd_svm_mini_t * mini ) {
    data_len), not the smaller parent size. */
 static void
 test_extend_then_invoke( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
 
   ulong const additional = 4096UL;
@@ -412,7 +408,6 @@ test_extend_then_invoke( fd_svm_mini_t * mini ) {
    the current-fork size, via the skipped-key probe. */
 static void
 test_deploy_then_invoke( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
 
   /* Erase D from the parent (leave P pointing at it), then deploy-sim D
@@ -444,7 +439,6 @@ test_deploy_then_invoke( fd_svm_mini_t * mini ) {
    bit ignored -> invoke succeeds (Agave: effective_slot = P+1 <= C). */
 static void
 test_parent_slot_upgrade_then_invoke( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
 
   /* Commit a pd_write=1 version of D on the PARENT fork (models an
@@ -478,7 +472,6 @@ test_parent_slot_upgrade_then_invoke( fd_svm_mini_t * mini ) {
    same-slot program_data.slot rejects even without the bit. */
 static void
 test_listed_programdata_slot_check( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
 
   /* Same-slot mutation, but WITHOUT pd_write (bit path disabled): only
@@ -526,7 +519,6 @@ test_listed_programdata_slot_check( fd_svm_mini_t * mini ) {
    rejected.  Under the broken discriminator this executed old bytes. */
 static void
 test_bundle_upgrade_gate( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
   upgrade_sim( env );
 
@@ -554,7 +546,6 @@ test_bundle_upgrade_gate( fd_svm_mini_t * mini ) {
    size toward loaded-accounts-data-size before the invoke fails. */
 static void
 test_bundle_deploy_size_counted( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
 
   fd_accdb_t * accdb = env->runtime->accdb;
@@ -842,7 +833,6 @@ deploy_mid( test_env_t * env, int bundle ) {
 
 static void
 test_bundle_deploy_size_counted2( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   pd_fields_t b[1], s[1];
 
   setup_env_undeployed( env, mini );
@@ -901,7 +891,6 @@ setup_revive( test_env_t * env, fd_svm_mini_t * mini, fd_txn_p_t * xfer, fd_txn_
 
 static void
 test_bundle_revive_pd_size_counted( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   pd_fields_t b[1], s[1];
   fd_txn_p_t xfer[1], invoke[1];
 
@@ -960,7 +949,6 @@ setup_close( test_env_t * env, fd_svm_mini_t * mini, fd_txn_p_t * close, fd_txn_
 
 static void
 test_bundle_close_pd_size_counted( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   pd_fields_t b[1], s[1];
   fd_txn_p_t close[1], invoke[1];
 
@@ -1038,7 +1026,6 @@ setup_dead_probe( test_env_t * env, fd_svm_mini_t * mini, fd_txn_p_t * xfer, fd_
 
 static void
 test_bundle_dead_probe_pd_not_counted( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   pd_fields_t b[1], s[1];
   fd_txn_p_t xfer[1], invoke[1];
 
@@ -1062,7 +1049,6 @@ test_bundle_dead_probe_pd_not_counted( fd_svm_mini_t * mini ) {
 
 static void
 test_dead_pd_with_data_not_counted( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
   fd_accdb_t * accdb = env->runtime->accdb;
 
@@ -1120,7 +1106,6 @@ test_dead_pd_with_data_not_counted( fd_svm_mini_t * mini ) {
 
 static void
 test_migration_upgrade_gates_invoke( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
   fd_accdb_t * accdb = env->runtime->accdb;
 
@@ -1233,7 +1218,6 @@ test_migration_upgrade_gates_invoke( fd_svm_mini_t * mini ) {
 
 static void
 test_builtin_migration_prefunded_pd( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
   fd_accdb_t * accdb = env->runtime->accdb;
   /* SIMD-0444 is still pending, so enable_cleaned_up() leaves it off. */
@@ -1316,7 +1300,6 @@ test_builtin_migration_prefunded_pd( fd_svm_mini_t * mini ) {
    the parent-fork binding. */
 static void
 test_bundle_invoke_baseline( fd_svm_mini_t * mini ) {
-  static test_env_t env[1];
   setup_env( env, mini );
 
   fd_txn_p_t invoke[1];
