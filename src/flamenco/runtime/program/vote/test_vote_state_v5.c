@@ -6,6 +6,8 @@
 #include "../../fd_executor_err.h"
 #include "../../fd_runtime.h"
 
+static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
+
 static void
 make_v4( fd_vote_state_versioned_t * vsv,
          int                         has_bls ) {
@@ -40,7 +42,7 @@ test_convert( void ) {
 
   make_v4( vsv, 1 );
   FD_TEST( fd_vsv_has_tower_votes( vsv ) );
-  FD_TEST( fd_vsv_try_convert_to_v5( vsv, 10UL )==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL )==FD_EXECUTOR_INSTR_SUCCESS );
   FD_TEST( vsv->kind==fd_vote_state_versioned_enum_v5 );
   FD_TEST( !fd_vsv_has_tower_votes( vsv ) );
   fd_vote_state_v5_t const * s = &vsv->v5;
@@ -53,7 +55,7 @@ test_convert( void ) {
     FD_TEST( !s->block_revenue_commission_bps_epochs[ i ] && !s->block_revenue_commission_bps[ i ] );
   }
   FD_TEST( s->pending_delegator_rewards==999UL && s->bls_pubkey_compressed[ FD_BLS_PUBKEY_COMPRESSED_SZ-1UL ]==0x55 );
-  FD_TEST( !s->location.x && !s->location.y && !s->location.z );
+  FD_TEST( s->location.x==LOC_FRA.x && s->location.y==LOC_FRA.y && s->location.z==LOC_FRA.z );
   FD_TEST( s->latest_vote==91UL && s->root_slot==80UL );
   FD_TEST( s->authorized_voters_len==1U && s->authorized_voters[ 0 ].epoch==3UL && s->authorized_voters[ 0 ].pubkey.uc[ 0 ]==0x66 );
   FD_TEST( s->accumulated_lamports_len==2U && s->accumulated_lamports[ 1 ].epoch==3UL && s->accumulated_lamports[ 1 ].credits==80UL );
@@ -65,30 +67,30 @@ test_convert( void ) {
   FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) );
   FD_TEST( fd_vote_state_versioned_deserialize( out, data, sizeof(data) ) && out->kind==fd_vote_state_versioned_enum_v5 );
   FD_TEST( fd_memeq( &out->v5, &vsv->v5, sizeof(fd_vote_state_v5_t) ) );
-  FD_TEST( fd_vsv_try_convert_to_v5( vsv, 10UL )==FD_EXECUTOR_INSTR_SUCCESS && fd_memeq( &out->v5, &vsv->v5, sizeof(fd_vote_state_v5_t) ) );
+  FD_TEST( fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL )==FD_EXECUTOR_INSTR_SUCCESS && fd_memeq( &out->v5, &vsv->v5, sizeof(fd_vote_state_v5_t) ) );
 
   make_v4( vsv, 0 );
-  FD_TEST( fd_vsv_try_convert_to_v5( vsv, 10UL )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  FD_TEST( fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
   FD_TEST( vsv->kind==fd_vote_state_versioned_enum_v4 && deq_fd_landed_vote_t_cnt( vsv->v4.votes )==2UL );
 
   make_v4( vsv, 1 );
   deq_fd_landed_vote_t_remove_all( vsv->v4.votes );
   vsv->v4.has_root_slot = 0;
-  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 10UL ) );
+  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL ) );
   FD_TEST( vsv->v5.latest_vote==ULONG_MAX && vsv->v5.root_slot==ULONG_MAX );
 
   make_v4( vsv, 1 );
   vsv->v4.root_slot = ULONG_MAX;
-  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 10UL ) && vsv->v5.root_slot==ULONG_MAX );
+  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL ) && vsv->v5.root_slot==ULONG_MAX );
   FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, sizeof(data) ) );
 
   make_v4( vsv, 1 );
   while( deq_fd_vote_epoch_credits_t_cnt( vsv->v4.epoch_credits )<=MAX_EPOCH_CREDITS_HISTORY ) {
     deq_fd_vote_epoch_credits_t_push_tail( vsv->v4.epoch_credits, (fd_vote_epoch_credits_t){ .epoch=9UL } );
   }
-  FD_TEST( fd_vsv_try_convert_to_v5( vsv, 10UL )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA && vsv->kind==fd_vote_state_versioned_enum_v4 );
+  FD_TEST( fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA && vsv->kind==fd_vote_state_versioned_enum_v4 );
 
-  make_v4( vsv, 1 ); deq_fd_landed_vote_t_remove_all( vsv->v4.votes ); FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 10UL ) );
+  make_v4( vsv, 1 ); deq_fd_landed_vote_t_remove_all( vsv->v4.votes ); FD_TEST( !fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL ) );
   FD_TEST( fd_vsv_try_convert_to_v4( vsv, &vsv->v5.node_pubkey )==FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   FD_TEST( fd_vsv_try_convert_to_v3( vsv )==FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   FD_TEST( !fd_vsv_is_uninitialized( vsv ) );
@@ -98,7 +100,7 @@ static void
 test_accessors( void ) {
   static fd_vote_state_versioned_t vsv[1];
   make_v4( vsv, 1 );
-  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 10UL ) );
+  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL ) );
 
   FD_TEST( fd_vsv_get_authorized_withdrawer( vsv )->uc[ 0 ]==0x22 );
   FD_TEST( fd_vsv_get_commission( vsv )==12 );
@@ -166,7 +168,7 @@ static void
 test_authorized_voters( void ) {
   static fd_vote_state_versioned_t vsv[1];
   make_v4( vsv, 1 );
-  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 10UL ) );
+  FD_TEST( !fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 10UL ) );
   fd_vote_state_v5_t * s = &vsv->v5;
 
   fd_pubkey_t * voter = NULL;

@@ -195,8 +195,9 @@ int
 fd_vsv_has_tower_votes( fd_vote_state_versioned_t const * self );
 
 int
-fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t * self,
-                          ulong                       current_epoch );
+fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t *     self,
+                          fd_validator_location_t const * location,
+                          ulong                           current_epoch );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L872C12-L886 */
 int

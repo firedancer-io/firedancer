@@ -1,6 +1,8 @@
 #include "fd_alpenglow.c"
 #include "../runtime/tests/fd_svm_mini.h"
 
+static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
+
 static void
 random_v4( fd_vote_state_versioned_t * vsv,
            fd_rng_t *                  rng ) {
@@ -38,7 +40,7 @@ convert_copy( fd_vote_state_versioned_t const * src,
               uchar *                           data ) {
   FD_TEST( !fd_vote_state_versioned_serialize( src, data, FD_VOTE_STATE_V4_SZ ) );
   FD_TEST( fd_vote_state_versioned_deserialize( dst, data, FD_VOTE_STATE_V4_SZ ) );
-  FD_TEST( !fd_vsv_try_convert_to_v5( dst, 0UL ) );
+  FD_TEST( !fd_vsv_try_convert_to_v5( dst, &LOC_FRA, 0UL ) );
 }
 
 static void
@@ -131,7 +133,7 @@ test_v5_in_place( fd_svm_mini_t * mini,
   fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, key4.uc );
   FD_TEST( fd_vote_state_versioned_deserialize( scratch, acc.data, acc.data_len ) );
   fd_accdb_unread_one( accdb, &acc );
-  FD_TEST( !fd_vsv_try_convert_to_v5( scratch, 0UL ) );
+  FD_TEST( !fd_vsv_try_convert_to_v5( scratch, &LOC_FRA, 0UL ) );
   FD_TEST( !fd_vote_state_versioned_serialize( scratch, expect, sizeof(expect) ) );
   FD_TEST( !fd_memeq( expect, data5, sizeof(expect) ) );
 

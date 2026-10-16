@@ -2358,6 +2358,13 @@ fd_feature_id_t const ids[] = {
     .implemented               = 1,
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, validator_location_registration)>>3,
+    .id                        = {"\x07\x51\x97\x01\x74\x48\xf2\xdb\xa0\x39\x9c\x5b\xd8\x1a\xaf\x58\xd9\xbd\x19\x27\xab\xa5\xed\x80\xd2\x89\xe4\x3d\xea\x0e\x40\x00"},
+                                 /* Va1idatorLocat1onRegistrat1on11111111111111 */
+    .name                      = "validator_location_registration",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2675,6 +2682,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_298 0x351933dc20486107UL, .val = &ids[298]
 #define MAP_PERFECT_299 0x7b717607817b2451UL, .val = &ids[299]
 #define MAP_PERFECT_300 0x0aa7b29de47f96cbUL, .val = &ids[300]
+#define MAP_PERFECT_301 0xdbf2487401975107UL, .val = &ids[301]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2986,4 +2994,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, block_revenue_sharing                
 FD_STATIC_ASSERT( offsetof( fd_features_t, vote_account_initialize_v2                              )>>3==298UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_cpi_nesting_limit_to_8                            )>>3==299UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_set_program_data_to_elf_length                )>>3==300UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validator_location_registration                         )>>3==301UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

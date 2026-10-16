@@ -599,6 +599,7 @@ struct fd_vote_instruction {
     fd_commission_kind_t                       update_commission_collector;
     fd_update_commission_bps_args_t            update_commission_bps;
     fd_deposit_delegator_rewards_args_t        deposit_delegator_rewards;
+    fd_validator_location_t                    update_location;
   };
 };
 typedef struct fd_vote_instruction fd_vote_instruction_t;
@@ -624,6 +625,7 @@ enum {
   fd_vote_instruction_enum_update_commission_collector      = 17,
   fd_vote_instruction_enum_update_commission_bps            = 18,
   fd_vote_instruction_enum_deposit_delegator_rewards        = 19,
+  fd_vote_instruction_enum_update_location                  = 20,
 };
 
 /**********************************************************************/

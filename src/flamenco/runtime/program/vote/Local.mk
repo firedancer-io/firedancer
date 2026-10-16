@@ -25,3 +25,6 @@ $(call run-unit-test,test_vote_codec)
 
 $(call make-unit-test,test_vote_state_v5,test_vote_state_v5,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vote_state_v5)
+
+$(call make-unit-test,test_validator_location,test_validator_location,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_validator_location)
