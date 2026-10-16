@@ -373,6 +373,15 @@
         "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" },
         "fec_rooted_past_skipped":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them" },
         "leader_window_already_produced":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow)" },
-        "leader_window_superseded":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" }
+        "leader_window_superseded":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" },
+        "txncache_page_miss":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache lookups under the read lock that found their page not resident and had to retake the write lock" },
+        "txncache_page_spilled":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Dirty transaction cache pages written to the spill file on eviction" },
+        "txncache_page_spill_read":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache pages read back from the spill file" },
+        "txncache_frame_evicted":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache frames evicted to load another page" },
+        "txncache_spill_duration_nanos":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time in transaction cache spill file reads and writes, all under the exclusive lock" },
+        "txncache_page_used":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction cache logical pages in use, resident or spilled" },
+        "txncache_page_capacity":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum transaction cache logical pages" },
+        "txncache_frame_used":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction cache in-memory frames holding a page" },
+        "txncache_frame_capacity":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction cache in-memory frames, from runtime.transaction_cache_size_mib" }
     }
 }

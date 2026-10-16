@@ -1,16 +1,17 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_txncache_private_h
 #define HEADER_fd_src_flamenco_runtime_fd_txncache_private_h
 
-#include "fd_txncache_shmem.h"
+#include "fd_txncache.h"
 #include "../fd_flamenco_base.h"
 #include "../fd_rwlock.h"
 
 /* The number of transactions in each page.  This needs to be high
-   enough to amoritze the cost of caller code reserving pages from,
+   enough to amortize the cost of caller code reserving pages from,
    and returning pages to the pool, but not so high that the memory
    wasted from blockhashes with only one transaction is significant. */
 
 #define FD_TXNCACHE_TXNS_PER_PAGE (8192UL)
+#define FD_TXNCACHE_TXNPAGE_ALIGN (4096UL)
 
 /* The maximum distance a transaction blockhash reference can be
    (inclusive).  For example, if no slots were skipped, and the value is
@@ -18,13 +19,17 @@
    [149, 300). */
 #define FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE (151UL)
 
+/* The most roots the txncache holds.  root_cnt does not count the
+   initial root. */
+#define FD_TXNCACHE_MAX_ROOTS (FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+1UL)
+
 /* The global txn index (page*FD_TXNCACHE_TXNS_PER_PAGE+txn) is a uint
    with UINT_MAX as the null link, which bounds the txnpage pool. */
 
 #define FD_TXNCACHE_MAX_TXNPAGES (UINT_MAX/FD_TXNCACHE_TXNS_PER_PAGE)
 
 struct __attribute__((packed)) fd_txncache_single_txn {
-  uint  blockcache_next; /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
+  uint  blockcache_next; /* Global txn index of the next element in this blockcache hash chain, or UINT_MAX. */
   uint  generation;      /* The generation of the fork when this transaction was inserted.  Used to
                             determine if the transaction is still valid for a fork that might have
                             advanced since insertion. */
@@ -35,17 +40,23 @@ struct __attribute__((packed)) fd_txncache_single_txn {
                             bytes, but is 20 bytes starting at some arbitrary offset given by the txnhash_offset value
                             of the containing blockcache entry. */
 };
-
 typedef struct fd_txncache_single_txn fd_txncache_single_txn_t;
 
 FD_STATIC_ASSERT( sizeof(fd_txncache_single_txn_t)==30UL, fd_txncache_single_txn );
 
-struct fd_txncache_txnpage {
+struct __attribute__((aligned(FD_TXNCACHE_TXNPAGE_ALIGN))) fd_txncache_txnpage {
   ushort                   free; /* The number of free txn entries in this page. */
   fd_txncache_single_txn_t txns[ FD_TXNCACHE_TXNS_PER_PAGE][ 1 ]; /* The transactions in the page. */
 };
-
 typedef struct fd_txncache_txnpage fd_txncache_txnpage_t;
+
+struct fd_txncache_page_meta {
+  uint frame;      /* UINT_MAX if not resident. */
+  uint dirty;      /* Resident contents changed since the last writeback. */
+  int  disk_valid; /* A complete page has been written to its disk slot. */
+  uint next;       /* Next older txnpage of the owning blockcache, or UINT_MAX. */
+};
+typedef struct fd_txncache_page_meta fd_txncache_page_meta_t;
 
 struct fd_txncache_blockcache_shmem {
   fd_txncache_fork_id_t parent_id;
@@ -70,10 +81,11 @@ struct fd_txncache_blockcache_shmem {
                             which only communicate the offset and the respective 20 bytes.  To make sure we are
                             deduplicating incoming transactions correctly, we must replicate this system even though
                             it would be easier to just always take the first 20 bytes.  For transactions that we
-                            insert into the cache ourselves, we do just always use a key_offset of zero, so this is
-                            only nonzero when constructed form a peer snapshot. */
+                            insert into the cache ourselves, we do just always use a txnhash_offset of zero, so this is
+                            only nonzero when constructed from a peer snapshot. */
 
   ulong pages_cnt;       /* The number of txnpages currently in use to store the transactions in this blockcache. */
+  uint  page_head;       /* Newest logical page, or UINT_MAX.  Older pages follow page_meta[ page ].next. */
 
   struct {
     ulong next;
@@ -122,65 +134,36 @@ typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
 #include "../../util/tmpl/fd_set_dynamic.c"
 
 struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_private {
-  /* The txncache is a concurrent structure and will be accessed by multiple threads
-     concurrently.  Insertion and querying only take a read lock as they can be done
-     lockless but all other operations will take a write lock internally.
+  /* The txncache is a concurrent structure and will be accessed by
+     multiple threads concurrently.  Resident queries and inserts take
+     a read lock.  Eviction, cache misses, and all other operations
+     take a write lock.  The lock prevents eviction while a
+     reader uses a frame.
 
-     The lock needs to be aligned to 128 bytes to avoid false sharing with other
-     data that might be on the same cache line. */
+     The lock needs to be aligned to 128 bytes to avoid false sharing
+     with other data that might be on the same cache line. */
   fd_rwlock_t lock[ 1 ] __attribute__((aligned(128UL)));
 
-  ulong  txn_per_slot_max;
-  ulong  active_slots_max;
-  ulong  bucket_cnt;      /* Hash buckets per blockcache.  Decoupled from txn_per_slot_max (load
-                             factor 8) to reduce the heads arrays' memory footprint. */
-  ulong  txnpages_per_blockhash_max;
-  ulong  max_txnpages;
-  ulong  txnpage_idx_sz;  /* Element size of every txnpage index array (blockcache->pages,
-                             txnpages_free, scratch_pages), see fd_txncache_txnpage_idx_sz. */
+  ulong txn_per_slot_max;
+  ulong active_slots_max;
+  ulong bucket_cnt; /* Hash buckets per blockcache, txn_per_slot_max/8 (load factor 8). */
+  ulong txnpages_per_blockhash_max;
+  ulong txnpages_max;
+  ulong frames_max;
 
   uint  blockcache_generation; /* Incremented for every blockcache. */
-  ulong txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
+  ulong txnpages_free_cnt;     /* Number of unallocated logical pages. */
+  ulong frames_free_cnt;       /* Free in-memory resident frames. */
+  ulong evict_next;            /* FIFO eviction for frames. */
+  fd_rwlock_t alloc_lock[ 1 ]; /* Lock for allocating new logical page + frame. */
 
-  /* Helps the snapshot producer walk the txncache lock-free and detect
-     relevant changes to the txncache.  mutation_gen covers transaction
-     storage, and root_gen covers the root history.  mutation_gen is odd
-     when the storage is being modified in ways that could affect the
-     snapshot, such as during reset, root advancement, and compaction,
-     and bumped once the mutation is done.  root_gen increments on root
-     advancement and reset.
-
-     For the snapshot producer, fd_txncache_writer, mutation_gen changes
-     trigger retry in the writer, and root_gen changes are treated as
-     fatal invariant violation because the replay tile is expected to
-     pause root history changes while a snapshot is in progress.
-
-     Note that attach/cancel of the unrooted frontier does not bump
-     mutation_gen.  Suppose an unrooted child executed transaction T
-     referencing an old rooted blockhash.  Before cancellation, T is
-     unrooted, so the writer skips it.  After cancellation, T is stale,
-     so the writer still skips it.  So the desired snapshot did not
-     change.
-
-     A note on concurrency ... Accesses to the two generation numbers
-     are race free under C11.  Every store after initialization is
-     atomic and pairs with an atomic load in the snapshot producer tile.
-     The loads in the write locked mutators need no atomicity because
-     every store is made under the write lock so said loads are already
-     ordered properly with respect to the writes.  In contrast, the
-     transaction entries the snapshot walker loads and the txncache
-     stores are plain on both sides, and the blockcache bucket heads are
-     stored plainly by compaction while the walker loads them with an
-     acquire load.  Both are data races under C11.  The walker is
-     nevertheless correct, given that the compiler emits the plain entry
-     accesses as ordinary loads and stores.  FD_HW_MFENCE_ST in
-     fd_txncache_mutation_begin orders the odd store before the entry
-     stores and FD_HW_MFENCE_LD in the walker orders the entry loads
-     before the generation re-check, so an entry load that observed a
-     store made inside a mutation section is followed by a re-check that
-     fails, and whatever was read, torn or otherwise, is discarded. */
-  ulong mutation_gen;
-  ulong root_gen;
+  /* Metrics.  page_miss_cnt is updated atomically under the read lock,
+     the rest under the write lock. */
+  ulong page_miss_cnt;       /* Read-locked lookups that found their page not resident. */
+  ulong page_spilled_cnt;    /* Dirty pages written to the spill file. */
+  ulong page_spill_read_cnt; /* Pages read back from the spill file. */
+  ulong frame_evicted_cnt;   /* Frames evicted to load another page. */
+  ulong spill_ticks;         /* Ticks spent in spill file I/O. */
 
   ulong root_cnt;
   root_slist_t root_ll[1]; /* A singly linked list of the forks that are roots of fork chains.  The tail is the
@@ -194,11 +177,9 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
 struct blockcache {
   fd_txncache_blockcache_shmem_t * shmem;
 
-  uint * heads;          /* The hash table for the blockhash.  Each entry is a pointer to the head of a linked list of
+  uint * heads;          /* The hash table for the blockhash.  Each entry is the global txn index of the head of a linked list of
                             transactions that reference this blockhash.  As we add transactions to the bucket, the head
                             pointer is updated to the new item, and the new item is pointed to the previous head. */
-  void * pages;          /* A list of the txnpages containing the transactions for this blockcache, elements of
-                            shmem->txnpage_idx_sz bytes (see fd_txncache_txnpage_idx_ld). */
 
   descends_set_t * descends; /* Each fork can descend from other forks in the txncache, and this bit vector contains one
                                 value for each fork in the txncache.  If this fork descends from some other fork F, then
@@ -211,50 +192,25 @@ struct fd_txncache_private {
   fd_txncache_shmem_t * shmem;
 
   fd_txncache_blockcache_shmem_t * blockcache_shmem_pool;
-  blockcache_t * blockcache_pool;
-  blockhash_map_t * blockhash_map;
+  blockcache_t *                   blockcache_pool;
+  blockhash_map_t *                blockhash_map;
 
-  void * txnpages_free;             /* The index in the txnpages array that is free, for each of the free pages.
-                                       Elements are shmem->txnpage_idx_sz bytes, as are scratch_pages below. */
+  int spill_fd;
 
-  fd_txncache_txnpage_t * txnpages; /* The actual storage for the transactions.  The blockcache points to these
-                                       pages when storing transactions.  Transaction are grouped into pages of
-                                       size 16384 to make certain allocation and deallocation operations faster
-                                       (just the pages are acquired/released, rather than each txn). */
+  fd_txncache_page_meta_t * page_meta;     /* Metadata for each logical page */
+  uint *                    txnpages_free; /* Stack of free logical pages */
+  uint *                    frame_page;    /* Array mapping frame to logical page */
+  uint *                    frames_free;   /* Stack of unused frame indices. */
 
-  void * scratch_pages;
-  uint * scratch_heads;
+  fd_txncache_txnpage_t * txnpages; /* Aligned resident frames, indexed through page_meta. */
+
+  /* Scratch space used for cleaning up stale entries for compaction. */
+  uint *                  scratch_heads;
   fd_txncache_txnpage_t * scratch_txnpage;
+  fd_txncache_txnpage_t * scratch_input;
 };
 
 FD_PROTOTYPES_BEGIN
-
-/* Use these to bracket a write locked change that is visible to the
-   lock-free snapshot chain walker (fd_txncache_writer).  mutation_gen
-   is odd while a change is in progress.  The walker uses an acquire
-   load of the generation before starting its chain reads and a LoadLoad
-   barrier before each re-check. */
-
-static inline void
-fd_txncache_mutation_begin( fd_txncache_shmem_t * shmem ) {
-  /* Plain load is fine because the write lock holder is the only writer. */
-  ulong gen = shmem->mutation_gen;
-  FD_TEST_CRIT( !(gen&1UL) );
-  __atomic_store_n( &shmem->mutation_gen, gen+1UL, __ATOMIC_RELAXED );
-
-  /* The walker does not write/publish any shared state visible to the
-     txncache.  So no need for a StoreLoad barrier here.  Just
-     StoreStore. */
-  FD_HW_MFENCE_ST();
-}
-
-static inline void
-fd_txncache_mutation_end( fd_txncache_shmem_t * shmem ) {
-  /* Plain load is fine because the write lock holder is the only writer. */
-  ulong gen = shmem->mutation_gen;
-  FD_TEST_CRIT( gen&1UL );
-  __atomic_store_n( &shmem->mutation_gen, gen+1UL, __ATOMIC_RELEASE );
-}
 
 /* fd_txncache_max_txnpages{,_per_blockhash} return the txnpage pool
    size and the per blockcache page cap for the given parameters.  The
@@ -274,33 +230,88 @@ fd_txncache_bucket_cnt( ulong max_txn_per_slot ) {
   return fd_ulong_max( 1UL, (max_txn_per_slot+7UL)/8UL );
 }
 
-/* Txnpage indices are stored as ushort, which covers production
-   parameters, and widen to uint only when the pool exceeds the ushort
-   range (development.bench sizing), keeping the production footprint
-   unchanged.  The all-ones value of the width is the null index and
-   all-ones minus one is the allocation-in-progress flag, so memset 0xFF
-   nulls an array of either width.  ld/st access an index array of the
-   given element size. */
+/* Snapshot support.  These let the snapshot writer read the rooted part
+   of the txncache without knowing its locking or paging. */
 
-FD_FN_CONST static inline ulong
-fd_txncache_txnpage_idx_sz( ulong max_txnpages ) {
-  return max_txnpages>USHORT_MAX-2UL ? sizeof(uint) : sizeof(ushort);
+struct fd_txncache_root {
+  ulong blockcache_idx;
+  ulong txnhash_offset;
+  uint  generation;
+  uchar blockhash[ 32UL ];
+};
+
+typedef struct fd_txncache_root fd_txncache_root_t;
+
+/* fd_txncache_snapshot_roots copies every root, oldest first, to out
+   and returns the count.  out must have room for
+   FD_TXNCACHE_MAX_ROOTS roots.  The caller must keep the
+   root from advancing, so the newest root is the snapshot root. */
+
+ulong
+fd_txncache_snapshot_roots( fd_txncache_t *      tc,
+                            fd_txncache_root_t * out );
+
+/* fd_txncache_blockcache_iter_t iterates the transactions of a
+   blockcache.  It visits one hash chain at a time and holds the
+   txncache lock for that chain, so the chain cannot be compacted,
+   freed, or evicted underneath it.  Concurrent inserts only prepend to
+   a chain, so the entries reachable from the head loaded when the chain
+   is opened do not change while it is held.  The lock is released
+   between chains.
+
+   For each chain, the iterator holds the read lock if every page of the
+   chain is resident.  Otherwise it holds the write lock, under which it
+   loads pages on demand.
+
+   fd_txncache_blockcache_iter_init locks tc and positions iter at the
+   first transaction of blockcache blockcache_idx.  Returns iter.  init
+   must be paired with fd_txncache_blockcache_iter_fini.  The caller
+   must not call into the txncache between init and fini.
+
+   fd_txncache_blockcache_iter_ele returns the current transaction,
+   valid until the next call to fd_txncache_blockcache_iter_next or
+   fd_txncache_blockcache_iter_fini.
+
+   Typical usage:
+
+     fd_txncache_blockcache_iter_t iter[1];
+     for( fd_txncache_blockcache_iter_init( iter, tc, blockcache_idx );
+          !fd_txncache_blockcache_iter_done( iter );
+          fd_txncache_blockcache_iter_next( iter ) ) {
+       fd_txncache_single_txn_t const * txn = fd_txncache_blockcache_iter_ele( iter );
+       ...
+     }
+     fd_txncache_blockcache_iter_fini( iter ); */
+
+struct fd_txncache_blockcache_iter {
+  fd_txncache_t *                  tc;
+  fd_txncache_single_txn_t const * txn; /* NULL once done */
+  ulong                            blockcache_idx;
+  ulong                            bucket;
+  int                              write_lock;
+};
+
+typedef struct fd_txncache_blockcache_iter fd_txncache_blockcache_iter_t;
+
+fd_txncache_blockcache_iter_t *
+fd_txncache_blockcache_iter_init( fd_txncache_blockcache_iter_t * iter,
+                                  fd_txncache_t *                 tc,
+                                  ulong                           blockcache_idx );
+
+void
+fd_txncache_blockcache_iter_next( fd_txncache_blockcache_iter_t * iter );
+
+void
+fd_txncache_blockcache_iter_fini( fd_txncache_blockcache_iter_t * iter );
+
+FD_FN_PURE static inline int
+fd_txncache_blockcache_iter_done( fd_txncache_blockcache_iter_t const * iter ) {
+  return !iter->txn;
 }
 
-static inline ulong
-fd_txncache_txnpage_idx_ld( ulong        idx_sz,
-                            void const * idx,
-                            ulong        i ) {
-  return idx_sz==sizeof(uint) ? (ulong)((uint const *)idx)[ i ] : (ulong)((ushort const *)idx)[ i ];
-}
-
-static inline void
-fd_txncache_txnpage_idx_st( ulong  idx_sz,
-                            void * idx,
-                            ulong  i,
-                            ulong  val ) {
-  if( idx_sz==sizeof(uint) ) ((uint *)idx)[ i ] = (uint)val;
-  else                       ((ushort *)idx)[ i ] = (ushort)val;
+FD_FN_PURE static inline fd_txncache_single_txn_t const *
+fd_txncache_blockcache_iter_ele( fd_txncache_blockcache_iter_t const * iter ) {
+  return iter->txn;
 }
 
 FD_PROTOTYPES_END

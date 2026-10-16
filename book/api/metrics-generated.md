@@ -1035,6 +1035,15 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;used</span> | gauge | FEC payload slots in use in the store RAM cache |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;capacity</span> | gauge | FEC payload capacity of the store RAM cache |
 | <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;pinned</span> | gauge | FEC payload views currently pinned against eviction |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;miss</span> | counter | Transaction cache lookups under the read lock that found their page not resident and had to retake the write lock |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;spilled</span> | counter | Dirty transaction cache pages written to the spill file on eviction |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;spill_&#8203;read</span> | counter | Transaction cache pages read back from the spill file |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;frame_&#8203;evicted</span> | counter | Transaction cache frames evicted to load another page |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;spill_&#8203;duration_&#8203;nanos</span> | counter | Time in transaction cache spill file reads and writes, all under the exclusive lock |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;used</span> | gauge | Transaction cache logical pages in use, resident or spilled |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;page_&#8203;capacity</span> | gauge | Maximum transaction cache logical pages |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;frame_&#8203;used</span> | gauge | Transaction cache in-memory frames holding a page |
+| <span class="metrics-name">replay_&#8203;txncache_&#8203;frame_&#8203;capacity</span> | gauge | Transaction cache in-memory frames, from runtime.transaction_cache_size_mib |
 | <span class="metrics-name">replay_&#8203;is_&#8203;caught_&#8203;up</span> | gauge | Whether replay has caught up to the cluster tip; set once per run, never cleared |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | Most recent consensus root, 0 if none |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;distance</span> | gauge | Slots between the current reset slot and our root |
