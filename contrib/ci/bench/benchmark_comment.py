@@ -31,7 +31,7 @@ def snapshot_load(d, s):
 def mem(d, s, cluster):
     return json.loads(read(d, s, f"build.mem.{cluster}.json"))["summary"]["total_memory_locked_bytes"] / 2**30
 
-# id, label, job, value(bench_dir, side), format, warn %, regression %, higher is better
+# id, label, job ("*": every job, mean over jobs), value(bench_dir, side), format, warn %, regression %, higher is better
 ROWS = (
     ("replay_tps",    "replay tps, mainnet",       "replay",   lambda d, s: summary(d, s, "replay")["tps"],                ",.0f tps",   1.0,  3.0, True),
     ("bench_tps",     "bench tps, localnet",       "bench",    lambda d, s: summary(d, s, "bench")["tps"],                 ",.0f tps",   1.0,  3.0, True),
@@ -39,7 +39,7 @@ ROWS = (
     ("mem_mainnet",   "mem total, mainnet",        "replay",   lambda d, s: mem(d, s, "mainnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_testnet",   "mem total, testnet",        "replay",   lambda d, s: mem(d, s, "testnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_ag_mainnet","mem total, ag mainnet",     "replay",   lambda d, s: mem(d, s, "ag.mainnet"),                       ".2f GiB",    0.0,  1.0, False),
-    ("compile",       "clean compile, firedancer", "replay",   lambda d, s: float(read(d, s, "build.time").split()[0]),   ".2f s",      3.0,  6.0, False),  # wall
+    ("compile",       "clean compile, firedancer", "*",        lambda d, s: float(read(d, s, "build.time").split()[0]),   ".2f s",      3.0,  6.0, False),  # wall
     ("binsize",       "binary size, firedancer",   "replay",   lambda d, s: os.path.getsize(f"{d}/{s}/bin/firedancer") / 1e6, ".2f MB",     0.5,  2.0, False),
 )
 HIST_HDR = ("TPS", "BENCH", "SNAP", "MEM·M", "MEM·T", "AG·M", "COMPILE", "BINARY")
@@ -57,18 +57,28 @@ def rule(prefix, w):
     return prefix + "─" * (w - len(prefix))
 
 def known_rows(state):
-    return {k: v for run in state["runs"].values() for k, v in run["rows"].items()}
+    out, pool, every = {}, {}, {r[0] for r in ROWS if r[2] == "*"}
+    for run in state["runs"].values():
+        for k, v in run["rows"].items():
+            if k in every and None not in v.values(): pool.setdefault(k, []).append(v)
+            else: out[k] = v
+    out.update({k: {"base": sum(v["base"] for v in vs) / len(vs), "new": sum(v["new"] for v in vs) / len(vs), "n": len(vs)} for k, vs in pool.items()})
+    return out
 
 def deltas(state):  # {row id: (base, new, Δ%)} for every row with both sides measured
     return {k: (v["base"], v["new"], (v["new"] - v["base"]) / v["base"] * 100)
-            for k, v in known_rows(state).items() if v["base"] is not None and v["new"] is not None}
+            for k, v in known_rows(state).items() if v["base"] is not None and v["new"] is not None and v.get("n", 2) > 1}  # one runner's tail exceeds warn
 
 def worst(state, ds):
     if crashed(state, ds): return "-"
     return max((tier(r, ds[r[0]][2]) for r in ROWS if r[0] in ds), key=TIERS.index, default=" ")
 
 def crashed(state, ds):  # rows a failed job never measured: a regression, not noise
-    return [r for r in ROWS if state["runs"].get(r[2], {}).get("status") == "failed" and r[0] not in ds]
+    st = [state["runs"].get(j, {}).get("status") for j in JOBS]
+    pooled_dead = "failed" in st and all(s in ("done", "failed") for s in st)  # "*": once every job is over
+    known = known_rows(state)
+    return [r for r in ROWS if r[0] not in ds and (r[2] == "*" and pooled_dead and known.get(r[0], {}).get("new") is None
+                                                   or state["runs"].get(r[2], {}).get("status") == "failed")]
 
 def measure(value, d, side):
     try: return value(d, side)
@@ -77,7 +87,7 @@ def measure(value, d, side):
 def rows(a):
     out = {}
     for rid, _, job, value, *_ in ROWS:
-        if job == a["job"]:
+        if job in (a["job"], "*"):
             m = {side: measure(value, a["bench-dir"], side) for side in ("base", "new")}
             if any(v is not None for v in m.values()): out[rid] = m
     json.dump({"job": a["job"], "head": a["head"], "base": a["base"], "run_id": int(a["run-id"]), "status": a["status"], "rows": out}, sys.stdout)
