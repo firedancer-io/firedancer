@@ -144,7 +144,9 @@
                 "dropped_push_no_contact_info":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (origin no contact info)" },
                 "dropped_push_shred_version":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (origin shred version)" },
                 "dropped_push_inactive":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (inactive)" },
-                "dropped_push_wallclock":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (wallclock)" }
+                "dropped_push_wallclock":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (wallclock)" },
+                "dropped_pull_response_deprecated":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (deprecated value type)" },
+                "dropped_push_deprecated":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (deprecated value type)" }
             }
         },
         "crds_rx_bytes": {
@@ -164,7 +166,9 @@
                 "dropped_push_no_contact_info":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (origin no contact info)" },
                 "dropped_push_shred_version":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (origin shred version)" },
                 "dropped_push_inactive":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (inactive)" },
-                "dropped_push_wallclock":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (wallclock)" }
+                "dropped_push_wallclock":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (wallclock)" },
+                "dropped_pull_response_deprecated":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (deprecated value type)" },
+                "dropped_push_deprecated":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (deprecated value type)" }
             }
         }
     }
