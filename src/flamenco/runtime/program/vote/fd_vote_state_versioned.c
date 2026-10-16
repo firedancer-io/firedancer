@@ -791,8 +791,9 @@ fd_vsv_has_tower_votes( fd_vote_state_versioned_t const * self ) {
 }
 
 int
-fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t * self,
-                          ulong                       current_epoch ) {
+fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t *     self,
+                          fd_validator_location_t const * location,
+                          ulong                           current_epoch ) {
   switch( self->kind ) {
     case fd_vote_state_versioned_enum_v5:
       return FD_EXECUTOR_INSTR_SUCCESS;
@@ -814,6 +815,7 @@ fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t * self,
         .inflation_rewards_commission_bps_len        = 1,
         .block_revenue_commission_bps_len            = 1,
         .pending_delegator_rewards                   = state->pending_delegator_rewards,
+        .location                                    = *location,
         .inflation_rewards_commission_bps_epochs     = { current_epoch+2UL },
         .inflation_rewards_commission_bps            = { state->inflation_rewards_commission_bps },
         .block_revenue_commission_bps_epochs         = { current_epoch+2UL },
@@ -824,8 +826,6 @@ fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t * self,
         .accumulated_lamports_len                    = (uint)ec_cnt,
         .last_timestamp                              = state->last_timestamp
       };
-      /* TODO: set location */
-      /* TODO: error if not set? */
       fd_memcpy( v5.bls_pubkey_compressed, state->bls_pubkey_compressed, FD_BLS_PUBKEY_COMPRESSED_SZ );
 
       ulong i = 0UL;

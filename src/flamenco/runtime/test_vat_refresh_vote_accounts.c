@@ -26,6 +26,8 @@
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
+static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
+
 #define TEST_SLOTS_PER_EPOCH (12UL)
 #define TEST_VAT_EPOCH       (3UL)
 
@@ -186,7 +188,7 @@ put_vote_account_v4( test_env_t *        env,
   fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, voter, vs->authorized_voters.pool );
 
   if( voter0_is_v5 && fd_pubkey_eq( vote_account, &(fd_pubkey_t){ .ul[ 0 ] = 0x100UL } ) ) {
-    FD_TEST( !fd_vsv_try_convert_to_v5( versioned, env->bank->f.epoch ) );
+    FD_TEST( !fd_vsv_try_convert_to_v5( versioned, &LOC_FRA, env->bank->f.epoch ) );
   }
 
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );

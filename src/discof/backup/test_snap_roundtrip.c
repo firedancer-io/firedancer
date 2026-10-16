@@ -33,6 +33,8 @@
 #define TEST_WKSP_ADDL_SZ       (256UL<<20)
 #define TEST_WKSP_ADDL_PART_CNT (64UL)
 
+static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
+
 /* The writer emits one slot delta per recent slot with a block, so the
    parser must accept at least that many. */
 
@@ -781,7 +783,7 @@ test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
         fd_vote_state_versioned_deserialize( vsv, chunk_buf+56UL, data_len ) ) {
       vsv->v4.has_bls_pubkey_compressed = 1;
       uchar v5[ FD_VOTE_STATE_V5_SZ ];
-      FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
+      FD_TEST( !fd_vsv_try_convert_to_v5( vsv, &LOC_FRA, 0UL ) );
       FD_TEST( !fd_vote_state_versioned_serialize( vsv, v5, sizeof(v5) ) );
       v5_sz += put_v5_vote_entry( v5_buf+v5_sz, chunk_buf, FD_LOAD( ulong, chunk_buf+32UL ), FD_LOAD( ulong, chunk_buf+40UL ),
                                   FD_VOTE_STATE_V5_SZ, v5, chunk_buf[ 56UL+data_len+32UL ], FD_LOAD( ulong, chunk_buf+56UL+data_len+33UL ) );

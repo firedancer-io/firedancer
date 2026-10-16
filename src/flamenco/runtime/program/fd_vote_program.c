@@ -1075,6 +1075,39 @@ update_commission_collector( fd_exec_instr_ctx_t *         ctx,
   return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state_versioned );
 }
 
+static int
+update_location( fd_exec_instr_ctx_t *           ctx,
+                 fd_borrowed_account_t *         vote_account,
+                 int                             target_version,
+                 fd_validator_location_t const * location,
+                 fd_pubkey_t const *             signers[static FD_INSTR_SIGNERS_MAX],
+                 ulong                           signers_cnt,
+                 fd_sol_sysvar_clock_t const *   clock ) {
+  fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.update_location.vote_state;
+
+  int rc = get_vote_state_handler_checked( vote_account, target_version, 0, versioned );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  fd_pubkey_t * authorized_voter = NULL;
+  rc = fd_authorized_voters_get_and_update_authorized_voter( versioned, clock->epoch, &authorized_voter );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  rc = fd_vote_verify_authorized_signer( authorized_voter, signers, signers_cnt );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  if( FD_UNLIKELY( !fd_validator_location_is_valid( location ) ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
+  if( versioned->kind==fd_vote_state_versioned_enum_v5 ) {
+    versioned->v5.location = *location;
+  } else {
+    if( FD_UNLIKELY( fd_borrowed_account_get_data_len( vote_account )!=FD_VOTE_STATE_V5_SZ ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    rc = fd_vsv_try_convert_to_v5( versioned, location, clock->epoch );
+    if( FD_UNLIKELY( rc ) ) return rc;
+  }
+
+  return fd_vsv_set_vote_account_state( ctx, vote_account, versioned );
+}
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L848C8-L903 */
 static int
 withdraw( fd_exec_instr_ctx_t *         ctx,
@@ -1725,6 +1758,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   int commission_rate_in_basis_points       = FD_FEATURE_ACTIVE_BANK( ctx->bank, commission_rate_in_basis_points );
   int custom_commission_collector           = FD_FEATURE_ACTIVE_BANK( ctx->bank, custom_commission_collector );
   int block_revenue_sharing                 = FD_FEATURE_ACTIVE_BANK( ctx->bank, block_revenue_sharing );
+  int validator_location_registration       = FD_FEATURE_ACTIVE_BANK( ctx->bank, validator_location_registration );
   int vote_account_initialize_v2            = 0;
 
   /* https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_processor.rs#L72-L76 */
@@ -2427,6 +2461,21 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_vote_instruction_enum_deposit_delegator_rewards: {
     rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    break;
+  }
+
+  case fd_vote_instruction_enum_update_location: {
+    if( FD_UNLIKELY( !validator_location_registration ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
+    fd_sol_sysvar_clock_t clock_;
+    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
+    if( FD_UNLIKELY( !clock ) ) {
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    }
+
+    rc = update_location( ctx, &me, target_version, &instruction->update_location, signers, signers_cnt, clock );
     break;
   }
 
