@@ -45,9 +45,15 @@ struct fd_execrp_tile {
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
 
-  fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
-  fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
+  fd_sha512_t           sha_mem[ FD_EXECRP_SIGVERIFY_LANE_MAX ];
+  fd_sha512_t *         sha_lj[  FD_EXECRP_SIGVERIFY_LANE_MAX ];
   fd_ed25519_cache_t *  ed25519_cache;
+
+  uchar const *         sigverify_msg   [ FD_EXECRP_SIGVERIFY_LANE_MAX ];
+  ulong                 sigverify_msg_sz[ FD_EXECRP_SIGVERIFY_LANE_MAX ];
+  uchar const *         sigverify_sig   [ FD_EXECRP_SIGVERIFY_LANE_MAX ];
+  uchar const *         sigverify_pubkey[ FD_EXECRP_SIGVERIFY_LANE_MAX ];
+  int                   sigverify_result[ FD_EXECRP_SIGVERIFY_LANE_MAX ];
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -290,14 +296,38 @@ returnable_frag( fd_execrp_tile_t *  ctx,
       }
       case FD_EXECRP_TT_TXN_SIGVERIFY: {
         fd_execrp_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        int res = fd_executor_txn_verify( msg->txn, ctx->sha_lj, ctx->ed25519_cache );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_SIGVERIFY_SIG_PARA, "invalid sigverify batch" );
+
+        ulong lane_cnt = 0UL;
+        for( ulong i=0UL; i<msg->cnt; i++ ) {
+          fd_txn_p_t const * txn_p = msg->txn+i;
+          fd_txn_t const *   txn   = TXN( txn_p );
+          FD_CHECK_CRIT( lane_cnt+txn->signature_cnt<=FD_EXECRP_SIGVERIFY_LANE_MAX, "sigverify batch has too many signatures" );
+          ulong msg_sz = fd_txn_msg_sz( txn, txn_p->payload_sz );
+          for( ulong j=0UL; j<txn->signature_cnt; j++ ) {
+            ctx->sigverify_msg   [ lane_cnt ] = txn_p->payload + txn->message_off;
+            ctx->sigverify_msg_sz[ lane_cnt ] = msg_sz;
+            ctx->sigverify_sig   [ lane_cnt ] = txn_p->payload + txn->signature_off + 64UL*j;
+            ctx->sigverify_pubkey[ lane_cnt ] = txn_p->payload + txn->acct_addr_off + 32UL*j;
+            lane_cnt++;
+          }
+        }
+        fd_ed25519_verify_batch_multi_msg_cached( ctx->sigverify_msg, ctx->sigverify_msg_sz, ctx->sigverify_sig, ctx->sigverify_pubkey,
+                                                  ctx->sha_lj, ctx->sigverify_result, lane_cnt, ctx->ed25519_cache );
+
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        out_msg->bank_idx               = msg->bank_idx;
-        out_msg->txn_sigverify->txn_idx = msg->txn_idx;
-        out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
+        out_msg->bank_idx           = msg->bank_idx;
+        out_msg->txn_sigverify->cnt = msg->cnt;
+        ulong lane = 0UL;
+        for( ulong i=0UL; i<msg->cnt; i++ ) {
+          int ok = 1;
+          for( ulong j=0UL; j<TXN( msg->txn+i )->signature_cnt; j++ ) ok &= (ctx->sigverify_result[ lane++ ]==FD_ED25519_SUCCESS);
+          out_msg->txn_sigverify->txn_idx[ i ] = msg->txn_idx[ i ];
+          out_msg->txn_sigverify->err    [ i ] = !ok;
+        }
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
-        ctx->metrics.sigverify_cnt += TXN( msg->txn )->signature_cnt;
+        ctx->metrics.sigverify_cnt += lane_cnt;
         break;
       }
       case FD_EXECRP_TT_POH_HASH: {
@@ -376,7 +406,7 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  for( ulong i=0UL; i<FD_TXN_SIG_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_EXECRP_SIGVERIFY_LANE_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
     FD_TEST( sha );
     ctx->sha_lj[ i ] = sha;

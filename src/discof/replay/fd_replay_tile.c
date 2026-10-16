@@ -2749,8 +2749,6 @@ dispatch_task( fd_replay_tile_t *  ctx,
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
-      fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, task->txn_sigverify->txn_idx );
-
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->txn_sigverify->bank_idx );
       FD_TEST( bank );
       bank->refcnt++;
@@ -2758,11 +2756,18 @@ dispatch_task( fd_replay_tile_t *  ctx,
       FD_TEST( task->txn_sigverify->exec_idx<ctx->exec_cnt );
       fd_replay_out_link_t * exec_out = &ctx->exec_out[ task->txn_sigverify->exec_idx ];
       fd_execrp_txn_sigverify_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      fd_txn_p_copy( exec_msg->txn, txn_p );
+      FD_STATIC_ASSERT( FD_SCHED_SIGVERIFY_SIG_PARA==FD_EXECRP_SIGVERIFY_SIG_PARA, sigverify batch width mismatch );
+      FD_TEST( task->txn_sigverify->cnt && task->txn_sigverify->cnt<=FD_EXECRP_SIGVERIFY_SIG_PARA );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
-      exec_msg->txn_idx  = task->txn_sigverify->txn_idx;
-      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+      exec_msg->cnt      = task->txn_sigverify->cnt;
+      for( ulong i=0UL; i<task->txn_sigverify->cnt; i++ ) {
+        ulong txn_idx = task->txn_sigverify->txn_idx[ i ];
+        exec_msg->txn_idx[ i ] = txn_idx;
+        fd_txn_p_copy( exec_msg->txn+i, fd_sched_get_txn( ctx->sched, txn_idx ) );
+      }
+      ulong exec_msg_sz = offsetof( fd_execrp_txn_sigverify_msg_t, txn )+task->txn_sigverify->cnt*sizeof(fd_txn_p_t);
+      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, exec_msg_sz, 0UL, 0UL, 0UL );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, exec_msg_sz, exec_out->chunk0, exec_out->wmark );
       break;
     };
     case FD_SCHED_TT_POH_HASH: {
@@ -3526,26 +3531,35 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       break;
     }
     case FD_EXECRP_TT_TXN_SIGVERIFY: {
-      ulong txn_idx = msg->txn_sigverify->txn_idx;
-      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
-      txn_info->flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
-      if( FD_UNLIKELY( msg->txn_sigverify->err ) ) {
-        txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_NOOP;
+      ulong cnt = msg->txn_sigverify->cnt;
+      FD_TEST( cnt && cnt<=FD_EXECRP_SIGVERIFY_SIG_PARA );
+      int any_err = 0;
+      for( ulong i=0UL; i<cnt; i++ ) {
+        fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, msg->txn_sigverify->txn_idx[ i ] );
+        txn_info->flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
+        if( FD_UNLIKELY( msg->txn_sigverify->err[ i ] ) ) {
+          txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_NOOP;
+          any_err = 1;
+        }
       }
-      if( FD_UNLIKELY( msg->txn_sigverify->err && bank->state!=FD_BANK_STATE_DEAD ) ) {
+      if( FD_UNLIKELY( any_err && bank->state!=FD_BANK_STATE_DEAD ) ) {
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
         mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
         fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, exec_tile_idx, NULL );
       FD_TEST( res==0 );
-      if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
-        publish_txn_executed( ctx, stem, bank->idx, txn_idx );
+      for( ulong i=0UL; i<cnt; i++ ) {
+        ulong txn_idx = msg->txn_sigverify->txn_idx[ i ];
+        fd_sched_txn_info_t const * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
+        if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
+          publish_txn_executed( ctx, stem, bank->idx, txn_idx );
+        }
       }
       break;
     }
@@ -4827,14 +4841,15 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 /* Credits are checked against the out link with the fewest, so the
    burst is the most frags one stem iteration publishes to any one out
-   link: 4, from boot (slot completed, next leader, root advanced,
-   reset) or try_fini_leader chaining into the next leader slot (slot
-   completed, next leader, reset, became leader).  after_credit and
-   returnable_frag never both publish in one iteration: every
-   after_credit path that publishes returns nonzero, which skips the
-   input poll.  The exception is REPLAY_SIG_SLOT_STATES, which doesn't
-   skip the input poll. */
-#define STEM_BURST (5UL)
+   link.  after_credit publishes at most 4, from boot (slot completed,
+   next leader, root advanced, reset) or try_fini_leader chaining into
+   the next leader slot (slot completed, next leader, reset, became
+   leader).  returnable_frag publishes at most 9 on a completed
+   sigverify batch: slot dead plus FD_EXECRP_SIGVERIFY_SIG_PARA
+   txn_executed.  Every after_credit path that publishes returns
+   nonzero, which skips the input poll, except REPLAY_SIG_SLOT_STATES,
+   which adds one. */
+#define STEM_BURST (10UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch and replay_slot, which
