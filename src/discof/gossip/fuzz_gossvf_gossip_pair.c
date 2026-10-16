@@ -436,15 +436,15 @@ pair_ping_change_fn( void *        _node,
   update->gossip_addr.l = peer_address.l;
   update->remove = change_type!=FD_PING_TRACKER_CHANGE_TYPE_ACTIVE;
 
+  ping_key_t key = { .pubkey = update->pubkey, .addr = { .l = update->gossip_addr.l } };
   ping_t * existing = ping_map_ele_query( node->vf->ping_map,
-                                          &update->pubkey,
+                                          &key,
                                           NULL,
                                           node->vf->pings );
   if( FD_UNLIKELY( update->remove ) ) {
     if( FD_LIKELY( existing ) ) handle_ping_update( node->vf, update );
   } else {
-    if( FD_LIKELY( existing ) ) existing->addr.l = update->gossip_addr.l;
-    else                        handle_ping_update( node->vf, update );
+    if( FD_UNLIKELY( !existing ) ) handle_ping_update( node->vf, update );
   }
 }
 
