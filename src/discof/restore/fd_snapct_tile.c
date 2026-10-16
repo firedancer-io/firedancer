@@ -2529,7 +2529,7 @@ unprivileged_init( fd_topo_t const *      topo,
    paths, and returnable_frag can result in 1. */
 #define STEM_BURST 6UL
 
-#define STEM_LAZY  1000L
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapct_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapct_tile_t)
