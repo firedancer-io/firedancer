@@ -1239,7 +1239,7 @@ static fd_metrics_sample_field_t const fields_execle[ 205 ] = {
   { FD_METRICS_COUNTER_EXECLE_ACCDB_COPIED_BYTES_OFF, 61U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_shred[ 195 ] = {
+static fd_metrics_sample_field_t const fields_shred[ 196 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1395,6 +1395,7 @@ static fd_metrics_sample_field_t const fields_shred[ 195 ] = {
   { FD_METRICS_HISTOGRAM_SHRED_STORE_FEC_SYNC_SPILL_DURATION_NANOS_OFF+16, 17U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_SHRED_PROCESSED_OFF, 33U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
+  { FD_METRICS_COUNTER_SHRED_PROCESSED_OWN_LEADER_ECHOED_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_SHRED_PROCESSED_LEADER_UNKNOWN_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_SHRED_PROCESSED_PARSE_FAILED_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_SHRED_PROCESSED_EQUIVOCATED_OFF, 3U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4361,7 +4362,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
   { "pack", 30U, fields_pack, 305UL, 3245UL },
   { "execle", 31U, fields_execle, 205UL, 2159UL },
-  { "shred", 32U, fields_shred, 195UL, 2147UL },
+  { "shred", 32U, fields_shred, 196UL, 2158UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
   { "replay", 34U, fields_replay, 238UL, 2555UL },
   { "rotor", 35U, fields_rotor, 121UL, 1380UL },

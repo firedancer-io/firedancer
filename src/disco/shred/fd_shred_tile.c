@@ -117,7 +117,9 @@
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL,      poh_shred_mtu   );
 FD_STATIC_ASSERT( sizeof(fd_fec_set_t)==FD_SHRED_STORE_MTU, shred_store_mtu );
 
-#define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
+#define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 3
+FD_STATIC_ASSERT( FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT+FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT==FD_METRICS_ENUM_SHRED_PROCESS_RESULT_CNT, metrics );
+FD_STATIC_ASSERT( FD_FEC_RESOLVER_SHRED_OKAY+FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT==FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_ACCEPTED_IDX, metrics );
 
 /* Number of entries in the block_ids table. Each entry is 32 byte.
    This table is used to keep track of block ids that we create
@@ -1319,13 +1321,21 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz, max_shred_idx );
 
-    if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ 1 ]++; return; }
+    if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_PARSE_FAILED_IDX ]++; return; }
 
     fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
-    if( FD_UNLIKELY( !lsched      ) ) { ctx->metrics->shred_processing_result[ 0 ]++; return; }
+    if( FD_UNLIKELY( !lsched      ) ) { ctx->metrics->shred_processing_result[ FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_LEADER_UNKNOWN_IDX ]++; return; }
 
     fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, shred->slot );
-    if( FD_UNLIKELY( !slot_leader ) ) { ctx->metrics->shred_processing_result[ 0 ]++; return; } /* Count this as bad slot too */
+    if( FD_UNLIKELY( !slot_leader ) ) { ctx->metrics->shred_processing_result[ FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_LEADER_UNKNOWN_IDX ]++; return; } /* Count this as bad slot too */
+
+    /* Our own block echoed back by a relay: we already have it, so skip
+       the verify and recovery.  Repair responses for our own slots are
+       kept, so a restarted leader can repair its block. */
+    if( FD_UNLIKELY( fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR && fd_memeq( slot_leader, ctx->identity_key, sizeof(fd_pubkey_t) ) ) ) {
+      ctx->metrics->shred_processing_result[ FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_OWN_LEADER_ECHOED_IDX ]++;
+      return;
+    }
 
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];

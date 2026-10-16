@@ -229,17 +229,18 @@
             "type": "Tuple",
             "description": "Shreds assigned to this tile that passed the initial parse and chained check, by processing result; InitialRejected and FecFatalRejected are subsets of Rejected",
             "aliases": {
-                "all": ["leader_unknown", "parse_failed", "equivocated", "rejected", "ignored", "duplicate", "accepted", "completed"]
+                "all": ["own_leader_echoed", "leader_unknown", "parse_failed", "equivocated", "rejected", "ignored", "duplicate", "accepted", "completed"]
             },
             "fields": {
-                "leader_unknown": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was for a slot whose leader is unknown" },
-                "parse_failed":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred parsing failed" },
-                "equivocated":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was equivocated with another shred" },
-                "rejected":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was invalid for one of many reasons" },
-                "ignored":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was ignored because we had already reconstructed the FEC set, or was for an old slot" },
-                "duplicate":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was a duplicate of a previously received valid shred of an incomplete FEC set" },
-                "accepted":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred accepted into an incomplete FEC set" },
-                "completed":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred accepted and resulted in a valid, complete FEC set" }
+                "leader_unknown":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was for a slot whose leader is unknown" },
+                "parse_failed":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred parsing failed" },
+                "equivocated":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was equivocated with another shred" },
+                "rejected":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was invalid for one of many reasons" },
+                "ignored":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was ignored because we had already reconstructed the FEC set, or was for an old slot" },
+                "duplicate":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred was a duplicate of a previously received valid shred of an incomplete FEC set" },
+                "accepted":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred accepted into an incomplete FEC set" },
+                "completed":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred accepted and resulted in a valid, complete FEC set" },
+                "own_leader_echoed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Turbine shred for a slot we led, echoed back to us by a relay" }
             }
         },
         "fec_incomplete_evicted":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Incomplete FEC sets evicted from the resolver to make room for new ones" },
