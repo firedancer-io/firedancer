@@ -27,6 +27,7 @@
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
 static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
+static fd_validator_location_t const * voter0_location = &LOC_FRA;
 
 #define TEST_SLOTS_PER_EPOCH (12UL)
 #define TEST_VAT_EPOCH       (3UL)
@@ -188,7 +189,7 @@ put_vote_account_v4( test_env_t *        env,
   fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, voter, vs->authorized_voters.pool );
 
   if( voter0_is_v5 && fd_pubkey_eq( vote_account, &(fd_pubkey_t){ .ul[ 0 ] = 0x100UL } ) ) {
-    FD_TEST( !fd_vsv_try_convert_to_v5( versioned, &LOC_FRA, env->bank->f.epoch ) );
+    FD_TEST( !fd_vsv_try_convert_to_v5( versioned, voter0_location, env->bank->f.epoch ) );
   }
 
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
@@ -265,6 +266,24 @@ static void
 enable_feature( test_env_t * env, ulong byte_offset, ulong activation_slot ) {
   for( fd_feature_id_t const * id = fd_feature_iter_init(); !fd_feature_iter_done( id ); id = fd_feature_iter_next( id ) ) {
     if( id->index == (byte_offset>>3) ) { add_feature_account( env, id, activation_slot ); return; }
+  }
+  FD_LOG_ERR(( "feature id not found" ));
+}
+
+static void
+enable_feature_pending( test_env_t * env, ulong byte_offset ) {
+  for( fd_feature_id_t const * id = fd_feature_iter_init(); !fd_feature_iter_done( id ); id = fd_feature_iter_next( id ) ) {
+    if( id->index != (byte_offset>>3) ) continue;
+    fd_feature_t feature = { .is_active = 0, .activation_slot = 0UL };
+    fd_acc_t acc = fd_accdb_write_one( env->accdb, env->bank->accdb_fork_id, id->id.uc );
+    acc.lamports   = 1UL;
+    acc.executable = 0;
+    fd_memcpy( acc.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
+    acc.data_len   = sizeof(fd_feature_t);
+    fd_memcpy( acc.data, &feature, sizeof(fd_feature_t) );
+    acc.commit     = 1;
+    fd_accdb_unwrite_one( env->accdb, &acc );
+    return;
   }
   FD_LOG_ERR(( "feature id not found" ));
 }
@@ -620,6 +639,80 @@ test_vat_path_v5_voter( fd_wksp_t * wksp ) {
   voter0_is_v5 = 0;
 }
 
+static void
+test_enforce_registration_from_genesis( fd_wksp_t * wksp ) {
+  voter0_is_v5 = 1;
+  test_env_t env[1];
+  test_env_create( env, wksp );
+  enable_feature( env, offsetof( fd_features_t, enforce_validator_location_registration ), 0UL );
+
+  ulong const epoch = TEST_VAT_EPOCH-1UL;
+  advance_into_epoch( env, epoch );
+
+  FD_TEST( vote_stakes_t1_cnt( env->bank )==1UL );
+  for( ulong i=0UL; i<NUM_VOTERS; i++ ) {
+    fd_pubkey_t v = vote_key( i );
+    FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, NULL )==( i==0UL ) );
+  }
+  FD_TEST( env->bank->f.total_epoch_stake==stake_for_epoch( 0UL, epoch ) );
+  FD_TEST( clock_delta( env )==CLOCK_DELTA_NO_WHALE );
+
+  test_env_destroy( env );
+  voter0_is_v5 = 0;
+}
+
+static void
+test_enforce_registration_activates_at_boundary( fd_wksp_t * wksp ) {
+  voter0_is_v5 = 1;
+  test_env_t env[1];
+  test_env_create( env, wksp );
+
+  fd_pubkey_t v0 = vote_key( 0UL );
+  fd_pubkey_t v1 = vote_key( 1UL );
+
+  advance_into_epoch( env, 1UL );
+  FD_TEST( !FD_FEATURE_ACTIVE_BANK( env->bank, enforce_validator_location_registration ) );
+  FD_TEST( vote_stakes_t1_cnt( env->bank )==NUM_VAT_ELIGIBLE );
+  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v1, NULL ) );
+
+  enable_feature_pending( env, offsetof( fd_features_t, enforce_validator_location_registration ) );
+  advance_into_epoch( env, 2UL );
+
+  FD_TEST( FD_FEATURE_ACTIVE_BANK( env->bank, enforce_validator_location_registration ) );
+  FD_TEST( env->bank->f.features.enforce_validator_location_registration==2UL*TEST_SLOTS_PER_EPOCH );
+  FD_TEST( vote_stakes_t1_cnt( env->bank )==1UL );
+  FD_TEST(  fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v0, NULL ) );
+  FD_TEST( !fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v1, NULL ) );
+  FD_TEST(  fd_vote_stakes_query_t_2( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v1, NULL ) );
+  FD_TEST( env->bank->f.total_epoch_stake==stake_for_epoch( 0UL, 2UL ) );
+
+  test_env_destroy( env );
+  voter0_is_v5 = 0;
+}
+
+static void
+test_enforce_registration_v5_location_unchecked( fd_wksp_t * wksp ) {
+  static fd_validator_location_t const in_bounds_invalid = { 6000000, 0, 0 };
+  voter0_is_v5    = 1;
+  voter0_location = &in_bounds_invalid;
+  test_env_t env[1];
+  test_env_create( env, wksp );
+  enable_feature( env, offsetof( fd_features_t, enforce_validator_location_registration ), 0UL );
+
+  advance_into_epoch( env, TEST_VAT_EPOCH-1UL );
+
+  fd_pubkey_t v0 = vote_key( 0UL );
+  fd_acc_t ro = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, v0.uc );
+  FD_TEST( FD_LOAD( uint, ro.data )==fd_vote_state_versioned_enum_v5 && FD_LOAD( int, ro.data+144 )==6000000 );
+  fd_accdb_unread_one( env->accdb, &ro );
+  FD_TEST( vote_stakes_t1_cnt( env->bank )==1UL );
+  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v0, NULL ) );
+
+  test_env_destroy( env );
+  voter0_location = &LOC_FRA;
+  voter0_is_v5    = 0;
+}
+
 /* Whether the whale's last vote made it into the clock this epoch,
    inferred from the stake-weighted timestamp: 10s when the dominant
    future-voting whale is counted, 3s when it is not. */
@@ -730,6 +823,9 @@ main( int argc, char ** argv ) {
   test_runtime_stack_stake_accum_map_sizing( wksp );
   test_vat_path_unconditional( wksp );
   test_vat_path_v5_voter( wksp );
+  test_enforce_registration_from_genesis( wksp );
+  test_enforce_registration_activates_at_boundary( wksp );
+  test_enforce_registration_v5_location_unchecked( wksp );
   test_vat_invalidate_revalidate( wksp );
 
   fd_wksp_delete_anonymous( wksp );
