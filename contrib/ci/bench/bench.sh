@@ -6,13 +6,14 @@ what=${1:?usage: bench.sh build|replay|snapshot|bench base|new} side=${2:?side}
 BENCH_DIR=${BENCH_DIR:-$(realpath ..)/bench}
 DUMP_DIR=${DUMP_DIR:-$(realpath ..)/dump}
 SHREDB=/dev/shm/fd-bench-shreds.db  # tmpfs: on disk, writeback holds its inode lock and stalls shred/rserve pwrite() for whole slots
+RAMDB=/mnt/fd-bench-ramdb           # snapshot row's accounts.db: brd, so the row times snapin rather than flash write state
 bin=$BENCH_DIR/$side/bin
 out=$BENCH_DIR/$side.$what
 mkdir -p "$bin"
 
 quiesce() { # identical host state before every timed run; args: files to pre-read
-  sudo killall firedancer-dev 2>/dev/null || true
-  sudo rm -f "$DUMP_DIR/accounts.db" "$SHREDB"
+  sudo killall -w firedancer-dev 2>/dev/null || true
+  sudo rm -f "$DUMP_DIR/accounts.db" "$SHREDB" "$RAMDB/accounts.db"
   sudo rm -rf "$HOME/.firedancer/fd1"
   sudo sysctl -q -w vm.dirty_background_bytes=268435456 vm.dirty_bytes=2147483648 \
                     vm.dirty_expire_centisecs=1000 vm.dirty_writeback_centisecs=100
@@ -27,12 +28,8 @@ backtest() { # ledger, then run_ledger_backtest.sh args
   local ledger=$DUMP_DIR/$1
   quiesce "$ledger"/shreds.pcapng.zst "$ledger"/snapshot-*.tar.zst "$ledger"/genesis.bin
   rm -f "$out.log"  # fd_log appends
-  cat /proc/diskstats > "$out.diskstats.pre"   # disk work of the run = post - pre
-  for d in /dev/nvme?n1; do sudo nvme smart-log -o json "$d" > "$out.smart.pre.${d#/dev/}" 2>/dev/null || true; done
   OBJDIR=$BENCH_DIR/$side CI=1 DUMP_DIR=$DUMP_DIR setarch -R \
     ./src/flamenco/runtime/tests/run_ledger_backtest.sh -l "$@" --log "$out.log"
-  cat /proc/diskstats > "$out.diskstats.post"
-  for d in /dev/nvme?n1; do sudo nvme smart-log -o json "$d" > "$out.smart.post.${d#/dev/}" 2>/dev/null || true; done
 }
 
 case $what in
@@ -52,7 +49,19 @@ case $what in
     ;;
   replay)   backtest "${BENCH_LEDGER:-mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat}" \
                      -e "${BENCH_END_SLOT:-424669200}" -m 4000000 ;;
-  snapshot) backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000 ;;  # load-only ledger: no shreds
+  snapshot) # load-only ledger: no shreds
+    if ! mountpoint -q $RAMDB; then  # brd allocates on first write: one untimed load touches the pages both sides reuse
+      { findmnt -rn -o TARGET -S /dev/ram0 || true; } | xargs -r sudo umount  # findmnt exits 1 when nothing is mounted
+      sudo rmmod brd 2>/dev/null || true
+      sudo modprobe brd rd_nr=1 rd_size=$((160<<20)) max_part=0
+      (( $(cat /sys/block/ram0/size) == 160<<21 )) || { echo "bench.sh: brd loaded with other parameters" >&2; exit 1; }
+      sudo mkfs.xfs -q -f /dev/ram0
+      sudo mkdir -p $RAMDB
+      sudo mount /dev/ram0 $RAMDB
+      sudo chmod 777 $RAMDB
+      ACCOUNTS_DB=$RAMDB/accounts.db out=$out.warmup backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000
+    fi
+    ACCOUNTS_DB=$RAMDB/accounts.db backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000 ;;
   bench)
     { cat "$BENCH_DIR/$side/bench.toml"; printf '[paths]\n    accounts = "%s"\n    shredb = "%s"\n' "$DUMP_DIR/accounts.db" "$SHREDB"; } > "$out.toml"
     quiesce
