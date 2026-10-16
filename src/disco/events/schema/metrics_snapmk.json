@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -48,7 +56,12 @@
         },
         "thread_duration_nanos": {
             "type": "Tuple",
-            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,15 +73,18 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "tlb_shootdown":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "timer_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "device_irq":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "job_state": {
             "type": "LowCardinality(String)",
             "description": "Snapshot creation job state: 0=idle (Idle, waiting for a job), 1=start (Starting), 2=tar_headers (Writing tar headers), 3=manifest (Writing manifest), 4=accdb_cache (Writing cached accounts), 5=accdb_cache_flush (Flushing cached accounts), 6=accdb_cache_finish (Waiting for cached account flush), 7=accdb_disk (Writing on-disk accounts), 8=accdb_disk_flush (Flushing on-disk accounts), 9=accdb_disk_finish (Waiting for on-disk account flush), 10=accdb_delta (Writing incremental accounts), 11=accdb_delta_flush (Flushing incremental accounts), 12=accdb_delta_finish (Waiting for incremental account flush), 13=status_cache (Writing status cache), 14=eof_marker (Writing tar EOF marker), 15=done (Done, notifying replay), 16=fail (Failed, cleaning up), 17=sleep (Sleeping), 18=startup (Waiting for startup), 19=startup_burst (Publishing pre-existing snapshots)",
@@ -98,6 +114,9 @@
         "snapshot_started": {
             "type": "Tuple",
             "description": "Snapshot creation jobs started, by snapshot type",
+            "aliases": {
+                "all": ["full", "incremental"]
+            },
             "fields": {
                 "full":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Full snapshot" },
                 "incremental": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Incremental snapshot" }
@@ -106,6 +125,9 @@
         "snapshot_finished": {
             "type": "Tuple",
             "description": "Snapshot creation jobs finished successfully, by snapshot type",
+            "aliases": {
+                "all": ["full", "incremental"]
+            },
             "fields": {
                 "full":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Full snapshot" },
                 "incremental": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Incremental snapshot" }

@@ -520,11 +520,14 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
 void
 fd_accdb_reset( fd_accdb_t * accdb );
 
-/* Reserves one contiguous range in the layer-0 account log. */
+/* Reserves one contiguous range of sz bytes in the layer-0 account
+   log.  The last dead_tail_sz bytes are padding with no live record
+   and are counted as freed. */
 
 ulong
 fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
-                                 ulong        sz );
+                                 ulong        sz,
+                                 ulong        dead_tail_sz );
 
 /* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
    using software prefetching to overlap hash chain memory latency with

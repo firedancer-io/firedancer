@@ -23,6 +23,8 @@ SNAPDC_TILE_COUNT=""
 ROOT_DISTANCE="2"
 MAX_LIVE_SLOTS="32"
 ALPENGLOW="false"
+CACHE_SIZE_GIB="3"
+PARTITION_SIZE_GIB=""
 GENESIS_MAX_FILE_SIZE_MIB=""
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
@@ -111,6 +113,16 @@ while [[ $# -gt 0 ]]; do
         ;;
     --alpenglow)
         ALPENGLOW="true"
+        shift
+        ;;
+    --cache-size-gib)
+        CACHE_SIZE_GIB="$2"
+        shift
+        shift
+        ;;
+    --partition-size-gib)
+        PARTITION_SIZE_GIB="$2"
+        shift
         shift
         ;;
     -*|--*)
@@ -230,7 +242,7 @@ ${SNAPDC_TILE_COUNT:+    snapdc_tile_count = $SNAPDC_TILE_COUNT}
     path = "$LOG"
 [paths]
     snapshots = "$DUMP/$LEDGER"
-    accounts = "$DUMP/accounts.db"
+    accounts = "${ACCOUNTS_DB:-$DUMP/accounts.db}"
     genesis = "$DUMP/$LEDGER/genesis.bin"
 [consensus]
     alpenglow = $ALPENGLOW
@@ -244,6 +256,8 @@ ${GENESIS_MAX_FILE_SIZE_MIB:+        max_file_size_mib = $GENESIS_MAX_FILE_SIZE_
         end_slot = $END_SLOT
     [development.backtest]
         root_distance = $ROOT_DISTANCE
+${PARTITION_SIZE_GIB:+    [development.accdb]
+        partition_size_gib = $PARTITION_SIZE_GIB}
 EOF
 
 if [[ "$INDEX_MAX" -lt "1000000" ]]; then
@@ -252,7 +266,7 @@ fi
 cat <<EOF >> ${CONFIG_FILE}
 [accounts]
     max_accounts = $INDEX_MAX
-    cache_size_gib = 3
+    cache_size_gib = $CACHE_SIZE_GIB
 EOF
 
 if [[ -z "$GENESIS" ]]; then
@@ -263,7 +277,7 @@ fi
 echo_notice "Running backtest for $LEDGER"
 
 sudo killall firedancer-dev &> /dev/null || true
-rm -f $DUMP/accounts.db
+rm -f "${ACCOUNTS_DB:-$DUMP/accounts.db}"
 
 set -x
 if [[ -n "$CI" ]]; then
@@ -276,7 +290,7 @@ fi
 
 echo "Log for ledger $LEDGER at $LOG"
 
-rm -rf $DUMP/accounts.db
+rm -rf "${ACCOUNTS_DB:-$DUMP/accounts.db}"
 
 if [ "$status" -eq 0 ]; then
   snapshot_load_time=$(grep "loaded" $LOG | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")

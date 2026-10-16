@@ -509,7 +509,8 @@ fd_sspeer_selector_remove_by_addr( fd_sspeer_selector_t * selector,
 fd_sspeer_t
 fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
-                         ulong                  base_slot ) {
+                         ulong                  base_slot,
+                         ulong                  min_reachable_slot ) {
   if( FD_UNLIKELY( incremental && base_slot==FD_SSPEER_SLOT_UNKNOWN ) ) {
     FD_LOG_WARNING(( "incremental selection requires a valid base_slot" ));
     return (fd_sspeer_t){
@@ -530,7 +531,9 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
     /* For full selection (!incremental), any valid peer is eligible.
        For incremental selection, the peer must serve the same base full
        snapshot and must actually offer an incremental snapshot. */
+    ulong reachable_slot = fd_ulong_if( peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN, peer->incr_slot, peer->full_slot );
     if( FD_LIKELY( peer->valid &&
+                   reachable_slot>=min_reachable_slot &&
                    (!incremental ||
                    (peer->full_slot==base_slot && peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN) ) ) ) {
       fd_sspeer_t best = {

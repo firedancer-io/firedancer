@@ -119,14 +119,14 @@ during_housekeeping( fd_txsend_tile_t * ctx ) {
 
 static void
 metrics_write( fd_txsend_tile_t * ctx ) {
-  FD_MCNT_SET(         TXSEND, PKT_RX_BYTES,                ctx->quic->metrics.net_rx_byte_cnt         );
+  FD_MCNT_SET(         TXSEND, PKT_RX_BYTES,                ctx->quic->metrics.net_rx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_ENUM_COPY(   TXSEND, FRAME_RX,                    ctx->quic->metrics.frame_rx_cnt            );
   FD_MCNT_SET(         TXSEND, PKT_RX,                      ctx->quic->metrics.net_rx_pkt_cnt          );
   FD_MCNT_SET(         TXSEND, STREAM_RX_BYTES,             ctx->quic->metrics.stream_rx_byte_cnt      );
   FD_MCNT_SET(         TXSEND, STREAM_RX,                   ctx->quic->metrics.stream_rx_event_cnt     );
 
   FD_MCNT_SET(         TXSEND, PKT_TX,                      ctx->quic->metrics.net_tx_pkt_cnt          );
-  FD_MCNT_SET(         TXSEND, PKT_TX_BYTES,                ctx->quic->metrics.net_tx_byte_cnt         );
+  FD_MCNT_SET(         TXSEND, PKT_TX_BYTES,                ctx->quic->metrics.net_tx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic->metrics.net_tx_pkt_cnt );
   FD_MCNT_ENUM_COPY(   TXSEND, PKT_ACK_PROCESSED,           ctx->quic->metrics.ack_tx                  );
   FD_MGAUGE_ENUM_COPY( TXSEND, CONN_USED, (ctx->quic->metrics.conn_state_cnt+1) ); /* skip FD_QUIC_CONN_STATE_INVALID (free slots) */
   FD_MGAUGE_SET( TXSEND, CONN_FREE,     ctx->quic->limits.conn_cnt-ctx->quic->metrics.conn_alloc_cnt );

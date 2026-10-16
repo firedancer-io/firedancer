@@ -1575,7 +1575,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
   if( FD_UNLIKELY(
-        fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+        fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                     pn_offset,
                                     rx_keys ) != FD_QUIC_SUCCESS ) ) {
     /* As this is an INITIAL packet, change the status to DEAD, and allow
@@ -1880,11 +1880,12 @@ fd_quic_handle_v1_handshake(
 
   ulong    body_sz          = handshake->len;  /* not a protected field */
                                                /* length of payload + num packet bytes */
+  ulong    tot_sz           = pn_offset + body_sz; /* total including header and payload */
 
 # if !FD_QUIC_DISABLE_CRYPTO
   /* this decrypts the header */
   if( FD_UNLIKELY(
-        fd_quic_crypto_decrypt_hdr( cur_ptr, cur_sz,
+        fd_quic_crypto_decrypt_hdr( cur_ptr, tot_sz,
                                     pn_offset,
                                     &conn->keys[2][0] ) != FD_QUIC_SUCCESS ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
@@ -1895,7 +1896,6 @@ fd_quic_handle_v1_handshake(
 
   /* number of bytes in the packet header */
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( cur_ptr[0] ) + 1u;
-  ulong tot_sz        = pn_offset + body_sz; /* total including header and payload */
 
   /* now we have decrypted packet number */
   ulong pktnum_comp = fd_quic_pktnum_decode( cur_ptr+pn_offset, pkt_number_sz );
@@ -2442,6 +2442,39 @@ is_version_invalid( fd_quic_t * quic, uint version ) {
   return 0;
 }
 
+static ulong
+fd_quic_long_pkt_varint( uchar const * cur_ptr,
+                         ulong         cur_sz,
+                         ulong *       off ) {
+  if( FD_UNLIKELY( *off>=cur_sz ) ) return ULONG_MAX;
+  uint  msb2 = (uint)cur_ptr[ *off ]>>6;
+  ulong vsz  = 1UL<<msb2;
+  if( FD_UNLIKELY( *off+vsz>cur_sz ) ) return ULONG_MAX;
+  ulong val = fd_quic_varint_decode( cur_ptr+*off, msb2 );
+  *off += vsz;
+  return val;
+}
+
+static ulong
+fd_quic_long_pkt_sz( uchar const * cur_ptr,
+                     ulong         cur_sz ) {
+  uchar type = fd_quic_h0_long_packet_type( *cur_ptr );
+  if( FD_UNLIKELY( type==FD_QUIC_PKT_TYPE_RETRY ) ) return FD_QUIC_PARSE_FAIL; /* no Length field */
+  ulong off = 5UL;                                             /* h0, version */
+  if( FD_UNLIKELY( off>=cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  off += 1UL+cur_ptr[ off ];                                   /* dcid */
+  if( FD_UNLIKELY( off>=cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  off += 1UL+cur_ptr[ off ];                                   /* scid */
+  if( type==FD_QUIC_PKT_TYPE_INITIAL ) {                       /* token */
+    ulong token_sz = fd_quic_long_pkt_varint( cur_ptr, cur_sz, &off );
+    if( FD_UNLIKELY( token_sz>cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+    off += token_sz;
+  }
+  ulong len = fd_quic_long_pkt_varint( cur_ptr, cur_sz, &off );
+  if( FD_UNLIKELY( len>cur_sz || off+len>cur_sz ) ) return FD_QUIC_PARSE_FAIL;
+  return off+len;
+}
+
 static inline void
 fd_quic_process_packet_impl( fd_quic_t * quic,
                              uchar *     data,
@@ -2593,6 +2626,11 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
 
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
       svc_cnt_eq_alloc_conn( state->svc_timers, quic );
+
+      /* RFC 9000 Section 12.2: a packet that fails (e.g. Handshake after
+         its keys are discarded) does not void the rest of the datagram.
+         Skip it by its Length field. */
+      if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) rc = fd_quic_long_pkt_sz( cur_ptr, cur_sz );
 
       /* 0UL means no progress, so fail */
       if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
@@ -3160,25 +3198,38 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
   ulong const hdr_sz = fd_quic_encode_one_rtt( scratch, scratch_sz, &one_rtt );
   if( FD_UNLIKELY( hdr_sz==FD_QUIC_ENCODE_FAIL ) ) return 0UL;
 
+  /* Carry pending ACKs, even for ACK-only packets: this packet is
+     ack-eliciting, and a peer that only ever sends ACKs (Agave votor
+     server) otherwise never sees its ACKs acknowledged and keeps
+     re-sending every gap. */
+  uchar   ack_buf[ 128 ];
+  ulong   ack_room = fd_ulong_min( sizeof(ack_buf), fd_ulong_sat_sub( fd_ulong_min( pkt_sz, conn->tx_max_datagram_sz ), hdr_sz+frame_sz+FD_QUIC_CRYPTO_TAG_SZ ) );
+  uint    ack_tail     = conn->ack_gen->tail; /* restored if the send fails */
+  uchar   ack_elicited = conn->ack_gen->is_elicited;
+  ulong   ack_sz   = (ulong)( fd_quic_gen_ack_frames( conn->ack_gen, ack_buf, ack_buf+ack_room, fd_quic_enc_level_appdata_id, state->now, 1 )-ack_buf );
+
   ulong padding = 0UL;
-  ulong const protected_payload_sz = frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  ulong const protected_payload_sz = ack_sz + frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
   ulong const sample_min_sz = FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START +
                               FD_QUIC_CRYPTO_SAMPLE_SZ;
   if( protected_payload_sz+pn_sz < sample_min_sz ) {
     padding = sample_min_sz - pn_sz - protected_payload_sz;
   }
 
-  ulong const plain_sz = frame_sz + padding;
+  ulong const plain_sz = ack_sz + frame_sz + padding;
   ulong const out_sz   = hdr_sz + plain_sz + FD_QUIC_CRYPTO_TAG_SZ;
   if( FD_UNLIKELY(
       out_sz>pkt_sz ||
       out_sz>conn->tx_max_datagram_sz ||
       hdr_sz+plain_sz>scratch_sz
   ) ) {
+    conn->ack_gen->tail = ack_tail; conn->ack_gen->is_elicited = ack_elicited;
     return 0UL;
   }
 
   uchar * p = scratch + hdr_sz;
+  fd_memcpy( p, ack_buf, ack_sz );
+  p += ack_sz;
   *p++ = 0x31U; /* DATAGRAM with an explicit Length field */
   p += fd_quic_varint_encode( p, dgram_sz );
   if( dgram_sz ) fd_memcpy( p, dgram, dgram_sz );
@@ -3201,11 +3252,15 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
       pkt_keys, hp_keys,
       pkt_num
   );
-  if( FD_UNLIKELY( enc_res!=FD_QUIC_SUCCESS ) ) return 0UL;
-  if( FD_UNLIKELY( cipher_sz!=out_sz ) ) return 0UL;
+  if( FD_UNLIKELY( enc_res!=FD_QUIC_SUCCESS || cipher_sz!=out_sz ) ) {
+    conn->ack_gen->tail = ack_tail;
+    conn->ack_gen->is_elicited = ack_elicited;
+    return 0UL;
+  }
 #endif
 
   conn->pkt_number[ pn_space ] = pkt_num + 1UL;
+  if( conn->ack_gen->head==conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
   /* RFC 9221 Section 5.2: DATAGRAM frames are ack-eliciting, so track
      the packet for RTT samples and loss detection like any other */
@@ -3725,7 +3780,7 @@ fd_quic_gen_frames( fd_quic_conn_t           * conn,
 
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
 
-  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, pkt_meta_tmpl->enc_level, now );
+  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, pkt_meta_tmpl->enc_level, now, 0 );
   if( conn->ack_gen->head == conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
   if( FD_UNLIKELY( closing ) ) {

@@ -16,8 +16,8 @@
      - TIME-SERIES (TS) rings are an append-only stream of fixed-size
        records.  Each record carries its own timestamp.  The store
        derives the record's `window` (an integer time bucket) from it.
-       Readers query records by a time range scan. The scan order is
-       insertion order.
+       Readers query records by a time range scan. Appends must be in
+       nondecreasing timestamp order.
 
    ---- ring-buffer backend --------------------------------------------
 
@@ -27,8 +27,8 @@
    (so a given ring has composite regions that are generally
    discontiguous) and the file is allocated up to the highest claimed
    region with fallocate as needed, never exceeding size_bytes.  Region
-   ownership, the free list and the TS window index are in-memory; only
-   the superblock persists.
+   ownership and the free list are in-memory; only the superblock
+   persists.
 
      file offset 0                data_off
      +----------------------------+--------+--------+--------+-  -+--------+
@@ -81,9 +81,10 @@
 struct fd_gui_store_private;
 typedef struct fd_gui_store_private fd_gui_store_t;
 
-#define FD_GUI_STORE_SUCCESS  ( 0)
-#define FD_GUI_STORE_ERR      (-1)
-#define FD_GUI_STORE_MAP_FULL ( 1)
+#define FD_GUI_STORE_SUCCESS   ( 0)
+#define FD_GUI_STORE_ERR       (-1)
+#define FD_GUI_STORE_MAP_FULL  ( 1)
+#define FD_GUI_STORE_RING_FULL ( 2) /* this KV ring's index budget is full */
 
 #define FD_GUI_STORE_KIND_KV (0)
 #define FD_GUI_STORE_KIND_TS (1)
@@ -95,16 +96,18 @@ typedef struct fd_gui_store_private fd_gui_store_t;
    region size.  Callers that know their record types at compile time
    should static-assert sizeof(their largest record) <=
    FD_GUI_STORE_MAX_REC_SZ. */
-#define FD_GUI_STORE_REGION_SZ  (36UL<<20)
+#define FD_GUI_STORE_REGION_SZ  (40UL<<20)
 #define FD_GUI_STORE_MAX_REC_SZ (FD_GUI_STORE_REGION_SZ)
+
+/* Each ring has a protected rolling base.  Unclaimed base regions are
+   reserved lazily; other rings can neither allocate them nor pressure-
+   evict records in the newest BASE_REGIONS regions.  A writer may recycle
+   its own oldest eligible records when shared capacity is exhausted. */
+#define FD_GUI_STORE_BASE_REGIONS (3UL)
 
 /* FD_GUI_STORE_MAX_RINGS is the maximum number of named rings a store
    can host.  It bounds the per-ring metrics arrays below. */
 #define FD_GUI_STORE_MAX_RINGS (64UL)
-
-/* FD_GUI_STORE_TS_IDX_DEPTH is the depth of the time-series index
-   array, measured in one second window buckets. */
-#define FD_GUI_STORE_TS_IDX_DEPTH (30UL*24UL*60UL*60UL) /* 30 days of 1s windows */
 
 struct fd_gui_store_desc {
   char const * name;    /* the name of the ring.  Must be non-NULL and unique within the store */
@@ -117,7 +120,7 @@ struct fd_gui_store_desc {
   ulong        val_align;   /* record alignment (power of two, >=1; pass 1 for none) */
   ulong        ts_off;      /* byte offset, within the value, of the record's `long` timestamp (TS only; pass 0 for KV) */
   ulong        granularity; /* TS window divisor: window = (ulong)(*(long*)(val+ts_off)) / granularity (pass 0 for KV) */
-  ulong        max_records; /* The maximum number of distinct live records this ring can ever hold (pass 0 for TS) */
+  ulong        max_records; /* enforced KV index budget (0 means 1; ignored for TS) */
 };
 
 typedef struct fd_gui_store_desc fd_gui_store_desc_t;
@@ -185,17 +188,36 @@ fd_gui_store_file_sz( fd_gui_store_t const * db );
 ulong
 fd_gui_store_free_region_cnt( fd_gui_store_t const * db );
 
+/* fd_gui_store_shared_free_region_cnt returns the unclaimed regions
+   available excluding the base region allocation. */
+ulong
+fd_gui_store_shared_free_region_cnt( fd_gui_store_t const * db );
+
+/* fd_gui_store_min_size returns the minimum file size ceiling for
+   ring_cnt rings; zero for an invalid ring count.  new/footprint
+   reject smaller stores before opening a file. */
+FD_FN_CONST ulong
+fd_gui_store_min_size( ulong ring_cnt );
+
+/* fd_gui_store_reclaim performs pressure reclamation, removing at most
+   budget records from one oldest region.  ring_idx==ULONG_MAX selects
+   the oldest eligible excess region across all rings and protects their
+   newest BASE_REGIONS regions.
+   Otherwise only the named writer's own oldest region is considered,
+   including its base.  eligible may be NULL (all records eligible).
+   A rejected head is never skipped within a ring.  Returns records
+   removed (not regions freed); zero means no eligible candidate.
+   Explicit kv_evict/ts_evict below are logical deletion operations and
+   intentionally do not implement the cross-ring pressure policy. */
+ulong
+fd_gui_store_reclaim( fd_gui_store_t * db,
+                      ulong            ring_idx,
+                      ulong            budget,
+                      int (*eligible)( ulong, void const *, void * ),
+                      void *           ctx );
+
 int
 fd_gui_store_fd( fd_gui_store_t const * db );
-
-/* fd_gui_store_min_overhead_bytes returns the fixed byte overhead a
-   store adds on top of usable record space: the superblock page plus
-   one region.  A store whose size_bytes ceiling is at least this large
-   plus the caller's desired usable capacity is guaranteed to lay out
-   with at least one region. */
-
-FD_FN_CONST ulong
-fd_gui_store_min_overhead_bytes( void );
 
 struct fd_gui_store_metrics {
   ulong kv_lookups   [ FD_GUI_STORE_MAX_RINGS ]; /* KV lookup calls (per call)         */
@@ -230,7 +252,10 @@ fd_gui_store_ring_stats( fd_gui_store_t * db,
 
 /* fd_gui_store_kv_get_or_create reserves (creating if absent) the
    record for `key` and, on success, hands back a mutable pointer to the
-   record's value region. */
+   record's value region.  Returns RING_FULL if this ring's max_records
+   budget is exhausted, MAP_FULL if no region is available under the
+   base reservation policy, or ERR on invalid input / file growth error.
+   An existing record can be updated even when either resource is full. */
 
 int
 fd_gui_store_kv_get_or_create( fd_gui_store_t * db,
@@ -288,6 +313,39 @@ int
 fd_gui_store_kv_iter_next( fd_gui_store_kv_iter_t * iter );
 
 
+struct fd_gui_store_kv_scan {
+  void const *     rec;
+  fd_gui_store_t * db;
+  ulong            ring_idx;
+  ulong            cur;
+  ulong            end;
+  ulong            append_capacity;
+};
+typedef struct fd_gui_store_kv_scan fd_gui_store_kv_scan_t;
+
+/* fd_gui_store_kv_scan_begin snapshots a KV ring's admission-order end.
+   scan_next skips evicted records and returns 1 with iter->rec set, or 0
+   at the snapshot end.  No iterator cleanup is required. */
+
+void
+fd_gui_store_kv_scan_begin( fd_gui_store_t *         db,
+                            fd_gui_store_kv_scan_t * iter,
+                            ulong                    ring_idx );
+
+int
+fd_gui_store_kv_scan_next( fd_gui_store_kv_scan_t * iter );
+
+/* fd_gui_store_kv_reclaim_prefix removes up to budget records in admission
+   order, stopping at the first record rejected by eligible(rec,ctx).
+   Returns the number removed. */
+
+ulong
+fd_gui_store_kv_reclaim_prefix( fd_gui_store_t * db,
+                                ulong            ring_idx,
+                                ulong            budget,
+                                int (*eligible)( void const *, void * ),
+                                void *           ctx );
+
 /* ---- KV ring: eviction ---------------------------------------------- */
 
 /* fd_gui_store_kv_evict reclaims drained records (up to budget records)
@@ -304,7 +362,8 @@ fd_gui_store_kv_evict( fd_gui_store_t * db,
 
 /* fd_gui_store_ts_append appends one fixed-size record to ring
    `ring_idx`. Returns FD_GUI_STORE_SUCCESS, FD_GUI_STORE_MAP_FULL,
-   or FD_GUI_STORE_ERR. */
+   or FD_GUI_STORE_ERR.  A record whose timestamp is lower than the
+   newest live record's is rejected with FD_GUI_STORE_ERR. */
 
 int
 fd_gui_store_ts_append( fd_gui_store_t * db,
@@ -313,7 +372,7 @@ fd_gui_store_ts_append( fd_gui_store_t * db,
 
 /* fd_gui_store_ts_emplace appends one record with timestamp ts to ring
    `ring_idx` in place.  On success, *val_out points to the stored
-   record. */
+   record.  Same ordering requirement as fd_gui_store_ts_append. */
 
 int
 fd_gui_store_ts_emplace( fd_gui_store_t * db,
@@ -335,9 +394,8 @@ struct fd_gui_store_ts_iter {
   void *                 _cur;      /* next ring cursor to examine (value, not ptr) */
   int                    _valid;
   ulong                  _rec_sz;   /* ring_idx+1 (0 means uninitialised) */
-  ulong                  _window_lo;
   ulong                  _window_hi;
-  ulong                  _cur_hi;   /* ring cursor to stop at (exclusive; from the window index) */
+  ulong                  _cur_hi;   /* ring cursor to stop at (exclusive; head_cur at scan begin) */
   fd_gui_store_ts_filter_fn _filter;
   void *                 _filter_ctx;
 };

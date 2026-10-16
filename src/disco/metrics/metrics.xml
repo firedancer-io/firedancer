@@ -19,7 +19,8 @@ Exported as:
               their committed field order, additions at the end with
               provisional numbers until `make metrics-assign`.  Remove
               a landed metric or <int> with deprecated="true" (it stays
-              a schema tombstone); rename with renamed_from="OldName".
+              a schema tombstone); rename with renamed_from listing
+              every earlier name, oldest first ("A B" after A, B, C).
               telemetry="false" keeps a metric out of ClickHouse.
 Durations are integer nanoseconds everywhere, so a name is the same in
 every backend.  Once exported, names are permanent: deprecate and add.
@@ -67,7 +68,9 @@ deliberate exception with lint-allow="<rule id>")
     such as CacheClassReserved, Height) gets ambiguous-kind="true",
     which puts "counter" or "gauge" in its ClickHouse column comment.
  4. The Unit is the last word: Nanos (a duration), Bytes, Lamports, Pct
-    (integer 0-100 of a denominator named in the summary), Slot, Epoch.
+    (integer 0-100 of a denominator named in the summary), Slot, Epoch,
+    Millicelsius or Microwatts (hardware sensors, as hwmon reports), or
+    Centi (a fixed-point value times 100, such as the load average).
     Plain counts have no unit.  A slot difference is
     <Subject>SlotDistance.  Never Seconds, Ms or Us.  A tile that
     stores fd_tickcount() deltas adds source="ticks" and the value is
@@ -100,7 +103,8 @@ deliberate exception with lint-allow="<rule id>")
     Le<N><Unit> with B, Kib or Mib (Le128B, Le2Kib, so the snake form
     is le2_kib); a reason may name what is missing (NoRoute).
     <group name="Busy" values="..."/> names a commonly summed subset;
-    every enum also gets an implicit All group.
+    every enum also gets an implicit All group (a ClickHouse _all
+    column only on counter enums: gauge values need not be additive).
 11. Histograms: Subject + Duration (one operation in this tile), Delay
     (between two events), Latency (request to response through another
     party), Size, Per<X> or Pct, then the unit.  Normalized time is
@@ -190,11 +194,11 @@ deliberate exception with lint-allow="<rule id>")
     <bool name="IsBackpressured" summary="Whether the tile is currently backpressured" />
     <counter name="Backpressure" ambiguous-kind="true" summary="Times the tile waited for one or more consumers to catch up to resume publishing" />
     <counter name="RegimeDurationNanos" enum="TileRegime" source="ticks" summary="Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it" />
-    <counter name="ThreadDurationNanos" enum="ThreadRegime" summary="Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned" />
+    <counter name="ThreadDurationNanos" enum="ThreadRegime" summary="Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU" />
     <counter name="ParkAttempted" enum="ParkResult" summary="Times the tile tried to park while idle (efficient mode), by result" />
-    <counter name="DeviceIrq" ambiguous-kind="true" summary="Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" />
-    <counter name="TlbShootdown" ambiguous-kind="true" summary="TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" />
-    <counter name="TimerIrq" ambiguous-kind="true" summary="Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" />
+    <counter name="DeviceIrq" ambiguous-kind="true" summary="Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" />
+    <counter name="TlbShootdown" ambiguous-kind="true" summary="TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" />
+    <counter name="TimerIrq" ambiguous-kind="true" summary="Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" />
 </common>
 
 <enum name="PktRxDropReason">
@@ -385,10 +389,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="UdpTxnUndersizeDropped" summary="Packets received on the non-QUIC port that were too small to be a valid IP packet" />
     <counter name="UdpTxnOversizeDropped" summary="Packets received on the non-QUIC port that were too large to be a valid transaction" />
 
-    <counter name="PktRx" summary="UDP datagrams received on the QUIC port (one may carry several coalesced QUIC packets)" />
-    <counter name="PktRxBytes" summary="Bytes of UDP datagrams received on the QUIC port, including IP and UDP headers" />
-    <counter name="PktTx" summary="IP packets sent" />
-    <counter name="PktTxBytes" summary="Bytes sent (including IP, UDP, QUIC headers)" />
+    <counter name="PktRx" summary="UDP datagrams received (one may carry several coalesced QUIC packets)" />
+    <counter name="PktRxBytes" summary="Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" />
+    <counter name="PktTx" summary="UDP datagrams sent" />
+    <counter name="PktTxBytes" summary="Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" />
 
     <gauge name="ConnUsed" enum="QuicConnState" summary="Connection slots in use, by state; sum + ConnFree = ConnCapacity" />
     <gauge name="ConnFree" summary="Connection slots free" />
@@ -399,7 +403,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="ConnTimedOut" summary="Connections timed out" />
     <counter name="ConnRetried" summary="Connections established with retry" />
     <counter name="ConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
-    <counter name="ConnRetryRejected" summary="Connections that failed during retry (e.g. invalid token)" />
+    <counter name="ConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
 
     <counter name="PktDropped" enum="QuicPktDropReason" summary="Received packets dropped, by reason" />
     <counter name="PktNoConnDropped" enum="QuicPktType" summary="Packets with an unknown connection ID, by packet type" />
@@ -433,10 +437,10 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="txsend" telemetry="false">
     <!-- QUIC packet metrics -->
-    <counter name="PktRx" summary="QUIC packets received" />
-    <counter name="PktRxBytes" summary="Bytes received via QUIC" />
-    <counter name="PktTx" summary="QUIC packets sent" />
-    <counter name="PktTxBytes" summary="Bytes sent via QUIC" />
+    <counter name="PktRx" summary="UDP datagrams received (one may carry several coalesced QUIC packets)" />
+    <counter name="PktRxBytes" summary="Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" />
+    <counter name="PktTx" summary="UDP datagrams sent" />
+    <counter name="PktTxBytes" summary="Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" />
 
     <!-- QUIC connection metrics -->
     <gauge name="ConnUsed" enum="QuicConnState" summary="Connection slots in use, by state; sum + ConnFree = ConnCapacity" />
@@ -449,7 +453,7 @@ deliberate exception with lint-allow="<rule id>")
 
     <!-- QUIC connection error metrics -->
     <counter name="ConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
-    <counter name="ConnRetryRejected" summary="Server Retry packets rejected: late, invalid token, or a repeated original connection ID" />
+    <counter name="ConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
 
     <!-- QUIC packet error metrics -->
     <counter name="PktDecryptFailed" enum="QuicEncryptionLevel" summary="Packets that failed decryption, by encryption level" />
@@ -923,7 +927,7 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="shred">
     <histogram name="DestPerUpdate" min="0" max="40200">
-        <summary>Shred destinations in each cluster contact info update</summary>
+        <summary>Shred destinations in each cluster contact info update (Frankendancer only; on Firedancer see the gossip tile peer count)</summary>
     </histogram>
     <counter name="BatchAbandoned" summary="Microblock batches abandoned because we switched slots without finishing the current slot" />
     <counter name="ParentBlockIdZeroed" summary="Leader blocks whose parent block_id was unknown, so the chained merkle root was zeroed" />
@@ -1040,10 +1044,10 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <tile name="replay">
-    <gauge name="IdentityBalanceLamports" summary="Identity account balance at the optimistically confirmed slot" />
-    <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot" />
-    <gauge name="ClusterActiveStakeLamports" summary="Cluster active stake at the optimistically confirmed slot" />
-    <gauge name="EpochCredits" ambiguous-kind="true" summary="Our vote account epoch credits at the optimistically confirmed slot" lint-allow="plural vocab" />
+    <gauge name="IdentityBalanceLamports" summary="Identity account balance at the optimistically confirmed slot, or the finalized slot under Alpenglow" />
+    <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow" />
+    <gauge name="ClusterActiveStakeLamports" summary="Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow" />
+    <gauge name="EpochCredits" ambiguous-kind="true" summary="Our vote account epoch credits at the optimistically confirmed slot, or the finalized slot under Alpenglow" lint-allow="plural vocab" />
     <bool name="IsVoteAccountInadmissible" summary="Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary" />
     <gauge name="LastRewardedVoteSlot" summary="Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower)" />
 
@@ -1212,6 +1216,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="HighestDeliveredSlot" summary="Highest slot fully delivered to replay, 0 if none" />
     <gauge name="HighestReceivedSlot" summary="Highest slot a shred was received for, 0 if none" />
     <gauge name="FirstTurbineSlot" summary="First turbine slot seen, the catchup target, 0 if none" />
+    <gauge name="CatchupSlot" summary="Highest slot past the window with a verified cert, the staked catchup target, 0 if none" />
     <gauge name="BlockPending" summary="Blocks in the eager, notar and final block treaps, waiting for discovery" />
     <gauge name="RequestInFlight" summary="Pending request attempts awaiting a first response; a hedge is another attempt" />
     <counter name="FecDelivered" summary="FEC sets published to replay" />
@@ -1355,6 +1360,13 @@ deliberate exception with lint-allow="<rule id>")
     <int value="3" name="Refreshing" label="Peer was pinged and is currently valid, and is being refreshed with a new ping" />
 </enum>
 
+<enum name="PingPeerRemoveReason">
+    <int value="0" name="Evicted" label="Evicted to make room for a new peer" />
+    <int value="1" name="Staked" label="Became staked, no longer pinged" />
+    <int value="2" name="Stale" label="Contact info not received for 60 s" />
+    <int value="3" name="Identity" label="Became our identity" />
+</enum>
+
 <enum name="GossipCrdsResult">
     <int value="0" name="InsertedPullResponse" label="Pull Response (upserted)" />
     <int value="1" name="InsertedPush" label="Push (upserted)" />
@@ -1379,9 +1391,10 @@ deliberate exception with lint-allow="<rule id>")
 <tile name="gossip">
     <gauge name="PingPeerCount" enum="PingPeerState" summary="Peers tracked for ping/pong, by state" />
     <counter name="PongProcessed" enum="PongResult" summary="Pongs processed, by result" />
-    <counter name="PingPeerEvicted" summary="Peers evicted from the ping tracker to make room for new ones" />
+    <counter name="PingPeerEvicted" deprecated="true" summary="Peers evicted from the ping tracker to make room for new ones" />
     <counter name="PingPeerAdded" summary="Peers added to the ping tracker" />
-    <counter name="PingPeerStakedRemoved" summary="Peers removed from the ping tracker because they became staked" />
+    <counter name="PingPeerStakedRemoved" deprecated="true" summary="Peers removed from the ping tracker because they became staked" />
+    <counter name="PingPeerRemoved" enum="PingPeerRemoveReason" summary="Peers removed from the ping tracker, by reason" />
     <counter name="PingPeerAddressChanged" summary="Tracked peers whose gossip address changed; pong invalidated and reset to unpinged" />
 
     <counter name="SignQueueFullDropped" summary="Messages dropped because the maximum number of sign requests were in flight" />
@@ -1695,6 +1708,21 @@ deliberate exception with lint-allow="<rule id>")
     <int value="4" name="Connected" label="Block builder connected and healthy" />
 </enum>
 
+<enum name="LoadAverageType">
+    <int value="0" name="Minute1" label="1 minute" />
+    <int value="1" name="Minute5" label="5 minutes" />
+    <int value="2" name="Minute15" label="15 minutes" />
+</enum>
+
+<enum name="SystemCpuState">
+    <int value="0" name="User" label="User (including nice)" />
+    <int value="1" name="System" label="System" />
+    <int value="2" name="Idle" label="Idle" />
+    <int value="3" name="IoWait" label="Idle waiting on IO" />
+    <int value="4" name="Interrupt" label="Hardirq and softirq handlers" />
+    <int value="5" name="Steal" label="Stolen by the hypervisor" />
+</enum>
+
 <tile name="diag">
     <gauge name="BundleState" states="DiagBundleState" summary="Bundle subsystem state" />
     <gauge name="VoteState" states="DiagVoteState" summary="Vote subsystem state" />
@@ -1706,6 +1734,29 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DeviceIrqOnTileCpu" ambiguous-kind="true" summary="Device IRQs on CPUs dedicated to pinned tiles; subset of SystemDeviceIrq" />
     <counter name="SystemSoftirq" enum="SoftirqType" ambiguous-kind="true" summary="Soft-IRQs across all CPUs, by softirq type" />
     <counter name="SoftirqOnTileCpu" enum="SoftirqType" ambiguous-kind="true" summary="Soft-IRQs on CPUs dedicated to pinned tiles, by softirq type; subset of SystemSoftirq" />
+
+    <gauge name="CpuPackageMillicelsius" summary="Hottest CPU package temperature (k10temp Tctl or coretemp Package), 0 if no sensor" />
+    <gauge name="NicMillicelsius" summary="Hottest NIC ASIC temperature (mlx5 or ice), 0 if no sensor" />
+    <gauge name="NvmeMillicelsius" summary="Hottest NVMe composite temperature, 0 if no sensor or the kernel lacks CONFIG_NVME_HWMON" />
+    <gauge name="CpuPowerMicrowatts" summary="CPU package power from the powercap (RAPL) energy counters, averaged over 5 s, 0 if unavailable" />
+    <gauge name="SystemPowerMicrowatts" summary="Whole-system power draw from the ACPI power meter, averaged over its interval, 0 if no meter" />
+    <counter name="MemoryEccCorrected" ambiguous-kind="true" summary="Corrected memory ECC errors across all memory controllers since boot (EDAC), 0 if firmware handles errors instead" />
+    <counter name="MemoryEccUncorrected" ambiguous-kind="true" summary="Uncorrected memory ECC errors across all memory controllers since boot (EDAC), 0 if firmware handles errors instead" />
+
+    <gauge name="SystemLoadCenti" enum="LoadAverageType" summary="Load average over each window, times 100 (/proc/loadavg has two decimals)" />
+    <gauge name="ThreadRunnableCount" summary="Runnable threads on the host (/proc/loadavg)" />
+    <counter name="SystemCpuDurationNanos" enum="SystemCpuState" summary="CPU time summed over all CPUs since the diag tile started, by state (/proc/stat), 10 ms resolution" />
+    <gauge name="MemoryAvailableBytes" summary="Host memory available without swapping (/proc/meminfo available)" />
+    <gauge name="MemoryFreeBytes" summary="Host memory not in use at all (/proc/meminfo free)" />
+    <counter name="SwapInBytes" ambiguous-kind="true" summary="Bytes swapped in from disk since boot (pswpin)" lint-allow="action" />
+    <counter name="SwapOutBytes" ambiguous-kind="true" summary="Bytes swapped out to disk since boot (pswpout)" lint-allow="action" />
+    <counter name="SystemPageFaultMajor" ambiguous-kind="true" summary="Major page faults across the host since boot (pgmajfault)" />
+    <counter name="OomKilled" summary="Processes killed by the kernel OOM killer since boot (oom_kill)" />
+    <counter name="CpuPressureDurationNanos" summary="Time at least one task stalled waiting for CPU since boot (PSI some), 0 if the kernel lacks PSI" />
+    <counter name="MemoryPressureDurationNanos" summary="Time at least one task stalled on memory reclaim or swap since boot (PSI some), 0 if the kernel lacks PSI" />
+    <counter name="MemoryPressureFullDurationNanos" summary="Time all non-idle tasks stalled on memory together since boot (PSI full), a subset of MemoryPressureDurationNanos" />
+    <counter name="IoPressureDurationNanos" summary="Time at least one task stalled on IO since boot (PSI some), 0 if the kernel lacks PSI" />
+    <counter name="IoPressureFullDurationNanos" summary="Time all non-idle tasks stalled on IO together since boot (PSI full), a subset of IoPressureDurationNanos" />
 </tile>
 
 <tile name="genesi">
@@ -2007,6 +2058,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DatagramRx" enum="DatagramRxResult" summary="Inbound datagrams dispatched, by result" />
     <counter name="VoteRx" enum="VoteRxResult" summary="Inbound votes processed, by result" />
     <counter name="CertRx" enum="CertRxResult" summary="Inbound certificates processed, by result" />
+    <counter name="BlsSignatureChecked" summary="Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once" />
 
     <gauge name="VotingSlotUsed" summary="Slots tracked by the voting state machine" />
     <gauge name="VotingSlotFree" summary="Free entries in the voting state machine's slot table" />
@@ -2015,14 +2067,86 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="PoolSlotFree" summary="Free entries in the vote and cert pool's slot table" />
     <gauge name="HighestPoolFinalizedSlot" summary="Highest slot the pool has finalized (slow-final also needs the slot notarized), 0 if none" />
     <gauge name="Rank" summary="Rank of this validator in the current epoch (0 is the highest rank), ULONG_MAX if unranked (unstaked)" />
-    <gauge name="PeerConnOpen" summary="Peers with an open outbound connection" />
+    <gauge name="PeerConnOpen" deprecated="true" summary="Peers with an open outbound connection; replaced by ClientConnUsed" />
+
+    <!-- QUIC client (outbound conns to peers) -->
+
+    <counter name="ClientPktRx" summary="UDP datagrams received (one may carry several coalesced QUIC packets)" />
+    <counter name="ClientPktRxBytes" summary="Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" />
+    <counter name="ClientPktTx" summary="UDP datagrams sent" />
+    <counter name="ClientPktTxBytes" summary="Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" />
+    <gauge name="ClientConnUsed" enum="QuicConnState" summary="Connection slots in use, by state; sum + ConnFree = ConnCapacity" />
+    <gauge name="ClientConnFree" summary="Connection slots free" />
+    <gauge name="ClientConnCapacity" summary="Connection slots" />
+    <counter name="ClientConnCreated" summary="Connections created" />
+    <counter name="ClientConnClosed" summary="Connections gracefully closed" />
+    <counter name="ClientConnAborted" summary="Connections aborted" />
+    <counter name="ClientConnTimedOut" summary="Connections timed out" />
+    <counter name="ClientConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
+    <counter name="ClientConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
+    <counter name="ClientPktDecryptFailed" enum="QuicEncryptionLevel" summary="Packets that failed decryption, by encryption level" />
+    <counter name="ClientPktNoKeyDropped" enum="QuicEncryptionLevel" summary="Packets dropped because the decryption key was missing, by encryption level" />
+    <counter name="ClientPktDropped" enum="QuicPktDropReason" summary="Received packets dropped, by reason" />
+    <counter name="ClientPktNoConnDropped" enum="QuicPktType" summary="Packets with an unknown connection ID, by packet type" />
+    <counter name="ClientPktRetransmitted" enum="QuicEncryptionLevel" summary="QUIC packets retransmitted, by encryption level" />
+    <counter name="ClientHandshakeCreated" summary="Handshake flows created" />
+    <counter name="ClientHandshakePoolFullRejected" summary="Handshakes dropped due to alloc fail" />
+    <counter name="ClientHandshakeEvicted" summary="Handshakes dropped due to eviction" />
+    <counter name="ClientStreamRx" summary="Stream receive events" />
+    <counter name="ClientStreamRxBytes" summary="Stream payload bytes received" />
+    <counter name="ClientFrameRx" enum="QuicFrameType" summary="QUIC frames received, by frame type" />
+    <counter name="ClientFrameParseFailed" summary="QUIC frames that failed to parse" />
+    <counter name="ClientPktMetaAcquireAttempted" enum="PktMetaAcquireResult" summary="Attempts to acquire packet metadata for transmission, by result" />
+    <counter name="ClientPktAckProcessed" enum="AckResult" summary="Received packets processed for acknowledgement, by result" />
+    <histogram name="ClientServiceDurationNanos" min="10" max="100000000" source="ticks">
+        <summary>Duration of one fd_quic_service call that processed a due connection timer</summary>
+    </histogram>
+    <histogram name="ClientPktRxDurationNanos" min="10" max="100000000" source="ticks">
+        <summary>Duration of processing one received packet</summary>
+    </histogram>
+
+    <!-- QUIC server (inbound conns from peers) -->
+
+    <counter name="ServerPktRx" summary="UDP datagrams received (one may carry several coalesced QUIC packets)" />
+    <counter name="ServerPktRxBytes" summary="Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" />
+    <counter name="ServerPktTx" summary="UDP datagrams sent" />
+    <counter name="ServerPktTxBytes" summary="Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" />
+    <gauge name="ServerConnUsed" enum="QuicConnState" summary="Connection slots in use, by state; sum + ConnFree = ConnCapacity" />
+    <gauge name="ServerConnFree" summary="Connection slots free" />
+    <gauge name="ServerConnCapacity" summary="Connection slots" />
+    <counter name="ServerConnCreated" summary="Connections created" />
+    <counter name="ServerConnClosed" summary="Connections gracefully closed" />
+    <counter name="ServerConnAborted" summary="Connections aborted" />
+    <counter name="ServerConnTimedOut" summary="Connections timed out" />
+    <counter name="ServerConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
+    <counter name="ServerConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
+    <counter name="ServerPktDecryptFailed" enum="QuicEncryptionLevel" summary="Packets that failed decryption, by encryption level" />
+    <counter name="ServerPktNoKeyDropped" enum="QuicEncryptionLevel" summary="Packets dropped because the decryption key was missing, by encryption level" />
+    <counter name="ServerPktDropped" enum="QuicPktDropReason" summary="Received packets dropped, by reason" />
+    <counter name="ServerPktNoConnDropped" enum="QuicPktType" summary="Packets with an unknown connection ID, by packet type" />
+    <counter name="ServerPktRetransmitted" enum="QuicEncryptionLevel" summary="QUIC packets retransmitted, by encryption level" />
+    <counter name="ServerHandshakeCreated" summary="Handshake flows created" />
+    <counter name="ServerHandshakePoolFullRejected" summary="Handshakes dropped due to alloc fail" />
+    <counter name="ServerHandshakeEvicted" summary="Handshakes dropped due to eviction" />
+    <counter name="ServerStreamRx" summary="Stream receive events" />
+    <counter name="ServerStreamRxBytes" summary="Stream payload bytes received" />
+    <counter name="ServerFrameRx" enum="QuicFrameType" summary="QUIC frames received, by frame type" />
+    <counter name="ServerFrameParseFailed" summary="QUIC frames that failed to parse" />
+    <counter name="ServerPktMetaAcquireAttempted" enum="PktMetaAcquireResult" summary="Attempts to acquire packet metadata for transmission, by result" />
+    <counter name="ServerPktAckProcessed" enum="AckResult" summary="Received packets processed for acknowledgement, by result" />
+    <histogram name="ServerServiceDurationNanos" min="10" max="100000000" source="ticks">
+        <summary>Duration of one fd_quic_service call that processed a due connection timer</summary>
+    </histogram>
+    <histogram name="ServerPktRxDurationNanos" min="10" max="100000000" source="ticks">
+        <summary>Duration of processing one received packet</summary>
+    </histogram>
 
     <!-- Vote history file -->
 
     <counter name="VoteHistoryFileWritten" summary="Times the vote history file was written" />
-    <gauge name="VoteHistoryFileSlot" summary="Newest vote slot in the last written vote history file, 0 if not written yet, emptied, or without votes" />
-    <gauge name="VoteHistoryFileSizeBytes" summary="Size of the last written vote history file, 0 if emptied" />
-    <counter name="VoteHistoryFileSkipped" summary="Vote history writes skipped because the history was too large; the file is emptied until it fits" />
+    <gauge name="VoteHistoryFileSlot" summary="Root of the last written vote history file, which votor waits to vote past, 0 if not written yet" />
+    <gauge name="VoteHistoryFileSizeBytes" summary="Size of the last written vote history file" />
+    <counter name="VoteHistoryFileSkipped" deprecated="true" summary="Vote history writes skipped because the history was too large; the file is emptied until it fits" />
 </tile>
 
 <tile name="gui">
@@ -2052,7 +2176,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DbEvictionPassCompleted" enum="GuiDbType" summary="Eviction passes that removed at least one record, by database" />
     <counter name="DbRegionClaimed" enum="GuiDbType" summary="Regions claimed from the free list, by database" />
     <counter name="DbRegionReleased" enum="GuiDbType" summary="Regions returned to the free list, by database" />
-    <counter name="DbRecordDropped" enum="GuiDbType" summary="Records dropped because the database was full (MAP_FULL), by database" />
+    <counter name="DbRecordDropped" enum="GuiDbType" summary="Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database" />
     <counter name="DbForcedEvictWriteCompleted" enum="GuiDbType" summary="Writes that evicted records before succeeding, by database" />
 </tile>
 
@@ -2073,7 +2197,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="ShredEvents" label="shred_events" />
     <int value="3" name="TxnStart" label="txn_start" />
     <int value="4" name="TxnEnd" label="txn_end" />
-    <int value="5" name="Tower" label="tower" />
+    <int value="5" name="Tower" label="Retired: no longer a database, always zero" />
     <int value="6" name="Slot" label="slot" />
     <int value="7" name="LeaderSlot" label="leader_slot" />
     <int value="8" name="Epoch" label="epoch" />
@@ -2182,6 +2306,12 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="ConnOpen" summary="Open HTTP connections to the snapshot service" />
     <counter name="HttpRxBytes" summary="Bytes received in requests to the snapshot service" />
     <counter name="HttpTxBytes" summary="Bytes sent in responses from the snapshot service" />
+</tile>
+
+<tile name="motor">
+</tile>
+
+<tile name="solcap" telemetry="false">
 </tile>
 
 </metrics>

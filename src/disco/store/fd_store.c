@@ -1087,7 +1087,7 @@ fd_store_disk_insert( fd_store_t       * store,
 
   /* Skip exact duplicates before taking a cell, which would otherwise
      evict an older shred.  disk_exact_publish still catches races. */
-  if( FD_UNLIKELY( store->has_root_map && disk_root_present( store, &root_key ) ) ) return FD_STORE_DISK_INSERT_SUCCESS;
+  if( FD_UNLIKELY( store->has_root_map && disk_root_present( store, &root_key ) ) ) return FD_STORE_DISK_INSERT_DUP;
 
   ulong ticket = atomic_fetch_add_explicit( &store->disk_reservation_head, 1UL, memory_order_relaxed ) + 1UL;
   if( FD_UNLIKELY( !ticket || ticket>(ULONG_MAX>>2) ) ) return FD_STORE_DISK_INSERT_ERR;
@@ -1137,7 +1137,7 @@ fd_store_disk_insert( fd_store_t       * store,
   atomic_store_explicit( cell_tag, disk_cell_tag( ticket, FD_SHREDB_CELL_INVALID ), memory_order_release );
   if( old_state==FD_SHREDB_CELL_READY )
     atomic_fetch_sub_explicit( &store->disk_cnt, 1UL, memory_order_relaxed );
-  if( publish_result==DISK_PUBLISH_NOOP ) return FD_STORE_DISK_INSERT_SUCCESS;
+  if( publish_result==DISK_PUBLISH_NOOP ) return FD_STORE_DISK_INSERT_DUP;
   return FD_STORE_DISK_INSERT_ERR;
 }
 

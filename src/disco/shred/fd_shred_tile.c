@@ -1065,8 +1065,9 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
   fd_shred_t const * last = set->data_shreds[ FD_FEC_SHRED_CNT - 1 ].s;
 
   /* Broadcast locally produced and recovered shreds before any disk
-     work. */
-  fan_out( ctx, stem, set, is_leader, 0, tsorig );
+     work.  A set rebuilt purely from repair is not on the live turbine
+     path (catch-up), so its recovered shreds are not relayed. */
+  if( FD_LIKELY( is_leader || set->turbine_shred_rcvd ) ) fan_out( ctx, stem, set, is_leader, 0, tsorig );
 
   /* Compute merkle root and chained merkle root. */
 

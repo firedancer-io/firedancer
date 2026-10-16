@@ -13,17 +13,17 @@
 #define FD_BLS_DST               "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
 #define FD_BLS_DST_SZ            (sizeof(FD_BLS_DST)-1UL)
 
-typedef blst_scalar fd_bls_sec_t;
-typedef blst_p1     fd_bls_pub_t;
-typedef blst_p2     fd_bls_sig_t;
+typedef blst_scalar    fd_bls_sec_t;
+typedef blst_p1_affine fd_bls_pub_t;
+typedef blst_p2_affine fd_bls_sig_t;
 
 #define SET_NAME fd_bls_set
 #define SET_MAX  FD_BLS_SET_MAX
 #include "../../util/tmpl/fd_set.c" /* TODO make set_dynamic so this isn't dependent on the VAT cap */
 
 struct fd_bls_agg {
-  fd_bls_pub_t pub;
-  fd_bls_sig_t sig;
+  blst_p1      pub;
+  blst_p2      sig;
   fd_bls_set_t set[ fd_bls_set_word_cnt ]; /* each bit position corresponds to a signer's rank in the epoch (based on ag_epoch_info) */
 };
 typedef struct fd_bls_agg fd_bls_agg_t;
@@ -67,12 +67,12 @@ fd_bls_agg_construct( fd_bls_agg_t *       agg,
                       fd_bls_sig_t const * sig,
                       fd_bls_set_t const * set );
 
-fd_bls_pub_t *
-fd_bls_pub_sum( fd_bls_pub_t *         pub,
-                blst_p1_affine const * key,
-                ulong                  key_cnt,
-                fd_bls_set_t const *   set,
-                fd_bls_pub_t const *   full );
+blst_p1 *
+fd_bls_pub_sum( blst_p1 *            pub,
+                fd_bls_pub_t const * key,
+                ulong                key_cnt,
+                fd_bls_set_t const * set,
+                blst_p1 const *      full );
 
 void
 fd_bls_hash_msg( uchar const *    msg,
@@ -81,14 +81,14 @@ fd_bls_hash_msg( uchar const *    msg,
 
 int
 fd_bls_agg_verify_hashed( blst_p2_affine const * h,
-                          fd_bls_pub_t const *   pub,
-                          fd_bls_sig_t const *   sig );
+                          blst_p1 const *        pub,
+                          blst_p2 const *        sig );
 
 int
-fd_bls_agg_verify( uchar const *        msg,
-                   ulong                msg_sz,
-                   fd_bls_pub_t const * pub,
-                   fd_bls_sig_t const * sig );
+fd_bls_agg_verify( uchar const *   msg,
+                   ulong           msg_sz,
+                   blst_p1 const * pub,
+                   blst_p2 const * sig );
 
 fd_bls_set_t *
 fd_bls_agg_verify_linear( fd_bls_agg_t const * agg,

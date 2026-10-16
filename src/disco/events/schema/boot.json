@@ -398,7 +398,7 @@
 
         "resolved_config_json":        { "type": "String",        "description": "The full resolved validator configuration serialized as text, capturing every effective setting after defaults, overrides, and system-derived values are merged. Filesystem paths, the user and host names, bind, listen, and advertised addresses, external service URLs, and gossip entrypoints are redacted.", "max_len": 262144 },
         "user_config_json":            { "type": "String",        "description": "The operator's own configuration file parsed and serialized as text: only the settings they explicitly override, before defaults are merged. Values whose keys suggest paths, addresses, hosts, users, servers, or secrets are redacted.", "max_len": 131072 },
-        "topology_json":               { "type": "String",        "description": "The full runtime topology serialized as text, capturing the complete wiring of the validator: a tiles list with each tile's kind, core assignment or floating flag, consumed and produced link lists, event link, and memory-object count; a links list, referenced from the tile link lists by position, with each link's kind, depth, message size and burst; and a workspaces list with each workspace's locality domain, page size, page count and footprint. This is the authoritative wiring fingerprint (memory-object assignments are summarized as a count); the scalar fields are derived summaries. Tile locality follows from the core assignment joined against numa_cpu_to_node.", "max_len": 262144 },
+        "topology_json":               { "type": "String",        "description": "The full runtime topology serialized as text, capturing the complete wiring of the validator: a tiles list with each tile's kind, core assignment or floating flag, consumed and produced link lists, event link, and memory-object count; a links list, referenced from the tile link lists by position, with each link's kind, depth, message size and burst; and a workspaces list with each workspace's locality domain, page size, page count and footprint. This is the authoritative wiring fingerprint (memory-object assignments are summarized as a count); the scalar fields are derived summaries. Tile locality follows from the core assignment joined against numa_cpu_to_node. Newer builds add per tile core_shared (another concurrently running pinned tile is on the same physical core) and sibling_cpu (-1 when none).", "max_len": 262144 },
         "tile_count":                  { "type": "UInt16",        "description": "Total number of tiles in the running topology." },
         "memory_total":                { "type": "UInt64",        "description": "Total memory the validator locks at boot: workspaces, tile stacks, and private pages." },
         "memory_gigantic_pages":       { "type": "UInt64",        "description": "Gigantic pages the topology requires across all memory locality domains." },
@@ -411,6 +411,24 @@
             "description": "For each logical processor, the last-level cache domain it shares (one per AMD CCD or CCX, usually one per socket on Intel), numbered from 0 in first-seen order; tiles that exchange data cheaply sit in the same domain. 65535 for an offline processor. Empty when the kernel does not expose level-3 cache topology.",
             "max_len": 1024,
             "element": { "type": "UInt16", "description": "Last-level cache domain of one logical processor, 65535 if offline." }
+        },
+        "cpu_features": {
+            "type": "Array",
+            "description": "Instruction set extensions this processor supports, named as in build_features; one present here but missing from build_features means the binary was built for an older processor and runs slower code paths.",
+            "max_len": 16,
+            "element": { "type": "LowCardinality(String)", "description": "One instruction set extension the processor supports." }
+        },
+        "cpu_to_core": {
+            "type": "Array",
+            "description": "For each logical processor, the physical core it runs on (keyed by package and core id), numbered from 0 in first-seen order; processors sharing a value are hyperthread siblings, so tiles on them compete for one core. 65535 for an offline processor or an unreadable core id.",
+            "max_len": 1024,
+            "element": { "type": "UInt16", "description": "Physical core of one logical processor, 65535 if offline or unknown." }
+        },
+        "launch_cpus": {
+            "type": "Array",
+            "description": "Logical processors in the affinity the validator inherited from its launcher (taskset, systemd CPUAffinity, or a cgroup cpuset). Tiles without a core assignment run inside it; auto layout itself ignores it. Empty when it could not be read.",
+            "max_len": 1024,
+            "element": { "type": "UInt16", "description": "Index of one logical processor in the inherited affinity." }
         }
     }
 }

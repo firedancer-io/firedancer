@@ -2,6 +2,8 @@
 #include "fd_boot_report.h"
 
 #include "../../ballet/pb/fd_pb_encode.h"
+#include "../topo/fd_topob.h"
+#include "../../util/tile/fd_tile_private.h"
 
 /* manually include just fd_features_generated.h so we can get
    FD_FEATURE_SET_ID without anything else that we don't need. */
@@ -316,6 +318,16 @@ collect_cpu( fd_boot_report_t * r ) {
     r->cpu_model_id = (ushort)( base_model | fd_uint_if( base_family==0x6U || base_family==0xFU, ext_model<<4, 0U ) );
     r->cpu_stepping = (uchar)( eax&0xFU );
   }
+
+  uint ecx1 = 0U, ebx7 = 0U, ecx7 = 0U;
+  if( FD_LIKELY( __get_cpuid( 1U, &eax, &ebx, &ecx, &edx ) ) ) ecx1 = ecx;
+  if( FD_LIKELY( __get_cpuid_count( 7U, 0U, &eax, &ebx, &ecx, &edx ) ) ) { ebx7 = ebx; ecx7 = ecx; }
+  if( (ecx1>>20)&1U )                      FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "sse"    ) );
+  if( (ebx7>>5)&1U )                       FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "avx"    ) );
+  if( ((ebx7>>16)&1U) && ((ebx7>>21)&1U) ) FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "avx512" ) );
+  if( (ebx7>>29)&1U )                      FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "shani"  ) );
+  if( (ecx1>>25)&1U )                      FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "aesni"  ) );
+  if( (ecx7>>8)&1U )                       FD_TEST( fd_cstr_printf_check( r->cpu_features[ r->cpu_features_cnt++ ], 8UL, NULL, "%s", "gfni"   ) );
 # endif /* defined(__x86_64__) */
 
   char cpuinfo[ 16384 ];
@@ -340,13 +352,15 @@ collect_cpu( fd_boot_report_t * r ) {
       continue;                         /* offline cpu */
     }
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/core_id", cpu ) );
-    ulong core;
-    if( read_ulong( path, &core ) ) continue;
+    long core;
+    if( read_long( path, &core ) ) continue;
     logical++;
-    ulong pair = (pkg<<32) | (core&0xFFFFFFFFUL);
     int seen = 0;
-    for( ulong i=0UL; i<pair_cnt; i++ ) if( pairs[ i ]==pair ) { seen = 1; break; }
-    if( !seen && pair_cnt<4096UL ) pairs[ pair_cnt++ ] = pair;
+    if( (long)pkg>=0L && core>=0L ) { /* -1 is unknown */
+      ulong pair = (pkg<<32) | ((ulong)core&0xFFFFFFFFUL);
+      for( ulong i=0UL; i<pair_cnt; i++ ) if( pairs[ i ]==pair ) { seen = 1; break; }
+      if( !seen && pair_cnt<4096UL ) pairs[ pair_cnt++ ] = pair;
+    }
     seen = 0;
     for( ulong i=0UL; i<pkg_cnt; i++ ) if( pkgs[ i ]==pkg ) { seen = 1; break; }
     if( !seen && pkg_cnt<64UL ) pkgs[ pkg_cnt++ ] = pkg;
@@ -438,6 +452,36 @@ collect_l3( fd_boot_report_t * r ) {
 }
 
 static void
+collect_cores( fd_boot_report_t * r ) {
+  static ulong key[ 1024 ];
+  ulong key_cnt = 0UL;
+  r->cpu_to_core_cnt = r->numa_cpu_to_node_cnt;
+  for( ulong cpu=0UL; cpu<r->cpu_to_core_cnt; cpu++ ) {
+    char path[ 128 ];
+    r->cpu_to_core[ cpu ] = USHORT_MAX;
+    long pkg, core;
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/physical_package_id", cpu ) );
+    if( read_long( path, &pkg ) || pkg<0L ) continue; /* -1 is unknown */
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/core_id", cpu ) );
+    if( read_long( path, &core ) || core<0L ) continue;
+    ulong id = ((ulong)pkg<<32) | ((ulong)core&0xFFFFFFFFUL);
+    ulong c = 0UL;
+    while( c<key_cnt && key[ c ]!=id ) c++;
+    if( c==key_cnt ) key[ key_cnt++ ] = id;
+    r->cpu_to_core[ cpu ] = (ushort)c;
+  }
+}
+
+static void
+collect_affinity( fd_boot_report_t *     r,
+                  fd_topo_tile_t const * tile ) {
+  FD_STATIC_ASSERT( sizeof(tile->event.launch_cpus)==8UL*fd_cpuset_word_cnt, launch_cpus );
+  fd_cpuset_t const * launch = (fd_cpuset_t const *)tile->event.launch_cpus;
+  for( ulong cpu=fd_cpuset_const_iter_init( launch ); !fd_cpuset_const_iter_done( cpu ); cpu=fd_cpuset_const_iter_next( launch, cpu ) )
+    r->launch_cpus[ r->launch_cpus_cnt++ ] = (ushort)cpu;
+}
+
+static void
 collect_mem( fd_boot_report_t * r ) {
   char meminfo[ 8192 ];
   if( FD_LIKELY( !read_file( "/proc/meminfo", meminfo, sizeof(meminfo), NULL ) ) ) {
@@ -496,50 +540,102 @@ smbios_string( uchar const * raw,
   return "";
 }
 
+/* decode_dimm appends the type 17 structure raw[0,raw_sz), formatted
+   area plus string set, to the report. */
+
+static void
+decode_dimm( fd_boot_report_t * r,
+             uchar const *      raw,
+             ulong              raw_sz ) {
+  if( raw_sz<2UL ) return;
+  ulong fmt_len = raw[ 1 ]; /* formatted area; raw_sz also spans the string table */
+  if( fmt_len>raw_sz || fmt_len<0x17UL ) return; /* need through the speed word */
+
+  ulong size_bytes = 0UL;
+  uint  size_w = (uint)raw[ 0x0C ] | ((uint)raw[ 0x0D ]<<8);
+  if( size_w==0U || size_w==0xFFFFU ) return; /* empty or unknown slot */
+  if( size_w==0x7FFFU && fmt_len>=0x20UL ) {
+    uint ext = (uint)raw[ 0x1C ] | ((uint)raw[ 0x1D ]<<8) | ((uint)raw[ 0x1E ]<<16) | ((uint)raw[ 0x1F ]<<24);
+    size_bytes = (ulong)( ext&0x7FFFFFFFU )<<20;
+  } else if( size_w&0x8000U ) size_bytes = (ulong)( size_w&0x7FFFU )<<10;
+  else                        size_bytes = (ulong)size_w<<20;
+
+  fd_boot_report_dimm_t * d = &r->dmi_dimms[ r->dmi_dimms_cnt++ ];
+  d->size_bytes = size_bytes;
+
+  switch( raw[ 0x12 ] ) {
+    case 0x12: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR"    ) ); break;
+    case 0x13: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR2"   ) ); break;
+    case 0x18: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR3"   ) ); break;
+    case 0x1A: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR4"   ) ); break;
+    case 0x1E: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "LPDDR4" ) ); break;
+    case 0x22: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR5"   ) ); break;
+    case 0x23: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "LPDDR5" ) ); break;
+    default:   FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "other"  ) ); break;
+  }
+
+  d->rated_speed_mts = (ulong)raw[ 0x15 ] | ((ulong)raw[ 0x16 ]<<8);
+  if( fmt_len>=0x22UL ) d->speed_mts = (ulong)raw[ 0x20 ] | ((ulong)raw[ 0x21 ]<<8);
+  if( fmt_len>=0x18UL ) fd_cstr_printf( d->manufacturer, sizeof(d->manufacturer), NULL, "%s", smbios_string( raw, raw_sz, raw[ 0x17 ] ) );
+  if( fmt_len>=0x1BUL ) fd_cstr_printf( d->part_number, sizeof(d->part_number), NULL, "%s", smbios_string( raw, raw_sz, raw[ 0x1A ] ) );
+  ulong n = strlen( d->part_number );
+  while( n && d->part_number[ n-1UL ]==' ' ) d->part_number[ --n ] = '\0';
+  n = strlen( d->manufacturer );
+  while( n && d->manufacturer[ n-1UL ]==' ' ) d->manufacturer[ --n ] = '\0';
+}
+
 static void
 collect_dimms( fd_boot_report_t * r ) {
+  int have_entries = 0;
   for( ulong i=0UL; i<256UL && r->dmi_dimms_cnt<64UL; i++ ) {
     char path[ 128 ];
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/firmware/dmi/entries/17-%lu/raw", i ) );
     uchar raw[ 4096 ];
     ulong raw_sz;
     if( read_file( path, (char *)raw, sizeof(raw), &raw_sz ) ) break;
-    if( raw_sz<2UL ) continue;
-    ulong fmt_len = raw[ 1 ]; /* formatted area; raw_sz also spans the string table */
-    if( fmt_len>raw_sz || fmt_len<0x17UL ) continue; /* need through the speed word */
+    have_entries = 1;
+    decode_dimm( r, raw, raw_sz );
+  }
+  if( have_entries ) return;
 
-    ulong size_bytes = 0UL;
-    uint  size_w = (uint)raw[ 0x0C ] | ((uint)raw[ 0x0D ]<<8);
-    if( size_w==0U || size_w==0xFFFFU ) continue; /* empty or unknown slot */
-    if( size_w==0x7FFFU && fmt_len>=0x20UL ) {
-      uint ext = (uint)raw[ 0x1C ] | ((uint)raw[ 0x1D ]<<8) | ((uint)raw[ 0x1E ]<<16) | ((uint)raw[ 0x1F ]<<24);
-      size_bytes = (ulong)( ext&0x7FFFFFFFU )<<20;
-    } else if( size_w&0x8000U ) size_bytes = (ulong)( size_w&0x7FFFU )<<10;
-    else                        size_bytes = (ulong)size_w<<20;
-
-    fd_boot_report_dimm_t * d = &r->dmi_dimms[ r->dmi_dimms_cnt++ ];
-    d->size_bytes = size_bytes;
-
-    switch( raw[ 0x12 ] ) {
-      case 0x12: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR"    ) ); break;
-      case 0x13: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR2"   ) ); break;
-      case 0x18: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR3"   ) ); break;
-      case 0x1A: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR4"   ) ); break;
-      case 0x1E: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "LPDDR4" ) ); break;
-      case 0x22: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "DDR5"   ) ); break;
-      case 0x23: FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "LPDDR5" ) ); break;
-      default:   FD_TEST( fd_cstr_printf_check( d->mem_type, sizeof(d->mem_type), NULL, "%s", "other"  ) ); break;
+  /* No dmi-sysfs module (systemd <252 with a modular build): walk the
+     SMBIOS table the kernel always exports.  SMBIOS 3 tables can be
+     large, so stream it, keeping only the unparsed tail in the window. */
+  int fd = open( "/sys/firmware/dmi/tables/DMI", O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( fd<0 ) ) return;
+  static uchar win[ 65536 ];
+  ulong win_sz = 0UL;
+  int   eof    = 0;
+  while( r->dmi_dimms_cnt<64UL ) {
+    if( !eof && win_sz<sizeof(win) ) {
+      long n = read( fd, win+win_sz, sizeof(win)-win_sz );
+      if( FD_UNLIKELY( n<0L && errno==EINTR ) ) continue;
+      if( n<=0L ) eof = 1;
+      else        win_sz += (ulong)n;
     }
 
-    d->rated_speed_mts = (ulong)raw[ 0x15 ] | ((ulong)raw[ 0x16 ]<<8);
-    if( fmt_len>=0x22UL ) d->speed_mts = (ulong)raw[ 0x20 ] | ((ulong)raw[ 0x21 ]<<8);
-    if( fmt_len>=0x18UL ) fd_cstr_printf( d->manufacturer, sizeof(d->manufacturer), NULL, "%s", smbios_string( raw, raw_sz, raw[ 0x17 ] ) );
-    if( fmt_len>=0x1BUL ) fd_cstr_printf( d->part_number, sizeof(d->part_number), NULL, "%s", smbios_string( raw, raw_sz, raw[ 0x1A ] ) );
-    ulong n = strlen( d->part_number );
-    while( n && d->part_number[ n-1UL ]==' ' ) d->part_number[ --n ] = '\0';
-    n = strlen( d->manufacturer );
-    while( n && d->manufacturer[ n-1UL ]==' ' ) d->manufacturer[ --n ] = '\0';
+    /* Parse every structure that is complete in the window */
+    ulong off  = 0UL;
+    int   done = 0;
+    while( off+4UL<=win_sz && r->dmi_dimms_cnt<64UL ) {
+      uchar type    = win[ off   ];
+      ulong fmt_len = win[ off+1UL ];
+      if( FD_UNLIKELY( fmt_len<4UL ) ) { done = 1; break; }
+      if( off+fmt_len>win_sz ) break;
+      ulong end = off+fmt_len;
+      while( end+1UL<win_sz && ( win[ end ] || win[ end+1UL ] ) ) end++;
+      if( end+1UL>=win_sz ) break; /* string set not complete yet */
+      end += 2UL; /* past the double NUL */
+      if( type==17 ) decode_dimm( r, win+off, end-off );
+      off = end;
+      if( type==127 ) { done = 1; break; }
+    }
+
+    if( done || ( eof && !off ) || ( !off && win_sz==sizeof(win) ) ) break; /* end, truncated, or a structure larger than the window */
+    memmove( win, win+off, win_sz-off );
+    win_sz -= off;
   }
+  close( fd );
 }
 
 static int
@@ -1279,6 +1375,19 @@ fd_boot_report_collect( fd_boot_report_t *     r,
   collect_cpu( r );
   collect_mem( r );
   collect_l3( r ); /* after collect_mem: sized by the numa cpu map */
+  collect_cores( r );
+  collect_affinity( r, tile );
+
+  FD_CPUSET_DECL( pool );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) if( topo->tiles[ i ].floats ) fd_cpuset_insert( pool, topo->tiles[ i ].cpu_idx );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * t = &topo->tiles[ i ];
+    if( t->floats || t->cpu_idx==ULONG_MAX ) continue;
+    fd_cpuset_remove( pool, t->cpu_idx );
+    ulong sibling = fd_tile_private_sibling_idx( t->cpu_idx );
+    if( FD_LIKELY( sibling!=ULONG_MAX ) ) fd_cpuset_remove( pool, sibling );
+  }
+  r->float_pool = !!fd_cpuset_cnt( pool );
   collect_dimms( r );
   collect_net( r, tile->event.net_interface );
   collect_platform( r, tile->event.net_interface );
@@ -1306,12 +1415,27 @@ render_topology_json( fd_boot_report_t * r,
     cur += _n; rem -= _n;                                          \
   } while( 0 )
 
+
   PRINT( "{\"tiles\":[" );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    PRINT( "%s{\"kind\":\"%s\",\"kind_id\":%lu,\"cpu_idx\":%ld,\"floats\":%s,\"in\":[",
+    ulong cpu  = tile->cpu_idx;
+    ulong core = cpu<r->cpu_to_core_cnt ? r->cpu_to_core[ cpu ] : USHORT_MAX;
+    long  sibling = -1L;
+    for( ulong c=0UL; c<r->cpu_to_core_cnt && core!=USHORT_MAX && sibling<0L; c++ ) {
+      if( c!=cpu && r->cpu_to_core[ c ]==core ) sibling = (long)c;
+    }
+    /* another pinned tile runs concurrently on the same core */
+    int shared = 0;
+    for( ulong j=0UL; j<topo->tile_cnt && core!=USHORT_MAX && ( !tile->floats || !r->float_pool ); j++ ) {
+      fd_topo_tile_t const * other = &topo->tiles[ j ];
+      if( j==i || ( other->floats && r->float_pool ) || other->cpu_idx>=r->cpu_to_core_cnt || r->cpu_to_core[ other->cpu_idx ]!=core ) continue;
+      shared |= !fd_topob_cpu_overlap_allowed( tile, other, r->float_pool );
+    }
+    PRINT( "%s{\"kind\":\"%s\",\"kind_id\":%lu,\"cpu_idx\":%ld,\"floats\":%s,\"core_shared\":%s,\"sibling_cpu\":%ld,\"in\":[",
            i ? "," : "", tile->name, tile->kind_id,
-           tile->cpu_idx<FD_TILE_MAX ? (long)tile->cpu_idx : -1L, tile->floats ? "true" : "false" );
+           cpu<FD_TILE_MAX ? (long)cpu : -1L, tile->floats ? "true" : "false",
+           shared ? "true" : "false", sibling );
     for( ulong in=0UL; in<tile->in_cnt; in++ ) PRINT( "%s%lu", in ? "," : "", tile->in_link_id[ in ] );
     PRINT( "],\"out\":[" );
     for( ulong out=0UL; out<tile->out_cnt; out++ ) PRINT( "%s%lu", out ? "," : "", tile->out_link_id[ out ] );
@@ -1563,6 +1687,9 @@ fd_boot_report_publish( fd_boot_report_t *  r,
   if( r->process_start_time_nanos ) ok &= !!fd_pb_push_uint64( encoder, 74U, r->process_start_time_nanos );
   if( r->feature_set_id )           ok &= !!fd_pb_push_uint32( encoder, 75U, r->feature_set_id );
   for( ulong i=0UL; i<r->l3_cpu_to_domain_cnt; i++ ) ok &= !!fd_pb_push_uint32( encoder, 76U, r->l3_cpu_to_domain[ i ] );
+  for( ulong i=0UL; i<r->cpu_features_cnt; i++ )     ok &= push_cstr( encoder, 77U, r->cpu_features[ i ] );
+  for( ulong i=0UL; i<r->cpu_to_core_cnt; i++ )      ok &= !!fd_pb_push_uint32( encoder, 78U, r->cpu_to_core[ i ] );
+  for( ulong i=0UL; i<r->launch_cpus_cnt; i++ )      ok &= !!fd_pb_push_uint32( encoder, 79U, r->launch_cpus[ i ] );
 
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );

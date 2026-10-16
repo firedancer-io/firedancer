@@ -1,5 +1,5 @@
 #include "ag_votor.c"
-#include "ag_vote_history_file.h"
+#include "ag_vote_history_serde.h"
 #include "test_ag_cert_builder.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 
@@ -11,6 +11,11 @@
 
 #define TEST_NS_PER_SLOT       (400000000L)
 #define TEST_WINDOW_ELAPSED_NS (AG_DELTA_TIMEOUT_NS + (long)(AG_SLOTS_PER_WINDOW+1UL)*TEST_NS_PER_SLOT)
+
+/* Far past every deadline a boot window arms, as a wait-for-
+   supermajority is. */
+
+#define TEST_LONG_WAIT_NS (3600L*1000L*1000L*1000L)
 
 #define FD_TEST_NO_MSG( votor ) do {           \
     ag_vote_t unused_;                         \
@@ -145,8 +150,9 @@ setup_votor( long now ) {
   FD_TEST( votor );
   memset( g_last_bls_selector, 0, sizeof(g_last_bls_selector) );
   ag_block_id_t root = genesis_block_id();
-  ag_votor_init         ( votor, &root, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  ag_votor_init             ( votor, &root, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
+  ag_votor_arm_skip_timeouts( votor, now );
+  ag_votor_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
 
   g_epoch_info = &epoch_info_mem;
   epoch_info_build( g_epoch_info, g_info, NV );
@@ -275,8 +281,9 @@ test_boot_mid_window( void ) {
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
   ag_block_id_t root = random_block_id( 2UL );
-  ag_votor_init         ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  ag_votor_init             ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_arm_skip_timeouts( votor, 0L );
+  ag_votor_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
 
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
 
@@ -297,8 +304,9 @@ test_boot_mid_window_notar_child( void ) {
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
   ag_block_id_t root = random_block_id( 2UL );
-  ag_votor_init         ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  ag_votor_init             ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_arm_skip_timeouts( votor, 0L );
+  ag_votor_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
   g_epoch_info = &epoch_info_mem;
   epoch_info_build( g_epoch_info, g_info, NV );
 
@@ -775,8 +783,9 @@ test_timeout_below_final( void ) {
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
   ag_block_id_t root = random_block_id( 10UL );
-  ag_votor_init         ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  ag_votor_init             ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_arm_skip_timeouts( votor, 0L );
+  ag_votor_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
   g_epoch_info = &epoch_info_mem;
   epoch_info_build( g_epoch_info, g_info, NV );
 
@@ -799,10 +808,107 @@ test_timeout_below_final( void ) {
   teardown_votor( votor );
 }
 
-/* ag_votor_vote_history gives votor's VoteHistory, which
-   ag_vote_history_file_ser encodes: the votes cast since root and the
-   sets Agave derives from them, the notarized blocks and the ready
-   parents. */
+/* Arming is deferred, never repeated: set_timeout only lowers a live
+   deadline, so a second arm an hour later leaves the window where the
+   first one put it. */
+
+static void
+test_arm_cannot_reanchor_timeouts( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  long armed = ag_votor_next_skip_timeout( votor );
+  FD_TEST( armed==AG_DELTA_TIMEOUT_NS+TEST_NS_PER_SLOT );
+
+  ag_votor_arm_skip_timeouts( votor, TEST_LONG_WAIT_NS );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==armed );
+
+  /* Nor backwards: an older clock must not pull the window in. */
+  ag_votor_arm_skip_timeouts( votor, -TEST_LONG_WAIT_NS );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==armed );
+
+  teardown_votor( votor );
+}
+
+/* ag_votor_init leaves the window unarmed, so a votor held by WFS has
+   no deadline at all until it is released. */
+
+static void
+test_init_does_not_arm( void ) {
+  create_validators();
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+
+  ag_block_id_t root = genesis_block_id();
+  ag_votor_init( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==LONG_MAX );
+
+  ag_votor_arm_skip_timeouts( votor, TEST_LONG_WAIT_NS );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==TEST_LONG_WAIT_NS+AG_DELTA_TIMEOUT_NS+TEST_NS_PER_SLOT );
+
+  ag_votor_delete( ag_votor_leave( votor ) );
+}
+
+/* ag_votor_wait_to_vote raises the floor past the windows votor
+   already voted in, which it reads from the slot states ag_votor_init
+   creates.  Called before init it finds none, so a set-identity only
+   gets the bump once init has run. */
+
+static void
+test_wait_to_vote_needs_init( void ) {
+  create_validators();
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+
+  ag_votor_wait_to_vote( votor, 0UL );
+  FD_TEST( votor->wait_to_vote_slot==0UL );
+
+  ag_block_id_t root = genesis_block_id();
+  ag_votor_init( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
+  ag_votor_wait_to_vote( votor, 0UL );
+  FD_TEST( votor->wait_to_vote_slot==AG_SLOTS_PER_WINDOW );
+
+  ag_votor_delete( ag_votor_leave( votor ) );
+
+  /* An explicit floor needs no init, and init preserves it. */
+
+  votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+
+  ag_votor_wait_to_vote( votor, 7UL*AG_SLOTS_PER_WINDOW );
+  FD_TEST( votor->wait_to_vote_slot==7UL*AG_SLOTS_PER_WINDOW );
+
+  ag_votor_init( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
+  FD_TEST( votor->wait_to_vote_slot==7UL*AG_SLOTS_PER_WINDOW );
+
+  ag_votor_delete( ag_votor_leave( votor ) );
+}
+
+/* The failure deferring the arm avoids: a window armed at boot and
+   merely gated pops in full on the first poll after a long wait. */
+
+static void
+test_stale_window_fires_on_late_clock( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  handle_timeouts( votor, TEST_LONG_WAIT_NS );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==LONG_MAX );
+
+  for( ulong s=1UL; s<AG_SLOTS_PER_WINDOW; s++ ) {
+    ag_vote_t msg = recv( votor );
+    FD_TEST( msg.kind==AG_VOTE_KIND_SKIP );
+    FD_TEST( ag_vote_slot( &msg )==s );
+    FD_TEST( state_mut( votor, s )->bad_window );
+  }
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
+/* ag_votor_vote_history gives the root of a vote history with no
+   votes, at the end of the window of the highest slot votor voted in,
+   which ag_vote_history_de reads back from the file
+   ag_vote_history_ser writes as the first slot of the next
+   window. */
 
 static void
 test_vote_history_ser( void ) {
@@ -827,12 +933,7 @@ test_vote_history_ser( void ) {
   event = (ag_pool_event_t){ .kind = AG_POOL_EVENT_SAFE_TO_SKIP, .safe_to_skip = 2UL };
   ag_votor_handle_pool_event( votor, &event, 0L );
   FD_TEST( recv( votor ).kind==AG_VOTE_KIND_SKIP_FALLBACK );
-
-  /* slot 3 is a ready parent of window start 4 */
-
-  ag_block_id_t ready = random_block_id( 3UL );
-  parent_ready( votor, 4UL, &ready );
-  FD_TEST_NO_MSG( votor );
+  FD_TEST( ag_votor_vote_history( votor )==AG_SLOTS_PER_WINDOW-1UL );
 
   uchar       keypair[ 64 ];
   fd_sha512_t sha[ 1 ];
@@ -840,43 +941,49 @@ test_vote_history_ser( void ) {
   memset( keypair, 7, 32UL );
   fd_ed25519_public_from_private( keypair+32UL, keypair, sha );
 
-  static uchar                  buf[ AG_VOTE_HISTORY_FILE_MAX ];
-  static ag_vote_history_file_t vh;
-  static ag_vote_history_file_t out;
-  FD_TEST( ag_votor_vote_history( votor, &vh )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  ulong sz = ag_vote_history_file_ser( &vh, keypair+32UL, buf, sizeof(buf) );
-  FD_TEST( sz );
-  FD_TEST( !ag_vote_history_file_ser( &vh, keypair+32UL, buf, sz-1UL ) );
-  FD_TEST( ag_vote_history_file_ser( &vh, keypair+32UL, buf, sz )==sz );
-  fd_ed25519_sign( buf+AG_VOTE_HISTORY_FILE_SIG_OFF, buf+AG_VOTE_HISTORY_FILE_DATA_OFF, sz-AG_VOTE_HISTORY_FILE_DATA_OFF, keypair+32UL, keypair, sha );
-  FD_TEST( ag_vote_history_file_de( buf, sz, keypair+32UL, &out )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  uchar file[ AG_VOTE_HISTORY_SER_SZ ];
+  ag_vote_history_ser( keypair+32UL, ag_votor_vote_history( votor ), file );
+  fd_ed25519_sign( file+AG_VOTE_HISTORY_SERDE_SIG_OFF, file+AG_VOTE_HISTORY_SERDE_DATA_OFF, AG_VOTE_HISTORY_SER_SZ-AG_VOTE_HISTORY_SERDE_DATA_OFF, keypair+32UL, keypair, sha );
+  ulong wait_to_vote_slot = 0UL;
+  FD_TEST( ag_vote_history_de( file, sizeof(file), keypair+32UL, &wait_to_vote_slot )==AG_VOTE_HISTORY_DE_SUCCESS && wait_to_vote_slot==AG_SLOTS_PER_WINDOW );
 
-  FD_TEST( out.root==0UL );
-  FD_TEST( out.voted_cnt==3UL && out.voted[ 0 ]==1UL && out.voted[ 1 ]==2UL && out.voted[ 2 ]==3UL );
-  FD_TEST( out.voted_notar_cnt==1UL && out.voted_notar[ 0 ].slot==1UL && !memcmp( out.voted_notar[ 0 ].hash, notar.notar.block_hash, 32UL ) );
-  FD_TEST( out.voted_notar_fallback_cnt==1UL && out.voted_notar_fallback[ 0 ].slot==2UL && !memcmp( out.voted_notar_fallback[ 0 ].hash, nf.hash, 32UL ) );
-  FD_TEST( out.voted_skip_fallback_cnt==1UL && out.voted_skip_fallback[ 0 ]==2UL );
-  FD_TEST( out.skipped_cnt==2UL && out.skipped[ 0 ]==2UL && out.skipped[ 1 ]==3UL );
-  FD_TEST( out.its_over_cnt==1UL && out.its_over[ 0 ]==1UL );
-  uint  const kind[ 6 ] = { AG_VOTE_HISTORY_KIND_NOTAR, AG_VOTE_HISTORY_KIND_FINAL, AG_VOTE_HISTORY_KIND_SKIP, AG_VOTE_HISTORY_KIND_NOTAR_FALLBACK, AG_VOTE_HISTORY_KIND_SKIP_FALLBACK, AG_VOTE_HISTORY_KIND_SKIP };
-  ulong const slot[ 6 ] = { 1UL, 1UL, 2UL, 2UL, 2UL, 3UL };
-  FD_TEST( out.votes_cast_cnt==6UL );
-  for( ulong i=0UL; i<6UL; i++ ) FD_TEST( out.votes_cast[ i ].kind==kind[ i ] && out.votes_cast[ i ].block.slot==slot[ i ] && !out.votes_cast[ i ].shred_version );
-  FD_TEST( !memcmp( out.votes_cast[ 3 ].block.hash, nf.hash, 32UL ) );
-  FD_TEST( out.notarized_blocks_cnt==2UL && out.notarized_blocks[ 0 ].slot==0UL && out.notarized_blocks[ 1 ].slot==1UL );
-  FD_TEST( out.parent_ready_cnt==1UL && out.parent_ready[ 0 ].slot==4UL && out.parent_ready[ 0 ].block.slot==3UL && !memcmp( out.parent_ready[ 0 ].block.hash, ready.hash, 32UL ) );
+  /* a notar in the first slot of the next window moves the root to that
+     window's end */
 
-  /* a final cert for slot 16 makes it the root, and prunes everything
-     below window start 8 */
+  ag_block_id_t ready = random_block_id( 3UL );
+  parent_ready( votor, AG_SLOTS_PER_WINDOW, &ready );
+  send_block_and_expect_notar( votor, AG_SLOTS_PER_WINDOW, &ready );
+  FD_TEST( ag_votor_vote_history( votor )==2UL*AG_SLOTS_PER_WINDOW-1UL );
+
+  /* a final cert for slot 16, past every vote, makes it the root */
 
   ag_vote_t fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, 16UL, (ushort)1, TEST_SHRED_VERSION );
   event = (ag_pool_event_t){ .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_final( &fv.final, 1UL, g_epoch_info ) };
   ag_votor_handle_pool_event( votor, &event, 0L );
-  FD_TEST( ag_votor_vote_history( votor, &vh )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  sz = ag_vote_history_file_ser( &vh, keypair+32UL, buf, sizeof(buf) );
-  fd_ed25519_sign( buf+AG_VOTE_HISTORY_FILE_SIG_OFF, buf+AG_VOTE_HISTORY_FILE_DATA_OFF, sz-AG_VOTE_HISTORY_FILE_DATA_OFF, keypair+32UL, keypair, sha );
-  FD_TEST( ag_vote_history_file_de( buf, sz, keypair+32UL, &out )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  FD_TEST( out.root==16UL && !out.voted_cnt && !out.votes_cast_cnt && !out.notarized_blocks_cnt && !out.parent_ready_cnt );
+  FD_TEST( ag_votor_vote_history( votor )==16UL );
+
+  teardown_votor( votor );
+}
+
+/* ag_votor_halt_signing signs nothing until ag_votor_unhalt_signing,
+   even after the epoch's key is set again. */
+
+static void
+test_halt( void ) {
+  ag_votor_t *  votor  = setup_votor( 0L );
+  ag_block_id_t parent = genesis_block_id();
+
+  ag_votor_halt_signing( votor );
+  ag_votor_set_bls_key( votor, 0UL, g_bls_selector[0] );
+  ag_block_info_t block = {0};
+  random_hash( block.hash );
+  block.parent = parent;
+  ag_votor_process_replay( votor, 1UL, &block );
+  FD_TEST_NO_MSG( votor );
+
+  ag_votor_unhalt_signing( votor );
+  ag_block_id_t b1 = ag_block_id( 1UL, block.hash );
+  send_block_and_expect_notar( votor, 2UL, &b1 );
 
   teardown_votor( votor );
 }
@@ -907,7 +1014,12 @@ main( int     argc,
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
   test_timeout_below_final();
+  test_arm_cannot_reanchor_timeouts();
+  test_init_does_not_arm();
+  test_wait_to_vote_needs_init();
+  test_stale_window_fires_on_late_clock();
   test_vote_history_ser();
+  test_halt();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

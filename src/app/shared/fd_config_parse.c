@@ -49,7 +49,7 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP      ( bool,   consensus.poh_speed_test                         );
   CFG_POP      ( uint,   consensus.wait_for_supermajority_at_slot         );
   CFG_POP      ( cstr,   consensus.expected_bank_hash                     );
-  CFG_POP      ( bool,   consensus.wait_for_vote_to_start_leader          );
+  CFG_POP      ( boolau, consensus.wait_for_vote_to_start_leader          );
   CFG_POP_ARRAY( uint,   consensus.hard_fork_at_slots                     );
   CFG_POP_ARRAY( cstr,   consensus.known_validators                       );
   CFG_POP      ( bool,   consensus.os_network_limits_test                 );
@@ -112,6 +112,7 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  runtime.bank_cache_cnt                              );
 
+  CFG_POP      ( ulong,  consensus.wait_for_supermajority_at_slot            );
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
   CFG_POP      ( bool,   consensus.alpenglow                                 );
 
@@ -156,7 +157,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   development.backtest.affinity                       );
   CFG_POP      ( ulong,  development.backtest.root_distance                  );
 
-  CFG_POP      ( cstr,   development.forktest.affinity                       );
 
   return config;
 }
@@ -201,7 +201,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( ushort, consensus.expected_shred_version                 );
   CFG_POP      ( cstr,   consensus.expected_genesis_hash                  );
-  CFG_POP      ( bool,   consensus.wait_for_vote_to_start_leader          );
+  CFG_POP      ( boolau, consensus.wait_for_vote_to_start_leader          );
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.blocklist_cores                           );
@@ -309,8 +309,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.rserve.shred_storage_limit_gib             );
 
   CFG_POP      ( bool,   tiles.tower.write_vote_history_file              );
-
-  CFG_POP      ( bool,   tiles.votor.write_vote_history_file              );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );

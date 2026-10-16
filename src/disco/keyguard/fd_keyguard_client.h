@@ -96,8 +96,8 @@ fd_keyguard_client_delete( void * shclient ) { return shclient; }
     contains a ulong authority index and no signing is performed.
 
     The response is written into the signature buffer, which must be at
-    least FD_KEYGUARD_BLS_SIG_SZ (192) bytes for FD_KEYGUARD_SIGN_TYPE_BLS,
-    FD_KEYGUARD_BLS_PUBKEY_SZ (48) bytes for FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY,
+    least FD_BLS_SIG_SZ (192) bytes for FD_KEYGUARD_SIGN_TYPE_BLS,
+    FD_BLS_PUB_COMPRESSED_SZ (48) bytes for FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY,
     or 64 bytes for every other type.
 
     sign_type is in FD_KEYGUARD_SIGN_TYPE_{...}. */
@@ -114,7 +114,7 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
    to sign with the BLS key derived from the identity, or else the index
    in [0,FD_KEYGUARD_AUTH_VOTERS_MAX) of the authorized voter the caller
    passes into the toml whose derived BLS key signs.  signature must
-   have capacity for FD_KEYGUARD_BLS_SIG_SZ bytes. */
+   have capacity for FD_BLS_SIG_SZ bytes. */
 
 void
 fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
@@ -127,7 +127,7 @@ fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
    held by the sign tile.  authority_idx is ULONG_MAX for the identity,
    or an index in [0,FD_KEYGUARD_AUTH_VOTERS_MAX) of a loaded authorized
    voter, as in fd_keyguard_client_ag_vote_sign.  public_key must have
-   room for FD_KEYGUARD_BLS_PUBKEY_SZ bytes.  Uses the same blocking
+   room for FD_BLS_PUB_COMPRESSED_SZ bytes.  Uses the same blocking
    request/response channel as signing; only the public key is returned. */
 
 void

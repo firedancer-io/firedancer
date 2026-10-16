@@ -3,6 +3,7 @@
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_sshttp.h"
 #include "utils/fd_sspeer_selector.h"
+#include "utils/fd_wfs.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -119,15 +120,21 @@ privileged_init( fd_topo_t const *      topo,
   uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
   ctx->local_full_fd = -1;
   ctx->local_incr_fd = -1;
-  /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
+  /* fd_ssarchive_latest_best needs to be invoked here, irrespective
      of whether snapct may do the same, because this information is
      needed here during privileged_init. */
-  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
-                                               tile->snapld.incremental_snapshots,
-                                               &full_slot,         &incr_slot,
-                                               full_path,          incr_path,
-                                               &full_is_zstd,      &incr_is_zstd,
-                                               full_snapshot_hash, incr_snapshot_hash ) ) ) {
+  int found = 0==fd_ssarchive_latest_best( tile->snapld.snapshots_path,
+                                           tile->snapld.incremental_snapshots,
+                                           fd_wfs_configured( tile->snapld.wfs_slot,
+                                                              tile->snapld.wfs_hash_is_zero,
+                                                              (ulong)tile->snapld.wfs_shred_version )
+                                             ? tile->snapld.wfs_slot : 0UL,
+                                           &full_slot,         &incr_slot,
+                                           full_path,          incr_path,
+                                           &full_is_zstd,      &incr_is_zstd,
+                                           full_snapshot_hash, incr_snapshot_hash );
+
+  if( FD_LIKELY( found ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );

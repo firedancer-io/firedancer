@@ -36,7 +36,6 @@ class ClickHouseType(Enum):
     String = auto()
     Bytes = auto()
     LowCardinalityString = auto()
-    Flatten = auto()
     Tuple = auto()
     Array = auto()
 
@@ -56,7 +55,6 @@ class ClickHouseType(Enum):
         "String": "String",
         "Bytes": "Bytes",
         "LowCardinality(String)": "LowCardinalityString",
-        "Flatten": "Flatten",
         "Tuple": "Tuple",
         "Array": "Array",
     }
@@ -77,7 +75,6 @@ class ClickHouseType(Enum):
         "String": "bytes",
         "Bytes": "bytes",
         "LowCardinalityString": "string",
-        "Flatten": None,
         "Tuple": None,
         "Array": None,
     }
@@ -122,7 +119,7 @@ class Schema:
     local: bool = False       # rendered by the event tile, never sent over a frag
     deprecated: bool = False  # no longer sent; proto message and server table stay
 
-_FIELD_KEYS = {"type", "description", "variants", "fields", "element", "max_len", "dynamic", "compression", "field_number", "deprecated"}
+_FIELD_KEYS = {"type", "description", "variants", "fields", "element", "max_len", "dynamic", "compression", "field_number", "deprecated", "renamed_from", "aliases"}
 
 # Event ids of frag-reported schemas fit the 8-bit type of FD_EVENT_SIG.
 # Local schemas use any protobuf field number; ids at or above
@@ -142,7 +139,7 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
         return field
 
     fields = None
-    if f["type"] in ("Flatten", "Tuple"):
+    if f["type"] == "Tuple":
         fields = {k: parse_field(v, shared_types) for k, v in f["fields"].items()}
 
     element = parse_field(f["element"], shared_types) if f["type"] == "Array" else None
@@ -224,7 +221,7 @@ def collect_nested_messages(fields: Dict[str, Field], prefix: str = "") -> List[
 
     for name, f in fields.items():
         inner = f.element if f.chtype == ClickHouseType.Array else f
-        if inner.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
+        if inner.chtype == ClickHouseType.Tuple:
             new_prefix = inner.shared_name or f"{prefix}{to_pascal_case(name)}"
             msgs.append((new_prefix, inner.fields, inner.description))
             msgs += collect_nested_messages(inner.fields, new_prefix)
@@ -236,7 +233,7 @@ def generate_message_fields(fields: Dict[str, Field], prefix: str = "") -> List[
 
     for i, (name, f) in enumerate(fields.items(), 1):
         inner = f.element if f.chtype == ClickHouseType.Array else f
-        if inner.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple) or inner.variants:
+        if inner.chtype == ClickHouseType.Tuple or inner.variants:
             proto_type = inner.shared_name or f"{prefix}{to_pascal_case(name)}"
         else:
             proto_type = inner.chtype.to_protobuf_type()
@@ -262,7 +259,7 @@ def generate_enums(fields: Dict[str, Field], prefix: str, generated: set) -> Lis
                 opt = " [deprecated = true]" if v.deprecated else ""
                 lines.append(f"  {ep}_{to_screaming_snake_case(vn)} = {i}{opt};  // {v.description}")
             lines += ["}", ""]
-        if inner.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
+        if inner.chtype == ClickHouseType.Tuple:
             nested_prefix = inner.shared_name or f"{prefix}{to_pascal_case(name)}"
             lines += generate_enums(inner.fields, nested_prefix, generated)
     return lines
@@ -319,20 +316,20 @@ def field_is_supported(f: Field) -> bool:
     """Whether the C codegen can emit a fixed-size struct + serializer for a
     field.  Variable-length types (Bytes/String/Array) are supported only when
     bounded by max_len.  An enum (LowCardinality(String)) is supported only at
-    the top level or as a Tuple/Flatten subfield, and only with variants:
+    the top level or as a Tuple subfield, and only with variants:
     variant-less enums have no C representation, and enum Array elements get
-    no C value defines.  Tuple/Flatten subfields and non-Tuple Array elements
+    no C value defines.  Tuple subfields and non-Tuple Array elements
     are otherwise limited to what the emitters actually handle: scalar or
     fixed-byte (a shape outside this set previously passed the gate and then
     crashed the emitters with a raw KeyError)."""
     _NON_LEAF = (ClickHouseType.String, ClickHouseType.Bytes,
-                 ClickHouseType.Flatten, ClickHouseType.Tuple, ClickHouseType.Array)
+                 ClickHouseType.Tuple, ClickHouseType.Array)
     _SUB_UNSUPPORTED = _NON_LEAF + (ClickHouseType.LowCardinalityString,)
     if f.chtype == ClickHouseType.LowCardinalityString:
         return f.variants is not None
     if f.chtype in (ClickHouseType.String, ClickHouseType.Bytes):
         return f.max_len is not None
-    if f.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
+    if f.chtype == ClickHouseType.Tuple:
         return all((sf.chtype == ClickHouseType.LowCardinalityString and sf.variants is not None) or
                    (sf.chtype not in _SUB_UNSUPPORTED and sf.variants is None)
                    for sf in f.fields.values())
@@ -340,7 +337,7 @@ def field_is_supported(f: Field) -> bool:
         if f.max_len is None:
             return False
         el = f.element
-        if el.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
+        if el.chtype == ClickHouseType.Tuple:
             return field_is_supported(el)
         return el.chtype not in _SUB_UNSUPPORTED and el.variants is None
     return True  # scalar or fixed-byte type
@@ -371,7 +368,7 @@ def scalar_max_encoded_sz(f: Field) -> int:
         return _PB_TAG_MAX + _PB_VARINT32 + 16
     if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
         return _PB_TAG_MAX + _PB_VARINT32 + f.max_len
-    if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+    if f.chtype == ClickHouseType.Tuple:
         body = sum(scalar_max_encoded_sz(sf) for sf in live(f.fields).values())
         return _PB_TAG_MAX + _PB_LP_RESERVE + body
     suffix = _SCALAR_C[f.chtype][1]
@@ -409,9 +406,9 @@ def c_tuple_name(schema_name: str, field_name: str) -> str:
     return f"fd_event_{schema_name}_{field_name}_t"
 
 def tuple_fields_of(f: Field) -> Optional[Dict[str, Field]]:
-    """If f (or its array element) is a Tuple/Flatten, return its fields."""
+    """If f (or its array element) is a Tuple, return its fields."""
     inner = f.element if f.chtype == ClickHouseType.Array else f
-    if inner.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+    if inner.chtype == ClickHouseType.Tuple:
         return inner.fields
     return None
 
@@ -517,7 +514,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
         # instead of full max_len capacity.
         def array_elem_decl(name, f):
             el = f.element
-            if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+            if el.chtype == ClickHouseType.Tuple:
                 return (c_tuple_name( s.name, name ), f"{name}[ {f.max_len}UL ]")
             if el.variants:
                 return ("int", f"{name}[ {f.max_len}UL ]")
@@ -540,7 +537,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
             elif f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
                 members.append(("uchar", f"{name}[ {f.max_len}UL ]", f.description))
                 members.append(("ulong", f"{name}_len", f"Length of {name} (<= {f.max_len})"))
-            elif f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+            elif f.chtype == ClickHouseType.Tuple:
                 members.append((c_tuple_name( s.name, name ), name, f.description))
             elif f.chtype == ClickHouseType.Array:
                 ectype, decl = array_elem_decl( name, f )
@@ -714,12 +711,12 @@ def encode_field( f: Field, field_id: int, name: str, acc: str, ind: str ) -> Li
     """Emit encode lines for one struct field of any supported type."""
     if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
         return [f"{ind}if( {acc}_len ) ok &= !!fd_pb_push_bytes ( encoder, {field_id}U, {acc}, {acc}_len );"]
-    if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+    if f.chtype == ClickHouseType.Tuple:
         return encode_tuple( f, field_id, acc, ind )
     if f.chtype == ClickHouseType.Array:
         el  = f.element
         out = [f"{ind}for( ulong k=0UL; k<{acc}_cnt; k++ ) {{"]
-        if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        if el.chtype == ClickHouseType.Tuple:
             out += encode_tuple( el, field_id, f"{acc}[ k ]", ind + "  " )
         else:
             # Scalar/enum/fixed-byte array element: always emit (do not omit
@@ -782,7 +779,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
             for dn in dyn_names:
                 f  = s.fields[dn]
                 el = f.element
-                if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+                if el.chtype == ClickHouseType.Tuple:
                     ct = c_tuple_name( s.name, dn ) + " const *"
                 elif el.variants:
                     ct = "int const *"
@@ -888,7 +885,7 @@ def fill_field( f: Field, acc: str, ind: str ) -> List[str]:
     if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
         return [f"{ind}fd_memset( {acc}, 0xFF, {f.max_len}UL );",
                 f"{ind}{acc}_len = {f.max_len}UL;"]
-    if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+    if f.chtype == ClickHouseType.Tuple:
         out = []
         for sn, sf in live(f.fields).items():
             out += fill_scalar( sf, f"{acc}.{sn}", ind )
@@ -897,7 +894,7 @@ def fill_field( f: Field, acc: str, ind: str ) -> List[str]:
         el  = f.element
         out = [f"{ind}{acc}_cnt = {f.max_len}UL;",
                f"{ind}for( ulong k=0UL; k<{f.max_len}UL; k++ ) {{"]
-        if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        if el.chtype == ClickHouseType.Tuple:
             for sn, sf in live(el.fields).items():
                 out += fill_scalar( sf, f"{acc}[ k ].{sn}", ind + "  " )
         else:
@@ -995,8 +992,8 @@ def main() -> None:
     seen_ids: Dict[int, str] = {}
     seen_names: Dict[str, int] = {}
     for s in schemas:
-        if not s.local and not (1 <= s.id <= 255):
-            raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) must fit the 8-bit event type of FD_EVENT_SIG (1..255)")
+        if not s.local and not (1 <= s.id <= 254):
+            raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) must fit the 8-bit event type of FD_EVENT_SIG (1..254; 255 is FD_EVENT_TYPE_METRICS_TRIGGER)")
         if s.local and ( not (1 <= s.id <= PB_FIELD_NUMBER_MAX) or s.id in PB_RESERVED ):
             raise SystemExit(f"ERROR: schema id {s.id} ({s.name}) is not a valid protobuf field number")
         if args.no_provisional and ( s.id >= EVENT_ID_PROVISIONAL or has_provisional(s.fields) ):

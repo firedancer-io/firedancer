@@ -44,6 +44,20 @@ ulong
 fd_alpenglow_migration_slot( fd_bank_t *  bank,
                              fd_accdb_t * accdb );
 
+/* fd_alpenglow_producer_time_bounds writes the inclusive range a
+   block footer's producer_time_nanos must fall in to *lo and *hi.  The
+   range is relative to the parent's timestamp: the Alpenclock PDA, or
+   the clock sysvar until the first footer writes the PDA (the first
+   block after genesis or the migration).
+
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor.rs#L698-L726 */
+
+void
+fd_alpenglow_producer_time_bounds( fd_bank_t const * bank,
+                                   fd_accdb_t *      accdb,
+                                   long *            lo,
+                                   long *            hi );
+
 /* fd_alpenglow_footer_verify verifies every cert's aggregate BLS
    signature in the footer.  It also checks the following:
 
@@ -73,9 +87,19 @@ fd_alpenglow_footer_certs( fd_block_footer_t const *      footer,
                            uint                           tag   [ static FD_ALPENGLOW_FOOTER_CERT_MAX ],
                            ulong                          quorum[ static FD_ALPENGLOW_FOOTER_CERT_MAX ] );
 
+#define FD_ALPENGLOW_CERT_PAYLOAD_MAX (43UL)
+
+ulong
+fd_alpenglow_cert_payload( fd_block_footer_cert_t const * cert,
+                           uint                           vote_tag,
+                           ushort                         shred_version,
+                           uchar                          payload[ static FD_ALPENGLOW_CERT_PAYLOAD_MAX ] );
+
 /* fd_alpenglow_cert_verify checks one cert listed by
    fd_alpenglow_footer_certs.  A footer with certs verifies iff each of
-   its certs does.  cache may be NULL. Returns 0 if the cert verifies
+   its certs does.  cache may be NULL.  hm (NULL for none) is the
+   payload's H(m), skipping its lookup.  hm_out (NULL for none) is set
+   to H(m) when hm is NULL.  Returns 0 if the cert verifies
    and -1 otherwise, including when shred_version is 0. */
 
 int
@@ -84,7 +108,9 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
                           uint                           vote_tag,
                           ulong                          quorum_numer,
                           ushort                         shred_version,
-                          fd_footer_cache_t *            cache );
+                          fd_footer_cache_t *            cache,
+                          blst_p2_affine const *         hm,
+                          blst_p2_affine *               hm_out );
 
 /* fd_alpenglow_rewards_apply applies the side effects of the footer's
    certs to the bank's accounts.  Only the slot and signer bitmap of

@@ -175,6 +175,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     .depths              = out_depth,
     .seqs                = out_seq,
     .now                 = now,
+    .then                = then,
 
     .cr_avail            = cr_avail,
     .min_cr_avail        = &min_cr_avail,
@@ -313,7 +314,8 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     }
 
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
-    stem.now = now;
+    stem.now  = now;
+    stem.then = then;
 #endif
 
     int charge_busy_before = 0;

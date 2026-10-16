@@ -86,6 +86,8 @@ struct fd_rotor_blk {
 
   ulong     parent_slot;
   fd_mr32_t parent_blk_mr;
+  ulong     orphan_next; /* orphan_map chain, while the blk waits for the blk named by parent_blk_mr */
+  ulong     orphan_prev;
 
   /* repair, the treap is the blk's role in its slot_meta */
 
@@ -94,9 +96,8 @@ struct fd_rotor_blk {
   uchar meta_req     : 1; /* tile: a META req was made */
   uchar highest_req  : 1; /* tile: a HIGHEST req was made */
   uchar orphan_req   : 1; /* tile: an ORPHAN req was made */
-  schar connected    : 2; /* 1 if the root or parent is connected, 0 if not, -1 if stale: relinked by connect_ancestors until connect_descendants */
 
-  ulong fecs[FD_FEC_BLK_MAX]; /* fec_pool idx of each FEC set, null if none */
+  ulong * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
 
   long rcvd_fec_ts; /* when rcvd_fec_cnt last grew */
   struct {
@@ -150,6 +151,28 @@ typedef struct fd_rotor_blk fd_rotor_blk_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* orphan_map is keyed by parent_blk_mr and holds every unlinked blk
+   that names a parent, ie. parent==null && parent_blk_mr!=hash_null,
+   except the root blk.  The blk named may not be held yet, be held
+   under a different dmr (an eager blk) or never come.  The key is the
+   dmr alone, the parent slot is checked when linking.
+
+   Each call site of add/remove should gate on the blk's state before
+   its transition, the root blk is never in the map: it keeps the
+   parent_blk_mr it was received with, but waits for nothing. */
+
+#define MAP_NAME               fd_rotor_orphan_map
+#define MAP_ELE_T              fd_rotor_blk_t
+#define MAP_KEY_T              fd_mr32_t
+#define MAP_KEY                parent_blk_mr
+#define MAP_NEXT               orphan_next
+#define MAP_PREV               orphan_prev
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_mr32_t)))
+#define MAP_KEY_HASH(key,seed) fd_ulong_hash((seed)^FD_LOAD(ulong,(key)->uc))
+#define MAP_MULTI              1
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
+
 #define TREAP_NAME      fd_rotor_treap
 #define TREAP_T         fd_rotor_blk_t
 #define TREAP_QUERY_T   ulong
@@ -192,10 +215,12 @@ struct fd_rotor {
   ulong            catchup_slot;
   int              reconsume;    /* replay sent a MISSING_FEC: the next FEC pushed onto reasm_deque goes with its ancestry from the root */
   ulong            slot_max;
+  ulong            fec_blk_max;  /* FEC sets per blk */
 
   fd_rotor_slot_meta_t * slot_meta;   /* indexed by slot % slot_max */
   fd_rotor_blk_t *       blk_pool;
   fd_rotor_blk_map_t *   blk_map;
+  fd_rotor_orphan_map_t * orphan_map;
   fd_rotor_fec_t *       fec_pool;
   fd_rotor_fec_map_t *   fec_map;
   fd_rotor_deque_t *     reasm_deque;
@@ -217,12 +242,14 @@ fd_rotor_align( void );
 
 FD_FN_CONST ulong
 fd_rotor_footprint( ulong slot_max,
-                    ulong fec_max );
+                    ulong fec_max,
+                    ulong fec_blk_max );
 
 void *
 fd_rotor_new( void * shmem,
               ulong  slot_max,
               ulong  fec_max,
+              ulong  fec_blk_max,
               ulong  seed );
 
 fd_rotor_t *

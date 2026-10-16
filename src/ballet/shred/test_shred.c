@@ -132,7 +132,7 @@ main( int     argc,
     }
   }
 
-# define PARSE(x) fd_shred_parse( x, sizeof(x), FD_SHRED_BLK_MAX )
+# define PARSE(x) fd_shred_parse( x, sizeof(x), FD_SHRED_PROTOCOL_BLK_MAX )
 
   /* Parse legacy data shred. */
   shred = PARSE( fixture_legacy_data_shred );

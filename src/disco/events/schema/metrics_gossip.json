@@ -33,6 +33,14 @@
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "aliases": {
+                "all":          ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping", "caught_up_prefrag", "processing_prefrag", "backpressure_prefrag", "caught_up_postfrag", "processing_postfrag", "caught_up_sleeping", "backpressure_sleeping"],
+                "housekeeping": ["caught_up_housekeeping", "processing_housekeeping", "backpressure_housekeeping"],
+                "busy":         ["caught_up_prefrag", "processing_prefrag", "processing_postfrag"],
+                "idle":         ["caught_up_postfrag", "caught_up_sleeping"],
+                "backpressure": ["backpressure_prefrag", "backpressure_sleeping"],
+                "sleeping":     ["caught_up_sleeping", "backpressure_sleeping"]
+            },
             "fields": {
                 "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
                 "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
@@ -48,7 +56,12 @@
         },
         "thread_duration_nanos": {
             "type": "Tuple",
-            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU",
+            "aliases": {
+                "all":       ["wait", "idle", "user", "system", "interrupt"],
+                "running":   ["user", "system"],
+                "preempted": ["wait", "interrupt"]
+            },
             "fields": {
                 "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
                 "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
@@ -60,15 +73,18 @@
         "park_attempted": {
             "type": "Tuple",
             "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "aliases": {
+                "all": ["ring", "deadline", "pending"]
+            },
             "fields": {
                 "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
                 "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "tlb_shootdown":                                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
-        "timer_irq":                                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "device_irq":                                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":                                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "ping_peer_count": {
             "type": "Tuple",
             "description": "Peers tracked for ping/pong, by state",
@@ -82,6 +98,9 @@
         "pong_processed": {
             "type": "Tuple",
             "description": "Pongs processed, by result",
+            "aliases": {
+                "all": ["accepted", "staked", "untracked", "address_mismatch", "token_mismatch"]
+            },
             "fields": {
                 "accepted":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong accepted" },
                 "staked":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ignored because the peer is staked and needs no ping" },
@@ -90,9 +109,9 @@
                 "token_mismatch":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ignored because the token did not match" }
             }
         },
-        "ping_peer_evicted":                             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers evicted from the ping tracker to make room for new ones" },
+        "ping_peer_evicted":                             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers evicted from the ping tracker to make room for new ones", "deprecated": true },
         "ping_peer_added":                               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers added to the ping tracker" },
-        "ping_peer_staked_removed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers removed from the ping tracker because they became staked" },
+        "ping_peer_staked_removed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers removed from the ping tracker because they became staked", "deprecated": true },
         "ping_peer_address_changed":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Tracked peers whose gossip address changed; pong invalidated and reset to unpinged" },
         "sign_queue_full_dropped":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Messages dropped because the maximum number of sign requests were in flight" },
         "crds_capacity":                                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Capacity of the data store" },
@@ -136,6 +155,11 @@
         "crds_upserted": {
             "type": "Tuple",
             "description": "Verified CRDS values offered to the data store, by result",
+            "aliases": {
+                "all":      ["inserted_pull_response", "inserted_push", "stale_pull_response", "duplicate_pull_response", "stale_push", "duplicate_push"],
+                "inserted": ["inserted_pull_response", "inserted_push"],
+                "dropped":  ["stale_pull_response", "duplicate_pull_response", "stale_push", "duplicate_push"]
+            },
             "fields": {
                 "inserted_pull_response":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (upserted)" },
                 "inserted_push":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (upserted)" },
@@ -148,6 +172,9 @@
         "message_tx": {
             "type": "Tuple",
             "description": "Gossip messages sent, by message type",
+            "aliases": {
+                "all": ["pull_request", "pull_response", "push", "prune", "ping", "pong"]
+            },
             "fields": {
                 "pull_request":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Request" },
                 "pull_response": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response" },
@@ -160,6 +187,9 @@
         "message_tx_bytes": {
             "type": "Tuple",
             "description": "Wire bytes sent in gossip messages, by message type",
+            "aliases": {
+                "all": ["pull_request", "pull_response", "push", "prune", "ping", "pong"]
+            },
             "fields": {
                 "pull_request":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Request" },
                 "pull_response": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response" },
@@ -172,6 +202,9 @@
         "crds_push_tx": {
             "type": "Tuple",
             "description": "CRDS values sent in push messages, by value type",
+            "aliases": {
+                "all": ["contact_info_v1", "vote", "lowest_slot", "snapshot_hashes", "accounts_hashes", "epoch_slots", "version_v1", "version_v2", "node_instance", "duplicate_shred", "incremental_snapshot_hashes", "contact_info_v2", "restart_last_voted_fork_slots", "restart_heaviest_fork"]
+            },
             "fields": {
                 "contact_info_v1":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V1" },
                 "vote":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote" },
@@ -192,6 +225,9 @@
         "crds_push_tx_bytes": {
             "type": "Tuple",
             "description": "Wire bytes of CRDS values sent in push messages, by value type",
+            "aliases": {
+                "all": ["contact_info_v1", "vote", "lowest_slot", "snapshot_hashes", "accounts_hashes", "epoch_slots", "version_v1", "version_v2", "node_instance", "duplicate_shred", "incremental_snapshot_hashes", "contact_info_v2", "restart_last_voted_fork_slots", "restart_heaviest_fork"]
+            },
             "fields": {
                 "contact_info_v1":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V1" },
                 "vote":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote" },
@@ -212,6 +248,9 @@
         "crds_pull_response_tx": {
             "type": "Tuple",
             "description": "CRDS values sent in pull response messages, by value type",
+            "aliases": {
+                "all": ["contact_info_v1", "vote", "lowest_slot", "snapshot_hashes", "accounts_hashes", "epoch_slots", "version_v1", "version_v2", "node_instance", "duplicate_shred", "incremental_snapshot_hashes", "contact_info_v2", "restart_last_voted_fork_slots", "restart_heaviest_fork"]
+            },
             "fields": {
                 "contact_info_v1":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V1" },
                 "vote":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote" },
@@ -232,6 +271,9 @@
         "crds_pull_response_tx_bytes": {
             "type": "Tuple",
             "description": "Wire bytes of CRDS values sent in pull response messages, by value type",
+            "aliases": {
+                "all": ["contact_info_v1", "vote", "lowest_slot", "snapshot_hashes", "accounts_hashes", "epoch_slots", "version_v1", "version_v2", "node_instance", "duplicate_shred", "incremental_snapshot_hashes", "contact_info_v2", "restart_last_voted_fork_slots", "restart_heaviest_fork"]
+            },
             "fields": {
                 "contact_info_v1":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact Info V1" },
                 "vote":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Vote" },
@@ -262,6 +304,19 @@
                 "waiting_for_stake": { "description": "Waiting for enough stake to come online" },
                 "publishing":        { "description": "Publishing our contact info to start" },
                 "done_or_disabled":  { "description": "Done, or wait-for-supermajority is disabled" }
+            }
+        },
+        "ping_peer_removed": {
+            "type": "Tuple",
+            "description": "Peers removed from the ping tracker, by reason",
+            "aliases": {
+                "all": ["evicted", "staked", "stale", "identity"]
+            },
+            "fields": {
+                "evicted":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Evicted to make room for a new peer" },
+                "staked":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Became staked, no longer pinged" },
+                "stale":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact info not received for 60 s" },
+                "identity": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Became our identity" }
             }
         }
     }
