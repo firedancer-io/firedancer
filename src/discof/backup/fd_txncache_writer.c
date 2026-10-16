@@ -2,7 +2,6 @@
 #include "../../flamenco/runtime/fd_txncache_private.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../util/fd_util.h"
-#include "../../util/racesan/fd_racesan_target.h"
 
 #define STATE_HEADER  1
 #define STATE_SLOT    2
@@ -22,16 +21,9 @@
 #define WALK_COUNT 0
 #define WALK_FILL  1
 
-#define WALK_ANOMALY_NONE                       0
-#define WALK_ANOMALY_CHAIN_TXN_IDX_OOB          1
-#define WALK_ANOMALY_CYCLE                      2
-#define WALK_ANOMALY_CAPTURED_FORK_NO_EXEC_SLOT 3
-#define WALK_ANOMALY_GROUP_COUNT_EXCEEDED       4
-
-FD_STATIC_ASSERT( FD_TXNCACHE_WRITER_CHECK_INTERVAL, check_interval_nonzero );
-
 FD_STATIC_ASSERT( FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS<=USHORT_MAX, group_slot_i      );
 FD_STATIC_ASSERT( FD_TXNCACHE_WRITER_MAX_BLOCKHASHES<=USHORT_MAX, group_blockhash_i );
+FD_STATIC_ASSERT( FD_TXNCACHE_MAX_ROOTS<=FD_TXNCACHE_WRITER_MAX_BLOCKHASHES, roots );
 
 static inline ulong
 group_key( ulong slot_i, ulong blockhash_i ) {
@@ -105,13 +97,12 @@ writer_slots_init( fd_txncache_writer_t * writer,
    snapshot slot.  The initial genesis descriptor may precede the named
    execution slots; it remains usable as a referenced blockhash but has
    no execution slot mapping. */
-static int
+static void
 writer_map_execution_slots( fd_txncache_writer_t * writer ) {
   ulong blockhash_cnt = writer->blockhash_cnt;
   ulong slot_cnt      = writer->slot_cnt;
   if( FD_UNLIKELY( blockhash_cnt>slot_cnt+1UL ) ) {
-    FD_LOG_WARNING(( "txncache has %lu rooted blockhash descriptors but SlotHistory names only %lu execution slots", blockhash_cnt, slot_cnt ));
-    return 0;
+    FD_LOG_CRIT(( "txncache has %lu rooted blockhash descriptors but SlotHistory names only %lu execution slots", blockhash_cnt, slot_cnt ));
   }
 
   memset( writer->fork_id_to_blockhash_i, 0xFF, sizeof(writer->fork_id_to_blockhash_i) );
@@ -129,166 +120,42 @@ writer_map_execution_slots( fd_txncache_writer_t * writer ) {
     ulong slot_i      = slot_i0     +pair_i;
     writer->blockhash_descs[ blockhash_i ].slot_i = (ushort)slot_i;
   }
-  return 1;
 }
-
-/* Walks every hash chain of a rooted blockcache without taking the
-   txncache lock.  For each transaction that matches a captured rooted
-   descriptor, the function either counts the transaction into its
-   (execution slot, blockhash) group, or copies its hash into the
-   group's arena range. */
 
 static void
 writer_walk_blockhash( fd_txncache_writer_t * writer,
-                       ulong                  blockhash_i,
+                       ulong                  blockhash_idx,
                        int                    mode ) {
-  fd_txncache_t const *                       tc             = writer->tc;
-  fd_txncache_writer_blockhash_desc_t const * blockhash_desc = &writer->blockhash_descs[ blockhash_i ];
 
-  /* Loop invariant variables are hoisted because the compiler fences
-     would otherwise force the address chains to be reloaded every
-     bucket. */
-  fd_txncache_shmem_t const *   shmem         = tc->shmem;
-  uint const *                  heads         = tc->blockcache_pool[ blockhash_desc->blockcache_idx ].heads;
-  fd_txncache_txnpage_t const * txnpages      = tc->txnpages;
-  ulong                         bucket_cnt    = shmem->bucket_cnt;
-  ulong                         txn_cap       = shmem->max_txnpages*FD_TXNCACHE_TXNS_PER_PAGE;
-  ulong                         root_gen_init = writer->root_gen;
-  fd_txnhash_t *                arena         = writer->arena;
-  ulong                         group_lo      = writer->group_i;
-  ulong                         group_hi      = writer->batch_hi;
+  fd_txncache_blockcache_iter_t iter[1];
+  for( fd_txncache_blockcache_iter_init( iter, writer->tc, writer->blockhash_descs[ blockhash_idx ].blockcache_idx );
+       !fd_txncache_blockcache_iter_done( iter );
+       fd_txncache_blockcache_iter_next( iter ) ) {
+    fd_txncache_single_txn_t const * txn = fd_txncache_blockcache_iter_ele( iter );
 
-  uint   bucket_entry_cnt[ FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS ] = {0};
-  ushort touched_slot_i[ FD_TXNCACHE_WRITER_MAX_SLOT_DELTAS ];
+    fd_txncache_writer_blockhash_desc_t const * exec_desc = writer_exec_desc( writer, txn );
+    if( FD_UNLIKELY( !exec_desc ) ) continue;
 
-  for( ulong bucket=0UL; bucket<bucket_cnt; bucket++ ) {
-    for(;;) {
-      ulong gen0 = __atomic_load_n( &shmem->mutation_gen, __ATOMIC_ACQUIRE );
-      if( FD_UNLIKELY( gen0&1UL ) ) {
-        fd_racesan_hook( "txncache_writer:mutation_in_progress" );
-        FD_SPIN_PAUSE();
-        continue;
-      }
-
-      /* root_gen only changes inside a mutation bracket, so we check it
-         once up front.  If mutation_gen checks out in the end, that
-         implies root_gen is also good. */
-      if( FD_UNLIKELY( __atomic_load_n( &shmem->root_gen, __ATOMIC_RELAXED )!=root_gen_init ) ) {
-        FD_LOG_CRIT(( "txncache root advanced while snapshot of slot %lu was in progress", writer->snapshot_slot ));
-      }
-
-      ulong  touched_cnt      = 0UL;
-      ulong  steps            = 0UL;
-      int    anomaly          = WALK_ANOMALY_NONE;
-      uint   anomaly_txn_idx  = UINT_MAX;
-      fd_txncache_writer_blockhash_desc_t const * anomaly_desc = NULL;
-
-      fd_racesan_hook( "txncache_writer:bucket_started" );
-
-      for( uint head=__atomic_load_n( &heads[ bucket ], __ATOMIC_ACQUIRE ); head!=UINT_MAX; ) {
-        if( FD_UNLIKELY( (ulong)head>=txn_cap ) ) {
-          anomaly         = WALK_ANOMALY_CHAIN_TXN_IDX_OOB;
-          anomaly_txn_idx = head;
-          break;
-        }
-        fd_txncache_single_txn_t const * txn = txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
-        /* Pigeonhole principle.  If we visited more than the max number
-           of entries, then at least one entry has been visited twice,
-           meaning a potential cycle. */
-        if( FD_UNLIKELY( ++steps>txn_cap ) ) {
-          /* Record the anomaly rather than fatally crash immediately.
-             A concurrent compaction for example could legitimately send
-             us into a loop.  We should simply retry in that case. */
-          anomaly = WALK_ANOMALY_CYCLE;
-          break;
-        }
-
-        fd_txncache_writer_blockhash_desc_t const * exec_desc = writer_exec_desc( writer, txn );
-        if( FD_LIKELY( exec_desc ) ) {
-          ushort slot_i = exec_desc->slot_i;
-          if( FD_UNLIKELY( slot_i==USHORT_MAX ) ) {
-            anomaly      = WALK_ANOMALY_CAPTURED_FORK_NO_EXEC_SLOT;
-            anomaly_desc = exec_desc;
-            break;
-          }
-          ulong key = group_key( slot_i, blockhash_i );
-          if( mode==WALK_COUNT ) {
-            if( FD_UNLIKELY( !bucket_entry_cnt[ slot_i ] ) ) touched_slot_i[ touched_cnt++ ] = slot_i;
-            bucket_entry_cnt[ slot_i ]++;
-          } else {
-            ulong group_i = writer->group_i_by_key[ key ];
-            if( group_i>=group_lo && group_i<group_hi ) {
-              fd_txncache_writer_group_t * group = &writer->groups[ group_i ];
-              uint entry_i = group->filled_entry_cnt+bucket_entry_cnt[ slot_i ];
-              if( FD_UNLIKELY( entry_i<group->filled_entry_cnt || entry_i>=group->entry_cnt ) ) {
-                anomaly = WALK_ANOMALY_GROUP_COUNT_EXCEEDED;
-                break;
-              }
-              if( FD_UNLIKELY( !bucket_entry_cnt[ slot_i ] ) ) touched_slot_i[ touched_cnt++ ] = slot_i;
-
-              /* Speculative.  These txnhash values are considered
-                 committed when entry_cnt is bumped from local
-                 accumulators, after the final generation check. */
-              memcpy( arena[ group->arena_entry_off+entry_i ], txn->txnhash, sizeof(arena[0]) );
-              bucket_entry_cnt[ slot_i ]++;
-              fd_racesan_hook( "txncache_writer:txnhash_staged" );
-            }
-          }
-        }
-
-        if( FD_UNLIKELY( !(steps%FD_TXNCACHE_WRITER_CHECK_INTERVAL) ) ) {
-          FD_HW_MFENCE_LD();
-          if( __atomic_load_n( &shmem->mutation_gen, __ATOMIC_RELAXED )!=gen0 ) { break; }
-        }
-
-        /* Volatile: head is bounds checked and then used to index the
-           pool, so it must be loaded exactly once. */
-        head = FD_VOLATILE_CONST( txn->blockcache_next );
-      }
-
-      if( FD_UNLIKELY( anomaly!=WALK_ANOMALY_NONE ) ) { fd_racesan_hook( "txncache_writer:anomaly_detected" ); }
-
-      /* Drain reads before we check generation number. */
-      FD_HW_MFENCE_LD();
-      ulong gen1 = __atomic_load_n( &shmem->mutation_gen, __ATOMIC_RELAXED );
-
-      if( FD_UNLIKELY( gen1!=gen0 ) ) {
-        for( ulong i=0UL; i<touched_cnt; i++ ) bucket_entry_cnt[ touched_slot_i[ i ] ] = 0U;
-        FD_SPIN_PAUSE();
-        continue;
-      }
-
-      /* At this point, we have an anomaly without any generation number
-         change that would explain the anomaly.  Fatal. */
-      switch( anomaly ) {
-      case WALK_ANOMALY_NONE:
-        break;
-      case WALK_ANOMALY_CHAIN_TXN_IDX_OOB:
-        FD_LOG_CRIT(( "txncache chain of bucket %lu of blockcache %lu has out-of-bounds transaction index %u (capacity %lu)", bucket, blockhash_desc->blockcache_idx, anomaly_txn_idx, txn_cap ));
-      case WALK_ANOMALY_CYCLE:
-        FD_LOG_CRIT(( "txncache chain walk of bucket %lu of blockcache %lu exceeded the pool's %lu transactions: cycle", bucket, blockhash_desc->blockcache_idx, txn_cap ));
-      case WALK_ANOMALY_CAPTURED_FORK_NO_EXEC_SLOT:
-        FD_LOG_CRIT(( "txncache transaction on captured fork %lu (descriptor %ld) has no execution slot", anomaly_desc->blockcache_idx, (long)(anomaly_desc-writer->blockhash_descs) ));
-      case WALK_ANOMALY_GROUP_COUNT_EXCEEDED:
-        FD_LOG_CRIT(( "txncache group in blockcache %lu exceeds its counted transaction count while snapshot of slot %lu is in progress", blockhash_desc->blockcache_idx, writer->snapshot_slot ));
-      default:
-        FD_LOG_CRIT(( "invalid txncache walk anomaly %d", anomaly ));
-      }
-
-      /* Yay!  This was a successful bucket walk.  Aggregate local
-         accumulators into writer.  Then break out of the retry loop to
-         start the next bucket. */
-      for( ulong i=0UL; i<touched_cnt; i++ ) {
-        ulong slot_i = touched_slot_i[ i ];
-        ulong key    = group_key( slot_i, blockhash_i );
-        uint  delta  = bucket_entry_cnt[ slot_i ];
-        if( mode==WALK_COUNT ) writer->entry_cnt_by_key[ key ] += delta;
-        else                   writer->groups[ writer->group_i_by_key[ key ] ].filled_entry_cnt += delta;
-        bucket_entry_cnt[ slot_i ] = 0U;
-      }
-      break;
+    ushort slot_i = exec_desc->slot_i;
+    if( FD_UNLIKELY( slot_i==USHORT_MAX ) ) {
+      FD_LOG_CRIT(( "txncache transaction on captured fork %lu (descriptor %ld) has no execution slot", exec_desc->blockcache_idx, (long)(exec_desc-writer->blockhash_descs) ));
     }
+    ulong key = group_key( slot_i, blockhash_idx );
+    if( mode==WALK_COUNT ) {
+      writer->entry_cnt_by_key[ key ]++;
+      continue;
+    }
+
+    ulong group_i = writer->group_i_by_key[ key ];
+    if( group_i<writer->group_i || group_i>=writer->batch_hi ) continue;
+    fd_txncache_writer_group_t * group = &writer->groups[ group_i ];
+    if( FD_UNLIKELY( group->filled_entry_cnt>=group->entry_cnt ) ) {
+      FD_LOG_CRIT(( "txncache group in blockcache %lu exceeds its counted transaction count while snapshot of slot %lu is in progress", writer->blockhash_descs[ blockhash_idx ].blockcache_idx, writer->snapshot_slot ));
+    }
+    memcpy( writer->arena[ group->arena_entry_off+group->filled_entry_cnt ], txn->txnhash, sizeof(writer->arena[0]) );
+    group->filled_entry_cnt++;
   }
+  fd_txncache_blockcache_iter_fini( iter );
 }
 
 /* Walks every rooted blockcache once to count the transactions of each
@@ -367,14 +234,11 @@ writer_fill_batch( fd_txncache_writer_t * writer ) {
 fd_txncache_writer_t *
 fd_txncache_writer_init( fd_txncache_writer_t * writer,
                          fd_txncache_t *        tc,
-                         fd_txncache_fork_id_t  fork_id,
                          ulong                  snapshot_slot,
                          uchar const *          slot_history,
                          ulong                  slot_history_sz,
                          void *                 arena,
                          ulong                  arena_sz ) {
-  fd_rwlock_t * lock = tc->shmem->lock;
-
   if( FD_UNLIKELY( !arena || !fd_ulong_is_aligned( (ulong)arena, fd_txncache_writer_arena_align() ) || arena_sz<2UL*2UL*sizeof(fd_txnhash_t) ) ) {
     FD_LOG_CRIT(( "invalid txncache writer arena (%p, %lu bytes)", arena, arena_sz ));
   }
@@ -394,38 +258,20 @@ fd_txncache_writer_init( fd_txncache_writer_t * writer,
 
   writer_slots_init( writer, slot_history, slot_history_sz );
 
-  /* Snapshot the root list.  The snapshot root must be the newest root. */
+  /* Snapshot the root list.  The snapshot root is the newest root. */
 
-  fd_rwlock_read( lock );
-  if( FD_UNLIKELY( fork_id.val>=tc->shmem->active_slots_max                                               ||
-                   root_slist_is_empty( tc->shmem->root_ll, tc->blockcache_shmem_pool )                   ||
-                   root_slist_idx_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )!=fork_id.val ||
-                   tc->blockcache_shmem_pool[ fork_id.val ].frozen!=2 ) ) {
-    fd_rwlock_unread( lock );
-    return NULL;
+  fd_txncache_root_t roots[ FD_TXNCACHE_MAX_ROOTS ];
+  ulong root_cnt = fd_txncache_snapshot_roots( tc, roots );
+  for( ulong i=0UL; i<root_cnt; i++ ) {
+    fd_txncache_writer_blockhash_desc_t * blockhash_desc = &writer->blockhash_descs[ i ];
+    blockhash_desc->blockcache_idx = roots[ i ].blockcache_idx;
+    blockhash_desc->generation     = roots[ i ].generation;
+    blockhash_desc->txnhash_offset = roots[ i ].txnhash_offset;
+    memcpy( blockhash_desc->blockhash, roots[ i ].blockhash, 32UL );
   }
-  writer->root_gen = __atomic_load_n( &tc->shmem->root_gen, __ATOMIC_RELAXED );
+  writer->blockhash_cnt = root_cnt;
 
-  ulong blockhash_cnt = 0UL;
-  for( ulong it = root_slist_iter_init( tc->shmem->root_ll, tc->blockcache_shmem_pool );
-       !root_slist_iter_done( it, tc->shmem->root_ll, tc->blockcache_shmem_pool );
-       it = root_slist_iter_next( it, tc->shmem->root_ll, tc->blockcache_shmem_pool ) ) {
-    ulong blockcache_idx = root_slist_iter_idx( it, tc->shmem->root_ll, tc->blockcache_shmem_pool );
-    if( FD_UNLIKELY( blockhash_cnt>=FD_TXNCACHE_WRITER_MAX_BLOCKHASHES ) ) {
-      FD_LOG_CRIT(( "txncache has more than %lu roots", FD_TXNCACHE_WRITER_MAX_BLOCKHASHES ));
-    }
-    fd_txncache_blockcache_shmem_t const * blockcache_shmem = &tc->blockcache_shmem_pool[ blockcache_idx ];
-    fd_txncache_writer_blockhash_desc_t * blockhash_desc = &writer->blockhash_descs[ blockhash_cnt ];
-    blockhash_desc->blockcache_idx = blockcache_idx;
-    blockhash_desc->generation     = blockcache_shmem->generation;
-    blockhash_desc->txnhash_offset = blockcache_shmem->txnhash_offset;
-    memcpy( blockhash_desc->blockhash, blockcache_shmem->blockhash.uc, 32UL );
-    blockhash_cnt++;
-  }
-  fd_rwlock_unread( lock );
-  writer->blockhash_cnt = blockhash_cnt;
-
-  if( FD_UNLIKELY( !writer_map_execution_slots( writer ) ) ) return NULL;
+  writer_map_execution_slots( writer );
   writer_groups_init( writer );
 
   return writer;

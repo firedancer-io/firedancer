@@ -9931,6 +9931,24 @@ message MetricsReplay {
   uint64 accdb_copied_bytes = 115;
   // Whether the runtime has loaded a bank and can replay
   bool is_runtime_loaded = 116;
+  // Transaction cache lookups under the read lock that found their page not resident and had to retake the write lock
+  uint64 txncache_page_miss = 117;
+  // Dirty transaction cache pages written to the spill file on eviction
+  uint64 txncache_page_spilled = 118;
+  // Transaction cache pages read back from the spill file
+  uint64 txncache_page_spill_read = 119;
+  // Transaction cache frames evicted to load another page
+  uint64 txncache_frame_evicted = 120;
+  // Time in transaction cache spill file reads and writes, all under the exclusive lock
+  uint64 txncache_spill_duration_nanos = 121;
+  // Transaction cache logical pages in use, resident or spilled
+  uint64 txncache_page_used = 122;
+  // Maximum transaction cache logical pages
+  uint64 txncache_page_capacity = 123;
+  // Transaction cache in-memory frames holding a page
+  uint64 txncache_frame_used = 124;
+  // Transaction cache in-memory frames, from runtime.transaction_cache_size_mib
+  uint64 txncache_frame_capacity = 125;
 }
 
 // Metrics of one rotor tile instance, one row per sweep

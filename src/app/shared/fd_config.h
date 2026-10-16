@@ -126,6 +126,7 @@ struct fd_configf {
     ulong stake_delegation_cache_cnt;
     ulong program_cache_size_mib;
     ulong bank_cache_cnt;
+    ulong transaction_cache_size_mib;
   } runtime;
 
   struct {
@@ -310,6 +311,7 @@ struct fd_config {
     char epoch_credits[ PATH_MAX ];
     char cost_tracker[ PATH_MAX ];
     char vote_stakes[ PATH_MAX ];
+    char txncache[ PATH_MAX ];
     char shredb[ PATH_MAX ];
     char guidb[ PATH_MAX ];
     char vote_history[ PATH_MAX ];

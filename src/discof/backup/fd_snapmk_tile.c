@@ -338,7 +338,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<5UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
@@ -346,6 +346,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = ctx->snap_dir_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
   out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
   for( uint i=0U; i<ctx->snap_max; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_FD( i ); /* snapshot pool */
   return out_cnt;
@@ -363,7 +364,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)ctx->snap_dir_fd,
       (uint)FD_SNAP_FD( 0 ), (uint)FD_SNAP_FD( ctx->snap_max-1U ),
       (uint)FD_ACCDB_FD_RO,
-      (uint)FD_VOTE_STAKES_FD );
+      (uint)FD_VOTE_STAKES_FD,
+      (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_snapmk_tile_instr_cnt;
 }
 
@@ -415,7 +417,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_txncache_shmem_t * tc_shmem = fd_txncache_shmem_join( fd_topo_obj_laddr( topo, tile->snapmk.txncache_obj_id ) );
   FD_TEST( tc_shmem );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( _txnc_lj, tc_shmem ) );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txnc_lj, tc_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( ctx->txncache );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.zp_fseq_id ) ); FD_TEST( zp_fseq );
@@ -712,9 +714,7 @@ snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
   ulong         slot_history_sz = 0UL;
   uchar const * slot_history    =
       fd_sysvar_cache_data_query( &bank->f.sysvar_cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
-  if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id, bank->f.slot, slot_history, slot_history_sz, ctx->status_cache_writer_arena, ctx->status_cache_writer_arena_sz ) ) ) {
-    FD_LOG_CRIT(( "cannot serialize txncache fork %hu of snapshot bank at slot %lu because the root moved or SlotHistory lacks execution slots", bank->txncache_fork_id.val, bank->f.slot ));
-  }
+  fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->f.slot, slot_history, slot_history_sz, ctx->status_cache_writer_arena, ctx->status_cache_writer_arena_sz );
   ctx->status_cache_sz          = 0UL;
   ctx->status_cache_expected_sz = fd_txncache_writer_serialized_sz( ctx->txncache_writer );
 

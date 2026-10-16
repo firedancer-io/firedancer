@@ -370,6 +370,15 @@
         "accdb_disk_written_bytes":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
         "accdb_disk_written":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
         "accdb_copied_bytes":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" },
-        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" }
+        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" },
+        "txncache_page_miss":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache lookups under the read lock that found their page not resident and had to retake the write lock" },
+        "txncache_page_spilled":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Dirty transaction cache pages written to the spill file on eviction" },
+        "txncache_page_spill_read":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache pages read back from the spill file" },
+        "txncache_frame_evicted":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction cache frames evicted to load another page" },
+        "txncache_spill_duration_nanos":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time in transaction cache spill file reads and writes, all under the exclusive lock" },
+        "txncache_page_used":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction cache logical pages in use, resident or spilled" },
+        "txncache_page_capacity":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum transaction cache logical pages" },
+        "txncache_frame_used":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction cache in-memory frames holding a page" },
+        "txncache_frame_capacity":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transaction cache in-memory frames, from runtime.transaction_cache_size_mib" }
     }
 }
