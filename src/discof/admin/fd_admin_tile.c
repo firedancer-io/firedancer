@@ -25,6 +25,8 @@ struct fd_admin_tile_ctx {
   ulong snap_create_start_time;   /* command start retained until Replay responds */
 
   long poll_ticks;
+  long idle_poll_ticks;
+  long deadline_ticks; /* next adminctl poll */
 };
 
 typedef struct fd_admin_tile_ctx fd_admin_tile_ctx_t;
@@ -99,6 +101,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->replay_out_idx       = ULONG_MAX;
   ctx->snap_create_slot_idx = ULONG_MAX;
   ctx->poll_ticks           = (long)(1e6*fd_tempo_tick_per_ns( NULL )); /* 1ms */
+  ctx->idle_poll_ticks      = (long)((double)FD_SLEEP_PARK_CAP_NS*fd_tempo_tick_per_ns( NULL ));
+  ctx->deadline_ticks       = 0L;
   ctx->topo = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
@@ -1306,8 +1310,8 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
 }
 
 static inline long
-next_deadline( fd_admin_tile_ctx_t * ctx ) {
-  return fd_tickcount() + ctx->poll_ticks;
+next_deadline( fd_admin_tile_ctx_t const * ctx ) {
+  return ctx->deadline_ticks;
 }
 
 static inline void FD_FN_SENSITIVE
@@ -1321,7 +1325,11 @@ after_credit( fd_admin_tile_ctx_t * ctx,
   void *          payload    = NULL;
   ulong           payload_sz = 0UL;
 
-  ulong cmd_id = fd_adminctl_poll( adminctl, &slot_idx, &payload, &payload_sz );
+  if( FD_LIKELY( stem->now<ctx->deadline_ticks ) ) return;
+  ctx->deadline_ticks = stem->now + fd_long_if( ctx->snap_create_slot_idx!=ULONG_MAX, ctx->poll_ticks, ctx->idle_poll_ticks );
+
+  ulong cmd_id = FD_ADMINCTL_CMD_IDLE;
+  for( ulong i=0UL; i<FD_ADMINCTL_SLOT_CNT && cmd_id==FD_ADMINCTL_CMD_IDLE; i++ ) cmd_id = fd_adminctl_poll( adminctl, &slot_idx, &payload, &payload_sz );
   switch( cmd_id ) {
     case FD_ADMINCTL_CMD_IDLE:
       break;
@@ -1343,6 +1351,7 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       break;
     case FD_ADMINCTL_CMD_SNAP_CREATE:
       snapshot_create( ctx, stem, slot_idx, payload, payload_sz );
+      if( FD_LIKELY( ctx->snap_create_slot_idx!=ULONG_MAX ) ) ctx->deadline_ticks = stem->now + ctx->poll_ticks; /* poll fast while replay responds */
       *charge_busy = 1;
       *opt_poll_in = 0;
       break;
