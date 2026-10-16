@@ -3,7 +3,7 @@
 #include "fd_metrics_sample_gen.h"
 #include "fd_metrics_all.h"
 
-uint const fd_metrics_sample_snapct_state[ FD_METRICS_SAMPLE_SNAPCT_STATE_CNT ] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22 };
+uint const fd_metrics_sample_snapct_state[ FD_METRICS_SAMPLE_SNAPCT_STATE_CNT ] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26 };
 
 static uint const state_net_state[ 3 ] = { 1, 2, 3 };
 static uint const state_mlx5_state[ 3 ] = { 1, 2, 3 };
@@ -27,7 +27,7 @@ static uint const state_gossvf_state[ 3 ] = { 1, 2, 3 };
 static uint const state_sign_state[ 3 ] = { 1, 2, 3 };
 static uint const state_netlnk_state[ 3 ] = { 1, 2, 3 };
 static uint const state_snapct_state[ 3 ] = { 1, 2, 3 };
-static uint const state_snapct_load_state[ 22 ] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22 };
+static uint const state_snapct_load_state[ 26 ] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26 };
 static uint const state_snapld_state[ 3 ] = { 1, 2, 3 };
 static uint const state_snapld_stream_state[ 5 ] = { 1, 2, 3, 4, 5 };
 static uint const state_snapdc_state[ 3 ] = { 1, 2, 3 };
@@ -2562,7 +2562,7 @@ static fd_metrics_sample_field_t const fields_snapct[ 56 ] = {
   { FD_METRICS_COUNTER_TILE_DEVICE_IRQ_OFF, 22U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_OFF, 23U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_TILE_TIMER_IRQ_OFF, 24U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_OFF, 25U, FD_METRICS_SAMPLE_STATE, state_snapct_load_state, 22UL },
+  { FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_OFF, 25U, FD_METRICS_SAMPLE_STATE, state_snapct_load_state, 26UL },
   { FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_OFF, 26U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_FULL_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_INCREMENTAL_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4357,7 +4357,7 @@ static fd_metrics_sample_field_t const fields_motor[ 38 ] = {
   { FD_METRICS_COUNTER_TILE_TIMER_IRQ_OFF, 24U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_strmk[ 43 ] = {
+static fd_metrics_sample_field_t const fields_strmk[ 47 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4399,8 +4399,12 @@ static fd_metrics_sample_field_t const fields_strmk[ 43 ] = {
   { FD_METRICS_COUNTER_STRMK_KEY_RECEIVED_OFF, 25U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_STRMK_KEY_STORED_OFF, 26U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_STRMK_KEY_DROPPED_OFF, 27U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_GAUGE_STRMK_BLOCK_COUNT_OFF, 28U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_GAUGE_STRMK_KEY_COUNT_OFF, 29U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_STRMK_KEY_SKIPPED_OFF, 28U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_STRMK_APPENDVEC_WRITTEN_OFF, 29U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_STRMK_ACCOUNT_WRITTEN_OFF, 30U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_STRMK_ACCOUNT_DISK_READ_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_STRMK_TOMBSTONE_WRITTEN_OFF, 32U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_STRMK_KEY_COUNT_OFF, 33U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_link[ 9 ] = {
@@ -4456,7 +4460,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "snaprd", 59U, fields_snaprd, 42UL, 560UL },
   { "snapsv", 60U, fields_snapsv, 49UL, 634UL },
   { "motor", 62U, fields_motor, 38UL, 512UL },
-  { "strmk", 339459426U, fields_strmk, 43UL, 575UL },
+  { "strmk", 339459426U, fields_strmk, 47UL, 623UL },
   { NULL, 0U, NULL, 0UL, 0UL }
 };
 

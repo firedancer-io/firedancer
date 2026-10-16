@@ -265,7 +265,7 @@ wait_info_publish( fd_replay_tile_t * ctx ) {
   ctx->wait_info->info.delinquent_known           = ctx->delinquent_known;
   ctx->wait_info->info.delinquent_stake_lamports  = ctx->delinquent_stake_lamports;
   ctx->wait_info->info.cluster_active_stake_lamports = ctx->cluster_active_stake_lamports;
-  ctx->wait_info->info.snap_active                = ctx->snapmk.active || ctx->strmk.active;
+  ctx->wait_info->info.snap_active                = ctx->snapmk.active;
   ctx->wait_info->info.snap_finished_full         = ctx->snapmk.snap_finished_full;
   ctx->wait_info->info.snap_finished_incr         = ctx->snapmk.snap_finished_incr;
   ctx->wait_info->info.snap_full_interval_blocks  = ctx->snapmk.full_interval_blocks;
@@ -945,7 +945,7 @@ report_block_completed( fd_replay_tile_t *                 ctx,
   ev->caught_up            = !!ctx->caught_up;
   ev->turbine_slot         = ctx->catch_up_max_fec_slot==ULONG_MAX ? 0UL : ctx->catch_up_max_fec_slot;
   ev->fork_width           = ctx->banks->curr_fork_width;
-  ev->snapshot_in_progress = ctx->snapmk.active || ctx->strmk.active;
+  ev->snapshot_in_progress = ctx->snapmk.active;
   ev->live_bank_count      = fd_banks_pool_used_cnt( ctx->banks );
   ev->is_leader    = is_leader;
 
@@ -1312,7 +1312,7 @@ report_block_incomplete( fd_replay_tile_t * ctx,
   ev->caught_up            = !!ctx->caught_up;
   ev->turbine_slot         = ctx->catch_up_max_fec_slot==ULONG_MAX ? 0UL : ctx->catch_up_max_fec_slot;
   ev->fork_width           = ctx->banks->curr_fork_width;
-  ev->snapshot_in_progress = ctx->snapmk.active || ctx->strmk.active;
+  ev->snapshot_in_progress = ctx->snapmk.active;
   ev->live_bank_count      = fd_banks_pool_used_cnt( ctx->banks );
 
   int  dead      = dead_reason     !=FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD;
@@ -3199,7 +3199,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   /* accdb pauses advance_root while producing a snapshot, so submitting
      one would stall the next wait_cmd until the snapshot completes. */
-  if( FD_UNLIKELY( ctx->snapmk.active || ctx->strmk.active ) ) return 0;
+  if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
 
   /* Don't spin in advance_root on the previous root, replay instead and
      retry next iteration. */
@@ -3226,6 +3226,19 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   FD_TEST( published_root_bank );
   ulong published_root_block_height = published_root_bank->f.block_height;
   ulong consensus_root_block_height = target_bank->f.block_height;
+
+  /* A fast boot stream holds the root at its start slot until the
+     next snapshot and stream are due.  Once the next snapshot is due,
+     have strmk end its current stream and start a new one. */
+  if( FD_UNLIKELY( ctx->strmk.active ) ) {
+    int incremental;
+    if( FD_UNLIKELY( !ctx->strmk.stopping &&
+                     snapshot_due_for_root( ctx, published_root_block_height, target_bank->f.slot, consensus_root_block_height, consensus_root_block_height, &incremental ) ) ) {
+      fd_stem_publish( stem, ctx->snapmk_out->idx, REPLAY_SIG_STREAM_STOP, ctx->snapmk_out->chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->strmk.stopping = 1;
+    }
+    return 0;
+  }
 
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
@@ -3971,7 +3984,8 @@ snapmk_done( fd_replay_tile_t *  ctx,
 static void
 strmk_done( fd_replay_tile_t * ctx ) {
   FD_CHECK_CRIT( ctx->strmk.active, "spurious stream done msg (stream maker not reading the snapshot bank)" );
-  ctx->strmk.active = 0;
+  ctx->strmk.active   = 0;
+  ctx->strmk.stopping = 0;
   snap_release( ctx );
 }
 
@@ -4073,9 +4087,16 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->snapmk.active || ctx->strmk.active ) ) {
+  if( FD_UNLIKELY( ctx->snapmk.active ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but currently busy creating another snapshot. ignoring ..." ));
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+    return;
+  }
+
+  /* A stream holds the published root; it ends for a scheduled snapshot. */
+  if( FD_UNLIKELY( ctx->strmk.active ) ) {
+    ctx->snapmk.scheduled_at_slot = ctx->published_root_slot+1UL;
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
     return;
   }
 

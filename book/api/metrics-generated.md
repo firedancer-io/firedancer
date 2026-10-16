@@ -1908,10 +1908,14 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">strmk_&#8203;key_&#8203;received</span> | counter | Account keys received from the exec tiles |
-| <span class="metrics-name">strmk_&#8203;key_&#8203;stored</span> | counter | Account keys stored, the first time a block touched them |
+| <span class="metrics-name">strmk_&#8203;key_&#8203;stored</span> | counter | Account keys stored, the first time a block touched them since the last stream start |
 | <span class="metrics-name">strmk_&#8203;key_&#8203;dropped</span> | counter | Account keys not stored because the key pool was full |
-| <span class="metrics-name">strmk_&#8203;block_&#8203;count</span> | gauge | Blocks in the key window |
-| <span class="metrics-name">strmk_&#8203;key_&#8203;count</span> | gauge | Account keys stored for the blocks in the key window |
+| <span class="metrics-name">strmk_&#8203;key_&#8203;skipped</span> | counter | Account keys not written because the stream already sent them |
+| <span class="metrics-name">strmk_&#8203;appendvec_&#8203;written</span> | counter | Appendvec entries written to the stream, one per transaction |
+| <span class="metrics-name">strmk_&#8203;account_&#8203;written</span> | counter | Account records written to the stream |
+| <span class="metrics-name">strmk_&#8203;account_&#8203;disk_&#8203;read</span> | counter | Account records read from disk rather than the cache |
+| <span class="metrics-name">strmk_&#8203;tombstone_&#8203;written</span> | counter | Records written for accounts that do not exist |
+| <span class="metrics-name">strmk_&#8203;key_&#8203;count</span> | gauge | Account keys stored |
 
 </div>
 
