@@ -428,8 +428,9 @@ FD_UNIT_TEST( execrp_sigverify ) {
   ulong in_chunk = env->execrp->replay_in->chunk0;
   fd_execrp_txn_sigverify_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, sizeof(fd_execrp_txn_sigverify_msg_t) );
-  in_msg->bank_idx = env->bank_idx;
-  in_msg->txn_idx  = 91UL;
+  in_msg->bank_idx   = env->bank_idx;
+  in_msg->cnt        = 1UL;
+  in_msg->txn_idx[0] = 91UL;
   fd_memcpy( in_msg->txn, txn, sizeof(fd_txn_p_t) );
 
   fd_stem_context_t stem[1];
@@ -439,9 +440,75 @@ FD_UNIT_TEST( execrp_sigverify ) {
                              test_stem( env->execrp, stem ) ) );
 
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_SIGVERIFY );
-  FD_TEST( out_msg->txn_sigverify->txn_idx==91UL );
-  FD_TEST( out_msg->txn_sigverify->err );
+  FD_TEST( out_msg->txn_sigverify->cnt==1UL );
+  FD_TEST( out_msg->txn_sigverify->txn_idx[0]==91UL );
+  FD_TEST( out_msg->txn_sigverify->err[0] );
   FD_TEST( env->execrp->metrics.sigverify_cnt==TXN(txn)->signature_cnt );
+
+  test_env_destroy( env );
+}
+
+/* test_build_signed_txn builds an empty transaction whose fee payer is
+   the public key of private_key and signs it. */
+
+static void
+test_build_signed_txn( fd_txn_p_t * out,
+                       fd_bank_t *  bank,
+                       uchar const  private_key[ 32 ],
+                       fd_pubkey_t  extra_acct ) {
+  fd_sha512_t sha_mem[1];
+  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( sha_mem ) );
+  FD_TEST( sha );
+  fd_pubkey_t fee_payer;
+  fd_ed25519_public_from_private( fee_payer.uc, private_key, sha );
+  test_build_empty_txn( out, bank, fee_payer, extra_acct, 0UL, 0 );
+  fd_txn_t const * txn = TXN( out );
+  fd_ed25519_sign( out->payload+txn->signature_off, out->payload+txn->message_off,
+                   fd_txn_msg_sz( txn, out->payload_sz ), fee_payer.uc, private_key, sha );
+  fd_sha512_delete( fd_sha512_leave( sha ) );
+}
+
+FD_UNIT_TEST( execrp_sigverify_batch ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t data_acct = { .ul = { 0x9393UL } };
+  uchar private_key[ 3 ][ 32 ];
+  for( ulong i=0UL; i<3UL; i++ ) fd_memset( private_key[ i ], (int)(0x41UL+i), 32UL );
+
+  /* Transactions 0 and 2 carry valid signatures, transaction 1 does not */
+  fd_txn_p_t txn[ 3 ];
+  test_build_signed_txn( txn+0, bank, private_key[ 0 ], data_acct );
+  test_build_signed_txn( txn+1, bank, private_key[ 1 ], data_acct );
+  test_build_signed_txn( txn+2, bank, private_key[ 2 ], data_acct );
+  txn[ 1 ].payload[ TXN( txn+1 )->signature_off ] ^= (uchar)1;
+
+  ulong in_chunk = env->execrp->replay_in->chunk0;
+  fd_execrp_txn_sigverify_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
+  fd_memset( in_msg, 0, sizeof(fd_execrp_txn_sigverify_msg_t) );
+  in_msg->bank_idx = env->bank_idx;
+  in_msg->cnt      = 3UL;
+  ulong sig_cnt = 0UL;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    in_msg->txn_idx[ i ] = 100UL+i;
+    fd_memcpy( in_msg->txn+i, txn+i, sizeof(fd_txn_p_t) );
+    sig_cnt += TXN( txn+i )->signature_cnt;
+  }
+  FD_TEST( sig_cnt<=FD_EXECRP_SIGVERIFY_SIG_PARA );
+
+  fd_stem_context_t stem[1];
+  ulong const sig = (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | env->execrp->tile_idx;
+  FD_TEST( !returnable_frag( env->execrp, env->execrp->replay_in->idx, 0UL, sig, in_chunk,
+                             offsetof( fd_execrp_txn_sigverify_msg_t, txn )+3UL*sizeof(fd_txn_p_t), 0UL, 0UL, 0UL,
+                             test_stem( env->execrp, stem ) ) );
+
+  fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_SIGVERIFY );
+  FD_TEST( out_msg->txn_sigverify->cnt==3UL );
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( out_msg->txn_sigverify->txn_idx[ i ]==100UL+i );
+  FD_TEST( !out_msg->txn_sigverify->err[ 0 ] );
+  FD_TEST(  out_msg->txn_sigverify->err[ 1 ] );
+  FD_TEST( !out_msg->txn_sigverify->err[ 2 ] );
+  FD_TEST( env->execrp->metrics.sigverify_cnt==sig_cnt );
 
   test_env_destroy( env );
 }

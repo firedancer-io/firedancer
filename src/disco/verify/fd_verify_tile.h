@@ -30,14 +30,56 @@ typedef struct {
   ulong       wmark;
 } fd_verify_in_ctx_t;
 
+/* Transactions that are not part of a bundle are queued and their
+   signatures verified in one batch, so a batched verify backend can
+   check them together.  A batch is flushed when it holds
+   FD_VERIFY_BATCH_SIG_MAX signatures or FD_VERIFY_BATCH_TXN_MAX
+   transactions, when a fragment is rejected before it is queued, as
+   soon as no input has this tile's next fragment ready, and in any
+   case once its oldest transaction has waited FD_VERIFY_BATCH_MAX_AGE_NS,
+   so batching only happens while the tile is behind and a queued
+   transaction is never held beyond that bound. */
+
+#define FD_VERIFY_BATCH_TXN_MAX    (8UL)
+#define FD_VERIFY_BATCH_SIG_MAX    (8UL)
+#define FD_VERIFY_BATCH_LANE_MAX   (FD_VERIFY_BATCH_TXN_MAX*FD_TXN_SIG_MAX)
+#define FD_VERIFY_BATCH_MAX_AGE_NS (1000000L)
+
 typedef struct {
-  /* TODO switch to fd_sha512_batch_t? */
+  ulong chunk;       /* out chunk the staged transaction occupies */
+  ulong realized_sz; /* fd_txn_m_realized_footprint of it */
+  ulong tsorig;
+  ulong dedup_tag;
+  long  enq_tick;    /* fd_tickcount when queued */
+  uchar sig_cnt;
+} fd_verify_batch_txn_t;
+
+typedef struct {
   fd_sha512_t * sha[ FD_TXN_SIG_MAX ];
 
   fd_ed25519_cache_t * ed25519_cache;
 
   int   bundle_failed;
   ulong bundle_id;
+
+  /* One sha per lane the batch can hold */
+  fd_sha512_t * batch_sha[ FD_VERIFY_BATCH_LANE_MAX ];
+
+  fd_verify_batch_txn_t batch_txn[ FD_VERIFY_BATCH_TXN_MAX ];
+  ulong                 batch_txn_cnt;
+  ulong                 batch_sig_cnt;      /* lanes in use, sum of batch_txn[].sig_cnt */
+  long                  batch_max_age_ticks; /* FD_VERIFY_BATCH_MAX_AGE_NS in ticks */
+
+  /* Per input, the sequence number of a fragment for this tile that was
+     seen published; no need to look again until it is consumed. */
+  ulong in_cnt;
+  ulong in_ready_seq[ 32 ];
+
+  uchar const * batch_msg   [ FD_VERIFY_BATCH_LANE_MAX ];
+  ulong         batch_msg_sz[ FD_VERIFY_BATCH_LANE_MAX ];
+  uchar const * batch_sig   [ FD_VERIFY_BATCH_LANE_MAX ];
+  uchar const * batch_pubkey[ FD_VERIFY_BATCH_LANE_MAX ];
+  int           batch_result[ FD_VERIFY_BATCH_LANE_MAX ];
 
   ulong round_robin_idx;
   ulong round_robin_cnt;
