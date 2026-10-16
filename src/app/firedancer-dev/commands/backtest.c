@@ -471,12 +471,20 @@ backtest_topo( config_t * config ) {
 
   if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
 
-  // fd_topob_auto_layout( topo, 0 );
   if( FD_UNLIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
       FD_LOG_ERR(( "topology has %lu tiles but [layout.affinity] only provides %lu entries", topo->tile_cnt, affinity_tile_cnt ));
     if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
       FD_LOG_WARNING(( "topology has %lu tiles but [layout.affinity] provides %lu entries, extra entries will be unused", topo->tile_cnt, affinity_tile_cnt ));
+  } else {
+    ushort blocklist_cores[ FD_TILE_MAX ];
+    topo->blocklist_cores_cnt = fd_topob_parse_affinity_cstr( config->layout.blocklist_cores, blocklist_cores, 0, 0 );
+    if( FD_UNLIKELY( topo->blocklist_cores_cnt>FD_TILE_MAX ) ) FD_LOG_ERR(( "[layout.blocklist_cores] specifies more than %lu CPUs", FD_TILE_MAX ));
+    for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
+      if( FD_UNLIKELY( blocklist_cores[ i ]==USHORT_MAX ) ) FD_LOG_ERR(( "[layout.blocklist_cores] must not contain `f`" ));
+      topo->blocklist_cores_cpu_idx[ i ] = blocklist_cores[ i ];
+    }
+    fd_topob_auto_layout( topo, 0 );
   }
 
   fd_topob_waker( topo );
