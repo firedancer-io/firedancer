@@ -20,7 +20,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(), fd_tcache_footprint( tile->verify.tcache_depth, 0UL ) );
-  for( ulong i=0; i<FD_TXN_SIG_MAX; i++ ) {
+  for( ulong i=0; i<FD_TXN_SIG_MAX+FD_VERIFY_BATCH_LANE_MAX; i++ ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
   l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FD_VERIFY_ED25519_CACHE_ENT_CNT ) );
@@ -94,6 +94,146 @@ during_frag( fd_verify_ctx_t * ctx,
   }
 }
 
+/* Verify every pending signature at once, then publish the
+   transactions whose signatures all passed, in arrival order.  The
+   published ones are moved down over the rejected ones, so the out
+   chunk only advances by what is published and the unpublished data
+   in the dcache never exceeds the pending batch plus one staged
+   fragment.  The fragment of staged_sz bytes staged at the out chunk
+   (staged_sz 0 if none) moves along; its new address is returned. */
+static fd_txn_m_t *
+batch_flush( fd_verify_ctx_t *   ctx,
+             fd_stem_context_t * stem,
+             ulong               staged_sz ) {
+  if( FD_LIKELY( !ctx->batch_txn_cnt ) ) return fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+
+  fd_ed25519_verify_batch_multi_msg_cached( ctx->batch_msg, ctx->batch_msg_sz, ctx->batch_sig, ctx->batch_pubkey,
+                                            ctx->batch_sha, ctx->batch_result, ctx->batch_sig_cnt, ctx->ed25519_cache );
+
+  ulong chunk = ctx->batch_txn[ 0 ].chunk;
+  ulong lane  = 0UL;
+  for( ulong i=0UL; i<ctx->batch_txn_cnt; i++ ) {
+    fd_verify_batch_txn_t * t = ctx->batch_txn+i;
+    int ok = 1;
+    for( ulong j=0UL; j<t->sig_cnt; j++ ) ok &= (ctx->batch_result[ lane++ ]==FD_ED25519_SUCCESS);
+    if( FD_UNLIKELY( !ok ) ) {
+      ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SIGNATURE_FAILED_IDX ]++;
+      continue;
+    }
+
+    /* The dedup check is repeated to guard against duplicates that
+       were both pending at once */
+    int ha_dup;
+    FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, t->dedup_tag );
+    if( FD_UNLIKELY( ha_dup ) ) {
+      ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_DUPLICATE_IDX ]++;
+      continue;
+    }
+
+    if( FD_UNLIKELY( t->chunk!=chunk ) ) {
+      memmove( fd_chunk_to_laddr( ctx->out_mem, chunk ), fd_chunk_to_laddr( ctx->out_mem, t->chunk ), t->realized_sz );
+    }
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, 0UL, 0UL, chunk, t->realized_sz, 0UL, t->tsorig, tspub );
+    chunk = fd_dcache_compact_next( chunk, t->realized_sz, ctx->out_chunk0, ctx->out_wmark );
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SUCCESS_IDX ]++;
+  }
+
+  if( FD_UNLIKELY( staged_sz && chunk!=ctx->out_chunk ) ) {
+    memmove( fd_chunk_to_laddr( ctx->out_mem, chunk ), fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), staged_sz );
+  }
+  ctx->out_chunk     = chunk;
+  ctx->batch_txn_cnt = 0UL;
+  ctx->batch_sig_cnt = 0UL;
+  return fd_chunk_to_laddr( ctx->out_mem, chunk );
+}
+
+/* Queue a parsed non-bundle transaction, staged at the out chunk, that
+   passed the dedup query.  Its out chunk is claimed now and published
+   by batch_flush. */
+static inline void
+batch_enqueue( fd_verify_ctx_t *   ctx,
+               fd_stem_context_t * stem,
+               fd_txn_m_t *        txnm,
+               ulong               tsorig,
+               ulong               dedup_tag ) {
+  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
+
+  /* A transaction with more signatures than the lanes left goes out
+     with the next batch. */
+  if( FD_UNLIKELY( ctx->batch_sig_cnt+fd_txn_m_txn_t( txnm )->signature_cnt>FD_VERIFY_BATCH_LANE_MAX ) ) {
+    txnm = batch_flush( ctx, stem, realized_sz );
+  }
+
+  fd_txn_t const * txn     = fd_txn_m_txn_t( txnm );
+  uchar const *    payload = fd_txn_m_payload( txnm );
+  ulong            msg_sz  = fd_txn_msg_sz( txn, (ulong)txnm->payload_sz );
+  for( ulong j=0UL; j<txn->signature_cnt; j++ ) {
+    ulong lane = ctx->batch_sig_cnt++;
+    ctx->batch_msg   [ lane ] = payload + txn->message_off;
+    ctx->batch_msg_sz[ lane ] = msg_sz;
+    ctx->batch_sig   [ lane ] = payload + txn->signature_off + 64UL*j;
+    ctx->batch_pubkey[ lane ] = payload + txn->acct_addr_off + 32UL*j;
+  }
+
+  fd_verify_batch_txn_t * t = ctx->batch_txn + ctx->batch_txn_cnt++;
+  t->chunk       = ctx->out_chunk;
+  t->realized_sz = realized_sz;
+  t->tsorig      = tsorig;
+  t->dedup_tag   = dedup_tag;
+  t->enq_tick    = fd_tickcount();
+  t->sig_cnt     = txn->signature_cnt;
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
+
+  if( FD_LIKELY( ctx->batch_sig_cnt>=FD_VERIFY_BATCH_SIG_MAX || ctx->batch_txn_cnt>=FD_VERIFY_BATCH_TXN_MAX ) ) batch_flush( ctx, stem, 0UL );
+}
+
+/* Is a fragment this tile will take already published on some input?
+   On the links shared round robin that is the next sequence number in
+   this tile's slot, not the next one on the link; on the bundle link,
+   whose bundles all go to one tile, it is the next one.  A published
+   fragment counts only if before_frag keeps it, so a filtered one
+   flushes early rather than holding the batch.  An input that has
+   overrun this tile does not count either: the stem resynchronizes it
+   without delivering a fragment, so a batch must not wait on it.  The
+   signature is read after the sequence number without an atomic pair:
+   a misread only moves one flush decision, never a fragment. */
+static inline int
+frag_ready( fd_verify_ctx_t *         ctx,
+            fd_stem_context_t const * stem ) {
+  for( ulong i=0UL; i<ctx->in_cnt; i++ ) {
+    fd_stem_tile_in_t const * in = stem->in + i;
+    ulong in_idx = (ulong)in->idx;
+    ulong seq    = in->seq;
+    if( FD_LIKELY( fd_seq_lt( seq, ctx->in_ready_seq[ in_idx ] ) ) ) return 1;
+    ulong kind = ctx->in_kind[ in_idx ];
+    if( FD_LIKELY( kind==IN_KIND_QUIC || kind==IN_KIND_GOSSIP ) ) {
+      seq += (ctx->round_robin_idx + ctx->round_robin_cnt - seq%ctx->round_robin_cnt) % ctx->round_robin_cnt;
+    }
+    fd_frag_meta_t const * mline = in->mcache + fd_mcache_line_idx( seq, in->depth );
+    ulong seq_found = fd_frag_meta_seq_query( mline );
+    if( FD_LIKELY( fd_seq_ne( seq_found, seq ) ) ) continue;
+    ulong sig = FD_VOLATILE_CONST( mline->sig );
+    if( FD_UNLIKELY( before_frag( ctx, in_idx, seq, sig ) ) ) continue;
+    ctx->in_ready_seq[ in_idx ] = seq+1UL;
+    return 1;
+  }
+  return 0;
+}
+
+/* A pending batch is held while a fragment is ready, up to the age
+   bound on its oldest transaction, and flushed otherwise. */
+static inline void
+after_credit( fd_verify_ctx_t *   ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               charge_busy ) {
+  if( FD_LIKELY( !ctx->batch_txn_cnt ) ) return;
+  if( FD_LIKELY( fd_tickcount()-ctx->batch_txn[ 0 ].enq_tick<ctx->batch_max_age_ticks && frag_ready( ctx, stem ) ) ) return;
+  batch_flush( ctx, stem, 0UL );
+  *charge_busy = 1;
+}
+
 static inline void
 after_frag( fd_verify_ctx_t *   ctx,
             ulong               in_idx,
@@ -121,40 +261,67 @@ after_frag( fd_verify_ctx_t *   ctx,
 
   int is_bundle = !!txnm->block_engine.bundle_id;
 
-  if( FD_UNLIKELY( is_bundle & (txnm->block_engine.bundle_id!=ctx->bundle_id) ) ) {
-    ctx->bundle_failed = 0;
-    ctx->bundle_id     = txnm->block_engine.bundle_id;
-  }
-
-  if( FD_UNLIKELY( is_bundle & (!!ctx->bundle_failed) ) ) {
-    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_BUNDLE_PEER_FAILED_IDX ]++;
-    return;
-  }
-
-  if( FD_UNLIKELY( !txnm->txn_t_sz ) ) {
-    if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
-    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_PARSE_FAILED_IDX ]++;
-    return;
-  }
-
   /* Users sometimes send transactions as part of a bundle (with a tip)
      and via the normal path (without a tip).  Regardless of which
      arrives first, we want to pack the one with the tip.  Thus, we
      exempt bundles from the normal HA dedup checks.  The dedup tile
      will still do a full-bundle dedup check to make sure to drop any
-     identical bundles. */
-  ulong _txn_sig;
-  int res = fd_txn_verify( ctx, fd_txn_m_payload( txnm ), txnm->payload_sz, txnt, !is_bundle, &_txn_sig );
-  if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
-    if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
+     identical bundles.
 
-    if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_DUPLICATE_IDX ]++;
-    else                                        ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SIGNATURE_FAILED_IDX ]++;
+     A fragment rejected here was counted as ready by after_credit
+     while it was in flight, so the pending batch is flushed in its
+     place rather than held for the next fragment. */
+  if( FD_LIKELY( !is_bundle ) ) {
+    if( FD_UNLIKELY( !txnm->txn_t_sz ) ) {
+      ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_PARSE_FAILED_IDX ]++;
+      batch_flush( ctx, stem, 0UL );
+      return;
+    }
 
+    ulong dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_m_payload( txnm )+txnt->signature_off, 64UL );
+    int   ha_dup;
+    FD_FN_UNUSED ulong tcache_map_idx = 0;
+    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, dedup_tag );
+    if( FD_UNLIKELY( ha_dup ) ) {
+      ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_DUPLICATE_IDX ]++;
+      batch_flush( ctx, stem, 0UL );
+      return;
+    }
+    batch_enqueue( ctx, stem, txnm, tsorig, dedup_tag );
     return;
   }
 
-  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
+  /* A bundle transaction is verified in order and on its own, after
+     anything queued ahead of it.  An unparsed one has no txn_t to
+     carry along. */
+  ulong realized_sz = fd_txn_m_realized_footprint( txnm, !!txnm->txn_t_sz, 0 );
+  txnm = batch_flush( ctx, stem, realized_sz );
+  txnt = fd_txn_m_txn_t( txnm );
+
+  if( FD_UNLIKELY( txnm->block_engine.bundle_id!=ctx->bundle_id ) ) {
+    ctx->bundle_failed = 0;
+    ctx->bundle_id     = txnm->block_engine.bundle_id;
+  }
+
+  if( FD_UNLIKELY( ctx->bundle_failed ) ) {
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_BUNDLE_PEER_FAILED_IDX ]++;
+    return;
+  }
+
+  if( FD_UNLIKELY( !txnm->txn_t_sz ) ) {
+    ctx->bundle_failed = 1;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_PARSE_FAILED_IDX ]++;
+    return;
+  }
+
+  ulong _txn_sig;
+  int res = fd_txn_verify( ctx, fd_txn_m_payload( txnm ), txnm->payload_sz, txnt, 0, &_txn_sig );
+  if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
+    ctx->bundle_failed = 1;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SIGNATURE_FAILED_IDX ]++;
+    return;
+  }
+
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
@@ -190,10 +357,21 @@ unprivileged_init( fd_topo_t const *      topo,
     if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
     ctx->sha[i] = sha;
   }
+  for ( ulong i=0; i<FD_VERIFY_BATCH_LANE_MAX; i++ ) {
+    fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
+    if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
+    ctx->batch_sha[i] = sha;
+  }
 
   void * _ed25519_cache = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FD_VERIFY_ED25519_CACHE_ENT_CNT ) );
   ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, FD_VERIFY_ED25519_CACHE_ENT_CNT, ctx->hashmap_seed ) );
   FD_TEST( ctx->ed25519_cache );
+
+  ctx->batch_txn_cnt       = 0UL;
+  ctx->batch_sig_cnt       = 0UL;
+  ctx->batch_max_age_ticks = (long)( fd_tempo_tick_per_ns( NULL ) * (double)FD_VERIFY_BATCH_MAX_AGE_NS );
+  ctx->in_cnt              = tile->in_cnt;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) ctx->in_ready_seq[ i ] = 0UL;
 
   ctx->bundle_failed = 0;
   ctx->bundle_id     = 0UL;
@@ -262,12 +440,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+/* A flush publishes every queued transaction, plus one for a bundle
+   transaction verified on its own */
+#define STEM_BURST (FD_VERIFY_BATCH_TXN_MAX+1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_verify_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_verify_ctx_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT  after_credit
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
