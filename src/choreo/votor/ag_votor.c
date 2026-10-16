@@ -80,6 +80,7 @@ typedef struct slot_states slot_states_t;
 struct epoch_bls_key {
   ulong start_slot;
   ulong rank;
+  long  ns_per_slot;
   uchar bls_key[ FD_BLS_PUB_COMPRESSED_SZ ];
   int   has_bls_key;
 };
@@ -151,6 +152,14 @@ push_vote( ag_votor_t * self,
   state->vote_cnt++;
 }
 
+FD_FN_PURE static epoch_bls_key_t const *
+own_epoch( ag_votor_t const * self,
+           ulong              slot ) {
+  if( FD_UNLIKELY( slot>=self->next_epoch.start_slot ) ) return &self->next_epoch;
+  if( FD_LIKELY( slot>=self->curr_epoch.start_slot ) ) return &self->curr_epoch;
+  return &self->prev_epoch;
+}
+
 /* No crashed-leader timeout.  Agave tracks one, but with
    delta_first_fec_set = delta_block its deadline lands on the first
    slot's timeout, so it never skips a window earlier. */
@@ -160,10 +169,12 @@ set_timeouts( ag_votor_t * self,
               ulong        slot ) {
   FD_TEST( ag_is_start_of_window( slot ) );
 
-  long deadline = self->now + AG_DELTA_TIMEOUT_NS + self->ns_per_slot;
+  long ns_per_slot = own_epoch( self, slot )->ns_per_slot; /* the window's own epoch, not the latest one announced */
+  if( FD_UNLIKELY( !ns_per_slot ) ) ns_per_slot = self->ns_per_slot;
+  long deadline = self->now + AG_DELTA_TIMEOUT_NS + ns_per_slot;
 
   for( ulong s=slot; s<slot+AG_SLOTS_PER_WINDOW; s++ ) {
-    deadline += fd_long_if( ag_is_start_of_window( s ), 0L, self->ns_per_slot );
+    deadline += fd_long_if( ag_is_start_of_window( s ), 0L, ns_per_slot );
 
     /* A slot's deadline is now plus an offset fixed by its position in the
        window, so each position's list fills in deadline order and its head
@@ -391,14 +402,6 @@ ag_votor_metrics( ag_votor_t const * self ) {
   };
 }
 
-FD_FN_PURE static epoch_bls_key_t const *
-own_epoch( ag_votor_t const * self,
-           ulong              slot ) {
-  if( FD_UNLIKELY( slot>=self->next_epoch.start_slot ) ) return &self->next_epoch;
-  if( FD_LIKELY( slot>=self->curr_epoch.start_slot ) ) return &self->curr_epoch;
-  return &self->prev_epoch;
-}
-
 FD_FN_PURE static int
 is_retired( ag_votor_t const * self,
             ulong              slot ) {
@@ -597,7 +600,7 @@ ag_votor_advance_epoch( ag_votor_t *       self,
                         ulong              epoch_rank,
                         ulong              epoch_slot,
                         ag_bls_key_t const bls_key ) {
-  epoch_bls_key_t epoch = { .start_slot = epoch_slot, .rank = epoch_rank, .has_bls_key = !!bls_key };
+  epoch_bls_key_t epoch = { .start_slot = epoch_slot, .rank = epoch_rank, .ns_per_slot = ns_per_slot, .has_bls_key = !!bls_key };
   if( FD_LIKELY( bls_key ) ) memcpy( epoch.bls_key, bls_key, FD_BLS_PUB_COMPRESSED_SZ );
 
   if( FD_UNLIKELY( self->curr_epoch.start_slot==ULONG_MAX ) ) {
@@ -609,7 +612,6 @@ ag_votor_advance_epoch( ag_votor_t *       self,
     self->curr_epoch = self->next_epoch;
     self->next_epoch = epoch;
   }
-  self->ns_per_slot = ns_per_slot;
 }
 
 static epoch_bls_key_t *
