@@ -21,7 +21,6 @@ quiesce() { # identical host state before every timed run; args: files to pre-re
   for _ in $(seq 60); do  # let writeback drain
     (( $(awk '/^(Dirty|Writeback):/{s+=$2} END{print s}' /proc/meminfo) < 16384 )) && break; sleep 0.5
   done
-  sudo fstrim "$(findmnt -n -o TARGET -T "$DUMP_DIR")" || true  # discard the deleted accounts.db: both sides write to trimmed flash
 }
 
 backtest() { # ledger, then run_ledger_backtest.sh args
