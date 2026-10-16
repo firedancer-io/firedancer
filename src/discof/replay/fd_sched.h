@@ -6,12 +6,11 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
-#include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
 #include "../../disco/fd_clock_tile.h"
 
-/* Microblocks per slot at the production shred limit; scaled with
-   max_shreds_per_block at runtime. */
-#define FD_SCHED_MAX_MBLK_PER_SLOT (MAX_SKIPPED_TICKS)
+/* Max microblocks (including ticks) that fit in a block's shreds;
+   scaled with max_shreds_per_block at runtime. */
+#define FD_SCHED_MAX_MBLK_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT/sizeof(fd_microblock_hdr_t))
 
 /* Most exec tiles a scheduler can dispatch to. */
 #define FD_SCHED_MAX_EXEC_TILE_CNT (64UL)
