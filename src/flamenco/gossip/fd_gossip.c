@@ -182,6 +182,14 @@ ping_tracker_change( void *        _ctx,
   }
 
   ulong ci_idx = fd_crds_ci_idx( ctx->crds, peer_pubkey );
+
+  if( FD_UNLIKELY( ci_idx!=ULONG_MAX ) ) {
+    fd_gossip_contact_info_t const * ci = fd_crds_ci( ctx->crds, ci_idx );
+    if( FD_UNLIKELY( ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ||
+                     ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4!=peer_address.addr ||
+                     ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port!=peer_address.port ) ) ci_idx = ULONG_MAX;
+  }
+
   if( FD_UNLIKELY( ci_idx!=ULONG_MAX ) ) {
     switch( change_type ) {
       case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:
@@ -666,6 +674,8 @@ rx_pull_request( fd_gossip_t *                    gossip,
                  fd_ip4_port_t                    peer_addr,
                  fd_stem_context_t *              stem,
                  long                             now ) {
+  fd_gossip_ping_tracker_track( gossip, pr_view->contact_info->origin, peer_addr, now );
+
   /* Replenish and check outbound data budget.  If the budget is
      exhausted, skip generating pull responses entirely. */
   if( FD_UNLIKELY( !outbound_budget_replenish( gossip, now ) ) ) return;
@@ -778,12 +788,19 @@ rx_values( fd_gossip_t *             gossip,
 
     int origin_ping_tracker_active = 0;
     fd_ip4_port_t origin_addr = { 0 };
+    fd_ip4_port_t prev_addr   = { 0 };
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       origin_addr = (fd_ip4_port_t){
         .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
         .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
       };
       origin_ping_tracker_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr );
+      ulong prev_ci_idx = fd_crds_ci_idx( gossip->crds, value->origin );
+      if( FD_UNLIKELY( prev_ci_idx!=ULONG_MAX ) ) {
+        fd_gossip_contact_info_t const * prev = fd_crds_ci( gossip->crds, prev_ci_idx );
+        prev_addr.addr = prev->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : prev->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+        prev_addr.port = prev->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
+      }
     }
 
     results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, now, stem );
@@ -791,6 +808,11 @@ rx_values( fd_gossip_t *             gossip,
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, value->origin, origin_stake, origin_addr, now );
+
+      /* Moved to a socket that has not ponged: stop pushing to it. */
+      if( FD_UNLIKELY( prev_addr.addr && prev_addr.l!=origin_addr.l && !origin_ping_tracker_active && origin_stake<FD_GOSSIP_STAKED_THRESHOLD ) ) {
+        fd_active_set_remove_peer( gossip->active_set, fd_crds_ci_idx( gossip->crds, value->origin ) );
+      }
 
       /* We just learned this peer's contact info.  Drain any
          no_contact_info hashes associated with this origin from the

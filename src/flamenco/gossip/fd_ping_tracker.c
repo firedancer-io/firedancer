@@ -16,9 +16,21 @@ struct pubkey_private {
 
 typedef struct pubkey_private pubkey_private_t;
 
-struct fd_ping_peer {
+struct peer_key {
+  pubkey_private_t pubkey;
   fd_ip4_port_t    address;
-  pubkey_private_t identity_pubkey;
+};
+
+typedef struct peer_key peer_key_t;
+
+struct fd_ping_peer {
+  union {
+    peer_key_t key;
+    struct {
+      pubkey_private_t identity_pubkey;
+      fd_ip4_port_t    address;
+    };
+  };
   uchar            ping_token[ 32UL ];
   uchar            expected_pong_hash[ 32UL ];
 
@@ -35,6 +47,9 @@ struct fd_ping_peer {
 
   ulong map_next;
   ulong map_prev;
+
+  ulong id_next;
+  ulong id_prev;
 
   union {
     struct {
@@ -87,11 +102,24 @@ typedef struct fd_ping_peer fd_ping_peer_t;
 
 #define MAP_NAME  peer_map
 #define MAP_ELE_T fd_ping_peer_t
-#define MAP_KEY_T pubkey_private_t
-#define MAP_KEY   identity_pubkey
+#define MAP_KEY_T peer_key_t
+#define MAP_KEY   key
 #define MAP_IDX_T ulong
 #define MAP_NEXT  map_next
 #define MAP_PREV  map_prev
+#define MAP_KEY_HASH(k,s) fd_hash32( (k)->pubkey.b, (s)^(ulong)(k)->address.l )
+#define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->pubkey.b, (k1)->pubkey.b, 32UL) && (k0)->address.l==(k1)->address.l)
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define MAP_NAME  id_map
+#define MAP_ELE_T fd_ping_peer_t
+#define MAP_KEY_T pubkey_private_t
+#define MAP_KEY   identity_pubkey
+#define MAP_IDX_T ulong
+#define MAP_NEXT  id_next
+#define MAP_PREV  id_prev
+#define MAP_MULTI 1
 #define MAP_KEY_HASH(k,s) fd_hash32( (k)->b, (s) )
 #define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->b, (k1)->b, 32UL))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -114,6 +142,7 @@ struct __attribute__((aligned(FD_PING_TRACKER_ALIGN))) fd_ping_tracker_private {
   refreshing_list_t * refreshing;
 
   peer_map_t *        peers;
+  id_map_t *          ids;
 
   fd_ping_tracker_change_fn change_fn;
   void *                    change_fn_ctx;
@@ -138,6 +167,7 @@ fd_ping_tracker_footprint( ulong entrypoints_len ) {
   l = FD_LAYOUT_APPEND( l, waiting_list_align(),    waiting_list_footprint()              );
   l = FD_LAYOUT_APPEND( l, refreshing_list_align(), refreshing_list_footprint()           );
   l = FD_LAYOUT_APPEND( l, peer_map_align(),        peer_map_footprint( 8192UL )          );
+  l = FD_LAYOUT_APPEND( l, id_map_align(),          id_map_footprint( 8192UL )            );
   return FD_LAYOUT_FINI( l, FD_PING_TRACKER_ALIGN );
 }
 
@@ -167,6 +197,7 @@ fd_ping_tracker_new( void *                    shmem,
   void * _waiting                  = FD_SCRATCH_ALLOC_APPEND( l, waiting_list_align(),    waiting_list_footprint()              );
   void * _refreshing               = FD_SCRATCH_ALLOC_APPEND( l, refreshing_list_align(), refreshing_list_footprint()           );
   void * _peers                    = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),        peer_map_footprint( 8192UL )          );
+  void * _ids                      = FD_SCRATCH_ALLOC_APPEND( l, id_map_align(),          id_map_footprint( 8192UL )            );
 
   FD_TEST( fd_chacha_rng_join( fd_chacha_rng_new( ping_tracker->rng, FD_CHACHA_RNG_MODE_SHIFT ) ) );
   fd_chacha_rng_init( ping_tracker->rng, seed, FD_CHACHA_RNG_ALGO_CHACHA8 );
@@ -182,6 +213,8 @@ fd_ping_tracker_new( void *                    shmem,
   FD_TEST( ping_tracker->refreshing );
   ping_tracker->peers = peer_map_join( peer_map_new( _peers, 8192UL, fd_chacha_rng_ulong( ping_tracker->rng ) ) );
   FD_TEST( ping_tracker->peers );
+  ping_tracker->ids = id_map_join( id_map_new( _ids, 8192UL, fd_chacha_rng_ulong( ping_tracker->rng ) ) );
+  FD_TEST( ping_tracker->ids );
 
   ping_tracker->entrypoints_cnt = entrypoints_len;
   ping_tracker->entrypoints = (fd_ip4_port_t *)_entrypoints;
@@ -255,6 +288,7 @@ remove_peer( fd_ping_tracker_t * ping_tracker,
              long                now,
              int                 change_type ) {
   peer_map_ele_remove_fast( ping_tracker->peers, peer, ping_tracker->pool );
+  id_map_ele_remove_fast( ping_tracker->ids, peer, ping_tracker->pool );
   lru_list_ele_remove( ping_tracker->lru, peer, ping_tracker->pool );
   remove_tracking( ping_tracker, peer );
   if( FD_LIKELY( peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING ) ) {
@@ -270,6 +304,16 @@ remove_peer( fd_ping_tracker_t * ping_tracker,
   pool_ele_release( ping_tracker->pool, peer );
 }
 
+static inline fd_ping_peer_t *
+query( fd_ping_tracker_t * ping_tracker,
+       uchar const *       peer_pubkey,
+       fd_ip4_port_t       peer_address ) {
+  peer_key_t key;
+  fd_memcpy( key.pubkey.b, peer_pubkey, 32UL );
+  key.address.l = peer_address.l;
+  return peer_map_ele_query( ping_tracker->peers, &key, NULL, ping_tracker->pool );
+}
+
 void
 fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
                        uchar const *       peer_pubkey,
@@ -278,11 +322,17 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
                        long                now ) {
   if( FD_UNLIKELY( !peer_address.addr ) ) return;
 
-  fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
+  if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) {
+    /* Node went from unstaked (or low staked) to
+       >=FD_GOSSIP_STAKED_THRESHOLD lamports.  No longer need to ping
+       it at any socket. */
+    ulong cnt = fd_ping_tracker_remove_all( ping_tracker, peer_pubkey, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED );
+    ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_STAKED_IDX ] += cnt;
+    return;
+  }
 
+  fd_ping_peer_t * peer = query( ping_tracker, peer_pubkey, peer_address );
   if( FD_UNLIKELY( !peer ) ) {
-    if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) return;
-
     if( FD_UNLIKELY( !pool_free( ping_tracker->pool ) ) ) {
       peer = lru_list_ele_peek_head( ping_tracker->lru, ping_tracker->pool );
       remove_peer( ping_tracker, peer, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
@@ -291,54 +341,21 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
     peer = pool_ele_acquire( ping_tracker->pool );
 
     fd_memcpy( peer->identity_pubkey.b, peer_pubkey, 32UL );
-    peer->address           = peer_address;
+    peer->address.l         = peer_address.l;
     peer->valid_until_nanos = 0L;
     peer->next_ping_nanos   = now;
     peer->state             = FD_PING_TRACKER_STATE_UNPINGED;
     ping_tracker->metrics->unpinged_cnt++;
     ping_tracker->metrics->tracked_cnt++;
+    if( FD_UNLIKELY( id_map_ele_query_const( ping_tracker->ids, &peer->identity_pubkey, NULL, ping_tracker->pool ) ) ) ping_tracker->metrics->address_changed_cnt++;
 
     generate_ping_token( peer, ping_tracker->rng );
     hash_ping_token( peer->ping_token, peer->expected_pong_hash, ping_tracker->sha );
 
     unpinged_list_ele_push_head( ping_tracker->unpinged, peer, ping_tracker->pool );
     peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
+    id_map_ele_insert( ping_tracker->ids, peer, ping_tracker->pool );
     lru_list_ele_push_tail( ping_tracker->lru, peer, ping_tracker->pool );
-  } else {
-    if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) {
-      /* Node went from unstaked (or low staked) to
-         >=FD_GOSSIP_STAKED_THRESHOLD lamports.  No longer need to ping
-         it. */
-      ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_STAKED_IDX ]++;
-      remove_peer( ping_tracker, peer, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED );
-      return;
-    }
-
-    if( FD_UNLIKELY( peer_address.addr!=peer->address.addr || peer_address.port!=peer->address.port ) ) {
-      /* Node changed address, update the address.  Any existing pongs
-         are no longer valid. */
-      peer->address           = peer_address;
-      peer->valid_until_nanos = 0UL;
-      remove_tracking( ping_tracker, peer );
-      if( FD_LIKELY( peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING ) ) {
-        ping_tracker->change_fn( ping_tracker->change_fn_ctx, peer->identity_pubkey.b, peer->address, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
-      }
-      ping_tracker->metrics->address_changed_cnt++;
-      switch( peer->state ) {
-        case FD_PING_TRACKER_STATE_UNPINGED:         ping_tracker->metrics->unpinged_cnt--; break;
-        case FD_PING_TRACKER_STATE_INVALID:          ping_tracker->metrics->invalid_cnt--; break;
-        case FD_PING_TRACKER_STATE_VALID:            ping_tracker->metrics->valid_cnt--; break;
-        case FD_PING_TRACKER_STATE_VALID_REFRESHING: ping_tracker->metrics->refreshing_cnt--; break;
-        default: FD_LOG_ERR(( "Unknown state %d", peer->state )); return;
-      }
-      peer->next_ping_nanos = now;
-      peer->state           = FD_PING_TRACKER_STATE_UNPINGED;
-      ping_tracker->metrics->unpinged_cnt++;
-      generate_ping_token( peer, ping_tracker->rng );
-      hash_ping_token( peer->ping_token, peer->expected_pong_hash, ping_tracker->sha );
-
-      unpinged_list_ele_push_head( ping_tracker->unpinged, peer, ping_tracker->pool );
-    }
   }
 
   peer->last_rx_nanos = now;
@@ -358,14 +375,10 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
     return;
   }
 
-  fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
+  fd_ping_peer_t * peer = query( ping_tracker, peer_pubkey, peer_address );
   if( FD_UNLIKELY( !peer ) ) {
-    ping_tracker->metrics->pong_result[ FD_METRICS_ENUM_PONG_RESULT_V_UNTRACKED_IDX ]++;
-    return;
-  }
-
-  if( FD_UNLIKELY( peer_address.addr!=peer->address.addr || peer_address.port!=peer->address.port ) ) {
-    ping_tracker->metrics->pong_result[ FD_METRICS_ENUM_PONG_RESULT_V_ADDRESS_MISMATCH_IDX ]++;
+    int known = !!id_map_ele_query_const( ping_tracker->ids, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
+    ping_tracker->metrics->pong_result[ known ? FD_METRICS_ENUM_PONG_RESULT_V_ADDRESS_MISMATCH_IDX : FD_METRICS_ENUM_PONG_RESULT_V_UNTRACKED_IDX ]++;
     return;
   }
   if( FD_UNLIKELY( memcmp( pong_token, peer->expected_pong_hash, 32UL ) ) ) {
@@ -397,9 +410,8 @@ fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         fd_ip4_port_t       peer_address ) {
   if( FD_UNLIKELY( !peer_address.addr ) ) return 0;
-  fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
-  if( FD_UNLIKELY( !peer ) ) return 0;
-  return (peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING) && peer->address.addr==peer_address.addr && peer->address.port==peer_address.port;
+  fd_ping_peer_t * peer = query( ping_tracker, peer_pubkey, peer_address );
+  return peer && (peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING);
 }
 
 int
@@ -484,15 +496,29 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
   }
 }
 
+ulong
+fd_ping_tracker_remove_all( fd_ping_tracker_t * ping_tracker,
+                            uchar const *       peer_pubkey,
+                            long                now,
+                            int                 change_type ) {
+  ulong cnt = 0UL;
+  pubkey_private_t const * key = fd_type_pun_const( peer_pubkey );
+  ulong idx = id_map_idx_query_const( ping_tracker->ids, key, ULONG_MAX, ping_tracker->pool );
+  while( idx!=ULONG_MAX ) {
+    ulong next_idx = id_map_idx_next_const( idx, ULONG_MAX, ping_tracker->pool );
+    remove_peer( ping_tracker, pool_ele( ping_tracker->pool, idx ), now, change_type );
+    cnt++;
+    idx = next_idx;
+  }
+  return cnt;
+}
+
 void
 fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         long                now ) {
-  fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
-  if( FD_UNLIKELY( !peer ) ) return;
-
-  remove_peer( ping_tracker, peer, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
-  ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_IDENTITY_IDX ]++;
+  ulong cnt = fd_ping_tracker_remove_all( ping_tracker, peer_pubkey, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
+  ping_tracker->metrics->removed[ FD_METRICS_ENUM_PING_PEER_REMOVE_REASON_V_IDENTITY_IDX ] += cnt;
 }
 
 fd_ping_tracker_metrics_t const *
