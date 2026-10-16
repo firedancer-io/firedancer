@@ -2,6 +2,7 @@
 #include "fd_event_client.h"
 
 #include "../../waltz/resolv/fd_netdb.h"
+#include "../../waltz/resolv/fd_adns.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../waltz/grpc/fd_grpc_client.h"
 #include "../../waltz/grpc/fd_grpc_client_private.h"
@@ -157,6 +158,9 @@ struct fd_event_client {
   char   server_fqdn[ FD_FQDN_BUF_MAX ]; /* cstr */
   ulong  server_fqdn_len;
   uint   server_ip4_addr;
+  int    has_server_ip4_addr; /* server_ip4_addr holds a resolved address */
+  int    dns_pending;         /* a resolve of server_fqdn is in flight */
+  fd_adns_t * adns;
   ushort server_tcp_port;
 
   fd_rng_t * rng;
@@ -219,6 +223,7 @@ fd_event_client_footprint( ulong buf_max ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_client_t), sizeof(fd_event_client_t)           );
   l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max ) );
   l = FD_LAYOUT_APPEND( l, 64UL,                       zstd_footprint()                    );
+  l = FD_LAYOUT_APPEND( l, fd_adns_align(),            fd_adns_footprint( 1UL )            );
   return FD_LAYOUT_FINI( l, alignof(fd_event_client_t) );
 }
 
@@ -254,6 +259,7 @@ fd_event_client_new( void *                     shmem,
   fd_event_client_t * client = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_client_t), sizeof(fd_event_client_t)           );
   void * grpc_client_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max ) );
   void * zst_mem             = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                       zstd_footprint()                    );
+  void * adns_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_adns_align(),            fd_adns_footprint( 1UL )            );
 
   fd_url_t url[1];
   _Bool _is_ssl = 0;
@@ -290,6 +296,10 @@ fd_event_client_new( void *                     shmem,
   client->sockfd = -1;
   FD_TEST( -1!=epoll_fd );
   client->epoll_fd = epoll_fd;
+  client->adns = fd_adns_join( fd_adns_new( adns_mem, 1UL, epoll_fd ) );
+  FD_TEST( client->adns );
+  client->has_server_ip4_addr = 0;
+  client->dns_pending         = 0;
   client->use_tls = use_tls;
   if( use_tls ) {
     if( FD_UNLIKELY( !ca_store ) ) FD_LOG_ERR(( "NULL ca_store, but [tiles.event.url] requires TLS" ));
@@ -484,6 +494,21 @@ fd_event_client_set_identity( fd_event_client_t * client,
 }
 
 static void
+dns_poll( fd_event_client_t * client,
+          long                now ) {
+  fd_adns_result_t res[1];
+  while( fd_adns_advance( client->adns, now, res ) ) {
+    client->dns_pending = 0;
+    if( FD_LIKELY( !res->err ) ) {
+      client->server_ip4_addr     = res->addrs[ 0 ];
+      client->has_server_ip4_addr = 1;
+    } else if( FD_UNLIKELY( !client->has_server_ip4_addr ) ) {
+      disconnect( client, now, DISCONNECT_REASON_DNS_RESOLVE_FAILED, res->err, 1 );
+    }
+  }
+}
+
+static void
 reconnect( fd_event_client_t * client,
            long                now,
            int *               charge_busy ) {
@@ -491,30 +516,19 @@ reconnect( fd_event_client_t * client,
 
   if( FD_UNLIKELY( now<client->disconnected.reconnect_deadline ) ) return;
 
+  if( FD_LIKELY( !client->dns_pending ) ) {
+    FD_TEST( !fd_adns_resolve( client->adns, client->server_fqdn, 0UL ) );
+    client->dns_pending = 1;
+    dns_poll( client, now );
+  }
+  if( FD_UNLIKELY( !client->has_server_ip4_addr ) ) return;
+
   *charge_busy = 1;
   client->metrics.connect_attempt_cnt++;
 
   FD_LOG_INFO(( "connecting to event server %s://%.*s:%u", client->use_tls ? "https" : "http", (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port ));
 
-  /* FIXME IPv6 support */
-  fd_addrinfo_t hints = {0};
-  hints.ai_family = AF_INET;
-  fd_addrinfo_t * res = NULL;
-  uchar scratch[ 4096 ];
-  void * pscratch = scratch;
-  int err = fd_getaddrinfo( client->server_fqdn, &hints, &res, &pscratch, sizeof(scratch) );
-  if( FD_UNLIKELY( err ) ) {
-    disconnect( client, now, DISCONNECT_REASON_DNS_RESOLVE_FAILED, err, 1 );
-    return;
-  }
-
-  if( FD_UNLIKELY( !res || !res->ai_addr ) ) {
-    disconnect( client, now, DISCONNECT_REASON_DNS_RESOLVE_FAILED, 0, 1 );
-    return;
-  }
-
-  uint const ip4_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
-  client->server_ip4_addr = ip4_addr;
+  uint const ip4_addr = client->server_ip4_addr; /* FIXME IPv6 support */
 
   client->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==client->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
@@ -1054,9 +1068,11 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
 
   switch( client->state ) {
   case FD_EVENT_CLIENT_STATE_DISCONNECTED:
+    if( FD_UNLIKELY( client->dns_pending && !client->has_server_ip4_addr ) ) return fd_long_max( fd_adns_next_deadline( client->adns ), now );
     return fd_long_max( client->disconnected.reconnect_deadline, now );
   case FD_EVENT_CLIENT_STATE_CONNECTING:
     /* Completion/failure arrives as an EPOLLOUT/EPOLLERR event. */
+    if( FD_UNLIKELY( client->dns_pending ) ) return fd_long_min( client->connecting.connect_deadline, fd_adns_next_deadline( client->adns ) );
     return client->connecting.connect_deadline;
   default: break;
   }
@@ -1085,6 +1101,7 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
     if( FD_UNLIKELY( client->stall_since ) ) deadline = fd_long_min( deadline, client->stall_since+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
     if( FD_UNLIKELY( client->zbatch_cnt ) ) deadline = fd_long_min( deadline, client->zbatch_ns+FD_EVENT_CLIENT_ZSTD_FLUSH_NANOS );
   }
+  if( FD_UNLIKELY( client->dns_pending ) ) deadline = fd_long_min( deadline, fd_adns_next_deadline( client->adns ) );
   return deadline;
 }
 
@@ -1115,6 +1132,7 @@ poll1( fd_event_client_t * client,
        int *               charge_busy ) {
   if( FD_UNLIKELY( !client->has_genesis_hash || !client->has_shred_version ) ) return;
 
+  if( FD_UNLIKELY( client->dns_pending ) ) dns_poll( client, now );
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) reconnect( client, now, charge_busy );
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTING ) ) {
     if( FD_UNLIKELY( now>client->connecting.connect_deadline ) ) {
