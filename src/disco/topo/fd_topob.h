@@ -38,7 +38,7 @@
 
 /* Tile classes for the auto layout and the CPU isolation stages.
 
-   Phases, one per known tile:
+   Phases, exactly one per known tile:
      - ALWAYS:    runs for the whole process lifetime
      - STARTUP:   shuts down after snapshot load
      - POSTSTART: sleeps until snapshot load finishes

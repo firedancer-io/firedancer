@@ -3,7 +3,7 @@
 #define NAME "hyperthreads"
 
 #include "fd_cpu_isolation.h"
-#include "../../../../disco/topo/fd_cpu_topo.h"
+#include "../../../../disco/topo/fd_topob.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -57,7 +57,10 @@ check( config_t const * config,
     if( FD_UNLIKELY( pair>=cpus->cpu_cnt ) ) continue;
 
     int pair_used = 0;
-    for( ulong j=0UL; j<topo->tile_cnt; j++ ) pair_used |= topo->tiles[ j ].cpu_idx==pair;
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t const * other = &topo->tiles[ j ];
+      pair_used |= other->cpu_idx==pair && !( fd_topob_tile_class( other->name ) & FD_TOPOB_TILE_STARTUP );
+    }
 
     /* An online-but-unused sibling inside this instance's isolated
        cpuset partition is permanently idle, which is about as good as
