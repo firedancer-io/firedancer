@@ -160,13 +160,11 @@ struct fd_quic_conn {
   /* packet number info
      each encryption level maps to a packet number space
      0-RTT and 1-RTT both map to APPLICATION
-     pkt_number[j] represents the minimum acceptable packet number
-       "expected packet number"
-       packets with a number lower than this will be dropped */
+     exp_pkt_number[j] is one past the highest packet number received */
   ulong exp_pkt_number[3];  /* different packet number spaces:
                                  INITIAL, HANDSHAKE and APPLICATION */
   ulong pkt_number[3];      /* tx packet number by pn space */
-  ulong last_pkt_number[3]; /* last (highest) packet number seen */
+  ulong rx_pn_mask[3];      /* bit i set if exp_pkt_number-1-i was received */
   ulong highest_acked[3];   /* highest packet number acked (meaningless if 0) */
 
   ushort ipv4_id;           /* ipv4 id field */

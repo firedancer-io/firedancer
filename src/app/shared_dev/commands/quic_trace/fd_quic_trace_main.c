@@ -164,9 +164,9 @@ dump_connection( fd_quic_conn_t const * conn ) {
   X( pkt_number[0],          "%lu",        ( (CONN).pkt_number[0]          ), __VA_ARGS__ ) \
   X( pkt_number[1],          "%lu",        ( (CONN).pkt_number[1]          ), __VA_ARGS__ ) \
   X( pkt_number[2],          "%lu",        ( (CONN).pkt_number[2]          ), __VA_ARGS__ ) \
-  X( last_pkt_number[0],     "%lu",        ( (CONN).last_pkt_number[0]     ), __VA_ARGS__ ) \
-  X( last_pkt_number[1],     "%lu",        ( (CONN).last_pkt_number[1]     ), __VA_ARGS__ ) \
-  X( last_pkt_number[2],     "%lu",        ( (CONN).last_pkt_number[2]     ), __VA_ARGS__ ) \
+  X( rx_pn_mask[0],          "%016lx",     ( (CONN).rx_pn_mask[0]          ), __VA_ARGS__ ) \
+  X( rx_pn_mask[1],          "%016lx",     ( (CONN).rx_pn_mask[1]          ), __VA_ARGS__ ) \
+  X( rx_pn_mask[2],          "%016lx",     ( (CONN).rx_pn_mask[2]          ), __VA_ARGS__ ) \
   X( idle_timeout_ns,        "%ld",        ( (CONN).idle_timeout_ns        ), __VA_ARGS__ ) \
   X( last_activity,          "%ld",        ( (CONN).last_activity          ), __VA_ARGS__ ) \
   X( last_ack,               "%ld",        ( (CONN).last_ack               ), __VA_ARGS__ ) \

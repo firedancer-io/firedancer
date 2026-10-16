@@ -1929,6 +1929,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX      ] = ctx->quic_client->metrics.pkt_quic_hdr_err_cnt,
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX  ] = ctx->quic_client->metrics.pkt_net_hdr_err_cnt,
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX ] = ctx->quic_client->metrics.pkt_verneg_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_DUPLICATE_IDX           ] = ctx->quic_client->metrics.pkt_dup_cnt,
   };
   FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_DROPPED,                  pkt_drop_client                             );
   FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_META_ACQUIRE_ATTEMPTED,   ctx->quic_client->metrics.frame_tx_alloc_cnt      );
@@ -1969,6 +1970,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX      ] = ctx->quic_server->metrics.pkt_quic_hdr_err_cnt,
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX  ] = ctx->quic_server->metrics.pkt_net_hdr_err_cnt,
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX ] = ctx->quic_server->metrics.pkt_verneg_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_DUPLICATE_IDX           ] = ctx->quic_server->metrics.pkt_dup_cnt,
   };
   FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_DROPPED,                  pkt_drop_server                             );
   FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_META_ACQUIRE_ATTEMPTED,   ctx->quic_server->metrics.frame_tx_alloc_cnt      );

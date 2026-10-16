@@ -1350,6 +1350,7 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
     .rtt_ack_time   = 1L,
     .rtt_ack_delay  = ULONG_MAX,
   };
+  uchar pkt_copy[ 128 ]; fd_memcpy( pkt_copy, pkt, pkt_sz ); /* header protection is removed in place */
   FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt, pkt_sz )==pkt_sz );
   FD_TEST( pkt_meta.ack_flag      ==ACK_FLAG_RQD );
   FD_TEST( pkt_meta.rtt_pkt_number==0UL          );
@@ -1359,9 +1360,27 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
   FD_TEST( datagram_rx_sz==sizeof(msg) );
   FD_TEST( !memcmp( datagram_rx_buf, msg, sizeof(msg) ) );
 
+  /* A duplicate packet number is dropped (RFC 9000 s12.3), a reordered
+     older one is not */
+  ulong dup_cnt = quic->metrics.pkt_dup_cnt;
+  fd_memcpy( pkt, pkt_copy, pkt_sz );
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt, pkt_sz )==FD_QUIC_PARSE_FAIL );
+  FD_TEST( datagram_rx_cnt==1UL );
+  FD_TEST( quic->metrics.pkt_dup_cnt==dup_cnt+1UL );
+
+  uchar pkt1[ 128 ]; ulong pkt1_sz = fd_quic_conn_tx_dgram( conn, pkt1, sizeof(pkt1), msg, sizeof(msg), NULL );
+  uchar pkt2[ 128 ]; ulong pkt2_sz = fd_quic_conn_tx_dgram( conn, pkt2, sizeof(pkt2), msg, sizeof(msg), NULL );
+  fd_memcpy( pkt_copy, pkt1, pkt1_sz );
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt2, pkt2_sz )==pkt2_sz );
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt1, pkt1_sz )==pkt1_sz );
+  FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt_copy, pkt1_sz )==FD_QUIC_PARSE_FAIL );
+  FD_TEST( datagram_rx_cnt==3UL );
+  FD_TEST( quic->metrics.pkt_dup_cnt==dup_cnt+2UL );
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+
   conn->tx_max_datagram_frame_sz = 1UL+1UL+sizeof(msg)-1UL;
   FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg), NULL ) );
-  FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
+  FD_TEST( conn->pkt_number[2]==pkt_num+3UL );
 }
 
 /* fd_quic_rng_ulong periodically rekeys the CSPRNG.  Verify that it only
