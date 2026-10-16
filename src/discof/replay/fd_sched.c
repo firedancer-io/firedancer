@@ -174,6 +174,8 @@ struct fd_sched_block {
                                        ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be parsing out a
                                        batch header. */
+  uint                parse_paused:1; /* Set while parsing waits for the parent to freeze, see
+                                         fd_sched_parse_resume. */
 
   /* Block state. */
   uint                fec_eos:1;                          /* FEC end-of-stream: set if the last FEC set in the block has been
@@ -258,6 +260,7 @@ struct fd_sched_metrics {
   uint  fork_observed_cnt;
   uint  alut_success_cnt;
   uint  alut_serializing_cnt;
+  uint  alut_deferred_cnt;
   uint  poison_latch_overflow_cnt;
   uint  poison_latch_alt_cnt;
   uint  poison_cnt_wmk;
@@ -312,6 +315,7 @@ struct fd_sched {
   long                  next_ready_last_tick;
   ulong                 next_ready_last_bank_idx;
   ulong                 root_idx;
+  ulong                 parse_paused_bank_idx; /* Block whose parse is paused, or ULONG_MAX. */
   fd_rdisp_t *          rdisp;
   ulong                 txn_exec_ready_bitset[ 1 ];
   ulong                 sigverify_ready_bitset[ 1 ];
@@ -461,12 +465,12 @@ block_should_signal_end( fd_sched_block_t * block ) {
   /* Under the current policy of eager synchronous PoH mixin, hashing
      done plus fec_eos imply that all mixins have been done. */
   if( FD_UNLIKELY( !( !block->fec_eos || ((block->mblk_cnt==block->poh_hashing_done_cnt&&block->mblk_cnt==block->poh_hash_cmp_done_cnt)||block->mblk_cnt!=block->poh_hashing_done_cnt) ) ) ) FD_LOG_CRIT(( "invariant violation: slot %lu fec_eos %d mblk_cnt %u poh_hashing_done_cnt %u poh_hash_cmp_done_cnt %u", block->slot, block->fec_eos, block->mblk_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt ));
-  return block->fec_eos && block->txn_parsed_cnt==block->txn_done_cnt && block->mblk_cnt==block->poh_hashing_done_cnt && block->block_start_done && !block->block_end_signaled;
+  return block->fec_eos && !block->parse_paused && block->txn_parsed_cnt==block->txn_done_cnt && block->mblk_cnt==block->poh_hashing_done_cnt && block->block_start_done && !block->block_end_signaled;
 }
 
 static inline int
 block_will_signal_end( fd_sched_block_t * block ) {
-  return block->fec_eos && !block->block_end_signaled;
+  return block->fec_eos && !block->parse_paused && !block->block_end_signaled;
 }
 
 /* Is there something known to be dispatchable in the block?  This is an
@@ -845,6 +849,7 @@ fd_sched_new( void *     mem,
   sched->bypass_poh_verify      = 0;
   sched->bypass_alut_resolution = 0;
   sched->root_idx               = ULONG_MAX;
+  sched->parse_paused_bank_idx  = ULONG_MAX;
   sched->active_bank_idx        = ULONG_MAX;
   sched->last_active_bank_idx   = ULONG_MAX;
   sched->staged_bitset          = 0UL;
@@ -943,7 +948,7 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   /* Assuming every transaction is min size, do we have enough free
      entries in the txn pool?  For a more precise txn count, we would
      have to do some parsing. */
-  return sched->txn_pool_free_cnt>=fec_buf_sz/FD_TXN_MIN_SERIALIZED_SZ && sched->mblk_pool_free_cnt>=fec_buf_sz/sizeof(fd_microblock_hdr_t);
+  return sched->parse_paused_bank_idx==ULONG_MAX && sched->txn_pool_free_cnt>=fec_buf_sz/FD_TXN_MIN_SERIALIZED_SZ && sched->mblk_pool_free_cnt>=fec_buf_sz/sizeof(fd_microblock_hdr_t);
 }
 
 ulong
@@ -952,13 +957,14 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
   /* Worst case, we need one byte from the incoming data to extract a
      transaction out of the residual data, and the rest of the incoming
      data contributes toward min sized transactions. */
+  if( FD_UNLIKELY( sched->parse_paused_bank_idx!=ULONG_MAX ) ) return 0UL; /* parse is in order */
   return fd_ulong_min( sched->txn_pool_free_cnt/FD_SCHED_MAX_TXN_PER_FEC, sched->mblk_pool_free_cnt/FD_SCHED_MAX_MBLK_PER_FEC );
 }
 
 int
 fd_sched_is_drained( fd_sched_t * sched ) {
   int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ]&sched->cert_ready_bitset[ 0 ] );
-  int nothing_queued = sched->active_bank_idx==ULONG_MAX;
+  int nothing_queued = sched->active_bank_idx==ULONG_MAX && sched->parse_paused_bank_idx==ULONG_MAX;
   return nothing_inflight && nothing_queued;
 }
 
@@ -987,6 +993,55 @@ fd_sched_block_start_pending( fd_sched_t * sched ) {
   return sched->active_bank_idx!=ULONG_MAX && !block_pool_ele( sched, sched->active_bank_idx )->block_start_signaled;
 }
 
+/* Checks once the FEC sets ingested so far are fully parsed. */
+static int
+parse_end( fd_sched_t * sched, fd_sched_block_t * block, int last_in_batch ) {
+  if( FD_UNLIKELY( last_in_batch && (block->txns_rem||block->mblks_rem||block->fec_eob) ) ) {
+    /* A malformed block that fails to parse out exactly as many
+       transactions and microblocks as it should.
+
+       Upon getting a last-in-batch FEC, everything in the ongoing batch
+       should completely parse, and the eob flag should be reset.  There
+       should be no go around for a last-in-batch FEC. */
+    FD_LOG_INFO(( "bad block: SHORT_BLOCK, bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
+    return FD_SCHED_DEAD_REASON_SHORT_BLOCK;
+  }
+
+  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
+    /* The last microblock should be a tick.
+
+       Note that this early parse-time detection could cause us to throw
+       a slightly different error from Agave, in the case that there are
+       too few ticks, since the tick count check precedes the trailing
+       entry check in Agave.  That being said, ultimately a
+       TRAILING_ENTRY renders a block invalid, regardless of anything
+       else. */
+    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
+    return FD_SCHED_DEAD_REASON_TRAILING_ENTRY;
+  }
+
+  if( FD_UNLIKELY( block->fec_eos && sched->is_alpenglow ) ) {
+    int dead_reason = ag_on_final( block );
+    if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
+  }
+
+  /* We just received a FEC set, which may have made all transactions in
+     a partially parsed microblock available.  If this were a malformed
+     block that ends in a non-tick microblock, there's not going to be a
+     hashing task from the missing ending tick to drain the mixin queue.
+     So we try to drain the mixin queue right here.  Another option is
+     to drain it at dispatch time, when we are about to dispatch the end
+     of block signal, right before the check for whether block should
+     end. */
+  int mixin_res;
+  while( (mixin_res=maybe_mixin( sched, block )) ) {
+    if( FD_UNLIKELY( mixin_res==-1 ) ) return FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST;
+    FD_TEST( mixin_res==1||mixin_res==2 );
+  }
+
+  return FD_SCHED_DEAD_REASON_NONE;
+}
+
 FD_WARN_UNUSED int
 fd_sched_fec_ingest( fd_sched_t *     sched,
                      fd_sched_fec_t * fec ) {
@@ -994,6 +1049,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   FD_TEST( fec->bank_idx<sched->block_cnt_max );
   FD_TEST( fec->parent_bank_idx<sched->block_cnt_max );
   FD_TEST( ref_q_empty( sched->ref_q ) );
+  FD_TEST( sched->parse_paused_bank_idx==ULONG_MAX );
 
   fd_sched_block_t * block = block_pool_ele( sched, fec->bank_idx );
 
@@ -1235,60 +1291,48 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
-  if( FD_UNLIKELY( (fec->is_last_in_batch||fec->is_last_in_block) && (block->txns_rem||block->mblks_rem||block->fec_eob) ) ) {
-    /* A malformed block that fails to parse out exactly as many
-       transactions and microblocks as it should.
-
-       Upon getting a last-in-batch FEC, everything in the ongoing batch
-       should completely parse, and the eob flag should be reset.  There
-       should be no go around for a last-in-batch FEC. */
-    FD_LOG_INFO(( "bad block: SHORT_BLOCK, bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
-    handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_SHORT_BLOCK );
-    return 0;
-  }
-
-  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
-    /* The last microblock should be a tick.
-
-       Note that this early parse-time detection could cause us to throw
-       a slightly different error from Agave, in the case that there are
-       too few ticks, since the tick count check precedes the trailing
-       entry check in Agave.  That being said, ultimately a
-       TRAILING_ENTRY renders a block invalid, regardless of anything
-       else. */
-    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
-    handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_TRAILING_ENTRY );
-    return 0;
-  }
-
-  if( FD_UNLIKELY( block->fec_eos && sched->is_alpenglow ) ) {
-    int dead_reason = ag_on_final( block );
-    if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
-      handle_bad_block( sched, block, dead_reason );
+  if( FD_LIKELY( !block->parse_paused ) ) {
+    err = parse_end( sched, block, fec->is_last_in_batch||fec->is_last_in_block );
+    if( FD_UNLIKELY( err!=FD_SCHED_DEAD_REASON_NONE ) ) {
+      handle_bad_block( sched, block, err );
       return 0;
     }
-  }
-
-  /* We just received a FEC set, which may have made all transactions in
-     a partially parsed microblock available.  If this were a malformed
-     block that ends in a non-tick microblock, there's not going to be a
-     hashing task from the missing ending tick to drain the mixin queue.
-     So we try to drain the mixin queue right here.  Another option is
-     to drain it at dispatch time, when we are about to dispatch the end
-     of block signal, right before the check for whether block should
-     end. */
-  int mixin_res;
-  while( (mixin_res=maybe_mixin( sched, block )) ) {
-    if( FD_UNLIKELY( mixin_res==-1 ) ) {
-      handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST );
-      return 0;
-    }
-    FD_TEST( mixin_res==1||mixin_res==2 );
   }
 
   /* Check if we need to set the active block. */
   check_or_set_active_block( sched );
 
+  return 1;
+}
+
+ulong
+fd_sched_parse_paused( fd_sched_t * sched ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  fd_sched_block_t * block = block_pool_ele( sched, sched->parse_paused_bank_idx );
+  if( FD_LIKELY( !block ) ) return ULONG_MAX;
+  fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
+  return ( !parent || block_is_done( parent ) ) ? sched->parse_paused_bank_idx : ULONG_MAX;
+}
+
+int
+fd_sched_parse_resume( fd_sched_t *          sched,
+                       fd_sched_alut_ctx_t * alut_ctx ) {
+  FD_TEST( fd_sched_parse_paused( sched )!=ULONG_MAX );
+  fd_sched_block_t * block = block_pool_ele( sched, sched->parse_paused_bank_idx );
+  FD_TEST( block->parse_paused && !block->dying );
+  block->parse_paused          = 0;
+  sched->parse_paused_bank_idx = ULONG_MAX;
+
+  int last_in_batch = block->fec_eob || block->fec_eos;
+  int err = fd_sched_parse( sched, block, alut_ctx );
+  FD_TEST( !block->parse_paused ); /* parent is done */
+  if( FD_LIKELY( err==FD_SCHED_DEAD_REASON_NONE ) ) err = parse_end( sched, block, last_in_batch );
+  if( FD_UNLIKELY( err!=FD_SCHED_DEAD_REASON_NONE ) ) {
+    handle_bad_block( sched, block, err );
+    return 0;
+  }
+
+  check_or_set_active_block( sched );
   return 1;
 }
 
@@ -2075,8 +2119,18 @@ fd_sched_metrics_write( fd_sched_t *            sched,
   FD_MCNT_SET( REPLAY, SCHED_FORK_OBSERVED, sched->metrics->fork_observed_cnt );
   ulong sched_alut[ FD_METRICS_ENUM_SCHED_LUT_RESOLVE_RESULT_CNT ];
   sched_alut[ FD_METRICS_ENUM_SCHED_LUT_RESOLVE_RESULT_V_SUCCESS_IDX ] = sched->metrics->alut_success_cnt;
-  sched_alut[ FD_METRICS_ENUM_SCHED_LUT_RESOLVE_RESULT_V_FAILED_IDX  ] = sched->metrics->alut_serializing_cnt;
+  sched_alut[ FD_METRICS_ENUM_SCHED_LUT_RESOLVE_RESULT_V_FAILED_IDX   ] = sched->metrics->alut_serializing_cnt;
+  sched_alut[ FD_METRICS_ENUM_SCHED_LUT_RESOLVE_RESULT_V_DEFERRED_IDX ] = sched->metrics->alut_deferred_cnt;
   FD_MCNT_ENUM_COPY( REPLAY, SCHED_TXN_LUT_RESOLVE_ATTEMPTED, sched_alut );
+  ulong sched_block_serialized[ FD_METRICS_ENUM_SCHED_BLOCK_SERIALIZE_REASON_CNT ];
+  sched_block_serialized[ FD_METRICS_ENUM_SCHED_BLOCK_SERIALIZE_REASON_V_POISON_OVERFLOW_IDX ] = sched->metrics->poison_latch_overflow_cnt;
+  sched_block_serialized[ FD_METRICS_ENUM_SCHED_BLOCK_SERIALIZE_REASON_V_LUT_UNRESOLVED_IDX  ] = sched->metrics->poison_latch_alt_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_BLOCK_SERIALIZED, sched_block_serialized );
+  ulong sched_txn_serialized[ FD_METRICS_ENUM_SCHED_TXN_SERIALIZE_REASON_CNT ];
+  sched_txn_serialized[ FD_METRICS_ENUM_SCHED_TXN_SERIALIZE_REASON_V_LUT_UNRESOLVED_IDX   ] = sched->metrics->alut_serializing_cnt;
+  sched_txn_serialized[ FD_METRICS_ENUM_SCHED_TXN_SERIALIZE_REASON_V_POISON_HIT_IDX       ] = sched->metrics->txn_poisoned_cnt;
+  sched_txn_serialized[ FD_METRICS_ENUM_SCHED_TXN_SERIALIZE_REASON_V_BLOCK_SERIALIZED_IDX ] = sched->metrics->txn_poison_serializing_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_TXN_SERIALIZED, sched_txn_serialized );
   FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED_ABANDONED, sched->metrics->txn_abandoned_parsed_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED_ABANDONED, sched->metrics->txn_abandoned_exec_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_DONE_ABANDONED, sched->metrics->txn_abandoned_done_cnt );
@@ -2176,6 +2230,7 @@ add_block( fd_sched_t * sched,
   block->poison_serialize = 0;
   block->fec_eob          = 0;
   block->fec_sob          = 1;
+  block->parse_paused     = 0;
 
   block->fec_eos              = 0;
   block->rooted               = 0;
@@ -2818,6 +2873,15 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
       if( FD_LIKELY( have_slot_hashes &&
                      fd_sysvar_slot_hashes_view( slot_hashes_view, slot_hashes_buf, slot_hashes_sz ) ) ) {
         serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
+        fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
+        if( FD_UNLIKELY( serializing && parent && !block_is_done( parent ) ) ) {
+          /* Resolved on the published root, which may predate the
+             table.  Retry on the parent's fork once it is done. */
+          block->parse_paused          = 1;
+          sched->parse_paused_bank_idx = block_to_idx( sched, block );
+          sched->metrics->alut_deferred_cnt++;
+          return -1;
+        }
         sched->metrics->alut_success_cnt += (uint)!serializing;
       } else {
         serializing = 1;
@@ -3411,6 +3475,10 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 
   /* Setting the flag is non-optional and can happen more than once. */
   block->dying = 1;
+  if( FD_UNLIKELY( block->parse_paused ) ) {
+    block->parse_paused          = 0;
+    sched->parse_paused_bank_idx = ULONG_MAX;
+  }
 
   /* Removal from dispatcher should only happen once. */
   if( block->in_rdisp ) {
@@ -3558,6 +3626,10 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
     FD_TEST( !head->refcnt );
     FD_TEST( head->in_sched );
     head->in_sched = 0;
+    if( FD_UNLIKELY( head->parse_paused ) ) {
+      head->parse_paused           = 0;
+      sched->parse_paused_bank_idx = ULONG_MAX;
+    }
 
     ulong child_idx = head->child_idx;
     while( child_idx!=ULONG_MAX ) {

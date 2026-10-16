@@ -1041,6 +1041,18 @@ deliberate exception with lint-allow="<rule id>")
 <enum name="SchedLutResolveResult">
     <int value="0" name="Success" label="Address lookup tables expanded successfully" />
     <int value="1" name="Failed" label="Address lookup table expansion failed" />
+    <int value="2" name="Deferred" label="Address lookup table expansion failed on the published root while the parent block was still replaying, retried once it is done" />
+</enum>
+
+<enum name="SchedBlockSerializeReason">
+    <int value="0" name="PoisonOverflow" label="The block's loader v3 poison set overflowed" />
+    <int value="1" name="LutUnresolved" label="A loader v3 candidate wrote through an address lookup table that failed to resolve" />
+</enum>
+
+<enum name="SchedTxnSerializeReason">
+    <int value="0" name="LutUnresolved" label="Its address lookup tables failed to resolve" />
+    <int value="1" name="PoisonHit" label="It writes an account in the block's loader v3 poison set" />
+    <int value="2" name="BlockSerialized" label="An earlier transaction serialized the rest of the block" />
 </enum>
 
 <tile name="replay">
@@ -1101,6 +1113,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedLaneDemoted" summary="Times the replay scheduler demoted one or more blocks from a staging lane" />
     <counter name="SchedForkObserved" summary="Forks the replay scheduler has observed" />
     <counter name="SchedTxnLutResolveAttempted" enum="SchedLutResolveResult" summary="Transactions with address lookup tables the replay scheduler tried to resolve, by result" />
+    <counter name="SchedBlockSerialized" enum="SchedBlockSerializeReason" summary="Blocks whose remaining transactions the replay scheduler serialized, by reason" />
+    <counter name="SchedTxnSerialized" enum="SchedTxnSerializeReason" summary="Transactions the replay scheduler dispatched as serializing barriers, by reason" />
     <counter name="SchedTxnParsedAbandoned" summary="Transactions that were parsed but ended up being in abandoned blocks" />
     <counter name="SchedTxnExecutedAbandoned" summary="Transactions that were executed but ended up being in abandoned blocks" />
     <counter name="SchedTxnDoneAbandoned" summary="Transactions that were fully replayed but ended up being in abandoned blocks" />
