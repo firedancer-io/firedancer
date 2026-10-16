@@ -65,9 +65,11 @@ struct fd_sock_tile {
   uchar         proto_id[ FD_SOCK_TILE_MAX_SOCKETS ];
 
   /* TX SOCK_RAW socket */
-  int  tx_sock;
-  uint tx_idle_cnt;
-  uint bind_address;
+  int   tx_sock;
+  uint  tx_idle_cnt;
+  uint  bind_address;
+  ulong tx_tile_idx;
+  ulong tx_tile_cnt;
 
   /* RX/TX batches
      FIXME transpose arrays for better cache locality? */
