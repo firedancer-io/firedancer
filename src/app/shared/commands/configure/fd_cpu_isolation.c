@@ -154,6 +154,75 @@ fd_cpu_isolation_banned_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cn
   return fd_cpu_isolation_tile_cpus( cpuset, topo );
 }
 
+static int
+cgroup_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
+  char path[ PATH_MAX ] = {0};
+  char buf[ 4096 ];
+  int  fd = open( "/proc/self/cgroup", O_RDONLY );
+  long sz = fd<0 ? -1L : read( fd, buf, sizeof(buf)-1UL );
+  if( FD_LIKELY( fd>=0 ) && FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( sz<=0L ) ) return 0;
+  buf[ sz ] = '\0';
+  char * line = buf;
+  while( line && strncmp( line, "0::", 3UL ) ) { line = strchr( line, '\n' ); if( line ) line++; }
+  if( FD_UNLIKELY( !line ) ) return 0;
+  char * nl = strchr( line, '\n' ); if( FD_LIKELY( nl ) ) *nl = '\0';
+  if( FD_UNLIKELY( !fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s", line+3UL ) ) ) return 0;
+
+  /* Without the cpuset controller a cgroup inherits its parent's */
+  for(;;) {
+    char file[ PATH_MAX+32UL ];
+    FD_TEST( fd_cstr_printf_check( file, sizeof(file), NULL, "%s/cpuset.cpus.effective", path ) );
+    if( !access( file, R_OK ) && fd_cpu_isolation_read_list( file, cpuset ) && fd_cpuset_cnt( cpuset ) ) return 1;
+    char * slash = strrchr( path, '/' );
+    if( !slash || !strcmp( path, "/sys/fs/cgroup" ) ) return 0;
+    *slash = '\0';
+  }
+}
+
+void
+fd_cpu_isolation_check_cgroup( config_t const * config ) {
+  FD_CPUSET_DECL( cg_allowed );
+  if( FD_LIKELY( cgroup_cpus( cg_allowed ) ) ) {
+    char file[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( file, sizeof(file), NULL, "/sys/fs/cgroup/%s/cpuset.cpus", config->name ) );
+    FD_CPUSET_DECL( instance );
+    if( !access( file, R_OK ) && fd_cpu_isolation_read_list( file, instance ) ) fd_cpuset_union( cg_allowed, cg_allowed, instance );
+
+    FD_CPUSET_DECL( outside );
+    fd_cpuset_subtract( outside, fd_cpu_isolation_online_cpus( outside ), cg_allowed );
+    for( ulong i=0UL; i<config->topo.blocklist_cores_cnt; i++ ) {
+      if( config->topo.blocklist_cores_cpu_idx[ i ]<FD_TILE_MAX ) fd_cpuset_insert( outside, config->topo.blocklist_cores_cpu_idx[ i ] );
+    }
+
+    static fd_topo_cpus_t cpus[1];
+    fd_topo_cpus_init( cpus );
+    FD_CPUSET_DECL( float_cpu_set );
+    FD_CPUSET_DECL( cpuless_cpu_set );
+    fd_topo_cpus_floating( cpus, &config->topo, cg_allowed, float_cpu_set, cpuless_cpu_set );
+    for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+      fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+      if( FD_LIKELY( tile->cpu_idx>=FD_TILE_MAX ) ) continue;
+      FD_CPUSET_DECL( run_set ); /* execve_tile's affinity */
+      if( FD_UNLIKELY( tile->floats ) ) {
+        ulong numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
+        for( ulong cpu=0UL; cpu<FD_TILE_MAX; cpu++ )
+          if( fd_cpuset_test( float_cpu_set, cpu ) && fd_shmem_numa_idx( cpu )==numa_idx ) fd_cpuset_insert( run_set, cpu );
+        if( FD_UNLIKELY( !fd_cpuset_cnt( run_set ) ) ) fd_cpuset_copy( run_set, float_cpu_set );
+      }
+      if( FD_LIKELY( !fd_cpuset_cnt( run_set ) ) ) fd_cpuset_insert( run_set, tile->cpu_idx );
+      if( FD_LIKELY( fd_cpuset_cnt( fd_cpuset_intersect( run_set, run_set, cg_allowed ) ) ) ) continue;
+      char allowed_str[ FD_CPU_ISOLATION_LIST_MAX ];
+      char outside_str[ FD_CPU_ISOLATION_LIST_MAX ];
+      FD_LOG_ERR(( "tile %s:%lu is assigned to CPU %lu, but this process may only run on CPUs %s (its cgroup cpuset, e.g. "
+                   "systemd AllowedCPUs= or a container limit). Set [layout.blocklist_cores] = \"%s\" or give an "
+                   "explicit [layout.affinity] within the allowed CPUs.", tile->name, tile->kind_id, tile->cpu_idx,
+                   fd_cpu_isolation_format_list( allowed_str, sizeof(allowed_str), cg_allowed ),
+                   fd_cpu_isolation_format_list( outside_str, sizeof(outside_str), outside ) ));
+    }
+  }
+}
+
 int
 fd_cpu_isolation_parse_mask( fd_cpuset_t  cpuset[ static fd_cpuset_word_cnt ],
                              char const * mask ) {

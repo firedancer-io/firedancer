@@ -1113,6 +1113,8 @@ fdctl_check_configure( config_t const * config ) {
       FD_LOG_WARNING(( "Firedancer tile CPUs are not isolated from other processes: %s. For lower jitter, run "
                        "`%s configure init cpuset`.", check.message, FD_BINARY_NAME ));
   }
+
+  fd_cpu_isolation_check_cgroup( config );
 }
 
 void
