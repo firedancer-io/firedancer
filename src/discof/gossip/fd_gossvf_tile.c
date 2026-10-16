@@ -133,6 +133,7 @@ struct fd_gossvf_tile_ctx {
   ushort shred_version;
 
   int allow_private_address;
+  int alpenglow;
 
   fd_ip4_port_t gossip_addr;
   fd_ip4_port_t src_addr;
@@ -900,9 +901,29 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   uchar failed[ FD_GOSSIP_MESSAGE_MAX_CRDS ] = {0};
 
+  if( FD_UNLIKELY( ctx->alpenglow && ( message->tag==FD_GOSSIP_MESSAGE_PUSH || message->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) ) {
+    int                       is_push    = message->tag==FD_GOSSIP_MESSAGE_PUSH;
+    fd_gossip_value_t const * values     = is_push ? message->push->values     : message->pull_response->values;
+    ulong                     values_len = is_push ? message->push->values_len : message->pull_response->values_len;
+    ulong                     metric_idx = is_push ? FD_METRICS_ENUM_GOSSVF_CRDS_RESULT_V_DROPPED_PUSH_DEPRECATED_IDX
+                                                   : FD_METRICS_ENUM_GOSSVF_CRDS_RESULT_V_DROPPED_PULL_RESPONSE_DEPRECATED_IDX;
+    for( ulong i=0UL; i<values_len; i++ ) {
+      /* Tower-only values.  Failed, not removed, so gossip records the
+         hash in our pull bloom and peers stop resending it. */
+      uint tag = values[ i ].tag;
+      if( FD_UNLIKELY( tag==FD_GOSSIP_VALUE_EPOCH_SLOTS || tag==FD_GOSSIP_VALUE_VOTE || tag==FD_GOSSIP_VALUE_DUPLICATE_SHRED ) ) {
+        ctx->metrics.crds_rx[ metric_idx ]++;
+        ctx->metrics.crds_rx_bytes[ metric_idx ] += values[ i ].length;
+        failed[ i ] = FD_GOSSIP_FAILED_DEPRECATED;
+      }
+    }
+  }
+
   if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
     int has_staked_node = ctx->stake.count>0UL;
     for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
+      if( FD_UNLIKELY( failed[ i ] ) ) continue;
+
       fd_gossip_value_t const * value = &message->pull_response->values[ i ];
 
       /* Best-effort: identity_pubkey may momentarily be stale during a
@@ -1113,6 +1134,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->round_robin_idx = tile->kind_id;
 
   ctx->allow_private_address = tile->gossvf.allow_private_address;
+  ctx->alpenglow             = tile->gossvf.alpenglow;
   ctx->src_addr              = tile->gossvf.src_addr;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
