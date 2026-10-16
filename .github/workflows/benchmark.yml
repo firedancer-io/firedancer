@@ -54,6 +54,7 @@ jobs:
     - name: Prepare
       run: |
         sudo rm -f $DUMP_DIR/accounts.db            # left by a job that died mid-backtest
+        sudo umount /mnt/fd-bench-ramdb /mnt/fd-bench-bin 2>/dev/null || true; sudo rmmod brd 2>/dev/null || true
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
         cp -r contrib/ci/bench $BENCH_DIR/tools
@@ -174,6 +175,7 @@ jobs:
     - name: Prepare
       run: |
         sudo rm -f $DUMP_DIR/accounts.db            # left by a job that died mid-backtest
+        sudo umount /mnt/fd-bench-ramdb /mnt/fd-bench-bin 2>/dev/null || true; sudo rmmod brd 2>/dev/null || true
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
         cp -r contrib/ci/bench $BENCH_DIR/tools
@@ -223,6 +225,10 @@ jobs:
     - run: contrib/ci/bench/bench.sh snapshot base
       continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
     - run: contrib/ci/bench/bench.sh snapshot new
+    - name: Free RAM disk  # brd keeps its pages until rmmod
+      if: always()
+      continue-on-error: true
+      run: sudo killall -w firedancer-dev 2>/dev/null || true; sudo umount /mnt/fd-bench-ramdb 2>/dev/null || true; sudo rmmod brd 2>/dev/null || true
 
     - name: Update PR comment (done)
       if: always() && github.event_name == 'pull_request'
@@ -277,6 +283,7 @@ jobs:
     - name: Prepare
       run: |
         sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db  # left by a job that died mid-bench
+        sudo umount /mnt/fd-bench-ramdb /mnt/fd-bench-bin 2>/dev/null || true; sudo rmmod brd 2>/dev/null || true
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
         cp -r contrib/ci/bench $BENCH_DIR/tools

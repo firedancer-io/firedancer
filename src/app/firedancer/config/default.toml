@@ -2360,6 +2360,12 @@ telemetry = true
         # Delays rooting by the given number of slots.
         root_distance = 32
 
+        # Read the whole accounts.db into the page cache after the
+        # snapshot loads and before replay timing starts, so replay
+        # does not stall on cold account reads.  Needs enough free
+        # memory to cache the file.
+        warm_accounts = false
+
     # 'firedancer-dev forktest' specific options
     [development.forktest]
         # See [layout.affinity]

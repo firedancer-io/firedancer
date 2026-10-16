@@ -2077,6 +2077,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->backtest.alpenglow     = config->firedancer.consensus.alpenglow;
     tile->backtest.root_distance = config->firedancer.development.backtest.root_distance;
+    tile->backtest.warm_accounts = config->firedancer.development.backtest.warm_accounts;
     fd_cstr_ncpy( tile->backtest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->backtest.ledger_format) );
     fd_cstr_ncpy( tile->backtest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
     tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;

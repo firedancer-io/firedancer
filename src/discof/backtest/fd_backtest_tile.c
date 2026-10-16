@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_backtest_src.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -12,11 +13,13 @@
 #include "../../choreo/votor/ag_cert.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../discof/genesis/genesis_hash.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 #include "../../util/pod/fd_pod.h"
 
 #include <stdlib.h> /* exit(2) */
 #include <errno.h>
 #include <fcntl.h>  /* open(2) */
+#include <unistd.h> /* lseek(2), pread(2) */
 
 #define SHRED_BUFFER_LEN     (1048576UL)
 #define BANK_HASH_BUFFER_LEN (4096UL)
@@ -61,6 +64,7 @@ struct fd_backt_tile {
   int genesis;
   int snapshot_done;
   int alpenglow;
+  int warm_accounts;
   uint first_fec_complete : 1;
   uint reasm_ready        : 1; /* reasm root is set, so we can start publishing FECs to replay */
   uint source_exhausted   : 1;
@@ -356,6 +360,41 @@ publish_shred_version( fd_backt_tile_t *   ctx,
   fd_stem_publish( stem, ctx->ipecho_out_idx, shred_version, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
 }
 
+/* snapin writes accounts.db with O_DIRECT, so replay's first read of
+   each account goes to disk mid-slot.  Read the written extents into
+   page cache before the replay timer starts.  pread, not MAP_POPULATE:
+   munmap shoots down the TLB of every tile thread sharing the mm.  The
+   shred ring is empty until replay starts and serves as the buffer. */
+
+FD_STATIC_ASSERT( sizeof(((fd_backt_tile_t *)0)->shreds)>=(1UL<<20), warm_buf );
+
+static void
+warm_accounts( fd_backt_tile_t * ctx ) {
+  FD_TEST( !ctx->shreds_cnt );
+  long  t0    = fd_log_wallclock();
+  ulong bytes = 0UL;
+  long  off   = 0L;
+  for(;;) {
+    long data = lseek( FD_ACCDB_FD_RO, off, SEEK_DATA );
+    if( data<0L ) {
+      if( FD_LIKELY( errno==ENXIO ) ) break;
+      FD_LOG_ERR(( "lseek(accounts.db,SEEK_DATA) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    long hole = lseek( FD_ACCDB_FD_RO, data, SEEK_HOLE );
+    if( FD_UNLIKELY( hole<0L ) ) FD_LOG_ERR(( "lseek(accounts.db,SEEK_HOLE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( off=data; off<hole; ) {
+      long n = pread( FD_ACCDB_FD_RO, ctx->shreds, fd_ulong_min( 1UL<<20, (ulong)(hole-off) ), off );
+      if( FD_UNLIKELY( n<=0L ) ) {
+        if( n<0L && errno==EINTR ) continue;
+        FD_LOG_ERR(( "pread(accounts.db) failed (%li-%i-%s)", n, errno, fd_io_strerror( errno ) ));
+      }
+      off += n;
+    }
+    bytes += (ulong)(hole-data);
+  }
+  FD_LOG_NOTICE(( "warmed %.2f GiB of accounts.db in %.3f s", (double)bytes/(double)(1UL<<30), (double)(fd_log_wallclock()-t0)/1e9 ));
+}
+
 /* Log the run summary, drain telemetry and exit the process. */
 
 static void
@@ -442,6 +481,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         /* Skip past any shreds in the source for slots <=start_slot so we don't replay them */
         if( FD_LIKELY( ctx->src ) ) fd_backtest_src_seek( ctx->src, ctx->start_slot+1UL );
         ctx->snapshot_done_time = fd_log_wallclock();
+        if( FD_UNLIKELY( ctx->warm_accounts && ctx->src ) ) warm_accounts( ctx );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         ctx->snapshot_done = 1;
@@ -473,6 +513,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         ctx->start_slot  = 0UL;
         FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
         ctx->snapshot_done_time = fd_log_wallclock();
+        if( FD_UNLIKELY( ctx->warm_accounts && ctx->src ) ) warm_accounts( ctx );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
@@ -662,6 +703,8 @@ privileged_init( fd_topo_t const *      topo,
   ctx->store_disk_fd = FD_STORE_FD_RW;
   if( FD_UNLIKELY( fcntl( ctx->store_disk_fd, F_GETFD )<0 ) )
     FD_LOG_ERR(( "store file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( tile->backtest.warm_accounts && fcntl( FD_ACCDB_FD_RO, F_GETFD )<0 ) )
+    FD_LOG_ERR(( "accounts.db file descriptor was not inherited (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
@@ -722,6 +765,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->root_distance = tile->backtest.root_distance;
   ctx->alpenglow     = tile->backtest.alpenglow;
+  ctx->warm_accounts = tile->backtest.warm_accounts;
   ctx->boot_time     = tile->backtest.boot_timestamp_nanos;
 
   ctx->src = NULL;
@@ -783,11 +827,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->store_disk_fd;
+  if( FD_UNLIKELY( tile->backtest.warm_accounts ) ) out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
   return out_cnt;
 }
 

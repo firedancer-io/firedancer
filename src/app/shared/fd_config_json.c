@@ -497,6 +497,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "backtest" );
       jw_str  ( &w, "affinity",      f->development.backtest.affinity );
       jw_ulong( &w, "root_distance", f->development.backtest.root_distance );
+      jw_bool ( &w, "warm_accounts", f->development.backtest.warm_accounts );
     jw_obj_close( &w );
     jw_obj_open( &w, "forktest" );
       jw_str( &w, "affinity", f->development.forktest.affinity );

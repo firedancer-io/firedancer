@@ -636,6 +636,7 @@ struct fd_topo_tile {
       ulong end_slot;
       ulong root_distance;
       int   alpenglow;
+      int   warm_accounts;
       long  boot_timestamp_nanos;
     } backtest;
 

@@ -200,6 +200,7 @@ struct fd_configf {
     struct {
       char  affinity[ AFFINITY_SZ ];
       ulong root_distance;
+      int   warm_accounts;
     } backtest;
 
     struct {
