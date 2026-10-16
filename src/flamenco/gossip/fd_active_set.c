@@ -7,6 +7,7 @@
 #define FD_ACTIVE_SET_STAKE_ENTRIES    (25UL)
 #define FD_ACTIVE_SET_PEERS_PER_ENTRY  (12UL)
 #define FD_ACTIVE_SET_MAX_PEERS        (FD_ACTIVE_SET_STAKE_ENTRIES*FD_ACTIVE_SET_PEERS_PER_ENTRY) /* 300 */
+#define FD_ACTIVE_SET_PUSH_FANOUT      (9UL)
 
 struct fd_active_set_peer {
   long         timestamp;
@@ -270,7 +271,8 @@ fd_active_set_push( fd_active_set_t *   active_set,
   for( ulong i=0UL; i<entry->nodes_len; i++ ) blooms[ i ] = active_set->peers[ stake_bucket*12UL+((entry->nodes_idx+i) % 12UL) ].bloom;
   uint hits = fd_bloom_contains_multi( blooms, entry->nodes_len, origin_pubkey, 32UL );
 
-  for( ulong i=0UL; i<entry->nodes_len; i++ ) {
+  ulong pushed = 0UL;
+  for( ulong i=0UL; i<entry->nodes_len && pushed<FD_ACTIVE_SET_PUSH_FANOUT; i++ ) {
     fd_active_set_peer_t * peer = &active_set->peers[ stake_bucket*12UL+((entry->nodes_idx+i) % 12UL) ];
 
     /* If the value originated from us, we should always push it, even
@@ -286,6 +288,7 @@ fd_active_set_push( fd_active_set_t *   active_set,
     }
     fd_gossip_txbuild_append( peer->txbuild, crds_sz, crds_val );
     if( FD_UNLIKELY( flush_immediately ) ) push_flush( active_set, peer, stem, now );
+    pushed++;
   }
 }
 
