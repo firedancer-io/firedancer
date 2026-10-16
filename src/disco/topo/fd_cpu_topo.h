@@ -11,6 +11,8 @@ struct fd_topo_cpu {
   ulong sibling;
   ulong die_idx;
   ulong l3_idx;
+  int   isolated;
+  int   nohz_full;
 };
 
 typedef struct fd_topo_cpu fd_topo_cpu_t;
@@ -49,7 +51,7 @@ fd_topo_cpus_l3_complete( fd_topo_cpus_t const * cpus );
    CPUs of the floats tiles minus pinned CPUs and their siblings.
    cpuless_cpu_set, for tiles with no cpu_idx, gets the first non-empty
    of float_cpu_set & launch, launch minus pinned CPUs and siblings of
-   non-floating pinned tiles, and launch. */
+   non-floating pinned tiles, both minus isolated CPUs, and launch. */
 
 void
 fd_topo_cpus_floating( fd_topo_cpus_t const * cpus,

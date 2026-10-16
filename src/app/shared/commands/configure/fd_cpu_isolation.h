@@ -95,6 +95,22 @@ fd_cpuset_t *
 fd_cpu_isolation_banned_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
                               fd_topo_t const * topo );
 
+/* fd_cpu_isolation_check_cgroup fails if a pinned tile is outside the
+   process's cgroup cpuset.  Auto layout picks CPUs from sysfs and
+   ignores the launcher's cgroup cpuset (systemd AllowedCPUs=, a
+   container).  Following it would make configure, run and monitor,
+   each launched differently, compute different layouts.  So a tile can
+   land outside the cpuset, which otherwise fails late at spawn with a
+   misleading EINVAL.
+
+   Fail here instead, naming the tile and suggesting a blocklist.  Tiles
+   join the instance partition before pinning, so its CPUs count as
+   allowed.  A floating tile fails only if none of the CPUs it would run
+   on is allowed.  Skipped when the cgroup v2 cpuset cannot be read. */
+
+void
+fd_cpu_isolation_check_cgroup( config_t const * config );
+
 /* fd_cpu_isolation_parse_mask parses a comma-grouped hex CPU mask like
    "0000000f,ffffff00\n" (e.g. contents of
    /sys/devices/virtual/workqueue/cpumask) into cpuset.  Returns 1 on
