@@ -161,6 +161,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),             fd_block_id_map_footprint( chain_cnt ) );
   } else {
     l = FD_LAYOUT_APPEND( l, fd_ag_block_id_map_align(),          fd_ag_block_id_map_footprint( chain_cnt ) );
+    l = FD_LAYOUT_APPEND( l, fd_bhm_map_align(),                  fd_bhm_map_footprint( chain_cnt ) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_bhm_ele_t),               sizeof(fd_bhm_ele_t) * tile->replay.max_live_slots );
   }
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),                 fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                    fd_accdb_footprint( tile->replay.max_live_slots, 0 ) );
@@ -1059,6 +1061,11 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
 
   if( FD_UNLIKELY( finalized_block_id.slot<=ctx->consensus_root_slot ) ) return;
 
+  if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &finalized_block_id, NULL, ctx->bhm_arr ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( finalized_block_id.hash, block_id_b58 );
+    FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", finalized_block_id.slot, block_id_b58 ));
+  }
+
   ag_block_id_t ancestor_block_id = finalized_block_id;
 
   while( FD_LIKELY( ancestor_block_id.slot>ctx->consensus_root_slot ) ) {
@@ -1780,6 +1787,19 @@ replay_block_complete( fd_replay_tile_t *        ctx,
       FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
       FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
       FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+
+      /* A bank hash mismatch detected now is only considered a true
+         BHM if the block_id also becomes finalized. */
+      ag_block_id_t const * block_id = &ctx->block_id_arr[ bank->idx ].block_info;
+      if( FD_LIKELY( !fd_bhm_map_ele_query( ctx->bhm_map, block_id, NULL, ctx->bhm_arr ) ) ) {
+        fd_bhm_ele_t * ele = &ctx->bhm_arr[ ctx->bhm_next ];
+        if( FD_UNLIKELY( ele->block_id.slot!=ULONG_MAX ) ) FD_TEST( fd_bhm_map_ele_remove( ctx->bhm_map, &ele->block_id, NULL, ctx->bhm_arr )==ele );
+
+        ele->block_id = *block_id;
+        FD_TEST( fd_bhm_map_ele_insert( ctx->bhm_map, ele, ctx->bhm_arr ) );
+        ctx->bhm_next = (ctx->bhm_next+1UL)%ctx->max_live_slots;
+      }
+
       mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, footer );
       return 1;
     } else {
@@ -5163,6 +5183,15 @@ returnable_frag( fd_replay_tile_t *  ctx,
           break;
         default: break;
         }
+      } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_QUORUM ) ) {
+        fd_votor_quorum_t const * quorum = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( quorum->kind==FD_VOTOR_QUORUM_KIND_IMPLICITLY_FINALIZED ) ) {
+          ag_block_id_t block_id = ag_block_id( quorum->slot, quorum->block_id.uc );
+          if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &block_id, NULL, ctx->bhm_arr ) ) ) {
+            FD_BASE58_ENCODE_32_BYTES( block_id.hash, block_id_b58 );
+            FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", block_id.slot, block_id_b58 ));
+          }
+        }
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_REWARD ) ) {
         fd_votor_reward_t const * reward = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_reward_t *       ring   = &ctx->votor_reward[ reward->slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
@@ -5374,6 +5403,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->vote_tracker_seed,    sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->block_id_map_seed,    sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->ag_block_id_map_seed, sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->bhm_map_seed,  sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->initial_block_id,     sizeof(fd_hash_t) )     );
   FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed,   sizeof(ulong) )         );
 
@@ -5394,6 +5424,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   void * reasm_mem        = NULL;
   void * block_id_map_mem = NULL;
+  void * bhm_map_mem      = NULL;
+  void * bhm_arr_mem      = NULL;
   ulong chain_cnt  = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -5410,6 +5442,8 @@ unprivileged_init( fd_topo_t const *      topo,
     block_id_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   } else {
     block_id_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_ag_block_id_map_align(),  fd_ag_block_id_map_footprint( chain_cnt ) );
+    bhm_map_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_bhm_map_align(),         fd_bhm_map_footprint( chain_cnt ) );
+    bhm_arr_mem             = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bhm_ele_t),      sizeof(fd_bhm_ele_t) * tile->replay.max_live_slots );
   }
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->replay.max_live_slots, 0 ) );
@@ -5673,6 +5707,12 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->ag_block_id_map = fd_ag_block_id_map_join( fd_ag_block_id_map_new( block_id_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
     FD_TEST( ctx->ag_block_id_map );
     ctx->block_id_map = NULL;
+
+    ctx->bhm_map = fd_bhm_map_join( fd_bhm_map_new( bhm_map_mem, chain_cnt, ctx->bhm_map_seed ) );
+    FD_TEST( ctx->bhm_map );
+    ctx->bhm_arr  = (fd_bhm_ele_t *)bhm_arr_mem;
+    ctx->bhm_next = 0UL;
+    for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->bhm_arr[ i ].block_id.slot = ULONG_MAX;
   }
 
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
