@@ -8145,7 +8145,7 @@ message Boot {
   bytes resolved_config_json = 66;
   // The operator's own configuration file parsed and serialized as text: only the settings they explicitly override, before defaults are merged. Values whose keys suggest paths, addresses, hosts, users, servers, or secrets are redacted.
   bytes user_config_json = 67;
-  // The full runtime topology serialized as text, capturing the complete wiring of the validator: a tiles list with each tile's kind, core assignment or floating flag, consumed and produced link lists, event link, and memory-object count; a links list, referenced from the tile link lists by position, with each link's kind, depth, message size and burst; and a workspaces list with each workspace's locality domain, page size, page count and footprint. This is the authoritative wiring fingerprint (memory-object assignments are summarized as a count); the scalar fields are derived summaries. Tile locality follows from the core assignment joined against numa_cpu_to_node.
+  // The full runtime topology serialized as text, capturing the complete wiring of the validator: a tiles list with each tile's kind, core assignment or floating flag, consumed and produced link lists, event link, and memory-object count; a links list, referenced from the tile link lists by position, with each link's kind, depth, message size and burst; and a workspaces list with each workspace's locality domain, page size, page count and footprint. This is the authoritative wiring fingerprint (memory-object assignments are summarized as a count); the scalar fields are derived summaries. Tile locality follows from the core assignment joined against numa_cpu_to_node. Newer builds add per tile core_shared (another concurrently running pinned tile is on the same physical core) and sibling_cpu (-1 when none).
   bytes topology_json = 68;
   // Total number of tiles in the running topology.
   uint32 tile_count = 69;
@@ -8165,6 +8165,10 @@ message Boot {
   repeated uint32 l3_cpu_to_domain = 76;
   // Instruction set extensions this processor supports, named as in build_features; one present here but missing from build_features means the binary was built for an older processor and runs slower code paths.
   repeated string cpu_features = 77;
+  // For each logical processor, the physical core it runs on (keyed by package and core id), numbered from 0 in first-seen order; processors sharing a value are hyperthread siblings, so tiles on them compete for one core. 65535 for an offline processor or an unreadable core id.
+  repeated uint32 cpu_to_core = 78;
+  // Logical processors in the affinity the validator inherited from its launcher (taskset, systemd CPUAffinity, or a cgroup cpuset). Tiles without a core assignment run inside it; auto layout itself ignores it. Empty when it could not be read.
+  repeated uint32 launch_cpus = 79;
 }
 
 // The result of a snapshot production attempt.

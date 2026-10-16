@@ -125,6 +125,7 @@ main( int     argc,
   static fd_boot_report_t report[1];
   fd_boot_report_collect( report, topo, event_tile );
 
+  FD_TEST( !report->float_pool ); /* no floaters, no pool */
   FD_TEST( report->kernel_release[ 0 ] );
   FD_TEST( report->cpu_logical_count );
   FD_TEST( report->host_memory_bytes );
@@ -152,6 +153,16 @@ main( int     argc,
   for( ulong i=0UL; i<report->l3_cpu_to_domain_cnt; i++ ) if( report->l3_cpu_to_domain[ i ]!=USHORT_MAX ) l3_domains = fd_ulong_max( l3_domains, report->l3_cpu_to_domain[ i ]+1UL );
   FD_LOG_NOTICE(( "l3 domains %lu over %lu cpus", l3_domains, report->l3_cpu_to_domain_cnt ));
   FD_TEST( report->cpu_features_cnt>=2UL ); /* every supported x86 CPU has sse and avx */
+  /* core map covers the numa map; distinct online values match the physical core count */
+  FD_TEST( report->cpu_to_core_cnt==report->numa_cpu_to_node_cnt );
+  ulong cores = 0UL, offline = 0UL;
+  for( ulong i=0UL; i<report->cpu_to_core_cnt; i++ ) {
+    if( report->cpu_to_core[ i ]==USHORT_MAX ) { offline++; continue; }
+    FD_TEST( report->cpu_to_core[ i ]<=cores );
+    if( report->cpu_to_core[ i ]==cores ) cores++;
+  }
+  FD_TEST( cores==report->cpu_physical_core_count );
+  FD_LOG_NOTICE(( "cpu_to_core %lu cores %lu offline over %lu cpus", cores, offline, report->cpu_to_core_cnt ));
   FD_TEST( report->accounts_fs_idx!=255 );
   FD_LOG_NOTICE(( "root fs device_idx %u", report->filesystems[ report->accounts_fs_idx ].device_idx ));
   FD_LOG_NOTICE(( "dimms %lu nics %lu blocks %lu nvme %lu md %lu fs %lu",
@@ -168,6 +179,11 @@ main( int     argc,
 
   static fd_event_client_t client[1];
 
+  /* Rendering checks below use a fixed core map: cpus 2c and 2c+1 are
+     siblings of core c, independent of the host */
+  report->cpu_to_core_cnt = 8UL;
+  for( ulong i=0UL; i<8UL; i++ ) report->cpu_to_core[ i ] = (ushort)(i/2UL);
+
   topo->tile_cnt = 2UL;
   strcpy( topo->tiles[ 0 ].name, "net" );
   topo->tiles[ 0 ].cpu_idx = 1UL;
@@ -180,6 +196,30 @@ main( int     argc,
   topo->tiles[ 1 ].in_link_id[ 0 ] = 0UL;
   topo->tiles[ 1 ].event_link_id = ULONG_MAX;
   topo->tiles[ 0 ].event_link_id = ULONG_MAX;
+  /* loopback sock copies a pinned net's CPU, and a startup-only
+     genesi reuses execle's CPU: neither is a shared core; replay on
+     cpu 2's sibling with dedup is.  The launchers found no float pool,
+     so floating net:0 runs pinned on cpu 1, sharing net:1's core */
+  topo->tile_cnt = 8UL;
+  report->float_pool = 0;
+  strcpy( topo->tiles[ 2 ].name, "net" );
+  topo->tiles[ 2 ].kind_id = 1UL;
+  topo->tiles[ 2 ].cpu_idx = 0UL;
+  strcpy( topo->tiles[ 3 ].name, "sock" );
+  topo->tiles[ 3 ].cpu_idx = 0UL;
+  topo->tiles[ 3 ].sock.only_recv_lo = 1;
+  topo->tiles[ 3 ].sock.net_tile_id  = 2UL;
+  strcpy( topo->tiles[ 4 ].name, "genesi" );
+  topo->tiles[ 4 ].cpu_idx        = 4UL;
+  topo->tiles[ 4 ].allow_shutdown = 1;
+  strcpy( topo->tiles[ 5 ].name, "execle" );
+  topo->tiles[ 5 ].cpu_idx = 4UL;
+  strcpy( topo->tiles[ 6 ].name, "replay" );
+  topo->tiles[ 6 ].cpu_idx = 3UL;
+  strcpy( topo->tiles[ 7 ].name, "dedup" );
+  topo->tiles[ 7 ].cpu_idx = 2UL;
+  for( ulong i=0UL; i<8UL; i++ ) topo->tiles[ i ].id = i;
+  for( ulong i=2UL; i<8UL; i++ ) topo->tiles[ i ].event_link_id = ULONG_MAX;
   topo->link_cnt = 1UL;
   strcpy( topo->links[ 0 ].name, "net_shred" );
   topo->links[ 0 ].depth = 128UL;
@@ -193,8 +233,14 @@ main( int     argc,
 
   FD_TEST( report->topology_json_len );
   FD_LOG_NOTICE(( "topology_json %s", report->topology_json ));
-  FD_TEST( strstr( report->topology_json, "\"cpu_idx\":1,\"floats\":true" ) );
-  FD_TEST( strstr( report->topology_json, "\"cpu_idx\":-1,\"floats\":false" ) );
+  FD_TEST( strstr( report->topology_json, "\"cpu_idx\":1,\"floats\":true,\"core_shared\":true,\"sibling_cpu\":0," ) );
+  FD_TEST( strstr( report->topology_json, "\"kind\":\"net\",\"kind_id\":1,\"cpu_idx\":0,\"floats\":false,\"core_shared\":true," ) );
+  FD_TEST( strstr( report->topology_json, "\"cpu_idx\":-1,\"floats\":false,\"core_shared\":false,\"sibling_cpu\":-1" ) );
+  FD_TEST( strstr( report->topology_json, "\"kind\":\"genesi\",\"kind_id\":0,\"cpu_idx\":4,\"floats\":false,\"core_shared\":false,\"sibling_cpu\":5," ) );
+  FD_TEST( strstr( report->topology_json, "\"kind\":\"execle\",\"kind_id\":0,\"cpu_idx\":4,\"floats\":false,\"core_shared\":false," ) );
+  FD_TEST( strstr( report->topology_json, "\"kind\":\"replay\",\"kind_id\":0,\"cpu_idx\":3,\"floats\":false,\"core_shared\":true,\"sibling_cpu\":2," ) );
+  FD_TEST( strstr( report->topology_json, "\"kind\":\"dedup\",\"kind_id\":0,\"cpu_idx\":2,\"floats\":false,\"core_shared\":true," ) );
+  FD_TEST( strstr( report->topology_json, "\"kind\":\"sock\",\"kind_id\":0,\"cpu_idx\":0,\"floats\":false,\"core_shared\":true," ) ); /* via net:0 */
 
   ulong sz = 0UL;
   uchar const * msg = fd_circq_cursor_advance( circq, &sz );
@@ -212,6 +258,39 @@ main( int     argc,
   FD_TEST( tlv->len==fd_pb_inbuf_sz( buf ) );
   check_msg( buf->cur, tlv->len, "Event", report );
   FD_LOG_NOTICE(( "decode cross-check against events.proto passed" ));
+
+  /* With a float pool floaters float and never share: net:1 and its
+     loopback sock are alone again */
+  static fd_boot_report_t pooled[1];
+  *pooled = *report;
+  pooled->float_pool = 1;
+  fd_boot_report_publish( pooled, topo, circq, client );
+  FD_TEST( fd_circq_cursor_advance( circq, &sz ) );
+  FD_TEST( strstr( pooled->topology_json, "\"cpu_idx\":1,\"floats\":true,\"core_shared\":false,\"sibling_cpu\":0," ) );
+  FD_TEST( strstr( pooled->topology_json, "\"kind\":\"net\",\"kind_id\":1,\"cpu_idx\":0,\"floats\":false,\"core_shared\":false," ) );
+  FD_TEST( strstr( pooled->topology_json, "\"kind\":\"sock\",\"kind_id\":0,\"cpu_idx\":0,\"floats\":false,\"core_shared\":false," ) );
+
+  /* Two floaters fall back to pinned without a pool: snapdc and snapin
+     on cpu 1 share it (the startup/post-start pair with execle on its
+     sibling stays exempt) */
+  static fd_topo_t two[1];
+  memset( two, 0, sizeof(two) );
+  two->tile_cnt = 3UL;
+  char const * two_name[ 3 ] = { "snapdc", "snapin", "execle" };
+  ulong        two_cpu [ 3 ] = { 1UL, 1UL, 0UL };
+  pooled->float_pool = 0;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    strcpy( two->tiles[ i ].name, two_name[ i ] );
+    two->tiles[ i ].id            = i;
+    two->tiles[ i ].cpu_idx       = two_cpu[ i ];
+    two->tiles[ i ].floats        = i<2UL;
+    two->tiles[ i ].event_link_id = ULONG_MAX;
+  }
+  fd_boot_report_publish( pooled, two, circq, client );
+  FD_TEST( fd_circq_cursor_advance( circq, &sz ) );
+  FD_TEST( strstr( pooled->topology_json, "\"kind\":\"snapdc\",\"kind_id\":0,\"cpu_idx\":1,\"floats\":true,\"core_shared\":true," ) );
+  FD_TEST( strstr( pooled->topology_json, "\"kind\":\"snapin\",\"kind_id\":0,\"cpu_idx\":1,\"floats\":true,\"core_shared\":true," ) );
+  FD_TEST( strstr( pooled->topology_json, "\"kind\":\"execle\",\"kind_id\":0,\"cpu_idx\":0,\"floats\":false,\"core_shared\":false," ) );
 
   /* worst case validates the buffer bound deterministically: every
      string at max_len, every array full, every numeric at max varint
@@ -253,6 +332,8 @@ main( int     argc,
   maxed->numa_cpu_to_node_cnt = 1024UL;
   maxed->isolated_cpus_cnt    = 1024UL;
   maxed->l3_cpu_to_domain_cnt = 1024UL;
+  maxed->cpu_to_core_cnt      = 1024UL;
+  maxed->launch_cpus_cnt      = 1024UL;
   maxed->dmi_dimms_cnt        = 64UL;
   maxed->nic_devices_cnt      = 16UL;
   maxed->nic_bond_slaves_cnt  = 16UL;

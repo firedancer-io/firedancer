@@ -347,6 +347,7 @@ struct fd_topo_tile {
       char   guidb_path    [ PATH_MAX ];
       char   net_interface [ 16 ];
       long   boot_timestamp_nanos;
+      ulong  launch_cpus[ 1024UL/64UL ];
     } event;
 
     struct {

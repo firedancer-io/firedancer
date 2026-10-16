@@ -228,6 +228,11 @@ fd_topob_finish( fd_topo_t *                topo,
 int
 fd_topob_tile_priority_type( fd_topo_tile_t const * tile );
 
+int
+fd_topob_cpu_overlap_allowed( fd_topo_tile_t const * a,
+                              fd_topo_tile_t const * b,
+                              int                    floats_share );
+
 void
 fd_topob_validate_cpu_overlaps( fd_topo_t const * topo );
 
