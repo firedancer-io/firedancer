@@ -108,10 +108,10 @@
         "txn_oversize_dropped":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Txns received via QUIC dropped because they were too large" },
         "udp_txn_undersize_dropped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Packets received on the non-QUIC port that were too small to be a valid IP packet" },
         "udp_txn_oversize_dropped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Packets received on the non-QUIC port that were too large to be a valid transaction" },
-        "pkt_rx":                           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "UDP datagrams received on the QUIC port (one may carry several coalesced QUIC packets)" },
-        "pkt_rx_bytes":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes of UDP datagrams received on the QUIC port, including IP and UDP headers" },
-        "pkt_tx":                           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "IP packets sent" },
-        "pkt_tx_bytes":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes sent (including IP, UDP, QUIC headers)" },
+        "pkt_rx":                           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "UDP datagrams received (one may carry several coalesced QUIC packets)" },
+        "pkt_rx_bytes":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes of UDP datagrams received, including Ethernet, IPv4 and UDP headers" },
+        "pkt_tx":                           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "UDP datagrams sent" },
+        "pkt_tx_bytes":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes of UDP datagrams sent, including Ethernet, IPv4 and UDP headers" },
         "conn_used": {
             "type": "Tuple",
             "description": "Connection slots in use, by state; sum + ConnFree = ConnCapacity",
@@ -133,7 +133,7 @@
         "conn_timed_out":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connections timed out" },
         "conn_retried":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connections established with retry" },
         "conn_no_slot_rejected":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connections that failed to create due to lack of slots" },
-        "conn_retry_rejected":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connections that failed during retry (e.g. invalid token)" },
+        "conn_retry_rejected":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" },
         "pkt_dropped": {
             "type": "Tuple",
             "description": "Received packets dropped, by reason",

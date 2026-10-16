@@ -1339,7 +1339,8 @@ write_votor( config_t const * config,
   ulong  finalized_slot = t[ MIDX( GAUGE, VOTOR, HIGHEST_FINAL_CERT_SLOT ) ];
   ulong  slots_used     = t[ MIDX( GAUGE, VOTOR, VOTING_SLOT_USED        ) ];
   ulong  slots_max      = slots_used+t[ MIDX( GAUGE, VOTOR, VOTING_SLOT_FREE ) ];
-  ulong  peers          = t[ MIDX( GAUGE, VOTOR, PEER_CONN_OPEN       ) ];
+  ulong  peers_out      = t[ MIDX( GAUGE, VOTOR, CLIENT_CONN_USED )+FD_METRICS_ENUM_QUIC_CONN_STATE_V_ACTIVE_IDX ];
+  ulong  peers_in       = t[ MIDX( GAUGE, VOTOR, SERVER_CONN_USED )+FD_METRICS_ENUM_QUIC_CONN_STATE_V_ACTIVE_IDX ];
   long   rank           = (long)t[ MIDX( GAUGE, VOTOR, RANK           ) ];
   double slots_pct      = slots_max ? 100.0*(double)slots_used/(double)slots_max : 0.0;
   long   final_lag      = (long)finalized_slot-(long)reset_slot;
@@ -1356,11 +1357,11 @@ write_votor( config_t const * config,
   } else {
     PRINT( K( "votes" ) "%s" U( "/s" )
            K( "certs" ) "%s" U( "/s" )
-           K( "peers" ) "%lu"
+           K( "peers" ) "%lu" U( "out" ) " %lu" U( "in" )
            K( "rank" )  "%ld",
       VOTOR_RATE( VOTE_RX_SUCCESS ),
       VOTOR_RATE( CERT_RX_SUCCESS ),
-      peers,
+      peers_out, peers_in,
       rank );
   }
   PRINT( CLEARLN "\n" );

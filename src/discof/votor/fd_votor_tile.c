@@ -726,6 +726,8 @@ quic_client_datagram_tx( fd_votor_tile_t *   ctx,
   ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
   fd_stem_publish( stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+  ctx->quic_client->metrics.net_tx_pkt_cnt++; /* bypasses fd_quic's aio send, which counts the rest */
+  ctx->quic_client->metrics.net_tx_byte_cnt += sz_l2-sizeof(fd_eth_hdr_t); /* IP bytes, as fd_quic counts */
   return pkt_num;
 }
 
@@ -1806,7 +1808,86 @@ metrics_write( fd_votor_tile_t * ctx ) {
   ulong rank = self && self->curr_rank!=USHORT_MAX ? self->curr_rank : ULONG_MAX;
   FD_MGAUGE_SET( VOTOR, RANK, rank );
 
-  FD_MGAUGE_SET( VOTOR, PEER_CONN_OPEN, ctx->quic_client->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ] );
+
+  /* QUIC client (outbound conns) */
+
+  FD_MCNT_SET        ( VOTOR, CLIENT_PKT_RX_BYTES,                 ctx->quic_client->metrics.net_rx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_client->metrics.net_rx_pkt_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_FRAME_RX,                     ctx->quic_client->metrics.frame_rx_cnt            );
+  FD_MCNT_SET        ( VOTOR, CLIENT_PKT_RX,                       ctx->quic_client->metrics.net_rx_pkt_cnt          );
+  FD_MCNT_SET        ( VOTOR, CLIENT_STREAM_RX_BYTES,              ctx->quic_client->metrics.stream_rx_byte_cnt      );
+  FD_MCNT_SET        ( VOTOR, CLIENT_STREAM_RX,                    ctx->quic_client->metrics.stream_rx_event_cnt     );
+  FD_MCNT_SET        ( VOTOR, CLIENT_PKT_TX,                       ctx->quic_client->metrics.net_tx_pkt_cnt          );
+  FD_MCNT_SET        ( VOTOR, CLIENT_PKT_TX_BYTES,                 ctx->quic_client->metrics.net_tx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_client->metrics.net_tx_pkt_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_ACK_PROCESSED,            ctx->quic_client->metrics.ack_tx                  );
+  FD_MGAUGE_ENUM_COPY( VOTOR, CLIENT_CONN_USED,                    (ctx->quic_client->metrics.conn_state_cnt+1)      ); /* skip FD_QUIC_CONN_STATE_INVALID (free slots) */
+  FD_MGAUGE_SET      ( VOTOR, CLIENT_CONN_FREE,                    ctx->quic_client->limits.conn_cnt-ctx->quic_client->metrics.conn_alloc_cnt );
+  FD_MGAUGE_SET      ( VOTOR, CLIENT_CONN_CAPACITY,                ctx->quic_client->limits.conn_cnt                 );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_CREATED,                 ctx->quic_client->metrics.conn_created_cnt        );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_CLOSED,                  ctx->quic_client->metrics.conn_closed_cnt         );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_ABORTED,                 ctx->quic_client->metrics.conn_aborted_cnt        );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_TIMED_OUT,               ctx->quic_client->metrics.conn_timeout_cnt        );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_NO_SLOT_REJECTED,        ctx->quic_client->metrics.conn_err_no_slots_cnt   );
+  FD_MCNT_SET        ( VOTOR, CLIENT_CONN_RETRY_REJECTED,          ctx->quic_client->metrics.conn_err_retry_fail_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_DECRYPT_FAILED,           ctx->quic_client->metrics.pkt_decrypt_fail_cnt    );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_NO_KEY_DROPPED,           ctx->quic_client->metrics.pkt_no_key_cnt          );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_NO_CONN_DROPPED,          ctx->quic_client->metrics.pkt_no_conn_cnt         );
+  ulong pkt_drop_client[ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_CNT ] = {
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_UNDERSIZE_IDX           ] = ctx->quic_client->metrics.pkt_undersz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_OVERSIZE_IDX            ] = ctx->quic_client->metrics.pkt_oversz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_SRC_IP_MISMATCH_IDX     ] = ctx->quic_client->metrics.pkt_wrong_src_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX      ] = ctx->quic_client->metrics.pkt_quic_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX  ] = ctx->quic_client->metrics.pkt_net_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX ] = ctx->quic_client->metrics.pkt_verneg_cnt,
+  };
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_DROPPED,                  pkt_drop_client                             );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_META_ACQUIRE_ATTEMPTED,   ctx->quic_client->metrics.frame_tx_alloc_cnt      );
+  FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_RETRANSMITTED,            ctx->quic_client->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_SET        ( VOTOR, CLIENT_HANDSHAKE_CREATED,            ctx->quic_client->metrics.hs_created_cnt          );
+  FD_MCNT_SET        ( VOTOR, CLIENT_HANDSHAKE_POOL_FULL_REJECTED, ctx->quic_client->metrics.hs_err_alloc_fail_cnt   );
+  FD_MCNT_SET        ( VOTOR, CLIENT_HANDSHAKE_EVICTED,            ctx->quic_client->metrics.hs_evicted_cnt          );
+  FD_MCNT_SET        ( VOTOR, CLIENT_FRAME_PARSE_FAILED,           ctx->quic_client->metrics.frame_rx_err_cnt        );
+  FD_MHIST_COPY      ( VOTOR, CLIENT_SERVICE_DURATION_NANOS,       ctx->quic_client->metrics.service_duration        );
+  FD_MHIST_COPY      ( VOTOR, CLIENT_PKT_RX_DURATION_NANOS,        ctx->quic_client->metrics.receive_duration        );
+
+  /* QUIC server (inbound conns) */
+
+  FD_MCNT_SET        ( VOTOR, SERVER_PKT_RX_BYTES,                 ctx->quic_server->metrics.net_rx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_server->metrics.net_rx_pkt_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_FRAME_RX,                     ctx->quic_server->metrics.frame_rx_cnt            );
+  FD_MCNT_SET        ( VOTOR, SERVER_PKT_RX,                       ctx->quic_server->metrics.net_rx_pkt_cnt          );
+  FD_MCNT_SET        ( VOTOR, SERVER_STREAM_RX_BYTES,              ctx->quic_server->metrics.stream_rx_byte_cnt      );
+  FD_MCNT_SET        ( VOTOR, SERVER_STREAM_RX,                    ctx->quic_server->metrics.stream_rx_event_cnt     );
+  FD_MCNT_SET        ( VOTOR, SERVER_PKT_TX,                       ctx->quic_server->metrics.net_tx_pkt_cnt          );
+  FD_MCNT_SET        ( VOTOR, SERVER_PKT_TX_BYTES,                 ctx->quic_server->metrics.net_tx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_server->metrics.net_tx_pkt_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_ACK_PROCESSED,            ctx->quic_server->metrics.ack_tx                  );
+  FD_MGAUGE_ENUM_COPY( VOTOR, SERVER_CONN_USED,                    (ctx->quic_server->metrics.conn_state_cnt+1)      ); /* skip FD_QUIC_CONN_STATE_INVALID (free slots) */
+  FD_MGAUGE_SET      ( VOTOR, SERVER_CONN_FREE,                    ctx->quic_server->limits.conn_cnt-ctx->quic_server->metrics.conn_alloc_cnt );
+  FD_MGAUGE_SET      ( VOTOR, SERVER_CONN_CAPACITY,                ctx->quic_server->limits.conn_cnt                 );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_CREATED,                 ctx->quic_server->metrics.conn_created_cnt        );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_CLOSED,                  ctx->quic_server->metrics.conn_closed_cnt         );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_ABORTED,                 ctx->quic_server->metrics.conn_aborted_cnt        );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_TIMED_OUT,               ctx->quic_server->metrics.conn_timeout_cnt        );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_NO_SLOT_REJECTED,        ctx->quic_server->metrics.conn_err_no_slots_cnt   );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_RETRY_REJECTED,          ctx->quic_server->metrics.conn_err_retry_fail_cnt );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_DECRYPT_FAILED,           ctx->quic_server->metrics.pkt_decrypt_fail_cnt    );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_NO_KEY_DROPPED,           ctx->quic_server->metrics.pkt_no_key_cnt          );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_NO_CONN_DROPPED,          ctx->quic_server->metrics.pkt_no_conn_cnt         );
+  ulong pkt_drop_server[ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_CNT ] = {
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_UNDERSIZE_IDX           ] = ctx->quic_server->metrics.pkt_undersz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_OVERSIZE_IDX            ] = ctx->quic_server->metrics.pkt_oversz_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_SRC_IP_MISMATCH_IDX     ] = ctx->quic_server->metrics.pkt_wrong_src_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX      ] = ctx->quic_server->metrics.pkt_quic_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX  ] = ctx->quic_server->metrics.pkt_net_hdr_err_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX ] = ctx->quic_server->metrics.pkt_verneg_cnt,
+  };
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_DROPPED,                  pkt_drop_server                             );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_META_ACQUIRE_ATTEMPTED,   ctx->quic_server->metrics.frame_tx_alloc_cnt      );
+  FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_RETRANSMITTED,            ctx->quic_server->metrics.pkt_retransmissions_cnt );
+  FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_CREATED,            ctx->quic_server->metrics.hs_created_cnt          );
+  FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_POOL_FULL_REJECTED, ctx->quic_server->metrics.hs_err_alloc_fail_cnt   );
+  FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_EVICTED,            ctx->quic_server->metrics.hs_evicted_cnt          );
+  FD_MCNT_SET        ( VOTOR, SERVER_FRAME_PARSE_FAILED,           ctx->quic_server->metrics.frame_rx_err_cnt        );
+  FD_MHIST_COPY      ( VOTOR, SERVER_SERVICE_DURATION_NANOS,       ctx->quic_server->metrics.service_duration        );
+  FD_MHIST_COPY      ( VOTOR, SERVER_PKT_RX_DURATION_NANOS,        ctx->quic_server->metrics.receive_duration        );
 }
 
 /* after_credit is the tile's event loop.  Each step handles at most
@@ -2527,6 +2608,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_server->cb.datagram_rx = quic_server_datagram_rx;
 
   FD_TEST( fd_quic_init( ctx->quic_server ) );
+
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic_client->metrics.service_duration, FD_MHIST_EDGES_NS( VOTOR, CLIENT_SERVICE_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic_client->metrics.receive_duration, FD_MHIST_EDGES_NS( VOTOR, CLIENT_PKT_RX_DURATION_NANOS  ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic_server->metrics.service_duration, FD_MHIST_EDGES_NS( VOTOR, SERVER_SERVICE_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->quic_server->metrics.receive_duration, FD_MHIST_EDGES_NS( VOTOR, SERVER_PKT_RX_DURATION_NANOS  ) ) );
 }
 
 static ulong
