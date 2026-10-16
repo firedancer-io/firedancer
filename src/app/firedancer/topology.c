@@ -1730,6 +1730,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
     tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;
     tile->rotor.fec_max  = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "obj.%lu.fec_max", fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX ) ); /* as many FEC sets as Store */
+    tile->rotor.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->rotor.allow_private_address = config->development.gossip.allow_private_address;
 
