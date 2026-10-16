@@ -3162,25 +3162,38 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
   ulong const hdr_sz = fd_quic_encode_one_rtt( scratch, scratch_sz, &one_rtt );
   if( FD_UNLIKELY( hdr_sz==FD_QUIC_ENCODE_FAIL ) ) return 0UL;
 
+  /* Carry pending ACKs, even for ACK-only packets: this packet is
+     ack-eliciting, and a peer that only ever sends ACKs (Agave votor
+     server) otherwise never sees its ACKs acknowledged and keeps
+     re-sending every gap. */
+  uchar   ack_buf[ 128 ];
+  ulong   ack_room = fd_ulong_min( sizeof(ack_buf), fd_ulong_sat_sub( fd_ulong_min( pkt_sz, conn->tx_max_datagram_sz ), hdr_sz+frame_sz+FD_QUIC_CRYPTO_TAG_SZ ) );
+  uint    ack_tail     = conn->ack_gen->tail; /* restored if the send fails */
+  uchar   ack_elicited = conn->ack_gen->is_elicited;
+  ulong   ack_sz   = (ulong)( fd_quic_gen_ack_frames( conn->ack_gen, ack_buf, ack_buf+ack_room, fd_quic_enc_level_appdata_id, state->now, 1 )-ack_buf );
+
   ulong padding = 0UL;
-  ulong const protected_payload_sz = frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  ulong const protected_payload_sz = ack_sz + frame_sz + FD_QUIC_CRYPTO_TAG_SZ;
   ulong const sample_min_sz = FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START +
                               FD_QUIC_CRYPTO_SAMPLE_SZ;
   if( protected_payload_sz+pn_sz < sample_min_sz ) {
     padding = sample_min_sz - pn_sz - protected_payload_sz;
   }
 
-  ulong const plain_sz = frame_sz + padding;
+  ulong const plain_sz = ack_sz + frame_sz + padding;
   ulong const out_sz   = hdr_sz + plain_sz + FD_QUIC_CRYPTO_TAG_SZ;
   if( FD_UNLIKELY(
       out_sz>pkt_sz ||
       out_sz>conn->tx_max_datagram_sz ||
       hdr_sz+plain_sz>scratch_sz
   ) ) {
+    conn->ack_gen->tail = ack_tail; conn->ack_gen->is_elicited = ack_elicited;
     return 0UL;
   }
 
   uchar * p = scratch + hdr_sz;
+  fd_memcpy( p, ack_buf, ack_sz );
+  p += ack_sz;
   *p++ = 0x31U; /* DATAGRAM with an explicit Length field */
   p += fd_quic_varint_encode( p, dgram_sz );
   if( dgram_sz ) fd_memcpy( p, dgram, dgram_sz );
@@ -3203,11 +3216,15 @@ fd_quic_conn_tx_dgram( fd_quic_conn_t * conn,
       pkt_keys, hp_keys,
       pkt_num
   );
-  if( FD_UNLIKELY( enc_res!=FD_QUIC_SUCCESS ) ) return 0UL;
-  if( FD_UNLIKELY( cipher_sz!=out_sz ) ) return 0UL;
+  if( FD_UNLIKELY( enc_res!=FD_QUIC_SUCCESS || cipher_sz!=out_sz ) ) {
+    conn->ack_gen->tail = ack_tail;
+    conn->ack_gen->is_elicited = ack_elicited;
+    return 0UL;
+  }
 #endif
 
   conn->pkt_number[ pn_space ] = pkt_num + 1UL;
+  if( conn->ack_gen->head==conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
   /* RFC 9221 Section 5.2: DATAGRAM frames are ack-eliciting, so track
      the packet for RTT samples and loss detection like any other */
@@ -3727,7 +3744,7 @@ fd_quic_gen_frames( fd_quic_conn_t           * conn,
 
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
 
-  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, pkt_meta_tmpl->enc_level, now );
+  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, pkt_meta_tmpl->enc_level, now, 0 );
   if( conn->ack_gen->head == conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
   if( FD_UNLIKELY( closing ) ) {
