@@ -3,7 +3,7 @@
 
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../topo/fd_topob.h"
-#include "../../util/tile/fd_tile_private.h"
+#include "../topo/fd_cpu_topo.h"
 
 /* manually include just fd_features_generated.h so we can get
    FD_FEATURE_SET_ID without anything else that we don't need. */
@@ -1378,16 +1378,12 @@ fd_boot_report_collect( fd_boot_report_t *     r,
   collect_cores( r );
   collect_affinity( r, tile );
 
+  static fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
   FD_CPUSET_DECL( pool );
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) if( topo->tiles[ i ].floats ) fd_cpuset_insert( pool, topo->tiles[ i ].cpu_idx );
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * t = &topo->tiles[ i ];
-    if( t->floats || t->cpu_idx==ULONG_MAX ) continue;
-    fd_cpuset_remove( pool, t->cpu_idx );
-    ulong sibling = fd_tile_private_sibling_idx( t->cpu_idx );
-    if( FD_LIKELY( sibling!=ULONG_MAX ) ) fd_cpuset_remove( pool, sibling );
-  }
-  r->float_pool = !!fd_cpuset_cnt( pool );
+  FD_CPUSET_DECL( cpuless );
+  fd_topo_cpus_floating( cpus, topo, (fd_cpuset_t const *)tile->event.launch_cpus, pool, cpuless );
+  r->float_pool = !!fd_cpuset_cnt( pool ); /* empty: the launchers pin floaters */
   collect_dimms( r );
   collect_net( r, tile->event.net_interface );
   collect_platform( r, tile->event.net_interface );

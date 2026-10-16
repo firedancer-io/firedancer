@@ -923,8 +923,9 @@ telemetry = true
     # skipped due to hyperthreading.  You can also have a number
     # preceded by a 'f' like 'f5' which means the next five tiles are
     # not pinned and will float on the original core set that Firedancer
-    # was started with, or on the shared cores (below) if the layout
-    # names any.
+    # was started with, minus pinned cores and their hyperthread
+    # siblings, or on the shared cores (below) if the layout names any.
+    # If that leaves nothing, they float on the whole original set.
     #
     # A core preceded by an 's' like 's5' is shared.  The tile is homed
     # at core 5, so its memory is placed on that core's NUMA node, but

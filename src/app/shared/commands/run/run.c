@@ -30,6 +30,7 @@
 
 #include "../configure/configure.h"
 #include "../configure/fd_cpu_isolation.h"
+#include "../../../../disco/topo/fd_cpu_topo.h"
 
 #include <dirent.h>
 #include <sched.h>
@@ -261,7 +262,7 @@ static pid_t
 execve_tile( char const *           name,
              fd_topo_tile_t const * tile,
              fd_cpuset_t const *    float_cpu_set,
-             fd_cpuset_t const *    floating_cpu_set,
+             fd_cpuset_t const *    cpuless_cpu_set,
              int                    floating_priority,
              int                    config_memfd,
              int                    pipefd,
@@ -285,8 +286,7 @@ execve_tile( char const *           name,
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     leave_isolation_cgroup( cg );
-    fd_cpuset_intersect( cpu_set, float_cpu_set, floating_cpu_set );
-    if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
+    fd_cpuset_copy( cpu_set, cpuless_cpu_set );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -351,22 +351,13 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  /* The CPUs of the floating tiles (efficient mode): floaters share
-     these among themselves and never a pinned tile's CPU */
   FD_CPUSET_DECL( float_cpu_set );
+  FD_CPUSET_DECL( cpuless_cpu_set );
+  static fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+  fd_topo_cpus_floating( cpus, &config->topo, floating_cpu_set, float_cpu_set, cpuless_cpu_set );
   int any_floats = 0;
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    if( FD_LIKELY( !config->topo.tiles[ i ].floats ) ) continue;
-    fd_cpuset_insert( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
-    any_floats = 1;
-  }
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( tile->floats || tile->cpu_idx==ULONG_MAX ) ) continue;
-    fd_cpuset_remove( float_cpu_set, tile->cpu_idx );
-    ulong sibling = fd_tile_private_sibling_idx( tile->cpu_idx );
-    if( FD_LIKELY( sibling!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, sibling );
-  }
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) any_floats |= config->topo.tiles[ i ].floats;
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
   ulong actual_pids[ FD_TOPO_MAX_TILES+1 ];
@@ -575,7 +566,7 @@ main_pid_namespace( void * _args ) {
       fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
 
       int floating_priority = ( any_floats && !strcmp( tile->name, "waker" ) ) ? -19 : save_priority;
-      child_pids[ child_cnt ] = execve_tile( config->name, tile, float_cpu_set, floating_cpu_set, floating_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
+      child_pids[ child_cnt ] = execve_tile( config->name, tile, float_cpu_set, cpuless_cpu_set, floating_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
       child_idxs[ child_cnt ] = i;
       if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       strncpy( child_names[ child_cnt ], tile->name, 32 );
