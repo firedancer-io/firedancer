@@ -297,8 +297,7 @@ skip_compiler_machine_target() {
   return 1
 }
 
-# Install rust and packages, also fetch the git repositories
-# needed for compiling.
+# Install packages needed for compiling.
 
 inf "Setting up build environment...\n"
 cd $FD_REPO_DIR
