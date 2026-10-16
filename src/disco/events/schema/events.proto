@@ -9579,6 +9579,8 @@ message MetricsRotor {
   uint64 eager_delay_nanos = 53;
   // Messages in the sign pool waiting for a signature from the sign tiles
   uint64 sign_request_pending = 54;
+  // Highest slot past the window with a verified cert, the staked catchup target, 0 if none
+  uint64 catchup_slot = 55;
 }
 
 // Metrics of one rserve tile instance, one row per sweep

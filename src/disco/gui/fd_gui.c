@@ -1578,7 +1578,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       fd_gui_ema_init( &gui->summary.accdb->tier_fill_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
       fd_gui_ema_init( &gui->summary.accdb->tier_free_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
     }
-  } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && wfs_state==FD_GOSSIP_WFS_STATE_DONE && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_tower!=ULONG_MAX ) ) {
+  } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && wfs_state==FD_GOSSIP_WFS_STATE_DONE && ( gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX || gui->summary.slot_turbine!=ULONG_MAX ) && gui->summary.slot_tower!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( fd_gui_wfs_mode( gui )==FD_WFS_MODE_MATCH ) ) {
       if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) {
         gui->summary.slot_caught_up = fd_gui_boot_snapshot_slot( gui );
@@ -1794,6 +1794,22 @@ fd_gui_sample_repair_slot( fd_gui_t * gui, long now ) {
   fd_gui_handle_repair_slot( gui, slot, now );
 }
 
+static void
+fd_gui_sample_catchup_slot( fd_gui_t * gui ) {
+  if( FD_LIKELY( !gui->summary.is_alpenglow || gui->summary.slot_caught_up!=ULONG_MAX ) ) return;
+  ulong rotor_tile_idx = fd_topo_find_tile( gui->topo, "rotor", 0UL );
+  if( FD_UNLIKELY( rotor_tile_idx==ULONG_MAX ) ) return;
+  fd_topo_tile_t const * rotor         = &gui->topo->tiles[ rotor_tile_idx ];
+  volatile ulong const * rotor_metrics = fd_metrics_tile( rotor->metrics );
+  ulong                  slot          = rotor_metrics[ MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ];
+  if( FD_LIKELY( !slot || ( gui->summary.slot_turbine!=ULONG_MAX && slot<=gui->summary.slot_turbine ) ) ) return;
+
+  gui->summary.slot_turbine = slot;
+  fd_gui_printf_turbine_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+  fd_gui_try_insert_run_length_slot( gui->summary.catch_up_turbine, FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_turbine_sz, slot );
+}
+
 void
 fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long tsorig, long now ) {
   fd_gui_shred_event_append( gui, slot, shred_idx, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, tsorig, now );
@@ -1907,6 +1923,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     }
 
     if( FD_UNLIKELY( gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {
+      fd_gui_sample_catchup_slot( gui );
       fd_gui_run_boot_progress( gui, now );
       if( FD_UNLIKELY( memcmp( &gui->summary.boot_progress, &gui->summary.prev_boot_progress, sizeof(fd_gui_boot_progress_t) ) ) ) {
         gui->summary.prev_boot_progress = gui->summary.boot_progress;
