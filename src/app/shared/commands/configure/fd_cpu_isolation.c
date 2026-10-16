@@ -109,24 +109,49 @@ fd_cpu_isolation_partition_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
 
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    if( FD_LIKELY( !( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_SMT_CRITICAL ) ) ) continue;
-    /* The pack/poh/pohh siblings only, the set the hyperthreads stage checks */
-    if( tile->kind_id || !( !strcmp( tile->name, "pack" ) || !strcmp( tile->name, "poh" ) || !strcmp( tile->name, "pohh" ) ) ) continue;
+  FD_CPUSET_DECL( blocklist );
+  for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) fd_cpuset_insert( blocklist, topo->blocklist_cores_cpu_idx[ i ] );
+  FD_CPUSET_DECL( online );
+  fd_cpu_isolation_online_cpus( online );
 
-    ulong cpu_idx = tile->cpu_idx;
-    if( FD_UNLIKELY( cpu_idx>=fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ) ) ) continue;
-    if( FD_UNLIKELY( tile->floats ) ) continue; /* not alone on that core anyway */
+  for( uint pass=0U; pass<2U; pass++ ) {
+    uint cls = pass ? FD_TOPOB_TILE_DEDICATED : FD_TOPOB_TILE_SMT_CRITICAL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topo_tile_t const * tile = &topo->tiles[ i ];
+      if( FD_LIKELY( !( fd_topob_tile_class( tile->name ) & cls ) ) ) continue;
 
-    ulong sibling = cpus->cpu[ cpu_idx ].sibling;
-    if( FD_UNLIKELY( sibling==ULONG_MAX || sibling>=FD_TILE_MAX ) ) continue;      /* no sibling */
-    if( FD_UNLIKELY( !cpus->cpu[ sibling ].online ) ) continue;                    /* offline is even better */
-    if( FD_UNLIKELY( fd_cpuset_test( cpuset, sibling ) ) ) continue;               /* used by another tile */
+      ulong cpu_idx = tile->cpu_idx;
+      if( FD_UNLIKELY( cpu_idx>=fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ) ) ) continue;
+      if( FD_UNLIKELY( tile->floats ) ) continue; /* not alone on that core anyway */
 
-    fd_cpuset_insert( cpuset, sibling );
+      ulong sibling = cpus->cpu[ cpu_idx ].sibling;
+      if( FD_UNLIKELY( sibling==ULONG_MAX || sibling>=FD_TILE_MAX ) ) continue; /* no sibling */
+      if( FD_UNLIKELY( !cpus->cpu[ sibling ].online ) ) continue;               /* offline is even better */
+      if( FD_UNLIKELY( fd_cpuset_test( cpuset, sibling ) ) ) continue;          /* used by another tile */
+      if( pass ) {
+        FD_CPUSET_DECL( housekeeping );
+        fd_cpuset_subtract( housekeeping, online, cpuset );
+        if( FD_UNLIKELY( fd_cpuset_test( blocklist, sibling ) || fd_cpuset_cnt( housekeeping )<=1UL ) ) continue;
+      }
+
+      fd_cpuset_insert( cpuset, sibling );
+    }
   }
   return cpuset;
+}
+
+fd_cpuset_t *
+fd_cpu_isolation_banned_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
+                              fd_topo_t const * topo ) {
+  fd_cpu_isolation_partition_cpus( cpuset, topo );
+
+  FD_CPUSET_DECL( housekeeping );
+  fd_cpuset_subtract( housekeeping, fd_cpu_isolation_online_cpus( housekeeping ), cpuset );
+  if( FD_LIKELY( fd_cpuset_cnt( housekeeping ) ) ) return cpuset;
+
+  FD_LOG_WARNING(( "excluding the idle hyperthread siblings of critical and dedicated tiles would leave no "
+                   "housekeeping CPU; excluding only tile CPUs" ));
+  return fd_cpu_isolation_tile_cpus( cpuset, topo );
 }
 
 int

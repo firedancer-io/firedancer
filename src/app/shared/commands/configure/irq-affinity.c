@@ -297,21 +297,6 @@ set_irq_smp_affinities( fd_cpuset_t const * desired ) {
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir(/proc/irq) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-/* topo_banned_cpus returns the set of CPUs that should not handle
-   interrupts in *cpuset. */
-
-static fd_cpuset_t *
-topo_banned_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ],
-                  fd_topo_t const * topo ) {
-  fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_shmem_cpu_cnt();
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    if( tile->cpu_idx < cpu_cnt ) fd_cpuset_insert( cpuset, tile->cpu_idx );
-  }
-  return cpuset;
-}
-
 static void
 init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
@@ -327,7 +312,7 @@ fini_perm( fd_cap_chk_t *   chk,
 static void
 init( config_t const * config ) {
   FD_CPUSET_DECL( banned );
-  topo_banned_cpus( banned, &config->topo );
+  fd_cpu_isolation_banned_cpus( banned, &config->topo );
 
   FD_CPUSET_DECL( allowed );
   fd_cpuset_subtract( allowed, fd_cpu_isolation_online_cpus( allowed ), banned );
@@ -345,7 +330,7 @@ fini( config_t const * config,
   (void)pre_init;
 
   FD_CPUSET_DECL( banned );
-  topo_banned_cpus( banned, &config->topo );
+  fd_cpu_isolation_banned_cpus( banned, &config->topo );
 
   if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) return 0;
 
@@ -357,7 +342,7 @@ static configure_result_t
 check( config_t const * config,
        int              check_type ) {
   FD_CPUSET_DECL( banned );
-  topo_banned_cpus( banned, &config->topo );
+  fd_cpu_isolation_banned_cpus( banned, &config->topo );
 
   if( FD_UNLIKELY( fd_cpuset_is_null( banned ) ) ) {
     FD_CPUSET_DECL( daemon_banned );

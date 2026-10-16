@@ -72,18 +72,28 @@ fd_cpu_isolation_partition_type( fd_topo_t const * topo );
 
 /* fd_cpu_isolation_partition_cpus fills cpuset with the CPUs that the
    cpuset stage places in the isolated partition: all fixed tile CPUs,
-   plus the otherwise-unused hyperthread siblings of the tiles that are
-   sensitive to SMT resource sharing (pack, poh, pohh; the same set the
-   hyperthreads stage checks).  Isolating an unused sibling leaves it
-   permanently idle in a deep sleep state, which relinquishes the
-   physical core's shared execution resources about as well as taking
-   the CPU offline, while keeping it available for future use.
-   Siblings used by another tile, offline, or nonexistent are not
-   added.  Returns cpuset. */
+   plus the otherwise-unused hyperthread siblings of the
+   FD_TOPOB_TILE_SMT_CRITICAL tiles (the set the hyperthreads stage
+   checks) and of FD_TOPOB_TILE_DEDICATED tiles placed on a whole core,
+   the latter skipping blocklisted siblings and never taking the last
+   housekeeping CPU.  Isolating an unused sibling leaves it permanently
+   idle in a deep sleep state, which relinquishes the physical core's
+   shared execution resources about as well as taking the CPU offline,
+   while keeping it available for future use.  Siblings used by another
+   tile, offline, or nonexistent are not added.  Returns cpuset. */
 
 fd_cpuset_t *
 fd_cpu_isolation_partition_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
                                  fd_topo_t const * topo );
+
+/* fd_cpu_isolation_banned_cpus fills cpuset with the CPUs that must not
+   take device interrupts or unbound kernel work: the partition CPUs, or
+   only the tile CPUs (with a warning) if the partition covers every
+   online host CPU.  Returns cpuset. */
+
+fd_cpuset_t *
+fd_cpu_isolation_banned_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
+                              fd_topo_t const * topo );
 
 /* fd_cpu_isolation_parse_mask parses a comma-grouped hex CPU mask like
    "0000000f,ffffff00\n" (e.g. contents of
