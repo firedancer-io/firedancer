@@ -958,7 +958,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     case AG_POOL_ERR_SLOT_TOO_OLD: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; break;
     case AG_POOL_ERR_SLOT_TOO_NEW:
       if( FD_LIKELY( cert_slot<=ctx->catchup_slot || cert_slot>=ctx->next_epoch_slot+ctx->slots_per_epoch ) ) break;
-      if( FD_UNLIKELY( !ag_cert_verify( cert, epoch_info ) ) ) {
+      ctx->metrics.bls_verify++;
+      if( FD_UNLIKELY( ag_cert_verify( cert, epoch_info )!=AG_CERT_VERIFY_SUCCESS ) ) {
         ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++;
         report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY, verify_start_time, 0L );
         ban_peer( peer, fd_clock_tile_now( ctx->clock ) );
