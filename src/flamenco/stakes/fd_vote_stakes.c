@@ -1049,6 +1049,31 @@ fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
 }
 
 ulong
+fd_vote_stakes_t_2_votes( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          ulong *                  stake,
+                          ulong *                  last_vote_slot,
+                          long *                   last_vote_ts ) {
+  ulong epoch     = (ulong)fork_id_epoch( fork_id );
+  ulong epoch_idx = epoch % FD_VOTE_STAKES_EPOCH_CACHE_CNT;
+  if( FD_UNLIKELY( vote_stakes->t_2_epoch[ epoch_idx ]!=epoch ) ) return 0UL;
+
+  /* t-2 pools are only ever reset and refilled, so [0,used) is dense. */
+  vacc_t const *        pool   = t_2_vacc_pool( vote_stakes, epoch_idx );
+  vacc_states_t const * states = vacc_state_pool_ele_const( vacc_states_pool( vote_stakes ), fork_id_bank_id( fork_id ) );
+  ulong                 used   = vacc_pool_used( pool );
+  ulong                 cnt    = 0UL;
+  for( ulong i=0UL; i<used; i++ ) {
+    if( !states->states[ i ].is_valid ) continue;
+    stake         [ cnt ] = pool[ i ].stake;
+    last_vote_slot[ cnt ] = states->states[ i ].last_vote_slot;
+    last_vote_ts  [ cnt ] = states->states[ i ].last_vote_ts;
+    cnt++;
+  }
+  return cnt;
+}
+
+ulong
 fd_vote_stakes_total_stake( fd_vote_stakes_t const * vote_stakes,
                             ulong                    epoch ) {
   ulong idx = epoch % FD_VOTE_STAKES_EPOCH_CACHE_CNT;

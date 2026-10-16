@@ -259,6 +259,13 @@ ulong
 fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
                         ulong                    fork_id );
 
+ulong
+fd_vote_stakes_t_2_votes( fd_vote_stakes_t const * vote_stakes,
+                          ulong                    fork_id,
+                          ulong *                  stake,
+                          ulong *                  last_vote_slot,
+                          long *                   last_vote_ts );
+
 /* fd_vote_stakes_total_stake returns the total stake of the epoch
    stakes set for epoch.
    epoch must be one of the t-2 through t-5 sets; returns 0 if that
