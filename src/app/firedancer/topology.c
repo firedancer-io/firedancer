@@ -914,7 +914,7 @@ fd_topo_initialize( config_t * config ) {
       /* TODO: This needs to be reliable, else we could miss shreds that
          are required to replay the chain, but we can't change it yet as
          the XDP tile does not support reliable consumers. */
-      FOR(shred_tile_cnt) fd_topob_tile_in(  topo, "event", 0UL, "metric_in", "net_shred", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+      FOR(net_tile_cnt) fd_topob_tile_in(  topo, "event", 0UL, "metric_in", "net_shred", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
 
     if( FD_UNLIKELY( config->development.event.report_transactions && leader_enabled ) ) {
