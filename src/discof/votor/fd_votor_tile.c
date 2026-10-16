@@ -248,6 +248,20 @@ typedef struct sort_voter sort_voter_t;
 #define SORT_BEFORE(a,b) ( memcmp( (a).id, (b).id, sizeof(fd_pubkey_t) )<0 )
 #include "../../util/tmpl/fd_sort.c"
 
+/* known_key is a validated point from an earlier epoch's ranking, so
+   an unchanged key skips decompression and the subgroup check. */
+
+struct known_key {
+  uchar const *        bls;
+  fd_bls_pub_t const * pub;
+};
+typedef struct known_key known_key_t;
+
+#define SORT_NAME        sort_known_key
+#define SORT_KEY_T       known_key_t
+#define SORT_BEFORE(a,b) ( memcmp( (a).bls, (b).bls, FD_BLS_PUB_COMPRESSED_SZ )<0 )
+#include "../../util/tmpl/fd_sort.c"
+
 #define SORT_NAME        sort_voter_stake
 #define SORT_KEY_T       sort_voter_t
 #define SORT_BEFORE(a,b) ( (a).stake> (b).stake ||                                  \
@@ -1207,15 +1221,28 @@ read_vote_history( fd_votor_tile_t * ctx,
 static ag_epoch_info_t *
 rank_voters( ag_epoch_info_t *              epoch_info,
              fd_vote_stake_weight_t const * stakes,
-             ulong                          stake_cnt ) {
+             ulong                          stake_cnt,
+             ag_epoch_info_t const *        known0,
+             ag_epoch_info_t const *        known1 ) {
 
   FD_TEST( stake_cnt<=AG_VAT_MAX );
+
+  known_key_t known[ 2UL*AG_VAT_MAX ];
+  ulong       known_cnt = 0UL;
+  ag_epoch_info_t const * src[2] = { known0, known1 };
+  for( ulong j=0UL; j<2UL; j++ ) {
+    if( !src[ j ] || src[ j ]==epoch_info ) continue; /* epoch_info is overwritten below */
+    for( ulong r=0UL; r<src[ j ]->validator_cnt; r++ ) known[ known_cnt++ ] = (known_key_t){ .bls = src[ j ]->validators[ r ].bls_key, .pub = &src[ j ]->pubkeys[ r ] };
+  }
+  sort_known_key_inplace( known, known_cnt );
 
   sort_voter_t voters[AG_VAT_MAX];
   ulong        voter_cnt = 0UL;
   for( ulong i=0UL; i<stake_cnt; i++ ) {
     if( FD_UNLIKELY( !stakes[i].stake ) ) continue;
-    if( FD_UNLIKELY( fd_bls_pub_de( &voters[voter_cnt].pub, stakes[i].bls_key, FD_BLS_PUB_COMPRESSED_SZ ) ) ) continue;
+    ulong k = sort_known_key_split( known, known_cnt, (known_key_t){ .bls = stakes[i].bls_key } );
+    if( FD_LIKELY( k<known_cnt && !memcmp( known[ k ].bls, stakes[i].bls_key, FD_BLS_PUB_COMPRESSED_SZ ) ) ) voters[voter_cnt].pub = *known[ k ].pub;
+    else if( FD_UNLIKELY( fd_bls_pub_de( &voters[voter_cnt].pub, stakes[i].bls_key, FD_BLS_PUB_COMPRESSED_SZ ) ) ) continue;
     voters[voter_cnt].bls   = stakes[i].bls_key;
     voters[voter_cnt].id    = stakes[i].id_key.uc;
     voters[voter_cnt].stake = stakes[i].stake;
@@ -1257,7 +1284,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   else if( FD_UNLIKELY( !ctx->next_epoch_info ) ) epoch_info = &ctx->scratch.next_epoch_info;
   else if( FD_UNLIKELY( !ctx->prev_epoch_info ) ) epoch_info = &ctx->scratch.prev_epoch_info;
   else                                            epoch_info = ctx->prev_epoch_info;
-  rank_voters( epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt );
+  rank_voters( epoch_info, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt, ctx->curr_epoch_info, ctx->next_epoch_info );
 
   /* swap pointers */
 
