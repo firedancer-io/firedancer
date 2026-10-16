@@ -61,6 +61,14 @@ typedef struct {
 #define SHRED_SIG_FEC_COMPLETE_LEADER (7UL) /* leader FEC set complete */
 #define SHRED_SIG_FEC_COMPLETE_AGAIN  (8UL) /* FEC set complete again, it was already in the store (Alpenglow only) */
 
+/* SHRED_SIG_FUTURE has no payload: a turbine shred past the fec
+   resolver's slot range, signed by its slot leader, with the slot in
+   the high 32 bits of sig (Alpenglow only) */
+#define SHRED_SIG_FUTURE              (9UL)
+
+static inline ulong fd_shred_sig_future     ( ulong slot ) { return (slot<<32UL) | SHRED_SIG_FUTURE; }
+static inline ulong fd_shred_sig_future_slot( ulong sig  ) { return sig>>32UL; }
+
 /* shred processing result (first 32 bits of sig) */
 #define SHRED_SIG_RESULT_COMPLETES     ( 1)
 #define SHRED_SIG_RESULT_OKAY          ( 0) /* default */
