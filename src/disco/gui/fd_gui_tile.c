@@ -343,6 +343,7 @@ before_frag( fd_gui_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECRP_REPLAY && sig>>32!=FD_EXECRP_TT_TXN_EXEC ) ) return 1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
