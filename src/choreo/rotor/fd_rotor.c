@@ -411,19 +411,20 @@ fd_rotor_footprint( ulong slot_max,
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       fd_rotor_align(),              sizeof(fd_rotor_t)                                                        ),
       alignof(fd_rotor_slot_meta_t), sizeof(fd_rotor_slot_meta_t)*slot_max                                     ),
       fd_rotor_blk_pool_align(),     fd_rotor_blk_pool_footprint ( blk_max                                   ) ),
       alignof(ulong),                sizeof(ulong)*blk_max*fec_blk_max                                         ),
-      fd_rotor_blk_map_align(),      fd_rotor_blk_map_footprint  ( fd_rotor_blk_map_chain_cnt_est( blk_max ) ) ),
+      fd_rotor_blk_map_align(),      fd_rotor_blk_map_footprint   ( fd_rotor_blk_map_chain_cnt_est( blk_max ) ) ),
       fd_rotor_orphan_map_align(),   fd_rotor_orphan_map_footprint( fd_rotor_orphan_map_chain_cnt_est( blk_max ) ) ),
-      fd_rotor_fec_pool_align(),     fd_rotor_fec_pool_footprint ( fec_max                                   ) ),
-      fd_rotor_fec_map_align(),      fd_rotor_fec_map_footprint  ( fd_rotor_fec_map_chain_cnt_est( fec_max ) ) ),
-      fd_rotor_deque_align(),        fd_rotor_deque_footprint    ( fec_max                                   ) ),
-      fd_rotor_treap_align(),        fd_rotor_treap_footprint    ( blk_max                                   ) ),
-      fd_rotor_treap_align(),        fd_rotor_treap_footprint    ( blk_max                                   ) ),
-      fd_rotor_treap_align(),        fd_rotor_treap_footprint    ( blk_max                                   ) ),
+      fd_rotor_fec_pool_align(),     fd_rotor_fec_pool_footprint  ( fec_max                                   ) ),
+      fd_rotor_fec_map_align(),      fd_rotor_fec_map_footprint   ( fd_rotor_fec_map_chain_cnt_est( fec_max ) ) ),
+      fd_rotor_deque_align(),        fd_rotor_deque_footprint     ( fec_max                                   ) ),
+      fd_rotor_treap_align(),        fd_rotor_treap_footprint     ( blk_max                                   ) ),
+      fd_rotor_treap_align(),        fd_rotor_treap_footprint     ( blk_max                                   ) ),
+      fd_rotor_treap_align(),        fd_rotor_treap_footprint     ( blk_max                                   ) ),
     fd_rotor_align() );
 }
 
