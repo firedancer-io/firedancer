@@ -53,6 +53,19 @@ FD_UNIT_TEST( test_cpu_topo_parse ) {
   FD_TEST( parse_topology_id( "1\0junk", 6UL )==-1 );
 }
 
+FD_UNIT_TEST( test_cpu_topo_cpulist ) {
+  FD_CPUSET_DECL( set );
+  FD_TEST( parse_cpulist( "", set ) && !fd_cpuset_cnt( set ) );
+  FD_TEST( parse_cpulist( "\n", set ) && !fd_cpuset_cnt( set ) );
+  FD_TEST( parse_cpulist( "(null)\n", set ) && !fd_cpuset_cnt( set ) );
+  FD_TEST( parse_cpulist( "      (null)\n", set ) && !fd_cpuset_cnt( set ) );
+  FD_TEST( parse_cpulist( "2,34\n", set ) && fd_cpuset_cnt( set )==2UL && fd_cpuset_test( set, 2UL ) && fd_cpuset_test( set, 34UL ) );
+  FD_TEST( parse_cpulist( "1-3,7", set ) && fd_cpuset_cnt( set )==4UL && fd_cpuset_test( set, 7UL ) );
+  FD_TEST( !parse_cpulist( "3-1\n", set ) );
+  FD_TEST( !parse_cpulist( "1;2\n", set ) );
+  FD_TEST( !parse_cpulist( "x\n", set ) );
+}
+
 FD_UNIT_TEST( test_cpu_topo_read ) {
   int fd = memfd_create( "test_topob", 0U );
   FD_TEST( fd>=0 );
@@ -1172,6 +1185,230 @@ FD_UNIT_TEST( test_tile_class_phase ) {
   FD_TEST( fd_topob_tile_class( "motor" ) & FD_TOPOB_TILE_SMT_CRITICAL );
 }
 
+/* ---- isolcpus= ----------------------------------------------------------- */
+
+/* Efficient mode never homes a floating tile on an isolated CPU;
+   performance mode keeps today's placement */
+FD_UNIT_TEST( test_isolated_floaters ) {
+  ulong const iso[] = { 2UL, 50UL, 3UL, 51UL, 17UL, 65UL };
+  for( ulong l3=0UL; l3<2UL; l3++ ) {
+    for( int efficient=0; efficient<2; efficient++ ) {
+      static fd_topo_t _topo[1];
+      fd_topo_t * topo = _topo;
+      fd_memset( topo, 0, sizeof(*topo) );
+      make_tiles( topo, efficient ? FIREDANCER_EFF_TILES : FIREDANCER_TILES );
+      set_blocklist( topo, BLOCKLIST_0H( 48 ) );
+      topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX;
+
+      fd_topo_cpus_t cpus[1];
+      make_cpus( cpus, 48, l3 ? 6UL : 0UL );
+      fd_topob_auto_layout_cpus( topo, cpus, 0 );
+      ulong before[ FD_TOPO_MAX_TILES ];
+      for( ulong i=0UL; i<topo->tile_cnt; i++ ) before[ i ] = topo->tiles[ i ].cpu_idx;
+
+      for( ulong i=0UL; i<sizeof(iso)/sizeof(iso[0]); i++ ) cpus->cpu[ iso[ i ] ].isolated = 1;
+      fd_topob_auto_layout_cpus( topo, cpus, 0 );
+      ulong moved = 0UL;
+      for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+        fd_topo_tile_t const * tile = &topo->tiles[ i ];
+        int pinned = !efficient || !!( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_EFFICIENT_PINNED );
+        if( tile->cpu_idx<FD_TILE_MAX && !pinned ) FD_TEST( !cpus->cpu[ tile->cpu_idx ].isolated );
+        if( !efficient ) FD_TEST( tile->cpu_idx==before[ i ] );
+        moved += (ulong)( tile->cpu_idx!=before[ i ] );
+      }
+      if( efficient ) FD_TEST( moved ); /* net:1 and quic sat on 2 and 3 */
+    }
+  }
+}
+
+/* Pinned tiles take isolated CPUs first, leaving 0,1 for floaters */
+FD_UNIT_TEST( test_isolated_pinned_first ) {
+  static fd_topo_t topo[1];
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, (tile_spec_t const[]){ { "quic", 1 }, { "verify", 2 }, { "dedup", 1 }, { NULL, 0 } } );
+  set_blocklist( topo, (ulong const[]){ ULONG_MAX } );
+  topo->sleep_obj_id = 0UL;
+
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 4UL, 0UL );
+  cpus->cpu[ 3 ].isolated = 1;
+  cpus->cpu[ 7 ].isolated = 1;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  FD_TEST( topo->tiles[ 0 ].cpu_idx==0UL && topo->tiles[ 3 ].cpu_idx==2UL );
+  FD_TEST( topo->tiles[ 1 ].cpu_idx==3UL && topo->tiles[ 2 ].cpu_idx==1UL );
+}
+
+/* A hot floater skips an L3 domain whose free cores are all isolated */
+FD_UNIT_TEST( test_isolated_l3_domain ) {
+  static fd_topo_t topo[1];
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, (tile_spec_t const[]){ { "replay", 1 }, { "mlx5", 1 }, { NULL, 0 } } );
+  set_blocklist( topo, (ulong const[]){ ULONG_MAX } );
+  topo->sleep_obj_id = 0UL;
+
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 4UL, 2UL );
+  for( ulong c=0UL; c<2UL; c++ ) { cpus->cpu[ c ].isolated = 1; cpus->cpu[ c+4UL ].isolated = 1; }
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  FD_TEST( topo->tiles[ 0 ].cpu_idx==0UL );
+  FD_TEST( topo->tiles[ 1 ].cpu_idx==2UL );
+}
+
+/* Whole cores for floaters only count non-isolated ones: quic and
+   dedup taking 0 and 1 with siblings left sign no CPU */
+FD_UNIT_TEST( test_isolated_floaters_half_core ) {
+  static fd_topo_t topo[1];
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, (tile_spec_t const[]){ { "quic", 1 }, { "dedup", 1 }, { "sign", 1 }, { NULL, 0 } } );
+  set_blocklist( topo, (ulong const[]){ ULONG_MAX } );
+  topo->sleep_obj_id = 0UL;
+
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 4UL, 0UL );
+  ulong const iso[] = { 2UL, 3UL, 6UL, 7UL };
+  for( ulong i=0UL; i<4UL; i++ ) cpus->cpu[ iso[ i ] ].isolated = 1;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) FD_TEST( !cpus->cpu[ topo->tiles[ i ].cpu_idx ].isolated );
+  FD_TEST( topo->tiles[ 0 ].cpu_idx==0UL && topo->tiles[ 1 ].cpu_idx==4UL && topo->tiles[ 2 ].cpu_idx==1UL );
+}
+
+/* A hot pinned tile takes an isolated L3 core, leaving 0 to a floater */
+FD_UNIT_TEST( test_isolated_l3_pinned_first ) {
+  static fd_topo_t topo[1];
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, (tile_spec_t const[]){ { "replay", 1 }, { "mlx5", 1 }, { NULL, 0 } } );
+  set_blocklist( topo, (ulong const[]){ ULONG_MAX } );
+  topo->sleep_obj_id = 0UL;
+
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 4UL, 2UL );
+  for( ulong c=1UL; c<4UL; c++ ) { cpus->cpu[ c ].isolated = 1; cpus->cpu[ c+4UL ].isolated = 1; }
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  FD_TEST( topo->tiles[ 0 ].cpu_idx==2UL ); /* L3 1 has the most isolated cores */
+  FD_TEST( topo->tiles[ 1 ].cpu_idx==0UL );
+}
+
+/* Optional whole cores take an isolated half core first: execrp on
+   1 with sibling 5 reserved would leave txsend no CPU */
+FD_UNIT_TEST( test_isolated_dedicated_half_core ) {
+  static fd_topo_t topo[1];
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, (tile_spec_t const[]){ { "quic", 1 }, { "verify", 1 }, { "dedup", 1 }, { "pack", 1 }, { "execrp", 1 }, { "txsend", 1 }, { NULL, 0 } } );
+  set_blocklist( topo, (ulong const[]){ ULONG_MAX } );
+  topo->sleep_obj_id = 0UL;
+
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 4UL, 0UL );
+  ulong const iso[] = { 2UL, 3UL, 6UL, 7UL };
+  for( ulong i=0UL; i<4UL; i++ ) cpus->cpu[ iso[ i ] ].isolated = 1;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    FD_TEST( tile->cpu_idx<cpus->cpu_cnt );
+    if( !( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_EFFICIENT_PINNED ) ) FD_TEST( !cpus->cpu[ tile->cpu_idx ].isolated );
+  }
+  FD_TEST( topo->tiles[ 4 ].cpu_idx==6UL && topo->tiles[ 5 ].cpu_idx==1UL );
+}
+
+/* L3 packing needs non-isolated whole cores for its floaters: mlx5
+   taking 0 and 4 would leave 1 and 5 for three floaters */
+FD_UNIT_TEST( test_isolated_l3_floaters_half_core ) {
+  static fd_topo_t topo[1];
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, (tile_spec_t const[]){ { "mlx5", 1 }, { "quic", 1 }, { "dedup", 1 }, { "sign", 1 }, { NULL, 0 } } );
+  set_blocklist( topo, (ulong const[]){ ULONG_MAX } );
+  topo->sleep_obj_id = 0UL;
+
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 4UL, 2UL );
+  ulong const iso[] = { 2UL, 3UL, 6UL, 7UL };
+  for( ulong i=0UL; i<4UL; i++ ) cpus->cpu[ iso[ i ] ].isolated = 1;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  ulong const expected[] = { 0UL, 4UL, 1UL, 5UL };
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) FD_TEST( topo->tiles[ i ].cpu_idx==expected[ i ] );
+}
+
+/* Lay out tiles in efficient mode on physical_cores x 2 with the
+   listed CPUs isolated and check each tile's CPU.  iso[] and
+   blocklist[] are ULONG_MAX terminated, expected[] is per tile. */
+static void
+layout_isolated( ulong               physical_cores,
+                 ulong               l3_cores,
+                 ulong const *       iso,
+                 ulong const *       blocklist,
+                 tile_spec_t const * tiles,
+                 ulong const *       expected ) {
+  static fd_topo_t topo[1];
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, tiles );
+  set_blocklist( topo, blocklist );
+  topo->sleep_obj_id = 0UL;
+
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, physical_cores, l3_cores );
+  for( ulong const * p = iso; *p!=ULONG_MAX; p++ ) cpus->cpu[ *p ].isolated = 1;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( topo->tiles[ i ].cpu_idx!=expected[ i ] ) FD_LOG_ERR(( "tile %s:%lu on cpu %lu, expected %lu", topo->tiles[ i ].name, topo->tiles[ i ].kind_id, topo->tiles[ i ].cpu_idx, expected[ i ] ));
+  }
+}
+
+/* Whole cores are planned before isolated CPUs are handed out: verify
+   taking isolated 3 and pack the non-isolated core 1/5 left txsend no
+   CPU though isolated 7 was free */
+FD_UNIT_TEST( test_isolated_plan_whole_cores ) {
+  layout_isolated( 4, 0, (ulong const[]){ 3, 7, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "quic", 1 }, { "verify", 1 }, { "dedup", 1 }, { "pack", 1 }, { "sign", 1 }, { "shred", 1 }, { "txsend", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 0, 4, 1, 3, 5, 2, 6 } );
+}
+
+/* Inputs where taking the first isolated or whole core starved a later
+   tile, or a pinned tile took the all-isolated core pack wanted */
+FD_UNIT_TEST( test_isolated_plan_fits ) {
+  layout_isolated( 5, 0, (ulong const[]){ 1, 2, 3, 4, 6, ULONG_MAX }, (ulong const[]){ 0, 5, ULONG_MAX },
+                   (tile_spec_t const[]){ { "shred", 1 }, { "txsend", 1 }, { "execle", 1 }, { "execrp", 1 }, { "gossip", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 7, 9, 1, 6, 8 } );
+  layout_isolated( 3, 0, (ulong const[]){ 1, 2, ULONG_MAX }, (ulong const[]){ 0, 3, ULONG_MAX },
+                   (tile_spec_t const[]){ { "sign", 1 }, { "txsend", 1 }, { "execrp", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 4, 5, 1 } );
+  layout_isolated( 3, 2, (ulong const[]){ 0, 1, 2, 4, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "pack", 1 }, { "txsend", 1 }, { "tower", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 1, 5, 3 } );
+  layout_isolated( 3, 2, (ulong const[]){ 0, 1, 2, 5, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "shred", 1 }, { "txsend", 1 }, { "execrp", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 3, 4, 2 } );
+  layout_isolated( 3, 0, (ulong const[]){ 0, 1, 2, 5, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "pack", 1 }, { "shred", 1 }, { "mlx5", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 2, 4, 3 } );
+  layout_isolated( 3, 2, (ulong const[]){ 0, 1, 2, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "txsend", 1 }, { "execrp", 1 }, { "mlx5", 1 }, { "tower", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 5, 0, 3, 4 } );
+  layout_isolated( 3, 2, (ulong const[]){ 0, 1, 3, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "verify", 1 }, { "resolv", 1 }, { "pack", 1 }, { "sign", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 1, 4, 0, 2 } );
+  layout_isolated( 4, 0, (ulong const[]){ 1, 2, 7, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "verify", 3 }, { "dedup", 1 }, { "pack", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 1, 2, 7, 5, 0 } );
+  layout_isolated( 2, 1, (ulong const[]){ 0, 2, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "verify", 1 }, { "dedup", 1 }, { "pack", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 1, 3, 0 } );
+  layout_isolated( 2, 1, (ulong const[]){ 1, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "verify", 1 }, { "dedup", 1 }, { "pack", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 1, 3, 0 } );
+  layout_isolated( 5, 0, (ulong const[]){ 1, 2, 3, 4, 8, 9, ULONG_MAX }, (ulong const[]){ 0, 5, ULONG_MAX },
+                   (tile_spec_t const[]){ { "pack", 1 }, { "sign", 1 }, { "mlx5", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 3, 7, 6 } );
+  layout_isolated( 5, 3, (ulong const[]){ 1, 2, 3, 6, ULONG_MAX }, (ulong const[]){ 0, 5, ULONG_MAX },
+                   (tile_spec_t const[]){ { "quic", 1 }, { "verify", 1 }, { "resolv", 1 }, { "pack", 1 }, { "sign", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 7, 2, 8, 1, 4 } );
+  layout_isolated( 6, 3, (ulong const[]){ 0, 1, 4, 5, 6, 8, 11, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "quic", 1 }, { "verify", 1 }, { "resolv", 1 }, { "pack", 1 }, { "sign", 1 }, { "mlx5", 1 }, { "gossip", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 2, 0, 3, 5, 9, 7, 10 } );
+  layout_isolated( 6, 3, (ulong const[]){ 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, ULONG_MAX }, (ulong const[]){ ULONG_MAX },
+                   (tile_spec_t const[]){ { "quic", 1 }, { "pack", 1 }, { "gossip", 1 }, { NULL, 0 } },
+                   (ulong const[]){ 0, 2, 7 } );
+}
+
 /* ---- Launcher sets for unpinned tiles ----------------------------------- */
 
 static ulong
@@ -1220,6 +1457,17 @@ FD_UNIT_TEST( test_cpus_floating ) {
   fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
   FD_TEST( fd_cpuset_eq( cpuless, launch ) );
 
+  /* Isolated CPUs are skipped, unless only they are left */
+  cpus->cpu[ 5 ].isolated = 1; cpus->cpu[ 13 ].isolated = 1;
+  fd_cpuset_new( launch ); for( ulong c=0UL; c<16UL; c++ ) fd_cpuset_insert( launch, c );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( fd_cpuset_cnt( cpuless )==10UL );
+  FD_TEST( !fd_cpuset_test( cpuless, 5UL ) && !fd_cpuset_test( cpuless, 13UL ) );
+  fd_cpuset_new( launch ); fd_cpuset_insert( launch, 1UL ); fd_cpuset_insert( launch, 5UL ); fd_cpuset_insert( launch, 9UL );
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( fd_cpuset_eq( cpuless, launch ) );
+  cpus->cpu[ 5 ].isolated = 0; cpus->cpu[ 13 ].isolated = 0;
+
   /* Efficient mode: floats tiles share 3,4; cpuless tiles use them
      when the launch mask overlaps */
   floating_set_tile( topo, "quic",   3UL, 1 );
@@ -1228,6 +1476,10 @@ FD_UNIT_TEST( test_cpus_floating ) {
   fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
   FD_TEST( fd_cpuset_cnt( float_set )==2UL && fd_cpuset_test( float_set, 3UL ) && fd_cpuset_test( float_set, 4UL ) );
   FD_TEST( fd_cpuset_eq( cpuless, float_set ) );
+  cpus->cpu[ 4 ].isolated = 1;
+  fd_topo_cpus_floating( cpus, topo, launch, float_set, cpuless );
+  FD_TEST( fd_cpuset_cnt( cpuless )==1UL && fd_cpuset_test( cpuless, 3UL ) );
+  cpus->cpu[ 4 ].isolated = 0;
 
   /* Efficient mode with a partition: the launch mask excludes the
      float CPUs, so cpuless tiles avoid pinned, siblings and float CPUs */
