@@ -1285,10 +1285,10 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
   if( FD_LIKELY( !txn_out->details.is_simple_vote ) ) {
     FD_ATOMIC_FETCH_AND_ADD( &bank->f.nonvote_txn_count, 1 );
-    if( FD_UNLIKELY( txn_out->err.exec_err ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.nonvote_failed_txn_count, 1 );
+    if( FD_UNLIKELY( txn_out->err.txn_err ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.nonvote_failed_txn_count, 1 );
   }
 
-  if( FD_UNLIKELY( txn_out->err.exec_err ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.failed_txn_count, 1 );
+  if( FD_UNLIKELY( txn_out->err.txn_err ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.failed_txn_count, 1 ); /* fees-only failures too, not just instruction errors */
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.total_compute_units_used, txn_out->details.compute_budget.compute_unit_limit-txn_out->details.compute_budget.compute_meter );
 
   fd_cost_tracker_t * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
