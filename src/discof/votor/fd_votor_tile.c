@@ -731,6 +731,35 @@ quic_client_datagram_tx( fd_votor_tile_t *   ctx,
   return pkt_num;
 }
 
+/* reward_vote_tx sends rv to peer, its reward leader, recording the
+   pkt_num an ACK must match and backing off the next retry. */
+
+static void
+reward_vote_tx( fd_votor_tile_t *   ctx,
+                fd_stem_context_t * stem,
+                reward_vote_t *     rv,
+                peer_t const *      peer,
+                long                now ) {
+  long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
+  ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
+  ulong pkt_num              = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+  if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) {
+    rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
+    return;
+  }
+
+  if( FD_UNLIKELY( rv->conn!=peer->tx_conn ) ) {
+    rv->conn = peer->tx_conn;
+    for( ulong j=0UL; j<REWARD_VOTE_TX_MAX; j++ ) rv->pkt_num[ j ] = ULONG_MAX;
+  }
+  rv->pkt_num[ rv->tx_cnt ] = pkt_num;
+  rv->tx_cnt++;
+  report_alpenglow_vote( ctx, NULL, &rv->vote, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, 0L, broadcast_start_time, peer );
+  long pto     = (long)( peer->tx_conn->rtt->smoothed_rtt + fmaxf( 4.0f*peer->tx_conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + peer->tx_conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
+  rv->backoff  = fd_long_min( fd_long_max( fd_long_max( 2L*rv->backoff, pto ), REWARD_VOTE_RTT_MIN_NS ), REWARD_VOTE_RTT_MAX_NS ); /* double per unacked send, clamp between RTT_MIN, RTT_MAX */
+  rv->retry_ts = now + rv->backoff;
+}
+
 /* QUIC callback */
 
 static void
@@ -1973,24 +2002,7 @@ after_credit( fd_votor_tile_t *   ctx,
       rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
       continue;
     }
-    long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
-    ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
-    ulong pkt_num              = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
-    if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) {
-      rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
-      continue;
-    }
-
-    if( FD_UNLIKELY( rv->conn!=peer->tx_conn ) ) {
-      rv->conn = peer->tx_conn;
-      for( ulong j=0UL; j<REWARD_VOTE_TX_MAX; j++ ) rv->pkt_num[ j ] = ULONG_MAX;
-    }
-    rv->pkt_num[ rv->tx_cnt ] = pkt_num;
-    rv->tx_cnt++;
-    report_alpenglow_vote( ctx, NULL, &rv->vote, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, 0L, broadcast_start_time, peer );
-    long pto     = (long)( peer->tx_conn->rtt->smoothed_rtt + fmaxf( 4.0f*peer->tx_conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + peer->tx_conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
-    rv->backoff  = fd_long_min( fd_long_max( fd_long_max( 2L*rv->backoff, pto ), REWARD_VOTE_RTT_MIN_NS ), REWARD_VOTE_RTT_MAX_NS ); /* double per unacked send, clamp between RTT_MIN, RTT_MAX */
-    rv->retry_ts = now + rv->backoff;
+    reward_vote_tx( ctx, stem, rv, peer, now );
     *charge_busy = 1;
   }
 
@@ -2168,9 +2180,10 @@ after_credit( fd_votor_tile_t *   ctx,
         rv->tx_cnt   = 0UL;
         rv->conn     = NULL;
         rv->vote     = ctx->scratch.vote;
+        peer_t const * peer = query_reward_leader( ctx, rv );
+        if( FD_LIKELY( peer ) ) reward_vote_tx( ctx, stem, rv, peer, now ); /* the reward leader first, tracked so its ACK clears the retry */
       }
 
-      if( FD_LIKELY( reward_leader && reward_leader->tx_conn && reward_leader->tx_conn->state==FD_QUIC_CONN_STATE_ACTIVE ) ) quic_client_datagram_tx( ctx, stem, reward_leader->tx_conn, ctx->scratch.ser, ser_sz );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
         peer_t const * peer = &ctx->peers[ slot ];
         if( FD_LIKELY(    peers_key_inval( peer->id_key )
