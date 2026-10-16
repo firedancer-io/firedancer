@@ -3185,6 +3185,8 @@ message MetricsShredProcessed {
   uint64 accepted = 7;
   // Shred accepted and resulted in a valid, complete FEC set
   uint64 completed = 8;
+  // Turbine shred for a slot we led, echoed back to us by a relay
+  uint64 own_leader_echoed = 9;
 }
 
 // Duration of synchronously spilling one FEC payload to the store
