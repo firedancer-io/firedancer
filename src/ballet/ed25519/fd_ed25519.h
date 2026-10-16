@@ -254,6 +254,43 @@ fd_ed25519_verify_batch_single_msg_cached( uchar const          msg[], /* msg_sz
                                            uchar const          batch_sz,
                                            fd_ed25519_cache_t * cache );
 
+/* fd_ed25519_verify_batch_multi_msg verifies batch_sz independent items: results[j] is exactly
+   what fd_ed25519_verify returns for (msgs[j], msg_szs[j], sigs[j], public_keys[j], shas[j]),
+   error precedence included; nothing is aggregated across items. On AVX-512 builds items run
+   eight per lane group with the hashes batched (a remainder of one or two goes to
+   fd_ed25519_verify); other builds call fd_ed25519_verify per item. shas[j] is scratch; its
+   state on return is unspecified. batch_sz may be zero. */
+
+void
+fd_ed25519_verify_batch_multi_msg( uchar const * const msgs[],
+                                   ulong const msg_szs[],
+                                   uchar const * const sigs[],
+                                   uchar const * const public_keys[],
+                                   fd_sha512_t * shas[],
+                                   int results[],
+                                   ulong batch_sz );
+
+/* fd_ed25519_verify_batch_multi_msg_cached is fd_ed25519_verify_batch_multi_msg using cache:
+   results[j] is exactly what fd_ed25519_verify returns for item j. With FD_ED25519_CRC=1 the lookup
+   comes first: every item is queried once (a hit or a miss counted); hits are verified at once
+   with their table, misses are collected and verified as fd_ed25519_verify_batch_multi_msg
+   would (lane groups of up to eight on AVX-512 builds), then the passing ones are offered to
+   fd_ed25519_cache_admit; every evaluated group equation earns the cache a credit. With
+   FD_ED25519_CRC=0 the cache is the tree's, whose tables this function does not reach: on AVX-512
+   builds groups of up to eight run the lane kernel without consulting it and a remainder below
+   four goes to fd_ed25519_verify_cached one by one; other builds call fd_ed25519_verify_cached
+   per item. */
+
+void
+fd_ed25519_verify_batch_multi_msg_cached( uchar const * const msgs[],
+                                          ulong const msg_szs[],
+                                          uchar const * const sigs[],
+                                          uchar const * const public_keys[],
+                                          fd_sha512_t * shas[],
+                                          int results[],
+                                          ulong batch_sz,
+                                          fd_ed25519_cache_t * cache );
+
 /* fd_ed25519_strerror converts an FD_ED25519_SUCCESS / FD_ED25519_ERR_*
    code into a human readable cstr.  The lifetime of the returned
    pointer is infinite.  The returned pointer is always to a non-NULL
