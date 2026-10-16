@@ -34,6 +34,8 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../tango/fseq/fd_fseq.h"
 
 #include "generated/fd_strmk_tile_seccomp.h"
@@ -335,25 +337,6 @@ strmk_key_prune( fd_strmk_t * ctx,
   }
 }
 
-/* strmk_key_insert adds a key first touched at slot.  A pool full of
-   keys touched in the last STRMK_WINDOW slots drops it. */
-
-static void
-strmk_key_insert( fd_strmk_t *        ctx,
-                  fd_pubkey_t const * key,
-                  ulong               slot ) {
-  if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) strmk_key_prune( ctx, fd_ulong_sat_sub( ctx->current_slot, STRMK_WINDOW ) );
-  if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) {
-    ctx->metrics.key_dropped_cnt++;
-    return;
-  }
-  strmk_key_t * ele = strmk_key_pool_ele_acquire( ctx->key_pool );
-  ele->key  = *key;
-  ele->slot = slot;
-  strmk_key_map_ele_insert( ctx->key_map, ele, ctx->key_pool );
-  ctx->metrics.key_stored_cnt++;
-}
-
 /**********************************************************************/
 /* Stream body                                                        */
 /**********************************************************************/
@@ -405,17 +388,91 @@ strmk_appendvec_add( fd_strmk_t *        ctx,
   ctx->metrics.tombstone_cnt += source==FD_ACCDB_READ_ONE_NOCACHE_MISS;
 }
 
-/* strmk_catch_up frees the keys at or below the stream start, which
-   the snapshot has, and sends the rest: blocks above the start
-   touched them before the stream opened. */
+/* strmk_send_key sends key to the current stream (if one is open).
+   Ignores duplicate insertions. */
+
+static void
+strmk_send_key( fd_strmk_t *        ctx,
+                fd_pubkey_t const * key,
+                ulong               slot ) {
+  strmk_stream_t * stream = ctx->cur!=UINT_MAX ? &ctx->stream[ ctx->cur ] : NULL;
+  strmk_key_t *    ele    = strmk_key_map_ele_query( ctx->key_map, key, NULL, ctx->key_pool );
+  if( FD_LIKELY( ele ) ) {
+    ele->slot = fd_ulong_max( ele->slot, slot );
+    ctx->metrics.key_skipped_cnt += !!stream;
+    return;
+  }
+
+  /* Evict older entries in the very rare case that the pool fills up. */
+  if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) strmk_key_prune( ctx, fd_ulong_sat_sub( ctx->current_slot, STRMK_WINDOW ) );
+
+  if( FD_LIKELY( strmk_key_pool_free( ctx->key_pool ) ) ) {
+    ele = strmk_key_pool_ele_acquire( ctx->key_pool );
+    ele->key  = *key;
+    ele->slot = slot;
+    strmk_key_map_ele_insert( ctx->key_map, ele, ctx->key_pool );
+    ctx->metrics.key_stored_cnt++;
+  } else {
+    ctx->metrics.key_dropped_cnt++;
+  }
+
+  if( stream ) strmk_appendvec_add( ctx, stream, key );
+}
+
+/* strmk_catch_up sends the keys touched above the stream start:
+   blocks that ran before the stream opened touched them. */
 
 static void
 strmk_catch_up( fd_strmk_t *     ctx,
                 strmk_stream_t * stream ) {
-  strmk_key_prune( ctx, stream->start_slot );
   for( ulong i=0UL; i<STRMK_KEY_MAX; i++ ) {
     strmk_key_t * key = strmk_key_pool_ele( ctx->key_pool, i );
-    if( key->slot!=ULONG_MAX ) strmk_appendvec_add( ctx, stream, &key->key );
+    if( key->slot!=ULONG_MAX && key->slot>stream->start_slot ) {
+      strmk_appendvec_add( ctx, stream, &key->key );
+    }
+  }
+
+  if( ctx->raw_sz ) strmk_appendvec_flush( ctx, stream );
+}
+
+/* strmk_runtime_keys sends runtime-wide accounts (e.g. sysvars,
+   vote accounts, fee collectors, etc). */
+
+static void
+strmk_runtime_keys( fd_strmk_t *     ctx,
+                    strmk_stream_t * stream,
+                    fd_bank_t *      bank ) {
+  ulong slot = stream->start_slot;
+
+  fd_pubkey_t const * sysvar[] = {
+    &fd_sysvar_recent_block_hashes_id, &fd_sysvar_clock_id,          &fd_sysvar_slot_history_id,
+    &fd_sysvar_slot_hashes_id,         &fd_sysvar_epoch_schedule_id, &fd_sysvar_epoch_rewards_id,
+    &fd_sysvar_fees_id,                &fd_sysvar_rent_id,           &fd_sysvar_stake_history_id,
+    &fd_sysvar_last_restart_slot_id,   &fd_sysvar_incinerator_id,
+  };
+  for( ulong i=0UL; i<sizeof(sysvar)/sizeof(sysvar[0]); i++ ) strmk_send_key( ctx, sysvar[ i ], slot );
+
+  char const * seed[] = { "carlgration", "alpenclock", "vote_reward_account" };
+  for( ulong i=0UL; i<sizeof(seed)/sizeof(seed[0]); i++ ) {
+    fd_pubkey_t key;
+    fd_alpenglow_pda( seed[ i ], &key );
+    strmk_send_key( ctx, &key, slot );
+  }
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( int kind=FD_VOTE_STAKES_ITER_T_1; kind<=FD_VOTE_STAKES_ITER_T_2; kind++ ) {
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, kind, iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, fork_id, kind, iter );
+         fd_vote_stakes_iter_next( vote_stakes, fork_id, kind, iter ) ) {
+      fd_vote_stakes_ele_t ele[1];
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, kind, iter, ele );
+      strmk_send_key( ctx, &ele->pubkey,              slot );
+      strmk_send_key( ctx, &ele->node_account,        slot );
+      strmk_send_key( ctx, &ele->block_collector,     slot );
+      strmk_send_key( ctx, &ele->inflation_collector, slot );
+    }
   }
 
   if( ctx->raw_sz ) strmk_appendvec_flush( ctx, stream );
@@ -435,16 +492,9 @@ strmk_store_keys( fd_strmk_t *                ctx,
   if( stream && msg->slot<=stream->start_slot ) return;
 
   for( ulong i=0UL; i<msg->key_cnt; i++ ) {
-    fd_pubkey_t const * key = &msg->keys[ i ];
-    strmk_key_t *       ele = strmk_key_map_ele_query( ctx->key_map, key, NULL, ctx->key_pool );
-    if( FD_LIKELY( ele ) ) {
-      ele->slot = fd_ulong_max( ele->slot, msg->slot );
-      ctx->metrics.key_skipped_cnt += !!stream;
-      continue;
-    }
-    strmk_key_insert( ctx, key, msg->slot );
-    if( stream ) strmk_appendvec_add( ctx, stream, key );
+    strmk_send_key( ctx, &msg->keys[ i ], msg->slot );
   }
+
   if( ctx->raw_sz ) strmk_appendvec_flush( ctx, stream );
 }
 
@@ -500,6 +550,9 @@ strmk_stream_start( fd_strmk_t *                   ctx,
   ctx->cur = idx;
 
   stream->fork_id = bank->accdb_fork_id;
+  /* the snapshot has the keys at or below its slot */
+  strmk_key_prune( ctx, stream->start_slot );
+  strmk_runtime_keys( ctx, stream, bank );
   strmk_catch_up( ctx, stream );
 
   FD_LOG_NOTICE(( "fast boot stream at slot %lu opened in %ld millis (%lu bytes)",
