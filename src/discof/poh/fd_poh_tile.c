@@ -34,12 +34,15 @@ struct fd_poh_tile {
      accounts database changes now are misordered with respect to PoH so
      replay could fail.
 
-     To prevent this race, we order all microblocks and only process
-     them in PoH in the order they are produced by pack.  This is a
-     little bit over-strict, we just need to ensure that microblocks
-     with conflicting accounts execute in order, but this is easiest to
-     implement for now. */
-  uint expect_pack_idx;
+     To prevent this race, pack tells us which frags must be processed
+     before each microblock, and we hold it until they have been.  See
+     fd_pack_vclock_t. */
+
+  /* Frags processed from each execle_poh / pack_poh link */
+  fd_pack_vclock_t seen;
+  ulong            execle_cnt;
+  /* execle index of each execle_poh input */
+  ulong            in_execle[ 64 ];
 
   ulong in_cnt;
   ulong idle_cnt;
@@ -218,10 +221,16 @@ returnable_frag( fd_poh_tile_t *     ctx,
      will be published in the immediate after_credit iterations. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) return 1;
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
-    uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
-    if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
-    if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
-    ctx->expect_pack_idx++;
+    uchar const *          msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    if( ctx->in_kind[ in_idx ]==IN_KIND_PACK ) {
+      FD_TEST( sz==sizeof(fd_done_packing_t) );
+      uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
+      if( FD_UNLIKELY( !fd_pack_vclock_admit_done_packing( &ctx->seen, pack_idx, ctx->execle_cnt ) ) ) return 1;
+    } else {
+      FD_TEST( sz>=sizeof(fd_microblock_trailer_t) );
+      fd_microblock_trailer_t const * trailer = (fd_microblock_trailer_t const *)( msg+sz-sizeof(fd_microblock_trailer_t) );
+      if( FD_UNLIKELY( !fd_pack_vclock_admit( &ctx->seen, &trailer->deps, ctx->in_execle[ in_idx ], ctx->execle_cnt ) ) ) return 1;
+    }
   }
 
   switch( ctx->in_kind[ in_idx ] ) {
@@ -296,7 +305,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_poh_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_tile_t ), sizeof( fd_poh_tile_t ) );
 
-  ctx->expect_pack_idx = 0UL;
+  fd_memset( &ctx->seen, 0, sizeof(fd_pack_vclock_t) );
+  ctx->execle_cnt = 0UL;
 
   ctx->in_cnt   = tile->in_cnt;
   ctx->idle_cnt = 0UL;
@@ -316,6 +326,12 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "pack_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
     else if( !strcmp( link->name, "execle_poh" ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+
+    if( ctx->in_kind[ i ]==IN_KIND_EXECLE ) {
+      FD_TEST( link->kind_id<FD_PACK_MAX_EXECLE_TILES );
+      ctx->in_execle[ i ] = link->kind_id;
+      ctx->execle_cnt  = fd_ulong_max( ctx->execle_cnt, link->kind_id+1UL );
+    }
   }
 
   *ctx->shred_out = out1( topo, tile, "poh_shred" );

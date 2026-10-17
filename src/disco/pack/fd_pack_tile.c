@@ -220,6 +220,12 @@ typedef struct {
   /* execle_ready_at[x] means don't check execle x until tickcount is at
      least execle_ready_at[x]. */
   long     execle_ready_at[ FD_PACK_MAX_EXECLE_TILES  ];
+  /* execle_sent[x] counts the microblocks we sent to execle x */
+  uint     execle_sent    [ FD_PACK_MAX_EXECLE_TILES ];
+  /* execle_complete[x] counts the microblocks that finished executing */
+  uint     execle_complete[ FD_PACK_MAX_EXECLE_TILES ];
+  /* The number of done_packing messaged we published */
+  uint     done_packing_cnt;
 
   fd_pack_out_ctx_t execle_out[ FD_PACK_MAX_EXECLE_TILES ];
   fd_pack_out_ctx_t poh_out;
@@ -578,6 +584,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         (fd_fseq_query( ctx->execle_current[poll_cursor] )==ctx->execle_expect[poll_cursor]) ) ) {
       *charge_busy = 1;
       ctx->execle_idle_bitset |= 1UL<<poll_cursor;
+      ctx->execle_complete[ poll_cursor ] = ctx->execle_sent[ poll_cursor ];
 
       long complete_duration = -fd_tickcount();
       int completed = fd_pack_microblock_complete( ctx->pack, (ulong)poll_cursor );
@@ -604,6 +611,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
+    ctx->done_packing_cnt++;
 
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
@@ -774,6 +782,8 @@ after_credit( fd_pack_ctx_t *     ctx,
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
       trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
+      trailer->deps.done_packing = ctx->done_packing_cnt;
+      for( ulong j=0UL; j<ctx->execle_cnt; j++ ) trailer->deps.execle[ j ] = ctx->execle_complete[ j ];
 
       /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_e_t
          to execle, there must be room for the trailer at the end. */
@@ -785,6 +795,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       execle_out->chunk = fd_dcache_compact_next( execle_out->chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), execle_out->chunk0, execle_out->wmark );
       ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
       ctx->pack_idx += fd_uint_if( trailer->is_bundle, (uint)schedule_cnt, 1U );
+      ctx->execle_sent[ i ] += fd_uint_if( trailer->is_bundle, (uint)schedule_cnt, 1U );
       ctx->pack_txn_cnt += schedule_cnt;
       ctx->slot_bundle_txn_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 0UL );
 
@@ -830,6 +841,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
     ctx->pack_idx++;
+    ctx->done_packing_cnt++;
 
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
@@ -1030,6 +1042,7 @@ after_frag( fd_pack_ctx_t *     ctx,
         fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
         ctx->pack_idx++;
+        ctx->done_packing_cnt++;
 
         FD_LOG_WARNING(( "consensus reset while packing for slot %lu, ending block early", ctx->leader_slot ));
         ctx->drain_execle        = 1;
@@ -1073,6 +1086,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       fd_stem_publish( stem, ctx->poh_out.out_idx, fd_disco_execle_sig( ctx->leader_slot, ctx->pack_idx ), ctx->poh_out.chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->poh_out.chunk = fd_dcache_compact_next( ctx->poh_out.chunk, sizeof(fd_done_packing_t), ctx->poh_out.chunk0, ctx->poh_out.wmark );
       ctx->pack_idx++;
+      ctx->done_packing_cnt++;
 
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining execle tiles.", leader_slot, ctx->leader_slot ));
       ctx->drain_execle        = 1;
@@ -1381,6 +1395,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->limits.slot_max_write_cost_per_acct = limits_lower->max_write_cost_per_acct;
 
   ctx->execle_cnt       = tile->pack.execle_tile_count;
+  ctx->done_packing_cnt = 0U;
   ctx->poll_cursor      = 0;
   ctx->skip_cnt         = 0L;
   ctx->execle_idle_bitset = fd_ulong_mask_lsb( (int)tile->pack.execle_tile_count );
@@ -1391,6 +1406,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->execle_expect[ i ] = ULONG_MAX;
     if( FD_UNLIKELY( !ctx->execle_current[ i ] ) ) FD_LOG_ERR(( "execle tile %lu has no busy flag", i ));
     ctx->execle_ready_at[ i ] = 0L;
+    ctx->execle_sent    [ i ] = 0U;
+    ctx->execle_complete[ i ] = 0U;
     FD_TEST( ULONG_MAX==fd_fseq_query( ctx->execle_current[ i ] ) );
   }
 

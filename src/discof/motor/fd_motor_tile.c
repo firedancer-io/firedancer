@@ -75,7 +75,11 @@ struct fd_motor_tile {
 
   fd_hash_t poh_hash;
 
-  uint expect_pack_idx; /* see long comment in fd_poh_tile */
+  /* Frags processed from each execle_poh / pack_poh link */
+  fd_pack_vclock_t seen;
+  ulong            execle_cnt;
+  /* execle index of each execle_poh input */
+  ulong            in_execle[ 64 ];
 
   fd_leader_txn_timing_table_t * timing_tables; /* per-transaction leader timings for the GUI, read by replay */
   ulong                          timing_table_idx;
@@ -339,10 +343,16 @@ returnable_frag( fd_motor_tile_t *   ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
-    uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
-    if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
-    if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
-    ctx->expect_pack_idx++;
+    uchar const *          msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    if( ctx->in_kind[ in_idx ]==IN_KIND_PACK ) {
+      FD_TEST( sz==sizeof(fd_done_packing_t) );
+      uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
+      if( FD_UNLIKELY( !fd_pack_vclock_admit_done_packing( &ctx->seen, pack_idx, ctx->execle_cnt ) ) ) return 1;
+    } else {
+      FD_TEST( sz>=sizeof(fd_microblock_trailer_t) );
+      fd_microblock_trailer_t const * trailer = (fd_microblock_trailer_t const *)( msg+sz-sizeof(fd_microblock_trailer_t) );
+      if( FD_UNLIKELY( !fd_pack_vclock_admit( &ctx->seen, &trailer->deps, ctx->in_execle[ in_idx ], ctx->execle_cnt ) ) ) return 1;
+    }
     if( FD_UNLIKELY( fd_disco_execle_sig_slot( sig )<ctx->slot ) ) return 0;
   }
 
@@ -394,8 +404,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_motor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_motor_tile_t ), sizeof( fd_motor_tile_t ) );
 
-  ctx->expect_pack_idx = 0U;
-  ctx->slot            = ULONG_MAX;
+  fd_memset( &ctx->seen, 0, sizeof(fd_pack_vclock_t) );
+  ctx->execle_cnt = 0UL;
+  ctx->slot       = ULONG_MAX;
 
   FD_CHECK_ERR( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]), "too many input links" );
 
@@ -412,6 +423,12 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "pack_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
     else if( !strcmp( link->name, "execle_poh" ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+
+    if( ctx->in_kind[ i ]==IN_KIND_EXECLE ) {
+      FD_TEST( link->kind_id<FD_PACK_MAX_EXECLE_TILES );
+      ctx->in_execle[ i ] = link->kind_id;
+      ctx->execle_cnt  = fd_ulong_max( ctx->execle_cnt, link->kind_id+1UL );
+    }
   }
 
   *ctx->replay_out = out1( topo, tile, "poh_replay" );
