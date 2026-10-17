@@ -1805,6 +1805,8 @@ message MetricsQuicPktDropped {
   uint64 net_header_invalid = 5;
   // Version negotiation or unsupported version
   uint64 version_unsupported = 6;
+  // Packet number already received or too old
+  uint64 duplicate = 7;
 }
 
 // Connection slots in use, by state; sum + ConnFree = ConnCapacity
@@ -6419,6 +6421,8 @@ message MetricsVotorServerPktDropped {
   uint64 net_header_invalid = 5;
   // Version negotiation or unsupported version
   uint64 version_unsupported = 6;
+  // Packet number already received or too old
+  uint64 duplicate = 7;
 }
 
 // Packets dropped because the decryption key was missing, by encryption level
@@ -6651,6 +6655,8 @@ message MetricsVotorClientPktDropped {
   uint64 net_header_invalid = 5;
   // Version negotiation or unsupported version
   uint64 version_unsupported = 6;
+  // Packet number already received or too old
+  uint64 duplicate = 7;
 }
 
 // Packets dropped because the decryption key was missing, by encryption level

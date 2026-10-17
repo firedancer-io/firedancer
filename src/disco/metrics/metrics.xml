@@ -371,6 +371,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="3" name="HeaderInvalid" label="Invalid QUIC header" />
     <int value="4" name="NetHeaderInvalid" label="Invalid IPv4 or UDP header" />
     <int value="5" name="VersionUnsupported" label="Version negotiation or unsupported version" />
+    <int value="6" name="Duplicate" label="Packet number already received or too old" />
 </enum>
 
 <tile name="quic">

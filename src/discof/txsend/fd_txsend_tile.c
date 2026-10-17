@@ -148,6 +148,7 @@ metrics_write( fd_txsend_tile_t * ctx ) {
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_HEADER_INVALID_IDX       ] = ctx->quic->metrics.pkt_quic_hdr_err_cnt,
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_NET_HEADER_INVALID_IDX   ] = ctx->quic->metrics.pkt_net_hdr_err_cnt,
     [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_VERSION_UNSUPPORTED_IDX  ] = ctx->quic->metrics.pkt_verneg_cnt,
+    [ FD_METRICS_ENUM_QUIC_PKT_DROP_REASON_V_DUPLICATE_IDX            ] = ctx->quic->metrics.pkt_dup_cnt,
   };
   FD_MCNT_ENUM_COPY( TXSEND, PKT_DROPPED, pkt_drop );
   FD_MCNT_ENUM_COPY(   TXSEND, PKT_META_ACQUIRE_ATTEMPTED,  ctx->quic->metrics.frame_tx_alloc_cnt      );
