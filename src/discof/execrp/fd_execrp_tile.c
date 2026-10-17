@@ -294,7 +294,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
-        if( FD_UNLIKELY( ctx->execrp_strmk_out->idx!=ULONG_MAX && ctx->txn_out.err.is_committable ) ) {
+        if( FD_UNLIKELY( ctx->execrp_strmk_out->idx!=ULONG_MAX ) ) {
           fd_strmk_keys_publish(
             stem, ctx->execrp_strmk_out->idx, ctx->execrp_strmk_out->mem,
             ctx->execrp_strmk_out->chunk0, ctx->execrp_strmk_out->wmark,

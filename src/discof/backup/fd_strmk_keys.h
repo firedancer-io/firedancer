@@ -2,10 +2,10 @@
 #define HEADER_fd_src_discof_backup_fd_strmk_keys_h
 
 /* fd_strmk_keys.h is the feed of account keys from the exec tiles to
-   the stream maker.  Once an exec tile has loaded a transaction's
-   accounts it sends the stream maker every key the transaction read
-   from the accounts database, so that a fast boot stream can carry
-   those accounts to a peer. */
+   the stream maker.  Once an exec tile has run a transaction it sends
+   the stream maker every key the transaction looked up in the accounts
+   database, so that a fast boot stream can carry those accounts to a
+   peer. */
 
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -29,9 +29,8 @@ typedef struct fd_strmk_keys_msg fd_strmk_keys_msg_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_strmk_keys_publish sends a transaction's keys to the stream
-   maker on out link out_idx.  Callers send committable transactions
-   only, whose accounts were loaded.  bank is the bank the transaction
-   ran on. */
+   maker on out link out_idx.  Replay sends every transaction of a
+   block, committed or not.  bank is the bank the transaction ran on. */
 
 static inline void
 fd_strmk_keys_publish( fd_stem_context_t *  stem,
