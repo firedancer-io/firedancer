@@ -14,7 +14,7 @@
    In other words, sysvars backed by stored accounts are updated before
    and after transaction execution.  During transaction execution, they
    are constant.  Firedancer stores a copy of these sysvars in the
-   sysvar cache for performance (raw and typed forms).
+   sysvar cache for performance (raw serialized form).
 
    During the slot boundary (outside of transaction execution), sysvars
    should be accessed using the accounts directly, and the sysvar cache
@@ -27,8 +27,9 @@
 
 /* fd_sysvar_cache_t is the header of a sysvar_cache object.
    A sysvar_cache object is position-independent and backed entirely by
-   a single memory region.  Each sysvar is stored in serialized/raw form
-   and in a typed form.  fd_sysvar_cache_desc_t points either form.
+   a single memory region.  Each sysvar is stored only in serialized/raw
+   form in a fixed-size buffer (bin_*).  Each fd_sysvar_desc_t records
+   the serialized size and whether the stored data passed validation.
 
    It is safe to relocate a sysvar_cache object, or map it from multiple
    processes with different address spaces, or clone it via a shallow
