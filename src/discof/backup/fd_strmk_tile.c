@@ -28,6 +28,7 @@
 #include "fd_backup_wake.h"
 #include "fd_snapmk_tile.h"
 #include "fd_ssmanifest_writer.h"
+#include "fd_txncache_writer.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
@@ -139,6 +140,11 @@ struct fd_strmk {
 
   fd_ssmanifest_writer_t manifest_writer[1];
 
+  fd_txncache_t *        txncache;
+  fd_txncache_writer_t   txncache_writer[1];
+  void *                 txncache_arena;
+  ulong                  txncache_arena_sz;
+
   struct {
     ulong   out_idx;
     void *  mem;
@@ -155,7 +161,10 @@ typedef struct fd_strmk fd_strmk_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return fd_ulong_max( fd_ulong_max( alignof(fd_strmk_t), fd_accdb_align() ), 4096UL );
+  ulong a = fd_ulong_max( alignof(fd_strmk_t), fd_accdb_align() );
+  a = fd_ulong_max( a, fd_txncache_align() );
+  a = fd_ulong_max( a, fd_txncache_writer_arena_align() );
+  return fd_ulong_max( a, 4096UL );
 }
 
 FD_FN_PURE static inline ulong
@@ -163,6 +172,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_strmk_t), sizeof(fd_strmk_t)                                  );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),    fd_accdb_footprint( tile->strmk.max_live_slots, 0 )    );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(), fd_txncache_footprint( tile->strmk.max_live_slots )    );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot ) );
   l = FD_LAYOUT_APPEND( l, 4096UL,              FD_SSMANIFEST_BUF_MIN                               );
   l = FD_LAYOUT_APPEND( l, 64UL,                ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL )    );
   l = FD_LAYOUT_APPEND( l, strmk_key_map_align(),  strmk_key_map_footprint( strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ) ) );
@@ -252,6 +263,33 @@ strmk_manifest( fd_strmk_t *     ctx,
   }
   FD_CHECK_CRIT( wrote==manifest_sz, "fast boot stream manifest does not match the size the writer measured" );
   zip_pad( ctx, stream, manifest_sz );
+}
+
+/* strmk_status_cache writes the status cache of the stream's start
+   slot, as a snapshot has it. */
+
+static void
+strmk_status_cache( fd_strmk_t *     ctx,
+                    strmk_stream_t * stream,
+                    fd_bank_t *      bank ) {
+  ulong         slot_history_sz = 0UL;
+  uchar const * slot_history    = fd_sysvar_cache_data_query( &bank->f.sysvar_cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
+  if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id, bank->f.slot, slot_history, slot_history_sz, ctx->txncache_arena, ctx->txncache_arena_sz ) ) ) {
+    FD_LOG_CRIT(( "cannot serialize txncache fork %hu of the stream bank at slot %lu because the root moved or SlotHistory lacks execution slots", bank->txncache_fork_id.val, bank->f.slot ));
+  }
+  ulong status_cache_sz = fd_txncache_writer_serialized_sz( ctx->txncache_writer );
+
+  fd_tar_meta_t meta;
+  zip_push( ctx, stream, fd_backup_tar_named_hdr( &meta, "snapshots/status_cache", status_cache_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+  ulong written = 0UL;
+  for(;;) {
+    ulong chunk_sz = fd_txncache_writer_serialize( ctx->txncache_writer, ctx->raw, FD_SSMANIFEST_BUF_MIN );
+    if( !chunk_sz ) break;
+    zip_push( ctx, stream, ctx->raw, chunk_sz, ZSTD_e_continue );
+    written += chunk_sz;
+  }
+  FD_CHECK_CRIT( written==status_cache_sz, "status cache size does not match its tar header" );
+  zip_pad( ctx, stream, status_cache_sz );
 }
 
 /**********************************************************************/
@@ -553,6 +591,7 @@ strmk_stream_start( fd_strmk_t *                   ctx,
   fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &msg->leader, ctx->accdb, bank->accdb_fork_id, ctx->raw );
   strmk_preamble( ctx, stream );
   strmk_manifest( ctx, stream );
+  strmk_status_cache( ctx, stream, bank );
   ctx->cur = idx;
 
   stream->fork_id = bank->accdb_fork_id;
@@ -691,6 +730,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_strmk_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_strmk_t), sizeof(fd_strmk_t) );
   void *       _accdb = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),    fd_accdb_footprint( tile->strmk.max_live_slots, 0 ) );
+  void *       _txnc  = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(), fd_txncache_footprint( tile->strmk.max_live_slots ) );
+  void *       _arena = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot ) );
   void *       _raw   = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,              FD_SSMANIFEST_BUF_MIN );
   void *       _zst   = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                zst_sz );
   void *       _map   = FD_SCRATCH_ALLOC_APPEND( l, strmk_key_map_align(),  strmk_key_map_footprint( strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ) ) );
@@ -721,6 +762,13 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->strmk.banks_obj_id ) );
   FD_TEST( ctx->banks );
+
+  fd_txncache_shmem_t * tc_shmem = fd_txncache_shmem_join( fd_topo_obj_laddr( topo, tile->strmk.txncache_obj_id ) );
+  FD_TEST( tc_shmem );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txnc, tc_shmem ) );
+  FD_TEST( ctx->txncache );
+  ctx->txncache_arena    = _arena;
+  ctx->txncache_arena_sz = fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot );
 
   /* Read-only join to accdb.  The epoch fseq tells the accdb tile
      which epoch this tile reads so that compaction does not reclaim
