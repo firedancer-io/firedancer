@@ -81,7 +81,6 @@ typedef struct strmk_key strmk_key_t;
 /* One fast boot stream: a growing archive file. */
 
 struct strmk_stream {
-  int   open;
   int   announced;  /* OPEN sent to the file server? */
   ulong start_slot; /* the slot the stream starts at */
   uchar hash[ 32 ];
@@ -95,6 +94,7 @@ typedef struct strmk_stream strmk_stream_t;
 
 struct fd_strmk {
   uint  cur;       /* the stream being written, UINT_MAX if none */
+  uint  next;      /* the pool file the next stream goes in */
   ulong incr_slot; /* slot of the newest incremental snapshot on disk */
 
   strmk_stream_t stream[ FD_STRMK_POOL ];
@@ -116,6 +116,7 @@ struct fd_strmk {
   strmk_key_map_t * key_map;
   strmk_key_t *     key_pool;
   ulong             current_slot;
+  ulong             pruned_slot;
 
   struct {
     ulong key_cnt;
@@ -219,7 +220,7 @@ zip_pad( fd_strmk_t *     ctx,
 static void
 strmk_preamble( fd_strmk_t *     ctx,
                 strmk_stream_t * stream ) {
-  ulong sz = fd_backup_tar_preamble( ctx->raw, FD_SSMANIFEST_BUF_MIN, stream->start_slot );
+  ulong sz = fd_backup_tar_preamble( ctx->raw, stream->start_slot );
   zip_push( ctx, stream, ctx->raw, sz, ZSTD_e_end );
 }
 
@@ -297,7 +298,6 @@ strmk_stream_close( fd_strmk_t *        ctx,
   FD_LOG_INFO(( "closing the fast boot stream at slot %lu (%lu bytes)", stream->start_slot, stream->file_sz ));
 
   if( FD_LIKELY( stream->announced ) ) strmk_announce( ctx, stem, ctx->cur, FD_STRMK_MSG_CLOSE );
-  stream->open      = 0;
   stream->announced = 0;
   ctx->cur          = UINT_MAX;
 }
@@ -310,13 +310,14 @@ strmk_stream_close( fd_strmk_t *        ctx,
 static void
 strmk_announce_open( fd_strmk_t *        ctx,
                      fd_stem_context_t * stem ) {
-  for( uint i=0U; i<FD_STRMK_POOL; i++ ) {
-    strmk_stream_t * stream = &ctx->stream[ i ];
-    if( FD_LIKELY( !stream->open || stream->announced || stream->start_slot!=ctx->incr_slot ) ) continue;
-    stream->announced = 1;
-    strmk_announce( ctx, stem, i, FD_STRMK_MSG_OPEN );
-    FD_LOG_NOTICE(( "serving the fast boot stream at slot %lu", stream->start_slot ));
-  }
+  if( FD_UNLIKELY( ctx->cur==UINT_MAX ) ) return;
+
+  strmk_stream_t * stream = &ctx->stream[ ctx->cur ];
+  if( FD_LIKELY( stream->announced || stream->start_slot!=ctx->incr_slot ) ) return;
+
+  stream->announced = 1;
+  strmk_announce( ctx, stem, ctx->cur, FD_STRMK_MSG_OPEN );
+  FD_LOG_NOTICE(( "serving the fast boot stream at slot %lu", stream->start_slot ));
 }
 
 /**********************************************************************/
@@ -341,8 +342,6 @@ strmk_key_prune( fd_strmk_t * ctx,
 /* Stream body                                                        */
 /**********************************************************************/
 
-/* A key that does not exist goes out as a record with no lamports. */
-
 /* strmk_appendvec_flush writes the staged records as one appendvec
    entry. */
 
@@ -360,13 +359,15 @@ strmk_appendvec_flush( fd_strmk_t *     ctx,
 }
 
 /* strmk_appendvec_add reads a key at the start slot and stages its
-   record, flushing first if the biggest account would not fit. */
+   record, flushing first if the biggest account would not fit.  A key
+   that does not exist is a record with no lamports. */
 
 static void
 strmk_appendvec_add( fd_strmk_t *        ctx,
                      strmk_stream_t *    stream,
                      fd_pubkey_t const * key ) {
   if( FD_UNLIKELY( ctx->raw_sz+sizeof(snap_acc_hdr_t)+FD_RUNTIME_ACC_SZ_MAX>FD_SSMANIFEST_BUF_MIN ) ) strmk_appendvec_flush( ctx, stream );
+  
   snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw+ctx->raw_sz );
   memset( hdr, 0, sizeof(snap_acc_hdr_t) );
   hdr->pubkey = *key;
@@ -404,7 +405,13 @@ strmk_send_key( fd_strmk_t *        ctx,
   }
 
   /* Evict older entries in the very rare case that the pool fills up. */
-  if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) strmk_key_prune( ctx, fd_ulong_sat_sub( ctx->current_slot, STRMK_WINDOW ) );
+  if( FD_UNLIKELY( !strmk_key_pool_free( ctx->key_pool ) ) ) {
+    ulong old = fd_ulong_sat_sub( ctx->current_slot, STRMK_WINDOW );
+    if( old>ctx->pruned_slot ) {
+      strmk_key_prune( ctx, old );
+      ctx->pruned_slot = old;
+    }
+  }
 
   if( FD_LIKELY( strmk_key_pool_free( ctx->key_pool ) ) ) {
     ele = strmk_key_pool_ele_acquire( ctx->key_pool );
@@ -515,19 +522,18 @@ strmk_stream_start( fd_strmk_t *                   ctx,
                     fd_replay_snap_start_t const * msg ) {
   if( FD_UNLIKELY( msg->slot==msg->base_slot ) ) return;
 
-  uint prev = ctx->cur;
   strmk_stream_close( ctx, stem );
 
   /* the other file: the file server stopped serving it an incremental
      ago, when it saw that stream close */
-  uint idx = prev==UINT_MAX ? 0U : ( prev+1U )%FD_STRMK_POOL;
+  uint idx = ctx->next;
+  ctx->next = ( idx+1U )%FD_STRMK_POOL;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
   FD_CHECK_CRIT( bank && bank->f.slot==msg->slot, "snapshot bank is not the one replay named" );
 
   long now = fd_log_wallclock();
   strmk_stream_t * stream = &ctx->stream[ idx ];
-  stream->open       = 1;
   stream->announced  = 0;
   stream->start_slot = msg->slot;
   stream->file_sz    = 0UL;
@@ -552,6 +558,7 @@ strmk_stream_start( fd_strmk_t *                   ctx,
   stream->fork_id = bank->accdb_fork_id;
   /* the snapshot has the keys at or below its slot */
   strmk_key_prune( ctx, stream->start_slot );
+  ctx->pruned_slot = fd_ulong_max( ctx->pruned_slot, stream->start_slot );
   strmk_runtime_keys( ctx, stream, bank );
   strmk_catch_up( ctx, stream );
 
@@ -692,6 +699,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_CHECK_CRIT( end==(ulong)scratch + scratch_footprint( tile ), "bug when calculating tile memory layout" );
 
   ctx->cur       = UINT_MAX;
+  ctx->next      = 0U;
   ctx->incr_slot = ULONG_MAX;
   ctx->raw       = _raw;
 
@@ -705,6 +713,7 @@ unprivileged_init( fd_topo_t const *      topo,
   for( uint i=0U; i<FD_STRMK_POOL; i++ ) ctx->stream[ i ].fd = FD_STRMK_FD( i );
 
   ctx->current_slot = 0UL;
+  ctx->pruned_slot  = 0UL;
   ctx->key_map  = strmk_key_map_join( strmk_key_map_new( _map, strmk_key_map_chain_cnt_est( STRMK_KEY_MAX ), ctx->key_seed ) );
   ctx->key_pool = strmk_key_pool_join( strmk_key_pool_new( _pool, STRMK_KEY_MAX ) );
   FD_TEST( ctx->key_map && ctx->key_pool );
