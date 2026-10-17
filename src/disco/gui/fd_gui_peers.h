@@ -509,7 +509,8 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
-                                    ulong                 sz );
+                                    ulong                 sz,
+                                    ulong                 slot );
 
 void
 fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,

@@ -299,7 +299,7 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
   for( ulong j=0UL; j<rx_cnt; j++ ) {
     fd_gui_peers_node_t const * cur = &peers->contact_info_table[ rx_top[ j ] ];
     fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
-    if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
+    if( FD_LIKELY( node_info && !node_info->cleared ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
     else                         gossip_stats->network_ingress_peer_names[ j ][ 0 ] = '\0';
     gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = (long)rx_val[ j ];
     fd_memcpy( &gossip_stats->network_ingress_peer_identities[ j ], cur->row.pubkey.uc, 32UL );
@@ -311,7 +311,7 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
   for( ulong j=0UL; j<tx_cnt; j++ ) {
     fd_gui_peers_node_t const * cur = &peers->contact_info_table[ tx_top[ j ] ];
     fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->row.pubkey, NULL, peers->node_info_pool );
-    if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
+    if( FD_LIKELY( node_info && !node_info->cleared ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
     else                         gossip_stats->network_egress_peer_names[ j ][ 0 ] = '\0';
     gossip_stats->network_egress_peer_bytes_per_sec[ j ] = (long)tx_val[ j ];
     fd_memcpy( &gossip_stats->network_egress_peer_identities[ j ], cur->row.pubkey.uc, 32UL );
@@ -719,7 +719,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           }
 
           fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, fd_type_pun_const(update->origin ), NULL, peers->node_info_pool );
-          if( FD_LIKELY( info ) ) fd_memcpy( peer->row.name, info->name, sizeof(info->name) );
+          if( FD_LIKELY( info && !info->cleared ) ) fd_memcpy( peer->row.name, info->name, sizeof(info->name) );
           else                    peer->row.name[ 0 ] = '\0';
 
           peer->row.wallclock_nanos   = FD_MILLI_TO_NANOSEC( update->wallclock );
@@ -979,38 +979,46 @@ fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
-                                    ulong                 sz ) {
-  /* optimistically acquire node_info */
-  if( FD_UNLIKELY( !fd_gui_peers_node_info_pool_free( peers->node_info_pool ) ) ) {
-    FD_LOG_WARNING(( "On-chain ConfigProgram accounts count exceeded %lu", FD_CONTACT_INFO_TABLE_SIZE ));
-    return;
+                                    ulong                 sz,
+                                    ulong                 slot ) {
+  fd_gui_config_parse_info_t parsed[1];
+  if( FD_UNLIKELY( !fd_gui_config_parse_validator_info( data, sz, parsed ) ) ) return;
+  parsed->slot = slot;
+
+  /* Snapshots can hold several copies of an identity's account, the
+     incremental after the full: keep the newest.  Some nodes clear all
+     the fields instead of deleting their on-chain account: that copy is
+     kept too, so its slot still outranks older ones, but reads as no
+     info. */
+  parsed->cleared = parsed->name[ 0 ]=='\0' && parsed->details[ 0 ]=='\0' && parsed->website[ 0 ]=='\0' && parsed->icon_uri[ 0 ]=='\0' && parsed->keybase_username[ 0 ]=='\0';
+  fd_gui_config_parse_info_t * info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &parsed->pubkey, NULL, peers->node_info_pool );
+  if( FD_UNLIKELY( info && info->slot>slot ) ) return;
+  int had_info = info && !info->cleared;
+  if( FD_UNLIKELY( !info ) ) {
+    if( FD_UNLIKELY( !fd_gui_peers_node_info_pool_free( peers->node_info_pool ) ) ) {
+      FD_LOG_WARNING(( "On-chain ConfigProgram accounts count exceeded %lu", FD_CONTACT_INFO_TABLE_SIZE ));
+      return;
+    }
+    info = fd_gui_peers_node_info_pool_ele_acquire( peers->node_info_pool );
+    info->pubkey = parsed->pubkey;
+    fd_gui_peers_node_info_map_ele_insert( peers->node_info_map, info, peers->node_info_pool );
   }
-  fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_pool_ele_acquire( peers->node_info_pool );
+  info->slot    = parsed->slot;
+  info->cleared = parsed->cleared;
+  fd_memcpy( info->name,             parsed->name,             sizeof(info->name)             );
+  fd_memcpy( info->website,          parsed->website,          sizeof(info->website)          );
+  fd_memcpy( info->details,          parsed->details,          sizeof(info->details)          );
+  fd_memcpy( info->icon_uri,         parsed->icon_uri,         sizeof(info->icon_uri)         );
+  fd_memcpy( info->keybase_username, parsed->keybase_username, sizeof(info->keybase_username) );
+  if( FD_UNLIKELY( info->cleared && !had_info ) ) return;
 
-  if( FD_UNLIKELY( !fd_gui_config_parse_validator_info( data, sz, node_info ) ) ) {
-    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
-    return;
-  }
-
-  if( FD_UNLIKELY( fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &node_info->pubkey, NULL, peers->node_info_pool ) ) ) {
-    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
-    return; /* no duplicate entries */
-  }
-
-  /* Some nodes just clear all the fields instead of deleting their
-     on-chain account, we can ignore those entries */
-  if( FD_UNLIKELY( node_info->name[ 0 ]=='\0' && node_info->details[ 0 ]=='\0' && node_info->website[ 0 ]=='\0' && node_info->icon_uri[ 0 ]=='\0' && node_info->keybase_username[ 0 ]=='\0' ) ) {
-    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
-    return;
-  }
-
-  fd_gui_peers_node_info_map_ele_insert( peers->node_info_map, node_info, peers->node_info_pool );
-
-  fd_gui_peers_node_t * peer = fd_gui_peers_node_pubkey_map_ele_query( peers->node_pubkey_map, &node_info->pubkey, NULL, peers->contact_info_table );
+  fd_gui_peers_node_t * peer = fd_gui_peers_node_pubkey_map_ele_query( peers->node_pubkey_map, &info->pubkey, NULL, peers->contact_info_table );
   if( FD_UNLIKELY( peer ) ) {
     fd_gui_peers_live_table_ele_remove( peers->live_table, peer, peers->contact_info_table );
-    fd_cstr_ncpy( peer->row.name, node_info->name, sizeof(peer->row.name) );
+    fd_cstr_ncpy( peer->row.name, info->cleared ? "" : info->name, sizeof(peer->row.name) );
     fd_gui_peers_live_table_ele_insert( peers->live_table, peer, peers->contact_info_table );
+    fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ (ulong)( peer-peers->contact_info_table ) }, 1UL );
+    fd_http_server_ws_broadcast( peers->http );
   }
 }
 

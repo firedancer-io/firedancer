@@ -2010,7 +2010,7 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
     }
 
     fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->row.pubkey, NULL, peers->node_info_pool );
-    if( FD_UNLIKELY( !node_info ) ) {
+    if( FD_UNLIKELY( !node_info || node_info->cleared ) ) {
       jsonp_string( peers->http, "info", NULL );
     } else {
       jsonp_open_object( peers->http, "info" );
@@ -3744,7 +3744,7 @@ fd_gui_peers_printf_wfs_stakes( fd_gui_peers_ctx_t * peers ) {
           fd_gui_config_parse_info_t * info =
               fd_gui_peers_node_info_map_ele_query(
                   peers->node_info_map, &peers->wfs_peers[ i ].identity_key, NULL, peers->node_info_pool );
-          if( info ) {
+          if( info && !info->cleared ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_string( peers->http, "name",             info->name );
               jsonp_string( peers->http, "details",          info->details );
