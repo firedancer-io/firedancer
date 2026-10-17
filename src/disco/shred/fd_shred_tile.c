@@ -1055,8 +1055,8 @@ fan_out( fd_shred_ctx_t *     ctx,
   }
 }
 
-/* Finish a complete FEC set: fan it out to the network, copy it into
-   the store and tell repair and replay. */
+/* Finish a complete FEC set: copy it into the store, tell repair and
+   replay, and fan it out to the network. */
 
 static void
 complete_fec_set( fd_shred_ctx_t *         ctx,
@@ -1071,10 +1071,8 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
 
   fd_shred_t const * last = set->data_shreds[ FD_FEC_SHRED_CNT - 1 ].s;
 
-  /* Broadcast locally produced and recovered shreds before any disk
-     work.  A set rebuilt purely from repair is not on the live turbine
-     path (catch-up), so its recovered shreds are not relayed. */
-  if( FD_LIKELY( is_leader || set->turbine_shred_rcvd ) ) fan_out( ctx, stem, set, is_leader, 0, tsorig );
+  /* Broadcast locally produced shreds before any disk work. */
+  if( FD_UNLIKELY( is_leader ) ) fan_out( ctx, stem, set, is_leader, 0, tsorig );
 
   /* Compute merkle root and chained merkle root. */
 
@@ -1211,6 +1209,12 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
       ctx->leader_bank  = NULL;
     }
   }
+
+  /* Relay recovered shreds only after replay is told, computing their
+     turbine children is costly on staked nodes.  A set rebuilt purely
+     from repair is not on the live turbine path (catch-up), so its
+     recovered shreds are not relayed. */
+  if( FD_LIKELY( !is_leader && set->turbine_shred_rcvd ) ) fan_out( ctx, stem, set, is_leader, 0, tsorig );
 }
 
 static void
