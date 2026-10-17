@@ -66,10 +66,8 @@ fd_quic_gen_initial_secrets(
 void
 fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,
                            fd_quic_crypto_keys_t      new_keys[2] ) {
-  /* Defined as:
-     application_traffic_secret_N+1 =
-           HKDF-Expand-Label(application_traffic_secret_N,
-                             "traffic upd", "", Hash.length) */
+  /* Defined in RFC 9001 Section 6.1 as:
+     secret_<n+1> = HKDF-Expand-Label(secret_<n>, "quic ku", "", Hash.length) */
   uint enc_level = fd_quic_enc_level_appdata_id;
 
   for( ulong j=0UL; j<2UL; j++ ) {
