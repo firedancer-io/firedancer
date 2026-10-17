@@ -49,15 +49,17 @@ connect_pair( fd_sshttp_t * http ) {
    machine has no way out. */
 
 static int
+run_request( fd_sshttp_t * http,
+             uchar *       body,
+             ulong         body_max,
+             ulong *       body_len,
+             ulong *       last_len );
+
+static int
 advance_until_terminal( fd_sshttp_t * http ) {
-  uchar buf[ 4096 ];
-  for( ulong i=0UL; i<1024UL; i++ ) {
-    ulong data_len   = sizeof(buf);
-    int   downloading = 0;
-    int   res = fd_sshttp_advance( http, &data_len, buf, &downloading, 0L );
-    if( FD_LIKELY( res!=FD_SSHTTP_ADVANCE_AGAIN && res!=FD_SSHTTP_ADVANCE_DATA ) ) return res;
-  }
-  FD_LOG_ERR(( "fd_sshttp_advance never terminated" ));
+  static uchar body[ 1UL<<16 ];
+  ulong body_len, last_len;
+  return run_request( http, body, sizeof(body), &body_len, &last_len );
 }
 
 /* A server that closes after a complete header, without ever sending

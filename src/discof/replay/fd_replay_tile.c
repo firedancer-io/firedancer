@@ -945,7 +945,7 @@ report_block_completed( fd_replay_tile_t *                 ctx,
   ev->caught_up            = !!ctx->caught_up;
   ev->turbine_slot         = ctx->catch_up_max_fec_slot==ULONG_MAX ? 0UL : ctx->catch_up_max_fec_slot;
   ev->fork_width           = ctx->banks->curr_fork_width;
-  ev->snapshot_in_progress = ctx->snapmk.active;
+  ev->snapshot_in_progress = !!ctx->snapmk.active;
   ev->live_bank_count      = fd_banks_pool_used_cnt( ctx->banks );
   ev->is_leader    = is_leader;
 
@@ -1312,7 +1312,7 @@ report_block_incomplete( fd_replay_tile_t * ctx,
   ev->caught_up            = !!ctx->caught_up;
   ev->turbine_slot         = ctx->catch_up_max_fec_slot==ULONG_MAX ? 0UL : ctx->catch_up_max_fec_slot;
   ev->fork_width           = ctx->banks->curr_fork_width;
-  ev->snapshot_in_progress = ctx->snapmk.active;
+  ev->snapshot_in_progress = !!ctx->snapmk.active;
   ev->live_bank_count      = fd_banks_pool_used_cnt( ctx->banks );
 
   int  dead      = dead_reason     !=FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD;
@@ -3187,10 +3187,6 @@ snapmk_start( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int                 incremental );
 
-static void
-strmk_start( fd_replay_tile_t * ctx,
-             int                incremental );
-
 static int
 try_advance_published_root( fd_replay_tile_t *  ctx,
                             fd_stem_context_t * stem ) {
@@ -3227,6 +3223,12 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   ulong published_root_block_height = published_root_bank->f.block_height;
   ulong consensus_root_block_height = target_bank->f.block_height;
 
+  /* If the identity vote has been seen on a bank that should be rooted,
+     then we are now ready to produce blocks. */
+  if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
+    if( target_bank->f.identity_vote_idx==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
+  }
+
   /* A fast boot stream holds the root at its start slot until the
      next snapshot and stream are due.  Once the next snapshot is due,
      have strmk end its current stream and start a new one. */
@@ -3238,12 +3240,6 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
       ctx->strmk.stopping = 1;
     }
     return 0;
-  }
-
-  /* If the identity vote has been seen on a bank that should be rooted,
-     then we are now ready to produce blocks. */
-  if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
-    if( target_bank->f.identity_vote_idx==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
@@ -3309,7 +3305,6 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( snap_due ) ) {
     snapmk_start( ctx, stem, snap_incremental );
-    strmk_start( ctx, snap_incremental );
     if( FD_UNLIKELY( !snap_incremental ) ) {
       if( FD_UNLIKELY( ctx->snapmk.full_interval_blocks &&
                        bank->f.block_height>=ctx->snapmk.next_full_block_height ) ) {
@@ -3924,27 +3919,16 @@ snapmk_start( fd_replay_tile_t *  ctx,
 
   /* update internal state */
   ctx->snapmk.active = 1;
-}
 
-static void
-strmk_start( fd_replay_tile_t * ctx,
-             int                incremental ) {
-  FD_CHECK_CRIT( ctx->snapmk.active, "stream start without a snapshot start" );
-  FD_CHECK_CRIT( !ctx->strmk.active, "stream start while the stream maker still reads a snapshot bank" );
-  ctx->strmk.active = incremental && ctx->strmk.supported;
-}
-
-/* snap_release unpins the snapshot bank once neither the snapshot
-   maker nor the stream maker is reading it. */
-
-static void
-snap_release( fd_replay_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->snapmk.active || ctx->strmk.active ) ) return;
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->snapmk.bank_idx );
-  FD_CHECK_CRIT( bank, "invalid snapmk.bank_idx" );
-  FD_CHECK_CRIT( bank->refcnt > 0UL, "invalid snapmk.bank_idx refcnt" );
-  fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
-  bank->refcnt--;
+  /* An incremental snapshot starts a stream, which keeps the bank and
+     its epoch credits too, for its manifest. */
+  if( incremental && ctx->strmk.supported ) {
+    FD_CHECK_CRIT( !ctx->strmk.active, "stream start while a stream is open" );
+    bank->refcnt++;
+    FD_TEST( fd_epoch_credits_view_init( ctx->strmk.epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
+    ctx->strmk.active   = 1;
+    ctx->strmk.bank_idx = bank->idx;
+  }
 }
 
 /* snapmk_done reacts to the snapmk tile reporting completion. */
@@ -3957,8 +3941,10 @@ snapmk_done( fd_replay_tile_t *  ctx,
 
   FD_CHECK_CRIT( ctx->snapmk.active, "spurious snap complete msg (not creating snapshot)" );
 
+  /* release bank */
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->snapmk.bank_idx );
   FD_CHECK_CRIT( bank, "invalid snapmk.bank_idx" );
+  FD_CHECK_CRIT( bank->refcnt > 0UL, "invalid snapmk.bank_idx refcnt" );
 
   /* A completed full snapshot becomes the base of later incrementals. */
   if( FD_LIKELY( success && !ctx->snapmk.incremental ) ) {
@@ -3974,19 +3960,23 @@ snapmk_done( fd_replay_tile_t *  ctx,
     }
   }
 
+  fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
+  bank->refcnt--;
   ctx->snapmk.active = 0;
-  snap_release( ctx );
 }
 
-/* strmk_done reacts to the stream maker reporting it is finished
-   reading the snapshot bank. */
+/* strmk_done reacts to the stream maker ending its stream: the bank
+   is released and the published root can move on. */
 
 static void
 strmk_done( fd_replay_tile_t * ctx ) {
-  FD_CHECK_CRIT( ctx->strmk.active, "spurious stream done msg (stream maker not reading the snapshot bank)" );
+  FD_CHECK_CRIT( ctx->strmk.active, "spurious stream done msg (no stream open)" );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->strmk.bank_idx );
+  FD_CHECK_CRIT( bank && bank->refcnt>0UL, "invalid strmk.bank_idx" );
+  fd_epoch_credits_view_fini( ctx->strmk.epoch_credits_view );
+  bank->refcnt--;
   ctx->strmk.active   = 0;
   ctx->strmk.stopping = 0;
-  snap_release( ctx );
 }
 
 static void
@@ -4025,14 +4015,6 @@ msg_snapmk( fd_replay_tile_t *  ctx,
   default:
     break;
   }
-}
-
-/* msg_strmk handles the one message the stream maker sends: it is
-   done reading the snapshot bank. */
-
-static void
-msg_strmk( fd_replay_tile_t * ctx ) {
-  strmk_done( ctx );
 }
 
 /* admin command handlers
@@ -4101,7 +4083,6 @@ admin_snap_create( fd_replay_tile_t *  ctx,
   }
 
   snapmk_start( ctx, stem, 0 );
-  strmk_start( ctx, 0 );
   admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
@@ -4345,7 +4326,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       msg_snapmk( ctx, stem, sig, in_idx, chunk );
       break;
     case IN_KIND_STRMK:
-      msg_strmk( ctx );
+      strmk_done( ctx );
       break;
     case IN_KIND_ADMIN:
       msg_admin( ctx, stem, fd_frag_meta_ctl_orig( ctl ), sig );

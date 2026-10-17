@@ -448,7 +448,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "strmk_replay" );
     fd_topob_wksp( topo, "strmk_out"    );
     fd_topob_wksp( topo, "execrp_strmk" );
-    fd_topob_wksp( topo, "execle_strmk" );
+    if( execle_tile_cnt ) fd_topob_wksp( topo, "execle_strmk" );
   }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -496,8 +496,8 @@ fd_topo_initialize( config_t * config ) {
   if( strmk_enabled )  fd_topob_link( topo, "strmk_replay",  "strmk_replay",  128UL,                                    0UL,                           1UL );
   if( strmk_enabled )  fd_topob_link( topo, "strmk_out",     "strmk_out",     128UL,                                    sizeof(fd_strmk_msg_t),        1UL );
   if( strmk_enabled ) {
-    FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_strmk",  "execrp_strmk",  256UL,                                    sizeof(fd_strmk_keys_msg_t),   1UL );
-    FOR(execle_tile_cnt) fd_topob_link( topo, "execle_strmk",  "execle_strmk",  256UL,                                    sizeof(fd_strmk_keys_msg_t),   1UL );
+    FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_strmk",  "execrp_strmk",  1024UL,       sizeof(fd_strmk_keys_msg_t),   1UL );
+    FOR(execle_tile_cnt) fd_topob_link( topo, "execle_strmk",  "execle_strmk",  1024UL,       sizeof(fd_strmk_keys_msg_t),   1UL );
   }
   fd_topo_obj_t * zp_fseq = NULL;
   if( snapmk_enabled ) {

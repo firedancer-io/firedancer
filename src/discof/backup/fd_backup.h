@@ -211,16 +211,12 @@ fd_backup_manifest_name( char  name[ static FD_TAR_NAME_SZ ],
 
 /* fd_backup_tar_preamble writes the entries every snapshot archive
    opens with: the version file, the snapshots directory and the
-   directory of the slot.  out takes at least FD_BACKUP_TAR_PREAMBLE_SZ
-   bytes, and the function returns how many it wrote. */
-
-#define FD_BACKUP_TAR_PREAMBLE_SZ (4UL*FD_TAR_BLOCK_SZ)
+   directory of the slot, four tar blocks.  Returns how many bytes it
+   wrote. */
 
 FD_FN_UNUSED static ulong
 fd_backup_tar_preamble( uchar * out,
-                            ulong   out_sz,
-                            ulong   slot ) {
-  FD_TEST( out_sz>=FD_BACKUP_TAR_PREAMBLE_SZ );
+                        ulong   slot ) {
   uchar *       p = out;
   fd_tar_meta_t meta;
 
