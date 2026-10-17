@@ -289,7 +289,8 @@ FD_STATIC_ASSERT( sizeof(block_builder_info_t)==BUNDLE_META_SZ, blk_engine_cfg )
 #define FD_PACK_METRIC_STATE_MICROBLOCKS  3
 
 /* Updates one component of the metric state.  If the state has changed,
-   records the change. */
+   records the change.  effective_as_of may be earlier than the last
+   update in the same callback, which credits nothing. */
 static inline void
 update_metric_state( fd_pack_ctx_t * ctx,
                      long            effective_as_of,
@@ -297,8 +298,8 @@ update_metric_state( fd_pack_ctx_t * ctx,
                      int             status ) {
   uint current_state = fd_uint_insert_bit( ctx->metric_state, type, status );
   if( FD_UNLIKELY( current_state!=ctx->metric_state ) ) {
-    ctx->metric_timing[ ctx->metric_state ] += effective_as_of - ctx->metric_state_begin;
-    ctx->metric_state_begin = effective_as_of;
+    ctx->metric_timing[ ctx->metric_state ] += fd_long_max( effective_as_of-ctx->metric_state_begin, 0L );
+    ctx->metric_state_begin = fd_long_max( effective_as_of, ctx->metric_state_begin );
     ctx->metric_state = current_state;
   }
 }
@@ -398,6 +399,10 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
 
 static inline void
 metrics_write( fd_pack_ctx_t * ctx ) {
+  long now = fd_tickcount();
+  ctx->metric_timing[ ctx->metric_state ] += fd_long_max( now-ctx->metric_state_begin, 0L );
+  ctx->metric_state_begin = fd_long_max( now, ctx->metric_state_begin );
+
   FD_MCNT_ENUM_COPY( PACK, TXN_INSERT_ATTEMPTED,          ctx->insert_result  );
   FD_MCNT_ENUM_COPY( PACK, SCHEDULE_REGIME_DURATION_NANOS,        ((ulong*)ctx->metric_timing) );
   FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_ATTEMPTED,           ctx->crank->metrics );
@@ -1018,6 +1023,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED && ctx->txn_committed ) ) {
         ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
         FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
+        update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
       }
       if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->leader_slot!=ULONG_MAX ) ) {
         fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
