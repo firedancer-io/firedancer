@@ -2607,6 +2607,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         }
         int dead_reason = ag_on_marker( sched, block, marker );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
+        block->fec_buf_soff = (uint)( FD_BLOCK_MARKER_PREAMBLE_SZ+FD_LOAD( ushort, block->fec_buf+FD_BLOCK_MARKER_PREAMBLE_SZ-sizeof(ushort) ) ); /* the marker is not trailing bytes */
       } else if( FD_UNLIKELY( block->mblks_rem && sched->is_alpenglow ) ) {
         int dead_reason = ag_on_entry_batch( block );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
