@@ -9803,7 +9803,7 @@ message MetricsReplay {
   uint64 bank_capacity = 47;
   // Banks we currently have alive
   uint64 bank_used = 48;
-  // Free FEC sets in the reassembly queue
+  // Free FEC sets in the reassembly queue, 0 under Alpenglow (no reassembly queue)
   uint64 reassembly_free = 49;
   // Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none
   uint64 last_reassembly_dequeued_slot = 50;

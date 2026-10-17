@@ -302,7 +302,7 @@ enum {
 
 #define FD_METRICS_GAUGE_REPLAY_REASSEMBLY_FREE_NAME "replay_reassembly_free"
 #define FD_METRICS_GAUGE_REPLAY_REASSEMBLY_FREE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_REASSEMBLY_FREE_DESC "Free FEC sets in the reassembly queue"
+#define FD_METRICS_GAUGE_REPLAY_REASSEMBLY_FREE_DESC "Free FEC sets in the reassembly queue, 0 under Alpenglow (no reassembly queue)"
 #define FD_METRICS_GAUGE_REPLAY_REASSEMBLY_FREE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_REPLAY_LAST_REASSEMBLY_DEQUEUED_SLOT_NAME "replay_last_reassembly_dequeued_slot"
