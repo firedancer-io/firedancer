@@ -756,10 +756,8 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
                     ulong       n,
                     TREAP_T *   pool ) {
 
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( n>=treap->ele_max              ) ) FD_LOG_CRIT(( "index out of bounds" ));
-  if( FD_UNLIKELY( treap->ele_cnt>=treap->ele_max ) ) FD_LOG_CRIT(( "treap full" ));
-# endif
+  FD_DCHECK_CRIT( n<treap->ele_max,              "index out of bounds" );
+  FD_DCHECK_CRIT( treap->ele_cnt<treap->ele_max, "treap full"           );
 
   /* Find leaf where to insert n */
 
@@ -847,10 +845,8 @@ TREAP_(t) *
 TREAP_(idx_remove)( TREAP_(t) * treap,
                     ulong       d,
                     TREAP_T *   pool ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( (d>=treap->ele_max) ) ) FD_LOG_CRIT(( "index out of bounds" ));
-  if( FD_UNLIKELY( (treap->ele_cnt<1)  ) ) FD_LOG_CRIT(( "index out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( d<treap->ele_max,     "index out of bounds" );
+  FD_DCHECK_CRIT( treap->ele_cnt>=1UL,  "index out of bounds" );
 
   /* Make a hole at d */
 
