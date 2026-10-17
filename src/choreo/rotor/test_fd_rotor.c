@@ -557,8 +557,8 @@ test_notarized_shreds_build_eager( void ) {
   FD_TEST( !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) );
   FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
   FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
-  fd_rotor_deque_t a0 = fd_rotor_deque_pop_head( rotor->reasm_deque ), b0 = fd_rotor_deque_pop_head( rotor->reasm_deque ); /* both versions consumed FEC set 0 */
-  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
+  FD_TEST( n1_idx!=fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
+  expect( rotor, e1, 0U ); /* the notar blk was held behind the eager blk */
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1387,7 +1387,8 @@ test_notar_out_of_order( void ) {
 }
 
 /* A FEC set held by both the eager blk and a notar blk of the slot is
-   delivered for both, in blk_map chain order. */
+   delivered once, for the eager blk, while that blk is live.  When the
+   eager blk is invalidated, the notar blk delivers it. */
 
 static void
 test_shared_fec( void ) {
@@ -1401,13 +1402,18 @@ test_shared_fec( void ) {
   ulong            one   = 1UL;
   fd_rotor_blk_t * e1    = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   FD_TEST( e1!=n1 && !rotor->slot_meta[ one % rotor->slot_max ].invalidated );
-  expect( rotor, n1, 0U ); expect( rotor, e1, 0U );
+  expect( rotor, e1, 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) && !n1->cons_fec_cnt );
+
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  expect( rotor, n1, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   orphan_cnt( rotor );
 }
 
-/* A notar blk notarizes a FEC set the eager blk already completed.  No
-   completion follows, so the notarization itself delivers it. */
+/* A notar blk notarizes a FEC set the eager blk already completed and
+   delivered.  The notar blk is held: the eager blk carries the block.
+   Once replay marks the eager blk dead, the notar blk delivers it. */
 
 static void
 test_notarized_complete_fec( void ) {
@@ -1423,7 +1429,11 @@ test_notarized_complete_fec( void ) {
   fd_rotor_blk_t * n1 = notar( rotor, 1UL, 0x10 );
   parented( rotor, 1UL, 0x10, 0UL, 0xEE, 2U );
   fecs    ( rotor, 1UL, 0x10, 1U );
-  FD_TEST( n1->buff_fec_cnt==1U );
+  FD_TEST( n1->buff_fec_cnt==1U && !n1->cons_fec_cnt );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+
+  fd_rotor_blk_dead( rotor, 1UL, &hash_null );
+  FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].eager==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   expect( rotor, n1, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   orphan_cnt( rotor );
@@ -1536,8 +1546,8 @@ test_finalize_moves_child( void ) {
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
   FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].final==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
-  fd_rotor_deque_t a0 = fd_rotor_deque_pop_head( rotor->reasm_deque ), b0 = fd_rotor_deque_pop_head( rotor->reasm_deque ); /* both versions consumed FEC set 0 */
-  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
+  FD_TEST( n1_idx!=fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
+  expect( rotor, e1, 0U ); /* the notar blk was held behind the eager blk */
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );

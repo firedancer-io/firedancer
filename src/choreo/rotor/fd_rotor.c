@@ -92,9 +92,25 @@ compute_dmr( fd_rotor_t *     rotor,
   memcpy( blk->dmr.uc, fd_bmtree_commit_fini( tree ), sizeof(fd_mr32_t) );
 }
 
+/* parent_consumed returns whether blk's parent has been delivered in
+   full, so blk's FEC set 0 can go out. */
+
+static int
+parent_consumed( fd_rotor_t const *     rotor,
+                 fd_rotor_blk_t const * blk ) {
+  if( FD_UNLIKELY( blk->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) ) ) return 0;
+  fd_rotor_blk_t const * parent = fd_rotor_blk_pool_ele_const( rotor->blk_pool, blk->parent );
+  return parent==rotor->root_blk || ( parent->cmpl_fec_cnt && parent->cons_fec_cnt==parent->cmpl_fec_cnt );
+}
+
 /* consume pushes buffered FECs onto the reasm queue.  The first push
    after a reconsume first pushes blk's consumed FECs and its ancestors'
-   onto the head, so its chain goes out again from the root. */
+   onto the head, so its chain goes out again from the root.
+
+   A notar blk is held while the slot's live eager blk delivers the
+   same FEC sets: shared FEC sets complete together, so its stream would
+   only replay the block twice until dedup merges it.  resume_twins
+   releases it if the eager blk stops. */
 
 static void
 consume( fd_rotor_t *     rotor,
@@ -102,9 +118,13 @@ consume( fd_rotor_t *     rotor,
   fd_rotor_slot_meta_t const * meta = fd_rotor_slot_meta( rotor, blk->slot );
   if( FD_UNLIKELY( meta->invalidated && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) return;
   if( FD_UNLIKELY( blk->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) ) ) return; /* orphaned, even if partly consumed */
-  if( FD_UNLIKELY( !blk->cons_fec_cnt ) ) {
-    fd_rotor_blk_t const * parent = fd_rotor_blk_pool_ele_const( rotor->blk_pool, blk->parent );
-    if( FD_LIKELY( parent!=rotor->root_blk && ( !parent->cmpl_fec_cnt || parent->cons_fec_cnt!=parent->cmpl_fec_cnt ) ) ) return;
+  if( FD_UNLIKELY( !blk->cons_fec_cnt && !parent_consumed( rotor, blk ) ) ) return;
+  ulong                  idx   = fd_rotor_blk_pool_idx( rotor->blk_pool, blk );
+  fd_rotor_blk_t const * eager = fd_rotor_blk_pool_ele_const( rotor->blk_pool, meta->eager );
+  if( FD_UNLIKELY( eager && meta->eager!=idx && !meta->invalidated && !memcmp( &eager->dmr, &hash_null, sizeof(fd_mr32_t) ) && ( eager->cons_fec_cnt ? eager->parent!=fd_rotor_blk_pool_idx_null( rotor->blk_pool ) : parent_consumed( rotor, eager ) ) ) ) {
+    int shadowed = blk->cons_fec_cnt<blk->buff_fec_cnt;
+    for( uint k=blk->cons_fec_cnt; shadowed && k<blk->buff_fec_cnt; k++ ) shadowed = eager->fecs[ k ]==blk->fecs[ k ];
+    if( FD_LIKELY( shadowed ) ) return;
   }
   if( FD_UNLIKELY( rotor->reconsume && blk->cons_fec_cnt<blk->buff_fec_cnt ) ) {
     rotor->reconsume = 0;
@@ -112,7 +132,6 @@ consume( fd_rotor_t *     rotor,
       for( uint k=anc->cons_fec_cnt; k; k-- ) fd_rotor_deque_push_head( rotor->reasm_deque, (fd_rotor_deque_t){ .blk_idx = (uint)fd_rotor_blk_pool_idx( rotor->blk_pool, anc ), .fec_idx = k-1U } );
     }
   }
-  ulong idx = fd_rotor_blk_pool_idx( rotor->blk_pool, blk );
   if( FD_UNLIKELY( meta->leader && meta->eager==idx ) ) { /* our leader blk goes first, in FEC order */
     for( uint k=blk->buff_fec_cnt; k>blk->cons_fec_cnt; k-- ) fd_rotor_deque_push_head( rotor->reasm_deque, (fd_rotor_deque_t){ .blk_idx = (uint)idx, .fec_idx = k-1U } );
     blk->cons_fec_cnt = blk->buff_fec_cnt;
@@ -137,6 +156,22 @@ cascade( fd_rotor_t *     rotor,
     while( FD_LIKELY( idx!=tidx && fd_rotor_blk_pool_ele( pool, idx )->sibling==null ) ) idx = fd_rotor_blk_pool_ele( pool, idx )->parent;
     if( FD_UNLIKELY( idx==tidx ) ) break;
     idx = fd_rotor_blk_pool_ele( pool, idx )->sibling;
+  }
+}
+
+/* resume_twins consumes the notar blks of slot that consume held
+   behind its eager blk, once that blk is invalidated or freed. */
+
+static void
+resume_twins( fd_rotor_t * rotor,
+              ulong        slot ) {
+  ulong eager = fd_rotor_slot_meta( rotor, slot )->eager;
+  for( fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &slot, NULL, rotor->blk_pool );
+                        blk;
+                        blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool ) ) {
+    if( FD_UNLIKELY( fd_rotor_blk_pool_idx( rotor->blk_pool, blk )==eager ) ) continue;
+    consume( rotor, blk );
+    if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->cons_fec_cnt==blk->cmpl_fec_cnt ) ) cascade( rotor, blk );
   }
 }
 
@@ -326,9 +361,10 @@ prune( fd_rotor_t *     rotor,
    - eager takes notar's parent if it has none, as same DMR implies same
      parent
 
-   Two banks may replay the same block until then: eager keeps its own
-   known_id, so replay keeps building eager's bank even where notar's
-   got further, and abandons notar's once eager's completes. */
+   Two banks replay the same block until then only where notar got
+   ahead of eager (see consume): eager keeps its own known_id, so replay
+   keeps building eager's bank and abandons notar's once eager's
+   completes. */
 
 static void
 dedup( fd_rotor_t *     rotor,
@@ -347,6 +383,7 @@ dedup( fd_rotor_t *     rotor,
     eager->telemetry.cancelled_ts     = fd_long_if( !eager->telemetry.cancelled_reason, ts, eager->telemetry.cancelled_ts );
     eager->telemetry.cancelled_reason = (uchar)FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION;
     prune( rotor, eager );
+    resume_twins( rotor, meta->slot );
     return;
   } /* turbine built a blk the cluster did not finalize */
   if( FD_LIKELY( !notar ) ) return;
@@ -541,8 +578,10 @@ fd_rotor_blk_dead( fd_rotor_t *      rotor,
   if( FD_UNLIKELY( !dead ) ) return;
 
   fd_rotor_slot_meta_t * meta = fd_rotor_slot_meta( rotor, slot );
-  if( FD_UNLIKELY( meta->eager==fd_rotor_blk_pool_idx( rotor->blk_pool, dead ) ) ) meta->invalidated = 1; /* turbine must not rebuild it */
+  int eager = meta->eager==fd_rotor_blk_pool_idx( rotor->blk_pool, dead );
+  if( FD_UNLIKELY( eager ) ) meta->invalidated = 1; /* turbine must not rebuild it */
   prune( rotor, dead );
+  if( FD_UNLIKELY( eager ) ) resume_twins( rotor, slot );
 }
 
 fd_rotor_blk_t *
@@ -930,6 +969,7 @@ fd_rotor_slot_invalidated( fd_rotor_t * rotor,
     eager->eager = 0;
   }
   if( FD_LIKELY( eager && meta->final!=meta->eager && meta->notar!=meta->eager ) ) blk_treap_remove( rotor, eager ); /* still the eager blk, never repaired */
+  resume_twins( rotor, slot );
 }
 
 fd_rotor_slot_meta_t *
