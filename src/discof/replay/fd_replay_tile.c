@@ -5969,8 +5969,8 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch and replay_slot, which
    are so infrequent credit availability is a non-issue, and the
-   per-tile replay_execrp links, which carry at most one in-flight
-   task each.  */
+   per-tile replay_execrp links, whose credits execrp returns per
+   frag.  */
 #define STEM_LAZY ((long)36865)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t

@@ -298,6 +298,8 @@ test_stem( fd_execrp_tile_t * ctx,
   static ulong            cr_avail[FD_TOPO_MAX_LINKS];
   static ulong            min_cr_avail;
   static int              out_reliable[FD_TOPO_MAX_LINKS];
+  static ulong            in_fseq_mem[FD_TOPO_MAX_LINKS];
+  static ulong *          in_fseq[FD_TOPO_MAX_LINKS];
 
   fd_topo_link_t const * execrp_replay = test_topo_link( "execrp_replay" );
 
@@ -305,7 +307,7 @@ test_stem( fd_execrp_tile_t * ctx,
   memset( seqs,         0, sizeof(seqs)         );
   memset( depths,       0, sizeof(depths)       );
   memset( out_reliable, 0, sizeof(out_reliable) );
-  for( ulong i=0UL; i<FD_TOPO_MAX_LINKS; i++ ) cr_avail[i] = ULONG_MAX;
+  for( ulong i=0UL; i<FD_TOPO_MAX_LINKS; i++ ) { cr_avail[i] = ULONG_MAX; in_fseq[i] = &in_fseq_mem[i]; }
 
   mcaches[ ctx->execrp_replay_out->idx ] = execrp_replay->mcache;
   depths [ ctx->execrp_replay_out->idx ] = execrp_replay->depth;
@@ -320,6 +322,7 @@ test_stem( fd_execrp_tile_t * ctx,
     .min_cr_avail        = &min_cr_avail,
     .cr_decrement_amount = 1UL,
     .out_reliable        = out_reliable,
+    .in_fseq             = in_fseq,
   };
   return stem;
 }

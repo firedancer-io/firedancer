@@ -256,7 +256,7 @@ after_credit( fd_execrp_tile_t *  ctx,
 static inline int
 returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               in_idx,
-                 ulong               seq FD_PARAM_UNUSED,
+                 ulong               seq,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
@@ -364,6 +364,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
   FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 0UL );
 
+  fd_stem_credit_return( stem, in_idx, seq+1UL );
   return 0;
 }
 
@@ -587,9 +588,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #define STEM_BURST (1UL)
 
-/* Right now, depth of the replay_exec link and depth of the execrp_replay
-   links is 16K.  At 1M TPS, that's ~16ms to fill.  But we also want to
-   be conservative here, so we use 1ms. */
+/* replay_execrp credits are returned per frag, so housekeeping only
+   needs to keep up with the execrp_replay out link. */
 #define STEM_LAZY  (1000000UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_execrp_tile_t
