@@ -258,6 +258,28 @@ arm_window_4( ag_votor_t * votor,
   ag_votor_handle_pool_event( votor, &parent_ready, now );
 }
 
+/* A window is timed by its own epoch's slot length: announcing a next
+   epoch with shorter slots does not shorten the current epoch's skip
+   deadlines, which would skip its late window positions early. */
+
+static void
+test_timeouts_epoch_slot_length( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT/2L, 0UL, 64UL, g_bls_selector[0] );
+  arm_window_4( votor, 0L );
+
+  ulong slot, k = 0UL;
+  for( long due; (due = ag_votor_next_skip_timeout( votor ))!=LONG_MAX; ) {
+    FD_TEST( ag_votor_poll_skip_timeout( votor, LONG_MAX-1L, &slot ) );
+    if( slot<4UL ) continue; /* the root window's */
+    FD_TEST( slot==4UL+k && due==AG_DELTA_TIMEOUT_NS+(long)( k+1UL )*TEST_NS_PER_SLOT );
+    k++;
+  }
+  FD_TEST( k==AG_SLOTS_PER_WINDOW );
+
+  teardown_votor( votor );
+}
+
 static void
 test_timeouts_interleaved( void ) {
   ag_votor_t * votor = setup_votor( 0L );
@@ -994,6 +1016,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_timeouts();
+  test_timeouts_epoch_slot_length();
   test_timeouts_interleaved();
   test_boot_mid_window();
   test_notar_and_final();
