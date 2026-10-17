@@ -1261,15 +1261,23 @@ expect_range_err( char const * value,
 #define FAST_BOOT_HASH_BYTE (0xab)
 
 static void
-fast_boot_msg( snapsv_env_t * env,
-               ulong          msg_type,
-               ulong          slot ) {
+fast_boot_msg_idx( snapsv_env_t * env,
+                   ulong          msg_type,
+                   ulong          slot,
+                   uint           idx ) {
   fd_snapsv_t *    ctx   = env->ctx;
   ulong            chunk = ctx->in[ FAST_BOOT_IN_IDX ].chunk0;
   fd_strmk_msg_t * msg   = fd_chunk_to_laddr( ctx->in[ FAST_BOOT_IN_IDX ].mem, chunk );
-  *msg = (fd_strmk_msg_t){ .slot = slot, .idx = 0U };
+  *msg = (fd_strmk_msg_t){ .slot = slot, .idx = idx };
   memset( msg->hash, FAST_BOOT_HASH_BYTE, sizeof(msg->hash) );
   returnable_frag( ctx, FAST_BOOT_IN_IDX, 0UL, msg_type, chunk, sizeof(fd_strmk_msg_t), 0UL, 0UL, 0UL, NULL );
+}
+
+static void
+fast_boot_msg( snapsv_env_t * env,
+               ulong          msg_type,
+               ulong          slot ) {
+  fast_boot_msg_idx( env, msg_type, slot, 0U );
 }
 
 static snapsv_env_t *
@@ -1388,33 +1396,8 @@ FD_UNIT_TEST( fast_boot_stream_body ) {
   snapsv_env_destroy( env );
 }
 
-/* The stream closes after the request was routed but before the
-   response header is built.  The request is dropped. */
-
-FD_UNIT_TEST( fast_boot_stream_closed_before_header ) {
-  snapsv_env_t * env = fast_boot_env( 100UL );
-  fd_snapsv_t *  ctx = env->ctx;
-  char name[ 128 ];
-  char req[ 256 ];
-  fd_cstr_printf( req, sizeof(req), NULL, "HEAD /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
-  fake_client_t fake;
-  fake_client_req( &fake, req );
-  int closed = 0;
-  for( uint iter=0U; iter<64U; iter++ ) {
-    snapsv_step( env, &fake, iter );
-    if( !closed && ctx->conn0[ 0 ].stream.active && ctx->conn0[ 0 ].state==CONN_STATE_RES_WRITE_HDR ) {
-      fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
-      closed = 1;
-    }
-  }
-  FD_TEST( closed );
-  FD_TEST( !fake.res_sz );
-  FD_TEST( !ctx->conn_cnt );
-  snapsv_env_destroy( env );
-}
-
-/* The stream closes while a download is in progress.  The download is
-   cut off. */
+/* The stream closes while a download is in progress.  A closed stream
+   is still served to its end, so the download completes. */
 
 FD_UNIT_TEST( fast_boot_stream_closed_mid_download ) {
   snapsv_env_t * env = fast_boot_env( 100UL );
@@ -1444,24 +1427,42 @@ FD_UNIT_TEST( fast_boot_stream_closed_mid_download ) {
       "Content-Range: bytes 100-199/%lu\r\n"
       "Content-Length: 100\r\n"
       "\r\n", FAST_BOOT_FILE_SZ );
-  /* the header went out, the body did not */
-  FD_TEST( fake.res_sz==strlen( expected_hdr ) );
-  FD_TEST( !memcmp( fake.res, expected_hdr, fake.res_sz ) );
-  FD_TEST( !ctx->conn_cnt );
+  FD_TEST( fake.res_sz==strlen( expected_hdr )+100UL );
+  FD_TEST( !memcmp( fake.res, expected_hdr, strlen( expected_hdr ) ) );
+  FD_TEST( !memcmp( fake.res+strlen( expected_hdr ), fast_boot_file+100, 100UL ) );
   snapsv_env_destroy( env );
 }
 
-/* A closed stream is no longer served, and the redirect no longer
-   names it. */
+/* A closed stream is served to its end but the redirect no longer
+   names it, and a range past its end is a 404 rather than a 416.  It
+   goes away when the next stream closes, as its file is reused then. */
 
 FD_UNIT_TEST( fast_boot_stream_closed ) {
   snapsv_env_t * env = fast_boot_env( 100UL );
   fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
   char name[ 128 ];
   char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "HEAD /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, expected );
+  expect_res_env( env, "GET /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+
+  fast_boot_msg_idx( env, FD_STRMK_MSG_OPEN,  200UL, 1U );
+  fast_boot_msg_idx( env, FD_STRMK_MSG_CLOSE, 200UL, 1U );
   fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
   expect_res_env( env, req, RES_404_KEEPALIVE );
-  expect_res_env( env, "GET /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
   snapsv_env_destroy( env );
 }
 

@@ -800,7 +800,9 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
       ulong accdb_epoch_obj_id;
       ulong banks_obj_id;
+      ulong txncache_obj_id;
       ulong max_live_slots;
+      ulong max_txn_per_slot;
     } strmk;
   };
 };

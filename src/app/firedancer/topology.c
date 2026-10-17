@@ -1232,6 +1232,9 @@ fd_topo_initialize( config_t * config ) {
   if( snapmk_enabled ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
+  if( strmk_enabled ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "strmk", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
@@ -2009,7 +2012,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->strmk.accdb_obj_id          = fd_pod_query_ulong( config->topo.props, "accdb",             ULONG_MAX ); FD_TEST( tile->strmk.accdb_obj_id!=ULONG_MAX );
     tile->strmk.accdb_epoch_obj_id    = fd_pod_query_ulong( config->topo.props, "accdb_epoch.strmk", ULONG_MAX ); FD_TEST( tile->strmk.accdb_epoch_obj_id!=ULONG_MAX );
     tile->strmk.banks_obj_id          = fd_pod_query_ulong( config->topo.props, "banks",             ULONG_MAX ); FD_TEST( tile->strmk.banks_obj_id!=ULONG_MAX );
+    tile->strmk.txncache_obj_id       = fd_pod_query_ulong( config->topo.props, "txncache",          ULONG_MAX ); FD_TEST( tile->strmk.txncache_obj_id!=ULONG_MAX );
     tile->strmk.max_live_slots        = config->firedancer.runtime.max_live_slots;
+    tile->strmk.max_txn_per_slot      = config->limits.max_txn_per_slot;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

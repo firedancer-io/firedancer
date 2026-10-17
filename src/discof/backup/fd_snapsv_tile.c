@@ -232,9 +232,10 @@ struct fd_snapsv {
      is the slot the stream in pool file i starts at, ULONG_MAX while
      the file is not served. */
   ulong fast_boot_max;
-  ulong fast_boot_slot[ FD_STRMK_POOL ];
-  uchar fast_boot_hash[ FD_STRMK_POOL ][ 32 ];
-  int   fast_boot_fd  [ FD_STRMK_POOL ];
+  ulong fast_boot_slot  [ FD_STRMK_POOL ];
+  uchar fast_boot_hash  [ FD_STRMK_POOL ][ 32 ];
+  int   fast_boot_fd    [ FD_STRMK_POOL ];
+  int   fast_boot_closed[ FD_STRMK_POOL ];
 
   /* tango input links */
   ulong in_cnt;
@@ -540,7 +541,10 @@ unprivileged_init( fd_topo_t const *      topo,
   /* fast boot stream table setup */
 
   ctx->fast_boot_max = tile->snapsv.fast_boot_stream_max;
-  for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) ctx->fast_boot_slot[ i ] = ULONG_MAX;
+  for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
+    ctx->fast_boot_slot  [ i ] = ULONG_MAX;
+    ctx->fast_boot_closed[ i ] = 0;
+  }
 
   /* link setup */
 
@@ -1511,7 +1515,7 @@ serve_redirect( fd_snapsv_t * ctx,
   if( FD_UNLIKELY( conn->req.fast_boot ) ) {
     ulong idx = ULONG_MAX;
     for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
-      if( ctx->fast_boot_slot[ i ]==ULONG_MAX ) continue;
+      if( ctx->fast_boot_slot[ i ]==ULONG_MAX || ctx->fast_boot_closed[ i ] ) continue;
       if( idx!=ULONG_MAX && ctx->fast_boot_slot[ i ]<=ctx->fast_boot_slot[ idx ] ) continue;
       idx = i;
     }
@@ -1934,6 +1938,11 @@ handle_peek( fd_snapsv_t *       ctx,
     conn->stream.idx    = (uint)fast_boot_idx;
     conn->stream.slot   = ctx->fast_boot_slot[ fast_boot_idx ];
     conn_begin_file( conn, fast_boot_file_sz( ctx, fast_boot_idx ), range, range_len );
+
+    if( FD_UNLIKELY( conn->res.status==416U && conn->state==CONN_STATE_RES_WRITE_ERR && ctx->fast_boot_closed[ fast_boot_idx ] ) ) {
+      conn->res.status = 404U;
+    }
+
     FD_MCNT_INC( SNAPSV, FAST_BOOT_REQUEST_SERVED, 1UL );
     return;
   }
@@ -2347,9 +2356,10 @@ msg_snapmk( fd_snapsv_t *           ctx,
 }
 
 /* msg_strmk is called for every strmk_out frag: a fast boot stream
-   file is ready to serve, or is no longer served.  The file size is
-   read with fstat on each request because the stream grows while it
-   is served. */
+   file is ready to serve, or stopped growing.  The file size is read
+   with fstat on each request because the stream grows while it is
+   served.  A closed stream is served to its end until its file is
+   reused, which is when the next stream closes. */
 
 static void
 msg_strmk( fd_snapsv_t *          ctx,
@@ -2359,10 +2369,16 @@ msg_strmk( fd_snapsv_t *          ctx,
   FD_CHECK_CRIT( msg_sz==sizeof(fd_strmk_msg_t), "ABI mismatch" );
   FD_CHECK_CRIT( msg->idx<ctx->fast_boot_max, "invalid fast boot stream index" );
   if( msg_type==FD_STRMK_MSG_OPEN ) {
-    ctx->fast_boot_slot[ msg->idx ] = msg->slot;
+    ctx->fast_boot_slot  [ msg->idx ] = msg->slot;
+    ctx->fast_boot_closed[ msg->idx ] = 0;
     memcpy( ctx->fast_boot_hash[ msg->idx ], msg->hash, 32UL );
   } else {
-    ctx->fast_boot_slot[ msg->idx ] = ULONG_MAX;
+    for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
+      if( i!=msg->idx && ctx->fast_boot_closed[ i ] ) {
+        ctx->fast_boot_slot[ i ] = ULONG_MAX;
+      }
+    }
+    ctx->fast_boot_closed[ msg->idx ] = 1;
   }
 }
 
@@ -2412,7 +2428,9 @@ metrics_write( fd_snapsv_t * ctx ) {
   FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_INCREMENTAL,  ctx->snap_cnt_incr );
   FD_MGAUGE_SET( SNAPSV, CONN_OPEN,                       ctx->conn_cnt      );
   ulong fast_boot_cnt = 0UL;
-  for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) fast_boot_cnt += ctx->fast_boot_slot[ i ]!=ULONG_MAX;
+  for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
+    fast_boot_cnt += ctx->fast_boot_slot[ i ]!=ULONG_MAX && !ctx->fast_boot_closed[ i ];
+  }
   FD_MGAUGE_SET( SNAPSV, FAST_BOOT_STREAM_AVAILABLE, fast_boot_cnt );
 }
 
