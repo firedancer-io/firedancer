@@ -934,7 +934,8 @@ collect_platform( fd_boot_report_t * r,
 }
 
 static void
-collect_container( fd_boot_report_t * r ) {
+collect_container( fd_boot_report_t * r,
+                   char const *       launch_cgroup ) {
   char cgroup[ 4096 ] = {0};
   read_file( "/proc/self/cgroup", cgroup, sizeof(cgroup), NULL );
 
@@ -959,25 +960,30 @@ collect_container( fd_boot_report_t * r ) {
 
   r->kubernetes_pod = !!getenv( "KUBERNETES_SERVICE_HOST" ) || !!strstr( cgroup, "kubepods" );
 
-  /* cgroup v2 limits along our own cgroup path */
-  char const * v2 = strstr( cgroup, "0::" );
-  if( v2 ) {
+  /* cgroup v2 limits of the launcher's cgroup (the event tile itself
+     may sit in the cpuset isolation cgroup), the tightest over it and
+     its ancestors */
+  if( launch_cgroup[ 0 ] ) {
     char cgpath[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( cgpath, sizeof(cgpath), NULL, "%s", v2+3 ) );
-    char * nl = strchr( cgpath, '\n' );
-    if( nl ) *nl = '\0';
-
-    char path[ PATH_MAX+32 ], val[ 64 ];
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.max", cgpath ) );
-    if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) ) r->cgroup_memory_limit_bytes = strtoul( val, NULL, 10 );
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.high", cgpath ) );
-    if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) ) r->cgroup_memory_high_bytes = strtoul( val, NULL, 10 );
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.swap.max", cgpath ) );
-    if( !read_cstr( path, val, sizeof(val) ) ) r->cgroup_swap_limit_bytes = strcmp( val, "max" ) ? strtoul( val, NULL, 10 ) : ULONG_MAX;
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/cpu.max", cgpath ) );
-    if( !read_cstr( path, val, sizeof(val) ) ) {
+    FD_TEST( fd_cstr_printf_check( cgpath, sizeof(cgpath), NULL, "%s", launch_cgroup ) );
+    for(;;) {
+      char path[ PATH_MAX+32 ], val[ 64 ];
+      ulong v;
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.max", cgpath ) );
+      if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) && (v=strtoul( val, NULL, 10 )) && (!r->cgroup_memory_limit_bytes || v<r->cgroup_memory_limit_bytes) ) r->cgroup_memory_limit_bytes = v;
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.high", cgpath ) );
+      if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) && (v=strtoul( val, NULL, 10 )) && (!r->cgroup_memory_high_bytes  || v<r->cgroup_memory_high_bytes ) ) r->cgroup_memory_high_bytes  = v;
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.swap.max", cgpath ) );
+      if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) ) r->cgroup_swap_limit_bytes = fd_ulong_min( r->cgroup_swap_limit_bytes, strtoul( val, NULL, 10 ) );
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/cpu.max", cgpath ) );
       ulong quota, period;
-      if( 2==sscanf( val, "%lu %lu", &quota, &period ) && period ) r->cgroup_cpu_quota_millicores = (uint)( quota*1000UL/period );
+      if( !read_cstr( path, val, sizeof(val) ) && 2==sscanf( val, "%lu %lu", &quota, &period ) && period ) {
+        uint mc = (uint)( quota*1000UL/period );
+        if( mc && (!r->cgroup_cpu_quota_millicores || mc<r->cgroup_cpu_quota_millicores) ) r->cgroup_cpu_quota_millicores = mc;
+      }
+      char * slash = strrchr( cgpath, '/' );
+      if( !slash || slash==cgpath ) break; /* the root has no limit files */
+      *slash = '\0';
     }
   }
 
@@ -1391,7 +1397,7 @@ fd_boot_report_collect( fd_boot_report_t *     r,
   collect_dimms( r );
   collect_net( r, tile->event.net_interface );
   collect_platform( r, tile->event.net_interface );
-  collect_container( r );
+  collect_container( r, tile->event.launch_cgroup );
   collect_block_devices( r );
   collect_nvme( r );
   collect_mdraid( r );

@@ -263,6 +263,7 @@ struct fd_config {
 
   long boot_timestamp_nanos;
   ulong launch_cpus[ 1024UL/64UL ]; /* affinity inherited from the launcher */
+  char  launch_cgroup[ PATH_MAX ];  /* v2 cgroup path inherited from the launcher, empty if none */
 
   /* Sizing ceilings for every per-slot structure, derived at load: the
      largest values the consensus limits can take, or the raised
