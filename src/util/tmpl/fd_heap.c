@@ -161,8 +161,8 @@
      // heap.  Assumes heap is a current local join, ele points in the
      // caller's address space to the ele_max element storage used for
      // heap elements, n is in [0,ele_max), n is currently not in the
-     // heap, and n's queries are not in the heap (n's queries are the
-     // set of queries that are covered by n).  pool is a pointer in the
+     // heap.  Elements may have equivalent query fields; removal order
+     // among equivalent minima is unspecified.  pool is a pointer in the
      // caller's address space to the ele_max linearly addressable
      // storage region backing the heap.  Given these assumptions, this
      // cannot fail.
@@ -194,8 +194,9 @@
      // linearly addressable storage region backing the heap.  Given
      // these assumptions, this cannot fail.
      //
-     // On return the min element and the min element's queries are no
-     // longer in the heap.  Use peek before calling this to get the
+     // On return the min element is no longer in the heap.  Other
+     // elements with equivalent query fields may remain.  Use peek before
+     // calling this to get the
      // location of the min element to be removed.  The fields of the
      // removed element can be freely modified on return.
      //
@@ -235,8 +236,9 @@
 #endif
 
 /* HEAP_LT returns 1 if the element e0's query fields are strictly less
-   element e1's query fields and 0 otherwise.  Should be a pure
-   function. */
+   than e1's query fields and 0 otherwise.  Distinct elements may have
+   equivalent query fields (both comparisons return 0).  Should be a
+   pure function. */
 
 #ifndef HEAP_LT
 #error "Define HEAP_LT"
@@ -507,9 +509,9 @@ HEAP_(idx_insert)( HEAP_(t) * heap,
       ulong swap_tmp = i; i = n; n = swap_tmp;
     }
 
-    /* At this point i < n.  If there is neither a left subheap nor a
-       right subheap, make n i's left child.  If there is no left/right
-       subheap, make n i's left/right child. */
+    /* At this point i is no greater than n.  If neither child subheap
+       exists, make n i's left child.  Otherwise insert into a missing
+       left or right subheap. */
 
     int is_null_left  = HEAP_IDX_IS_NULL( l );
     int is_null_right = HEAP_IDX_IS_NULL( r );
@@ -640,7 +642,7 @@ HEAP_(verify)( HEAP_(t) const * heap,
 
     ulong r = (ulong)pool[ i ].HEAP_RIGHT;
     if( !HEAP_IDX_IS_NULL( r ) ) {
-      HEAP_TEST( HEAP_(lt)( pool + i, pool + r ) ); /* Make sure heap property satisfied */
+      HEAP_TEST( !HEAP_(lt)( pool + r, pool + i ) ); /* Make sure heap property satisfied */
       HEAP_TEST( r<ele_max );                       /* Make sure inbounds */
       HEAP_TEST( stack_cnt<stack_max );             /* Make sure no stack overflow */
       stack[ stack_cnt++ ] = r;                     /* Push r to stack */
@@ -648,7 +650,7 @@ HEAP_(verify)( HEAP_(t) const * heap,
 
     ulong l = (ulong)pool[ i ].HEAP_LEFT;
     if( !HEAP_IDX_IS_NULL( l ) ) {
-      HEAP_TEST( HEAP_(lt)( pool + i, pool + l ) ); /* Make sure heap property satisfied */
+      HEAP_TEST( !HEAP_(lt)( pool + l, pool + i ) ); /* Make sure heap property satisfied */
       HEAP_TEST( l<ele_max );                       /* Make sure inbounds */
       HEAP_TEST( stack_cnt<stack_max );             /* Make sure no stack overflow */
       stack[ stack_cnt++ ] = l;                     /* Push l to stack */
