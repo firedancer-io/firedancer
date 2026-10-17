@@ -1030,11 +1030,13 @@ fan_out( fd_shred_ctx_t *     ctx,
   ulong max_dest_cnt[1];
   fd_shred_dest_idx_t * dests;
   if( FD_LIKELY( !is_leader ) ) {
+    out_stride = k;
+    dests = fd_shred_dest_compute_children( sdest, shreds, k, _dests, k, fanout, fanout, max_dest_cnt );
+    if( FD_UNLIKELY( !dests ) ) return; /* our own slot, or unknown leader: nothing to retransmit */
+
     for( ulong i=0UL; i<k; i++ ) {
       for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], ctx->adtl_dests_retransmit+j, tsorig );
     }
-    out_stride = k;
-    dests = fd_shred_dest_compute_children( sdest, shreds, k, _dests, k, fanout, fanout, max_dest_cnt );
   } else {
     for( ulong i=0UL; i<k; i++ ) {
       for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, shreds[ i ], ctx->adtl_dests_leader+j, tsorig );
