@@ -607,9 +607,11 @@ struct fd_replay_tile {
 
   /* fast boot stream maker */
   struct {
-    uint supported:1;
-    uint active:1;
-    uint stopping:1;
+    uint  supported:1;
+    uint  active:1;
+    uint  stopping:1;
+    ulong bank_idx;
+    fd_epoch_credits_view_t epoch_credits_view[1];
   } strmk;
 
   struct {

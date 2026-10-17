@@ -1104,7 +1104,7 @@ snapmk_tar_headers( fd_snapmk_t * ctx ) {
   ulong slot = ctx->bank->f.slot;
 
   ctx->raw_buf.pos = ctx->raw_buf.size = 0UL;
-  uchar * p = ctx->raw + fd_backup_tar_preamble( ctx->raw, RAW_BUF_SZ, slot );
+  uchar * p = ctx->raw + fd_backup_tar_preamble( ctx->raw, slot );
 
   ctx->manifest_sz = ctx->manifest_writer->serialized_sz;
   char          name[ FD_TAR_NAME_SZ ];

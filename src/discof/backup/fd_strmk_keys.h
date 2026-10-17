@@ -16,6 +16,8 @@
    127 lookup tables. */
 #define FD_STRMK_READ_KEYS_MAX (255UL)
 
+FD_STATIC_ASSERT( FD_STRMK_READ_KEYS_MAX>=2UL*MAX_TX_ACCOUNT_LOCKS+FD_TXN_ADDR_TABLE_LOOKUP_MAX, read_keys_max );
+
 struct fd_strmk_keys_msg {
   ulong       slot;
   ulong       key_cnt;
