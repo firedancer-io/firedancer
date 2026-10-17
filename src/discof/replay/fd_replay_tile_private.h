@@ -145,6 +145,34 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 #define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* ALPENGLOW-ONLY.  fd_bhm_map (bank hash mismatch) remembers blocks
+   that replay marked dead because the executed bank hash did not match
+   the one the footer declared.  A finalization (explicit or implicit)
+   for an entry in this map means the cluster agreed on a bank hash we
+   could not reproduce, i.e. this validator has diverged.
+
+   The map is sized to max_live_slots entries and backed by a ring: when
+   full, the oldest entry is evicted, so detection is best effort.  On
+   another note, if we mark a slot dead due to diverging bank hash, but
+   it is on the finalized lineage but we do not receive a finalize for
+   it (ex. it only reached notar fallback threshold), we would also miss
+   detecting this bank hash mismatch. */
+
+struct fd_bhm_ele {
+  ag_block_id_t block_id; /* slot==ULONG_MAX when the ring entry is unused */
+  ulong         next;
+};
+typedef struct fd_bhm_ele fd_bhm_ele_t;
+
+#define MAP_NAME               fd_bhm_map
+#define MAP_ELE_T              fd_bhm_ele_t
+#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY                block_id
+#define MAP_NEXT               next
+#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
+#include "../../util/tmpl/fd_map_chain.c"
+
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
 
 struct fd_replay_tile {
@@ -417,6 +445,14 @@ struct fd_replay_tile {
 
   ulong                  ag_block_id_map_seed;
   fd_ag_block_id_map_t * ag_block_id_map;
+
+  /* ALPENGLOW-ONLY.  See fd_bhm_map.  bhm_arr is a ring of
+     max_live_slots entries, bhm_next is the next ring index to
+     (re)use. */
+  ulong                  bhm_map_seed;
+  fd_bhm_map_t *         bhm_map;
+  fd_bhm_ele_t *         bhm_arr;
+  ulong                  bhm_next;
 
   /* Capture-related configs */
   fd_capture_ctx_t *     capture_ctx;
