@@ -4049,11 +4049,11 @@ message MetricsRotorPingRejected {
 
 // Data shreds received as repair responses, by the pending request they matched
 message MetricsRotorShredRx {
-  // First response to a WindowIndexForBlockId request
+  // Response to an outstanding WindowIndexForBlockId message
   uint64 for_block_id = 1;
-  // First response to a WindowIndex or HighestWindowIndex request
+  // Response to an outstanding WindowIndex or HighestWindowIndex message
   uint64 slot_index = 2;
-  // Matched no pending request, including later answers to an already matched or expired request
+  // Matched no outstanding message: a duplicate, stray, or expired reply
   uint64 unmatched = 3;
 }
 

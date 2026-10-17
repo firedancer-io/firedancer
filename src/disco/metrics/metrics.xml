@@ -1161,9 +1161,9 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <enum name="ShredResponseMatchResult">
-    <int value="0" name="ForBlockId" label="First response to a WindowIndexForBlockId request" />
-    <int value="1" name="SlotIndex" label="First response to a WindowIndex or HighestWindowIndex request" />
-    <int value="2" name="Unmatched" label="Matched no pending request, including later answers to an already matched or expired request" />
+    <int value="0" name="ForBlockId" label="Response to an outstanding WindowIndexForBlockId message" />
+    <int value="1" name="SlotIndex" label="Response to an outstanding WindowIndex or HighestWindowIndex message" />
+    <int value="2" name="Unmatched" label="Matched no outstanding message: a duplicate, stray, or expired reply" />
 </enum>
 
 <enum name="RepairResponseType">
