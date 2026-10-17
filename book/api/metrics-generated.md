@@ -1092,7 +1092,7 @@
 | <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;capacity</span> | gauge | Maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;used</span> | gauge | Banks we currently have alive |
-| <span class="metrics-name">replay_&#8203;reassembly_&#8203;free</span> | gauge | Free FEC sets in the reassembly queue |
+| <span class="metrics-name">replay_&#8203;reassembly_&#8203;free</span> | gauge | Free FEC sets in the reassembly queue, 0 under Alpenglow (no reassembly queue) |
 | <span class="metrics-name">replay_&#8203;last_&#8203;reassembly_&#8203;dequeued_&#8203;slot</span> | gauge | Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none |
 | <span class="metrics-name">replay_&#8203;last_&#8203;reassembly_&#8203;dequeued_&#8203;fec_&#8203;index</span> | gauge | FEC set index of the FEC set most recently dequeued from reassembly for replay; read with LastReassemblyDequeuedSlot |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;active_&#8203;bank_&#8203;index</span> | gauge | Bank pool index the replay scheduler is dispatching work for, ULONG_MAX if none |

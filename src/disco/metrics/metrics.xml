@@ -1074,7 +1074,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="BankCapacity" summary="Maximum number of banks we can have alive" />
     <gauge name="BankUsed" summary="Banks we currently have alive" />
 
-    <gauge name="ReassemblyFree" summary="Free FEC sets in the reassembly queue" />
+    <gauge name="ReassemblyFree" summary="Free FEC sets in the reassembly queue, 0 under Alpenglow (no reassembly queue)" />
     <gauge name="LastReassemblyDequeuedSlot" summary="Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none" />
     <gauge name="LastReassemblyDequeuedFecIndex" summary="FEC set index of the FEC set most recently dequeued from reassembly for replay; read with LastReassemblyDequeuedSlot" lint-allow="sentinel" />
 

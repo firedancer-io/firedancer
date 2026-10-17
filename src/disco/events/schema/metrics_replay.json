@@ -131,7 +131,7 @@
         "reset_slot":                         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease" },
         "bank_capacity":                      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum number of banks we can have alive" },
         "bank_used":                          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Banks we currently have alive" },
-        "reassembly_free":                    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Free FEC sets in the reassembly queue" },
+        "reassembly_free":                    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Free FEC sets in the reassembly queue, 0 under Alpenglow (no reassembly queue)" },
         "last_reassembly_dequeued_slot":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none" },
         "last_reassembly_dequeued_fec_index": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "FEC set index of the FEC set most recently dequeued from reassembly for replay; read with LastReassemblyDequeuedSlot" },
         "sched_active_bank_index":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bank pool index the replay scheduler is dispatching work for, ULONG_MAX if none" },
