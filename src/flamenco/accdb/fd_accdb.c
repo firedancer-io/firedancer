@@ -1227,7 +1227,11 @@ acc_unlink( fd_accdb_t * accdb,
   uint cur_es;
   for(;;) {
     cur_es = FD_VOLATILE_CONST( accmeta->executable_size );
-    if( FD_UNLIKELY( cur_es & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) { FD_SPIN_PAUSE(); continue; }
+    if( FD_UNLIKELY( cur_es & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) {
+      fd_racesan_hook( "accdb_acc_unlink:claim_wait" );
+      FD_SPIN_PAUSE();
+      continue;
+    }
     uint nxt_es = cur_es | FD_ACCDB_SIZE_CACHE_CLAIM_BIT;
     if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur_es, nxt_es )==cur_es ) ) break;
     FD_SPIN_PAUSE();
