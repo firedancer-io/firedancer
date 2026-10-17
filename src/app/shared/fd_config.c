@@ -19,6 +19,7 @@
 #include "../../util/fd_boolau.h"
 
 #include <unistd.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <stdlib.h> /* strtoul */
 #include <sys/utsname.h>
@@ -796,6 +797,20 @@ fd_config_load( int           is_firedancer,
 
   FD_STATIC_ASSERT( sizeof(config->launch_cpus)==8UL*fd_cpuset_word_cnt, launch_cpus );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, (fd_cpuset_t *)config->launch_cpus ) ) ) memset( config->launch_cpus, 0, sizeof(config->launch_cpus) );
+
+  /* Before any tile joins the cpuset isolation cgroup, which carries
+     none of the service's limits. */
+  char cgroup[ 4096 ];
+  int  cgroup_fd = open( "/proc/self/cgroup", O_RDONLY|O_CLOEXEC );
+  long cgroup_sz = cgroup_fd<0 ? -1L : read( cgroup_fd, cgroup, sizeof(cgroup)-1UL );
+  if( FD_LIKELY( cgroup_fd>=0 ) ) close( cgroup_fd );
+  cgroup[ fd_long_max( cgroup_sz, 0L ) ] = '\0';
+  char const * v2 = !strncmp( cgroup, "0::", 3UL ) ? cgroup : strstr( cgroup, "\n0::" );
+  if( FD_LIKELY( v2 ) ) {
+    v2 += v2[ 0 ]=='\n' ? 4UL : 3UL;
+    ulong len = strcspn( v2, "\n" );
+    FD_TEST( fd_cstr_printf_check( config->launch_cgroup, sizeof(config->launch_cgroup), NULL, "%.*s", (int)len, v2 ) );
+  }
 
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );
   fd_config_validate( config );
