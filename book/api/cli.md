@@ -62,7 +62,7 @@ Configures the operating system so that it can run Firedancer. See
 following stages to each configure command:
 
  - `mlx5` Loads the `ib_uverbs` kernel module required by the mlx5
-    network provider. Clears leftover XDP ntuple rules and resets the
+    network provider. Clears leftover XDP ntuple rules, resets the
     RSS indirection table and channel count to defaults.
  - `hugetlbfs` Reserves huge and gigantic pages for use by Firedancer
     and mounts huge page filesystems for then under a path in the
@@ -106,8 +106,8 @@ and configure the number of combined channels on the network device.
 | `root`          | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
 | `root`          | disable network device offloads with `ethtool --offload IFACE FEATURE off`. Only applies for the `ethtool-offloads` stage |
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
-| `root`          | restore network device defaults and load the `ib_uverbs` kernel module if needed. |
-| `CAP_SYS_MODULE` | load the `ib_uverbs` kernel module with `modprobe` when the uverbs interface is unavailable. |
+| `root`          | restore network device defaults and load the `ib_uverbs` kernel module if needed |
+| `CAP_SYS_MODULE` | load the `ib_uverbs` kernel module with `modprobe` when the uverbs interface is unavailable |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 
 :::
@@ -123,16 +123,18 @@ diagnostics to `stderr`.
 
 ### `configure fini <stage>...`
 Remove any Firedancer specific operating system configuration still
-lingering. This only unmounts the `hugetlbfs` stages and returns the
-reserved huge and gigantic pages to the kernel pool. It will not reduce
-sysctls that were earlier increased, or change the network channel count
-back as we no longer know what the original value was.
+lingering. The `hugetlbfs` stage unmounts its filesystems and returns the
+reserved huge and gigantic pages to the kernel pool. The `mlx5` stage
+clears leftover XDP ntuple rules and resets the RSS indirection table and
+channel count to defaults. The `fini` mode does not reduce sysctls that
+were earlier increased or restore previous network settings.
 
 ::: details Capabilities
 
 | Capability | Reason |
 |------------|--------|
 | `root`     | remove directories from `/mnt`, unmount hugetlbfs. Only applies for the `hugetlbfs` stage |
+| `root`     | restore network device defaults |
 
 :::
 

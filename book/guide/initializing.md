@@ -71,14 +71,16 @@ after loading the module, the stage fails and `[net.provider]` should
 be set to `xdp`.
 
 The stage also clears network configuration left by XDP on
-`[net.interface]`. It deletes all ntuple rules, restores the default
+`[net.interface]`. When leftover configuration is found, `init` automatically
+calls `fini` to reset the device before loading the module if needed.
+Cleanup deletes all ntuple rules, restores the default
 RSS indirection table, and restores the maximum channel count, capped
 by the number of online CPUs. For a bonded interface, it resets each
 bond member. Devices already at defaults are left unchanged.
 
 Run this stage after boot if the uverbs interface is unavailable, or
 when switching from XDP to mlx5. If leftover XDP configuration is
-found during startup, Firedancer warns and recommends running
+found during startup, Firedancer stops and recommends running
 `fdctl configure init mlx5` to restore the device defaults. The stage
 has no dependencies on any other stage.
 
@@ -86,11 +88,12 @@ Changing device settings or loading the module requires root
 privileges. `CAP_SYS_MODULE` is also required when the module needs
 to be loaded. If the uverbs interface is available and the network
 devices are already at defaults, `init` does nothing and `check`
-succeeds without privileges. Otherwise, `check` reports the stage
-as unconfigured without changing anything.
+succeeds without privileges. Otherwise, `check` fails without changing
+anything.
 
-The `fini` mode does nothing. It does not unload the module or restore
-the deleted ntuple rules and previous network settings.
+The `fini` mode performs the network cleanup described above and requires
+root privileges only when device settings need changing. It does not unload
+the module or restore the deleted ntuple rules and previous network settings.
 
 ## hugetlbfs
 The `hugetlbfs` stage is used to reserve `huge` (2MiB) and `gigantic`

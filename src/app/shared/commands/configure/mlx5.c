@@ -19,7 +19,13 @@ init_perm( fd_cap_chk_t   * chk,
 }
 
 static void
-init( config_t const * config ) {
+fini_perm( fd_cap_chk_t   * chk,
+           config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, "mlx5", "modify network device configuration with ethtool" );
+}
+
+static void
+init( config_t const * config FD_PARAM_UNUSED ) {
   if( !fd_mlx5_uverbs_avail() ) {
     FD_LOG_NOTICE(( "%sRUN: `modprobe ib_uverbs`%s", fd_log_style_dim(), fd_log_style_normal() ));
     if( FD_UNLIKELY( fd_mlx5_uverbs_modprobe( 0 ) ) ) {
@@ -31,23 +37,29 @@ init( config_t const * config ) {
                    "Please set [net.provider] to `xdp`" ));
     }
   }
+}
 
-  fd_ethtool_ioctl_reset( config->net.interface );
+static int
+fini( config_t const * config,
+      int              pre_init FD_PARAM_UNUSED ) {
+  return fd_ethtool_ioctl_reset( config->net.interface );
 }
 
 static configure_result_t
 check( config_t const * config,
        int              check_type ) {
-  if( !fd_mlx5_uverbs_avail() ) NOT_CONFIGURED( "uverbs interface unavailable" );
-
   int is_modified = fd_ethtool_ioctl_is_modified( config->net.interface );
   if( FD_UNLIKELY( is_modified ) ) {
-    if( check_type!=FD_CONFIGURE_CHECK_TYPE_RUN ) {
-      NOT_CONFIGURED( "device `%s` has ethtool configuration left by the xdp provider", config->net.interface );
-    }
-    FD_LOG_WARNING(( "Network device `%s` has ethtool configuration left by the xdp provider. "
-                     "Run `%s configure init mlx5` to restore the device defaults.", config->net.interface, FD_BINARY_NAME ));
+    PARTIALLY_CONFIGURED( "device `%s` has ethtool configuration left by the xdp provider", config->net.interface );
   }
+
+  if( check_type==FD_CONFIGURE_CHECK_TYPE_FINI_PERM ||
+      check_type==FD_CONFIGURE_CHECK_TYPE_PRE_FINI  ||
+      check_type==FD_CONFIGURE_CHECK_TYPE_POST_FINI ) {
+    NOT_CONFIGURED( "device `%s` has no ethtool configuration to clear", config->net.interface );
+  }
+
+  if( !fd_mlx5_uverbs_avail() ) NOT_CONFIGURED( "uverbs interface unavailable" );
   CONFIGURE_OK();
 }
 
@@ -55,6 +67,8 @@ configure_stage_t fd_cfg_stage_mlx5 = {
   .name      = "mlx5",
   .enabled   = enabled,
   .init_perm = init_perm,
+  .fini_perm = fini_perm,
   .init      = init,
+  .fini      = fini,
   .check     = check,
 };
