@@ -984,7 +984,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccountPreevicted" enum="AccdbCacheClass" summary="Dirty accounts written back and evicted by the background preevict pass, by size class; clean lines reclaimed are not counted" />
     <counter name="DiskReadBytes" summary="Bytes read from the account database file by compaction and writeback" />
     <counter name="DiskWrittenBytes" summary="Bytes written to the account database file by compaction and writeback" />
-    <counter name="WritebackWritten" summary="Writes of evicted cache lines back to the account database file" />
+    <counter name="WritebackWritten" summary="Write syscalls that wrote evicted cache lines back to the account database file" />
     <counter name="CompactionWritten" summary="Writes that relocated a batch of records during compaction" />
     <counter name="AccountVersionRemoved" summary="Account versions removed from the account database index" />
 

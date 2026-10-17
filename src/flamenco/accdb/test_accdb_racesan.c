@@ -549,6 +549,26 @@ fiber_background( fiber_t *    fiber,
   return fiber->async;
 }
 
+/* forced pre-eviction fiber: the test-only full sweep, so a test can
+   park the sweeper at preevict:pre_synth with lines claimed and staged
+   but not yet on disk. */
+
+void fd_accdb_debug_force_preevict( fd_accdb_t * accdb );
+
+static void
+fiber_force_preevict_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  fd_accdb_debug_force_preevict( f->accdb );
+}
+
+static fd_racesan_async_t *
+fiber_force_preevict( fiber_t *    fiber,
+                      fd_accdb_t * accdb ) {
+  fiber->accdb = accdb;
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_force_preevict_exec, fiber );
+  return fiber->async;
+}
+
 /* nocache reader fiber: drives fd_accdb_read_one_nocache, the RO disk
    path with the epoch lifecycle (publish epoch -> snapshot offset_fork ->
    preadv2 -> reset epoch).  This is the reader the epoch-reclamation
@@ -3501,6 +3521,144 @@ test_preevict_release_store_order( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_preevict_batch_cap: a forced sweep over more dirty class-0 lines
+   than one batch holds must write exactly two batches (256 + 44), and
+   every account must read back intact afterwards.  Checks the
+   mid-sweep flush, the running offsets of the second batch and the
+   free-list pushes across batches. */
+static void
+test_preevict_batch_cap( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+
+  uchar owner[ 32 ] = { 0xAA, 0 };
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* Fill byte and size together are unique per account, so a record
+     read from another record's offset is caught. */
+  ulong cnt = 300UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uchar key[ 32 ] = { 'B', (uchar)(i>>8), (uchar)i, 0 };
+    seq_write_data( accdb, root0, key, 1000UL+i, owner, 64UL+(i%61UL), (uchar)i );
+  }
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uchar key[ 32 ] = { 'B', (uchar)(i>>8), (uchar)i, 0 };
+    ulong cls, idx;
+    FD_TEST( fd_accdb_debug_find_line( accdb, key, &cls, &idx ) );
+    FD_TEST( cls==0UL );
+  }
+
+  /* Every stop at preevict:pre_synth is one batch write. */
+  fd_racesan_async_t * s = fiber_force_preevict( &g_fiber[0], accdb );
+  ulong flushes = 0UL;
+  for(;;) {
+    int rc = fd_racesan_async_step_until( s, "preevict:pre_synth", STEP_MAX );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+    flushes++;
+  }
+  FD_TEST( flushes==2UL );
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uchar key[ 32 ] = { 'B', (uchar)(i>>8), (uchar)i, 0 };
+    uchar const * pks[1] = { key };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==1000UL+i );
+    FD_TEST( a[0].data_len==64UL+(i%61UL) );
+    FD_TEST( a[0].data[ 0 ]==(uchar)i && a[0].data[ a[0].data_len-1UL ]==(uchar)i );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  test_teardown( accdb, fd );
+}
+
+/* test_preevict_batch_reader_wait: a reader of a staged account must
+   wait until the batch is on disk and its offset is published, then
+   read the staged bytes.  Eight dirty accounts form one batch.  The
+   sweep is parked after the batch write (preevict:post_write), where
+   the reader must still be waiting and the line still claimed.  Once
+   for the nocache path, once for the acquire path (the test shmem
+   allows one extra join, so one reader at a time). */
+static void
+test_preevict_batch_reader_wait( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar owner[ 32 ] = { 0xAA, 0 };
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+  ulong const cnt  = 8UL;
+  ulong const pick = 3UL;
+
+  for( int leg=0; leg<2; leg++ ) {
+    uchar key[ 8 ][ 32 ];
+    ulong batch_sz = 0UL;
+    for( ulong i=0UL; i<cnt; i++ ) {
+      memset( key[ i ], 0, 32UL );
+      key[ i ][ 0 ] = (uchar)( 'P'+leg );
+      key[ i ][ 1 ] = (uchar)i;
+      seq_write_data( accdb, root0, key[ i ], 100UL+i, owner, 64UL+8UL*i, (uchar)( 0xA0+i ) );
+      batch_sz += sizeof(fd_accdb_disk_meta_t)+64UL+8UL*i;
+    }
+    ulong cls, idx;
+    FD_TEST( fd_accdb_debug_find_line( accdb, key[ pick ], &cls, &idx ) );
+    fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
+    ulong write_ops0     = fd_accdb_metrics( accdb )->write_ops;
+    ulong bytes_written0 = fd_accdb_metrics( accdb )->bytes_written;
+
+    /* Park the sweep before the batch write with all eight claimed. */
+    fd_racesan_async_t * sweep = fiber_force_preevict( &g_fiber[0], accdb );
+    FD_TEST( fd_racesan_async_step_until( sweep, "preevict:pre_synth", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+    for( ulong i=0UL; i<cnt; i++ ) FD_TEST( !fd_accdb_debug_find_line( accdb, key[ i ], &cls, &idx ) );
+    FD_TEST( line->refcnt==FD_ACCDB_EVICT_SENTINEL );
+
+    /* A reader of the picked account waits on the invalid offset. */
+    fd_racesan_async_t * reader;
+    char const *         wait_hook;
+    if( !leg ) {
+      reader    = fiber_nocache( &g_fiber[1], accdb_r, root0, key[ pick ], 100UL+pick, 0xAA, 64UL+8UL*pick, (uchar)( 0xA0+pick ) );
+      wait_hook = "accdb_nocache:offset_wait";
+    } else {
+      reader    = fiber_acquire_expect( &g_fiber[1], accdb_r, root0, key[ pick ], 100UL+pick );
+      wait_hook = "accdb_acquire:offset_wait";
+    }
+    FD_TEST( fd_racesan_async_step_until( reader, wait_hook, STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+    /* One write of the whole batch has happened, nothing is published
+       yet: the reader still waits and the line is still claimed. */
+    FD_TEST( fd_racesan_async_step_until( sweep, "preevict:post_write", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+    FD_TEST( fd_accdb_metrics( accdb )->write_ops    ==write_ops0+1UL );
+    FD_TEST( fd_accdb_metrics( accdb )->bytes_written==bytes_written0+batch_sz );
+    FD_TEST( line->refcnt==FD_ACCDB_EVICT_SENTINEL && line->acc_idx!=UINT_MAX );
+    FD_TEST( fd_racesan_async_step( reader )==FD_RACESAN_ASYNC_RET_HOOK );
+    FD_TEST( fd_racesan_async_hook_name_eq( reader, wait_hook ) );
+
+    /* Publishing frees the line and releases the reader, which checks
+       the bytes it read. */
+    async_finish( sweep );
+    FD_TEST( line->refcnt==0U );
+    async_finish( reader );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      uchar const * pks[1] = { key[ i ] };
+      int rd[1] = { 0 };
+      fd_acc_t a[1];
+      memset( a, 0, sizeof(a) );
+      fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+      FD_TEST( a[0].lamports==100UL+i );
+      FD_TEST( a[0].owner[ 0 ]==0xAA );
+      FD_TEST( a[0].data_len==64UL+8UL*i );
+      FD_TEST( a[0].data[ 0 ]==(uchar)( 0xA0+i ) && a[0].data[ a[0].data_len-1UL ]==(uchar)( 0xA0+i ) );
+      fd_accdb_release( accdb, 1UL, a );
+    }
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
 /* test_probe_vs_pd_commit the pd_write probe walk raced
    against a same-fork overwrite commit that sets pd_write=1.  The probe
    is designed to be called concurrently with writers on its fork; it
@@ -3766,6 +3924,8 @@ main( int     argc,
     TEST( test_overwrite_discard_vs_evictor ),
     TEST( test_clock_claim_vs_freed ),
     TEST( test_preevict_release_store_order ),
+    TEST( test_preevict_batch_cap ),
+    TEST( test_preevict_batch_reader_wait ),
     TEST( test_probe_vs_pd_commit ),
     TEST( test_pd_same_fork_read_vs_write ),
     TEST( test_pd_parent_read_vs_child_write ),

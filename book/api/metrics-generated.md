@@ -1398,7 +1398,7 @@
 | <span class="metrics-name">accdb_&#8203;account_&#8203;preevicted</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le10_&#8203;mib</span>"} | counter | Dirty accounts written back and evicted by the background preevict pass, by size class; clean lines reclaimed are not counted (1-10 MiB) |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Bytes read from the account database file by compaction and writeback |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the account database file by compaction and writeback |
-| <span class="metrics-name">accdb_&#8203;writeback_&#8203;written</span> | counter | Writes of evicted cache lines back to the account database file |
+| <span class="metrics-name">accdb_&#8203;writeback_&#8203;written</span> | counter | Write syscalls that wrote evicted cache lines back to the account database file |
 | <span class="metrics-name">accdb_&#8203;compaction_&#8203;written</span> | counter | Writes that relocated a batch of records during compaction |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;version_&#8203;removed</span> | counter | Account versions removed from the account database index |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le128_&#8203;b</span>"} | gauge | Cache lines in use, by size class (0-128 B) |

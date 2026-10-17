@@ -163,7 +163,7 @@ enum {
 
 #define FD_METRICS_COUNTER_ACCDB_WRITEBACK_WRITTEN_NAME "accdb_writeback_written"
 #define FD_METRICS_COUNTER_ACCDB_WRITEBACK_WRITTEN_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_ACCDB_WRITEBACK_WRITTEN_DESC "Writes of evicted cache lines back to the account database file"
+#define FD_METRICS_COUNTER_ACCDB_WRITEBACK_WRITTEN_DESC "Write syscalls that wrote evicted cache lines back to the account database file"
 #define FD_METRICS_COUNTER_ACCDB_WRITEBACK_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_ACCDB_COMPACTION_WRITTEN_NAME "accdb_compaction_written"
