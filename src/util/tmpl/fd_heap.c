@@ -195,9 +195,9 @@
      // these assumptions, this cannot fail.
      //
      // On return the min element is no longer in the heap.  Other
-     // elements with equivalent query fields may remain.  Use peek before
-     // calling this to get the
-     // location of the min element to be removed.  The fields of the
+     // elements with equivalent query fields may remain.  Use peek
+     // before calling this to get the location of the min element to
+     // be removed.  The fields of the
      // removed element can be freely modified on return.
      //
      // myheap_ele_remove_min is the same and just for naming
