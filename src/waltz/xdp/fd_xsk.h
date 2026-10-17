@@ -227,9 +227,6 @@ struct fd_xsk_params {
   /* Max RX processing budget during prefbusy napi poll.
      Referred to as 'busy_poll_budget' within Linux. */
   int prefbusy_rx_budget;
-
-  /* whether the xsk memory should be included in core dumps */
-  int core_dump;
 };
 
 typedef struct fd_xsk_params fd_xsk_params_t;
