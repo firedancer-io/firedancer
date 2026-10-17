@@ -206,6 +206,14 @@ ag_slot_state_should_ignore_vote( ag_slot_state_t const *  self,
                                   ag_slot_states_t const * states,
                                   ag_vote_t const *        vote );
 
+/* SlotState::check_conflicting_vote: voter already cast the opposite member of a
+   primary/fallback pair on this slot (Skip/SkipFallback, Notar/NotarFallback). */
+
+FD_FN_PURE int
+ag_slot_state_check_conflicting_vote( ag_slot_state_t const *  self,
+                                      ag_slot_states_t const * states,
+                                      ag_vote_t const *        vote );
+
 /* Definition 13. SlotState::is_notar_fallback */
 
 FD_FN_PURE int
