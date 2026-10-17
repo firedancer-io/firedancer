@@ -1627,6 +1627,7 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   block_id_ele->slot           = slot;
   block_id_ele->bank_seq       = ctx->leader_bank->bank_seq;
   block_id_ele->latest_fec_idx = 0U;
+  block_id_ele->fec_cnt        = 0U;
   memset( &block_id_ele->latest_mr,  0, sizeof(fd_hash_t) );
   memset( &block_id_ele->dmr,        0, sizeof(fd_hash_t) );
 
@@ -5779,6 +5780,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
     ctx->block_id_arr[ i ].block_id_seen = 0;
+    ctx->block_id_arr[ i ].fec_cnt       = 0U;
     memset( &ctx->block_id_arr[ i ].block_info, 0, sizeof(ag_block_id_t) );
   }
 
