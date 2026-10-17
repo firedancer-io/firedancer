@@ -976,7 +976,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
 
     long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
     uchar quorum_reached;
-    err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad, &quorum_reached );
+    err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, 0, ctx->scratch.bad, &quorum_reached );
     int result;
     switch( err ) {
     case AG_POOL_SUCCESS:                ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SUCCESS_IDX           ]++; result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED;                                                                                                                         break;
@@ -2154,13 +2154,6 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
     if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
-      long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
-      uchar quorum_reached;
-      int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad, &quorum_reached );
-      if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
-      reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
-      if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( ctx->scratch.vote.kind==AG_VOTE_KIND_NOTAR || ctx->scratch.vote.kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
-
       ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
 
@@ -2192,6 +2185,13 @@ after_credit( fd_votor_tile_t *   ctx,
                        || peer==reward_leader ) ) continue;
         quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
       }
+
+      long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
+      uchar quorum_reached;
+      int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, 1, ctx->scratch.bad, &quorum_reached );
+      if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
+      reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
+      if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( ctx->scratch.vote.kind==AG_VOTE_KIND_NOTAR || ctx->scratch.vote.kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
 
       int result;
       switch( err ) {

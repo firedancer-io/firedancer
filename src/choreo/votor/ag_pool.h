@@ -144,11 +144,15 @@ ag_pool_add_cert( ag_pool_t *       self,
                   int               verified,
                   fd_bls_set_t *    bad );
 
-/* Definition 12. Pool::add_vote */
+/* Definition 12. Pool::add_vote
+
+   verified is non-zero for a vote whose signature is trusted, e.g. our
+   own, and skips the G2 subgroup check. */
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
                   ag_vote_t const * vote,
+                  int               verified,
                   fd_bls_set_t *    bad,
                   uchar *           quorum_reached );
 
