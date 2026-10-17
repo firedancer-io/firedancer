@@ -118,6 +118,35 @@ main( int     argc,
   heap_t * heap = heap_join( shheap );
   FD_TEST( heap );
 
+  /* Equivalent priorities are legal.  Verify a heap with repeated
+     minimum values and check that removals preserve the ordering. */
+  if( ele_max>=3UL ) {
+    ulong idx0 = pool_idx_acquire( pool );
+    ulong idx1 = pool_idx_acquire( pool );
+    ulong idx2 = pool_idx_acquire( pool );
+
+    pool[ idx0 ].val = (schar)7;
+    pool[ idx1 ].val = (schar)3;
+    pool[ idx2 ].val = (schar)3;
+
+    FD_TEST( heap_idx_insert( heap, idx0, pool )==heap );
+    FD_TEST( heap_idx_insert( heap, idx1, pool )==heap );
+    FD_TEST( heap_idx_insert( heap, idx2, pool )==heap );
+    FD_TEST( heap_ele_cnt( heap )==3UL );
+    FD_TEST( !heap_verify( heap, pool ) );
+
+    for( ulong i=0UL; i<3UL; i++ ) {
+      ulong idx = heap_idx_peek_min( heap );
+      FD_TEST( idx<ele_max );
+      FD_TEST( pool[ idx ].val==(i<2UL ? 3 : 7) );
+      FD_TEST( heap_idx_remove_min( heap, pool )==heap );
+      pool_idx_release( pool, idx );
+      FD_TEST( !heap_verify( heap, pool ) );
+    }
+
+    FD_TEST( heap_idx_is_null( heap_idx_peek_min( heap ) ) );
+  }
+
   /* Do a bunch of operations, testing integrity as we go */
 
   ulong pmap = 0UL;
