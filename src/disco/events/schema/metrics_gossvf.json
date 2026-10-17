@@ -157,9 +157,9 @@
             "type": "Tuple",
             "description": "CRDS values in push and pull-response messages, by outcome; Verified and Duplicate only for messages forwarded to gossip, Dropped counted as each check fails",
             "aliases": {
-                "all":      ["verified_pull_response", "duplicate_pull_response", "verified_push", "duplicate_push", "dropped_pull_response_signature", "dropped_pull_response_no_contact_info", "dropped_pull_response_shred_version", "dropped_pull_response_inactive", "dropped_pull_response_wallclock", "dropped_push_signature", "dropped_push_no_contact_info", "dropped_push_shred_version", "dropped_push_inactive", "dropped_push_wallclock"],
+                "all":      ["verified_pull_response", "duplicate_pull_response", "verified_push", "duplicate_push", "dropped_pull_response_signature", "dropped_pull_response_no_contact_info", "dropped_pull_response_shred_version", "dropped_pull_response_inactive", "dropped_pull_response_wallclock", "dropped_push_signature", "dropped_push_no_contact_info", "dropped_push_shred_version", "dropped_push_inactive", "dropped_push_wallclock", "dropped_pull_response_deprecated", "dropped_push_deprecated"],
                 "verified": ["verified_pull_response", "duplicate_pull_response", "verified_push", "duplicate_push"],
-                "dropped":  ["dropped_pull_response_signature", "dropped_pull_response_no_contact_info", "dropped_pull_response_shred_version", "dropped_pull_response_inactive", "dropped_pull_response_wallclock", "dropped_push_signature", "dropped_push_no_contact_info", "dropped_push_shred_version", "dropped_push_inactive", "dropped_push_wallclock"]
+                "dropped":  ["dropped_pull_response_signature", "dropped_pull_response_no_contact_info", "dropped_pull_response_shred_version", "dropped_pull_response_inactive", "dropped_pull_response_wallclock", "dropped_push_signature", "dropped_push_no_contact_info", "dropped_push_shred_version", "dropped_push_inactive", "dropped_push_wallclock", "dropped_pull_response_deprecated", "dropped_push_deprecated"]
             },
             "fields": {
                 "verified_pull_response":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (success)" },
@@ -175,16 +175,18 @@
                 "dropped_push_no_contact_info":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (origin no contact info)" },
                 "dropped_push_shred_version":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (origin shred version)" },
                 "dropped_push_inactive":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (inactive)" },
-                "dropped_push_wallclock":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (wallclock)" }
+                "dropped_push_wallclock":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (wallclock)" },
+                "dropped_pull_response_deprecated":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (deprecated value type)" },
+                "dropped_push_deprecated":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (deprecated value type)" }
             }
         },
         "crds_rx_bytes": {
             "type": "Tuple",
             "description": "Wire bytes of CRDS values received, by verification result",
             "aliases": {
-                "all":      ["verified_pull_response", "duplicate_pull_response", "verified_push", "duplicate_push", "dropped_pull_response_signature", "dropped_pull_response_no_contact_info", "dropped_pull_response_shred_version", "dropped_pull_response_inactive", "dropped_pull_response_wallclock", "dropped_push_signature", "dropped_push_no_contact_info", "dropped_push_shred_version", "dropped_push_inactive", "dropped_push_wallclock"],
+                "all":      ["verified_pull_response", "duplicate_pull_response", "verified_push", "duplicate_push", "dropped_pull_response_signature", "dropped_pull_response_no_contact_info", "dropped_pull_response_shred_version", "dropped_pull_response_inactive", "dropped_pull_response_wallclock", "dropped_push_signature", "dropped_push_no_contact_info", "dropped_push_shred_version", "dropped_push_inactive", "dropped_push_wallclock", "dropped_pull_response_deprecated", "dropped_push_deprecated"],
                 "verified": ["verified_pull_response", "duplicate_pull_response", "verified_push", "duplicate_push"],
-                "dropped":  ["dropped_pull_response_signature", "dropped_pull_response_no_contact_info", "dropped_pull_response_shred_version", "dropped_pull_response_inactive", "dropped_pull_response_wallclock", "dropped_push_signature", "dropped_push_no_contact_info", "dropped_push_shred_version", "dropped_push_inactive", "dropped_push_wallclock"]
+                "dropped":  ["dropped_pull_response_signature", "dropped_pull_response_no_contact_info", "dropped_pull_response_shred_version", "dropped_pull_response_inactive", "dropped_pull_response_wallclock", "dropped_push_signature", "dropped_push_no_contact_info", "dropped_push_shred_version", "dropped_push_inactive", "dropped_push_wallclock", "dropped_pull_response_deprecated", "dropped_push_deprecated"]
             },
             "fields": {
                 "verified_pull_response":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (success)" },
@@ -200,7 +202,9 @@
                 "dropped_push_no_contact_info":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (origin no contact info)" },
                 "dropped_push_shred_version":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (origin shred version)" },
                 "dropped_push_inactive":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (inactive)" },
-                "dropped_push_wallclock":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (wallclock)" }
+                "dropped_push_wallclock":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (wallclock)" },
+                "dropped_pull_response_deprecated":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pull Response (deprecated value type)" },
+                "dropped_push_deprecated":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Push (deprecated value type)" }
             }
         }
     }

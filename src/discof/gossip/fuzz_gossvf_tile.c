@@ -297,6 +297,7 @@ setup_env( fuzz_env_t * env ) {
   ctx->seed                  = 0x114320a17f4a7c15UL;
   ctx->shred_version         = FUZZ_SHRED_VERSION;
   ctx->allow_private_address = 0;
+  ctx->alpenglow             = 0;
   ctx->gossip_addr.addr      = FD_IP4_ADDR( 8, 8, 4, 4 );
   ctx->gossip_addr.port      = fd_ushort_bswap( 9000U );
   ctx->src_addr              = ctx->gossip_addr;
