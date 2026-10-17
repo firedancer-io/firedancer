@@ -551,7 +551,7 @@ int
 fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
                                  fd_accdb_fork_id_t fork_id ) {
   if( FD_UNLIKELY( fork_id.val>=fork_pool_ele_max( accdb->fork_shmem_pool ) ) ) {
-    FD_LOG_CRIT(( "fd_accdb_snapshot_populate_delta: invalid fork id %u (capacity %lu)",
+    FD_LOG_CRIT(( "fd_accdb_snapshot_recover_delta: invalid fork id %u (capacity %lu)",
                   (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
   }
 
