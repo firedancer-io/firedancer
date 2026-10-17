@@ -522,7 +522,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_SNAPIN: {
-      fd_gui_peers_handle_config_account( ctx->peers, src, sz );
+      fd_gui_peers_handle_config_account( ctx->peers, src, sz, sig );
       break;
     }
     case IN_KIND_SNAPIN_MANIF: {

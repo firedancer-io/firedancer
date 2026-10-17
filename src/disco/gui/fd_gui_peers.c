@@ -979,7 +979,8 @@ fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
-                                    ulong                 sz ) {
+                                    ulong                 sz,
+                                    ulong                 slot ) {
   /* optimistically acquire node_info */
   if( FD_UNLIKELY( !fd_gui_peers_node_info_pool_free( peers->node_info_pool ) ) ) {
     FD_LOG_WARNING(( "On-chain ConfigProgram accounts count exceeded %lu", FD_CONTACT_INFO_TABLE_SIZE ));
@@ -992,19 +993,26 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
     return;
   }
 
-  if( FD_UNLIKELY( fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &node_info->pubkey, NULL, peers->node_info_pool ) ) ) {
-    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
-    return; /* no duplicate entries */
-  }
+  node_info->slot = slot;
 
-  /* Some nodes just clear all the fields instead of deleting their
-     on-chain account, we can ignore those entries */
-  if( FD_UNLIKELY( node_info->name[ 0 ]=='\0' && node_info->details[ 0 ]=='\0' && node_info->website[ 0 ]=='\0' && node_info->icon_uri[ 0 ]=='\0' && node_info->keybase_username[ 0 ]=='\0' ) ) {
+  /* Snapshots can hold several copies of an identity's account, the
+     incremental after the full: keep the newest. */
+  fd_gui_config_parse_info_t * prev = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &node_info->pubkey, NULL, peers->node_info_pool );
+  if( FD_UNLIKELY( prev && prev->slot>slot ) ) {
     fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
     return;
   }
+  if( FD_UNLIKELY( prev ) ) {
+    fd_gui_peers_node_info_map_ele_remove_fast( peers->node_info_map, prev, peers->node_info_pool );
+    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, prev );
+  }
 
+  /* Some nodes just clear all the fields instead of deleting their
+     on-chain account.  Keep the copy, so its slot still outranks older
+     ones, but treat it as no info. */
+  node_info->cleared = node_info->name[ 0 ]=='\0' && node_info->details[ 0 ]=='\0' && node_info->website[ 0 ]=='\0' && node_info->icon_uri[ 0 ]=='\0' && node_info->keybase_username[ 0 ]=='\0';
   fd_gui_peers_node_info_map_ele_insert( peers->node_info_map, node_info, peers->node_info_pool );
+  if( FD_UNLIKELY( node_info->cleared && !prev ) ) return;
 
   fd_gui_peers_node_t * peer = fd_gui_peers_node_pubkey_map_ele_query( peers->node_pubkey_map, &node_info->pubkey, NULL, peers->contact_info_table );
   if( FD_UNLIKELY( peer ) ) {
