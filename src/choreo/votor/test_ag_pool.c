@@ -276,7 +276,7 @@ add_notar_votes( ag_pool_t *           pool,
                  ulong                 hi ) {
   for( ulong v=lo; v<hi; v++ ) {
     ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, hash, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
     drain_events( pool );
   }
 }
@@ -289,7 +289,7 @@ add_notar_fallback_votes( ag_pool_t *           pool,
                           ulong                 hi ) {
   for( ulong v=lo; v<hi; v++ ) {
     ag_vote_t vote = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, hash, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
     drain_events( pool );
   }
 }
@@ -301,7 +301,7 @@ add_skip_votes( ag_pool_t * pool,
                 ulong       hi ) {
   for( ulong v=lo; v<hi; v++ ) {
     ag_vote_t vote = ag_vote_construct_skip( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
     drain_events( pool );
   }
 }
@@ -313,7 +313,7 @@ add_final_votes( ag_pool_t * pool,
                  ulong       hi ) {
   for( ulong v=lo; v<hi; v++ ) {
     ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
     drain_events( pool );
   }
 }
@@ -486,7 +486,7 @@ test_reward_late_skip_unverified( void ) {
   add_skip_votes( pool, slot, 0UL, 7UL );
   FD_TEST( has_skip_cert( pool, slot ) );
   ag_vote_t poisoned = ag_vote_construct_skip( sec_sign_fn, &g_sk[4], test_bls_public_key, slot, (ushort)8, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &poisoned, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &poisoned, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( fd_bls_set_is_null( bad ) );
   drain_events( pool );
 
@@ -543,7 +543,7 @@ test_reward_late_skip_unverified( void ) {
   add_notar_votes( pool, slot+1UL, hash, 0UL, 7UL );
   FD_TEST( has_notar_cert( pool, slot+1UL ) );
   poisoned = ag_vote_construct_notar( sec_sign_fn, &g_sk[4], test_bls_public_key, slot+1UL, hash, (ushort)8, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &poisoned, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &poisoned, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( fd_bls_set_is_null( bad ) );
   drain_events( pool );
   state = ag_pool_slot_state( pool, slot+1UL );
@@ -965,7 +965,7 @@ test_bls_sig_pool_released_on_prune( void ) {
   for( ulong i=1UL; i<1UL+AG_NOTAR_FALLBACK_VOTE_MAX; i++ ) add_notar_fallback_votes( pool, slot, hash[ i ], 0UL, voters );
   for( ulong v=0UL; v<voters; v++ ) {
     ag_vote_t vote = ag_vote_construct_skip_fallback( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
     drain_events( pool );
   }
 
@@ -985,11 +985,11 @@ test_bls_sig_pool_released_on_prune( void ) {
     ag_vote_t skip  = ag_vote_construct_skip          ( sec_sign_fn, &g_sk[v], test_bls_public_key, slot,        (ushort)v, TEST_SHRED_VERSION );
     ag_vote_t sf    = ag_vote_construct_skip_fallback ( sec_sign_fn, &g_sk[v], test_bls_public_key, slot,        (ushort)v, TEST_SHRED_VERSION );
     ag_vote_t final = ag_vote_construct_final         ( sec_sign_fn, &g_sk[v], test_bls_public_key, slot,        (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &notar, bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
-    FD_TEST( ag_pool_add_vote( pool, &nf,    bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
-    FD_TEST( ag_pool_add_vote( pool, &skip,  bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
-    FD_TEST( ag_pool_add_vote( pool, &sf,    bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
-    FD_TEST( ag_pool_add_vote( pool, &final, bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
+    FD_TEST( ag_pool_add_vote( pool, &notar, 0, bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
+    FD_TEST( ag_pool_add_vote( pool, &nf, 0,    bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
+    FD_TEST( ag_pool_add_vote( pool, &skip, 0,  bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
+    FD_TEST( ag_pool_add_vote( pool, &sf, 0,    bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
+    FD_TEST( ag_pool_add_vote( pool, &final, 0, bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
   }
   FD_TEST( fd_bls_sig_pool_free( bls_sig_pool )==sig_max-voters*AG_SLOT_VOTE_SIG_MAX );
 
@@ -1019,13 +1019,13 @@ test_duplicate_votes( void ) {
   ulong slot = 0UL;
 
   ag_vote_t v1 = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, gh, 0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &v1, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &v1, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
 
   ag_vote_t v2 = ag_vote_construct_skip( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, 1, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &v2, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &v2, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
 
-  FD_TEST( ag_pool_add_vote( pool, &v1, bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
-  FD_TEST( ag_pool_add_vote( pool, &v2, bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( ag_pool_add_vote( pool, &v1, 0, bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( ag_pool_add_vote( pool, &v2, 0, bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
 
   teardown_pool( pool );
 }
@@ -1056,13 +1056,13 @@ test_vote_subgroup_after_duplicate( void ) {
   ag_vote_t evil = good;
   evil.notar.sig = *torsion;
 
-  FD_TEST( ag_pool_add_vote( pool, &evil, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &evil, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 0UL ) );
 
-  FD_TEST( ag_pool_add_vote( pool, &good, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &good, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( fd_bls_set_is_null( bad ) );
 
-  FD_TEST( ag_pool_add_vote( pool, &evil, bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( ag_pool_add_vote( pool, &evil, 0, bad, &quorum_reached )==AG_POOL_ERR_DUPLICATE );
   FD_TEST( fd_bls_set_is_null( bad ) );
 
   teardown_pool( pool );
@@ -1128,19 +1128,19 @@ test_out_of_bounds_votes( void ) {
   for( ulong s=0UL; s<slot-AG_REWARD_SLOT_DELTA; s++ ) {
     for( ulong v=0UL; v<11UL; v++ ) {
       ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[v], test_bls_public_key, s, (ushort)v, TEST_SHRED_VERSION );
-      FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_ERR_SLOT_TOO_OLD );
+      FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_ERR_SLOT_TOO_OLD );
     }
   }
 
   for( ulong s=slot-AG_REWARD_SLOT_DELTA; s<slot; s++ ) {
     ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[0], test_bls_public_key, s, (ushort)0, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   }
 
   ulong future = 5UL*TEST_SLOT_MAX;
   for( ulong v=0UL; v<11UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[v], test_bls_public_key, future, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_ERR_SLOT_TOO_NEW );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_ERR_SLOT_TOO_NEW );
   }
 
   teardown_pool( pool );
@@ -1335,7 +1335,7 @@ test_parent_ready_upon_finalization( void ) {
 
   for( ulong v=0UL; v<11UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, block2.slot, block2.hash, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   }
 
   ulong cert_created = 0UL, parent_ready_cnt = 0UL;
@@ -1357,7 +1357,7 @@ test_parent_ready_upon_finalization( void ) {
   int found = 0;
   for( ulong v=0UL; v<7UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, block0.slot, block0.hash, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
     event_cnt = take_events( pool );
     for( ulong i=0UL; i<event_cnt; i++ ) {
       if( event( i )->kind==AG_POOL_EVENT_PARENT_READY ) {
@@ -1392,10 +1392,10 @@ test_safe_to_notar_notar_cert_only( void ) {
   drain_events( pool );
 
   ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot2, 0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &skip, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &skip, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   for( ulong v=1UL; v<6UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot2, hash2, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   }
 
   FD_TEST( drained_safe_to_notar( pool, slot2, hash2 ) );
@@ -1422,10 +1422,10 @@ test_safe_to_notar_fast_final_cert_only( void ) {
   drain_events( pool );
 
   ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot2, 0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &skip, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &skip, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   for( ulong v=1UL; v<6UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot2, hash2, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   }
 
   FD_TEST( drained_safe_to_notar( pool, slot2, hash2 ) );
@@ -1454,10 +1454,10 @@ test_safe_to_notar_awaiting_votes( void ) {
   FD_TEST( !s2n_waiting_cnt( pool ) );
 
   ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot2, 0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &skip, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &skip, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   for( ulong v=1UL; v<6UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot2, hash2, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   }
   FD_TEST( drained_safe_to_notar( pool, slot2, hash2 ) );
 
@@ -1483,7 +1483,7 @@ test_safe_to_notar_not_queued_for_parent_cert( void ) {
      hash_b has no votes, so it is merely awaiting votes. */
 
   ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot2, 0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &skip, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &skip, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   add_notar_votes( pool, slot2, hash_a, 1UL, 6UL );
   drain_events( pool );
 
@@ -1518,8 +1518,8 @@ test_s2n_waiting_every_child( void ) {
 
   ag_vote_t skip2 = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot2, 0, TEST_SHRED_VERSION );
   ag_vote_t skip5 = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot5, 0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &skip2, bad, &quorum_reached )==AG_POOL_SUCCESS );
-  FD_TEST( ag_pool_add_vote( pool, &skip5, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &skip2, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &skip5, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   add_notar_votes( pool, slot2, hash2, 1UL, 6UL );
   add_notar_votes( pool, slot5, hash5, 1UL, 6UL );
 
@@ -1566,7 +1566,7 @@ test_s2n_waiting_fast_final_parent( void ) {
   ag_block_id_t child  = ag_block_id( slot2, hash2 );
 
   ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot2, 0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &skip, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &skip, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   add_notar_votes( pool, slot2, hash2, 1UL, 6UL );
 
   ag_pool_add_block( pool, &child, &parent, bad );
@@ -1620,7 +1620,7 @@ test_handle_invalid_votes( void ) {
 
   ag_block_hash_t gh; genesis_hash( gh );
   ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], test_bls_public_key, 0UL, gh, 0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
 
   teardown_pool( pool );
 }
@@ -1634,7 +1634,7 @@ test_hash_capacity( void ) {
   for( ulong i=0UL; i<NV; i++ ) {
     random_hash( hash[i] );
     ag_vote_t v = ag_vote_construct_notar( sec_sign_fn, &g_sk[i], test_bls_public_key, slot, hash[i], (ushort)i, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &v, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &v, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
     drain_events( pool );
   }
 
@@ -1642,19 +1642,19 @@ test_hash_capacity( void ) {
   for( ulong i=0UL; i<AG_NOTAR_FALLBACK_VOTE_MAX; i++ ) {
     random_hash( nf[i] );
     ag_vote_t v = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, nf[i], (ushort)0, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &v, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &v, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
     drain_events( pool );
   }
 
   ag_block_hash_t past; random_hash( past );
   ag_vote_t v_past;
   v_past = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, past, (ushort)0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &v_past, bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
-  FD_TEST( ag_pool_add_vote( pool, &v_past, bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
+  FD_TEST( ag_pool_add_vote( pool, &v_past, 0, bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
+  FD_TEST( ag_pool_add_vote( pool, &v_past, 0, bad, &quorum_reached )==AG_POOL_ERR_SLASHABLE );
 
   ag_vote_t v_other;
   v_other = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, past, (ushort)1, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &v_other, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &v_other, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
 
   teardown_pool( pool );
 }
@@ -1696,7 +1696,7 @@ test_wait_for_parent_ready( void ) {
 
   for( ulong v=0UL; v<11UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, block2.slot, block2.hash, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   }
   drain_events( pool );
   ag_pool_add_block( pool, &block2, &block1, bad );
@@ -1814,7 +1814,7 @@ test_epoch_installed_late( void ) {
   ag_pool_advance_epoch( pool, b, 0UL, EPOCH_B_LO );
   FD_TEST( epoch_info( pool, beyond         )==b );
   FD_TEST( epoch_info( pool, EPOCH_B_LO-1UL )==a );
-  FD_TEST( ag_pool_add_vote( pool, &v, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &v, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( contains_slot( pool, beyond ) );
 
   teardown_pool_only( pool );
@@ -1845,7 +1845,7 @@ test_retired_epoch_already_pruned( void ) {
   FD_TEST( contains_slot( pool, EPOCH_B_LO ) );
 
   ag_vote_t v_late = ag_vote_construct_final( sec_sign_fn, &g_sk[0], test_bls_public_key, EPOCH_B_LO-1UL, (ushort)0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &v_late, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &v_late, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   FD_TEST( ag_pool_slot_state( pool, EPOCH_B_LO-1UL ) && epoch_info( pool, EPOCH_B_LO-1UL )==a ); /* retained, verified against its own epoch */
 
   for( ulong s=EPOCH_B_LO+1UL; s<=EPOCH_B_LO+AG_REWARD_SLOT_DELTA; s++ ) {
@@ -1922,7 +1922,7 @@ test_standstill_iter_order( void ) {
 
   add_notar_votes( pool, 5UL, h5, 0UL, 1UL );
   ag_vote_t sf5 = ag_vote_construct_skip_fallback( sec_sign_fn, &g_sk[0], test_bls_public_key, 5UL, (ushort)0, TEST_SHRED_VERSION );
-  FD_TEST( ag_pool_add_vote( pool, &sf5, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( pool, &sf5, 0, bad, &quorum_reached )==AG_POOL_SUCCESS );
   drain_events( pool );
 
   add_final_votes( pool, 6UL, 0UL, 7UL );

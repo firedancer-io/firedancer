@@ -1144,7 +1144,7 @@ test_id_keyswitch( void ) {
   };
   uchar quorum_reached;
   for( ulong i=0UL; i<3UL; i++ ) {
-    FD_TEST( ag_pool_add_vote( ctx.pool, &pool_votes[ i ], ctx.scratch.bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_vote( ctx.pool, &pool_votes[ i ], 0, ctx.scratch.bad, &quorum_reached )==AG_POOL_SUCCESS );
     FD_TEST( fd_bls_set_is_null( ctx.scratch.bad ) );
   }
 
@@ -2388,7 +2388,7 @@ test_reward_certs( void ) {
   memcpy( vote.notar.block_hash, hash, sizeof(ag_block_hash_t) );
   vote.notar.sig = reward_vote_sig( epoch_info, 0UL, AG_VOTE_KIND_NOTAR, slot, hash );
   uchar quorum;
-  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
 
   publish_reward_cert( &ctx, stem, slot );
   FD_TEST( seqs[0]==1UL );
@@ -2402,7 +2402,7 @@ test_reward_certs( void ) {
 
   vote.notar.rank = 3;
   vote.notar.sig  = reward_vote_sig( epoch_info, 2UL, AG_VOTE_KIND_NOTAR, slot, hash );
-  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
   fd_pubkey_t bad_id; memcpy( bad_id.uc, epoch_info->validators[3].id_key, sizeof(fd_pubkey_t) );
   peer_t * bad_peer = peers_insert( ctx.peers, bad_id );
   bad_peer->ban_ts  = LONG_MIN;
@@ -2416,7 +2416,7 @@ test_reward_certs( void ) {
 
   vote.kind = AG_VOTE_KIND_SKIP;
   vote.skip = (ag_vote_skip_t){ .slot = slot, .rank = 1, .shred_version = 1, .sig = reward_vote_sig( epoch_info, 1UL, AG_VOTE_KIND_SKIP, slot, NULL ) };
-  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
   publish_reward_cert( &ctx, stem, slot );
   FD_TEST( seqs[0]==3UL );
   meta   = mcache+fd_mcache_line_idx( 2UL, 128UL );
