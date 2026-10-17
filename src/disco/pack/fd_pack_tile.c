@@ -224,7 +224,7 @@ typedef struct {
   uint     execle_sent    [ FD_PACK_MAX_EXECLE_TILES ];
   /* execle_complete[x] counts the microblocks that finished executing */
   uint     execle_complete[ FD_PACK_MAX_EXECLE_TILES ];
-  /* The number of done_packing messaged we published */
+  /* The number of done_packing messages we published */
   uint     done_packing_cnt;
 
   fd_pack_out_ctx_t execle_out[ FD_PACK_MAX_EXECLE_TILES ];
