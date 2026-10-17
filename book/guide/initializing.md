@@ -444,13 +444,15 @@ onto that tile's core. On a serial console this is worse: the UART
 write runs synchronously inside the system call itself.
 
 The `console` stage disables the framebuffer cursor blink and lowers
-the console loglevel to 4, so that only messages of error severity and
-above render on the console. Kernel oopses, panics, and hardware
-errors still appear on an attached screen or BMC KVM; warning-level
-messages no longer do. All messages continue to be recorded in the
-kernel ring buffer and are visible with `dmesg` or in the system
-journal regardless of the console loglevel. The console itself is
-never disabled or unbound, so a crash cart still shows a panic.
+the console loglevel to 2, so that only emergency and alert messages,
+such as panics, render on the console. Critical and error messages no
+longer do: the kernel prints rate-limited critical messages from inside
+system calls, for example on every AF_XDP transmit in skb mode over a
+bond while a packet capture is attached. All messages continue to be
+recorded in the kernel ring buffer and are visible with `dmesg` or in
+the system journal regardless of the console loglevel. The console
+itself is never disabled or unbound, so a crash cart still shows a
+panic.
 
 <<< @/snippets/console.ansi
 
