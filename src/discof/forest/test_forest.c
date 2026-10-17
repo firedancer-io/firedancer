@@ -2212,6 +2212,54 @@ test_data_shred_insert_reject_oob_confirmed_complete( fd_wksp_t * wksp ) {
 }
 
 static void
+test_fec_clear_last_fec_resets_chain_confirmed( fd_wksp_t * wksp ) {
+  /* After a slot is chain-confirmed, clearing its slot-complete FEC
+     must reset chain_confirmed, so that the slot is re-verified once it
+     has been re-repaired. */
+
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
+  fd_forest_init( forest, 0 );
+
+  fd_hash_t mr_0   = (fd_hash_t){ .key = { 0 } };
+  fd_hash_t mr_2   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_3_0 = (fd_hash_t){ .key = { 30 } };
+  fd_hash_t mr_3_1 = (fd_hash_t){ .key = { 31 } };
+
+  fd_forest_blk_insert( forest, 2, 0, NULL );
+  fd_forest_data_shred_insert( forest, 2, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_0, fd_tickcount() );
+
+  fd_forest_blk_insert( forest, 3, 2, NULL );
+  fd_forest_fec_insert( forest, 3, 2, 31, 0,  0, 0, &mr_3_0, &mr_2,   fd_tickcount() );
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0, fd_tickcount() );
+
+  fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
+  FD_TEST( ele->complete_idx == 63 );
+  FD_TEST( !fd_forest_fec_chain_verify( forest, ele, &mr_3_1 ) );
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+
+  /* Clear the slot-complete FEC (e.g. evicted from reasm). */
+  fd_forest_fec_clear( forest, 3, 32, 31 );
+  FD_TEST( ele->complete_idx        == UINT_MAX );
+  FD_TEST( ele->lowest_verified_fec == UINT_MAX );
+  FD_TEST( !ele->chain_confirmed );
+
+  /* Re-repair the FEC and re-verify the chain. */
+  FD_TEST( fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0, fd_tickcount() ) );
+  FD_TEST( ele->complete_idx == 63 );
+  FD_TEST( !fd_forest_fec_chain_verify( forest, ele, &mr_3_1 ) );
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
+}
+
+static void
 test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
   /* test_sentinel_parent_update_orphreqs_leak
 
@@ -2370,6 +2418,7 @@ main( int argc, char ** argv ) {
   test_fec_insert_reject_oob_after_verify( wksp );
   test_fec_insert_dup_confirm_larger_complete_idx( wksp );
   test_data_shred_insert_reject_oob_confirmed_complete( wksp );
+  test_fec_clear_last_fec_resets_chain_confirmed( wksp );
   test_sentinel_parent_update_orphreqs_leak( wksp );
 
   FD_LOG_NOTICE(( "pass" ));

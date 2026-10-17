@@ -1555,10 +1555,13 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
     fd_forest_blk_idxs_remove( idxs, i );
   }
 
-  /* clear complete_idx if we've cleared the last FEC in the slot */
+  /* clear complete_idx if we've cleared the last FEC in the slot.  The
+     chain verification state is also reset so that the slot gets
+     re-verified once it recompletes. */
   if( FD_UNLIKELY( fec_set_idx+max_shred_idx == ele->complete_idx ) ) {
-    ele->complete_idx = UINT_MAX;
+    ele->complete_idx        = UINT_MAX;
     ele->lowest_verified_fec = UINT_MAX;
+    ele->chain_confirmed     = 0;
   }
 
   /* There is a chance that the repair iterator is on this exact slot.
