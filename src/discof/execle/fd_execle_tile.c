@@ -37,6 +37,7 @@ typedef struct fd_execle_out fd_execle_out_t;
 
 struct fd_execle_tile {
   ulong kind_id;
+  ulong execle_cnt; /* number of execle tiles, see fd_pack_vclock_t */
 
   fd_startup_gate_t startup_gate[1];
 
@@ -47,6 +48,7 @@ struct fd_execle_tile {
   ulong _pack_idx;
   ulong _txn_idx;
   int _is_bundle;
+  fd_pack_vclock_t _deps;
   fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
 
   ulong * busy_fseq;
@@ -244,6 +246,7 @@ during_frag( fd_execle_tile_t * ctx,
   ctx->_bank_idx  = trailer->bank_idx;
   ctx->_pack_idx  = trailer->pack_idx;
   ctx->_txn_idx   = trailer->pack_txn_idx;
+  fd_pack_vclock_copy( &ctx->_deps, &trailer->deps, ctx->execle_cnt );
   ctx->_is_bundle = trailer->is_bundle;
 }
 
@@ -478,6 +481,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
      it shards / scales horizontally here, while PoH does not. */
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
   trailer->pack_txn_idx     = ctx->_txn_idx;
+  fd_pack_vclock_copy( &trailer->deps, &ctx->_deps, ctx->execle_cnt );
   trailer->tips             = ctx->txn_out[ 0 ].details.tips;
   trailer->exec_start_ticks = exec_start_ticks;
 
@@ -682,6 +686,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
     trailer->pack_txn_idx     = ctx->_txn_idx + i;
+    fd_pack_vclock_copy( &trailer->deps, &ctx->_deps, ctx->execle_cnt );
     trailer->tips             = tips[ i ];
     trailer->bank_seq         = bank->bank_seq;
     trailer->exec_start_ticks = bundle_start_ticks;
@@ -791,6 +796,8 @@ unprivileged_init( fd_topo_t const *      topo,
       __x; }))
 
   ctx->kind_id   = tile->kind_id;
+  ctx->execle_cnt = fd_topo_tile_name_cnt( topo, "execle" );
+  FD_TEST( ctx->execle_cnt<=FD_PACK_MAX_EXECLE_TILES );
   ctx->blake3    = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
   ctx->bmtree    = NONNULL( bmtree );
 
