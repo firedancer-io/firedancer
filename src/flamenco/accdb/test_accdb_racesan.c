@@ -3722,6 +3722,124 @@ test_pd_parent_hold_vs_advance_root( void ) {
   test_shmem_delete();
 }
 
+/* test_coldload_evict_vs_snapshot_capture: an exec tile that cold
+   loads Z with an empty class free list claims a line holding a rooted
+   dirty account X through the CLOCK path.  cold_load_acc renames the
+   line to Z at once (pubkey Z, acc_idx UINT_MAX) but X's writeback is
+   only reserved later in the same acquire.  While the tile is parked in
+   that window, a cache scan sees nothing that maps to X and X has no
+   disk offset, so a snapshot must get X from the disk pass.  This pins
+   the accdb side of snaprd's answer: the tile stays busy until it has
+   published X's offset, so partition bounds sampled after waiting out
+   the busy writers cover the record. */
+
+/* sample_bounds mirrors snaprd's partition sampling: one bound per
+   partition, zero when the partition is empty or compacted away. */
+static void
+sample_bounds( fd_accdb_shmem_t const * shmem,
+               ulong *                  bound ) {
+  ulong part_max = fd_accdb_shmem_partition_max( shmem );
+  for( ulong i=0UL; i<part_max; i++ ) {
+    fd_accdb_shmem_partition_info_t info[ 1 ];
+    fd_accdb_shmem_partition_info( shmem, i, info );
+    ulong sz = info->write_offset_raw;
+    bound[ i ] = info->compaction_offset>=sz ? 0UL : sz;
+  }
+}
+
+static int
+covered( fd_accdb_shmem_t const * shmem,
+         ulong const *            bound,
+         ulong                    off ) {
+  ulong part_sz = fd_accdb_shmem_partition_sz( shmem );
+  return off%part_sz < bound[ off/part_sz ];
+}
+
+/* accmeta_at returns the accmeta of an index entry (pool.next aliases
+   accmeta->cache_idx). */
+static fd_accdb_accmeta_t *
+accmeta_at( fd_accdb_t * accdb,
+            uint         acc_idx ) {
+  uchar * cidx = (uchar *)fd_accdb_debug_acc_pool_next( accdb, acc_idx );
+  return (fd_accdb_accmeta_t *)( cidx - offsetof( fd_accdb_accmeta_t, cache_idx ) );
+}
+
+static void
+test_coldload_evict_vs_snapshot_capture( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jx  = join_new();
+
+  uchar owner[ 32UL ] = { 7, 0 };
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+
+  /* Z: committed, written back and dropped from cache */
+  uchar key_Z[ 32UL ]; mk_key( 910000UL, key_Z );
+  seq_write( ctl, root, key_Z, 777UL, owner );
+  ulong zc, zi;
+  FD_TEST( fd_accdb_debug_find_line( ctl, key_Z, &zc, &zi ) );
+  FD_TEST( zc==0UL );
+  FD_TEST( fd_accdb_debug_clock_evict_line( ctl, 0UL, zi )!=UINT_MAX );
+
+  /* Every class-0 line holds a distinct rooted dirty account */
+  ulong max0 = g_shmem->cache_class_max[ 0 ];
+  for( ulong i=0UL; i<max0; i++ ) {
+    uchar k[ 32UL ]; mk_key( 920000UL+i, k );
+    seq_write( ctl, root, k, 1000UL+i, owner );
+  }
+  FD_TEST( !FD_VOLATILE_CONST( g_shmem->cache_free_cnt[ 0 ].val ) );
+  fd_accdb_fork_id_t f1 = fd_accdb_attach_child( ctl, root );
+
+  /* Exec tile: read-only acquire of Z on a child of the root.  Park it
+     right after the CLOCK claim to learn the victim, then right after
+     cold_load_acc renamed the line and before the acquire reserves the
+     victim's writeback. */
+  fd_racesan_async_t * a = fiber_acquire_expect( &g_fiber[0], jx, f1, key_Z, 777UL );
+  FD_TEST( fd_racesan_async_step_until( a, "clock_evict:post_sentinel", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  fd_accdb_cache_line_t * l = NULL;
+  for( ulong i=0UL; i<max0; i++ ) {
+    fd_accdb_cache_line_t * li = fd_accdb_debug_line_addr( ctl, 0UL, i );
+    if( FD_VOLATILE_CONST( li->refcnt )==FD_ACCDB_EVICT_SENTINEL ) l = li;
+  }
+  FD_TEST( l );
+  uint                 victim = l->acc_idx;
+  fd_accdb_accmeta_t * xv     = accmeta_at( ctl, victim );
+  FD_TEST( fd_racesan_async_step_until( a, "accdb_cold_load:pre_valid", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* A cache scan now reads the loading sentinel under Z's key, the
+     victim is on no line, and it has no disk offset */
+  FD_TEST( !memcmp( l->key.pubkey, key_Z, 32UL ) );
+  FD_TEST( l->acc_idx==UINT_MAX );
+  for( ulong i=0UL; i<max0; i++ ) {
+    fd_accdb_cache_line_t * li = fd_accdb_debug_line_addr( ctl, 0UL, i );
+    FD_TEST( li->acc_idx!=victim );
+  }
+  FD_TEST( fd_accdb_acc_offset( xv )==FD_ACCDB_OFF_INVAL );
+  FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( xv->executable_size ) ) );
+
+  /* Bounds sampled now do not cover the record; bounds sampled after
+     waiting out the busy writers do */
+  static ulong bound[ T_PARTITION_CNT ];
+  sample_bounds( g_shmem, bound );
+  fd_accdb_shmem_writer_barrier_t barrier[ 1 ];
+  fd_accdb_shmem_writer_barrier_capture( g_shmem, barrier );
+  for( ulong steps=0UL; fd_accdb_shmem_writer_barrier_poll( g_shmem, barrier ); steps++ ) {
+    FD_TEST( steps<STEP_MAX );
+    fd_racesan_async_step( a );
+  }
+  ulong xv_off = fd_accdb_acc_offset( xv );
+  FD_TEST( xv_off!=FD_ACCDB_OFF_INVAL );
+  FD_TEST( !covered( g_shmem, bound, xv_off ) );
+  sample_bounds( g_shmem, bound );
+  FD_TEST( covered( g_shmem, bound, xv_off ) );
+
+  async_finish( a );
+  fiber_done( &g_fiber[0] );
+  join_delete( ctl );
+  join_delete( jx );
+  test_shmem_delete();
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -3770,6 +3888,7 @@ main( int     argc,
     TEST( test_pd_same_fork_read_vs_write ),
     TEST( test_pd_parent_read_vs_child_write ),
     TEST( test_pd_parent_hold_vs_advance_root ),
+    TEST( test_coldload_evict_vs_snapshot_capture ),
     {0}
   };
 # undef TEST
