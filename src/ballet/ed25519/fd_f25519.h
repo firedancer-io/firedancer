@@ -193,7 +193,7 @@ fd_f25519_pow22523( fd_f25519_t *       r,
                     fd_f25519_t const * a );
 
 /* fd_f25519_sqrt_ratio computes r = (u * v^3) * (u * v^7)^((p-5)/8),
-   returns 0 on success, 1 on failure. */
+   returns 1 on success, 0 on failure. */
 int
 fd_f25519_sqrt_ratio( fd_f25519_t *       r,
                       fd_f25519_t const * u,
@@ -204,8 +204,8 @@ fd_f25519_sqrt_ratio( fd_f25519_t *       r,
 int
 fd_f25519_is_square_var( fd_f25519_t const * a );
 
-/* fd_f25519_sqrt_ratio computes r = 1/sqrt(v),
-   returns 0 on success, 1 on failure. */
+/* fd_f25519_inv_sqrt computes r = 1/sqrt(v),
+   returns 1 on success, 0 on failure. */
 FD_25519_INLINE int
 fd_f25519_inv_sqrt( fd_f25519_t *       r,
                     fd_f25519_t const * v ) {
@@ -254,7 +254,7 @@ fd_f25519_pow22523_2( fd_f25519_t * r1, fd_f25519_t const * a1,
                       fd_f25519_t * r2, fd_f25519_t const * a2 );
 
 /* fd_f25519_sqrt_ratio computes r = (u * v^3) * (u * v^7)^((p-5)/8),
-   returns 0 on success, 1 on failure. */
+   returns 1 on success, 0 on failure. */
 int
 fd_f25519_sqrt_ratio2( fd_f25519_t * r1, fd_f25519_t const * u1, fd_f25519_t const * v1,
                        fd_f25519_t * r2, fd_f25519_t const * u2, fd_f25519_t const * v2 );
