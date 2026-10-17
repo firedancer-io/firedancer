@@ -226,7 +226,10 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * hs );
    from previously received CRYPTO frames.  Returns FD_QUIC_SUCCESS if
    any number of messages were processed (including no messages in there
    is not enough data).  Returns FD_QUIC_FAILED if the TLS handshake
-   failed (not recoverable). */
+   failed (not recoverable).  Once the handshake is complete, any
+   additional data at the Initial or Handshake encryption level fails
+   the handshake with an unexpected_message alert, and data at the
+   1-RTT level (post-handshake messages) is ignored. */
 
 int
 fd_quic_tls_process( fd_quic_tls_hs_t * self );
