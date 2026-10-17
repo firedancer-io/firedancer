@@ -160,14 +160,20 @@ struct fd_quic_conn {
   /* packet number info
      each encryption level maps to a packet number space
      0-RTT and 1-RTT both map to APPLICATION
-     pkt_number[j] represents the minimum acceptable packet number
+     exp_pkt_number[j] is one past the highest packet number received
        "expected packet number"
-       packets with a number lower than this will be dropped */
+
+     rx_pkt_window is a sliding window of recently received APPLICATION
+     packet numbers (RFC 9000 Section 12.3 duplicate detection).  Bit i
+     is set if packet number exp_pkt_number[2]-1-i was received.
+     1-RTT packets with a number older than the window, or with a number
+     whose bit is set, are dropped.  See fd_quic_conn_rx_pkt_num_{dup,commit}. */
   ulong exp_pkt_number[3];  /* different packet number spaces:
                                  INITIAL, HANDSHAKE and APPLICATION */
   ulong pkt_number[3];      /* tx packet number by pn space */
   ulong last_pkt_number[3]; /* last (highest) packet number seen */
   ulong highest_acked[3];   /* highest packet number acked (meaningless if 0) */
+  ulong rx_pkt_window;      /* APPLICATION pn space replay bitmap */
 
   ushort ipv4_id;           /* ipv4 id field */
 
@@ -279,6 +285,40 @@ fd_quic_conn_clear( fd_quic_conn_t * conn ) {
   conn->conn_gen   = conn_gen;
   conn->state      = conn_state;
   conn->stream_map = stream_map;
+}
+
+/* fd_quic_conn_rx_pkt_num_dup returns 1 if an APPLICATION packet with
+   number pkt_num must be dropped because it was already received, or
+   because it is too old to tell (older than the 64 packet window).
+   Returns 0 otherwise.  O(1). */
+
+static inline int
+fd_quic_conn_rx_pkt_num_dup( fd_quic_conn_t const * conn,
+                             ulong                  pkt_num ) {
+  ulong exp = conn->exp_pkt_number[2];
+  if( FD_LIKELY( pkt_num>=exp ) ) return 0;
+  ulong age = exp - 1UL - pkt_num;
+  if( FD_UNLIKELY( age>=64UL ) ) return 1;
+  return (int)( ( conn->rx_pkt_window >> age ) & 1UL );
+}
+
+/* fd_quic_conn_rx_pkt_num_commit records that an authenticated
+   APPLICATION packet with number pkt_num was received, advancing the
+   expected packet number and the replay window.  pkt_num must not be
+   a duplicate (see fd_quic_conn_rx_pkt_num_dup).  O(1). */
+
+static inline void
+fd_quic_conn_rx_pkt_num_commit( fd_quic_conn_t * conn,
+                                ulong            pkt_num ) {
+  ulong exp = conn->exp_pkt_number[2];
+  if( FD_LIKELY( pkt_num>=exp ) ) {
+    ulong shift = pkt_num + 1UL - exp;
+    conn->rx_pkt_window     = fd_ulong_if( shift>=64UL, 1UL, ( conn->rx_pkt_window << (shift&63UL) ) | 1UL );
+    conn->exp_pkt_number[2] = pkt_num + 1UL;
+  } else {
+    ulong age = exp - 1UL - pkt_num;
+    if( FD_LIKELY( age<64UL ) ) conn->rx_pkt_window |= 1UL << age;
+  }
 }
 
 /* set the user-defined context value on the connection */
