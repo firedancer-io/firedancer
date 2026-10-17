@@ -194,7 +194,7 @@ repair_load_manifest( fd_topo_t *  topo,
   memcpy( snap_dst, manifest, sizeof(fd_snapshot_manifest_t) );
   fd_mcache_publish( snap_link->mcache, snap_link->depth, 0UL,
                      fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL ),
-                     snap_chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
+                     snap_chunk, 0UL, 0UL, 0UL, 0UL );
   snap_chunk = fd_dcache_compact_next( snap_chunk, sizeof(fd_snapshot_manifest_t), snap_chunk0, snap_wmark );
 
   fd_mcache_publish( snap_link->mcache, snap_link->depth, 1UL,
@@ -230,7 +230,7 @@ repair_load_manifest( fd_topo_t *  topo,
   ulong * epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
   ulong epoch_sz = repair_generate_epoch_info_msg( epoch, schedule, &manifest->epoch_stakes[cur_idx], epoch_dst );
   fd_mcache_publish( epoch_link->mcache, epoch_link->depth, epoch_seq,
-                     4UL, epoch_chunk, epoch_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+                     4UL, epoch_chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   epoch_chunk = fd_dcache_compact_next( epoch_chunk, epoch_sz, epoch_chunk0, epoch_wmark );
   epoch_seq++;
   FD_LOG_NOTICE(( "sending current epoch stake weights - epoch: %lu", epoch ));
@@ -242,7 +242,7 @@ repair_load_manifest( fd_topo_t *  topo,
     epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
     epoch_sz = repair_generate_epoch_info_msg( epoch + 1UL, schedule, &manifest->epoch_stakes[next_idx], epoch_dst );
     fd_mcache_publish( epoch_link->mcache, epoch_link->depth, epoch_seq,
-                       4UL, epoch_chunk, epoch_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+                       4UL, epoch_chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     epoch_chunk = fd_dcache_compact_next( epoch_chunk, epoch_sz, epoch_chunk0, epoch_wmark );
     epoch_seq++;
     FD_LOG_NOTICE(( "sending next epoch stake weights - epoch: %lu", epoch + 1UL ));
