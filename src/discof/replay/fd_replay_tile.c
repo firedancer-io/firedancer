@@ -4063,6 +4063,12 @@ admin_snap_create( fd_replay_tile_t *  ctx,
 
   /* A stream holds the published root; it ends for a scheduled snapshot. */
   if( FD_UNLIKELY( ctx->strmk.active ) ) {
+    if( FD_UNLIKELY( ctx->snapmk.scheduled_at_slot!=ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "admin requested snapshot creation, but a snapshot is already scheduled at slot %lu. ignoring ...", ctx->snapmk.scheduled_at_slot ));
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+      return;
+    }
+    
     ctx->snapmk.scheduled_at_slot = ctx->published_root_slot+1UL;
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
     return;
