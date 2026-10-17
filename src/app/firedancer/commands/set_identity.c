@@ -142,6 +142,8 @@ set_identity( args_t *   args,
     case FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY:
       FD_LOG_ERR(( "Failed to set identity: the vote history file is invalid or does not belong to the new identity. "
                    "If you believe the vote history file is valid, please contact the Firedancer team for additional assistance." ));
+    case FD_SET_IDENTITY_RESULT_STAKED_TO_STAKED:
+      FD_LOG_ERR(( "Failed to set identity: changing identity from a staked node to a staked node is not supported." ));
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
@@ -185,6 +187,9 @@ action_t fd_action_set_identity = {
                     "it never signs with a mix of the old and new keys, then resumes under the new\n"
                     "identity.  On success it prints `Validator identity key switched to <pubkey>`\n"
                     "and exits 0; a rejected request exits non-zero.\n"
+                    "\n"
+                    "Switching from a staked identity directly to a staked identity, including\n"
+                    "itself, is rejected.  Switch to an unstaked identity first.\n"
                     "\n"
                     "With --vote-history-file, the saved tower is verified before switching.  The\n"
                     "validator takes its votes on blocks it has replayed, and does not vote until\n"

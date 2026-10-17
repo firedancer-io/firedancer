@@ -337,7 +337,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                    ulong                 identity_outset,
                    uchar *                 keypair,
                    fd_tower_file_t const * tower_file,
-                   ulong                   wait_to_vote_slot ) {
+                   ulong                   wait_to_vote_slot,
+                   ulong *                 result ) {
   fd_topo_t const * topo = ctx->topo;
 
   switch( *state ) {
@@ -371,6 +372,13 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         FD_LOG_INFO(( "Replay successfully paused..." ));
       } else if( FD_UNLIKELY( replay->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
         FD_SPIN_PAUSE();
+      } else if( FD_UNLIKELY( replay->state==FD_KEYSWITCH_STATE_FAILED ) ) {
+        fd_memzero_explicit( replay->bytes, 64UL );
+        FD_COMPILER_MFENCE();
+        replay->state = FD_KEYSWITCH_STATE_UNLOCKED;
+        FD_COMPILER_MFENCE();
+        *state  = FD_SET_IDENTITY_STATE_UNLOCKED;
+        *result = FD_SET_IDENTITY_RESULT_STAKED_TO_STAKED;
       } else {
         FD_LOG_ERR(( "Unexpected replay keyswitch state %lu", replay->state ));
       }
@@ -723,14 +731,22 @@ set_identity( fd_admin_tile_ctx_t * ctx,
 
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong identity_outset = (ulong)fd_log_wallclock();
-  for(;;) {
-    if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, req->keypair, tower_file, req->wait_to_vote_slot ) ) ) break;
+  ulong result          = FD_ADMINCTL_RESULT_SUCCESS;
+  while( !poll_set_identity( ctx, &state, identity_outset, req->keypair, tower_file, req->wait_to_vote_slot, &result ) );
+
+  switch( result ) {
+    case FD_ADMINCTL_RESULT_SUCCESS:
+      memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
+      report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
+      break;
+    case FD_SET_IDENTITY_RESULT_STAKED_TO_STAKED:
+      FD_LOG_WARNING(( "set-identity failed: changing identity from a staked node to a staked node is not supported" ));
+      report_admin_command_custom_result( &event, "staked_to_staked" );
+      break;
+    default:
+      FD_LOG_ERR(( "unexpected set-identity result %lu", result ));
   }
-
-  memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
-
-  report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
-  fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
+  fd_adminctl_complete( adminctl, slot_idx, result );
 }
 
 static void

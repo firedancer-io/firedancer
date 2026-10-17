@@ -41,6 +41,10 @@ will be preserved as described in the file. If the file is invalid, the
 command will fail and the identity of the running validator will not
 be changed.
 
+Switching from a staked identity directly to a staked identity,
+including itself, is not supported, and the command will fail without
+changing the identity. Switch to an unstaked identity first.
+
 In Tower, if `[tiles.tower.write_vote_history_file]` is enabled, votes
 are saved to `tower-1_9-<identity>.bin` in the `[paths.vote_history]`
 directory (by default the base directory).

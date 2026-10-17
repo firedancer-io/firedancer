@@ -63,6 +63,7 @@
 
 #define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH             (0x3001UL)
 #define FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY         (0x3002UL)
+#define FD_SET_IDENTITY_RESULT_STAKED_TO_STAKED             (0x3003UL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
