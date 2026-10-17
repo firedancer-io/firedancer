@@ -70,7 +70,7 @@ typedef struct {
 
   ulong             authorized_voters_cnt;
   uchar             authorized_voter_pubkeys[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ 32UL ];
-  uchar             authorized_voter_private_keys[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ 32UL ];
+  uchar          (* authorized_voter_private_keys)[ 32UL ];
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -147,7 +147,7 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
                                   ctx->sha512 );
       ctx->authorized_voters_cnt++;
     } else if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_CLEAR ) ) {
-      fd_memzero_explicit( ctx->authorized_voter_private_keys, sizeof( ctx->authorized_voter_private_keys                ) );
+      fd_memzero_explicit( ctx->authorized_voter_private_keys, 32UL*FD_KEYGUARD_AUTH_VOTERS_MAX                            );
       fd_memzero_explicit( ctx->authorized_voter_pubkeys,      sizeof( ctx->authorized_voter_pubkeys                     ) );
       fd_memzero_explicit( ctx->bls_keys+1,                    sizeof(fd_keyguard_bls_key_t)*(FD_KEYGUARD_BLS_KEY_MAX-1UL) );
       ctx->authorized_voters_cnt = 0UL;
@@ -348,7 +348,8 @@ privileged_init_sensitive( fd_topo_t const *      topo,
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-  ctx->bls_keys = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+  ctx->bls_keys                      = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+  ctx->authorized_voter_private_keys = fd_keyload_alloc_protected_pages( 1UL, 2UL );
 
   FD_TEST( tile->sign.authorized_voter_paths_cnt<FD_KEYGUARD_BLS_KEY_MAX );
   ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
@@ -356,6 +357,7 @@ privileged_init_sensitive( fd_topo_t const *      topo,
     uchar const * authorized_voter_key = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
     memcpy( ctx->authorized_voter_private_keys[ i ], authorized_voter_key, 32UL );
     memcpy( ctx->authorized_voter_pubkeys[ i ], authorized_voter_key + 32UL, 32UL );
+    fd_keyload_unload( authorized_voter_key, /* public_key_only: */ 0 );
   }
 
   /* The stack can be taken over and reorganized by under AddressSanitizer,

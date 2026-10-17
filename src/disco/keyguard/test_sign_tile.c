@@ -15,6 +15,7 @@ static uchar response_data[ FD_BLS_SIG_SZ            ] __attribute__((aligned(FD
 static fd_sign_ctx_t         ctx;
 static fd_keyguard_client_t  client;
 static fd_keyguard_bls_key_t  keys[ FD_KEYGUARD_BLS_KEY_MAX ];
+static uchar                av_private_keys[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ 32UL ];
 static fd_stem_context_t     stem;
 static uchar                identity_key[ 64 ];
 static ulong                response_seq;
@@ -27,12 +28,14 @@ setup( void ) {
   memset( &client, 0, sizeof(client) );
   memset( &stem, 0, sizeof(stem) );
   memset( keys, 0, sizeof(keys) );
+  memset( av_private_keys, 0, sizeof(av_private_keys) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx.sha512 ) ) );
   memset( identity_key, 0x11, 32UL );
   fd_ed25519_public_from_private( identity_key+32UL, identity_key, ctx.sha512 );
   ctx.private_key = identity_key;
   ctx.public_key  = identity_key+32UL;
   ctx.bls_keys    = keys;
+  ctx.authorized_voter_private_keys = av_private_keys;
   derive_fields( &ctx );
   FD_TEST( fd_histf_join( fd_metrics_histf_new_ns( ctx.sign_duration, FD_MHIST_EDGES_NS( SIGN, SIGN_DURATION_NANOS ) ) ) );
 
