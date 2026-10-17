@@ -1043,7 +1043,7 @@ message BlockCompletedTxnTiming {
   uint64 parsed_time = 2;
   // Replayed blocks: when the scheduler handed the transaction to an execution tile. Leader blocks: when an execution tile began executing it; transactions of one bundle share the stamp.
   uint64 dispatched_time = 3;
-  // When execution finished and results were committed to the block's state, on whichever path executed it.
+  // Replayed blocks: when the scheduler received the execution result, including the return hop and replay's polling delay, not only execution. Leader blocks: when execution finished and results were committed to the block's state.
   uint64 replayed_time = 4;
   // When the scheduler dispatched signature verification, which runs in parallel with execution. 0 for leader blocks (verified upstream of pack).
   uint64 sigverify_dispatched_time = 5;
@@ -7929,7 +7929,7 @@ message BlockCompleted {
   uint64 preparation_begin_time = 37;
   // When replay dispatched the block's first transaction to an execution tile. Leader blocks: when an execution tile began the first packed transaction. Execution and verification run from here to last_transaction_finished_time; equal to it if the block executed no transactions or, for leader blocks, if production timing was unavailable (see txn_timing). 0 on dead and abandoned rows if no transaction was ever dispatched.
   uint64 first_transaction_scheduled_time = 38;
-  // When the block became fully executed and verified and end-of-block processing began: all execution and signature-verification results returned, the final FEC set received, PoH verified. At the live tip this trails the last execution result by trailing-tick reception and verification; per-transaction execution end is txn_timing.replayed_time. Leader blocks: when the block was fully produced (final PoH hash received, block id returned through reassembly), trailing the last execution result by the PoH tail and final-entry shredding, most visibly when a limit ended the block early. 0 if the block never finished executing (dead or abandoned).
+  // When the block became fully executed and verified and end-of-block processing began: all execution and signature-verification results returned, the final FEC set received, PoH verified. At the live tip this trails the last execution result by trailing-tick reception and verification; per-transaction results are txn_timing.replayed_time. Leader blocks: when the block was fully produced (final PoH hash received, block id returned through reassembly), trailing the last execution result by the PoH tail and final-entry shredding, most visibly when a limit ended the block early. 0 if the block never finished executing (dead or abandoned).
   uint64 last_transaction_finished_time = 39;
   // When end-of-block processing finished and the block froze: state hashing complete, no further changes. Minus last_transaction_finished_time: finalization cost. 0 if the block never completed (dead or abandoned).
   uint64 block_completed_time = 40;
