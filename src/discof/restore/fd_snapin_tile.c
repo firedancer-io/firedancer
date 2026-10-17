@@ -1761,7 +1761,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                       && ctx->staged.data[ 0 ]==2UL ) ) {
           uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
           fd_memcpy( acct, ctx->staged.data, ctx->staged.data_len );
-          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, ctx->staged.data_len, 0UL, 0UL, 0UL );
+          fd_stem_publish( stem, ctx->gui_out.idx, ctx->staged.slot, ctx->gui_out.chunk, ctx->staged.data_len, 0UL, 0UL, 0UL ); /* sig is the account slot */
           ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, ctx->staged.data_len, ctx->gui_out.chunk0, ctx->gui_out.wmark );
           early_exit = 1;
         }
