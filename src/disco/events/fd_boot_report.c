@@ -961,7 +961,8 @@ collect_platform( fd_boot_report_t * r,
 }
 
 static void
-collect_container( fd_boot_report_t * r ) {
+collect_container( fd_boot_report_t * r,
+                   char const *       launch_cgroup ) {
   char cgroup[ 4096 ] = {0};
   read_file( "/proc/self/cgroup", cgroup, sizeof(cgroup), NULL );
 
@@ -986,26 +987,35 @@ collect_container( fd_boot_report_t * r ) {
 
   r->kubernetes_pod = !!getenv( "KUBERNETES_SERVICE_HOST" ) || !!strstr( cgroup, "kubepods" );
 
-  /* cgroup v2 limits along our own cgroup path */
-  char const * v2 = strstr( cgroup, "0::" );
-  if( v2 ) {
+  /* cgroup v2 limits of the launcher's cgroup (the event tile itself
+     may sit in the cpuset isolation cgroup), the tightest over it and
+     its ancestors up to the visible root, which holds limits when
+     /sys/fs/cgroup is a namespaced view.  Minima start at ULONG_MAX so
+     a finite 0 is kept; the report reserves 0 for unlimited, so a
+     finite limit of 0 is reported as 1. */
+  if( launch_cgroup[ 0 ] ) {
     char cgpath[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( cgpath, sizeof(cgpath), NULL, "%s", v2+3 ) );
-    char * nl = strchr( cgpath, '\n' );
-    if( nl ) *nl = '\0';
-
-    char path[ PATH_MAX+32 ], val[ 64 ];
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.max", cgpath ) );
-    if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) ) r->cgroup_memory_limit_bytes = strtoul( val, NULL, 10 );
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.high", cgpath ) );
-    if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) ) r->cgroup_memory_high_bytes = strtoul( val, NULL, 10 );
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.swap.max", cgpath ) );
-    if( !read_cstr( path, val, sizeof(val) ) ) r->cgroup_swap_limit_bytes = strcmp( val, "max" ) ? strtoul( val, NULL, 10 ) : ULONG_MAX;
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/cpu.max", cgpath ) );
-    if( !read_cstr( path, val, sizeof(val) ) ) {
+    FD_TEST( fd_cstr_printf_check( cgpath, sizeof(cgpath), NULL, "%s", strcmp( launch_cgroup, "/" ) ? launch_cgroup : "" ) );
+    ulong mem_max = ULONG_MAX, mem_high = ULONG_MAX, cpu_mc = ULONG_MAX;
+    for(;;) {
+      char path[ PATH_MAX+32 ], val[ 64 ];
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.max", cgpath ) );
+      if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) ) mem_max  = fd_ulong_min( mem_max,  strtoul( val, NULL, 10 ) );
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.high", cgpath ) );
+      if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) ) mem_high = fd_ulong_min( mem_high, strtoul( val, NULL, 10 ) );
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/memory.swap.max", cgpath ) );
+      if( !read_cstr( path, val, sizeof(val) ) && strcmp( val, "max" ) ) r->cgroup_swap_limit_bytes = fd_ulong_min( r->cgroup_swap_limit_bytes, strtoul( val, NULL, 10 ) );
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup%s/cpu.max", cgpath ) );
       ulong quota, period;
-      if( 2==sscanf( val, "%lu %lu", &quota, &period ) && period ) r->cgroup_cpu_quota_millicores = (uint)( quota*1000UL/period );
+      if( !read_cstr( path, val, sizeof(val) ) && 2==sscanf( val, "%lu %lu", &quota, &period ) && period ) cpu_mc = fd_ulong_min( cpu_mc, quota*1000UL/period );
+      if( !cgpath[ 0 ] ) break; /* visited the root */
+      char * slash = strrchr( cgpath, '/' );
+      if( FD_UNLIKELY( !slash ) ) break;
+      *slash = '\0'; /* "/a" becomes "", the root */
     }
+    if( mem_max !=ULONG_MAX ) r->cgroup_memory_limit_bytes   = fd_ulong_max( mem_max,  1UL );
+    if( mem_high!=ULONG_MAX ) r->cgroup_memory_high_bytes    = fd_ulong_max( mem_high, 1UL );
+    if( cpu_mc  !=ULONG_MAX ) r->cgroup_cpu_quota_millicores = (uint)fd_ulong_min( fd_ulong_max( cpu_mc, 1UL ), UINT_MAX );
   }
 
   /* cgroup v1: per-controller hierarchies, used by v1-only and hybrid
@@ -1439,7 +1449,7 @@ fd_boot_report_collect( fd_boot_report_t *     r,
   collect_dimms( r );
   collect_net( r, tile->event.net_interface );
   collect_platform( r, tile->event.net_interface );
-  collect_container( r );
+  collect_container( r, tile->event.launch_cgroup );
   collect_block_devices( r );
   collect_nvme( r );
   collect_mdraid( r );
