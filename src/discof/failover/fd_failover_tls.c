@@ -4,6 +4,8 @@
 #include "../../ballet/x509/fd_x509_mock.h"
 
 #include <string.h>
+#include <errno.h>
+#include <sys/socket.h>
 
 /* ALPN id, TLS length-prefixed */
 static uchar const ALPN[] = "\x17" "fd-failover/on-demand/1";
@@ -69,14 +71,52 @@ fd_failover_tls_new( fd_failover_tls_t *     tls,
   return 0;
 }
 
+int
+fd_failover_tls_client_hello( fd_failover_tls_t * tls, uchar * out, ulong * out_sz ) {
+  ulong app_sz = 0UL;
+  return fd_tlsrec_conn_rx( &tls->conn, NULL, out, out_sz, NULL, &app_sz );
+}
+
+int
+fd_failover_tls_accept_flight( fd_failover_tls_t * tls, uchar const * data, ulong sz ) {
+  if( fd_tlsrec_sock_tx_pending( &tls->sock ) || tls->received>FD_FAILOVER_TLS_PREPAIR_MAX ||
+      sz>FD_FAILOVER_TLS_PREPAIR_MAX-tls->received ) return -1;
+  fd_tlsrec_slice_t rx[1];
+  fd_tlsrec_slice_init( rx, (uchar *)data, sz );
+  ulong tx_sz = sizeof(tls->sock.tx_buf);
+  ulong app_sz = 0UL;
+  int rc = fd_tlsrec_conn_rx( &tls->conn, rx, tls->sock.tx_buf, &tx_sz, NULL, &app_sz );
+  tls->sock.tx_sz = tx_sz;
+  tls->received += sz;
+  return rc || !fd_tlsrec_slice_is_empty( rx ) || app_sz ? -1 : 0;
+}
+
+int
+fd_failover_tls_flush( fd_failover_tls_t * tls ) {
+  fd_tlsrec_sock_t * sock = &tls->sock;
+  if( !fd_tlsrec_sock_tx_pending( sock ) ) return 0;
+  if( !tls->send_budget ) return 1;
+  tls->send_budget--;
+  long sent = send( tls->fd, sock->tx_buf+sock->tx_off, sock->tx_sz-sock->tx_off, MSG_NOSIGNAL|MSG_DONTWAIT );
+  if( sent<0L ) return errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ? 1 : -1;
+  if( FD_UNLIKELY( !sent ) ) return -1;
+  sock->tx_off += (ulong)sent;
+  if( sock->tx_off<sock->tx_sz ) return 1;
+  sock->tx_off = sock->tx_sz = 0UL;
+  return 0;
+}
+
 void
 fd_failover_tls_fini( fd_failover_tls_t * tls ) {
   if( FD_LIKELY( tls->fd!=-1 && fd_tlsrec_conn_is_ready( &tls->conn ) && !tls->conn.tx_closed ) ) {
-    (void)fd_tlsrec_sock_close( &tls->sock, &tls->conn, tls->fd );
+    ulong sz = sizeof(tls->sock.tx_buf)-tls->sock.tx_sz;
+    if( !fd_tlsrec_conn_close( &tls->conn, tls->sock.tx_buf+tls->sock.tx_sz, &sz ) ) {
+      tls->sock.tx_sz += sz;
+      (void)fd_failover_tls_flush( tls );
+    }
   }
   fd_memzero_explicit( &tls->conn, sizeof(tls->conn) );
   fd_memzero_explicit( &tls->sock, sizeof(tls->sock) );
-  /* Closing clears both TLS verification and HELLO pairing. */
   tls->fd       = -1;
   tls->verified = 0;
   tls->paired   = 0;
@@ -87,25 +127,38 @@ void
 fd_failover_tls_budget( fd_failover_tls_t * tls ) {
   tls->read_budget  = 1;
   tls->write_budget = 1;
+  tls->send_budget  = 1;
 }
 
-/* pull reads one batch of ciphertext into the record layer.  Returns 0
-   (maybe nothing read) or -1 on error or peer close. */
-
+/* Limit ciphertext before processing it.  EINTR yields to the next
+   service turn, so neither reads nor writes retry in an unbounded loop. */
 static int
 pull( fd_failover_tls_t * tls ) {
-  if( FD_UNLIKELY( !tls->read_budget ) ) return 0;
+  fd_tlsrec_sock_t * sock = &tls->sock;
+  if( !tls->read_budget || fd_tlsrec_sock_rx_avail( sock ) ||
+      sizeof(sock->tx_buf)-sock->tx_sz<FD_TLSREC_SOCK_TX_RESERVE ) return 0;
+  if( tls->conn.rx_closed ) { tls->peer_closed = 1; return -1; }
+  ulong max = FD_TLSREC_SOCK_RX_MTU;
+  if( !tls->paired ) {
+    if( tls->received>=FD_FAILOVER_TLS_PREPAIR_MAX ) return -1;
+    max = fd_ulong_min( max, FD_FAILOVER_TLS_PREPAIR_MAX-tls->received );
+  }
   tls->read_budget--;
-  ulong rx_sz = 0UL;
-  int   rc    = fd_tlsrec_sock_rx( &tls->sock, &tls->conn, tls->fd, &rx_sz );
-  if( FD_UNLIKELY( rc ) ) {
-    tls->peer_closed = rc==FD_TLSREC_SOCK_ERR_EOF;
-    return -1;
-  }
-  if( FD_LIKELY( !tls->paired ) ) {
-    tls->received += rx_sz;
-    if( FD_UNLIKELY( tls->received>FD_FAILOVER_TLS_PREPAIR_MAX ) ) return -1;
-  }
+  uchar buf[ FD_TLSREC_SOCK_RX_MTU ];
+  long n = recv( tls->fd, buf, max, MSG_NOSIGNAL|MSG_DONTWAIT );
+  if( n<0L ) return errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ? 0 : -1;
+  if( !n ) { tls->peer_closed = 1; return -1; }
+  if( !tls->paired ) tls->received += (ulong)n;
+  fd_tlsrec_slice_t rx[1];
+  fd_tlsrec_slice_init( rx, buf, (ulong)n );
+  ulong tx_sz  = sizeof(sock->tx_buf)-sock->tx_sz;
+  ulong app_sz = sizeof(sock->rx_buf);
+  int rc = fd_tlsrec_conn_rx( &tls->conn, rx, sock->tx_buf+sock->tx_sz, &tx_sz, sock->rx_buf, &app_sz );
+  sock->tx_sz += tx_sz;
+  sock->rx_off = 0UL;
+  sock->rx_sz  = app_sz;
+  if( rc || fd_failover_tls_flush( tls )<0 ) return -1;
+  if( tls->conn.rx_closed && !app_sz ) { tls->peer_closed = 1; return -1; }
   return 0;
 }
 
@@ -117,7 +170,7 @@ fd_failover_tls_handshake( fd_failover_tls_t * tls ) {
     FD_LOG_DEBUG(( "failover TLS handshake failed: %s", fd_tls_reason_cstr( tls->conn.hs.base.reason ) ));
     return -1;
   }
-  if( FD_UNLIKELY( fd_tlsrec_sock_flush( &tls->sock, tls->fd )<0 ) ) return -1;
+  if( FD_UNLIKELY( fd_failover_tls_flush( tls )<0 ) ) return -1;
   if( FD_LIKELY( !fd_tlsrec_conn_is_ready( &tls->conn ) ) ) {
     if( FD_UNLIKELY( pull( tls ) ) ) return -1;
     if( FD_UNLIKELY( fd_tlsrec_conn_is_failed( &tls->conn ) ) ) {
@@ -156,7 +209,7 @@ fd_failover_tls_read( fd_failover_tls_t * tls,
       tls->peer_closed = 1;
       return -1L;
     }
-    if( FD_UNLIKELY( fd_tlsrec_sock_flush( &tls->sock, tls->fd )<0 ) ) return -1L;
+    if( FD_UNLIKELY( fd_failover_tls_flush( tls )<0 ) ) return -1L;
     if( FD_UNLIKELY( pull( tls ) ) ) return -1L;
   }
   return (long)fd_tlsrec_sock_rx_pop( &tls->sock, buf, sz );
@@ -168,12 +221,17 @@ fd_failover_tls_write( fd_failover_tls_t * tls,
                        ulong               sz ) {
   if( FD_UNLIKELY( fd_tlsrec_conn_is_failed( &tls->conn ) || tls->conn.tx_closed ) ) return -1L;
   if( FD_UNLIKELY( fd_tlsrec_sock_tx_pending( &tls->sock ) ) ) {
-    int rc = fd_tlsrec_sock_flush( &tls->sock, tls->fd );
+    int rc = fd_failover_tls_flush( tls );
     if( rc ) return rc<0 ? -1L : 0L;
   }
   if( FD_UNLIKELY( !tls->write_budget ) ) return 0L;
   tls->write_budget--;
-  ulong consumed = 0UL;
-  if( FD_UNLIKELY( fd_tlsrec_sock_tx( &tls->sock, &tls->conn, tls->fd, buf, sz, &consumed ) ) ) return -1L;
-  return (long)consumed;
+  fd_tlsrec_slice_t app[1];
+  fd_tlsrec_slice_init( app, (uchar *)buf, sz );
+  ulong tx_sz = sizeof(tls->sock.tx_buf);
+  if( FD_UNLIKELY( fd_tlsrec_conn_tx( &tls->conn, tls->sock.tx_buf, &tx_sz, app ) ) ) return -1L;
+  tls->sock.tx_off = 0UL;
+  tls->sock.tx_sz  = tx_sz;
+  if( FD_UNLIKELY( fd_failover_tls_flush( tls )<0 ) ) return -1L;
+  return (long)(sz-fd_tlsrec_slice_sz( app ));
 }

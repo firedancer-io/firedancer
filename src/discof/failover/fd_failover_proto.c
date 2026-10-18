@@ -3,9 +3,11 @@
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 
-FD_STATIC_ASSERT( FD_KEYGUARD_MEMBER_CERT_MSG_SZ==FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ+32UL, member_cert_msg );
+FD_STATIC_ASSERT( sizeof(FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN)-1UL==FD_KEYGUARD_FAILOVER_DOMAIN_SZ, client_proof_domain );
+FD_STATIC_ASSERT( sizeof(FD_KEYGUARD_FAILOVER_SERVER_DOMAIN)-1UL==FD_KEYGUARD_FAILOVER_DOMAIN_SZ, server_proof_domain );
 
 int
 fd_failover_hello_check( fd_failover_hello_t const * self,
@@ -27,21 +29,42 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
 }
 
 void
-fd_failover_member_cert_msg( uchar       out[ 48 ],
-                             uchar const junk_pubkey[ 32 ] ) {
-  fd_memcpy( out,                                   FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
-  fd_memcpy( out+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, junk_pubkey,                    32UL                              );
+fd_failover_admission_hash( fd_failover_admission_start_t const *     start,
+                            uchar const *                            client_hello,
+                            fd_failover_admission_challenge_t const * challenge,
+                            uchar                                    out[ 32 ] ) {
+  fd_sha256_t sha[1];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, start,        sizeof(*start)       );
+  fd_sha256_append( sha, client_hello, start->client_hello_sz );
+  fd_sha256_append( sha, challenge,    sizeof(*challenge)   );
+  fd_sha256_fini( sha, out );
 }
 
-int
-fd_failover_member_cert_check( fd_failover_hello_t const * hello,
-                               fd_sha512_t *               sha ) {
-  uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
-  fd_failover_member_cert_msg( msg, hello->junk_pubkey );
-  if( FD_UNLIKELY( fd_ed25519_verify( msg, sizeof(msg), hello->member_cert, hello->staked_pubkey, sha )!=FD_ED25519_SUCCESS ) ) {
-    return FD_FAILOVER_HELLO_ERR_CERT;
-  }
-  return FD_FAILOVER_HELLO_OK;
+void
+fd_failover_response_hash( uchar const   transcript[ 32 ],
+                           uchar const   client_proof[ 64 ],
+                           uchar const * server_flight,
+                           ushort        server_flight_sz,
+                           uchar         out[ 32 ] ) {
+  fd_sha256_t sha[1];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, transcript,        32UL                     );
+  fd_sha256_append( sha, client_proof,      64UL                     );
+  fd_sha256_append( sha, &server_flight_sz, sizeof(server_flight_sz) );
+  fd_sha256_append( sha, server_flight,     server_flight_sz         );
+  fd_sha256_fini( sha, out );
+}
+
+void
+fd_failover_proof_msg( uchar       out[ FD_KEYGUARD_FAILOVER_PROOF_SZ ],
+                       int         server,
+                       uchar const junk_pubkey[ 32 ],
+                       uchar const transcript[ 32 ] ) {
+  fd_memcpy( out, server ? FD_KEYGUARD_FAILOVER_SERVER_DOMAIN : FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN,
+             FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
+  fd_memcpy( out+FD_KEYGUARD_FAILOVER_DOMAIN_SZ,      junk_pubkey, 32UL );
+  fd_memcpy( out+FD_KEYGUARD_FAILOVER_DOMAIN_SZ+32UL, transcript,  32UL );
 }
 
 ulong

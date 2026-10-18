@@ -425,18 +425,17 @@ fd_keyguard_payload_matches_vote_history( uchar const * data,
   return 1;
 }
 
-/* The failov tile requests a plain Ed25519 signature over a 16 byte
-   domain prefix and a junk pubkey.  The prefix keeps it apart from
-   shred roots and every other raw message, and no other matcher
-   accepts a 48 byte message starting with it. */
+/* Exact domains and size keep admission proofs separate from votes,
+   transactions, TLS and the retired member certificate format. */
 
 FD_FN_PURE static int
 fd_keyguard_payload_matches_failov( uchar const * data,
                                     ulong         sz,
                                     int           sign_type ) {
   return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
-         sz==FD_KEYGUARD_MEMBER_CERT_MSG_SZ &&
-         fd_memeq( data, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
+         sz==FD_KEYGUARD_FAILOVER_PROOF_SZ &&
+         ( fd_memeq( data, FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ ) ||
+           fd_memeq( data, FD_KEYGUARD_FAILOVER_SERVER_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ ) );
 }
 
 FD_FN_PURE ulong

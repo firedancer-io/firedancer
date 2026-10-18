@@ -1105,13 +1105,20 @@ static int  failover_identity_switch( fd_tower_tile_t * ctx );
 static void failover_adopt_frag     ( fd_tower_tile_t * ctx, ulong in_idx, ulong sig, ulong chunk, ulong sz, ulong ctl, fd_stem_context_t * stem );
 static void failover_init           ( fd_tower_tile_t * ctx, fd_topo_t const * topo, fd_topo_tile_t const * tile );
 
+/* Imported slots can approach ULONG_MAX.  An unrepresentable expiry
+   must keep voting disabled rather than wrap to an earlier slot. */
+static ulong
+vote_history_expiry( fd_tower_vote_t const * vote ) {
+  return fd_ulong_sat_add( vote->slot, (1UL<<vote->conf)+1UL );
+}
+
 static ulong
 vote_history_ahead( fd_tower_t *            tower,
                     fd_ghost_t *            ghost,
                     fd_tower_file_t const * file ) {
   fd_tower_blk_t const * root_blk = fd_tower_blocks_query( tower, file->root );
   int   ahead   = file->root>tower->root && ( !root_blk || !fd_ghost_query( ghost, &root_blk->replayed_block_id ) );
-  ulong wait    = file->votes[ file->votes_cnt-1UL ].slot+1UL;
+  ulong wait    = fd_ulong_sat_add( file->votes[ file->votes_cnt-1UL ].slot, 1UL );
   int   missing = 0;
   for( ulong i=0UL; i<file->votes_cnt; i++ ) {
     fd_tower_vote_t const * vote = &file->votes[ i ];
@@ -1119,7 +1126,7 @@ vote_history_ahead( fd_tower_t *            tower,
     missing |= vote->slot>tower->root && ( !blk || !fd_ghost_query( ghost, &blk->replayed_block_id ) );
     if( missing ) {
       ahead = 1;
-      wait  = fd_ulong_max( wait, vote->slot+(1UL<<vote->conf)+1UL );
+      wait  = fd_ulong_max( wait, vote_history_expiry( vote ) );
     }
   }
   return ahead ? wait : 0UL;
@@ -1133,7 +1140,7 @@ vote_history_floor( ulong                          root,
   for( ulong i=0UL; i<file->votes_cnt; i++ ) {
     fd_tower_vote_t const * vote = &file->votes[ i ];
     if( vote->slot<=root && fd_sysvar_slot_history_find_slot( slot_history, vote->slot )==FD_SLOT_HISTORY_SLOT_NOT_FOUND ) {
-      floor = fd_ulong_max( floor, vote->slot+(1UL<<vote->conf)+1UL );
+      floor = fd_ulong_max( floor, vote_history_expiry( vote ) );
     }
   }
   return floor;
@@ -2428,7 +2435,7 @@ failover_check_vote_history( fd_tower_tile_t *                  ctx,
     }
     if( FD_UNLIKELY( fd_ghost_root( ctx->ghost )->slot!=ghost_root ) ) found = 0;
     ulong lockout = floor;
-    for( ulong i=0UL; i<file->votes_cnt; i++ ) lockout = fd_ulong_max( lockout, file->votes[ i ].slot+(1UL<<file->votes[ i ].conf)+1UL );
+    for( ulong i=0UL; i<file->votes_cnt; i++ ) lockout = fd_ulong_max( lockout, vote_history_expiry( &file->votes[ i ] ) );
     FD_LOG_WARNING(( "set-identity: vote history is not on the fork of our root %lu, ignoring the vote history and not voting below slot %lu", tower->root, lockout ));
     ctx->vote_history_pending = 0;
     tower->wait_to_vote_slot  = lockout;

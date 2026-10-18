@@ -32,7 +32,7 @@ stem_init( void ) {
   };
 }
 
-static uchar                  ch_mem[ 8UL<<20 ] __attribute__((aligned(128)));
+static uchar                  ch_mem[ 32UL<<20 ] __attribute__((aligned(128)));
 static fd_failover_tile_ctx_t ctl[ 1 ];
 
 #define OUR_BOOT_ID (1000UL)
@@ -272,7 +272,7 @@ test_operator_switch( void ) {
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->hello.role==FD_FAILOVER_ROLE_STANDBY );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck && !ctx->tx.valid && !ctx->handoff.id && !ctx->request.id );
   FD_TEST( ctx->hello.boot_id!=OUR_BOOT_ID && ctx->channel->self_hello.boot_id==ctx->hello.boot_id );
-  FD_TEST( !ctx->member_cert_set && !ctx->current_tower.valid && ctx->own_floor==99UL );
+  FD_TEST( !ctx->current_tower.valid && ctx->own_floor==99UL );
   FD_TEST( ctx->id_switch.epoch==1UL && ctx->id_switch.discard && ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_JUNK );
   FD_TEST( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED );
 
@@ -320,8 +320,7 @@ test_operator_switch( void ) {
 }
 
 /* test_operator_failover_identity: HELLO has the failover identity
-   OPERATOR gives, the role follows the installed key, and a member cert
-   signed with another key waits for the next OPERATOR. */
+   OPERATOR gives, and the role follows the installed key. */
 static void
 test_operator_failover_identity( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
@@ -331,7 +330,7 @@ test_operator_failover_identity( void ) {
   uchar third[ 32 ]; fd_memset( third, 0x77, 32UL );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->hello.role==FD_FAILOVER_ROLE_ACTIVE );
   FD_TEST( fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) && fd_memeq( ctx->channel->self_hello.staked_pubkey, third, 32UL ) );
-  FD_TEST( !ctx->staked_addr && !ctx->staked_seen_at && !ctx->member_cert_set );
+  FD_TEST( !ctx->staked_addr && !ctx->staked_seen_at );
 
   /* A junk set-identity keeps the failover identity, the configured key does not come back. */
   operator_frame( ctx, 2UL, 0x11, 0x77 );
@@ -342,32 +341,9 @@ test_operator_failover_identity( void ) {
   operator_frame( ctx, 3UL, 0x5A, 0x77 );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) );
 
-  /* A cert over our junk key signed with the configured key, as the sign
-     tile would sign it before this OPERATOR, is refused by the channel and
-     we wait for the next OPERATOR. */
-  uchar secret[ 32 ]; fd_memset( secret, 0x5A, 32UL );
-  uchar public[ 32 ];
-  fd_sha512_t sha[ 1 ];
-  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
-  fd_ed25519_public_from_private( public, secret, sha );
-  uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ], cert[ 64 ];
-  fd_failover_member_cert_msg( msg, ctx->hello.junk_pubkey );
-  fd_ed25519_sign( cert, msg, sizeof(msg), public, secret, sha );
-  member_cert_signed( ctx, cert );
-  FD_TEST( ctx->member_cert_set && !ctx->channel->member_cert_set );
-
-  /* With a real key other than junk and staked in the next OPERATOR, a
-     cert it signed is ours, and HELLO passes against a peer with the
-     same key and fails against one still on the configured key. */
-  uchar third_secret[ 32 ]; fd_memset( third_secret, 0x66, 32UL );
-  uchar third_public[ 32 ];
-  fd_ed25519_public_from_private( third_public, third_secret, sha );
+  /* A new target must be reflected in both admission and HELLO. */
   operator_frame( ctx, 4UL, 0x11, 0x77 );
-  fd_memcpy( ctx->hello.staked_pubkey,               third_public, 32UL );
-  fd_memcpy( ctx->channel->self_hello.staked_pubkey, third_public, 32UL );
-  fd_ed25519_sign( cert, msg, sizeof(msg), third_public, third_secret, sha );
-  member_cert_signed( ctx, cert );
-  FD_TEST( ctx->channel->member_cert_set );
+  uchar public[ 32 ]; fd_memset( public, 0x5A, 32UL );
   fd_failover_hello_t peer = ctx->channel->self_hello;
   peer.role    = FD_FAILOVER_ROLE_ACTIVE;
   peer.boot_id = 77UL;
@@ -629,10 +605,8 @@ test_dial_backoff_reset( void ) {
   controller_fini( ctx );
 }
 
-/* test_listen_slot: a full table makes room for a newcomer the listener
-   admitted.  The address with the most candidates loses its oldest,
-   else the oldest of all goes.  An authenticated, dialed or paired
-   candidate is never closed. */
+/* A full table evicts the oldest eligible candidate from the busiest
+   address.  Reserved slots and candidates within their grace stay. */
 static void
 fill( fd_failover_channel_t * ch,
       ulong                   idx,
@@ -653,18 +627,15 @@ static void
 test_listen_slot( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   fd_failover_channel_t *  ch  = ctx->channel;
-  FD_TEST( listen_slot( ch, 1000L )==0UL );
-  for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) fill( ch, i, FD_IP4_ADDR(10,1,0,(uint)i), 100L+(long)i );
-  fill( ch, 7UL, FD_IP4_ADDR(10,1,0,3), 107L ); /* 10.1.0.3 holds 3 and 7 */
-  FD_TEST( listen_slot( ch, 1000L )==3UL && ch->candidates[ 3 ].fd==-1 );
-  fill( ch, 3UL, FD_IP4_ADDR(10,2,0,1), 200L );
-  FD_TEST( listen_slot( ch, 1000L )==0UL );
-  fill( ch, 0UL, FD_IP4_ADDR(10,2,0,2), 201L );
-  ch->candidates[ 1 ].phase  = PHASE_READY;
-  ch->candidates[ 2 ].dialed = 1;
-  ch->paired_idx             = 4;
-  FD_TEST( listen_slot( ch, 1000L )==5UL );
-  ch->paired_idx             = -1;
+  long now = FD_FAILOVER_ADMISSION_START_NANOS;
+  FD_TEST( listen_slot( ch, now )==UNAUTHENTICATED_IDX );
+  for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) fill( ch, i, FD_IP4_ADDR(10,1,0,(uint)i), now+100L+(long)i );
+  FD_TEST( listen_slot( ch, now )==FD_FAILOVER_CHANNEL_CANDIDATE_MAX );
+  close( ch->candidates[ UNAUTHENTICATED_IDX ].fd );
+  ch->candidates[ UNAUTHENTICATED_IDX ].fd = -1;
+  FD_TEST( listen_slot( ch, now )==UNAUTHENTICATED_IDX );
+  FD_TEST( ch->candidates[ OUTBOUND_IDX ].fd!=-1 && ch->candidates[ ADMITTED_IDX ].fd!=-1 &&
+           ch->candidates[ RECONNECT_IDX ].fd!=-1 );
   for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) if( ch->candidates[ i ].fd!=-1 ) {
     close( ch->candidates[ i ].fd );
     ch->candidates[ i ].fd = -1;

@@ -84,6 +84,7 @@
 #define FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED      (0x4011UL) /* client has no target identity */
 #define FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT      (0x4012UL) /* target differs from the prepared identity or is the boot identity */
 #define FD_FAILOVER_CONTROL_RESULT_NOT_BOOT_IDENTITY (0x4013UL) /* client must prepare while still on its boot identity */
+#define FD_FAILOVER_CONTROL_RESULT_INPUT_LOST        (0x4014UL) /* failover input overrun, restart required */
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */

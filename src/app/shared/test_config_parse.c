@@ -328,7 +328,6 @@ main( int     argc,
   /* Parse the failover knobs */
 
   fd_memset( config, 0, sizeof(config_t) );
-  config->is_firedancer = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_failover, sizeof(cfg_str_failover)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );

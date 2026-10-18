@@ -397,9 +397,9 @@ test_failover_keys( void ) {
   ctx.keyswitch = fd_keyswitch_join( fd_keyswitch_new( identity_switch, FD_KEYSWITCH_STATE_UNLOCKED ) );
   FD_TEST( ctx.keyswitch );
 
-  uchar cert[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
-  fd_memcpy( cert,                                    FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
-  fd_memcpy( cert+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, junk_key+32UL,                  32UL                              );
+  uchar proof[ FD_KEYGUARD_FAILOVER_PROOF_SZ ] = {0};
+  fd_memcpy( proof,                                        FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
+  fd_memcpy( proof+FD_KEYGUARD_FAILOVER_DOMAIN_SZ,         junk_key+32UL,                      32UL                         );
   uchar cv[ FD_TLS_CV_SIGN_SZ ];
   fd_memcpy( cv, fd_tls13_cli_sign_prefix, sizeof(fd_tls13_cli_sign_prefix) );
   fd_memset( cv+sizeof(fd_tls13_cli_sign_prefix), 0x5A, sizeof(cv)-sizeof(fd_tls13_cli_sign_prefix) );
@@ -409,7 +409,7 @@ test_failover_keys( void ) {
   fd_keyguard_bls_key_derive( staked_bls, staked_key+32UL, staked_key, ctx.sha512 );
 
   /* Junk, staked, then junk again.  Whichever is installed, the staked
-     key signs the certificate and the junk key the handshake, and BLS
+     key signs the proof and the junk key the handshake, and BLS
      key 0 follows the installed identity. */
   for( ulong i=0UL; i<3UL; i++ ) {
     uchar const *                 installed = i==1UL ? staked_key : junk_key;
@@ -418,7 +418,7 @@ test_failover_keys( void ) {
     FD_TEST( fd_memeq( ctx.public_key,     installed+32UL,  32UL                      ) );
     FD_TEST( fd_memeq( ctx.private_key,    installed,       32UL                      ) );
     FD_TEST( fd_memeq( keys[0].public_key, bls->public_key, FD_BLS_PUB_COMPRESSED_SZ  ) );
-    FD_TEST( failover_signed_by( cert, sizeof(cert), staked_key+32UL ) );
+    FD_TEST( failover_signed_by( proof, sizeof(proof), staked_key+32UL ) );
     FD_TEST( failover_signed_by( cv,   sizeof(cv),   junk_key  +32UL ) );
   }
 
@@ -437,7 +437,7 @@ test_failover_keys( void ) {
 }
 
 /* A set-identity keypair other than the junk key becomes the failover
-   identity, it signs the member certificate and cannot become an
+   identity, it signs the admission proof and cannot become an
    authorized voter.  The staked key keeps its boot page, another key goes in the
    operator page. */
 
@@ -460,16 +460,16 @@ test_failover_operator_key( void ) {
   uchar third[ 64 ];
   fd_memset( third, 0x66, 32UL );
   fd_ed25519_public_from_private( third+32UL, third, ctx.sha512 );
-  uchar cert[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
-  fd_memcpy( cert,                                    FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
-  fd_memcpy( cert+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, junk_key+32UL,                  32UL                              );
+  uchar proof[ FD_KEYGUARD_FAILOVER_PROOF_SZ ] = {0};
+  fd_memcpy( proof,                                        FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
+  fd_memcpy( proof+FD_KEYGUARD_FAILOVER_DOMAIN_SZ,         junk_key+32UL,                      32UL                         );
 
   uchar staked_copy[ 64 ];
   fd_memcpy( staked_copy, staked_key, 64UL );
   operator_switch( identity_switch, third );
   FD_TEST( fd_memeq( ctx.public_key, third+32UL, 32UL ) && fd_memeq( operator_key, third, 64UL ) );
   FD_TEST( ctx.failover_key==operator_key && fd_memeq( staked_key, staked_copy, 64UL ) );
-  FD_TEST( failover_signed_by( cert, sizeof(cert), third+32UL ) );
+  FD_TEST( failover_signed_by( proof, sizeof(proof), third+32UL ) );
 
   /* A failover switch can now select the new key and the junk key. */
   failover_switch( identity_switch, junk_key+32UL );
@@ -480,7 +480,7 @@ test_failover_operator_key( void ) {
   /* set-identity to the junk key keeps the failover identity. */
   operator_switch( identity_switch, junk_key );
   FD_TEST( fd_memeq( ctx.public_key, junk_key+32UL, 32UL ) && ctx.failover_key==operator_key && fd_memeq( operator_key, third, 64UL ) );
-  FD_TEST( failover_signed_by( cert, sizeof(cert), third+32UL ) );
+  FD_TEST( failover_signed_by( proof, sizeof(proof), third+32UL ) );
 
   /* The failover identity cannot become an authorized voter, the
      configured key may be one now. */
@@ -506,7 +506,7 @@ test_failover_operator_key( void ) {
   operator_switch( identity_switch, staked_key );
   uchar zero[ 64 ] = {0};
   FD_TEST( ctx.failover_key==staked_key && fd_memeq( operator_key, zero, 64UL ) );
-  FD_TEST( failover_signed_by( cert, sizeof(cert), staked_key+32UL ) );
+  FD_TEST( failover_signed_by( proof, sizeof(proof), staked_key+32UL ) );
   failover_switch( identity_switch, junk_key+32UL );
   failover_switch( identity_switch, staked_key+32UL );
   FD_TEST( fd_memeq( ctx.public_key, staked_key+32UL, 32UL ) );
@@ -524,10 +524,10 @@ switch_to_unknown_key( void ) {
 }
 
 static void
-sign_foreign_cert( void ) {
-  fd_memcpy( ctx._data,                                    FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
-  fd_memcpy( ctx._data+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, staked_key+32UL,                32UL                              );
-  after_frag( &ctx, 0UL, 0UL, FD_KEYGUARD_SIGN_TYPE_ED25519, FD_KEYGUARD_MEMBER_CERT_MSG_SZ, 0UL, 0UL, &stem );
+sign_foreign_proof( void ) {
+  fd_memcpy( ctx._data,                                    FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
+  fd_memcpy( ctx._data+FD_KEYGUARD_FAILOVER_DOMAIN_SZ,     staked_key+32UL,                    32UL                         );
+  after_frag( &ctx, 0UL, 0UL, FD_KEYGUARD_SIGN_TYPE_ED25519, FD_KEYGUARD_FAILOVER_PROOF_SZ, 0UL, 0UL, &stem );
 }
 
 static int
@@ -546,7 +546,7 @@ child_exit_status( void (*fn)( void ) ) {
 }
 
 /* A switch to a key that is neither the junk key nor the failover
-   identity, and a certificate over another junk key, stop the
+   identity, and a proof over another junk key, stop the
    validator. */
 
 static void
@@ -555,7 +555,7 @@ test_failover_refusals( void ) {
   ctx.keyswitch = fd_keyswitch_join( fd_keyswitch_new( failover_ks, FD_KEYSWITCH_STATE_UNLOCKED ) );
   FD_TEST( ctx.keyswitch );
   FD_TEST( child_exit_status( switch_to_unknown_key )==1 );
-  FD_TEST( child_exit_status( sign_foreign_cert     )==1 );
+  FD_TEST( child_exit_status( sign_foreign_proof    )==1 );
   FD_LOG_NOTICE(( "pass: failover refusals" ));
 }
 
