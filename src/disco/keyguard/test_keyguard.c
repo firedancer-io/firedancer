@@ -14,15 +14,15 @@ build_txn_v1( uchar * buf,
               ulong   instr_cnt,
               ulong * msg_sz );
 
-/* test_failov_message: the failov role gets the exact member
-   certificate message and a TLS CertificateVerify signed. */
+/* test_failov_message: the failov role gets the exact admission
+   proof message and a TLS CertificateVerify signed. */
 
 static void
 test_failov_message( void ) {
   fd_keyguard_authority_t authority = {0};
-  uchar                   msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
-  fd_memcpy( msg, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
-  fd_memset( msg+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, 0x5a, 32UL );
+  uchar                   msg[ FD_KEYGUARD_FAILOVER_PROOF_SZ ];
+  fd_memcpy( msg, FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN, FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
+  fd_memset( msg+FD_KEYGUARD_FAILOVER_DOMAIN_SZ, 0x5a, sizeof(msg)-FD_KEYGUARD_FAILOVER_DOMAIN_SZ );
   FD_TEST( fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_FAILOV );
   FD_TEST( fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
   msg[0] ^= 1;
@@ -38,7 +38,7 @@ test_failov_message( void ) {
   cv[0] ^= 1;
   FD_TEST( !fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 
-  /* No other role signs a member certificate, and the failov role signs
+  /* No other role signs an admission proof, and the failov role signs
      it only as Ed25519. */
   msg[0] ^= 1;
   for( int role=0; role<FD_KEYGUARD_ROLE_CNT; role++ ) {

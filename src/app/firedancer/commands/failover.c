@@ -155,6 +155,7 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED:      return "provide the active's keypair with `failover promote <keypair>` to prepare this client's target identity";
     case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "the keypair must match the prepared target and must differ from this machine's boot identity";
     case FD_FAILOVER_CONTROL_RESULT_NOT_BOOT_IDENTITY: return "the client must still be using its boot identity when preparing a target";
+    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "failover lost an input update and is disabled until restart, validator processing continues";
     case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the target identity is already an authorized voter, remove it from the authorized voters before preparing it";
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
     default:                                           return NULL;
@@ -201,6 +202,7 @@ failover_confirm( args_t const * args ) {
 static char const *
 other_holder( ulong result ) {
   switch( result ) {
+    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:      return "unknown after input loss, failover requires a restart";
     case FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED:    return "no target identity prepared";
     case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:        return "n/a, this machine holds the identity";
     case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:     return "the authenticated peer says it holds the identity";

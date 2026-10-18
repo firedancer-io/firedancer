@@ -5,6 +5,7 @@
 
 #include "../../util/fd_util_base.h"
 #include "../../ballet/sha512/fd_sha512.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 
 /* Protocol version */
 #define FD_FAILOVER_VERSION (1U)
@@ -16,7 +17,8 @@
 #define FD_FAILOVER_MSG_PROMOTE_ACK      (3U)
 #define FD_FAILOVER_MSG_PROMOTE_REJECTED (4U)
 #define FD_FAILOVER_MSG_HANDOFF_RESULT   (5U)
-#define FD_FAILOVER_MSG_RESERVED         (6U)
+#define FD_FAILOVER_MSG_KEEPALIVE        (6U)
+#define FD_FAILOVER_MSG_RESERVED         (7U)
 
 /* Sentinel for a slot field with no value */
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
@@ -61,7 +63,7 @@
 #define FD_FAILOVER_HELLO_ERR_ROLE       (7)
 #define FD_FAILOVER_HELLO_ERR_BOOT_ID    (8)
 #define FD_FAILOVER_HELLO_ERR_MODE       (9)
-#define FD_FAILOVER_HELLO_ERR_CERT       (10)
+#define FD_FAILOVER_HELLO_ERR_PROOF      (10)
 
 /* Upper bound on the consensus state payload in tower mode.  A
    CompactTowerSync with block id and bank hash is under 512 bytes. */
@@ -77,10 +79,44 @@ struct __attribute__((packed)) fd_failover_hello {
   uchar  mode;                /* FD_FAILOVER_MODE_* consensus */
   ulong  boot_id;             /* random nonzero value per boot to distinguish restarts */
   uchar  commit[ 20 ];        /* FD commit hash */
-  uchar  member_cert[ 64 ];   /* staked key's signature over the cert prefix and junk_pubkey */
 };
 typedef struct fd_failover_hello fd_failover_hello_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==192UL, wire_layout );
+FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==128UL, wire_layout );
+
+/* Admission precedes TLS.  START carries one complete TLS ClientHello
+   record after this fixed header.  Both proofs cover START, that record
+   and CHALLENGE.  The server proof additionally covers the client proof
+   and the exact prepared server TLS flight.
+   Nonces are public, fresh for each connection and consumed once. */
+#define FD_FAILOVER_ADMISSION_MAGIC           (0x314d44414c494146UL)
+#define FD_FAILOVER_ADMISSION_MAX             (2048UL)
+#define FD_FAILOVER_CLIENT_HELLO_MAX          (1024UL)
+
+struct __attribute__((packed)) fd_failover_admission_start {
+  ulong               magic;
+  fd_failover_hello_t hello;
+  uchar               nonce[ 32 ];
+  ushort              client_hello_sz;
+};
+typedef struct fd_failover_admission_start fd_failover_admission_start_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_admission_start_t)==170UL, admission_start_layout );
+
+struct __attribute__((packed)) fd_failover_admission_challenge {
+  ulong               magic;
+  fd_failover_hello_t hello;
+  uchar               nonce[ 32 ];
+};
+typedef struct fd_failover_admission_challenge fd_failover_admission_challenge_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_admission_challenge_t)==168UL, admission_challenge_layout );
+
+struct __attribute__((packed)) fd_failover_admission_response {
+  ushort server_flight_sz;
+  uchar  proof[ 64 ];
+};
+typedef struct fd_failover_admission_response fd_failover_admission_response_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_admission_response_t)==66UL, admission_response_layout );
+
+#define FD_FAILOVER_SERVER_FLIGHT_MAX (FD_FAILOVER_ADMISSION_MAX-sizeof(fd_failover_admission_response_t))
 
 /* Sent by the demoter once it runs the junk key, the final tower
    follows it. */
@@ -145,19 +181,27 @@ int
 fd_failover_hello_check( fd_failover_hello_t const * self,
                          fd_failover_hello_t const * peer );
 
-/* fd_failover_member_cert_msg writes the 48 byte message a member
-   certificate signs, the keyguard's member cert prefix then
-   junk_pubkey.  The sign tile signs exactly this with the staked key. */
+/* Admission hash covers exact packed wire bytes and the prepared TLS
+   record.  response_hash binds the listener proof to the client proof
+   and the server's prepared TLS flight, including its ephemeral key. */
 void
-fd_failover_member_cert_msg( uchar       out[ 48 ],
-                             uchar const junk_pubkey[ 32 ] );
+fd_failover_admission_hash( fd_failover_admission_start_t const *     start,
+                            uchar const *                            client_hello,
+                            fd_failover_admission_challenge_t const * challenge,
+                            uchar                                    out[ 32 ] );
 
-/* fd_failover_member_cert_check returns FD_FAILOVER_HELLO_OK if the
-   member_cert in hello is the staked pubkey's signature over the junk
-   pubkey in hello, else FD_FAILOVER_HELLO_ERR_CERT. */
-int
-fd_failover_member_cert_check( fd_failover_hello_t const * hello,
-                               fd_sha512_t *               sha );
+void
+fd_failover_response_hash( uchar const   transcript[ 32 ],
+                           uchar const   client_proof[ 64 ],
+                           uchar const * server_flight,
+                           ushort        server_flight_sz,
+                           uchar         out[ 32 ] );
+
+void
+fd_failover_proof_msg( uchar       out[ FD_KEYGUARD_FAILOVER_PROOF_SZ ],
+                       int         server,
+                       uchar const junk_pubkey[ 32 ],
+                       uchar const transcript[ 32 ] );
 
 /* fd_failover_session_init returns the resting state of an endpoint,
    LISTENING for the listener and BACKOFF for the dialer. */

@@ -14,6 +14,7 @@
 
 #include "fd_failover_bus.h"
 #include "fd_failover_channel.h"
+#include "../../disco/metrics/fd_metrics.h"
 
 #include <string.h>
 #include <sys/socket.h>
@@ -22,7 +23,7 @@
 
 /* The failov tile owns the sockets to the other failover machine, keeps
    host networking for them and holds no private key.  The sign tile
-   signs our member certificate with the failover identity and our TLS
+   signs fresh admission proofs with the failover identity and our TLS
    handshakes with the junk key, and the admin tile does the identity
    switch and stays off the network. */
 
@@ -195,9 +196,9 @@ struct fd_failover_id_switch {
 typedef struct fd_failover_id_switch fd_failover_id_switch_t;
 
 struct fd_failover_tile_ctx {
-  fd_keyguard_client_t  keyguard_client[ 1 ]; /* signs the member certificate */
-  int                  member_cert_set;       /* hello carries a signed member certificate */
+  fd_keyguard_client_t  keyguard_client[ 1 ]; /* signs admission proofs and TLS */
   int                  client_only;           /* no listener and no incoming handoffs */
+  int                  input_lost;            /* input overrun disables failover until restart */
   int                  target_pending;        /* waiting for Admin to prepare the client's target */
 
   fd_failover_hello_t     hello;       /* the HELLO we send */
@@ -216,7 +217,7 @@ struct fd_failover_tile_ctx {
   ulong peer_floor; /* highest last vote the peer reported, kept across sessions */
   ulong own_floor;  /* highest vote this machine signed since it started */
 
-  /* gossip_ciseen, reliable contact info updates */
+  /* gossip_ciseen, contact info updates */
   ulong       gossip_in_idx;    /* gossip_ciseen in link */
   fd_wksp_t * gossip_in_mem;    /* its workspace */
   ulong       gossip_in_chunk0; /* its first chunk */
@@ -325,6 +326,14 @@ sign_ed25519( void *      signer_ctx,
 }
 
 static void
+sign_proof( void *      signer_ctx,
+            uchar       sig[ 64 ],
+            uchar const msg[ FD_KEYGUARD_FAILOVER_PROOF_SZ ] ) {
+  fd_failover_tile_ctx_t * ctx = signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, sig, msg, FD_KEYGUARD_FAILOVER_PROOF_SZ, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+}
+
+static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -396,7 +405,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->channel = fd_failover_channel_join( fd_failover_channel_new( channel_mem ) );
   FD_TEST( ctx->channel );
   fd_tls_sign_t signer = { .ctx=ctx, .sign_fn=sign_ed25519 };
-  if( FD_UNLIKELY( !ctx->target_pending && fd_failover_channel_set_identity( ctx->channel, ctx->hello.junk_pubkey, signer, &ctx->hello ) ) ) {
+  if( FD_UNLIKELY( !ctx->target_pending && fd_failover_channel_set_identity( ctx->channel, ctx->hello.junk_pubkey, signer, (fd_failover_proof_signer_t){ .ctx=ctx, .sign_fn=sign_proof }, &ctx->hello ) ) ) {
     FD_LOG_ERR(( "failover TLS setup failed for the junk identity `%s`", tile->failov.identity_key_path ));
   }
 
@@ -500,30 +509,6 @@ unprivileged_init( fd_topo_t const *      topo,
                                                                      fd_topo_find_link_consumer( topo, sign_out ) ) ) ) ) {
     FD_LOG_ERR(( "failed to construct keyguard" ));
   }
-}
-
-/* Installs the member certificate the sign tile signed, unless it was
-   signed with a key other than the failover identity. */
-static void
-member_cert_signed( fd_failover_tile_ctx_t * ctx,
-                    uchar const              cert[ 64 ] ) {
-  ctx->member_cert_set = 1;
-  if( FD_UNLIKELY( fd_failover_channel_set_member_cert( ctx->channel, cert ) ) ) {
-    FD_LOG_WARNING(( "the sign tile signed our member certificate with another key, set-identity changed the failover identity, we ask again once failover restarts for it" ));
-    return;
-  }
-  FD_LOG_NOTICE(( "the sign tile signed our member certificate with the failover identity, this machine can pair with the other failover machine now" ));
-}
-
-/* Asks the sign tile to sign our member certificate with the failover
-   identity, and installs it. */
-static void
-request_member_cert( fd_failover_tile_ctx_t * ctx ) {
-  uchar msg [ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
-  uchar cert[ 64 ];
-  fd_failover_member_cert_msg( msg, ctx->hello.junk_pubkey );
-  fd_keyguard_client_sign( ctx->keyguard_client, cert, msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  member_cert_signed( ctx, cert );
 }
 
 /* Updates our session state when the channel's session changes. */
@@ -976,10 +961,9 @@ operator_switched( fd_failover_tile_ctx_t *       ctx,
   ctx->role       = staked ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY;
   ctx->hello.role = (uchar)ctx->role;
   fd_tls_sign_t signer = { .ctx=ctx, .sign_fn=sign_ed25519 };
-  if( FD_UNLIKELY( fd_failover_channel_set_identity( ctx->channel, ctx->hello.junk_pubkey, signer, &ctx->hello ) ) ) {
+  if( FD_UNLIKELY( fd_failover_channel_set_identity( ctx->channel, ctx->hello.junk_pubkey, signer, (fd_failover_proof_signer_t){ .ctx=ctx, .sign_fn=sign_proof }, &ctx->hello ) ) ) {
     FD_LOG_ERR(( "failover TLS setup failed after set-identity" ));
   }
-  ctx->member_cert_set = 0;
   ctx->target_pending  = 0;
   sync_session( ctx );
 
@@ -1127,6 +1111,9 @@ static char const *
 control_refusal( ulong         result,
                  char const ** hint ) {
   switch( result ) {
+  case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:
+    *hint = "failover lost an input update and is disabled until restart, validator processing continues";
+    return "INPUT_LOST";
   case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:
     *hint = "`failover promote` runs on a standby, see `failover status`";
     return "BAD_ROLE";
@@ -1567,6 +1554,13 @@ step_promote_switch( fd_failover_tile_ctx_t * ctx ) {
     reject_promotion( ctx, FD_FAILOVER_REJECT_SWITCH_FAILED, 0 );
     return;
   }
+  /* A local recovery changes the role outside a handoff.  Reauthenticate
+     so a background session cannot retain our old standby HELLO. */
+  if( !ctx->promotion.from_peer ) {
+    fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
+    fd_failover_channel_hangup( ctx->channel, fd_failover_clock() );
+    sync_session( ctx );
+  }
   /* Admin confirmed the staked identity is installed, become active. */
   set_role( ctx, FD_FAILOVER_ROLE_ACTIVE );
   /* A new tenure starts, the peer tower we kept is older than its votes. */
@@ -1799,9 +1793,9 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     /* A bound final result ends the request without changing our installed identity. */
     request_end( ctx, now, failed ? FD_FAILOVER_HANDOFF_DECLINED : FD_FAILOVER_HANDOFF_TAKEN );
     if( !failed )
-      FD_LOG_NOTICE(( "handoff %lu complete: the old active confirmed our ACK, we hold the staked identity, on-demand connection closed", result.handoff_id ));
+      FD_LOG_NOTICE(( "handoff %lu complete: the old active confirmed our ACK, we hold the staked identity, connection closed", result.handoff_id ));
     else
-      FD_LOG_NOTICE(( "handoff %lu: request ended, %s, on-demand connection closed", result.handoff_id,
+      FD_LOG_NOTICE(( "handoff %lu: request ended, %s, connection closed", result.handoff_id,
                       ctx->role==FD_FAILOVER_ROLE_ACTIVE ? "we still hold the staked identity" : "we remain standby" ));
     return;
   }
@@ -1922,11 +1916,33 @@ request_end( fd_failover_tile_ctx_t * ctx,
   sync_session( ctx );
 }
 
-/* The standby dials only while its operator's handoff is open. */
+/* An idle standby authenticates ahead of an operator command.  Merely
+   pairing never creates a request or changes the installed identity. */
+static void
+preconnect( fd_failover_tile_ctx_t * ctx,
+            long                     now ) {
+  if( ctx->request.id || ctx->stuck || ctx->tx.valid || ctx->session.close_after_send ||
+      ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->id_switch.pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) return;
+  /* A stale gossip address may name a validator that now boots passive.
+     Do not keep that standby session open.  Retain the dial backoff. */
+  if( ctx->role==FD_FAILOVER_ROLE_STANDBY &&
+      fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED &&
+      fd_failover_channel_peer_hello( ctx->channel )->role!=FD_FAILOVER_ROLE_ACTIVE )
+    fd_failover_channel_hangup( ctx->channel, now );
+  int ready = !ctx->target_pending && ctx->role==FD_FAILOVER_ROLE_STANDBY &&
+              ctx->staked_addr && ctx->staked_seen_at && now>=ctx->staked_seen_at &&
+              now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  if( !ready ) fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
+  else if( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED )
+    fd_failover_channel_init_dialer( ctx->channel, ctx->staked_addr, ctx->port );
+}
+
+/* An operator command is required before sending a handoff request. */
 static void
 peer_poll( fd_failover_tile_ctx_t * ctx,
            long                     now,
            int *                    charge_busy ) {
+  preconnect( ctx, now );
   sync_session( ctx );
   if( FD_UNLIKELY( ctx->request.id && ctx->request.until && now>=ctx->request.until &&
                    ( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER ||
@@ -1941,7 +1957,7 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
     /* The result drained, close the session without changing role or action. */
     ctx->session.close_after_send = 0;
     fd_failover_channel_hangup( ctx->channel, now );
-    FD_LOG_NOTICE(( "handoff %lu: confirmation drained, on-demand connection closed, listener ready for the next request", ctx->session.close_handoff_id ));
+    FD_LOG_NOTICE(( "handoff %lu: confirmation drained, connection closed, listener ready for the next request", ctx->session.close_handoff_id ));
     sync_session( ctx );
     return;
   }
@@ -2015,6 +2031,7 @@ static ulong
 promote_guard( fd_failover_tile_ctx_t const * ctx,
                long                           now,
                int                            force ) {
+  if( FD_UNLIKELY( ctx->input_lost ) ) return FD_FAILOVER_CONTROL_RESULT_INPUT_LOST;
   int paired = fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED;
 
   if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_STANDBY ) )                           return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
@@ -2061,6 +2078,7 @@ static ulong
 apply_control( fd_failover_tile_ctx_t *           ctx,
                fd_adminctl_failover_req_t const * req,
                long                               now ) {
+  if( FD_UNLIKELY( ctx->input_lost ) ) return FD_FAILOVER_CONTROL_RESULT_INPUT_LOST;
   if( FD_UNLIKELY( ctx->target_pending && req->cmd!=FD_ADMINCTL_FAILOVER_CMD_STATUS ) ) return FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED;
   switch( req->cmd ) {
 
@@ -2073,15 +2091,15 @@ apply_control( fd_failover_tile_ctx_t *           ctx,
       paused = 0;
     }
     if( FD_UNLIKELY( paused ) ) {
-      /* Resume the paused request, a new --address or --port replaces
-         where we dial. */
+      /* Refresh the destination while retaining the authenticated member
+         and boot.  An explicit address takes precedence over gossip. */
       ctx->request.until = fd_long_sat_add( now, FD_FAILOVER_CHANNEL_IDLE_NANOS );
       ctx->request.sent  = 0;
       ctx->stuck         = 0;
       if( req->addr ) ctx->cmd_addr = req->addr;
       if( req->port ) ctx->cmd_port = req->port;
-      if(      ctx->cmd_addr                                  ) ctx->request.addr = ctx->cmd_addr;
-      else if( !ctx->request.peer.boot_id && ctx->staked_addr ) ctx->request.addr = ctx->staked_addr;
+      if(      ctx->cmd_addr    ) ctx->request.addr = ctx->cmd_addr;
+      else if( ctx->staked_addr ) ctx->request.addr = ctx->staked_addr;
       fd_failover_channel_init_dialer( ctx->channel, ctx->request.addr, dial_port( ctx ) );
       FD_LOG_NOTICE(( "resuming handoff %lu at `" FD_IP4_ADDR_FMT ":%hu` from %s, %s, %s",
                       ctx->request.id, FD_IP4_ADDR_FMT_ARGS( ctx->request.addr ), dial_port( ctx ),
@@ -2185,7 +2203,8 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
   resp->handoff_result = (uchar)( ctx->last_requested ? ctx->request.result : ctx->handoff.result );
   resp->promote_source = (uchar)promote_source( ctx );
   resp->promote_floor  = coverage_floor( ctx );
-  resp->promote_result = ctx->target_pending ? FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED : promote_guard( ctx, now, 0 );
+  resp->promote_result = ctx->input_lost     ? FD_FAILOVER_CONTROL_RESULT_INPUT_LOST   :
+                         ctx->target_pending ? FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED : promote_guard( ctx, now, 0 );
   resp->mode           = ctx->hello.mode;
   resp->request_paused = (uchar)request_paused( ctx );
 }
@@ -2264,11 +2283,26 @@ gossip_commit( fd_failover_tile_ctx_t * ctx,
   }
 }
 
+/* Failover must not backpressure validator work.  Losing an input instead
+   disables transitions because cached history or switch results may be stale. */
+static void
+input_overrun( fd_failover_tile_ctx_t * ctx ) {
+  if( FD_UNLIKELY( ctx->input_lost ) ) return;
+  ctx->input_lost      = 1;
+  ctx->stuck           = 1;
+  ctx->slot_done_fresh = 0;
+  ctx->bus_req_fresh   = 0;
+  fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
+  fd_failover_channel_hangup( ctx->channel, fd_failover_clock() );
+  FD_LOG_WARNING(( "failover input overrun, failover is disabled until restart, validator processing continues" ));
+}
+
 static inline int
 before_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    in_idx,
              ulong                    seq,
              ulong                    sig ) {
+  if( FD_UNLIKELY( ctx->input_lost ) ) return in_idx!=ctx->admin_in_idx || sig!=FD_FAILOVER_BUS_REQUEST;
   if( FD_LIKELY( in_idx==ctx->gossip_in_idx ) ) {
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
@@ -2391,7 +2425,14 @@ after_credit( fd_failover_tile_ctx_t * ctx,
               fd_stem_context_t *      stem,
               int *                    opt_poll_in FD_PARAM_UNUSED,
               int *                    charge_busy ) {
-  if( FD_UNLIKELY( !ctx->target_pending && !ctx->member_cert_set ) ) request_member_cert( ctx );
+  if( FD_UNLIKELY( ctx->input_lost ) ) {
+    if( FD_UNLIKELY( ctx->bus_req_fresh ) ) {
+      ctx->bus_req_fresh = 0;
+      serve_bus_request( ctx, stem, fd_failover_clock() );
+      *charge_busy = 1;
+    }
+    return;
+  }
   if( FD_UNLIKELY( ctx->slot_done_fresh ) ) {
     ctx->slot_done_fresh = 0;
     consume_slot_done( ctx, &ctx->slot_done );
@@ -2453,6 +2494,26 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static void
+metrics_write( fd_failover_tile_ctx_t * ctx ) {
+  fd_failover_channel_metrics_t const * m = fd_failover_channel_metrics( ctx->channel );
+  FD_MCNT_SET( FAILOV, CONN_ACCEPTED,                                m->accept_cnt                                 );
+  FD_MCNT_SET( FAILOV, ACCEPT_BUDGET_EXHAUSTED,                      m->accept_limited_cnt                         );
+  FD_MCNT_SET( FAILOV, CONN_REJECTED_SOURCE,                         m->source_reject_cnt                          );
+  FD_MCNT_SET( FAILOV, CONN_REJECTED_BUDGET,                         m->budget_reject_cnt                          );
+  FD_MCNT_SET( FAILOV, CONN_REJECTED_CAPACITY,                       m->capacity_reject_cnt                        );
+  FD_MCNT_SET( FAILOV, CONN_RECONNECT_ADMITTED,                      m->reconnect_cnt                              );
+  FD_MCNT_SET( FAILOV, HANDSHAKE_TIMED_OUT,                          m->handshake_timeout_cnt                      );
+  FD_MCNT_SET( FAILOV, PROOF_REJECTED,                               m->proof_reject_cnt                           );
+  FD_MCNT_SET( FAILOV, HELLO_REJECTED,                               m->hello_reject_cnt                           );
+  FD_MCNT_SET( FAILOV, TLS_HANDSHAKE_FAILED,                         m->tls_fail_cnt                               );
+  FD_MCNT_SET( FAILOV, FRAME_PROTOCOL_REJECTED,                      m->wire_fatal_cnt                             );
+  FD_MCNT_SET( FAILOV, CONN_AUTHENTICATED,                           m->paired_cnt                                 );
+  FD_MCNT_SET( FAILOV, HANDSHAKE_DURATION_NANOS,                     m->handshake_duration_nanos                   );
+  FD_MGAUGE_SET( FAILOV, HANDSHAKE_LATEST_DURATION_NANOS,            m->handshake_latest_nanos                     );
+  FD_MGAUGE_SET( FAILOV, CONN_PENDING,                               fd_failover_channel_pending( ctx->channel )   );
+}
+
 /* An iteration publishes at most an adopt or switch request and a bus
    response, within the burst of 3. */
 #define STEM_BURST (3UL)
@@ -2461,13 +2522,16 @@ populate_allowed_fds( fd_topo_t const *      topo,
 /* A frame on our sockets does not wake a parked tile, so we do not park. */
 #define STEM_NEVER_PARK 1
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_failover_tile_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_failover_tile_ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE       fd_failover_tile_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN      alignof(fd_failover_tile_ctx_t)
 
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-#define STEM_CALLBACK_BEFORE_FRAG  before_frag
-#define STEM_CALLBACK_DURING_FRAG  during_frag
-#define STEM_CALLBACK_AFTER_FRAG   after_frag
+#define STEM_CALLBACK_METRICS_WRITE      metrics_write
+#define STEM_CALLBACK_AFTER_POLL_OVERRUN input_overrun
+#define STEM_CALLBACK_AFTER_READ_OVERRUN input_overrun
+#define STEM_CALLBACK_AFTER_CREDIT       after_credit
+#define STEM_CALLBACK_BEFORE_FRAG        before_frag
+#define STEM_CALLBACK_DURING_FRAG        during_frag
+#define STEM_CALLBACK_AFTER_FRAG         after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

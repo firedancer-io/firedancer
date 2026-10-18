@@ -48,6 +48,7 @@ class Tile(Enum):
     WAKER = 42
     MWAITX = 43
     IAVF = 44
+    FAILOV = 45
 
     SNAPMK = 50
     SNAPZP = 51

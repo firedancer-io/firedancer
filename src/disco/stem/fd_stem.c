@@ -169,7 +169,11 @@
       AFTER_POLL_OVERRUN
    Is called when an overrun is detected while polling for new frags.
    This callback is not called when an overrun is detected in
-   during_frag. */
+   during_frag.
+
+      AFTER_READ_OVERRUN
+   Is called when an overrun is detected after during_frag.  after_frag
+   is not called for the overwritten fragment. */
 
 #include "../../util/log/fd_log.h"
 #include "../topo/fd_topo.h"
@@ -817,3 +821,4 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_RETURNABLE_FRAG
 #undef STEM_CALLBACK_AFTER_FRAG
 #undef STEM_CALLBACK_AFTER_POLL_OVERRUN
+#undef STEM_CALLBACK_AFTER_READ_OVERRUN
