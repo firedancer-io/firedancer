@@ -3,7 +3,7 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../util/net/fd_ip4.h"
 
-static uchar       scratch[ 2 ][ 8UL<<20 ] __attribute__((aligned(128)));
+static uchar       scratch[ 2 ][ 32UL<<20 ] __attribute__((aligned(128)));
 static uchar       keys[ 3 ][ 64 ] = { { 1 }, { 2 }, { 9 } };
 static fd_sha512_t sha[ 1 ];
 
@@ -16,6 +16,12 @@ sign_fn( void *      ctx,
   fd_ed25519_sign( sig, payload, FD_TLS_CV_SIGN_SZ, key+32UL, key, sha );
 }
 
+static void
+proof_fn( void * ctx, uchar sig[ 64 ], uchar const msg[ FD_KEYGUARD_FAILOVER_PROOF_SZ ] ) {
+  uchar const * key = ctx;
+  fd_ed25519_sign( sig, msg, FD_KEYGUARD_FAILOVER_PROOF_SZ, key+32UL, key, sha );
+}
+
 static fd_failover_channel_t *
 member( ulong idx, ulong staked_idx ) {
   fd_failover_channel_t * ch = fd_failover_channel_join( fd_failover_channel_new( scratch[idx] ) );
@@ -26,11 +32,8 @@ member( ulong idx, ulong staked_idx ) {
   fd_memcpy( hello.junk_pubkey, keys[idx]+32UL, 32UL );
   fd_memcpy( hello.staked_pubkey, keys[staked_idx]+32UL, 32UL );
   fd_memset( hello.vote_account, 0xBB, 32UL );
-  FD_TEST( !fd_failover_channel_set_identity( ch, keys[idx]+32UL, (fd_tls_sign_t){ .ctx=keys[idx], .sign_fn=sign_fn }, &hello ) );
-  uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ], cert[ 64 ];
-  fd_failover_member_cert_msg( msg, keys[idx]+32UL );
-  fd_ed25519_sign( cert, msg, sizeof(msg), keys[staked_idx]+32UL, keys[staked_idx], sha );
-  FD_TEST( !fd_failover_channel_set_member_cert( ch, cert ) );
+  FD_TEST( !fd_failover_channel_set_identity( ch, keys[idx]+32UL, (fd_tls_sign_t){ .ctx=keys[idx], .sign_fn=sign_fn },
+                                                 (fd_failover_proof_signer_t){ .ctx=keys[staked_idx], .sign_fn=proof_fn }, &hello ) );
   fd_failover_channel_init_listener( ch, FD_IP4_ADDR(127,0,0,1), 0 );
   return ch;
 }

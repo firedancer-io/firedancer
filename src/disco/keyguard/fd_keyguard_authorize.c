@@ -493,11 +493,11 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     return 1;
 
   case FD_KEYGUARD_ROLE_FAILOV: {
-    int cert_ok = payload_mask==FD_KEYGUARD_PAYLOAD_FAILOV;
-    int tls_ok  = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
-                  ( fd_keyguard_authorize_tls_cv    ( authority, data, sz, sign_type ) ||
-                    fd_keyguard_authorize_tls_cv_srv( authority, data, sz, sign_type ) );
-    if( FD_UNLIKELY( !cert_ok && !tls_ok ) ) {
+    int proof_ok = payload_mask==FD_KEYGUARD_PAYLOAD_FAILOV;
+    int tls_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
+                   ( fd_keyguard_authorize_tls_cv    ( authority, data, sz, sign_type ) ||
+                     fd_keyguard_authorize_tls_cv_srv( authority, data, sz, sign_type ) );
+    if( FD_UNLIKELY( !proof_ok && !tls_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for failov (mask=%#lx)", payload_mask ));
       return 0;
     }

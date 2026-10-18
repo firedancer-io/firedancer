@@ -3,8 +3,8 @@
 
 /* TLS 1.3 over TCP for one failover candidate, built on fd_tls and
    fd_tlsrec.  Both ends present an Ed25519 cert for their junk identity.
-   TLS does not check the peer key against an expected key, the channel
-   checks it against HELLO and its member certificate.  The caller owns
+   The channel admits a peer before TLS and checks its TLS key
+   against the admitted HELLO.  The caller owns
    the socket. */
 
 #include "../../waltz/tlsrec/fd_tlsrec_sock.h"
@@ -35,6 +35,7 @@ struct fd_failover_tls {
   uchar            peer_pubkey[ 32 ]; /* junk key the peer signed the handshake with */
   int              read_budget;       /* socket reads left this turn */
   int              write_budget;      /* record writes left this turn */
+  int              send_budget;       /* socket sends left this turn */
   ulong            received;          /* ciphertext bytes read before pairing */
 };
 typedef struct fd_failover_tls fd_failover_tls_t;
@@ -65,6 +66,19 @@ fd_failover_tls_new( fd_failover_tls_t *     tls,
                      fd_failover_tls_ctx_t * ctx,
                      int                     fd,
                      int                     dial_peer );
+
+/* Prepare the outbound ClientHello without sending it, or feed an
+   admitted peer flight to the connection without socket I/O.  The
+   generated reply is left in sock.tx_buf for the caller to capture or
+   flush.  No earlier output may be pending. */
+int
+fd_failover_tls_client_hello( fd_failover_tls_t * tls, uchar * out, ulong * out_sz );
+
+int
+fd_failover_tls_accept_flight( fd_failover_tls_t * tls, uchar const * data, ulong sz );
+
+int
+fd_failover_tls_flush( fd_failover_tls_t * tls );
 
 /* fd_failover_tls_fini sends close_notify if the connection is up and
    wipes the connection state.  The caller closes fd. */
