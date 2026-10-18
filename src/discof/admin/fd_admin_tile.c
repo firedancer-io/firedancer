@@ -337,7 +337,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                    ulong                 identity_outset,
                    uchar *                 keypair,
                    fd_tower_file_t const * tower_file,
-                   ulong                   wait_to_vote_slot ) {
+                   ulong                   vote_history_slot ) {
   fd_topo_t const * topo = ctx->topo;
 
   switch( *state ) {
@@ -383,7 +383,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       memcpy( voter->bytes, keypair+32UL, 32UL );
       /* Votor takes the slot to wait to vote past, tower its tower file
          if one was given. */
-      if( FD_UNLIKELY( ctx->alpenglow ) ) FD_STORE( ulong, voter->bytes+32UL, wait_to_vote_slot );
+      if( FD_UNLIKELY( ctx->alpenglow ) ) FD_STORE( ulong, voter->bytes+32UL, vote_history_slot );
       else                                FD_STORE( ulong, voter->bytes+32UL, fd_ulong_if( !!tower_file, sizeof(fd_tower_file_t), 0UL ) );
       if( FD_LIKELY( tower_file ) ) memcpy( voter->bytes+40UL, tower_file, sizeof(fd_tower_file_t) );
       FD_COMPILER_MFENCE();
@@ -706,10 +706,17 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
+  if( FD_UNLIKELY( ctx->alpenglow && !memcmp( public_key.uc, ctx->identity_pubkey, 32UL ) ) ) {
+    FD_LOG_WARNING(( "set-identity failed: the validator is already running as the identity" ));
+    report_admin_command_custom_result( &event, "same_identity" );
+    fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_SAME_IDENTITY );
+    return;
+  }
+
   fd_tower_file_t         tower_file_[1];
   fd_tower_file_t const * tower_file = NULL;
   int                     err        = 0;
-  if( FD_UNLIKELY( ctx->alpenglow ? !!req->tower_file_sz : !!req->wait_to_vote_slot ) ) err = -1; /* a tower file for votor, or a vote history file for tower */
+  if( FD_UNLIKELY( ctx->alpenglow ? !!req->tower_file_sz : !!req->vote_history_slot ) ) err = -1; /* a tower file for votor, or a vote history file for tower */
   if( FD_LIKELY( !err && !ctx->alpenglow && req->tower_file_sz ) ) {
     err        = fd_tower_file_de( req->tower_file, req->tower_file_sz, &public_key, tower_file_ );
     tower_file = tower_file_;
@@ -724,7 +731,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong identity_outset = (ulong)fd_log_wallclock();
   for(;;) {
-    if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, req->keypair, tower_file, req->wait_to_vote_slot ) ) ) break;
+    if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, req->keypair, tower_file, req->vote_history_slot ) ) ) break;
   }
 
   memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );

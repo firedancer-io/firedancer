@@ -56,7 +56,7 @@ set_identity_cmd_args( int *    pargc,
   /* Scan a vote history file for the slot to wait to vote past, which
      is all the validator needs, or copy in a tower file. */
 
-  args->set_identity.wait_to_vote_slot = 0UL;
+  args->set_identity.vote_history_slot = 0UL;
   args->set_identity.tower_file_sz     = 0UL;
   if( vote_history_file ) {
     int fd = open( vote_history_file, O_RDONLY );
@@ -73,7 +73,7 @@ set_identity_cmd_args( int *    pargc,
     if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     if( FD_LIKELY( sz>=sizeof(uint) && FD_LOAD( uint, file )==AG_VOTE_HISTORY_SERDE_KIND ) ) {
-      int err = ag_vote_history_de( file, sz, args->set_identity.keypair+32UL, &args->set_identity.wait_to_vote_slot );
+      int err = ag_vote_history_de( file, sz, args->set_identity.keypair+32UL, &args->set_identity.vote_history_slot );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "vote history file %s is invalid (%i) or does not belong to the new identity.  If you believe the "
                      "vote history file is valid, please contact the Firedancer team for additional assistance.", vote_history_file, err ));
@@ -123,7 +123,7 @@ set_identity( args_t *   args,
 
   fd_adminctl_set_identity_t * req = (fd_adminctl_set_identity_t *)payload;
   req->version           = FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION;
-  req->wait_to_vote_slot = args->set_identity.wait_to_vote_slot;
+  req->vote_history_slot = args->set_identity.vote_history_slot;
   req->tower_file_sz     = args->set_identity.tower_file_sz;
   memcpy( req->keypair, args->set_identity.keypair, 64UL );
   memcpy( req->tower_file, args->set_identity.tower_file, args->set_identity.tower_file_sz );
@@ -139,6 +139,8 @@ set_identity( args_t *   args,
     case FD_ADMINCTL_RESULT_SUCCESS:
       FD_LOG_NOTICE(( "validator identity key switched to %s%s%s", fd_log_style_bold(), identity_key_base58, fd_log_style_normal() ));
       break;
+    case FD_SET_IDENTITY_RESULT_SAME_IDENTITY:
+      FD_LOG_ERR(( "Failed to set identity: the validator is already running as %s.", identity_key_base58 ));
     case FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY:
       FD_LOG_ERR(( "Failed to set identity: the vote history file is invalid or does not belong to the new identity. "
                    "If you believe the vote history file is valid, please contact the Firedancer team for additional assistance." ));

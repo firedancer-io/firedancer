@@ -85,19 +85,9 @@ ag_votor_set_bls_key( ag_votor_t *       self,
                       ag_bls_key_t const bls_key );
 
 void
-ag_votor_halt_signing( ag_votor_t * self );
-
-void
-ag_votor_unhalt_signing( ag_votor_t * self );
-
-void
 ag_votor_set_rank( ag_votor_t * self,
                    ulong        epoch_slot,
                    ulong        epoch_rank );
-
-void
-ag_votor_wait_to_vote( ag_votor_t * self,
-                       ulong        wait_to_vote_slot );
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
@@ -131,9 +121,6 @@ int
 ag_votor_poll_vote( ag_votor_t * self,
                     ag_vote_t *  vote,
                     uchar *      reason );
-
-FD_FN_PURE ulong
-ag_votor_vote_history( ag_votor_t const * self );
 
 FD_PROTOTYPES_END
 
