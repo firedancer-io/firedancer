@@ -369,9 +369,10 @@ terminal unless `--yes` is given. Outside a terminal it proceeds
 without a prompt.
 
 Before asking for confirmation, the command checks the local validator's
-role. The connection to the remote validator starts after confirmation,
-so the prompt does not mean the remote validator is reachable or ready
-to hand off.
+role. A standby with a prepared target identity and a fresh gossip
+address authenticates to the remote validator in advance. This connection
+does not request a handoff. Confirmation submits the handoff request, so
+the prompt does not mean the remote validator is ready to hand off.
 
 The local validator finds the active's address through gossip. Use
 `--address` to give the remote validator's IPv4 address or host name
@@ -560,7 +561,8 @@ handoff progress.
 The following example shows a completed handoff. The last handoff ID
 matches the ID printed by `failover promote` above. The connection closes
 after completion, so `peer role` is unknown until another authenticated
-session is established.
+session is established. The new standby reconnects when it discovers the
+new active through gossip.
 
 <<< @/snippets/commands/failover-status.ansi
 

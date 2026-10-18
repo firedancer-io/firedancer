@@ -4409,6 +4409,6 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { NULL, 0U, NULL, 0UL, 0UL }
 };
 
-char const * const fd_metrics_sample_skip[] = { "backt", "benchs", "solcap", NULL };
+char const * const fd_metrics_sample_skip[] = { "backt", "benchs", "failov", "solcap", NULL };
 
 fd_metrics_sample_schema_t const fd_metrics_sample_link = { "link", 61U, fields_link, 9UL, 284UL };

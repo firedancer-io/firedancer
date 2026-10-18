@@ -2,6 +2,16 @@
 
 #include <string.h>
 
+static ulong const payload_max[ FD_FAILOVER_MSG_RESERVED ] = {
+  sizeof(fd_failover_hello_t),
+  sizeof(fd_failover_handoff_request_t),
+  FD_FAILOVER_DEMOTED_PAYLOAD_MAX,
+  sizeof(fd_failover_promote_ack_t),
+  sizeof(fd_failover_promote_rejected_t),
+  sizeof(fd_failover_handoff_result_t),
+  0UL /* KEEPALIVE */
+};
+
 void
 fd_failover_wire_session_init( fd_failover_wire_session_t * session ) {
   session->tx_seq = 0UL;
@@ -15,7 +25,7 @@ fd_failover_wire_encode( fd_failover_wire_session_t * session,
                          uchar const *                payload,
                          ulong                        payload_sz ) {
   if( FD_UNLIKELY( type>=FD_FAILOVER_MSG_RESERVED ||
-                   payload_sz>FD_FAILOVER_PAYLOAD_MAX ||
+                   payload_sz>payload_max[type] ||
                    session->tx_seq==ULONG_MAX ) ) return 0UL;
 
   ulong frame_sz = FD_FAILOVER_FRAME_HDR_SZ+payload_sz;
@@ -49,13 +59,15 @@ fd_failover_wire_decode( fd_failover_wire_session_t * session,
   ulong frame_sz = (ulong)hdr.len;
   if( FD_UNLIKELY( frame_sz<FD_FAILOVER_FRAME_HDR_SZ ) ) return FD_FAILOVER_WIRE_ERR_SZ;
   if( FD_UNLIKELY( frame_sz>FD_FAILOVER_FRAME_MAX ) )    return FD_FAILOVER_WIRE_ERR_SZ;
-  if( FD_UNLIKELY( buf_sz<frame_sz ) )                   return FD_FAILOVER_WIRE_ERR_AGAIN;
 
   ulong payload_sz = frame_sz-FD_FAILOVER_FRAME_HDR_SZ;
 
   if( FD_UNLIKELY( hdr.version!=(ushort)FD_FAILOVER_VERSION ) ) return FD_FAILOVER_WIRE_ERR_VERSION;
   if( FD_UNLIKELY( session->rx_seq==ULONG_MAX || hdr.seq!=session->rx_seq ) ) return FD_FAILOVER_WIRE_ERR_SEQ;
   if( FD_UNLIKELY( hdr.type>=FD_FAILOVER_MSG_RESERVED ) ) return FD_FAILOVER_WIRE_ERR_TYPE;
+
+  if( FD_UNLIKELY( payload_sz>payload_max[hdr.type] ) ) return FD_FAILOVER_WIRE_ERR_SZ;
+  if( FD_UNLIKELY( buf_sz<frame_sz ) ) return FD_FAILOVER_WIRE_ERR_AGAIN;
 
   session->rx_seq++;
   *out_type       = hdr.type;

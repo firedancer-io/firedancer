@@ -306,23 +306,23 @@ during_frag( void * _ctx,
   during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz );
 }
 
-/* The failover tile's ED25519 requests.  The junk key signs the
-   failover TLS whichever key is installed.  The failover identity signs
-   the member certificate whichever key is installed, but only over our
-   own junk pubkey. */
+/* The junk key signs TLS.  The prepared failover key signs admission
+   proofs for our own junk pubkey, whichever identity is installed. */
 
 static void FD_FN_SENSITIVE
 failover_sign( fd_sign_ctx_t * ctx,
                uchar *         dst,
                ulong           sz ) {
-  if( sz!=FD_KEYGUARD_MEMBER_CERT_MSG_SZ ) {
+  ulong payload = fd_keyguard_payload_match( ctx->_data, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  if( payload==FD_KEYGUARD_PAYLOAD_TLS_CV ) {
     fd_ed25519_sign( dst, ctx->_data, sz, ctx->failover_junk_key+32UL, ctx->failover_junk_key, ctx->sha512 );
     return;
   }
-  if( FD_UNLIKELY( !fd_memeq( ctx->_data+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, ctx->failover_junk_key+32UL, 32UL ) ) ) {
-    FD_LOG_EMERG(( "member certificate request is not for our junk key" ));
+  if( FD_UNLIKELY( payload!=FD_KEYGUARD_PAYLOAD_FAILOV ) ) FD_LOG_EMERG(( "invalid failover signing domain" ));
+  if( FD_UNLIKELY( !fd_memeq( ctx->_data+FD_KEYGUARD_FAILOVER_DOMAIN_SZ, ctx->failover_junk_key+32UL, 32UL ) ) ) {
+    FD_LOG_EMERG(( "admission proof request is not for our junk key" ));
   }
-  if( FD_UNLIKELY( !ctx->failover_key ) ) FD_LOG_EMERG(( "member certificate requested before preparing a failover identity" ));
+  if( FD_UNLIKELY( !ctx->failover_key ) ) FD_LOG_EMERG(( "admission proof requested before preparing a failover identity" ));
   fd_ed25519_sign( dst, ctx->_data, sz, ctx->failover_key+32UL, ctx->failover_key, ctx->sha512 );
 }
 

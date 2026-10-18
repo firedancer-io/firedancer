@@ -555,7 +555,6 @@ fd_config_validate_failover( fd_config_t const * config ) {
   }
 }
 
-
 void
 fd_config_validate( fd_config_t const * config ) {
   fd_config_validatef( &config->firedancer );
