@@ -2364,7 +2364,8 @@ test_reward_certs( void ) {
   ctx.shred_version   = 1;
   ctx.pool            = test_pool( epoch_info, 0UL );
   ctx.peers           = peers_join( peers_new( peers_mem ) );
-  FD_TEST( ctx.peers );
+  ctx.reconn_prq      = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
+  FD_TEST( ctx.peers && ctx.reconn_prq );
   fd_clock_tile_init( ctx.clock );
   for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx.reward_certs[ i ].slot = ULONG_MAX;
 
@@ -2405,9 +2406,10 @@ test_reward_certs( void ) {
   FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
   fd_pubkey_t bad_id; memcpy( bad_id.uc, epoch_info->validators[3].id_key, sizeof(fd_pubkey_t) );
   peer_t * bad_peer = peers_insert( ctx.peers, bad_id );
-  bad_peer->ban_ts  = LONG_MIN;
-  bad_peer->tx_conn = NULL;
-  bad_peer->rx_conn = NULL;
+  bad_peer->ban_ts         = LONG_MIN;
+  bad_peer->tx_conn        = NULL;
+  bad_peer->rx_conn        = NULL;
+  bad_peer->reconn_pending = 0;
   publish_reward_cert( &ctx, stem, slot );
   FD_TEST( seqs[0]==2UL && bad_peer->ban_ts!=LONG_MIN );
   meta   = mcache+fd_mcache_line_idx( 1UL, 128UL );
