@@ -1244,7 +1244,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="TimeoutCancelled" summary="Timeouts dropped because their block is gone or their work is done" />
     <counter name="TimeoutNoPeerDeferred" summary="Timeouts deferred because no peer could be picked" />
     <counter name="RequestHedged" summary="Request attempts after the first for the same timer" />
-    <counter name="RequestExpired" summary="Pending requests with no response after about 1 s (PENDING_TTL); the peer is not banned, pending-pool evictions not counted" />
+    <counter name="RequestExpired" summary="Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted" />
+    <counter name="RequestByIdExpired" summary="WindowIndexForBlockId requests that expired unanswered, at or above the root" />
+    <counter name="RequestStuckEscaped" summary="Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set" />
+    <counter name="PeerByIdBanned" summary="Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies" />
     <counter name="PingProbeTx" summary="Requests sent to elicit a ping from a peer with a new address" />
     <gauge name="EagerDelayNanos" summary="Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled)" />
     <gauge name="SignRequestPending" summary="Messages in the sign pool waiting for a signature from the sign tiles" />
