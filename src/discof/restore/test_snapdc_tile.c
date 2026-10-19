@@ -765,11 +765,16 @@ test_control_publication_counts( void ) {
   send_control( env, FD_SNAPSHOT_MSG_LOAD_COMPLETE );
   FD_TEST( !test_pub_cnt );
 
-  /* Caught up goes on to snapin, and does not reset the frame state. */
-  env->ctx->dirty = 1;
+  /* Caught up goes on to snapin, and does not cut the frame in flight. */
+  static uchar const payload[] = "caught up";
+  uchar frame[4096];
+  ulong frame_sz = make_frame( frame, sizeof(frame), payload, sizeof(payload)-1UL, 1, 0 );
+  send_data( env, frame, frame_sz/2UL );
   send_control( env, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
-  FD_TEST( test_pub_cnt==1UL && test_pub[0].sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP && env->ctx->dirty );
-  env->ctx->dirty = 0;
+  FD_TEST( test_pub[ test_pub_cnt-1UL ].sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
+  send_data( env, frame+frame_sz/2UL, frame_sz-frame_sz/2UL );
+  FD_TEST( env->ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !env->ctx->dirty );
+  FD_TEST( env->ctx->metrics.full.decompressed_bytes_written==sizeof(payload)-1UL );
   capture_reset( env );
 
   fd_memset( env->meta, 0, sizeof(fd_ssctrl_meta_t) );

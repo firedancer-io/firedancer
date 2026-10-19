@@ -508,7 +508,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
           break;
         }
         if( FD_UNLIKELY( wfs_mode==FD_WFS_MODE_UNRESOLVED ) ) {
-          FD_LOG_CRIT(( "snapshot DONE received before any manifest" ));
+          FD_LOG_CRIT(( "snapshot REPLAY_READY received before any manifest" ));
         }
         ctx->wfs_state = fd_int_if( wfs_mode==FD_WFS_MODE_MATCH,
                                     FD_GOSSIP_WFS_STATE_WAIT, FD_GOSSIP_WFS_STATE_DONE );
