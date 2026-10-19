@@ -294,6 +294,16 @@ fd_xsk_init( fd_xsk_t *              xsk,
     return NULL;
   }
 
+  /* In copy mode every TX frame in flight is an skb charged to the
+     socket send buffer, so the default (wmem_default, often 64 KiB)
+     caps the kernel at a few dozen frames.  Size it to the TX ring. */
+
+  int sndbuf = (int)fd_ulong_min( params->tx_depth*params->frame_sz, (ulong)INT_MAX );
+  if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(int) ) ) ) {
+    FD_LOG_WARNING(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", sndbuf, errno, fd_io_strerror( errno ) ));
+    goto fail;
+  }
+
   /* Associate UMEM region of fd_xsk_t with XSK via setsockopt() */
 
   if( FD_UNLIKELY( 0!=fd_xsk_setup_umem( xsk, params ) ) ) goto fail;
