@@ -292,7 +292,7 @@ fd_f25519_is_square_var( fd_f25519_t const * a ) {
 #undef FD_F25519_M62
 
 /* fd_f25519_sqrt_ratio computes r = (u * v^3) * (u * v^7)^((p-5)/8),
-   returns 0 on success, 1 on failure. */
+   returns 1 on success, 0 on failure. */
 int
 fd_f25519_sqrt_ratio( fd_f25519_t *       r,
                       fd_f25519_t const * u,
