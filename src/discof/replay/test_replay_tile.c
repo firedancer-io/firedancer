@@ -4632,6 +4632,40 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_rotor_fec_turbine_keying" ));
 }
 
+/* test_rotor_fec_rooted_past: a redelivered FEC of a slot at or below
+   the published root, or of a block whose parent is below it, is SKIPped:
+   no MISSING_FEC and no drain, so a redelivery that lands behind a
+   catch-up backlog cannot ask for another.  A FEC above the root whose
+   parent is missing still DROPs. */
+
+static void
+test_rotor_fec_rooted_past( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_ag_block_id_map( ctx, wksp, &parent_bid );
+  ctx->published_root_slot = 10UL;
+
+  ulong     out_idx = ctx->replay_out->idx;
+  ulong     seq0    = test_stem_seqs[ out_idx ];
+  ulong     ing0    = mock_sched_fec_ingest_cnt;
+  fd_hash_t gone    = { .ul = { 0xDEADUL } };
+  fd_hash_t mr      = { .ul = { 701 } };
+
+  FD_TEST( deliver_rotor_fec( ctx,  9UL, 0U,               8UL, &gone, &mr, 0, 0 )==0 ); /* below the root */
+  FD_TEST( deliver_rotor_fec( ctx, 10UL, FD_FEC_SHRED_CNT, 9UL, &gone, &mr, 0, 0 )==0 ); /* the root, mid-slot */
+  FD_TEST( deliver_rotor_fec( ctx, 12UL, 0U,               9UL, &gone, &mr, 0, 0 )==0 ); /* parent below the root */
+  FD_TEST( deliver_rotor_fec( ctx, 12UL, FD_FEC_SHRED_CNT, 9UL, &gone, &mr, 0, 0 )==0 ); /* its next FEC, no bank */
+  FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
+  FD_TEST( ctx->metrics.fec_rooted_past==4UL && mock_sched_fec_ingest_cnt==ing0 );
+
+  FD_TEST( deliver_rotor_fec( ctx, 12UL, 0U, 11UL, &gone, &mr, 0, 0 )==0 );              /* missing parent above it */
+  FD_TEST( ctx->drain_rotor_fecs==1 && test_stem_seqs[ out_idx ]==seq0+1UL );
+  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_MISSING_FEC );
+
+  FD_LOG_NOTICE(( "pass: test_rotor_fec_rooted_past" ));
+}
+
 /* test_rotor_fec_merged_copies: rotor delivers a turbine copy (known_id
    0) and a repaired copy (known_id 1) of block B, then merges them into
    the turbine copy, which keeps known_id 0 and continues from its own
@@ -5338,6 +5372,7 @@ main( int     argc,
   test_drain_rotor_fecs_skip_wait_reentry( wksp );  fd_wksp_reset( wksp, 42U );
   test_process_rotor_fec_skip_replayed( wksp );     fd_wksp_reset( wksp, 42U );
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
+  test_rotor_fec_rooted_past( wksp );               fd_wksp_reset( wksp, 42U );
   test_rotor_fec_merged_copies( wksp );             fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 1 );      fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
