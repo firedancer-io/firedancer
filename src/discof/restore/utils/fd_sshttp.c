@@ -313,9 +313,17 @@ fd_sshttp_init( fd_sshttp_t * http,
     FD_LOG_WARNING(( "snapshot hostname too long" ));
     return -1;
   }
-  /* Redirects reinitialize using our own hostname buffer. */
+  /* Redirects and resumes reinitialize using our own buffers. */
   memmove( http->hostname, hostname, hostname_len+1UL );
   http->is_https = is_https;
+  if( FD_UNLIKELY( path_len>=sizeof(http->location) ) ) {
+    FD_LOG_WARNING(( "snapshot path too long" ));
+    return -1;
+  }
+  memmove( http->location, path, path_len );
+  http->location[ path_len ] = '\0';
+  http->location_len = path_len;
+  path = http->location;
 
   if( FD_LIKELY( is_https ) ) {
     if( FD_UNLIKELY( !http->ca_store_loaded ) ) {
@@ -396,6 +404,13 @@ fd_sshttp_deadline( fd_sshttp_t const * http ) {
       return LONG_MAX;
     default:                       return http->deadline;
   }
+}
+
+int
+fd_sshttp_resume( fd_sshttp_t * http,
+                  long          now,
+                  ulong         range_start ) {
+  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, 4UL, now, range_start );
 }
 
 void
@@ -519,6 +534,11 @@ follow_redirect( fd_sshttp_t *        http,
       char snapshot_name[ PATH_MAX ];
       fd_memcpy( snapshot_name, location+1UL, location_len-1UL );
       snapshot_name[ location_len-1UL ] = '\0';
+
+      if( FD_UNLIKELY( !fd_ssarchive_parse_fast_boot_filename( snapshot_name, &http->resolved_slot, http->resolved_hash ) ) ) {
+        fd_cstr_ncpy( http->snapshot_name, snapshot_name, PATH_MAX );
+        break;
+      }
 
       int is_zstd;
       ulong full_entry_slot, incremental_entry_slot;
@@ -645,12 +665,12 @@ read_response( fd_sshttp_t * http,
     return follow_redirect( http, headers, header_cnt, now );
   }
 
-  /* The tail the caller asked for does not exist yet.  Finish with no
-     bytes so the caller can ask again later. */
-  if( FD_UNLIKELY( status==416 && http->range_start ) ) {
+  /* The tail the caller asked for does not exist yet (416), or the
+     file does not (404). */
+  if( FD_UNLIKELY( status==404 || (status==416 && http->range_start) ) ) {
     fd_sshttp_cancel( http );
     *data_len = 0UL;
-    return FD_SSHTTP_ADVANCE_DONE;
+    return status==404 ? FD_SSHTTP_ADVANCE_NOT_FOUND : FD_SSHTTP_ADVANCE_NOT_YET;
   }
 
   /* A 200 to a ranged request means the server ignored the range and

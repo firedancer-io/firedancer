@@ -282,7 +282,8 @@ typedef struct fd_snapin_shmem fd_snapin_shmem_t;
 
 struct fd_snapin_tile {
   int  state;
-  uint full : 1;  /* loading a full snapshot? */
+  uint full   : 1;  /* loading a full snapshot? */
+  uint stream : 1;  /* loading a fast boot stream? */
   int  alpenglow;
 
   fd_snapin_lead_t lead;
@@ -1440,7 +1441,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     }
 
     ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
-    if( FD_UNLIKELY( fd_accdb_restore_write_batch( ctx->accdb, fork_id, !ctx->full, cnt, pubkeys,
+    if( FD_UNLIKELY( fd_accdb_restore_write_batch( ctx->accdb, fork_id, !ctx->full, ctx->stream, cnt, pubkeys,
                                                    slots, batch->lamports+batch_off,
                                                    data_lens, batch->executables+batch_off,
                                                    file_offsets, &accounts_ignored, &accounts_replaced,
@@ -1902,6 +1903,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
 
+      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
+      ctx->stream = !!msg->stream;
+
       reset_attempt_state( ctx );
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
@@ -1973,7 +1977,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          HTTP downloads, these are initial estimates from gossip and
          will be updated by the META message below once the redirect
          resolves to a concrete snapshot filename. */
-      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
       ctx->lead.advertised_slot = msg->slot;
       fd_memcpy( ctx->lead.advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
       ctx->lead.init_completed = 1;
@@ -2008,17 +2011,21 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
-      /* This is a special case: handle_data_frag must have already
-         processed FD_SSPARSE_ADVANCE_DONE and moved the state into
-         FD_SNAPSHOT_STATE_FINISHING.  Otherwise, treat this as a
-         malformed snapshot so that the pipeline can retry. */
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+      /* A snapshot ends with a tar end-of-archive marker, so
+         handle_data_frag has already seen FD_SSPARSE_ADVANCE_DONE and
+         moved to FINISHING.  Otherwise the file was cut short: treat
+         it as malformed so that the pipeline can retry. */
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING && !ctx->stream ) ) {
         FD_LOG_WARNING(( "received FINI while in state %s (%lu), expected FINISHING (possibly truncated tar stream)",
                          fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
       }
+
+      /* A fast boot stream has no end-of-archive marker, so FINI itself
+         is the end and marks FINISHING. */
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       /* Flush records before the FINI ack. */
       if( FD_UNLIKELY( writer_flush( ctx ) ) ) {
@@ -2082,7 +2089,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( FD_UNLIKELY( validate_capitalization( ctx ) ) ) {
+      if( FD_UNLIKELY( !ctx->stream && validate_capitalization( ctx ) ) ) {
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;

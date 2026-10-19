@@ -418,6 +418,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "send_buffer_size_kib", f->snapshots.server.send_buffer_size_kib );
     jw_obj_close( &w );
     jw_obj_open( &w, "fast_boot" );
+      jw_bool( &w, "enabled", f->snapshots.fast_boot.enabled );
       jw_obj_open( &w, "serve" );
         jw_bool( &w, "enabled", f->snapshots.fast_boot.serve.enabled );
       jw_obj_close( &w );

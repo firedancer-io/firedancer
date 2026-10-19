@@ -1,4 +1,5 @@
 #include "fd_sshttp_private.h"
+#include "../../../ballet/base58/fd_base58.h"
 
 #include "../../../util/fd_util.h"
 
@@ -299,12 +300,78 @@ test_range_not_satisfiable( void ) {
 
   uchar body[ 16 ];
   ulong body_len, last_len;
-  FD_TEST( FD_SSHTTP_ADVANCE_DONE==run_request( http, body, sizeof(body), &body_len, &last_len ) );
+  FD_TEST( FD_SSHTTP_ADVANCE_NOT_YET==run_request( http, body, sizeof(body), &body_len, &last_len ) );
   FD_TEST( !body_len && !last_len );
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
   FD_TEST( 0==close( server ) );
   fd_sshttp_cancel( http );
+}
+
+/* A redirect to a fast boot stream name resolves its slot and hash. */
+
+static void
+test_redirect_stream_name( void ) {
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+  FD_TEST( http );
+
+  int server = connect_pair( http );
+
+  uchar hash[ 32 ];
+  for( ulong i=0UL; i<32UL; i++ ) hash[ i ] = (uchar)(i+1UL);
+  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( hash, NULL, hash_b58 );
+  char redirect[ 256 ];
+  FD_TEST( fd_cstr_printf_check( redirect, sizeof(redirect), NULL,
+           "HTTP/1.1 302 Found\r\nLocation: /fast-boot-stream-123-%s.tar.zst\r\nContent-Length: 0\r\n\r\n", hash_b58 ) );
+  FD_TEST( (long)strlen( redirect )==send( server, redirect, strlen( redirect ), 0 ) );
+
+  /* In fuzz mode the redirect is followed on the same connection. */
+  ulong data_len = 0UL;
+  int   downloading;
+  uchar buf[ 16 ];
+  for( ulong i=0UL; i<1024UL && http->hops==4UL; i++ ) {
+    data_len = sizeof(buf);
+    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &data_len, buf, &downloading, 0L ) );
+  }
+  FD_TEST( http->hops==3UL );
+  char name[ 128 ];
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "fast-boot-stream-123-%s.tar.zst", hash_b58 ) );
+  FD_TEST( http->resolved_slot==123UL && !memcmp( http->resolved_hash, hash, 32UL ) && !strcmp( http->snapshot_name, name ) );
+
+  char const * resp = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello";
+  FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
+  uchar body[ 16 ];
+  ulong body_len, last_len;
+  FD_TEST( FD_SSHTTP_ADVANCE_DONE==run_request( http, body, sizeof(body), &body_len, &last_len ) );
+  FD_TEST( body_len==5UL && !memcmp( body, "hello", 5UL ) );
+
+  FD_TEST( 0==close( server ) );
+  fd_sshttp_cancel( http );
+}
+
+/* A 404 means there is no such file, ranged or not. */
+
+static void
+test_not_found( void ) {
+  for( ulong range_start=0UL; range_start<=10UL; range_start+=10UL ) {
+    fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+    FD_TEST( http );
+
+    int server = connect_pair( http );
+    http->range_start = range_start;
+    char const * resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+    FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
+
+    uchar body[ 16 ];
+    ulong body_len, last_len;
+    FD_TEST( FD_SSHTTP_ADVANCE_NOT_FOUND==run_request( http, body, sizeof(body), &body_len, &last_len ) );
+    FD_TEST( !body_len && !last_len );
+    FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
+
+    FD_TEST( 0==close( server ) );
+    fd_sshttp_cancel( http );
+  }
 }
 
 /* fd_sshttp_init puts the range in the request only when asked. */
@@ -335,6 +402,12 @@ test_range_request( void ) {
   FD_TEST( strstr( http->request, "Range: bytes=4096-\r\n" ) );
   fd_sshttp_cancel( http );
 
+  /* A resume asks for the same file from the new offset. */
+  FD_TEST( !fd_sshttp_resume( http, 0L, 8192UL ) );
+  FD_TEST( strstr( http->request, "GET /boot/7.tar.zst HTTP/1.1" ) );
+  FD_TEST( strstr( http->request, "Range: bytes=8192-\r\n" ) );
+  fd_sshttp_cancel( http );
+
   FD_TEST( !close( listen_fd ) );
 }
 
@@ -356,6 +429,8 @@ main( int     argc,
   test_range_mismatch();
   test_range_missing();
   test_range_not_satisfiable();
+  test_redirect_stream_name();
+  test_not_found();
   test_range_request();
 
   FD_LOG_NOTICE(( "pass" ));

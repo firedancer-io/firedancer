@@ -4303,6 +4303,7 @@ int
 fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               fd_accdb_fork_id_t  fork_id,
                               int                 is_incremental,
+                              int                 allow_same_slot_duplicates,
                               ulong               cnt,
                               uchar const * const pubkeys[],
                               ulong  const        slots[],
@@ -4351,12 +4352,14 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
 
   /* Phase 1b: reject same-slot duplicate pubkeys. */
 
-  for( ulong i=1UL; i<cnt; i++ ) {
-    for( ulong j=0UL; j<i; j++ ) {
-      if( FD_UNLIKELY( hashes[ j ]==hashes[ i ] && slots[ j ]==slots[ i ] &&
-                       !memcmp( pubkeys[ j ], pubkeys[ i ], 32UL ) ) ) {
-        FD_LOG_WARNING(( "corrupt snapshot: duplicate pubkey within a single batch (entries %lu and %lu, slots %lu and %lu)", j, i, slots[ j ], slots[ i ] ));
-        return -1;
+  if( !allow_same_slot_duplicates ) {
+    for( ulong i=1UL; i<cnt; i++ ) {
+      for( ulong j=0UL; j<i; j++ ) {
+        if( FD_UNLIKELY( hashes[ j ]==hashes[ i ] && slots[ j ]==slots[ i ] &&
+                         !memcmp( pubkeys[ j ], pubkeys[ i ], 32UL ) ) ) {
+          FD_LOG_WARNING(( "corrupt snapshot: duplicate pubkey within a single batch (entries %lu and %lu, slots %lu and %lu)", j, i, slots[ j ], slots[ i ] ));
+          return -1;
+        }
       }
     }
   }
@@ -4414,7 +4417,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
           continue;
         }
 
-        if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
+        if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] || ((ulong)candidate->cache_idx==slots[ i ] && allow_same_slot_duplicates) ) ) {
           skip = 1;
         } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: duplicate account at slot %lu", slots[ i ] ));

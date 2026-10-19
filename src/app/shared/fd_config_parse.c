@@ -77,6 +77,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
   CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
+  CFG_POP      ( bool,   snapshots.fast_boot.enabled                         );
   CFG_POP      ( bool,   snapshots.fast_boot.serve.enabled                   );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );

@@ -545,7 +545,9 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
    Returns 0 on success, -1 if a pubkey appears more than once at the
    same slot, either in this batch or an earlier one (a corrupt-snapshot
    signal — the caller should flag the snapshot malformed).  Output
-   counters are not meaningful when -1 is returned.
+   counters are not meaningful when -1 is returned.  With
+   allow_same_slot_duplicates set, a second copy at the same slot is
+   simply skipped.
 
    Each slots[i] must be <= UINT_MAX.  Slots are held in a 32-bit
    scratch field during snapshot loading; the accdb format must be
@@ -582,6 +584,7 @@ int
 fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               fd_accdb_fork_id_t  fork_id,
                               int                 is_incremental,
+                              int                 allow_same_slot_duplicates,
                               ulong               cnt,
                               uchar const * const pubkeys[],
                               ulong  const        slots[],

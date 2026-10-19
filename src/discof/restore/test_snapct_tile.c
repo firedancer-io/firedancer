@@ -321,6 +321,33 @@ test_block_list_contact_info_insert( void ) {
   free( scratch );
 }
 
+/* A fast boot stream has no size of its own: data beyond the size it
+   was first served at is fine, caught up is just noted, and the end
+   needs no byte count. */
+static void
+test_stream_signals( void ) {
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  test_ctx_wake_init( ctx );
+
+  ctx->state                    = FD_SNAPCT_STATE_READING_STREAM;
+  ctx->metrics.full.bytes_total = 100UL;
+  ctx->metrics.full.bytes_read  = 100UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_DATA, 50UL, 0UL, NULL );
+  FD_TEST( !ctx->malformed && ctx->metrics.full.bytes_read==150UL );
+
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, NULL );
+  FD_TEST( !ctx->malformed && !ctx->load_complete );
+
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( ctx->load_complete==1 );
+
+  ctx->load_complete = 0;
+  ctx->state = FD_SNAPCT_STATE_FLUSHING_STREAM_RESET;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( !ctx->load_complete );
+}
+
 static void
 test_load_complete_signal( void ) {
   fd_snapct_tile_t ctx[1];
@@ -1392,6 +1419,7 @@ main( int     argc,
   test_block_list_contact_info_insert();
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
+  test_stream_signals();
   test_start_after_init_acks();
   test_snapct_needs_incr();
   test_incr_use_local();

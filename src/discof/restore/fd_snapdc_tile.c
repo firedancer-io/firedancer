@@ -118,7 +118,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                      ulong               sig,
                      ulong               chunk,
                      ulong               sz ) {
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE || sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP ) ) return;
 
   /* All control messages except META reset the decompression stream */
   if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_META ) ) {

@@ -679,6 +679,7 @@ struct fd_topo_tile {
       } sources;
 
       int    incremental_snapshots;
+      int    fast_boot;
       uint   max_full_snapshots_to_keep;
       uint   max_incremental_snapshots_to_keep;
       uint   max_retry_abort;
