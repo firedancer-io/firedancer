@@ -6259,6 +6259,8 @@ message MetricsVotorDatagramRx {
   uint64 too_small = 4;
   // Datagram tag was neither a vote nor a cert
   uint64 unknown_tag = 5;
+  // Datagram arrived on a connection not yet admitted, or already closed
+  uint64 not_admitted = 6;
 }
 
 // Times the tile tried to park while idle (efficient mode), by result

@@ -1972,6 +1972,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="NotReady" label="Datagram arrived before the votor tile was initialized" />
     <int value="3" name="TooSmall" label="Datagram was too small to hold a version and a tag" />
     <int value="4" name="UnknownTag" label="Datagram tag was neither a vote nor a cert" />
+    <int value="5" name="NotAdmitted" label="Datagram arrived on a connection not yet admitted, or already closed" />
 </enum>
 
 <enum name="VoteRxResult">
