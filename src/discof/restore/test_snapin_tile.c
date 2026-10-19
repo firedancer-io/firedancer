@@ -238,7 +238,7 @@ static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 
 /* Outcome mock_accdb_restore_write_batch reports for every account. */
 static uchar test_write_result = FD_ACCDB_RESTORE_WRITE_LOADED;
-static int   test_write_allow_same_slot_duplicates;
+static int   test_write_skip_duplicates;
 
 /* The mocks above hide these prototypes; tests reach the real ones. */
 ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
@@ -362,7 +362,7 @@ int
 mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
                                 fd_accdb_fork_id_t                   fork_id,
                                 int                                  is_incremental,
-                                int                                  allow_same_slot_duplicates,
+                                int                                  skip_duplicates,
                                 ulong                                cnt,
                                 uchar const * const                  pubkeys[],
                                 ulong const                          slots[],
@@ -385,7 +385,7 @@ mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
   (void)data_lens;
   (void)executables;
   (void)file_offsets;
-  test_write_allow_same_slot_duplicates = allow_same_slot_duplicates;
+  test_write_skip_duplicates = skip_duplicates;
   *accounts_ignored      = 0UL;
   *accounts_replaced     = 0UL;
   *accounts_loaded       = cnt;
@@ -3020,25 +3020,98 @@ test_stream_mode( void ) {
   uchar pubkey[ 32UL ] = {1};
   uchar owner [ 32UL ] = {2};
   cl->ctx[ 0 ].load_fork = 7UL;
-  test_write_allow_same_slot_duplicates = -1;
+  test_write_skip_duplicates = -1;
   FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
 
+  /* Caught up: tile 0 flushes, checks the sysvars and tells replay to
+     start.  The stream keeps loading. */
+  cl->ctx[ 0 ].lead.flags.manifest_processed = 1;
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
   ulong pub0 = test_pub_cnt;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_PROCESSING );
+  FD_TEST( test_pub_cnt==pub0+1UL && test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) && test_pub_out_idx[ pub0 ]==0UL );
+  FD_TEST( test_write_skip_duplicates==1 );
+  FD_TEST( !test_accdb_advance_root_cnt && test_feature_restore_cnt==1UL && !test_accdb_load_end_cnt ); /* the stream fork stays unrooted */
+  FD_TEST( test_pwrite_call_cnt==1UL && test_pwrite_sz[ 0 ]==sizeof(fd_accdb_disk_meta_t) ); /* a stream is written unpadded */
+
+  FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
+  test_stream_init( 0UL );
+  ulong av_owner[ TEST_AV_MAX ];
+  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, av_owner ); /* the end-of-archive marker */
+  pub0 = test_pub_cnt;
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_FINISHING );
   FD_TEST( test_pub_cnt==pub0+n && test_pub_sig[ pub0 ]==FD_SNAPSHOT_MSG_CTRL_FINI );
-  FD_TEST( test_write_allow_same_slot_duplicates==1 );
+  FD_TEST( test_pwrite_call_cnt==2UL && test_pwrite_sz[ 1 ]==sizeof(fd_accdb_disk_meta_t) );
 
-  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  cl->ctx[ 0 ].lead.manifest_capitalization = 1UL; /* a snapshot would fail this */
+  /* The stream's end roots the fork and releases replay's root. */
   pub0 = test_pub_cnt;
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_DONE ) );
-  FD_TEST( test_pub_sig[ pub0+1UL ]==FD_SNAPSHOT_MSG_CTRL_DONE );
   FD_TEST( test_pub_cnt==pub0+n+1UL );
+  FD_TEST( test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_DONE ) && test_pub_out_idx[ pub0 ]==0UL );
+  for( ulong i=1UL; i<=n; i++ ) FD_TEST( test_pub_sig[ pub0+i ]==FD_SNAPSHOT_MSG_CTRL_DONE );
   FD_TEST( test_accdb_advance_root_cnt==1UL && test_accdb_load_end_cnt==1UL && test_feature_restore_cnt==1UL );
 
+  test_cluster_delete( cl );
+}
+
+/* A stream that ends before caught up is loaded like a snapshot. */
+static void
+test_stream_ends_early( void ) {
+  ulong const n = 2UL;
+  test_cluster_t * cl = test_cluster_new( n, 1UL );
+  test_counters_reset();
+  test_io_reset();
+  for( ulong t=0UL; t<n; t++ ) ((fd_ssctrl_init_t *)cl->ctx[ t ].in[ 0 ].wksp)->stream = 1;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+  test_stream_init( 0UL );
+  ulong owner[ TEST_AV_MAX ];
+  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
+
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
+  cl->ctx[ 0 ].lead.manifest_capitalization = 1UL; /* a snapshot would fail this */
+  ulong pub0 = test_pub_cnt;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
+  FD_TEST( test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) );
+  FD_TEST( test_pub_sig[ pub0+1UL ]==fd_ssmsg_sig( FD_SSMSG_DONE ) );
+  FD_TEST( test_pub_sig[ pub0+2UL ]==FD_SNAPSHOT_MSG_CTRL_DONE );
+  FD_TEST( test_pub_cnt==pub0+n+2UL );
+  FD_TEST( test_accdb_advance_root_cnt==1UL && test_accdb_load_end_cnt==1UL && test_feature_restore_cnt==1UL );
+  test_cluster_delete( cl );
+}
+
+/* Tile 0 loads every appendvec of a stream. */
+static void
+test_stream_claims( void ) {
+  ulong const n = 3UL;
+  ulong const T = 13UL;
+  test_cluster_t * cl = test_cluster_new( n, 1UL );
+  test_counters_reset();
+  test_stream_init( T );
+  for( ulong t=0UL; t<n; t++ ) ((fd_ssctrl_init_t *)cl->ctx[ t ].in[ 0 ].wksp)->stream = 1;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+
+  ulong owner[ TEST_AV_MAX ];
+  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
+  FD_TEST( test_appendvec_parse_cnt==T );
+  for( ulong i=0UL; i<T; i++ ) FD_TEST( owner[ i ]==0UL );
+  test_cluster_delete( cl );
+}
+
+/* A stream cut before its end-of-archive marker is malformed, like a
+   truncated snapshot. */
+static void
+test_stream_cut( void ) {
+  test_cluster_t * cl = test_cluster_new( 1UL, 1UL );
+  test_counters_reset();
+  ((fd_ssctrl_init_t *)cl->ctx[ 0 ].in[ 0 ].wksp)->stream = 1;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
+  FD_TEST( cl->ctx[ 0 ].state==FD_SNAPSHOT_STATE_ERROR );
   test_cluster_delete( cl );
 }
 
@@ -3138,11 +3211,11 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( cl->ctx[ 0 ].lead.accdb_incr_fork_id.val==USHORT_MAX );
   FD_TEST( test_stake_publish_cnt==1UL && test_stake_publish_fork==3U ); /* stake fork published */
   FD_TEST( test_stake_evict_cnt==2UL && test_stake_evict_fork==3U );     /* and released */
-  /* n DONE acks plus tile 0's replay notification on snapin_manif. */
-  FD_TEST( test_pub_cnt==pub0+n+1UL );
+  /* n DONE acks plus tile 0's REPLAY_READY and DONE on snapin_manif. */
+  FD_TEST( test_pub_cnt==pub0+n+2UL );
   ulong manif_pubs = 0UL;
   for( ulong i=pub0; i<test_pub_cnt; i++ ) manif_pubs += test_pub_out_idx[ i ]==0UL;
-  FD_TEST( manif_pubs==1UL );
+  FD_TEST( manif_pubs==2UL );
 
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
   for( ulong t=0UL; t<n; t++ ) {
@@ -3164,7 +3237,7 @@ test_writer_short_write_and_eintr( void ) {
   test_pwrite_push(  2L, 0     );
   test_pwrite_push(  3L, 0     );
 
-  writer_pwrite( ctx, data, sizeof(data), 10UL );
+  writer_pwrite( ctx, ctx->writer.accdb_direct_fd, data, sizeof(data), 10UL );
   FD_TEST( test_pwrite_call_cnt==3UL );
   FD_TEST( test_pwrite_sz [0]==5UL && test_pwrite_off[0]==10UL && test_pwrite_data[0][0]==1U );
   FD_TEST( test_pwrite_sz [1]==5UL && test_pwrite_off[1]==10UL && test_pwrite_data[1][0]==1U );
@@ -3185,7 +3258,7 @@ test_writer_disk_error_fatal( void ) {
     fd_log_level_stderr_set( 6 );
     test_io_reset();
     test_pwrite_push( -1L, EIO );
-    writer_pwrite( ctx, data, sizeof(data), 0UL );
+    writer_pwrite( ctx, ctx->writer.accdb_direct_fd, data, sizeof(data), 0UL );
     _exit( 0 );
   }
 
@@ -3480,6 +3553,9 @@ main( int     argc,
   test_verify_sysvars_epoch_rewards();
   test_verify_sysvars_gates_controls();
   test_stream_mode();
+  test_stream_cut();
+  test_stream_ends_early();
+  test_stream_claims();
 
   free( test_ctx );
   FD_LOG_NOTICE(( "pass" ));

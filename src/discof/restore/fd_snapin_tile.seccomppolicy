@@ -51,7 +51,8 @@ pread64: (eq (arg 0) stake_spill_fd)
 # Stake delegations may also spill full records to disk.
 #
 # arg 0 is the file descriptor to write to.
-pwrite64: (or (eq (arg 0) accounts_direct_fd)
+pwrite64: (or (eq (arg 0) accounts_fd)
+              (eq (arg 0) accounts_direct_fd)
               (eq (arg 0) stake_spill_fd))
 
 # power saving: sleep when there is no work to do

@@ -1630,7 +1630,7 @@ static test_batch_result_t
 test_write_batch_on( fd_accdb_t *                         accdb,
                      fd_accdb_fork_id_t                   fork_id,
                      int                                  is_incremental,
-                     int                                  allow_same_slot_duplicates,
+                     int                                  skip_duplicates,
                      ulong                                cnt,
                      uchar const * const                  pubkeys[],
                      ulong const                          slots[],
@@ -1658,7 +1658,7 @@ test_write_batch_on( fd_accdb_t *                         accdb,
   }
 
   test_batch_result_t result = {0};
-  result.err = fd_accdb_restore_write_batch( accdb, fork_id, is_incremental, allow_same_slot_duplicates, cnt, pubkeys, slots, lamports, data_lens,
+  result.err = fd_accdb_restore_write_batch( accdb, fork_id, is_incremental, skip_duplicates, cnt, pubkeys, slots, lamports, data_lens,
                                               executables, file_offsets, &result.ignored, &result.replaced,
                                               &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
                                               result.results );
@@ -1803,12 +1803,18 @@ test_snapshot_equal_slot_rejected( void ) {
   FD_TEST( result.err==-1 );
   FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
 
-  /* With allow_same_slot_duplicates the repeat is dropped instead, whether it
-     is already in the chain or earlier in the same batch. */
+  /* With skip_duplicates the repeat is dropped instead, whether it
+     is already in the chain or earlier in the same batch, and without
+     looking at the slot. */
   result = test_write_batch_on( accdb, root, 0, 1, 1UL, pubkeys, slots, lamports, data_lens, execs, &store );
   FD_TEST( !result.err && !result.loaded && result.ignored==1UL && result.ignored_lamports==3UL );
   FD_TEST( result.results[0]==FD_ACCDB_RESTORE_WRITE_IGNORED );
   FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
+  slots[ 0 ] = 200UL;
+  result = test_write_batch_on( accdb, root, 0, 1, 1UL, pubkeys, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !result.err && !result.loaded && result.ignored==1UL && result.results[0]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+  FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
+  slots[ 0 ] = 100UL;
 
   uchar pubkey2[ 32UL ] = {2};
   pubkeys[ 0 ] = pubkeys[ 1 ] = pubkey2;

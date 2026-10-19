@@ -33,6 +33,9 @@ struct fd_sshttp_private {
   char  location[ PATH_MAX ];
   ulong location_len;
 
+  char  path[ PATH_MAX ]; /* the path the request was created with, location follows redirects */
+  ulong path_len;
+
   fd_ip4_port_t addr;
   char          hostname[ FD_FQDN_BUF_MAX ];
   int           is_https;

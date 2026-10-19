@@ -1,6 +1,6 @@
 {
     "name": "metrics_strmk",
-    "id": 339459426,
+    "id": 63,
     "description": "Metrics of one strmk tile instance, one row per sweep",
     "local": true,
     "fields": {

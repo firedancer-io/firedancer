@@ -4303,9 +4303,9 @@ static fd_metrics_sample_field_t const fields_snapsv[ 49 ] = {
   { FD_METRICS_GAUGE_SNAPSV_CONN_OPEN_OFF, 27U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_SNAPSV_HTTP_RX_BYTES_OFF, 28U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_SNAPSV_HTTP_TX_BYTES_OFF, 29U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_GAUGE_SNAPSV_FAST_BOOT_STREAM_AVAILABLE_OFF, 508853788U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_SNAPSV_FAST_BOOT_REQUEST_SERVED_OFF, 488607948U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_SNAPSV_FAST_BOOT_TX_BYTES_OFF, 453950772U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_GAUGE_SNAPSV_FAST_BOOT_STREAM_AVAILABLE_OFF, 30U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_SNAPSV_FAST_BOOT_REQUEST_SERVED_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_SNAPSV_FAST_BOOT_TX_BYTES_OFF, 32U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_motor[ 38 ] = {
@@ -4450,9 +4450,9 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "snapmk", 57U, fields_snapmk, 66UL, 767UL },
   { "snapzp", 58U, fields_snapzp, 44UL, 584UL },
   { "snaprd", 59U, fields_snaprd, 42UL, 560UL },
-  { "snapsv", 60U, fields_snapsv, 49UL, 634UL },
+  { "snapsv", 60U, fields_snapsv, 49UL, 625UL },
   { "motor", 62U, fields_motor, 38UL, 512UL },
-  { "strmk", 339459426U, fields_strmk, 47UL, 623UL },
+  { "strmk", 63U, fields_strmk, 47UL, 620UL },
   { NULL, 0U, NULL, 0UL, 0UL }
 };
 

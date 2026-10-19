@@ -199,6 +199,7 @@ struct fd_snapin_lead {
     int manifest_done;
     int status_cache_done;
     int manifest_processed;
+    int replay_started;
   } flags;
 
   ulong advertised_slot;
@@ -1371,12 +1372,13 @@ snoop_stake_delegation( fd_snapin_tile_t *       ctx,
 
 static void
 writer_pwrite( fd_snapin_tile_t * ctx,
+               int                fd,
                uchar const *      buf,
                ulong              sz,
                ulong              off ) {
   ulong done = 0UL;
   while( done<sz ) {
-    long res = pwrite( ctx->writer.accdb_direct_fd, buf+done, sz-done, (long)(off+done) );
+    long res = pwrite( fd, buf+done, sz-done, (long)(off+done) );
     if( FD_UNLIKELY( res<=0L ) ) {
       int err = res<0L ? errno : EIO;
       if( res<0L && err==EINTR ) continue;
@@ -1391,23 +1393,25 @@ static int
 writer_flush( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->writer.buf_used ) ) return 0;
 
-  /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
-     is a dead record so compaction reclaims it after snapshot loading
-     finishes. */
-  ulong used   = ctx->writer.buf_used;
-  ulong padded = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
-  FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ );
-  fd_memset( ctx->writer.buf+used, 0, padded-used );
-  fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
-  dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
+  ulong used = ctx->writer.buf_used;
+  ulong sz   = used;
+  int   fd   = FD_ACCDB_FD_RW;
 
-  /* The offset is aligned because partition sizes are multiples of
-     FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
-     layer-0 writers during the load, and every reservation they make
-     is a multiple of FD_SNAPIN_DIRECT_ALIGN. */
-  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded, padded-used );
-  FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
-  writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
+  /* A snapshot is written with O_DIRECT, padded to
+     FD_SNAPIN_DIRECT_ALIGN with a dead record.  A stream is small and
+     shares the log with replay once it has started, so it is written
+     through the page cache. */
+  if( FD_LIKELY( !ctx->stream ) ) {
+    sz = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
+    FD_TEST( sz<=FD_SNAPIN_WRITE_BUF_SZ );
+    fd_memset( ctx->writer.buf+used, 0, sz-used );
+    fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
+    dummy_record->size = (uint)( sz-used-sizeof(fd_accdb_disk_meta_t) );
+    fd = ctx->writer.accdb_direct_fd;
+  }
+
+  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, sz, sz-used );
+  writer_pwrite( ctx, fd, ctx->writer.buf, sz, base_off );
 
   fd_accdb_fork_id_t          fork_id    = { .val = (ushort)ctx->load_fork };
   ushort                      stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
@@ -1647,9 +1651,12 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_AGAIN:
         break;
       case FD_SSPARSE_ADVANCE_APPENDVEC: {
-        /* Parse only this tile's claimed appendvecs. */
+        /* Parse only this tile's claimed appendvecs.  Tile 0 loads a
+           stream alone, so it knows when every record is in. */
         ulong appendvec_idx = ctx->appendvec_seq++;
-        if( FD_UNLIKELY( appendvec_idx==ctx->claimed_appendvec ) ) {
+        if( FD_UNLIKELY( ctx->stream ) ) {
+          if( FD_LIKELY( is_lead( ctx ) ) ) fd_ssparse_appendvec_parse( ctx->ssparse );
+        } else if( FD_UNLIKELY( appendvec_idx==ctx->claimed_appendvec ) ) {
           ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec_ticket, 1UL );
           fd_ssparse_appendvec_parse( ctx->ssparse );
         }
@@ -2009,22 +2016,46 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       break;
     }
 
+    case FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP: {
+      forward_msg = 0;
+      if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+
+      FD_TEST( ctx->stream && !ctx->lead.flags.replay_started );
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING || !ctx->lead.flags.manifest_processed ) ) {
+        FD_LOG_WARNING(( "caught up with the fast boot stream before its manifest or after its end" ));
+        transition_malformed( ctx, stem );
+        break;
+      }
+      if( FD_UNLIKELY( writer_flush( ctx ) ) ) {
+        transition_malformed( ctx, stem );
+        break;
+      }
+      if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
+        FD_LOG_WARNING(( "sysvar verification failed for the fast boot stream" ));
+        transition_malformed( ctx, stem );
+        break;
+      }
+
+      /* The stream fork stays unrooted until the stream ends, replay
+         holds its root until then. */
+      fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, ctx->lead.accdb_full_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
+      fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->lead.flags.replay_started = 1;
+      break;
+    }
+
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
-      /* A snapshot ends with a tar end-of-archive marker, so
-         handle_data_frag has already seen FD_SSPARSE_ADVANCE_DONE and
-         moved to FINISHING.  Otherwise the file was cut short: treat
-         it as malformed so that the pipeline can retry. */
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING && !ctx->stream ) ) {
+      /* This is a special case: handle_data_frag must have already
+         processed FD_SSPARSE_ADVANCE_DONE and moved the state into
+         FD_SNAPSHOT_STATE_FINISHING.  Otherwise, treat this as a
+         malformed snapshot so that the pipeline can retry. */
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
         FD_LOG_WARNING(( "received FINI while in state %s (%lu), expected FINISHING (possibly truncated tar stream)",
                          fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
       }
-
-      /* A fast boot stream has no end-of-archive marker, so FINI itself
-         is the end and marks FINISHING. */
-      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       /* Flush records before the FINI ack. */
       if( FD_UNLIKELY( writer_flush( ctx ) ) ) {
@@ -2080,6 +2111,17 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
+      /* Replay took over at caught up with its root held.  Root the
+         stream fork now and let replay move on. */
+      if( FD_UNLIKELY( ctx->lead.flags.replay_started ) ) {
+        fold_account_counts( ctx );
+        root_fork( ctx, &ctx->lead.accdb_full_fork_id );
+        fd_accdb_snapshot_load_end( ctx->accdb );
+        fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->lead.init_completed = 0;
+        break;
+      }
+
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         if( ctx->full ) FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         else            FD_LOG_WARNING(( "sysvar verification failed for incremental snapshot" ));
@@ -2119,7 +2161,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, ctx->lead.accdb_root_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
 
       /* Notify replay when snapshot is fully loaded and verified. */
-      fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ),         0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->lead.init_completed = 0;
       break;
     }
@@ -2132,6 +2175,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      if( FD_UNLIKELY( is_lead( ctx ) && ctx->lead.flags.replay_started ) ) FD_LOG_ERR(( "the fast boot stream failed after replay started" ));
       fd_accdb_flush_metrics( ctx->accdb );
 
       FD_COMPILER_MFENCE();
@@ -2477,12 +2521,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
     1. snapin_ct    - worst case: 1 message (ack or unsolicited ERROR)
-    2. snapin_manif - worst case: 1 message (tile 0 only)
+    2. snapin_manif - worst case: 2 messages (tile 0 only: REPLAY_READY, DONE)
     3. snapin_gui   - worst case: 1 message (config program account)
    The STEM_BURST is the max value across these 3 links (not the sum).
    Note that snapin_txn is excluded from this calculation, since it is
    an unreliable link, working as a dcache place holder. */
-#define STEM_BURST 1UL
+#define STEM_BURST 2UL
 
 #define STEM_LAZY  (128L*3000L)
 

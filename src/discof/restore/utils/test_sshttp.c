@@ -408,6 +408,17 @@ test_range_request( void ) {
   FD_TEST( strstr( http->request, "Range: bytes=8192-\r\n" ) );
   fd_sshttp_cancel( http );
 
+  /* After a redirect a resume stays on the new name, except from the
+     start, which goes back to the requested path. */
+  FD_TEST( fd_cstr_printf_check( http->location, sizeof(http->location), &http->location_len, "/boot/8.tar.zst" ) );
+  FD_TEST( !fd_sshttp_resume( http, 0L, 4096UL ) );
+  FD_TEST( strstr( http->request, "GET /boot/8.tar.zst HTTP/1.1" ) );
+  fd_sshttp_cancel( http );
+  FD_TEST( !fd_sshttp_resume( http, 0L, 0UL ) );
+  FD_TEST( strstr( http->request, "GET /boot/7.tar.zst HTTP/1.1" ) );
+  FD_TEST( !strstr( http->request, "Range:" ) );
+  fd_sshttp_cancel( http );
+
   FD_TEST( !close( listen_fd ) );
 }
 

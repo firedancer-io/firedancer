@@ -556,6 +556,10 @@ enum MetricsSnapctLoadState {
   METRICS_SNAPCT_LOAD_STATE_FLUSHING_INCREMENTAL_HTTP_DONE = 20;  // Incremental download loaded, draining downstream
   METRICS_SNAPCT_LOAD_STATE_FLUSHING_INCREMENTAL_HTTP_RESET = 21;  // Incremental download aborted, resetting downstream
   METRICS_SNAPCT_LOAD_STATE_SHUTDOWN = 22;  // Snapshot load complete
+  METRICS_SNAPCT_LOAD_STATE_READING_STREAM = 23;  // Downloading fast boot stream
+  METRICS_SNAPCT_LOAD_STATE_FLUSHING_STREAM_FINI = 24;  // Stream ended, draining downstream
+  METRICS_SNAPCT_LOAD_STATE_FLUSHING_STREAM_DONE = 25;  // Stream loaded, draining downstream
+  METRICS_SNAPCT_LOAD_STATE_FLUSHING_STREAM_RESET = 26;  // Stream load aborted, resetting downstream
 }
 
 // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
@@ -7740,6 +7744,54 @@ message MetricsMotorRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Times the tile tried to park while idle (efficient mode), by result
+message MetricsStrmkParkAttempted {
+  // Woken by a doorbell ring
+  uint64 ring = 1;
+  // Deadline or park cap lapsed
+  uint64 deadline = 2;
+  // Pre-park recheck found work, did not park
+  uint64 pending = 3;
+}
+
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+message MetricsStrmkThreadDurationNanos {
+  // Wait (task was runnable but not scheduled)
+  uint64 wait = 1;
+  // Idle (task was not runnable)
+  uint64 idle = 2;
+  // User (task was scheduled and executing in user mode)
+  uint64 user = 3;
+  // System (task was scheduled and executing in kernel mode)
+  uint64 system = 4;
+  // Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)
+  uint64 interrupt = 5;
+}
+
+// Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+message MetricsStrmkRegimeDurationNanos {
+  // Caught up + Housekeeping
+  uint64 caught_up_housekeeping = 1;
+  // Processing + Housekeeping
+  uint64 processing_housekeeping = 2;
+  // Backpressure + Housekeeping
+  uint64 backpressure_housekeeping = 3;
+  // Caught up + Prefrag
+  uint64 caught_up_prefrag = 4;
+  // Processing + Prefrag
+  uint64 processing_prefrag = 5;
+  // Backpressure + Prefrag
+  uint64 backpressure_prefrag = 6;
+  // Caught up + Postfrag
+  uint64 caught_up_postfrag = 7;
+  // Processing + Postfrag
+  uint64 processing_postfrag = 8;
+  // Caught up + Sleeping
+  uint64 caught_up_sleeping = 9;
+  // Backpressure + Sleeping
+  uint64 backpressure_sleeping = 10;
+}
+
 // The validator received a verified, deduplicated transaction
 message Txn {
   // The source IP address of the transaction sender
@@ -10676,7 +10728,7 @@ message MetricsSnapct {
   uint64 tlb_shootdown = 23;
   // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
   uint64 timer_irq = 24;
-  // Snapshot load controller state: 0=init (Initializing), 1=waiting_for_peers, 2=waiting_for_peers_incremental (Waiting for peers (incremental)), 3=collecting_peers, 4=collecting_peers_incremental (Collecting peers (incremental)), 5=reading_full_file (Reading full snapshot file), 6=flushing_full_file_fini (Full file read, draining downstream), 7=flushing_full_file_done (Full file loaded, draining downstream), 8=flushing_full_file_reset (Full file load aborted, resetting downstream), 9=reading_incremental_file (Reading incremental snapshot file), 10=flushing_incremental_file_fini (Incremental file read, draining downstream), 11=flushing_incremental_file_done (Incremental file loaded, draining downstream), 12=flushing_incremental_file_reset (Incremental file load aborted, resetting downstream), 13=reading_full_http (Downloading full snapshot), 14=flushing_full_http_fini (Full download read, draining downstream), 15=flushing_full_http_done (Full download loaded, draining downstream), 16=flushing_full_http_reset (Full download aborted, resetting downstream), 17=reading_incremental_http (Downloading incremental snapshot), 18=flushing_incremental_http_fini (Incremental download read, draining downstream), 19=flushing_incremental_http_done (Incremental download loaded, draining downstream), 20=flushing_incremental_http_reset (Incremental download aborted, resetting downstream), 21=shutdown (Snapshot load complete)
+  // Snapshot load controller state: 0=init (Initializing), 1=waiting_for_peers, 2=waiting_for_peers_incremental (Waiting for peers (incremental)), 3=collecting_peers, 4=collecting_peers_incremental (Collecting peers (incremental)), 5=reading_full_file (Reading full snapshot file), 6=flushing_full_file_fini (Full file read, draining downstream), 7=flushing_full_file_done (Full file loaded, draining downstream), 8=flushing_full_file_reset (Full file load aborted, resetting downstream), 9=reading_incremental_file (Reading incremental snapshot file), 10=flushing_incremental_file_fini (Incremental file read, draining downstream), 11=flushing_incremental_file_done (Incremental file loaded, draining downstream), 12=flushing_incremental_file_reset (Incremental file load aborted, resetting downstream), 13=reading_full_http (Downloading full snapshot), 14=flushing_full_http_fini (Full download read, draining downstream), 15=flushing_full_http_done (Full download loaded, draining downstream), 16=flushing_full_http_reset (Full download aborted, resetting downstream), 17=reading_incremental_http (Downloading incremental snapshot), 18=flushing_incremental_http_fini (Incremental download read, draining downstream), 19=flushing_incremental_http_done (Incremental download loaded, draining downstream), 20=flushing_incremental_http_reset (Incremental download aborted, resetting downstream), 21=shutdown (Snapshot load complete), 22=reading_stream (Downloading fast boot stream), 23=flushing_stream_fini (Stream ended, draining downstream), 24=flushing_stream_done (Stream loaded, draining downstream), 25=flushing_stream_reset (Stream load aborted, resetting downstream)
   MetricsSnapctLoadState load_state = 25;
   // Snapshot file bytes read (download or local file) in the current attempt, by type; resets on retry
   MetricsSnapctReadProgressBytes read_progress_bytes = 26;
@@ -12184,6 +12236,12 @@ message MetricsSnapsv {
   uint64 http_rx_bytes = 28;
   // Bytes sent in responses from the snapshot service
   uint64 http_tx_bytes = 29;
+  // Fast boot stream files currently available for download
+  uint64 fast_boot_stream_available = 30;
+  // HTTP requests for fast boot streams served
+  uint64 fast_boot_request_served = 31;
+  // Bytes sent in fast boot stream responses
+  uint64 fast_boot_tx_bytes = 32;
 }
 
 // Input link metrics of one consumer tile instance, one row per link per sweep

@@ -348,6 +348,39 @@ test_stream_signals( void ) {
   FD_TEST( !ctx->load_complete );
 }
 
+/* A stream retry is counted once, when the wait before it is over. */
+static void
+test_stream_retry_once( void ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx = scratch;
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  FD_TEST( ctx->selector );
+  ctx->state                      = FD_SNAPCT_STATE_FLUSHING_STREAM_RESET;
+  ctx->flush_ack_cnt              = 1;
+  ctx->flush_ack                  = 1;
+  ctx->config.max_retry_abort     = 2U;
+  ctx->deadline_nanos             = LONG_MAX;
+  ctx->local_out.full_snapshot_fd = -1;
+  ctx->out_ld.mem                 = (fd_wksp_t *)output;
+  ctx->out_ld.wmark               = 128UL;
+  test_output                     = output;
+
+  int busy = 0;
+  after_credit( ctx, NULL, NULL, &busy );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && !ctx->metrics.full.num_retries );
+
+  ctx->deadline_nanos = 0L;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->metrics.full.num_retries==1U );
+  free( sel );
+  free( scratch );
+}
+
 static void
 test_load_complete_signal( void ) {
   fd_snapct_tile_t ctx[1];
@@ -1462,6 +1495,7 @@ main( int     argc,
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
   test_stream_signals();
+  test_stream_retry_once();
   test_start_after_init_acks();
   test_snapct_needs_incr();
   test_incr_use_local();
