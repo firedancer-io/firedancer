@@ -529,8 +529,9 @@ auto_tile_cpu_l3( fd_topo_tile_t * tile,
 retry:
   if( *hot_l3==ULONG_MAX || !l3_free_core_cnt( cpus, cpu_assigned, *hot_l3, iso ) ) {
     ulong best_cnt = 0UL;
-    for( ulong l3=0UL; l3<cpus->l3_cnt; l3++ ) {
-      ulong cnt = l3_free_core_cnt( cpus, cpu_assigned, l3, iso );
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) { /* ties go to the first L3 in cpu_ordering */
+      ulong l3  = cpus->cpu[ cpu_ordering[ i ] ].l3_idx;
+      ulong cnt = l3==ULONG_MAX ? 0UL : l3_free_core_cnt( cpus, cpu_assigned, l3, iso );
       if( cnt>best_cnt ) { best_cnt = cnt; *hot_l3 = l3; }
     }
     if( !best_cnt && iso>0 ) { iso = 0; goto retry; }
@@ -850,12 +851,21 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   cpu_bv_t pairs_assigned[ cpu_bv_word_cnt ]; cpu_bv_new( pairs_assigned );
   FD_STATIC_ASSERT( FD_TILE_MAX<=USHORT_MAX, layout );
 
+  /* Within a NUMA node, dies are filled one at a time in die_idx order
+     starting at 1, so CPU 0's die (die_idx 0) is last and kernel
+     workqueues can keep whole dies (see kworkers). */
+  ulong die_cnt = 1UL;
+  for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) if( cpus->cpu[ j ].die_idx!=ULONG_MAX ) die_cnt = fd_ulong_max( die_cnt, cpus->cpu[ j ].die_idx+1UL );
+
   ulong next_cpu_idx = 0UL;
   for( ulong i=0UL; i<cpus->numa_node_cnt; i++ ) {
-    for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
+    for( ulong k=0UL; k<die_cnt*cpus->cpu_cnt; k++ ) {
+      ulong           j   = k%cpus->cpu_cnt;
       fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
+      ulong           die = cpu->die_idx==ULONG_MAX ? 0UL : cpu->die_idx;
 
       if( FD_UNLIKELY( cpu_bv_test( pairs_assigned, j ) || cpu->numa_node!=i ) ) continue;
+      if( die!=( k/cpus->cpu_cnt+1UL )%die_cnt ) continue;
 
       FD_TEST( next_cpu_idx<FD_TILE_MAX );
       cpu_ordering[ next_cpu_idx++ ] = (ushort)j;
