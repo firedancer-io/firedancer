@@ -155,6 +155,7 @@ will not decrease them if the minimum is already met.
 | /proc/sys/net/ipv4/conf/lo/rp_filter    | 2           | Yes      | If sending QUIC transactions to Firedancer over loopback, this must be enabled to receive a response. Otherwise Linux will drop response packets due to limitations in the kernel eBPF networking stack. The sendTransaction RPC call will send over loopback.
 | /proc/sys/net/ipv4/conf/lo/accept_local | 1           | Yes      | If sending QUIC transactions to Firedancer over loopback, this must be enabled to receive a response. Otherwise Linux will drop response packets due to limitations in the kernel eBPF networking stack. The sendTransaction RPC call will send over loopback.
 | /proc/sys/net/core/bpf_jit_enable       | 1           | No       | Firedancer uses BPF for kernel bypass networking. BPF JIT makes this faster.
+| /proc/sys/net/core/wmem_max             | see desc.   | Yes      | With the XDP network stack in copy mode, every packet being transmitted is charged to the socket send buffer, which Firedancer sizes to the transmit ring: `net.xdp.xdp_tx_queue_size` times 2048 bytes (64 MiB by default). A lower maximum caps it and limits how many packets the kernel can transmit at once.
 | /proc/sys/kernel/numa_balancing         | 0           | No       | Firedancer assigns all memory to the right NUMA node, and rebalancing will make the system slower.
 
 Sysctls that are not required will produce a warning if they are not set

@@ -53,7 +53,7 @@ static const sysctl_param_t params[] = {
   {0}
 };
 
-static const sysctl_param_t xdp_params[] = {
+static sysctl_param_t xdp_params[] = {
   {
     "/proc/sys/net/ipv4/conf/lo/rp_filter",
     2,
@@ -77,6 +77,12 @@ static const sysctl_param_t xdp_params[] = {
     1,
     ENFORCE_MINIMUM,
     1,
+  },
+  {
+    "/proc/sys/net/core/wmem_max",
+    0,
+    ENFORCE_MINIMUM,
+    0,
   },
   {0}
 };
@@ -140,6 +146,7 @@ static void
 init( config_t const * config ) {
   init_param_list( params );
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    xdp_params[ 4 ].value = fd_ulong_min( (ulong)config->net.xdp.xdp_tx_queue_size*2048UL, (ulong)INT_MAX ); /* the XSK send buffer fd_xsk_init asks for */
     init_param_list( xdp_params );
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     sock_params[ 0 ].value = config->net.socket.receive_buffer_size;
@@ -189,6 +196,7 @@ check( config_t const * config,
   if( r.result!=CONFIGURE_OK ) return r;
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    xdp_params[ 4 ].value = fd_ulong_min( (ulong)config->net.xdp.xdp_tx_queue_size*2048UL, (ulong)INT_MAX ); /* the XSK send buffer fd_xsk_init asks for */
     r = check_param_list( xdp_params );
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     sock_params[ 0 ].value = config->net.socket.receive_buffer_size;
