@@ -113,6 +113,27 @@ typedef struct contact_info contact_info_t;
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
+#define BANNED_IP_LG_SLOT_CNT (13) /* 2*AG_VAT_MAX, fill ratio 0.5 */
+
+struct banned_ip {
+  uint ip4;       /* network order, 0 if free */
+  long expire_ts;
+};
+typedef struct banned_ip banned_ip_t;
+
+#define MAP_NAME              banned_ip
+#define MAP_T                 banned_ip_t
+#define MAP_LG_SLOT_CNT       BANNED_IP_LG_SLOT_CNT
+#define MAP_KEY               ip4
+#define MAP_KEY_T             uint
+#define MAP_KEY_NULL          0U
+#define MAP_KEY_INVAL(k)      (!(k))
+#define MAP_KEY_EQUAL(k0,k1)  ((k0)==(k1))
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#define MAP_KEY_HASH(key)     fd_uint_hash( key )
+#define MAP_MEMOIZE           0
+#include "../../util/tmpl/fd_map.c"
+
 #define PEERS_LG_SLOT_CNT (13) /* 2*AG_VAT_MAX, fill ratio 0.5 */
 FD_STATIC_ASSERT( (1UL<<PEERS_LG_SLOT_CNT)>=4UL*AG_VAT_MAX, peers );
 
@@ -315,6 +336,8 @@ struct fd_votor_tile {
   /* Networking */
 
   contact_info_t *   contact_infos;
+  banned_ip_t *      banned_ips;
+  ulong              banned_ip_cnt;
   peer_t *           peers;
   fd_pubkey_t        client_peer_id_keys[ QUIC_CLIENT_CONN_MAX ];
   fd_pubkey_t        server_peer_id_keys[ QUIC_CONN_MAX ];
@@ -560,6 +583,17 @@ ban_peer( fd_votor_tile_t * ctx,
     peer->tx_conn = NULL;
   }
   peer->ban_ts = now;
+  contact_info_t const * ci = contact_infos_query_const( ctx->contact_infos, peer->id_key, NULL );
+  if( FD_LIKELY( ci ) ) {
+    banned_ip_t * ban = banned_ip_query( ctx->banned_ips, ci->ip4, NULL );
+    if( FD_UNLIKELY( !ban && ctx->banned_ip_cnt>=banned_ip_key_max()/2UL ) ) {
+      for( ulong i=0UL; i<banned_ip_slot_cnt(); i++ ) { /* a remove can move a later entry into slot i, so recheck it */
+        while( ctx->banned_ips[ i ].ip4 && now>=ctx->banned_ips[ i ].expire_ts ) { banned_ip_remove( ctx->banned_ips, &ctx->banned_ips[ i ] ); ctx->banned_ip_cnt--; }
+      }
+    }
+    if( FD_LIKELY( !ban && ctx->banned_ip_cnt<banned_ip_key_max()/2UL ) ) { ban = banned_ip_insert( ctx->banned_ips, ci->ip4 ); ctx->banned_ip_cnt++; }
+    if( FD_LIKELY( ban ) ) ban->expire_ts = now+QUIC_BAN_TIMEOUT_NS;
+  }
   if( FD_LIKELY( !peer->reconn_pending ) ) { /* redial outbound when the ban lapses */
     reconn_t reconn = { .timeout = now+QUIC_BAN_TIMEOUT_NS, .id_key = peer->id_key };
     reconn_prq_insert( ctx->reconn_prq, &reconn );
@@ -1634,6 +1668,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
   l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                                 );
   l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                                         );
+  l = FD_LAYOUT_APPEND( l, banned_ip_align(),              banned_ip_footprint()                                             );
   l = FD_LAYOUT_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -2399,6 +2434,12 @@ after_frag( fd_votor_tile_t *   ctx,
     fd_udp_hdr_t const * udp   = (fd_udp_hdr_t const *)fd_type_pun_const( ctx->net_buf+sizeof(fd_eth_hdr_t)+iplen );
     ushort               dport = fd_ushort_bswap( udp->net_dport );
     if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
+    uchar const * quic_hdr = (uchar const *)udp+sizeof(fd_udp_hdr_t);
+    if( FD_UNLIKELY( dport==ctx->quic_server_listen_port && sz>sizeof(fd_eth_hdr_t)+iplen+sizeof(fd_udp_hdr_t) && (quic_hdr[0]&0xf0)==0xc0 ) ) { /* an Initial: drop it from a banned peer, accepting it would cost a signed server flight */
+      banned_ip_t * ban = banned_ip_query( ctx->banned_ips, ip4->saddr, NULL );
+      if( FD_UNLIKELY( ban && fd_clock_tile_now( ctx->clock )<ban->expire_ts ) ) break;
+      if( FD_UNLIKELY( ban ) ) { banned_ip_remove( ctx->banned_ips, ban ); ctx->banned_ip_cnt--; }
+    }
     fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
     ctx->stem = stem;
     fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_clock_tile_now( ctx->clock ) );
@@ -2522,6 +2563,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
   void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                                 );
   void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                                         );
+  void *            banned_ips    = FD_SCRATCH_ALLOC_APPEND( l, banned_ip_align(),              banned_ip_footprint()                                             );
   void *            reconn_prq    = FD_SCRATCH_ALLOC_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
   void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
@@ -2572,6 +2614,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos ) );
   FD_TEST( ctx->contact_infos );
+
+  ctx->banned_ips    = banned_ip_join( banned_ip_new( banned_ips ) );
+  ctx->banned_ip_cnt = 0UL;
+  FD_TEST( ctx->banned_ips );
 
   ctx->reconn_prq = reconn_prq_join( reconn_prq_new( reconn_prq, RECONN_MAX ) );
   FD_TEST( ctx->reconn_prq );
