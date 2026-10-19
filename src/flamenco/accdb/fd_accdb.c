@@ -110,6 +110,8 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   fd_accdb_metrics_t metrics[1];
 
+  ulong prealloc_failed_at;
+
   /* Compaction bounce buffer. */
   uchar * bounce;
 
@@ -344,6 +346,7 @@ fd_accdb_new( void *              ljoin,
   accdb->deferred_fork_head  = NULL;
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
+  accdb->prealloc_failed_at  = ULONG_MAX;
 
   memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
@@ -770,6 +773,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->deferred_fork_head  = NULL;
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
+  accdb->prealloc_failed_at  = ULONG_MAX;
 
   memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
@@ -1782,7 +1786,7 @@ acquire_cache_line( fd_accdb_t * accdb,
   return NULL;
 }
 
-static void
+static int
 grow_locked( fd_accdb_t * accdb,
              ulong        partition_idx,
              uchar        layer,
@@ -1795,6 +1799,7 @@ grow_locked( fd_accdb_t * accdb,
     int  result          = fallocate( accdb->fd, 0, (long)(p*accdb->shmem->partition_sz), (long)accdb->shmem->partition_sz );
     fallocate_nanos     += fd_log_wallclock();
     if( FD_UNLIKELY( -1==result ) ) {
+      if( FD_LIKELY( preallocated ) ) return errno;
       if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "fallocate() failed (%d-%s). The accounts database filled "
                                                     "the disk it is on, trying to grow from %lu GiB to %lu GiB. Please "
                                                     "free up disk space and restart the validator.",
@@ -1818,6 +1823,7 @@ grow_locked( fd_accdb_t * accdb,
     };
     fd_event_report_accdb_partition_added( &ev );
   }
+  return 0;
 }
 
 static inline void
@@ -4543,13 +4549,22 @@ fd_accdb_background( fd_accdb_t * accdb,
 
   /* Keep one partition allocated ahead so a write head rotating into a
      new partition never waits on fallocate. */
-  if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->partition_max )>=FD_VOLATILE_CONST( shmem->partition_fallocated ) ) ) {
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->partition_max )>=FD_VOLATILE_CONST( shmem->partition_fallocated ) &&
+                   FD_VOLATILE_CONST( shmem->partition_fallocated )!=accdb->prealloc_failed_at ) ) {
     spin_lock_acquire( &shmem->grow_lock );
     ulong fallocated = shmem->partition_fallocated;
     int   grow       = fallocated<shmem->partition_cnt && FD_VOLATILE_CONST( shmem->partition_max )>=fallocated;
-    if( FD_LIKELY( grow ) ) grow_locked( accdb, fallocated, 0, ULONG_MAX, 1 );
+    int   err        = grow ? grow_locked( accdb, fallocated, 0, ULONG_MAX, 1 ) : 0;
     spin_lock_release( &shmem->grow_lock );
-    if( FD_LIKELY( grow ) ) { *charge_busy = 1; return; }
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "fallocate() failed (%d-%s) preallocating the accounts database beyond %lu GiB. "
+                       "The validator will exit soon when the disk fills.",
+                       err, fd_io_strerror( err ), fallocated*shmem->partition_sz/(1UL<<30UL) ));
+      accdb->prealloc_failed_at = fallocated;
+    } else if( FD_LIKELY( grow ) ) {
+      *charge_busy = 1;
+      return;
+    }
   }
 
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
