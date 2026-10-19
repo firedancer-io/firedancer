@@ -2386,7 +2386,7 @@ test_leader_window_superseded( void ) {
   FD_TEST( pool_mem && votor_mem );
   ctx->pool        = ag_pool_join ( ag_pool_new ( pool_mem,  slot_max, QUIC_DGRAM_BURST, 42UL ) );
   ctx->votor       = ag_votor_join( ag_votor_new( votor_mem, slot_max, 42UL ) );
-  ctx->peers       = peers_join( peers_new( park_peers_mem ) );
+  ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   ctx->quic_client = park_quic( park_quic_mem[ 0 ], FD_QUIC_ROLE_CLIENT );
   ctx->quic_server = park_quic( park_quic_mem[ 1 ], FD_QUIC_ROLE_SERVER );
