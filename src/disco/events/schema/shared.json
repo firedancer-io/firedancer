@@ -37,7 +37,11 @@
             "flushing_incremental_http_fini":  { "description": "Incremental download read, draining downstream" },
             "flushing_incremental_http_done":  { "description": "Incremental download loaded, draining downstream" },
             "flushing_incremental_http_reset": { "description": "Incremental download aborted, resetting downstream" },
-            "shutdown":                        { "description": "Snapshot load complete" }
+            "shutdown":                        { "description": "Snapshot load complete" },
+            "reading_stream":                  { "description": "Downloading fast boot stream" },
+            "flushing_stream_fini":            { "description": "Stream ended, draining downstream" },
+            "flushing_stream_done":            { "description": "Stream loaded, draining downstream" },
+            "flushing_stream_reset":           { "description": "Stream load aborted, resetting downstream" }
         }
     }
 }

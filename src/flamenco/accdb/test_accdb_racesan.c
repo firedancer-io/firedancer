@@ -447,7 +447,7 @@ fiber_restore_write_exec( void * _ctx ) {
   ulong replaced_lamports;
   ulong ignored_lamports;
   uchar results[1];
-  int err = fd_accdb_restore_write_batch( f->accdb, f->restore_write.fork_id, 0, 1UL, pks, slots, lamports,
+  int err = fd_accdb_restore_write_batch( f->accdb, f->restore_write.fork_id, 0, 0, 1UL, pks, slots, lamports,
                                           data_lens, executables, file_offsets,
                                           &ignored, &replaced, &loaded,
                                           &replaced_lamports, &ignored_lamports, results );

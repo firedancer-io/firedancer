@@ -85,6 +85,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( bool,   failover.boot_to_standby                            );
   CFG_POP      ( cstr,   failover.listen_address                             );
   CFG_POP      ( ushort, failover.listen_port                                );
+  CFG_POP      ( bool,   snapshots.fast_boot.enabled                         );
   CFG_POP      ( bool,   snapshots.fast_boot.serve.enabled                   );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );

@@ -94,6 +94,7 @@ struct fd_configf {
     } server;
 
     struct {
+      int enabled;
       struct {
         int enabled;
       } serve;

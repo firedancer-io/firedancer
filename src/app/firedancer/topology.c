@@ -343,6 +343,10 @@ fd_topo_initialize( config_t * config ) {
   int efficient_mode      = !strcmp( config->firedancer.layout.mode, "efficient" );
   int failover_enabled    = 1;
 
+  if( FD_UNLIKELY( config->firedancer.snapshots.fast_boot.enabled ) ) {
+    FD_CHECK_ERR( config->firedancer.snapshots.sources.servers_cnt,
+                  "[snapshots.fast_boot.enabled] requires a stream server in [snapshots.sources.servers]" );
+  }
   if( FD_UNLIKELY( strmk_enabled ) ) {
     FD_CHECK_ERR( snapsv_tile_cnt && snapmk_enabled,
                   "[snapshots.fast_boot.serve.enabled] requires [snapshots.server.enabled] and snapshot production with snapzp tiles" );
@@ -1702,6 +1706,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.sources.max_local_full_effective_age = config->firedancer.snapshots.sources.max_local_full_effective_age;
     tile->snapct.sources.max_local_incremental_age    = config->firedancer.snapshots.sources.max_local_incremental_age;
     tile->snapct.incremental_snapshots                = config->firedancer.snapshots.incremental_snapshots;
+    tile->snapct.fast_boot                            = config->firedancer.snapshots.fast_boot.enabled;
     tile->snapct.max_full_snapshots_to_keep           = config->firedancer.snapshots.max_full_snapshots_to_keep;
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
