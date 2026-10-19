@@ -3088,7 +3088,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     int is_new_block = fec->fec_set_idx==0U && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
-      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active && !ctx->strmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
+      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active && !ctx->strmk.active && !fd_accdb_snapshot_loading( ctx->accdb ) ) ) *evict_banks_out = 1; /* see can_process_fec */
       return PROCESS_FEC_WAIT;
     }
   }
