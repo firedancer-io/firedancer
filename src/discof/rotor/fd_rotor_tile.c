@@ -35,11 +35,13 @@ struct timeout {
   long  timeout; /* ns */
   ulong slot;
   ulong blk;     /* blk_pool idx, checked against slot when due */
-  uint  fec_idx; /* FEC index, WINDOW_INDEX only */
-  uchar tag;     /* FD_ROTOR_SERDE_TAG_*, WINDOW_INDEX for any FEC set */
-  uchar attempt;
+  uint   fec_idx;   /* FEC index, WINDOW_INDEX only */
+  uchar  tag;       /* FD_ROTOR_SERDE_TAG_*, WINDOW_INDEX for any FEC set */
+  uchar  attempt;
+  ushort last_peer; /* 1+strat slot of the peer last asked, 0 if none */
 };
 typedef struct timeout timeout_t;
+FD_STATIC_ASSERT( FD_ROTOR_STRAT_PEER_MAX<USHORT_MAX, last_peer );
 
 #define PRQ_NAME    timeout_prq
 #define PRQ_T       timeout_t
@@ -1076,7 +1078,7 @@ after_credit( fd_rotor_tile_t *   ctx,
       continue;
     }
 
-    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick( ctx->strat, now, !blk->eager && req.attempt );
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick( ctx->strat, now, !blk->eager && req.attempt, (ulong)req.last_peer-1UL ); /* a retry asks someone else */
     if( FD_UNLIKELY( !peer ) ) {
       ctx->metrics->req_no_peer++;
       req.timeout = now+NO_PEER;
@@ -1144,7 +1146,8 @@ after_credit( fd_rotor_tile_t *   ctx,
     if( FD_LIKELY( req_cnt ) ) *req_cnt += (uint)fd_uint_popcnt( mask );
 
     req.timeout = now+( fd_long_max( fd_rotor_strat_hedge_ns( peer ), 1L<<24 )<<fd_uint_min( req.attempt, 3U ) ); /* a re-pick gets a new shred nonce */
-    req.attempt = (uchar)fd_uint_min( req.attempt+1U, UCHAR_MAX );
+    req.attempt   = (uchar)fd_uint_min( req.attempt+1U, UCHAR_MAX );
+    req.last_peer = (ushort)( 1UL+(ulong)( peer-ctx->strat->cur.peers ) );
     fd_histf_sample( ctx->metrics->retry_delay, (ulong)( req.timeout-now ) );
     push_timeout( ctx, blk, &req );
     *charge_busy = 1;
@@ -1262,6 +1265,13 @@ after_frag( fd_rotor_tile_t *   ctx,
   case IN_KIND_EPOCH: {
     fd_epoch_info_msg_t const * msg = (fd_epoch_info_msg_t const *)fd_type_pun_const( src );
     fd_rotor_strat_epoch_advanced( ctx->strat, fd_epoch_info_msg_id_weights( msg ), msg->staked_id_cnt );
+    timeout_t * prqs[3] = { ctx->final_prq, ctx->notar_prq, ctx->eager_prq };
+    for( ulong c=0UL; c<3UL; c++ ) { /* the re-sort moved peers, keep retries avoiding the same one */
+      for( ulong i=0UL; i<timeout_prq_cnt( prqs[ c ] ); i++ ) {
+        timeout_t * req = &prqs[ c ][ i ];
+        req->last_peer = (ushort)( 1UL+fd_rotor_strat_slot_remap( ctx->strat, (ulong)req->last_peer-1UL ) );
+      }
+    }
     fd_rotor_strat_peer_t const * self = fd_rotor_strat_query( ctx->strat, &ctx->identity_key );
     ctx->staked = self && (ulong)( self-ctx->strat->cur.peers )<ctx->strat->staked_cnt;
     fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
