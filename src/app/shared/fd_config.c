@@ -478,6 +478,15 @@ fd_config_fill( fd_config_t * config,
     FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
   }
 
+  /* Tiles derive "is WFS configured" either from this string being
+     non-empty (votor, tower) or from the decoded hash being non-zero
+     (gossip, replay).  Rejecting the all-zeros hash makes the two
+     agree; canonical base58 makes this its only encoding. */
+
+  if( FD_UNLIKELY( config->is_firedancer && !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "11111111111111111111111111111111" ) ) ) {
+    FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] decodes to all zeros, which is not a valid bank hash." ));
+  }
+
 }
 
 #define CFG_HAS_NON_EMPTY( key ) do {                  \
