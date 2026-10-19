@@ -9245,13 +9245,13 @@ message MetricsReplay {
   uint64 tlb_shootdown = 23;
   // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
   uint64 timer_irq = 24;
-  // Identity account balance at the optimistically confirmed slot, or the finalized slot under Alpenglow
+  // Identity account balance at the optimistically confirmed slot
   uint64 identity_balance_lamports = 25;
-  // Our active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow
+  // Our active stake at the optimistically confirmed slot
   uint64 active_stake_lamports = 26;
-  // Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow
+  // Cluster active stake at the optimistically confirmed slot
   uint64 cluster_active_stake_lamports = 27;
-  // gauge: current value, do not sum over time. Our vote account epoch credits at the optimistically confirmed slot, or the finalized slot under Alpenglow
+  // gauge: current value, do not sum over time. Our vote account epoch credits at the optimistically confirmed slot
   uint64 epoch_credits = 28;
   // Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary
   bool is_vote_account_inadmissible = 29;
