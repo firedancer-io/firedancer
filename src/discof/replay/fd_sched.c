@@ -68,8 +68,7 @@ typedef struct fd_sched_mblk fd_sched_mblk_t;
 #include "../../util/tmpl/fd_slist.c"
 
 #define SET_NAME txn_bitset
-#define SET_MAX  FD_SCHED_MAX_DEPTH
-#include "../../util/tmpl/fd_set.c"
+#include "../../util/tmpl/fd_set_dynamic.c"
 
 struct fd_sched_block {
   ulong               slot;
@@ -334,9 +333,9 @@ struct fd_sched {
   uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
   fd_sched_poh_hash_t   poh_inflight[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* PoH dispatch metadata, indexed by exec tile. */
-  txn_bitset_t          exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
-  txn_bitset_t          sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
-  txn_bitset_t          poh_mixin_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
+  txn_bitset_t *        exec_done_set;      /* Indexed by txn_idx, runtime-sized to depth. */
+  txn_bitset_t *        sigverify_done_set; /* Indexed by txn_idx. */
+  txn_bitset_t *        poh_mixin_done_set; /* Indexed by txn_idx. */
   fd_sched_block_t *    block_pool; /* Just a flat array. */
   ulong                 block_pool_popcnt;
   ulong *               ref_q;
@@ -735,6 +734,9 @@ fd_sched_footprint( ulong depth,
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                 );
+  l = FD_LAYOUT_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                      );
+  l = FD_LAYOUT_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                      );
+  l = FD_LAYOUT_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                      );
   l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )         ); /* dispatcher */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)             ); /* block pool */
   l = FD_LAYOUT_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort)  ); /* shred_sz */
@@ -802,6 +804,9 @@ fd_sched_new( void *     mem,
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_sched_t *          sched          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                );
+  void *                _exec_done    = FD_SCRATCH_ALLOC_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                     );
+  void *                _sig_done     = FD_SCRATCH_ALLOC_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                     );
+  void *                _mixin_done   = FD_SCRATCH_ALLOC_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                     );
   void *                _rdisp         = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )        );
   void *                _bpool         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)            );
   /*                                   */ FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort) );
@@ -811,9 +816,13 @@ fd_sched_new( void *     mem,
   fd_sched_mblk_t *     _mblk_pool     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)                     );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
-  sched->txn_pool      = _txn_pool;
-  sched->txn_info_pool = _txn_info_pool;
-  sched->mblk_pool     = _mblk_pool;
+  sched->txn_pool           = _txn_pool;
+  sched->txn_info_pool      = _txn_info_pool;
+  sched->mblk_pool          = _mblk_pool;
+
+  sched->exec_done_set      = txn_bitset_join( txn_bitset_new( _exec_done,  depth ) );
+  sched->sigverify_done_set = txn_bitset_join( txn_bitset_new( _sig_done,   depth ) );
+  sched->poh_mixin_done_set = txn_bitset_join( txn_bitset_new( _mixin_done, depth ) );
 
   fd_rdisp_new( _rdisp, depth, block_cnt_max, fd_rng_ulong( rng ) );
 
@@ -862,10 +871,6 @@ fd_sched_new( void *     mem,
   sched->mblk_pool_free_head = 0U;
   sched->mblk_pool_free_cnt  = depth;
 
-  txn_bitset_new( sched->exec_done_set );
-  txn_bitset_new( sched->sigverify_done_set );
-  txn_bitset_new( sched->poh_mixin_done_set );
-
   sched->block_pool_popcnt = 0UL;
 
   ref_q_new( _ref_q, block_cnt_max );
@@ -889,6 +894,9 @@ fd_sched_join( void * mem ) {
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   /*                        */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                );
+  void *           _exec_done = FD_SCRATCH_ALLOC_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                     );
+  void *           _sig_done  = FD_SCRATCH_ALLOC_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                     );
+  void *           _mixin_done= FD_SCRATCH_ALLOC_APPEND( l, txn_bitset_align(),            txn_bitset_footprint( depth )                     );
   void *           _rdisp    = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )        );
   void *           _bpool    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)            );
   void *           _shred_sz = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort) );
@@ -898,20 +906,20 @@ fd_sched_join( void * mem ) {
   /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)                     );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
-  sched->rdisp      = fd_rdisp_join( _rdisp );
-  sched->ref_q      = ref_q_join( _ref_q );
-  sched->block_pool = _bpool;
-  sched->shred_sz   = _shred_sz;
+  sched->rdisp              = fd_rdisp_join( _rdisp );
+  sched->ref_q              = ref_q_join( _ref_q );
+  sched->block_pool         = _bpool;
+  sched->shred_sz           = _shred_sz;
+
+  sched->exec_done_set      = txn_bitset_join( _exec_done );
+  sched->sigverify_done_set = txn_bitset_join( _sig_done );
+  sched->poh_mixin_done_set = txn_bitset_join( _mixin_done );
 
   for( ulong i=0; i<block_cnt_max; i++ ) {
     mblk_slist_join( sched->block_pool[ i ].mblks_unhashed );
     mblk_slist_join( sched->block_pool[ i ].mblks_hashing_in_progress );
     mblk_slist_join( sched->block_pool[ i ].mblks_mixin_in_progress );
   }
-
-  txn_bitset_join( sched->exec_done_set );
-  txn_bitset_join( sched->sigverify_done_set );
-  txn_bitset_join( sched->poh_mixin_done_set );
 
   return sched;
 }
