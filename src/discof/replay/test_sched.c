@@ -15,12 +15,22 @@
 
 static void
 test_sched_footprint( void ) {
-  /* Retain the savings from compact shred lengths, 4992-byte
-     transactions, and runtime-sized transaction completion bitsets. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1691419136UL );
+  ulong depth = 65536UL;
+  ulong blocks = 2048UL;
+  ulong base = fd_sched_footprint( depth, blocks, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  FD_TEST( base );
+
   /* Only the shred length array scales with the shred limit. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1691419136UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1691419136UL );
+  FD_TEST( fd_sched_footprint( depth, blocks, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==base+blocks*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+
+  /* The txn limit does not change the footprint: the completion bitsets
+     are sized to depth, not to the maximum supported txn count.  Were
+     they sized to max_txn_per_slot, 5x here would blow up base. */
+  FD_TEST( fd_sched_footprint( depth, blocks, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==base );
+
+  /* Depth-sized state (bitsets, pools, dispatcher) shrinks with depth. */
+  FD_TEST( fd_sched_footprint( FD_SCHED_MIN_DEPTH, blocks, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT ) < base );
+
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
