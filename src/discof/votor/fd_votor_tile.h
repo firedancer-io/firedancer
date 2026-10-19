@@ -5,11 +5,12 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 
-#define FD_VOTOR_SIG_CERTED (0)
-#define FD_VOTOR_SIG_REPAIR (1)
-#define FD_VOTOR_SIG_LEADER (2)
-#define FD_VOTOR_SIG_REWARD (3)
-#define FD_VOTOR_SIG_QUORUM (4)
+#define FD_VOTOR_SIG_CERTED       (0)
+#define FD_VOTOR_SIG_REPAIR       (1)
+#define FD_VOTOR_SIG_LEADER       (2)
+#define FD_VOTOR_SIG_REWARD       (3)
+#define FD_VOTOR_SIG_QUORUM       (4)
+#define FD_VOTOR_SIG_PARENT_READY (5)
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
 
@@ -31,7 +32,7 @@
 
 #define QUIC_DGRAM_BURST (9UL)
 
-#define FD_VOTOR_OUT_BURST (1UL+AG_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram */
+#define FD_VOTOR_OUT_BURST (1UL+AG_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST+1UL) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram, + 1 parent ready */
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is
@@ -107,12 +108,21 @@ struct fd_votor_quorum {
 };
 typedef struct fd_votor_quorum fd_votor_quorum_t;
 
+/* fd_votor_parent_ready notifies that slot, a window start, is the
+   highest certs have made ParentReady, so earlier windows are skipped. */
+
+struct fd_votor_parent_ready {
+  ulong slot;
+};
+typedef struct fd_votor_parent_ready fd_votor_parent_ready_t;
+
 union fd_votor_msg {
-  fd_votor_certed_t certed;
-  fd_votor_repair_t repair;
-  fd_votor_leader_t leader;
-  fd_votor_reward_t reward;
-  fd_votor_quorum_t quorum;
+  fd_votor_certed_t       certed;
+  fd_votor_repair_t       repair;
+  fd_votor_leader_t       leader;
+  fd_votor_reward_t       reward;
+  fd_votor_quorum_t       quorum;
+  fd_votor_parent_ready_t parent_ready;
 };
 typedef union fd_votor_msg fd_votor_msg_t;
 

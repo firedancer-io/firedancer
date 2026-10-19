@@ -130,6 +130,7 @@
         "vote_history_file_size_bytes": { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Size of the last written vote history file", "deprecated": true },
         "vote_history_file_skipped":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Vote history writes skipped because the history was too large; the file is emptied until it fits", "deprecated": true },
         "bls_signature_checked":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once" },
-        "wait_to_vote_slot":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "First slot votor may vote in, past the vote history file and the votes it sent" }
+        "wait_to_vote_slot":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "First slot votor may vote in, past the vote history file and the votes it sent" },
+        "leader_window_superseded":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up because certificates already let a later window start, eg. while catching up after a restart" }
     }
 }
