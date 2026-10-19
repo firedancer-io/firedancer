@@ -82,6 +82,8 @@ mock_store_fec_data_view_release_fn( fd_store_t *                     store FD_P
 static ulong          mock_sched_fec_ingest_cnt;
 static ulong          mock_sched_abandon_cnt;
 static ulong          mock_sched_abandon_idx;
+static ulong          mock_sched_ref_q;      /* bank idx whose sched ref an abandon released, ULONG_MAX if none */
+static int            mock_sched_ref_release; /* abandon releases the sched ref at once, as with nothing in flight */
 static ulong          mock_sched_root_notify_cnt;
 static ulong          mock_sched_root_notify_idx;
 static ulong          mock_sched_cancel_idx;
@@ -99,6 +101,7 @@ static long           mock_sched_task_done_tick;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s, fd_sched_fec_t * f ) {
   (void)s; (void)f;
+  FD_TEST( mock_sched_ref_q==ULONG_MAX ); /* as fd_sched_fec_ingest */
   mock_sched_fec_ingest_cnt++;
   return 1;
 }
@@ -107,10 +110,11 @@ int   mock_sched_is_drained_fn  ( fd_sched_t * s FD_PARAM_UNUSED ) { return mock
 void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i, int invalid FD_PARAM_UNUSED ) {
   mock_sched_abandon_cnt++;
   mock_sched_abandon_idx = i;
+  if( mock_sched_ref_release ) mock_sched_ref_q = i;
 }
 void  mock_sched_cancel_fn      ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) { mock_sched_cancel_idx = i; }
 int   mock_sched_is_discarded_fn( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) { return 0; }
-ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
+ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { ulong i = mock_sched_ref_q; mock_sched_ref_q = ULONG_MAX; return i; }
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED, fd_clock_tile_t const * c FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {}
 ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t FD_PARAM_UNUSED ) { return 0UL; }
@@ -529,6 +533,8 @@ setup_ctx( fd_replay_tile_t * ctx,
   mock_accdb_fork_id_next     = 0U;
   mock_sched_abandon_cnt      = 0UL;
   mock_sched_abandon_idx      = ULONG_MAX;
+  mock_sched_ref_q            = ULONG_MAX;
+  mock_sched_ref_release      = 0;
   mock_sched_root_notify_cnt  = 0UL;
   mock_sched_root_notify_idx  = ULONG_MAX;
   mock_sched_capacity         = ULONG_MAX;
@@ -4660,7 +4666,8 @@ test_rotor_fec_rooted_past( fd_wksp_t * wksp ) {
    {5, B}, and a child attaches to it.  In particular a turbine FEC that
    finds the repaired copy's incomplete bank under {5, B} is not
    SKIPped against it: that bank is a different stream, and treating
-   it as this copy's progress stranded the block. */
+   it as this copy's progress stranded the block.  The repaired copy's
+   bank is abandoned once the turbine copy takes {5, B}. */
 
 static void
 rotor_fec_merged_copies( fd_wksp_t * wksp,
@@ -4681,11 +4688,23 @@ rotor_fec_merged_copies( fd_wksp_t * wksp,
     if( k<e_cnt ) FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, k*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &zero, &mr[ k ], 0, 0 )==0 );
     if( k<n_cnt ) FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, k*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B,    &mr[ k ], 0, 1 )==0 );
   }
+  fd_block_id_ele_t * twin = n_cnt ? fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key_id, NULL, ctx->block_id_arr ) : NULL;
+  ulong twin_idx = twin ? fd_block_id_ele_get_idx( ctx->block_id_arr, twin ) : ULONG_MAX;
+  ulong twin_ref = twin ? fd_banks_bank_query( ctx->banks, twin_idx )->refcnt : 0UL;
+  FD_TEST( !n_cnt || twin );
+  mock_sched_ref_release = 1; /* the twin has nothing in flight */
   for( uint k=e_cnt; k<3U; k++ ) FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, k*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr[ k ], k==2U, 0 )==0 );
 
   fd_block_id_ele_t * ele = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key_id, NULL, ctx->block_id_arr );
   FD_TEST( ele && ele->block_id_seen && ele->latest_fec_idx==2U*FD_FEC_SHRED_CNT );
   FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
+
+  /* The repaired copy's bank, cut off at the merge, is abandoned when
+     the turbine copy takes {5, B}, so sched does not run its backlog. */
+  FD_TEST( ctx->metrics.twin_abandoned==(ulong)!!n_cnt );
+  FD_TEST( mock_sched_abandon_cnt==(ulong)!!n_cnt );
+  if( n_cnt ) FD_TEST( mock_sched_abandon_idx==twin_idx && ele!=twin && fd_banks_bank_query( ctx->banks, twin_idx )->state==FD_BANK_STATE_DEAD );
+  if( n_cnt ) FD_TEST( fd_banks_bank_query( ctx->banks, twin_idx )->refcnt==twin_ref-1UL ); /* its sched ref released before the ingest */
 
   fd_hash_t mr6  = { .ul = { 601 } };
   ulong     ing0 = mock_sched_fec_ingest_cnt;

@@ -356,6 +356,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, LEADER_WINDOW_ALREADY_PRODUCED,       ctx->metrics.leader_slot_already_produced );
   FD_MCNT_SET( REPLAY, LEADER_WINDOW_SUPERSEDED,             ctx->metrics.leader_window_superseded     );
   FD_MCNT_SET( REPLAY, FEC_ROOTED_PAST_SKIPPED,              ctx->metrics.fec_rooted_past    );
+  FD_MCNT_SET( REPLAY, TWIN_BLOCK_ABANDONED,                 ctx->metrics.twin_abandoned     );
   FD_MCNT_SET( REPLAY, ROOT_ADVANCE_DEFERRED,               ctx->metrics.storage_root_behind );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
@@ -4786,20 +4787,28 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     block_id_ele->dmr           = fec->block_id;
 
     /* block is complete and DMR block id is now known so re-key.  The
-       map does not support duplicate keys: rotor guarantees at most one
-       delivery stream per block (a turbine copy of a slot with a
-       votor-driven version is abandoned in the rotor, see
-       fd_rotor_tile.h), so {slot, block_id} can never already be
-       occupied by another LIVE bank.  It can however be occupied by a
+       map does not support duplicate keys.  {slot, block_id} may hold a
        STALE entry: a previously-completed copy of this block whose bank
        was evicted (eviction does not remove map entries), now being
-       rebuilt through recovery redelivery.  Evict the stale entry before
-       inserting. */
+       rebuilt through recovery redelivery.  It may also hold a LIVE
+       votor-driven copy that rotor delivered ahead of this one: rotor
+       stops feeding it once this copy completes, so it can never finish,
+       and is abandoned here so sched does not run its backlog. */
     FD_TEST( fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele );
-    ag_block_id_t key = ag_block_id( fec->slot, fec->block_id.uc );
+    ag_block_id_t       key  = ag_block_id( fec->slot, fec->block_id.uc );
+    fd_block_id_ele_t * twin = live_block_id_ele( ctx, fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr ) );
     block_id_ele->block_info = key;
-    fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr ); // evicted / stale entry
     FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
+    if( FD_UNLIKELY( twin ) ) {
+      ulong       twin_idx  = fd_block_id_ele_get_idx( ctx->block_id_arr, twin );
+      fd_bank_t * twin_bank = fd_banks_bank_query( ctx->banks, twin_idx );
+      if( FD_LIKELY( twin_bank->state==FD_BANK_STATE_INIT || twin_bank->state==FD_BANK_STATE_REPLAYABLE ) ) {
+        ctx->metrics.twin_abandoned++;
+        mark_bank_dead( ctx, stem, twin_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED, NULL );
+        fd_sched_block_abandon( ctx->sched, twin_idx, FD_SCHED_ABANDON_DISCARDED );
+        try_prune_sched( ctx );
+      }
+    }
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */

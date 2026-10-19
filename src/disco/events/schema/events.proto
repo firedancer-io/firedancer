@@ -9955,6 +9955,8 @@ message MetricsReplay {
   uint64 leader_window_already_produced = 118;
   // Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)
   uint64 leader_window_superseded = 119;
+  // Incomplete repaired copies of a block abandoned when its turbine copy completed first (Alpenglow)
+  uint64 twin_block_abandoned = 120;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
