@@ -472,6 +472,7 @@ struct fd_replay_tile {
 
   fd_votor_certed_t votor_final[ 1 ];                                                /* ALPENGLOW-ONLY: highest finalization, fast over slow at the same slot */
   fd_votor_leader_t votor_leader[ 1 ];                                               /* ALPENGLOW-ONLY: ParentReady trigger behind next_leader_slot     */
+  ulong             votor_parent_ready_slot;                                         /* ALPENGLOW-ONLY: highest window start certs made ParentReady   */
   long              leader_window_start_ns;                                          /* ALPENGLOW-ONLY: ParentReady time of the window we are leading   */
   fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ];
 
@@ -618,6 +619,8 @@ struct fd_replay_tile {
     ulong leader_bid_wait;
     ulong banks_full;
     ulong parent_unavailable;
+    ulong leader_slot_already_produced;
+    ulong leader_window_superseded;
     ulong fec_rooted_past;
     ulong storage_root_behind;
 

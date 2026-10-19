@@ -380,6 +380,7 @@ struct fd_votor_tile {
     ulong cert_rx    [ FD_METRICS_ENUM_CERT_RX_RESULT_CNT     ];
     ulong bls_verify;
     ulong vote_history_write;
+    ulong leader_window_superseded;
   } metrics;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
@@ -1877,6 +1878,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MGAUGE_SET( VOTOR, POOL_SLOT_FREE,                    pool_metrics.slot_state_pool_free );
   FD_MGAUGE_SET( VOTOR, HIGHEST_POOL_FINALIZED_SLOT,       fd_ulong_if( pool_metrics.finalized_slot!=ULONG_MAX, pool_metrics.finalized_slot, 0UL ) );
   FD_MCNT_SET  ( VOTOR, BLS_SIGNATURE_CHECKED,             pool_metrics.bls_verify_cnt+ctx->metrics.bls_verify );
+  FD_MCNT_SET  ( VOTOR, LEADER_WINDOW_SUPERSEDED,          ctx->metrics.leader_window_superseded );
 
   peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   ulong rank = self && self->curr_rank!=USHORT_MAX ? self->curr_rank : ULONG_MAX;
@@ -2017,7 +2019,9 @@ after_credit( fd_votor_tile_t *   ctx,
   while( FD_UNLIKELY(    ctx->next_leader_slot!=ULONG_MAX
                       && ( ctx->next_leader_slot<=ag_pool_finalized_slot( ctx->pool )
                         || ctx->next_leader_slot+ctx->slot_max<=ctx->catchup_slot
-                        || ctx->next_leader_slot<ctx->vote_history_slot ) ) ) {
+                        || ctx->next_leader_slot<ctx->vote_history_slot
+                        || ctx->next_leader_slot<ag_pool_highest_parent_ready( ctx->pool ) ) ) ) {
+    ctx->metrics.leader_window_superseded += (ulong)( ctx->next_leader_slot<ag_pool_highest_parent_ready( ctx->pool ) );
     ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW, &ctx->id_key );
   }
   ag_block_id_t parent = { .slot = ULONG_MAX }; /* never will be leader, schedule exhausted, or the pool has not granted parent ready yet */
@@ -2119,7 +2123,13 @@ after_credit( fd_votor_tile_t *   ctx,
       fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_QUORUM, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     }
-    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_POOL_EVENT_PARENT_READY ) ) ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ctx->scratch.pool_event.parent_ready.slot );
+    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_POOL_EVENT_PARENT_READY && ctx->scratch.pool_event.parent_ready.slot>ctx->highest_parent_ready_slot ) ) {
+      ctx->highest_parent_ready_slot = ctx->scratch.pool_event.parent_ready.slot;
+      fd_votor_msg_t * msg = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+      msg->parent_ready = (fd_votor_parent_ready_t){ .slot = ctx->highest_parent_ready_slot }; /* a LEADER already sent may now be stale */
+      fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_PARENT_READY, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+    }
 
     ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
     if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_POOL_EVENT_CERT_CREATED ) ) {
