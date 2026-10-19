@@ -3237,7 +3237,7 @@ try_activate_block( fd_sched_t * sched ) {
       /* ... Yes, on this staging lane the parent block is done.  So we
          can activate the staged child. */
       if( FD_UNLIKELY( head_idx!=sched->last_active_bank_idx ) ) { /* Unlikely because only possible under forking or on slot boundary. */
-        if( FD_UNLIKELY( sched->last_active_bank_idx!=head_block->parent_idx ) ) { /* Forking is rare. */
+        if( FD_UNLIKELY( sched->last_active_bank_idx!=ULONG_MAX && sched->last_active_bank_idx!=head_block->parent_idx ) ) { /* Forking is rare, the first activation is not a switch. */
           FD_LOG_DEBUG(( "activating block %lu:%lu: lane switch to %d", head_block->slot, head_idx, lane_idx ));
           sched->metrics->lane_switch_cnt++;
         } else {
