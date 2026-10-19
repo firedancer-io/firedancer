@@ -1,4 +1,6 @@
 name: Benchmark
+# NOISE EXPERIMENT (draft PR, not for merge): each job runs the bench row with
+# origin/main vs window-aligned bencho timer in A/B pairs; see contrib/ci/bench/experiment.sh.
 on:
   workflow_call:
     inputs:
@@ -8,34 +10,25 @@ on:
       github-token:
         type: string
         required: true
-        description: 'GitHub token for posting comments'
-      snapshot-ledger:
-        type: string
-        default: testnet-438272759-snapload
-        description: 'load-only testnet ledger (genesis.bin + full snapshot) for the snapshot row'
-  workflow_dispatch:
-    inputs:
       snapshot-ledger:
         type: string
         default: testnet-438272759-snapload
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
 
 jobs:
-  bench-replay:
+  x-replay-1:
     runs-on:
       labels: [self-hosted, 512G]
       group: fd-public-repo
-    timeout-minutes: 6
+    timeout-minutes: 40
     env:
       CC: gcc
-      MACHINE: ${{ inputs.machine }}
+      MACHINE: native
       BENCH_DIR: ${{ github.workspace }}/../bench
       DUMP_DIR: ${{ github.workspace }}/../dump
-
+      BENCH_SNAP_LEDGER: testnet-438272759-snapload
     steps:
     - uses: actions/checkout@v7
       with:
@@ -43,122 +36,42 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 220
+        count_gigantic: 398
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
-    - uses: actions/setup-node@v7
-
-    # BENCH_DIR is a sibling of the checkout so it survives the main/PR
-    # checkouts (realpath: upload-artifact rejects `..`).  The PR's bench
-    # scripts are copied out so both sides are built by the same build.sh.
     - name: Prepare
       run: |
-        sudo rm -f $DUMP_DIR/accounts.db            # left by a job that died mid-backtest
+        sudo rm -f $DUMP_DIR/accounts.db
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
-        cp -r contrib/ci/bench $BENCH_DIR/tools
-        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
-
-    - name: Resolve commits
-      uses: actions/github-script@v9
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const pr = context.payload.pull_request;
-          const head = pr ? pr.head.sha : context.sha;
-          const cmp = await github.rest.repos.compareCommitsWithBasehead({ ...context.repo, basehead: `${pr ? pr.base.ref : 'main'}...${head}`, per_page: 1 });
-          core.exportVariable('HEAD_SHA', head);
-          core.exportVariable('BASE_SHA', cmp.data.merge_base_commit.sha);
-
-    - name: Update PR comment (running)
-      if: github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: actions/github-script@v9
-      env:
-        JOB: replay
-        STATUS: running
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const { execSync } = require('child_process');
-          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
-          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
-          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
-
-    - run: $BENCH_DIR/tools/bench.sh build new
-
-    - name: Checkout main
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ env.BASE_SHA }}
-        clean: false
-    - run: $BENCH_DIR/tools/bench.sh build base
-
-    - name: Checkout PR
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ env.HEAD_SHA }}
-        clean: false
-
-    # Publishes compile/binsize/mem rows before the replays run.
-    - name: Update PR comment (partial)
-      if: github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: actions/github-script@v9
-      env:
-        JOB: replay
-        STATUS: partial
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const { execSync } = require('child_process');
-          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
-          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
-          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
-
-    - run: contrib/ci/bench/bench.sh replay base
-      continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
-    - run: contrib/ci/bench/bench.sh replay new
-
-    - name: Update PR comment (done)
-      if: always() && github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: actions/github-script@v9
-      env:
-        JOB: replay
-        STATUS: ${{ job.status == 'success' && 'done' || 'failed' }}
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const { execSync } = require('child_process');
-          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
-          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
-          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
-
-    # always(): a timeout counts as cancelled and its logs matter most.
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)"; uname -r; } > $BENCH_DIR/runner.txt 2>&1 || true
+    - run: contrib/ci/bench/bench.sh build new
+    - run: contrib/ci/bench/experiment.sh 12
+    - if: always()
+      run: |
+        echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost
+        sudo killall firedancer-dev 2>/dev/null || true
+        sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: bench-replay-${{ github.run_id }}
+        name: x-replay-1-${{ github.run_id }}-${{ github.run_attempt }}
         path: |
           ${{ env.BENCH_DIR }}
           !${{ env.BENCH_DIR }}/*/bin/**
-        retention-days: 90
-        overwrite: true
+        retention-days: 30
 
-
-  bench-snapshot:
+  x-replay-2:
     runs-on:
       labels: [self-hosted, 512G]
       group: fd-public-repo
-    timeout-minutes: 6
+    timeout-minutes: 40
     env:
       CC: gcc
-      MACHINE: ${{ inputs.machine }}
+      MACHINE: native
       BENCH_DIR: ${{ github.workspace }}/../bench
       DUMP_DIR: ${{ github.workspace }}/../dump
-      BENCH_SNAP_LEDGER: ${{ inputs.snapshot-ledger }}
-
+      BENCH_SNAP_LEDGER: testnet-438272759-snapload
     steps:
     - uses: actions/checkout@v7
       with:
@@ -166,106 +79,42 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 220
+        count_gigantic: 398
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
-    - uses: actions/setup-node@v7
-
     - name: Prepare
       run: |
-        sudo rm -f $DUMP_DIR/accounts.db            # left by a job that died mid-backtest
+        sudo rm -f $DUMP_DIR/accounts.db
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
-        cp -r contrib/ci/bench $BENCH_DIR/tools
-        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
-
-    - name: Resolve commits
-      uses: actions/github-script@v9
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const pr = context.payload.pull_request;
-          const head = pr ? pr.head.sha : context.sha;
-          const cmp = await github.rest.repos.compareCommitsWithBasehead({ ...context.repo, basehead: `${pr ? pr.base.ref : 'main'}...${head}`, per_page: 1 });
-          core.exportVariable('HEAD_SHA', head);
-          core.exportVariable('BASE_SHA', cmp.data.merge_base_commit.sha);
-
-    - name: Update PR comment (running)
-      if: github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: actions/github-script@v9
-      env:
-        JOB: snapshot
-        STATUS: running
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const { execSync } = require('child_process');
-          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
-          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
-          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
-
-    - run: $BENCH_DIR/tools/bench.sh build new
-
-    - name: Checkout main
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ env.BASE_SHA }}
-        clean: false
-    - run: $BENCH_DIR/tools/bench.sh build base
-
-    - name: Checkout PR
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ env.HEAD_SHA }}
-        clean: false
-
-    - run: contrib/ci/bench/bench.sh snapshot base
-      continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
-    - run: contrib/ci/bench/bench.sh snapshot new
-    - name: Free RAM disk  # brd keeps its pages until rmmod
-      if: always()
-      continue-on-error: true
-      run: sudo killall -w firedancer-dev 2>/dev/null || true; findmnt -rn -o TARGET -S /dev/ram0 | xargs -r sudo umount || true; sudo rmmod brd 2>/dev/null || true
-
-    - name: Update PR comment (done)
-      if: always() && github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: actions/github-script@v9
-      env:
-        JOB: snapshot
-        STATUS: ${{ job.status == 'success' && 'done' || 'failed' }}
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const { execSync } = require('child_process');
-          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
-          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
-          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
-
-    # always(): a timeout counts as cancelled and its logs matter most.
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)"; uname -r; } > $BENCH_DIR/runner.txt 2>&1 || true
+    - run: contrib/ci/bench/bench.sh build new
+    - run: contrib/ci/bench/experiment.sh 12
+    - if: always()
+      run: |
+        echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost
+        sudo killall firedancer-dev 2>/dev/null || true
+        sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: bench-snapshot-${{ github.run_id }}
+        name: x-replay-2-${{ github.run_id }}-${{ github.run_attempt }}
         path: |
           ${{ env.BENCH_DIR }}
           !${{ env.BENCH_DIR }}/*/bin/**
-        retention-days: 90
-        overwrite: true
+        retention-days: 30
 
-
-  bench-tps:
+  x-snapshot-1:
     runs-on:
       labels: [self-hosted, 512G]
       group: fd-public-repo
-    timeout-minutes: 6
+    timeout-minutes: 40
     env:
       CC: gcc
-      MACHINE: ${{ inputs.machine }}
+      MACHINE: native
       BENCH_DIR: ${{ github.workspace }}/../bench
       DUMP_DIR: ${{ github.workspace }}/../dump
-
+      BENCH_SNAP_LEDGER: testnet-438272759-snapload
     steps:
     - uses: actions/checkout@v7
       with:
@@ -273,87 +122,156 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
-        count_gigantic: 220
+        count_gigantic: 398
         count_huge: 1024
     - uses: ./.github/actions/cpusonline
-    - uses: actions/setup-node@v7
-
     - name: Prepare
       run: |
-        sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db  # left by a job that died mid-bench
+        sudo rm -f $DUMP_DIR/accounts.db
         rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
         echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
-        cp -r contrib/ci/bench $BENCH_DIR/tools
-        { hostname; lscpu | grep -E "Model name|^CPU\(s\)|NUMA node"; cat /sys/devices/system/cpu/cpu1/cpufreq/scaling_governor /sys/devices/system/cpu/cpufreq/boost; uname -r; grep MemAvailable /proc/meminfo; lsblk -o NAME,MODEL,SCHED,ROTA; sudo dmsetup table | sed 's/ [0-9a-f]\{32,\} / <key> /'; grep -m1 -A8 'name *: xts(aes)' /proc/crypto | grep driver; grep -H . /sys/block/nvme*/queue/max_sectors_kb; } > $BENCH_DIR/runner.txt 2>&1 || true
-
-    - name: Resolve commits
-      uses: actions/github-script@v9
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const pr = context.payload.pull_request;
-          const head = pr ? pr.head.sha : context.sha;
-          const cmp = await github.rest.repos.compareCommitsWithBasehead({ ...context.repo, basehead: `${pr ? pr.base.ref : 'main'}...${head}`, per_page: 1 });
-          core.exportVariable('HEAD_SHA', head);
-          core.exportVariable('BASE_SHA', cmp.data.merge_base_commit.sha);
-
-    - name: Update PR comment (running)
-      if: github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: actions/github-script@v9
-      env:
-        JOB: bench
-        STATUS: running
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const { execSync } = require('child_process');
-          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
-          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
-          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
-
-    - run: $BENCH_DIR/tools/bench.sh build new
-
-    - name: Checkout main
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ env.BASE_SHA }}
-        clean: false
-    - run: $BENCH_DIR/tools/bench.sh build base
-
-    - name: Checkout PR
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ env.HEAD_SHA }}
-        clean: false
-
-    - run: contrib/ci/bench/bench.sh bench base
-      continue-on-error: true  # a baseline that cannot run is not the PR's fault; its rows stay pending
-    - run: contrib/ci/bench/bench.sh bench new
-
-    - name: Update PR comment (done)
-      if: always() && github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: actions/github-script@v9
-      env:
-        JOB: bench
-        STATUS: ${{ job.status == 'success' && 'done' || 'failed' }}
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const { execSync } = require('child_process');
-          execSync(`python3 contrib/ci/bench/benchmark_comment.py rows --job ${process.env.JOB} --bench-dir ${process.env.BENCH_DIR} --head ${process.env.HEAD_SHA} --base ${process.env.BASE_SHA} --run-id ${context.runId} --status ${process.env.STATUS} > ${process.env.BENCH_DIR}/rows.${process.env.JOB}.json`, { stdio: 'inherit' });
-          const upsert = require(`${process.env.GITHUB_WORKSPACE}/contrib/ci/bench/upsert.js`);
-          await upsert({ github, context, core, exec }, { rowsFile: `${process.env.BENCH_DIR}/rows.${process.env.JOB}.json` });
-
-    # always(): a timeout counts as cancelled and its logs matter most.
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)"; uname -r; } > $BENCH_DIR/runner.txt 2>&1 || true
+    - run: contrib/ci/bench/bench.sh build new
+    - run: contrib/ci/bench/experiment.sh 12
+    - if: always()
+      run: |
+        echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost
+        sudo killall firedancer-dev 2>/dev/null || true
+        sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db
     - uses: actions/upload-artifact@v7
       if: always()
       with:
-        name: bench-tps-${{ github.run_id }}
+        name: x-snapshot-1-${{ github.run_id }}-${{ github.run_attempt }}
         path: |
           ${{ env.BENCH_DIR }}
           !${{ env.BENCH_DIR }}/*/bin/**
-        retention-days: 90
-        overwrite: true
+        retention-days: 30
 
+  x-snapshot-2:
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
+    timeout-minutes: 40
+    env:
+      CC: gcc
+      MACHINE: native
+      BENCH_DIR: ${{ github.workspace }}/../bench
+      DUMP_DIR: ${{ github.workspace }}/../dump
+      BENCH_SNAP_LEDGER: testnet-438272759-snapload
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    - uses: ./.github/actions/hugepages
+      with:
+        # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
+        count_gigantic: 398
+        count_huge: 1024
+    - uses: ./.github/actions/cpusonline
+    - name: Prepare
+      run: |
+        sudo rm -f $DUMP_DIR/accounts.db
+        rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
+        echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)"; uname -r; } > $BENCH_DIR/runner.txt 2>&1 || true
+    - run: contrib/ci/bench/bench.sh build new
+    - run: contrib/ci/bench/experiment.sh 12
+    - if: always()
+      run: |
+        echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost
+        sudo killall firedancer-dev 2>/dev/null || true
+        sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: x-snapshot-2-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ${{ env.BENCH_DIR }}
+          !${{ env.BENCH_DIR }}/*/bin/**
+        retention-days: 30
+
+  x-bench-1:
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
+    timeout-minutes: 40
+    env:
+      CC: gcc
+      MACHINE: native
+      BENCH_DIR: ${{ github.workspace }}/../bench
+      DUMP_DIR: ${{ github.workspace }}/../dump
+      BENCH_SNAP_LEDGER: testnet-438272759-snapload
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    - uses: ./.github/actions/hugepages
+      with:
+        # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
+        count_gigantic: 398
+        count_huge: 1024
+    - uses: ./.github/actions/cpusonline
+    - name: Prepare
+      run: |
+        sudo rm -f $DUMP_DIR/accounts.db
+        rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
+        echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)"; uname -r; } > $BENCH_DIR/runner.txt 2>&1 || true
+    - run: contrib/ci/bench/bench.sh build new
+    - run: contrib/ci/bench/experiment.sh 12
+    - if: always()
+      run: |
+        echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost
+        sudo killall firedancer-dev 2>/dev/null || true
+        sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: x-bench-1-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ${{ env.BENCH_DIR }}
+          !${{ env.BENCH_DIR }}/*/bin/**
+        retention-days: 30
+
+  x-bench-2:
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
+    timeout-minutes: 40
+    env:
+      CC: gcc
+      MACHINE: native
+      BENCH_DIR: ${{ github.workspace }}/../bench
+      DUMP_DIR: ${{ github.workspace }}/../dump
+      BENCH_SNAP_LEDGER: testnet-438272759-snapload
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    - uses: ./.github/actions/hugepages
+      with:
+        # DO NOT CHANGE: higher reservations OOM-kill other jobs on the CI runners
+        count_gigantic: 398
+        count_huge: 1024
+    - uses: ./.github/actions/cpusonline
+    - name: Prepare
+      run: |
+        sudo rm -f $DUMP_DIR/accounts.db
+        rm -rf $BENCH_DIR && mkdir -p $BENCH_DIR
+        echo BENCH_DIR=$(realpath $BENCH_DIR) >> $GITHUB_ENV
+        { hostname; lscpu | grep -E "Model name|^CPU\(s\)"; uname -r; } > $BENCH_DIR/runner.txt 2>&1 || true
+    - run: contrib/ci/bench/bench.sh build new
+    - run: contrib/ci/bench/experiment.sh 12
+    - if: always()
+      run: |
+        echo 1 | sudo tee /sys/devices/system/cpu/cpufreq/boost
+        sudo killall firedancer-dev 2>/dev/null || true
+        sudo rm -f $DUMP_DIR/accounts.db /dev/shm/fd-bench-shreds.db
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: x-bench-2-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ${{ env.BENCH_DIR }}
+          !${{ env.BENCH_DIR }}/*/bin/**
+        retention-days: 30
