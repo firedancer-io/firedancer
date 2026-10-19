@@ -9545,7 +9545,7 @@ message MetricsRotor {
   uint64 timeout_no_peer_deferred = 49;
   // Request attempts after the first for the same timer
   uint64 request_hedged = 50;
-  // Pending requests with no response after about 1 s (PENDING_TTL); the peer is not banned, pending-pool evictions not counted
+  // Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted
   uint64 request_expired = 51;
   // Requests sent to elicit a ping from a peer with a new address
   uint64 ping_probe_tx = 52;
@@ -9555,6 +9555,12 @@ message MetricsRotor {
   uint64 sign_request_pending = 54;
   // Highest slot past the window with a verified cert, the staked catchup target, 0 if none
   uint64 catchup_slot = 55;
+  // WindowIndexForBlockId requests that expired unanswered, at or above the root
+  uint64 request_by_id_expired = 56;
+  // Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set
+  uint64 request_stuck_escaped = 57;
+  // Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies
+  uint64 peer_by_id_banned = 58;
 }
 
 // Metrics of one rserve tile instance, one row per sweep

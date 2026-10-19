@@ -1814,7 +1814,7 @@ static fd_metrics_sample_field_t const fields_replay[ 239 ] = {
   { FD_METRICS_GAUGE_REPLAY_IS_RUNTIME_LOADED_OFF, 116U, FD_METRICS_SAMPLE_BOOL, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_rotor[ 121 ] = {
+static fd_metrics_sample_field_t const fields_rotor[ 124 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1933,6 +1933,9 @@ static fd_metrics_sample_field_t const fields_rotor[ 121 ] = {
   { FD_METRICS_COUNTER_ROTOR_TIMEOUT_NO_PEER_DEFERRED_OFF, 49U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_REQUEST_HEDGED_OFF, 50U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_REQUEST_EXPIRED_OFF, 51U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_ROTOR_REQUEST_BY_ID_EXPIRED_OFF, 56U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_ROTOR_REQUEST_STUCK_ESCAPED_OFF, 57U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_ROTOR_PEER_BY_ID_BANNED_OFF, 58U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_PING_PROBE_TX_OFF, 52U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ROTOR_EAGER_DELAY_NANOS_OFF, 53U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_ROTOR_SIGN_REQUEST_PENDING_OFF, 54U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4067,7 +4070,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "shred", 32U, fields_shred, 195UL, 2147UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
   { "replay", 34U, fields_replay, 239UL, 2567UL },
-  { "rotor", 35U, fields_rotor, 121UL, 1380UL },
+  { "rotor", 35U, fields_rotor, 124UL, 1416UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
   { "gossip", 37U, fields_gossip, 179UL, 1913UL },
   { "gossvf", 38U, fields_gossvf, 124UL, 1416UL },
