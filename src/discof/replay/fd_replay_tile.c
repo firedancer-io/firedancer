@@ -1355,7 +1355,6 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
   slot_info->bank_idx = bank->idx;
   slot_info->bank_seq = bank->bank_seq;
   slot_info->accdb_fork_id = bank->accdb_fork_id;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc", bank->idx, slot, bank->refcnt ));
 
   fd_bank_t * parent_bank = fd_banks_get_parent( ctx->banks, bank );
   slot_info->parent_bank_idx = parent_bank ? parent_bank->idx      : ULONG_MAX;
@@ -1398,25 +1397,6 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
     }
     fd_accdb_unread_one( ctx->accdb, &acc );
   }
-
-  FD_BASE58_ENCODE_32_BYTES( slot_info->block_id.uc, block_id_b58 );
-  FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
-  FD_BASE58_ENCODE_32_BYTES( bank->f.poh.uc, poh_hash_b58 );
-  FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, bank hash %s, PoH hash %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu) "
-                 "and timings [since parent fini %ld ns, started prepare %ld ns, started dispatching transactions %ld ns, finished executing transactions %ld ns, finished block %ld ns]",
-                 bank->f.slot, block_id_b58,
-                 bank_hash_b58,
-                 poh_hash_b58,
-                 bank->f.txn_count,
-                 bank->f.txn_count - bank->f.nonvote_txn_count,
-                 bank->f.shred_cnt,
-                 bank->f.total_compute_units_used,
-                 execution_fees_pre_settle + priority_fees_pre_settle,
-                 !!parent_bank ? parent_bank->block_completed_nanos - bank->first_fec_set_received_nanos : LONG_MAX,
-                 bank->preparation_begin_nanos - bank->first_fec_set_received_nanos,
-                 bank->first_transaction_scheduled_nanos - bank->preparation_begin_nanos,
-                 bank->last_transaction_finished_nanos - bank->first_transaction_scheduled_nanos,
-                 bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
 
   publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t) );
 
