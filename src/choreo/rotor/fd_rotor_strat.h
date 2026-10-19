@@ -5,7 +5,8 @@
    I/O: the rotor tile feeds it contact infos, epoch stakes and request
    outcomes.  Peers sit in slots by stake rank, unstaked last, and in
    latency buckets by srtt+rttvar/4.  A pick takes the fastest
-   bucket's cheaper of the next two peers by srtt*(inflight+1),
+   bucket's cheaper of the next two peers by srtt*(inflight+1), the
+   cursor advancing one peer so every peer meets every neighbor,
    every FD_ROTOR_STRAT_EXPLORE-th pick tries an unmeasured peer first,
    and a request is hedged after srtt+4*rttvar (RFC 6298).  It also
    estimates each leader's turbine time, which decides how long a
@@ -134,12 +135,14 @@ fd_rotor_strat_contact_info_removed( fd_rotor_strat_t *  strat,
    flight, or NULL if none is available.  staked restricts it to staked
    peers.  The fastest bucket with an available peer wins; within it the
    cheaper of the next two peers after its cursor, in stake order.
-   Banned peers are skipped. */
+   Banned peers are skipped, and slot avoid unless no other peer is
+   available (ULONG_MAX for none). */
 
 fd_rotor_strat_peer_t *
 fd_rotor_strat_pick( fd_rotor_strat_t * strat,
                      long               now,
-                     int                staked );
+                     int                staked,
+                     ulong              avoid );
 
 /* fd_rotor_strat_request_done ends a request picked from id_key with a
    reply that verified.  rtt is its round trip. */
@@ -196,6 +199,14 @@ fd_rotor_strat_hedge_ns( fd_rotor_strat_peer_t const * peer ) {
 fd_rotor_strat_peer_t *
 fd_rotor_strat_query( fd_rotor_strat_t *  strat,
                       fd_pubkey_t const * id_key );
+
+/* fd_rotor_strat_slot_remap returns the slot now held by the peer that
+   held slot idx before the last epoch re-sort, or ULONG_MAX if it is
+   gone or idx is ULONG_MAX. */
+
+ulong
+fd_rotor_strat_slot_remap( fd_rotor_strat_t const * strat,
+                           ulong                    idx );
 
 FD_PROTOTYPES_END
 
