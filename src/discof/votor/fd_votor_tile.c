@@ -24,6 +24,7 @@
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../util/fd_hash32.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_conn.h"
 #include "../../waltz/quic/fd_quic_private.h"
@@ -95,29 +96,29 @@ FD_STATIC_ASSERT( (1UL<<CONTACT_INFOS_LG_SLOT_CNT)==2UL*FD_CONTACT_INFO_TABLE_SI
 
 struct contact_info {
   fd_pubkey_t id_key;
+  uint        hash;
   uint        ip4;
   ushort      port;
 };
 typedef struct contact_info contact_info_t;
 
-#define MAP_NAME              contact_infos
-#define MAP_T                 contact_info_t
-#define MAP_LG_SLOT_CNT       CONTACT_INFOS_LG_SLOT_CNT
-#define MAP_KEY               id_key
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
-#define MAP_KEY_INVAL(k)      (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(fd_pubkey_t) ))
-#define MAP_MEMOIZE           0
-#include "../../util/tmpl/fd_map.c"
+#define MAP_NAME                contact_infos
+#define MAP_T                   contact_info_t
+#define MAP_KEY                 id_key
+#define MAP_KEY_T               fd_pubkey_t
+#define MAP_KEY_NULL            ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
+#define MAP_KEY_INVAL(k)        (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
+#define MAP_KEY_EQUAL(k0,k1)    (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW   1
+#define MAP_KEY_HASH(key,seed)  ((uint)fd_hash32( (key).uc, (seed) ))
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 #define PEERS_LG_SLOT_CNT (13) /* 2*AG_VAT_MAX, fill ratio 0.5 */
 FD_STATIC_ASSERT( (1UL<<PEERS_LG_SLOT_CNT)>=4UL*AG_VAT_MAX, peers );
 
 struct peer {
   fd_pubkey_t      id_key;
+  uint             hash;
   ushort           prev_rank;
   ushort           curr_rank;
   ushort           next_rank;
@@ -130,18 +131,16 @@ struct peer {
 };
 typedef struct peer peer_t;
 
-#define MAP_NAME              peers
-#define MAP_T                 peer_t
-#define MAP_LG_SLOT_CNT       PEERS_LG_SLOT_CNT
-#define MAP_KEY               id_key
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
-#define MAP_KEY_INVAL(k)      (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(fd_pubkey_t) ))
-#define MAP_MEMOIZE           0
-#include "../../util/tmpl/fd_map.c"
+#define MAP_NAME                peers
+#define MAP_T                   peer_t
+#define MAP_KEY                 id_key
+#define MAP_KEY_T               fd_pubkey_t
+#define MAP_KEY_NULL            ((fd_pubkey_t){ .ul = {0} }) /* no validator identity is the zero pubkey */
+#define MAP_KEY_INVAL(k)        (!((k).ul[0]|(k).ul[1]|(k).ul[2]|(k).ul[3]))
+#define MAP_KEY_EQUAL(k0,k1)    (!memcmp( &(k0), &(k1), sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQUAL_IS_SLOW   1
+#define MAP_KEY_HASH(key,seed)  ((uint)fd_hash32( (key).uc, (seed) ))
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 struct reconn {
   long        timeout;
@@ -451,7 +450,7 @@ report_alpenglow_vote( fd_votor_tile_t * ctx,
     ag_epoch_info_t const * rank_info = fd_ptr_if( rank_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( rank_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   cnt       = rank_info ? rank_info->validator_cnt : 0UL;
     fd_memset( ev.broadcast_to, 0, cnt*sizeof(fd_event_alpenglow_vote_broadcast_to_t) );
-    for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
       if( FD_LIKELY(    peers_key_inval( peer->id_key )
                      || !peer->tx_conn
@@ -527,7 +526,7 @@ report_alpenglow_cert( fd_votor_tile_t * ctx,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( ev.slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( ev.slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   cnt        = epoch_info ? epoch_info->validator_cnt : 0UL;
     fd_memset( ev.broadcast_to, 0, cnt*sizeof(fd_event_alpenglow_cert_broadcast_to_t) );
-    for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
       if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
       ushort rank = fd_ushort_if( ev.slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( ev.slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
@@ -643,7 +642,7 @@ static peer_t const *
 query_reward_leader( fd_votor_tile_t const * ctx,
                      reward_vote_t const *   rv ) {
   fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
-  peer_t const *      peer   = leader ? peers_query_const( ctx->peers, *leader, NULL ) : NULL;
+  peer_t const *      peer   = leader ? peers_query( ctx->peers, *leader, NULL ) : NULL;
   if( FD_UNLIKELY( !peer || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return NULL;
   return peer;
 }
@@ -654,7 +653,7 @@ quic_client_connect( fd_votor_tile_t *      ctx,
                      contact_info_t const * ci,
                      long                   now ) {
   if( FD_UNLIKELY( ctx->halt_signing ) ) return; /* halted for an identity switch, and the TLS handshake must sign */
-  peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
+  peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   if( FD_UNLIKELY( !self || peer==self ) ) return;
   if( FD_UNLIKELY( self->curr_rank==USHORT_MAX ) ) { /* not voting yet: only connect ahead, within QUIC_CONN_AHEAD_NS of our first ranked epoch */
     ulong root = ag_pool_finalized_slot( ctx->pool );
@@ -1332,7 +1331,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* mark all for deletion */
 
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
     peer_t * peer = &ctx->peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
     peer->prev_rank = USHORT_MAX;
@@ -1410,7 +1409,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* quic_connect new peers */
 
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
     peer_t * peer = &ctx->peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
     contact_info_t const * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
@@ -1419,7 +1418,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* quic_conn_close evicted peers */
 
-  for( ulong slot=0UL; slot<peers_slot_cnt(); ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); ) {
     peer_t * peer = &ctx->peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) {
       slot++;
@@ -1628,8 +1627,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
   l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
   l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
-  l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint()                                                 );
-  l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint()                                         );
+  l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
+  l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
   l = FD_LAYOUT_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -1642,22 +1641,22 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   /* Spread handshakes to newly ranked peers across 10 seconds. */
 
   if( FD_UNLIKELY( ctx->conn_ahead_slot!=ctx->next_epoch_slot ) ) {
-    peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
+    peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
     ulong          root = ag_pool_finalized_slot( ctx->pool );
     if( FD_UNLIKELY( !self || self->curr_rank!=USHORT_MAX || self->next_rank==USHORT_MAX ) ) {
       ctx->conn_ahead_slot = ctx->next_epoch_slot;
     } else if( FD_UNLIKELY( root!=ULONG_MAX && ( root>=ctx->next_epoch_slot || (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot<=QUIC_CONN_AHEAD_NS ) ) ) {
       ctx->conn_ahead_slot = ctx->next_epoch_slot;
       ulong cnt = 0UL;
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t const * peer = &ctx->peers[ slot ];
-        cnt += (ulong)( !peers_key_inval( peer->id_key ) && peer!=self && !peer->tx_conn && !peer->reconn_pending && contact_infos_query_const( ctx->contact_infos, peer->id_key, NULL ) );
+        cnt += (ulong)( !peers_key_inval( peer->id_key ) && peer!=self && !peer->tx_conn && !peer->reconn_pending && contact_infos_query( ctx->contact_infos, peer->id_key, NULL ) );
       }
       long  now = fd_clock_tile_now( ctx->clock );
       ulong idx = 0UL;
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t * peer = &ctx->peers[ slot ];
-        if( FD_UNLIKELY( peers_key_inval( peer->id_key ) || peer==self || peer->tx_conn || peer->reconn_pending || !contact_infos_query_const( ctx->contact_infos, peer->id_key, NULL ) ) ) continue;
+        if( FD_UNLIKELY( peers_key_inval( peer->id_key ) || peer==self || peer->tx_conn || peer->reconn_pending || !contact_infos_query( ctx->contact_infos, peer->id_key, NULL ) ) ) continue;
         reconn_t reconn = { .timeout = now+(long)idx*(QUIC_CONN_AHEAD_NS/2L)/(long)cnt, .id_key = peer->id_key };
         reconn_prq_insert( ctx->reconn_prq, &reconn );
         peer->reconn_pending = 1;
@@ -1783,7 +1782,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
       ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, fd_ulong_sat_sub( ctx->vote_history_slot, 1UL ) );
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
       fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t * peer = &ctx->peers[ slot ];
         if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
         if( FD_LIKELY( peer->tx_conn ) ) {
@@ -1829,7 +1828,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     update_own_rank( ctx );
     update_own_bls_key( ctx );
     ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool ); /* its next vote was copied as the old identity */
-    for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
       peer_t * peer = &ctx->peers[ slot ];
       if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
       contact_info_t const * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
@@ -1879,7 +1878,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MGAUGE_SET( VOTOR, HIGHEST_POOL_FINALIZED_SLOT,       fd_ulong_if( pool_metrics.finalized_slot!=ULONG_MAX, pool_metrics.finalized_slot, 0UL ) );
   FD_MCNT_SET  ( VOTOR, BLS_SIGNATURE_CHECKED,             pool_metrics.bls_verify_cnt+ctx->metrics.bls_verify );
 
-  peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
+  peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   ulong rank = self && self->curr_rank!=USHORT_MAX ? self->curr_rank : ULONG_MAX;
   FD_MGAUGE_SET( VOTOR, RANK, rank );
 
@@ -2078,7 +2077,7 @@ after_credit( fd_votor_tile_t *   ctx,
     if( FD_UNLIKELY( broadcast ) ) {
       ulong ser_sz               = ag_cert_ser( broadcast, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t const * peer = &ctx->peers[ slot ];
         if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
         quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
@@ -2230,7 +2229,7 @@ after_credit( fd_votor_tile_t *   ctx,
         if( FD_LIKELY( peer ) ) reward_vote_tx( ctx, stem, rv, peer, now ); /* the reward leader first, tracked so its ACK clears the retry */
       }
 
-      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t const * peer = &ctx->peers[ slot ];
         if( FD_LIKELY(    peers_key_inval( peer->id_key )
                        || !peer->tx_conn
@@ -2278,7 +2277,7 @@ after_credit( fd_votor_tile_t *   ctx,
   if( FD_UNLIKELY( ag_pool_standstill_iter_done( standstill_iter ) || standstill_iter->finalized!=finalized_slot ) ) ag_pool_standstill_iter_init( standstill_iter, ctx->pool );
   if( FD_LIKELY( !ag_pool_standstill_iter_done( standstill_iter ) ) ) {
     ulong ser_sz = standstill_iter->is_vote ? ag_vote_ser( &standstill_iter->vote, ctx->scratch.ser ) : ag_cert_ser( &standstill_iter->cert, ctx->scratch.ser );
-    for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
       if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
       quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
@@ -2516,8 +2515,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
   void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
   void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
-  void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint()                                                 );
-  void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                                         );
+  void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
+  void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
   void *            reconn_prq    = FD_SCRATCH_ALLOC_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
   void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                                );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
@@ -2563,10 +2562,13 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_ip4_udp_hdr_init( ctx->hdr, FD_NET_MTU, ctx->src_ip_addr, ctx->quic_client_listen_port );
 
 
-  ctx->peers = peers_join( peers_new( peers ) );
+  ulong peers_seed;         FD_TEST( fd_rng_secure( &peers_seed,         sizeof(ulong) ) );
+  ulong contact_infos_seed; FD_TEST( fd_rng_secure( &contact_infos_seed, sizeof(ulong) ) );
+
+  ctx->peers = peers_join( peers_new( peers, PEERS_LG_SLOT_CNT, peers_seed ) );
   FD_TEST( ctx->peers );
 
-  ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos ) );
+  ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos, CONTACT_INFOS_LG_SLOT_CNT, contact_infos_seed ) );
   FD_TEST( ctx->contact_infos );
 
   ctx->reconn_prq = reconn_prq_join( reconn_prq_new( reconn_prq, RECONN_MAX ) );
