@@ -1584,7 +1584,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       fd_gui_ema_init( &gui->summary.accdb->tier_free_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
     }
   } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && wfs_state==FD_GOSSIP_WFS_STATE_DONE && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_tower!=ULONG_MAX ) ) {
-    if( FD_UNLIKELY( gui->summary.wfs_enabled ) ) {
+    if( FD_UNLIKELY( fd_gui_wfs_mode( gui )==FD_WFS_MODE_MATCH ) ) {
       if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) {
         ulong snap_inc  = gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].slot;
         ulong snap_full = gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].slot;

@@ -1270,6 +1270,19 @@ fd_gui_tile_timers_diff( fd_gui_tile_timers_hist_t *  out,
                          ulong                        tile_idx,
                          long                         sample_time_nanos );
 
+/* fd_gui_wfs_mode is MATCH when wait_for_supermajority is configured
+   (wfs_enabled) and DISABLED otherwise.  v26.10 lacks main's WFS
+   verdict (4ce132c310); this keeps main's name so backports that touch
+   its callers apply unchanged. */
+
+#define FD_WFS_MODE_DISABLED (0)
+#define FD_WFS_MODE_MATCH    (2)
+
+FD_FN_PURE static inline int
+fd_gui_wfs_mode( fd_gui_t const * gui ) {
+  return fd_int_if( gui->summary.wfs_enabled, FD_WFS_MODE_MATCH, FD_WFS_MODE_DISABLED );
+}
+
 FD_FN_CONST ulong
 fd_gui_align( void );
 
