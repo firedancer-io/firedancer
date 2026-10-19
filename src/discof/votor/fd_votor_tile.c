@@ -897,6 +897,7 @@ quic_server_conn_final( fd_quic_conn_t * conn,
                         void *           _ctx ) {
   fd_votor_tile_t *   ctx    = _ctx;
   fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
+  fd_quic_conn_set_context( conn, NULL ); /* a reused conn slot must not carry this peer's key */
   if( FD_UNLIKELY( !id_key ) ) return;
   peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
   if( FD_LIKELY( peer && peer->rx_conn==conn ) ) peer->rx_conn = NULL;
@@ -912,6 +913,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
 
   fd_votor_tile_t * ctx = _ctx;
   if( FD_UNLIKELY( !ctx->init  ) ) { ctx->metrics.datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_V_NOT_READY_IDX ]++; return; }
+  if( FD_UNLIKELY( conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) { ctx->metrics.datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_V_NOT_ADMITTED_IDX ]++; return; }
   if( FD_UNLIKELY( data_sz<2UL ) ) { ctx->metrics.datagram_rx[ FD_METRICS_ENUM_DATAGRAM_RX_RESULT_V_TOO_SMALL_IDX ]++; return; }
   uchar kind = data[ 1 ];
 
