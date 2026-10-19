@@ -196,7 +196,7 @@ enum {
 
 #define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_NAME "replay_epoch_credits"
 #define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_DESC "Our vote account epoch credits at the optimistically confirmed slot, or the finalized slot under Alpenglow"
+#define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_DESC "Credits our vote account earned this epoch, as of the optimistically confirmed slot, or the finalized slot under Alpenglow, where they are lamport-denominated reward credits"
 #define FD_METRICS_GAUGE_REPLAY_EPOCH_CREDITS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_REPLAY_IS_VOTE_ACCOUNT_INADMISSIBLE_NAME "replay_is_vote_account_inadmissible"

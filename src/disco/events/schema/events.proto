@@ -9761,7 +9761,7 @@ message MetricsReplay {
   uint64 active_stake_lamports = 26;
   // Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow
   uint64 cluster_active_stake_lamports = 27;
-  // gauge: current value, do not sum over time. Our vote account epoch credits at the optimistically confirmed slot, or the finalized slot under Alpenglow
+  // gauge: current value, do not sum over time. Credits our vote account earned this epoch, as of the optimistically confirmed slot, or the finalized slot under Alpenglow, where they are lamport-denominated reward credits
   uint64 epoch_credits = 28;
   // Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary
   bool is_vote_account_inadmissible = 29;

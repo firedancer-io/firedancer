@@ -1048,7 +1048,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="IdentityBalanceLamports" summary="Identity account balance at the optimistically confirmed slot, or the finalized slot under Alpenglow" />
     <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow" />
     <gauge name="ClusterActiveStakeLamports" summary="Cluster active stake at the optimistically confirmed slot, or the finalized slot under Alpenglow" />
-    <gauge name="EpochCredits" ambiguous-kind="true" summary="Our vote account epoch credits at the optimistically confirmed slot, or the finalized slot under Alpenglow" lint-allow="plural vocab" />
+    <gauge name="EpochCredits" ambiguous-kind="true" summary="Credits our vote account earned this epoch, as of the optimistically confirmed slot, or the finalized slot under Alpenglow, where they are lamport-denominated reward credits" lint-allow="plural vocab" />
     <bool name="IsVoteAccountInadmissible" summary="Whether our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary" />
     <gauge name="LastRewardedVoteSlot" summary="Latest slot for which our vote appears in a reward certificate, 0 if none observed (always 0 under Tower)" />
 
