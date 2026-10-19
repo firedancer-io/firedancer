@@ -55,6 +55,7 @@ struct fd_stake_ci {
     ulong slot_cnt;
     ulong staked_vote_cnt;
     ulong staked_id_cnt;
+    int   geo_aware_lsched;
   } scratch[1];
 
   fd_vote_stake_weight_t   vote_stake_weight[ MAX_STAKE_WEIGHTS ];

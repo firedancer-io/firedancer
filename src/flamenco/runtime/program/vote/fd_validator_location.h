@@ -159,6 +159,15 @@ fd_validator_location_is_valid( fd_validator_location_t const * loc ) {
          dist2<=FD_VALIDATOR_LOCATION_SURFACE_DIST2+FD_VALIDATOR_LOCATION_SURFACE_TOLERANCE;
 }
 
+FD_FN_PURE static inline ulong
+fd_validator_location_dist2( fd_validator_location_t const * a,
+                             fd_validator_location_t const * b ) {
+  long dx = (long)a->x - (long)b->x;
+  long dy = (long)a->y - (long)b->y;
+  long dz = (long)a->z - (long)b->z;
+  return (ulong)( dx*dx ) + (ulong)( dy*dy ) + (ulong)( dz*dz );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_validator_location_h */

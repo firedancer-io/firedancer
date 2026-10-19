@@ -224,13 +224,14 @@ ENCODE_FN {
 
     /* A zeroed key means no BLS key is registered (serialized as None) */
     static uchar const no_bls_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
-    int has_bls = !fd_memeq( ele->bls_key, no_bls_key, FD_BLS_PUB_COMPRESSED_SZ );
+    int has_bls      = !fd_memeq( ele->bls_key, no_bls_key, FD_BLS_PUB_COMPRESSED_SZ );
+    int has_location = ele->location.x || ele->location.y || ele->location.z;
 
     enc->total_stake += ele->stake;
 
     FD_TEST( ec_cnt<=FD_EPOCH_CREDITS_MAX );
 
-    ulong data_length = 186UL + fd_ulong_if( !!has_bls, FD_BLS_PUB_COMPRESSED_SZ, 0UL ) + 24UL * ec_cnt;
+    ulong data_length = fd_ulong_if( has_location, FD_VOTE_STATE_V5_SZ, 186UL + fd_ulong_if( !!has_bls, FD_BLS_PUB_COMPRESSED_SZ, 0UL ) + 24UL * ec_cnt );
 
     /* Vote account key + stake */
     PUSH_VAL( fd_pubkey_t, ele->pubkey );
@@ -240,43 +241,79 @@ ENCODE_FN {
     PUSH_VAL( ulong, 0UL         );
     PUSH_VAL( ulong, data_length );
 
-    /* VoteStateV4 */
-    PUSH_VAL( uint,       3U           ); /* variant = V4 */
-    PUSH_VAL( fd_pubkey_t, ele->node_account ); /* node_pubkey */
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* authorized_withdrawer */
-    PUSH_VAL( fd_pubkey_t, inflation_collector ); /* inflation_rewards_collector */
-    PUSH_VAL( fd_pubkey_t, block_collector     ); /* block_revenue_collector */
-    PUSH_VAL( ushort, ele->commission ); /* inflation_rewards_commission_bps */
-    PUSH_VAL( ushort, ele->block_revenue_commission_bps ); /* block_revenue_commission_bps */
-    PUSH_VAL( ulong,  ele->pending_delegator_rewards    ); /* pending_delegator_rewards */
-    if( has_bls ) {
-      typedef struct { uchar b[ FD_BLS_PUB_COMPRESSED_SZ ]; } bls_key_compressed_t;
-      PUSH_VAL( uchar, 1        ); /* bls_pubkey_compressed = Some */
-      PUSH_VAL( bls_key_compressed_t, *(bls_key_compressed_t const *)ele->bls_key );
-    } else {
-      PUSH_VAL( uchar, 0        ); /* bls_pubkey_compressed = None */
-    }
-    PUSH_VAL( ulong,  0UL      ); /* votes_length = 0 */
-    PUSH_VAL( uchar,  0        ); /* root_slot = None */
-    PUSH_VAL( ulong,  0UL      ); /* authorized_voters_length = 0 */
-
-    /* Epoch credits */
-    PUSH_VAL( ulong, ec_cnt );
-    for( ulong k=0UL, j=0UL; k<ec_cnt; k++ ) {
-      if( FD_UNLIKELY( k==ag_marker_idx ) ) {
-        PUSH_VAL( ulong, ULONG_MAX );
-        PUSH_VAL( ulong, ULONG_MAX );
-        PUSH_VAL( ulong, ULONG_MAX );
-        continue;
+    if( has_location ) {
+      ulong epoch_key = epoch_stakes_key( bank, enc->epoch_idx );
+      ulong ec_skip   = fd_ulong_sat_sub( ec_cnt, FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX );
+      fd_vote_state_v5_t v5 = {
+        .node_pubkey                             = ele->node_account,
+        .inflation_rewards_collector             = inflation_collector,
+        .block_revenue_collector                 = block_collector,
+        .inflation_rewards_commission_bps_len    = 1,
+        .block_revenue_commission_bps_len        = 1,
+        .pending_delegator_rewards               = ele->pending_delegator_rewards,
+        .location                                = ele->location,
+        .inflation_rewards_commission_bps_epochs = { epoch_key },
+        .inflation_rewards_commission_bps        = { ele->commission },
+        .block_revenue_commission_bps_epochs     = { epoch_key },
+        .block_revenue_commission_bps            = { ele->block_revenue_commission_bps },
+        .latest_vote                             = ULONG_MAX,
+        .root_slot                               = ULONG_MAX,
+        .accumulated_lamports_len                = (uint)( ec_cnt-ec_skip )
+      };
+      memcpy( v5.bls_pubkey_compressed, ele->bls_key, FD_BLS_PUB_COMPRESSED_SZ );
+      for( ulong k=0UL, j=0UL; k<ec_cnt; k++ ) {
+        if( FD_UNLIKELY( k==ag_marker_idx ) ) {
+          if( k>=ec_skip ) v5.accumulated_lamports[ k-ec_skip ] = (fd_vote_epoch_credits_t){ ULONG_MAX, ULONG_MAX, ULONG_MAX };
+          continue;
+        }
+        if( k>=ec_skip ) v5.accumulated_lamports[ k-ec_skip ] = (fd_vote_epoch_credits_t){ (ulong)ec->epoch[j],
+                                                                                           ec->base_credits + (ulong)ec->credits_delta[j],
+                                                                                           ec->base_credits + (ulong)ec->prev_credits_delta[j] };
+        j++;
       }
-      PUSH_VAL( ulong, (ulong)ec->epoch[j] );
-      PUSH_VAL( ulong, ec->base_credits + (ulong)ec->credits_delta[j] );
-      PUSH_VAL( ulong, ec->base_credits + (ulong)ec->prev_credits_delta[j] );
-      j++;
-    }
+      typedef struct { uchar b[ FD_VOTE_STATE_V5_PAD_SZ ]; } v5_tail_t;
+      PUSH_VAL( uint,               fd_vote_state_versioned_enum_v5 );
+      PUSH_VAL( fd_vote_state_v5_t, v5                              );
+      PUSH_VAL( v5_tail_t,          (v5_tail_t){0}                  );
+    } else {
+      /* VoteStateV4 */
+      PUSH_VAL( uint,       3U           ); /* variant = V4 */
+      PUSH_VAL( fd_pubkey_t, ele->node_account ); /* node_pubkey */
+      PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* authorized_withdrawer */
+      PUSH_VAL( fd_pubkey_t, inflation_collector ); /* inflation_rewards_collector */
+      PUSH_VAL( fd_pubkey_t, block_collector     ); /* block_revenue_collector */
+      PUSH_VAL( ushort, ele->commission ); /* inflation_rewards_commission_bps */
+      PUSH_VAL( ushort, ele->block_revenue_commission_bps ); /* block_revenue_commission_bps */
+      PUSH_VAL( ulong,  ele->pending_delegator_rewards    ); /* pending_delegator_rewards */
+      if( has_bls ) {
+        typedef struct { uchar b[ FD_BLS_PUB_COMPRESSED_SZ ]; } bls_key_compressed_t;
+        PUSH_VAL( uchar, 1        ); /* bls_pubkey_compressed = Some */
+        PUSH_VAL( bls_key_compressed_t, *(bls_key_compressed_t const *)ele->bls_key );
+      } else {
+        PUSH_VAL( uchar, 0        ); /* bls_pubkey_compressed = None */
+      }
+      PUSH_VAL( ulong,  0UL      ); /* votes_length = 0 */
+      PUSH_VAL( uchar,  0        ); /* root_slot = None */
+      PUSH_VAL( ulong,  0UL      ); /* authorized_voters_length = 0 */
 
-    PUSH_VAL( ulong, 0UL ); /* last_timestamp_slot */
-    PUSH_VAL( ulong, 0UL ); /* last_timestamp_timestamp */
+      /* Epoch credits */
+      PUSH_VAL( ulong, ec_cnt );
+      for( ulong k=0UL, j=0UL; k<ec_cnt; k++ ) {
+        if( FD_UNLIKELY( k==ag_marker_idx ) ) {
+          PUSH_VAL( ulong, ULONG_MAX );
+          PUSH_VAL( ulong, ULONG_MAX );
+          PUSH_VAL( ulong, ULONG_MAX );
+          continue;
+        }
+        PUSH_VAL( ulong, (ulong)ec->epoch[j] );
+        PUSH_VAL( ulong, ec->base_credits + (ulong)ec->credits_delta[j] );
+        PUSH_VAL( ulong, ec->base_credits + (ulong)ec->prev_credits_delta[j] );
+        j++;
+      }
+
+      PUSH_VAL( ulong, 0UL ); /* last_timestamp_slot */
+      PUSH_VAL( ulong, 0UL ); /* last_timestamp_timestamp */
+    }
 
     /* AccountSharedData trailer */
     PUSH_VAL( fd_pubkey_t, fd_solana_vote_program_id ); /* owner */

@@ -487,7 +487,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
     fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls,
                                     elem->commission_block_bps, elem->pending_delegator_rewards,
-                                    (fd_pubkey_t const *)elem->commission_inflation, (fd_pubkey_t const *)elem->commission_block );
+                                    (fd_pubkey_t const *)elem->commission_inflation, (fd_pubkey_t const *)elem->commission_block, &elem->location );
 
     /* Reward recalculation resolves every epoch credits entry against
        the t_1 set, so only admitted accounts may get one. */
@@ -532,7 +532,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
     fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls,
                                     elem->commission_block_bps, elem->pending_delegator_rewards,
-                                    (fd_pubkey_t const *)elem->commission_inflation, (fd_pubkey_t const *)elem->commission_block );
+                                    (fd_pubkey_t const *)elem->commission_inflation, (fd_pubkey_t const *)elem->commission_block, &elem->location );
   }
   fd_vote_stakes_finalize( vote_stakes, vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
 
@@ -544,7 +544,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * elem = &epoch_stakes->vote_stakes[i];
       fd_vote_stakes_snap_insert_t_n( vote_stakes, vote_stakes_fork_id, n, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls,
-                                      elem->commission_block_bps, elem->pending_delegator_rewards, NULL, NULL );
+                                      elem->commission_block_bps, elem->pending_delegator_rewards, NULL, NULL, &elem->location );
     }
     fd_vote_stakes_finalize( vote_stakes, vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2+(int)(n-2UL) );
   }

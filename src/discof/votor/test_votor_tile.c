@@ -1312,6 +1312,7 @@ test_id_keyswitch( void ) {
   static uchar epoch_msg_mem[ FD_EPOCH_INFO_MSG_HEADER_SZ+sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(8)));
   fd_epoch_info_msg_t * epoch_msg = fd_type_pun( epoch_msg_mem );
   *epoch_msg = (fd_epoch_info_msg_t){ .epoch = 1UL, .staked_vote_cnt = 1UL, .start_slot = 64UL, .slot_cnt = 64UL, .ns_per_slot = 400000000UL };
+  epoch_msg->features.geo_aware_leader_schedule = FD_FEATURE_DISABLED;
   fd_vote_stake_weight_t * epoch_weight = fd_epoch_info_msg_stake_weights( epoch_msg );
   *epoch_weight = (fd_vote_stake_weight_t){ .vote_key = new_id, .id_key = new_id, .stake = 10UL }; /* the new identity still leads every slot */
   memcpy( epoch_weight->bls_key, epoch_info->validators[1].bls_key, sizeof(ag_bls_key_t) );

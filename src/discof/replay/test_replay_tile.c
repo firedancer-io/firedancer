@@ -29,6 +29,8 @@
 #define TEST_REPAIR_IN_IDX 0UL
 #define TEST_EXECRP_IN_IDX 1UL
 
+static fd_validator_location_t const no_loc = {0};
+
 /* ---- Mock store ---- */
 
 static fd_store_fec_t mock_store_fec;
@@ -418,6 +420,7 @@ setup_mleaders( fd_replay_tile_t * ctx ) {
   for( ulong epoch=0UL; epoch<2UL; epoch++ ) {
     memset( buf, 0, sizeof(buf) );
     fd_epoch_info_msg_t * msg = (fd_epoch_info_msg_t *)buf;
+    msg->features.geo_aware_leader_schedule = FD_FEATURE_DISABLED;
     msg->epoch           = epoch;
     msg->staked_vote_cnt = 1UL;
     msg->staked_id_cnt   = 1UL;
@@ -793,7 +796,7 @@ test_snapmk_start_leader_after_epoch_rollover( fd_wksp_t * wksp ) {
   fd_vote_stake_weight_t w2[ 1 ] = { { .stake = 1UL } };
   memset( w2[ 0 ].vote_key.uc, 0x22, 32UL );
   memset( w2[ 0 ].id_key.uc,   0x22, 32UL );
-  FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new( fd_bank_epoch_leaders_modify( bank, 0UL ), 2UL, 256UL, 128UL, 1UL, w2 ) ) );
+  FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new( fd_bank_epoch_leaders_modify( bank, 0UL ), 2UL, 256UL, 128UL, 1UL, w2, 0 ) ) );
   FD_TEST( !fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, 0UL ), 127UL ) );
 
   fd_pubkey_t expected; memset( expected.uc, 0x11, 32UL );
@@ -1640,7 +1643,7 @@ test_ag_update_delinquent( fd_wksp_t * wksp ) {
     fd_pubkey_t node = (fd_pubkey_t){ .ul = { 2000UL+i } };
     uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
     test_bls_pubkey( bls, i );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, stake[ i ], 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, stake[ i ], 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
     fd_vote_stakes_update_state( vote_stakes, fork_id, &vote[ i ], 0UL, 0L, 1 );
   }
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
@@ -1998,7 +2001,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
     fd_pubkey_t node = (fd_pubkey_t){ .ul = { 4000UL+i } };
     uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
     test_bls_pubkey( bls, 10UL+i );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, 100UL*(i+1UL), 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, 100UL*(i+1UL), 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   }
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
   for( ulong i=0UL; i<CERT_TEST_VAL_CNT; i++ ) {

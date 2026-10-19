@@ -15,20 +15,21 @@
 #define FD_VOTE_STAKES_EPOCH_CACHE_CNT (5UL) /* t-2..t-5 sets plus one so crossing into t+1 evicts t-6 */
 
 struct vacc {
-  fd_pubkey_t pubkey;
-  fd_pubkey_t node_account;
-  ulong       stake;
-  ushort      commission;                   /* inflation rewards, basis points */
-  ushort      block_revenue_commission_bps; /* SIMD-0123 */
-  ulong       pending_delegator_rewards;    /* SIMD-0123, as of the set's epoch boundary */
-  fd_pubkey_t inflation_collector;          /* SIMD-0232, defaults to pubkey */
-  fd_pubkey_t block_collector;              /* SIMD-0232, defaults to node_account */
-  ushort      rank;
-  uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; /* zero if unregistered */
-  uchar       bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ]; /* decompressed by finalize, valid iff rank!=NULL */
-  uint        left;
-  uint        right;
-  uint        next;
+  fd_pubkey_t             pubkey;
+  fd_pubkey_t             node_account;
+  ulong                   stake;
+  ushort                  commission;                   /* inflation rewards, basis points */
+  ushort                  block_revenue_commission_bps; /* SIMD-0123 */
+  ulong                   pending_delegator_rewards;    /* SIMD-0123, as of the set's epoch boundary */
+  fd_pubkey_t             inflation_collector;          /* SIMD-0232, defaults to pubkey */
+  fd_pubkey_t             block_collector;              /* SIMD-0232, defaults to node_account */
+  ushort                  rank;
+  uchar                   bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; /* zero if unregistered */
+  uchar                   bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ]; /* decompressed by finalize, valid iff rank!=NULL */
+  fd_validator_location_t location;
+  uint                    left;
+  uint                    right;
+  uint                    next;
 };
 typedef struct vacc vacc_t;
 
@@ -571,16 +572,17 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes ) {
 }
 
 static void
-vacc_init( vacc_t *            vacc,
-           fd_pubkey_t const * pubkey,
-           fd_pubkey_t const * node_account,
-           ulong               stake,
-           ushort              commission,
-           uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-           ushort              block_revenue_commission_bps,
-           ulong               pending_delegator_rewards,
-           fd_pubkey_t const * inflation_collector_opt,
-           fd_pubkey_t const * block_collector_opt ) {
+vacc_init( vacc_t *                        vacc,
+           fd_pubkey_t const *             pubkey,
+           fd_pubkey_t const *             node_account,
+           ulong                           stake,
+           ushort                          commission,
+           uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+           ushort                          block_revenue_commission_bps,
+           ulong                           pending_delegator_rewards,
+           fd_pubkey_t const *             inflation_collector_opt,
+           fd_pubkey_t const *             block_collector_opt,
+           fd_validator_location_t const * location ) {
   vacc->pubkey                       = *pubkey;
   vacc->node_account                 = *node_account;
   vacc->stake                        = stake;
@@ -590,21 +592,23 @@ vacc_init( vacc_t *            vacc,
   vacc->inflation_collector          = inflation_collector_opt ? *inflation_collector_opt : *pubkey;
   vacc->block_collector              = block_collector_opt     ? *block_collector_opt     : *node_account;
   vacc->rank                         = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
+  vacc->location                     = *location;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
 }
 
 void
-fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
-                                ulong               fork_id,
-                                fd_pubkey_t const * pubkey,
-                                fd_pubkey_t const * node_account,
-                                ulong               stake,
-                                ushort              commission,
-                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                                ushort              block_revenue_commission_bps,
-                                ulong               pending_delegator_rewards,
-                                fd_pubkey_t const * inflation_collector_opt,
-                                fd_pubkey_t const * block_collector_opt ) {
+fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *              vote_stakes,
+                                ulong                           fork_id,
+                                fd_pubkey_t const *             pubkey,
+                                fd_pubkey_t const *             node_account,
+                                ulong                           stake,
+                                ushort                          commission,
+                                uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                                ushort                          block_revenue_commission_bps,
+                                ulong                           pending_delegator_rewards,
+                                fd_pubkey_t const *             inflation_collector_opt,
+                                fd_pubkey_t const *             block_collector_opt,
+                                fd_validator_location_t const * location ) {
   if( FD_UNLIKELY( !stake ) ) return;
 
   ulong        cache_idx = t_1_lock( vote_stakes, fork_id_t_1_idx( fork_id ), 1 );
@@ -613,23 +617,24 @@ fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
 
   vacc_t * vacc        = vacc_pool_ele_acquire( pool );
   vacc_init( vacc, pubkey, node_account, stake, commission, bls_key,
-             block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt );
+             block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt, location );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
   t_1_unlock( vote_stakes, 1 );
 }
 
 void
-fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
-                                ulong               fork_id,
-                                fd_pubkey_t const * pubkey,
-                                fd_pubkey_t const * node_account,
-                                ulong               stake,
-                                ushort              commission,
-                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                                ushort              block_revenue_commission_bps,
-                                ulong               pending_delegator_rewards,
-                                fd_pubkey_t const * inflation_collector_opt,
-                                fd_pubkey_t const * block_collector_opt ) {
+fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *              vote_stakes,
+                                ulong                           fork_id,
+                                fd_pubkey_t const *             pubkey,
+                                fd_pubkey_t const *             node_account,
+                                ulong                           stake,
+                                ushort                          commission,
+                                uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                                ushort                          block_revenue_commission_bps,
+                                ulong                           pending_delegator_rewards,
+                                fd_pubkey_t const *             inflation_collector_opt,
+                                fd_pubkey_t const *             block_collector_opt,
+                                fd_validator_location_t const * location ) {
   if( FD_UNLIKELY( !stake ) ) return;
 
   ulong        epoch_idx = (ulong)fork_id_epoch( fork_id ) % FD_VOTE_STAKES_EPOCH_CACHE_CNT;
@@ -638,23 +643,24 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
 
   vacc_t * vacc        = vacc_pool_ele_acquire( pool );
   vacc_init( vacc, pubkey, node_account, stake, commission, bls_key,
-             block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt );
+             block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt, location );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
 }
 
 void
-fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *  vote_stakes,
-                                ulong               fork_id,
-                                ulong               n,
-                                fd_pubkey_t const * pubkey,
-                                fd_pubkey_t const * node_account,
-                                ulong               stake,
-                                ushort              commission,
-                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                                ushort              block_revenue_commission_bps,
-                                ulong               pending_delegator_rewards,
-                                fd_pubkey_t const * inflation_collector_opt,
-                                fd_pubkey_t const * block_collector_opt ) {
+fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *              vote_stakes,
+                                ulong                           fork_id,
+                                ulong                           n,
+                                fd_pubkey_t const *             pubkey,
+                                fd_pubkey_t const *             node_account,
+                                ulong                           stake,
+                                ushort                          commission,
+                                uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                                ushort                          block_revenue_commission_bps,
+                                ulong                           pending_delegator_rewards,
+                                fd_pubkey_t const *             inflation_collector_opt,
+                                fd_pubkey_t const *             block_collector_opt,
+                                fd_validator_location_t const * location ) {
   ulong epoch = (ulong)fork_id_epoch( fork_id );
   ulong back  = n-2UL;
   if( FD_UNLIKELY( epoch<back || !stake ) ) return;
@@ -666,24 +672,25 @@ fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *  vote_stakes,
 
   vacc_t * vacc        = vacc_pool_ele_acquire( pool );
   vacc_init( vacc, pubkey, node_account, stake, commission, bls_key,
-             block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt );
+             block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt, location );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
   vote_stakes->t_2_epoch[ t_n_idx ] = t_n_epoch;
 }
 
 static void
-t_1_insert( fd_vote_stakes_t *  vote_stakes,
-            vacc_t *            pool,
-            vacc_map_t *        map,
-            fd_pubkey_t const * pubkey,
-            fd_pubkey_t const * node_account,
-            ulong               stake,
-            ushort              commission,
-            uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-            ushort              block_revenue_commission_bps,
-            ulong               pending_delegator_rewards,
-            fd_pubkey_t const * inflation_collector_opt,
-            fd_pubkey_t const * block_collector_opt ) {
+t_1_insert( fd_vote_stakes_t *              vote_stakes,
+            vacc_t *                        pool,
+            vacc_map_t *                    map,
+            fd_pubkey_t const *             pubkey,
+            fd_pubkey_t const *             node_account,
+            ulong                           stake,
+            ushort                          commission,
+            uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+            ushort                          block_revenue_commission_bps,
+            ulong                           pending_delegator_rewards,
+            fd_pubkey_t const *             inflation_collector_opt,
+            fd_pubkey_t const *             block_collector_opt,
+            fd_validator_location_t const * location ) {
   vacc_heap_t * heap = vacc_heap( vote_stakes );
 
   if( FD_UNLIKELY( stake==0UL || stake<=vote_stakes->min_stake_wmark ) ) return;
@@ -704,27 +711,28 @@ t_1_insert( fd_vote_stakes_t *  vote_stakes,
 
   vacc_t * vacc        = vacc_pool_ele_acquire( pool );
   vacc_init( vacc, pubkey, node_account, stake, commission, bls_key,
-             block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt );
+             block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt, location );
   vacc_heap_ele_insert( heap, vacc, pool );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
 }
 
 void
-fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
-                       ulong               fork_id,
-                       fd_pubkey_t const * pubkey,
-                       fd_pubkey_t const * node_account,
-                       ulong               stake,
-                       ushort              commission,
-                       uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                       ushort              block_revenue_commission_bps,
-                       ulong               pending_delegator_rewards,
-                       fd_pubkey_t const * inflation_collector_opt,
-                       fd_pubkey_t const * block_collector_opt ) {
+fd_vote_stakes_insert( fd_vote_stakes_t *              vote_stakes,
+                       ulong                           fork_id,
+                       fd_pubkey_t const *             pubkey,
+                       fd_pubkey_t const *             node_account,
+                       ulong                           stake,
+                       ushort                          commission,
+                       uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                       ushort                          block_revenue_commission_bps,
+                       ulong                           pending_delegator_rewards,
+                       fd_pubkey_t const *             inflation_collector_opt,
+                       fd_pubkey_t const *             block_collector_opt,
+                       fd_validator_location_t const * location ) {
   ulong cache_idx = t_1_lock( vote_stakes, fork_id_t_1_idx( fork_id ), 1 );
   t_1_insert( vote_stakes, t_1_cache_pool( vote_stakes, cache_idx ), t_1_cache_map( vote_stakes, cache_idx ),
               pubkey, node_account, stake, commission, bls_key,
-              block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt );
+              block_revenue_commission_bps, pending_delegator_rewards, inflation_collector_opt, block_collector_opt, location );
   t_1_unlock( vote_stakes, 1 );
 }
 
@@ -854,6 +862,7 @@ fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
         dst->pending_delegator_rewards    = src->pending_delegator_rewards;
         dst->inflation_collector          = src->inflation_collector;
         dst->block_collector              = src->block_collector;
+        dst->location                     = src->location;
         dst->rank = src->rank;
         memcpy( dst->bls_key, src->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
         memcpy( dst->bls_key_uncompressed, src->bls_key_uncompressed, FD_BLS_PUBKEY_UNCOMPRESSED_SZ );
@@ -977,6 +986,7 @@ vacc_ele( vacc_t const *         vacc,
     .inflation_collector          = vacc->inflation_collector,
     .block_collector              = vacc->block_collector,
     .rank                         = vacc->rank,
+    .location                     = vacc->location,
   };
   memcpy( ele_out->bls_key,              vacc->bls_key,              FD_BLS_PUBKEY_COMPRESSED_SZ   );
   memcpy( ele_out->bls_key_uncompressed, vacc->bls_key_uncompressed, FD_BLS_PUBKEY_UNCOMPRESSED_SZ );

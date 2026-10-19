@@ -884,6 +884,13 @@ fd_vote_account_is_valid_v5( uchar const * data,
          fd_mem_iszero( data+FD_VOTE_STATE_V5_PAD_OFF, FD_VOTE_STATE_V5_PAD_SZ );
 }
 
+fd_validator_location_t
+fd_vote_account_location( uchar const * data,
+                          ulong         data_sz ) {
+  if( !fd_vote_account_is_valid_v5( data, data_sz ) ) return (fd_validator_location_t){0};
+  return FD_LOAD( fd_validator_location_t, data+V5_OFF( location ) );
+}
+
 fd_vote_state_versioned_t *
 fd_vote_state_versioned_new( fd_vote_state_versioned_t * self,
                              uint                        kind ) {

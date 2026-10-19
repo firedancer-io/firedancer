@@ -1416,6 +1416,7 @@ fd_ssmanifest_vote_stakes_from_v5( fd_snapshot_manifest_vote_stakes_t * out,
   memcpy( out->identity_bls,         v5->bls_pubkey_compressed,          FD_BLS_PUBKEY_COMPRESSED_SZ );
   out->pending_delegator_rewards = v5->pending_delegator_rewards;
   out->has_identity_bls          = 1;
+  out->location                  = v5->location;
   out->slot                      = v5->last_timestamp.slot;
   out->timestamp                 = v5->last_timestamp.timestamp;
   out->epoch_credits_history_len = v5->accumulated_lamports_len;
@@ -1518,7 +1519,10 @@ state_process( fd_ssmanifest_parser_t * parser ) {
     }
   }
 
-  if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) parser->account_data_start = parser->off;
+  if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) {
+    parser->account_data_start = parser->off;
+    if( parser->epoch_idx!=ULONG_MAX ) manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].location = (fd_validator_location_t){ 0 };
+  }
 
   if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V5 ) ) {
     if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX &&
@@ -1565,7 +1569,10 @@ state_process( fd_ssmanifest_parser_t * parser ) {
     }
   }
 
-  if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) parser->account_data_start = parser->off;
+  if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) {
+    parser->account_data_start = parser->off;
+    if( parser->epoch_idx!=ULONG_MAX ) manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].location = (fd_validator_location_t){ 0 };
+  }
 
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V5 ) ) {
     if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX &&

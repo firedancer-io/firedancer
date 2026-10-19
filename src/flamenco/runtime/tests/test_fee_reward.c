@@ -144,7 +144,7 @@ test_leader_does_not_exist( fd_svm_mini_t * mini ) {
   ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
   void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
-      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake ) ) );
+      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0 ) ) );
 
   /* Verify the leader account does NOT exist */
   FD_TEST( read_lamports( mini, fork_id, &leader_key ) == 0UL );
@@ -198,7 +198,7 @@ test_payout_below_rent_exempt( fd_svm_mini_t * mini ) {
   ulong  slot_cnt    = bank->f.epoch_schedule.slots_per_epoch;
   void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
-      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake ) ) );
+      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0 ) ) );
 
   /* Leader does not exist => starts with 0 lamports.
      Set fees to 1 lamport, well below rent-exempt threshold. */
@@ -247,7 +247,7 @@ test_leader_not_system_owned( fd_svm_mini_t * mini ) {
   ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
   void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
-      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake ) ) );
+      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0 ) ) );
 
   /* Create the leader account owned by the vote program (not system) */
   {
@@ -718,7 +718,7 @@ make_leader_schedule( fd_bank_t * bank, fd_pubkey_t const * leader_key ) {
   ulong  slot_cnt    = bank->f.epoch_schedule.slots_per_epoch;
   void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
-      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake ) ) );
+      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0 ) ) );
 }
 
 /* relax_post_exec_min_balance_check matrix on the pre-feature fee

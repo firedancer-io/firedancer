@@ -2365,7 +2365,8 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                                                                              epoch_info->start_slot,
                                                                              epoch_info->slot_cnt,
                                                                              epoch_info->staked_vote_cnt,
-                                                                             gui->epoch.stakes_scratch ) );
+                                                                             gui->epoch.stakes_scratch,
+                                                                             fd_epoch_leaders_use_geo_aware( &epoch_info->features, &epoch_info->epoch_schedule, epoch_info->epoch ) ) );
   FD_TEST( lsched );
 
   int created = 0;

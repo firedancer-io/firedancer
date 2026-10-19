@@ -27,6 +27,8 @@ static fd_svm_mini_t * mini;
 static fd_topo_t       topo[1];
 static uchar           metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
+static fd_validator_location_t const no_loc = {0};
+
 struct test_env {
   void *             tile_mem;
   fd_svm_mini_t *    mini;
@@ -503,7 +505,7 @@ FD_UNIT_TEST( execrp_cert_verify ) {
     uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; blst_p1_affine_compress( bls, pub );
     fd_pubkey_t vote = { .ul = { 0x7000UL+i } };
     fd_pubkey_t node = { .ul = { 0x8000UL+i } };
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote, &node, 1000UL, 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote, &node, 1000UL, 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   }
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
 

@@ -24,8 +24,8 @@
 
    The mainnet epoch duration is quite long (currently 432000 slots, for
    more information see fd_sysvar_epoch_schedule.h).  To save space, we
-   dedup pubkeys into a lookup table and only store an index for each
-   rotation. */
+   store node identities in a lookup table and only store an index
+   into it for each rotation. */
 
 #include "../fd_flamenco_base.h"
 #include "fd_leaders_base.h"
@@ -105,19 +105,37 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
    slot in the epoch, but slot_cnt can be less than the length of the
    epoch to derive only the first portion of the leader schedule.
    slot_cnt must be at most MAX_SLOTS_PER_EPOCH (FD_LOG_ERR otherwise).
-   pub_cnt is the number of unique public keys in this schedule.
+   pub_cnt is the number of entries in stakes.
    `stakes` points to the first entry of pub_cnt entries of stake
    weights sorted by tuple (stake, pubkey) in descending order.
 
+   If geo_aware is 1, the schedule is reordered so that nearby
+   leaders tend to follow each other as in SIMD-0675.  Every leader
+   still gets the same number of rotations, the schedule just goes
+   through an extra re-ordering step at the end.  Every entry in stakes
+   needs a valid location, otherwise this will FD_LOG_ERR.
+
+   Deriving only the first portion of the leader schedule is not
+   supported with the geo-aware leader schedule (geo_aware non-zero).
+
    Does NOT retain a read interest in stakes upon return.
    The caller is not joined to the object on return. */
+
 void *
 fd_epoch_leaders_new( void  *                  shmem,
                       ulong                    epoch,
                       ulong                    slot0,
                       ulong                    slot_cnt,
                       ulong                    pub_cnt,
-                      fd_vote_stake_weight_t * stakes ); /* indexed [0, pub_cnt) */
+                      fd_vote_stake_weight_t * stakes, /* indexed [0, pub_cnt) */
+                      int                      geo_aware );
+
+/* fd_epoch_leaders_use_geo_aware returns 1 if the leader schedule for
+   schedule_epoch should be geo-aware, and 0 otherwise. */
+int
+fd_epoch_leaders_use_geo_aware( fd_features_t const *       features,
+                                fd_epoch_schedule_t const * epoch_schedule,
+                                ulong                       schedule_epoch );
 
 /* fd_epoch_leaders_join joins the caller to the leader schedule object.
    fd_epoch_leaders_leave undoes an existing join. */

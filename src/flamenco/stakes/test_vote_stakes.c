@@ -8,6 +8,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static fd_validator_location_t const no_loc = {0};
+
 static fd_pubkey_t
 key( ulong x ) {
   return (fd_pubkey_t){ .ul = { x } };
@@ -46,14 +48,14 @@ test_t_1_spill( int disk_fd ) {
 
   ulong root = fd_vote_stakes_init( vote_stakes, 0UL );
   fd_pubkey_t root_vote = key( 200UL );
-  fd_vote_stakes_snap_insert_t_1( vote_stakes, root, &root_vote, &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_1( vote_stakes, root, &root_vote, &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
 
   /* Three forks cross the same boundary, each with its own t-1 set. */
   ulong forks[ 3 ];
   for( ulong i=0UL; i<3UL; i++ ) {
     forks[ i ] = fd_vote_stakes_new_fork( vote_stakes, root, 1UL );
     fd_pubkey_t vote = key( 300UL+i );
-    fd_vote_stakes_insert( vote_stakes, forks[ i ], &vote, &node, 2000UL+i, 2U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_insert( vote_stakes, forks[ i ], &vote, &node, 2000UL+i, 2U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   }
 
   struct stat st;
@@ -133,11 +135,11 @@ test_t_1_concurrent( int disk_fd ) {
   fd_pubkey_t node      = key( 100UL );
   fd_pubkey_t root_vote = key( 200UL );
   ulong       root      = fd_vote_stakes_init( conc_vs, 0UL );
-  fd_vote_stakes_snap_insert_t_1( conc_vs, root, &root_vote, &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_1( conc_vs, root, &root_vote, &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   for( ulong i=0UL; i<3UL; i++ ) {
     conc_forks[ i ] = fd_vote_stakes_new_fork( conc_vs, root, 1UL );
     fd_pubkey_t vote = key( 300UL+i );
-    fd_vote_stakes_insert( conc_vs, conc_forks[ i ], &vote, &node, 2000UL+i, 2U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_insert( conc_vs, conc_forks[ i ], &vote, &node, 2000UL+i, 2U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   }
 
   FD_VOLATILE( conc_stop ) = 0;
@@ -156,6 +158,82 @@ test_t_1_concurrent( int disk_fd ) {
   free( mem );
 }
 
+static int
+loc_eq( fd_validator_location_t a,
+        fd_validator_location_t b ) {
+  return a.x==b.x && a.y==b.y && a.z==b.z;
+}
+
+static void
+test_location( int disk_fd ) {
+  FD_TEST( !ftruncate( disk_fd, 0L ) );
+  ulong  footprint = fd_vote_stakes_footprint( 16UL, 2UL );
+  void * mem       = aligned_alloc( fd_vote_stakes_align(), footprint );
+  FD_TEST( mem );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( mem, disk_fd, 16UL, 2UL, 1234UL ), disk_fd );
+  FD_TEST( vote_stakes );
+
+  uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 1 };
+  fd_pubkey_t node = key( 100UL );
+  fd_validator_location_t const fra = {  4051542,  618526,  4870645 };
+  fd_validator_location_t const tyo = { -3955214, 3355452,  3699409 };
+  fd_validator_location_t const syd = { -4646180, 2553206, -3534375 };
+
+  ulong root = fd_vote_stakes_init( vote_stakes, 5UL );
+  fd_pubkey_t t1_vote   = key( 200UL );
+  fd_pubkey_t zero_vote = key( 201UL );
+  fd_pubkey_t t2_vote   = key( 202UL );
+  fd_pubkey_t t3_vote   = key( 203UL );
+  fd_vote_stakes_snap_insert_t_1( vote_stakes, root,      &t1_vote,   &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &fra    );
+  fd_vote_stakes_snap_insert_t_1( vote_stakes, root,      &zero_vote, &node,  900UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root,      &t2_vote,   &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &tyo    );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &t3_vote,   &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &syd    );
+
+  fd_vote_stakes_ele_t q[1];
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &t1_vote,   q ) && loc_eq( q->location, fra    ) );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &zero_vote, q ) && loc_eq( q->location, no_loc ) );
+  FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, root, &t2_vote,   q ) && loc_eq( q->location, tyo    ) );
+  FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, root, &t3_vote,   q ) && loc_eq( q->location, syd    ) );
+
+  ulong forks[ 3 ];
+  for( ulong i=0UL; i<3UL; i++ ) {
+    forks[ i ] = fd_vote_stakes_new_fork( vote_stakes, root, 6UL );
+    fd_pubkey_t             vote = key( 300UL+i );
+    fd_validator_location_t loc  = fra;
+    loc.x += (int)i;
+    fd_vote_stakes_insert( vote_stakes, forks[ i ], &vote, &node, 2000UL+i, 2U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &loc );
+  }
+
+  struct stat st;
+  FD_TEST( !fstat( disk_fd, &st ) && st.st_size>0L );
+
+  for( ulong i=0UL; i<3UL; i++ ) {
+    fd_pubkey_t             vote = key( 300UL+i );
+    fd_validator_location_t loc  = fra;
+    loc.x += (int)i;
+    FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ i ], &vote,    q ) && loc_eq( q->location, loc ) );
+    FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, forks[ i ], &t1_vote, q ) && loc_eq( q->location, fra ) );
+  }
+
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  ulong seen = 0UL;
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, forks[ 1 ], FD_VOTE_STAKES_ITER_T_1, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, forks[ 1 ], FD_VOTE_STAKES_ITER_T_1, iter );
+       fd_vote_stakes_iter_next( vote_stakes, forks[ 1 ], FD_VOTE_STAKES_ITER_T_1, iter ) ) {
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, forks[ 1 ], FD_VOTE_STAKES_ITER_T_1, iter, ele );
+    fd_validator_location_t loc = fra;
+    loc.x += 1;
+    FD_TEST( loc_eq( ele->location, loc ) );
+    seen++;
+  }
+  FD_TEST( seen==1UL );
+
+  for( ulong i=0UL; i<3UL; i++ ) fd_vote_stakes_purge_fork( vote_stakes, forks[ i ] );
+  fd_vote_stakes_purge_fork( vote_stakes, root );
+  free( mem );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -165,6 +243,7 @@ main( int argc, char ** argv ) {
 
   test_t_1_spill( disk_fd );
   test_t_1_concurrent( disk_fd );
+  test_location( disk_fd );
 
   ulong footprint = fd_vote_stakes_footprint( 16UL, 5UL );
   void * mem = aligned_alloc( fd_vote_stakes_align(), footprint );
@@ -186,8 +265,8 @@ main( int argc, char ** argv ) {
   uchar bls_c[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 9UL };
 
   ulong root = fd_vote_stakes_init( vote_stakes, 0UL );
-  fd_vote_stakes_snap_insert_t_1( vote_stakes, root, &vote_a, &node_a, 100UL, 10U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &vote_b, &node_b, 200UL, 20U, bls_b, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_1( vote_stakes, root, &vote_a, &node_a, 100UL, 10U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &vote_b, &node_b, 200UL, 20U, bls_b, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   fd_vote_stakes_update_state( vote_stakes, root, &vote_b, 7UL, 8L, 1 );
 
   fd_vote_stakes_ele_t q[1];
@@ -231,7 +310,7 @@ main( int argc, char ** argv ) {
 
   fd_pubkey_t infl_c = key( 50UL );
   fd_pubkey_t blk_c  = key( 51UL );
-  fd_vote_stakes_insert( vote_stakes, child, &vote_c, &node_c, 300UL, 30U, bls_c, 2500U, 777UL, &infl_c, &blk_c );
+  fd_vote_stakes_insert( vote_stakes, child, &vote_c, &node_c, 300UL, 30U, bls_c, 2500U, 777UL, &infl_c, &blk_c, &no_loc );
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, child, &vote_c, q ) );
   FD_TEST( q->stake==300UL && q->commission==30U );
 
@@ -325,7 +404,7 @@ main( int argc, char ** argv ) {
 
   fd_vote_stakes_reset( vote_stakes );
   ulong snapshot_root = fd_vote_stakes_init( vote_stakes, 2UL );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, snapshot_root, 3UL, &vote_b, &node_b, 200UL, 20U, bls_b, 4321U, 99UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, snapshot_root, 3UL, &vote_b, &node_b, 200UL, 20U, bls_b, 4321U, 99UL, NULL, NULL, &no_loc );
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, snapshot_root, &vote_b, q ) );
   FD_TEST( fd_pubkey_eq( &q->node_account, &node_b ) && q->stake==200UL && q->commission==20U );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==200UL );
@@ -351,7 +430,7 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_vote_stakes_iter_done( vote_stakes, forks[0], FD_VOTE_STAKES_ITER_T_5, fd_vote_stakes_iter_init( vote_stakes, forks[0], FD_VOTE_STAKES_ITER_T_5, epoch_iter_mem ) ) );
   for( ulong e=0UL; e<5UL; e++ ) {
     fd_pubkey_t vote = key( 100UL+e );
-    fd_vote_stakes_insert( vote_stakes, forks[e], &vote, &node_a, 100UL*(e+1UL), 0U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_insert( vote_stakes, forks[e], &vote, &node_a, 100UL*(e+1UL), 0U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
     forks[e+1UL] = fd_vote_stakes_new_fork( vote_stakes, forks[e], e+1UL );
     if( e<4UL ) fd_vote_stakes_purge_fork( vote_stakes, forks[e] );
   }
@@ -390,8 +469,8 @@ main( int argc, char ** argv ) {
   root = fd_vote_stakes_init( vote_stakes, 1UL );
   fd_pubkey_t rotated_vote_a = key( 10UL );
   fd_pubkey_t rotated_vote_b = key( 11UL );
-  fd_vote_stakes_insert( vote_stakes, root, &rotated_vote_a, &node_a, 100UL, 0U, valid_bls[2], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_insert( vote_stakes, root, &rotated_vote_b, &node_b, 200UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_insert( vote_stakes, root, &rotated_vote_a, &node_a, 100UL, 0U, valid_bls[2], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_insert( vote_stakes, root, &rotated_vote_b, &node_b, 200UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_1, &rotated_vote_b )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_1 );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_1, &rotated_vote_b )==0U );
@@ -409,9 +488,9 @@ main( int argc, char ** argv ) {
   fd_pubkey_t rank_vote_a = key( 20UL );
   fd_pubkey_t rank_vote_b = key( 21UL );
   fd_pubkey_t rank_vote_c = key( 22UL );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_a, &node_a, 100UL, 0U, valid_bls[2], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_b, &node_b, 200UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_c, &node_c, 200UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_a, &node_a, 100UL, 0U, valid_bls[2], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_b, &node_b, 200UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_c, &node_c, 200UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2 );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_c )==0U );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_b )==1U );
@@ -419,7 +498,7 @@ main( int argc, char ** argv ) {
 
   fd_pubkey_t rank_vote_dup = key( 23UL );
   fd_pubkey_t node_dup      = key( 24UL );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_dup, &node_dup, 300UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &rank_vote_dup, &node_dup, 300UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2 );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_c   )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &rank_vote_dup )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
@@ -434,8 +513,8 @@ main( int argc, char ** argv ) {
   fd_pubkey_t duplicate_identity = key( 30UL );
   fd_pubkey_t identity_vote_a    = key( 31UL );
   fd_pubkey_t identity_vote_b    = key( 32UL );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &identity_vote_a, &duplicate_identity, 100UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &identity_vote_b, &duplicate_identity, 200UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &identity_vote_a, &duplicate_identity, 100UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &identity_vote_b, &duplicate_identity, 200UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2 );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &identity_vote_a )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_2, &identity_vote_b )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
@@ -448,9 +527,9 @@ main( int argc, char ** argv ) {
   fd_pubkey_t infinity_vote = key( 42UL );
   uchar invalid_bls [ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
   uchar infinity_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0xc0};
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &invalid_vote,  &node_a, 300UL, 0U, invalid_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &valid_vote,    &node_b, 100UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &infinity_vote, &node_c, 200UL, 0U, infinity_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &invalid_vote,  &node_a, 300UL, 0U, invalid_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &valid_vote,    &node_b, 100UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, root, 3UL, &infinity_vote, &node_c, 200UL, 0U, infinity_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   fd_vote_stakes_finalize( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3 );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &invalid_vote  )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
   FD_TEST( epoch_rank( vote_stakes, root, FD_VOTE_STAKES_ITER_T_3, &infinity_vote )==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
@@ -462,21 +541,21 @@ main( int argc, char ** argv ) {
   child = fd_vote_stakes_new_fork( vote_stakes, root, 1UL );
   fd_pubkey_t tie_a = key( 10000UL );
   fd_pubkey_t tie_b = key( 10001UL );
-  fd_vote_stakes_insert( vote_stakes, child, &tie_a, &node_a, 10UL, 1U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_insert( vote_stakes, child, &tie_b, &node_b, 10UL, 1U, bls_b, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_insert( vote_stakes, child, &tie_a, &node_a, 10UL, 1U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_insert( vote_stakes, child, &tie_b, &node_b, 10UL, 1U, bls_b, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   for( ulong i=2UL; i<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS; i++ ) {
     fd_pubkey_t vote = key( 10000UL+i );
-    fd_vote_stakes_insert( vote_stakes, child, &vote, &node_a, 100UL+i, 1U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_insert( vote_stakes, child, &vote, &node_a, 100UL+i, 1U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   }
   fd_pubkey_t tie_candidate = key( 20000UL );
-  fd_vote_stakes_insert( vote_stakes, child, &tie_candidate, &node_a, 10UL, 1U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_insert( vote_stakes, child, &tie_candidate, &node_a, 10UL, 1U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, child, &tie_a, NULL ) );
   FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, child, &tie_b, NULL ) );
   FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, child, &tie_candidate, NULL ) );
   FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, child )==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS-2UL );
 
   fd_pubkey_t above_floor = key( 20001UL );
-  fd_vote_stakes_insert( vote_stakes, child, &above_floor, &node_a, 11UL, 1U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_insert( vote_stakes, child, &above_floor, &node_a, 11UL, 1U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, child, &above_floor, NULL ) );
   fd_vote_stakes_purge_fork( vote_stakes, child );
   fd_vote_stakes_purge_fork( vote_stakes, root );

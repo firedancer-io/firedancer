@@ -50,22 +50,23 @@ typedef struct fd_vote_stakes fd_vote_stakes_t;
    set. */
 
 struct fd_vote_stakes_ele {
-  fd_pubkey_t pubkey;
-  fd_pubkey_t node_account;
-  ulong       stake;
-  ushort      commission;                   /* inflation rewards, basis points */
-  ushort      block_revenue_commission_bps; /* SIMD-0123 */
-  ulong       pending_delegator_rewards;    /* SIMD-0123 */
-  fd_pubkey_t inflation_collector;          /* SIMD-0232 */
-  fd_pubkey_t block_collector;              /* SIMD-0232 */
-  ushort      rank;
-  uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
-  uchar       bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ];
+  fd_pubkey_t             pubkey;
+  fd_pubkey_t             node_account;
+  ulong                   stake;
+  ushort                  commission;                   /* inflation rewards, basis points */
+  ushort                  block_revenue_commission_bps; /* SIMD-0123 */
+  ulong                   pending_delegator_rewards;    /* SIMD-0123 */
+  fd_pubkey_t             inflation_collector;          /* SIMD-0232 */
+  fd_pubkey_t             block_collector;              /* SIMD-0232 */
+  ushort                  rank;
+  uchar                   bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  uchar                   bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ];
+  fd_validator_location_t location;
 
   /* The fork's vote state, only set for t-2 (zero otherwise). */
-  ulong       last_vote_slot;
-  long        last_vote_ts;
-  uchar       is_valid;
+  ulong                   last_vote_slot;
+  long                    last_vote_ts;
+  uchar                   is_valid;
 };
 typedef struct fd_vote_stakes_ele fd_vote_stakes_ele_t;
 
@@ -111,34 +112,36 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes );
    only be used when loading in vote accounts from a snapshot. */
 
 void
-fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
-                                ulong               fork_id,
-                                fd_pubkey_t const * pubkey,
-                                fd_pubkey_t const * node_account,
-                                ulong               stake,
-                                ushort              commission,
-                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                                ushort              block_revenue_commission_bps,
-                                ulong               pending_delegator_rewards,
-                                fd_pubkey_t const * inflation_collector_opt,
-                                fd_pubkey_t const * block_collector_opt );
+fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *              vote_stakes,
+                                ulong                           fork_id,
+                                fd_pubkey_t const *             pubkey,
+                                fd_pubkey_t const *             node_account,
+                                ulong                           stake,
+                                ushort                          commission,
+                                uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                                ushort                          block_revenue_commission_bps,
+                                ulong                           pending_delegator_rewards,
+                                fd_pubkey_t const *             inflation_collector_opt,
+                                fd_pubkey_t const *             block_collector_opt,
+                                fd_validator_location_t const * location );
 
 /* fd_vote_stakes_snap_insert_t_2 inserts a new vote account into the
    t-2 set.  This skips over any vote account validation and should
    only be used when loading in vote accounts from a snapshot. */
 
 void
-fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
-                                ulong               fork_id,
-                                fd_pubkey_t const * pubkey,
-                                fd_pubkey_t const * node_account,
-                                ulong               stake,
-                                ushort              commission,
-                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                                ushort              block_revenue_commission_bps,
-                                ulong               pending_delegator_rewards,
-                                fd_pubkey_t const * inflation_collector_opt,
-                                fd_pubkey_t const * block_collector_opt );
+fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *              vote_stakes,
+                                ulong                           fork_id,
+                                fd_pubkey_t const *             pubkey,
+                                fd_pubkey_t const *             node_account,
+                                ulong                           stake,
+                                ushort                          commission,
+                                uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                                ushort                          block_revenue_commission_bps,
+                                ulong                           pending_delegator_rewards,
+                                fd_pubkey_t const *             inflation_collector_opt,
+                                fd_pubkey_t const *             block_collector_opt,
+                                fd_validator_location_t const * location );
 
 /* fd_vote_stakes_snap_insert_t_n inserts a new vote account into the
    t-n set, n in 3..5, and marks that set resident.  This skips over
@@ -146,18 +149,19 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
    vote accounts from a snapshot. */
 
 void
-fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *  vote_stakes,
-                                ulong               fork_id,
-                                ulong               n,
-                                fd_pubkey_t const * pubkey,
-                                fd_pubkey_t const * node_account,
-                                ulong               stake,
-                                ushort              commission,
-                                uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                                ushort              block_revenue_commission_bps,
-                                ulong               pending_delegator_rewards,
-                                fd_pubkey_t const * inflation_collector_opt,
-                                fd_pubkey_t const * block_collector_opt );
+fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *              vote_stakes,
+                                ulong                           fork_id,
+                                ulong                           n,
+                                fd_pubkey_t const *             pubkey,
+                                fd_pubkey_t const *             node_account,
+                                ulong                           stake,
+                                ushort                          commission,
+                                uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                                ushort                          block_revenue_commission_bps,
+                                ulong                           pending_delegator_rewards,
+                                fd_pubkey_t const *             inflation_collector_opt,
+                                fd_pubkey_t const *             block_collector_opt,
+                                fd_validator_location_t const * location );
 
 /* fd_vote_stakes_insert inserts a new vote account into the t-1 set.
    This can be called repeatedly after a boundary-crossing
@@ -166,17 +170,18 @@ fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *  vote_stakes,
    The top 2000 vote accounts by stake are inserted into the t-1 set. */
 
 void
-fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
-                       ulong               fork_id,
-                       fd_pubkey_t const * pubkey,
-                       fd_pubkey_t const * node_account,
-                       ulong               stake,
-                       ushort              commission,
-                       uchar const         bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                       ushort              block_revenue_commission_bps,
-                       ulong               pending_delegator_rewards,
-                       fd_pubkey_t const * inflation_collector_opt,
-                       fd_pubkey_t const * block_collector_opt );
+fd_vote_stakes_insert( fd_vote_stakes_t *              vote_stakes,
+                       ulong                           fork_id,
+                       fd_pubkey_t const *             pubkey,
+                       fd_pubkey_t const *             node_account,
+                       ulong                           stake,
+                       ushort                          commission,
+                       uchar const                     bls_key[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
+                       ushort                          block_revenue_commission_bps,
+                       ulong                           pending_delegator_rewards,
+                       fd_pubkey_t const *             inflation_collector_opt,
+                       fd_pubkey_t const *             block_collector_opt,
+                       fd_validator_location_t const * location );
 
 /* fd_vote_stakes_finalize assigns Alpenglow ranks to the set that
    iter_kind addresses for fork_id.  Accounts with invalid or infinity

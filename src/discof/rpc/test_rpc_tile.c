@@ -230,6 +230,7 @@ ingest_test_epoch( fd_multi_epoch_leaders_t * mleaders,
   uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
   fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_msg_buf );
   memset( emsg, 0, sizeof(epoch_msg_buf) );
+  emsg->features.geo_aware_leader_schedule = FD_FEATURE_DISABLED;
   emsg->epoch           = epoch;
   emsg->start_slot      = epoch*32UL;
   emsg->slot_cnt        = 32UL;

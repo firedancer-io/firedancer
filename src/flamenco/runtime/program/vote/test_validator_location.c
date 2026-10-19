@@ -53,6 +53,22 @@ test_edges( void ) {
 }
 
 static void
+test_dist2( void ) {
+  fd_validator_location_t fra = {  4051542,   618526, 4870645 };
+  fd_validator_location_t nyc = {  1333729, -4654333, 4138065 };
+  fd_validator_location_t tyo = { -3955214,  3355452, 3699409 };
+  FD_TEST( fd_validator_location_dist2( &fra, &nyc )==35726222993250UL );
+  FD_TEST( fd_validator_location_dist2( &nyc, &fra )==35726222993250UL );
+  FD_TEST( fd_validator_location_dist2( &fra, &tyo )==72970699340708UL );
+  FD_TEST( fd_validator_location_dist2( &tyo, &tyo )==0UL );
+
+  fd_validator_location_t lo = { -6378138, -6378138, -6378138 };
+  fd_validator_location_t hi = {  6378138,  6378138,  6378138 };
+  FD_TEST( fd_validator_location_dist2( &lo, &hi )==488167732164528UL );
+  FD_TEST( fd_validator_location_dist2( &hi, &lo )==488167732164528UL );
+}
+
+static void
 test_random( fd_rng_t * rng ) {
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     fd_validator_location_t loc;
@@ -79,6 +95,7 @@ main( int     argc,
 
   test_vectors();
   test_edges();
+  test_dist2();
   test_random( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
