@@ -2113,23 +2113,28 @@ fd_gui_slot_duration( fd_gui_t * gui, fd_gui_slot_t const * cur ) {
    sort AFTER non-sentinel ranking entries.  Equal slots are sorted by
    oldest slot AFTER.  Otherwise sort by value according to ranking
    type. */
-#define SORT_NAME fd_gui_slot_ranking_sort
-#define SORT_KEY_T fd_gui_slot_ranking_t
-#define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).value==(b).value, (a).slot>(b).slot, fd_int_if( (a).type==FD_GUI_SLOT_RANKING_TYPE_DESC, (a).value>(b).value, (a).value<(b).value ) ) ) )
-#include "../../util/tmpl/fd_sort.c"
+#define RANKING_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).value==(b).value, (a).slot>(b).slot, fd_int_if( (a).type==FD_GUI_SLOT_RANKING_TYPE_DESC, (a).value>(b).value, (a).value<(b).value ) ) ) )
+
+/* ranking_insert places e in the sorted top FD_GUI_SLOT_RANKINGS_SZ of
+   arr, or drops it if it sorts after the last entry. */
+
+static inline void
+ranking_insert( fd_gui_slot_ranking_t * arr,
+                fd_gui_slot_ranking_t   e ) {
+  if( FD_LIKELY( !RANKING_BEFORE( e, arr[ FD_GUI_SLOT_RANKINGS_SZ-1UL ] ) ) ) return;
+  ulong i = FD_GUI_SLOT_RANKINGS_SZ-1UL;
+  while( i && RANKING_BEFORE( e, arr[ i-1UL ] ) ) { arr[ i ] = arr[ i-1UL ]; i--; }
+  arr[ i ] = e;
+}
 
 static inline void
 fd_gui_try_insert_ranking( fd_gui_t               * gui,
                            fd_gui_slot_rankings_t * rankings,
                            fd_gui_slot_t const    * slot ) {
-  /* Rankings are inserted into an extra slot at the end of the ranking
-     array, then the array is sorted. */
 #define TRY_INSERT_SLOT( ranking_name, ranking_slot, ranking_value ) \
   do { \
-    rankings->FD_CONCAT2(largest_, ranking_name) [ FD_GUI_SLOT_RANKINGS_SZ ] = (fd_gui_slot_ranking_t){ .slot = (ranking_slot), .value = (ranking_value), .type = FD_GUI_SLOT_RANKING_TYPE_DESC }; \
-    fd_gui_slot_ranking_sort_insert( rankings->FD_CONCAT2(largest_, ranking_name), FD_GUI_SLOT_RANKINGS_SZ+1UL ); \
-    rankings->FD_CONCAT2(smallest_, ranking_name)[ FD_GUI_SLOT_RANKINGS_SZ ] = (fd_gui_slot_ranking_t){ .slot = (ranking_slot), .value = (ranking_value), .type = FD_GUI_SLOT_RANKING_TYPE_ASC  }; \
-    fd_gui_slot_ranking_sort_insert( rankings->FD_CONCAT2(smallest_, ranking_name), FD_GUI_SLOT_RANKINGS_SZ+1UL ); \
+    ranking_insert( rankings->FD_CONCAT2(largest_,  ranking_name), (fd_gui_slot_ranking_t){ .slot = (ranking_slot), .value = (ranking_value), .type = FD_GUI_SLOT_RANKING_TYPE_DESC } ); \
+    ranking_insert( rankings->FD_CONCAT2(smallest_, ranking_name), (fd_gui_slot_ranking_t){ .slot = (ranking_slot), .value = (ranking_value), .type = FD_GUI_SLOT_RANKING_TYPE_ASC  } ); \
   } while (0)
 
     if( slot->skip==FD_GUI_SKIP_STATUS_FINALIZED ) {
