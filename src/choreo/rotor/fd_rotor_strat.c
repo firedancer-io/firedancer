@@ -224,15 +224,42 @@ fd_rotor_strat_pick( fd_rotor_strat_t * strat,
   return NULL;
 }
 
+fd_rotor_strat_peer_t *
+fd_rotor_strat_pick_staked( fd_rotor_strat_t * strat,
+                            long               now,
+                            ulong              avoid,
+                            ulong              r ) {
+  ulong n = strat->staked_cnt;
+  ulong m = 0UL;
+  for( ulong idx=0UL; idx<n; idx++ ) {
+    fd_rotor_strat_peer_t const * peer = &strat->cur.peers[ idx ];
+    m += (ulong)( idx!=avoid && peer->ip4 && peer->inflight<FD_ROTOR_STRAT_INFLIGHT_MAX && peer->ban_ts<=now );
+  }
+  if( FD_UNLIKELY( !m ) ) return NULL;
+
+  ulong k = fd_ulong_min( (r&UINT_MAX)%m, (r>>32)%m ); /* among the available peers, in stake order */
+  for( ulong idx=0UL; idx<n; idx++ ) {
+    fd_rotor_strat_peer_t * peer = &strat->cur.peers[ idx ];
+    if( idx==avoid || !peer->ip4 || peer->inflight>=FD_ROTOR_STRAT_INFLIGHT_MAX || peer->ban_ts>now ) continue;
+    if( k-- ) continue;
+    peer->inflight++;
+    place( strat, idx );
+    return peer;
+  }
+  return NULL;
+}
+
 void
 fd_rotor_strat_request_done( fd_rotor_strat_t *  strat,
                              fd_pubkey_t const * id_key,
-                             long                rtt ) {
+                             long                rtt,
+                             int                 byid ) {
   fd_rotor_strat_peer_t * peer = fd_rotor_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
   if( FD_UNLIKELY( !peer ) ) return; /* forgotten while the request was in flight */
 
   peer->inflight   -= !!peer->inflight;
   peer->expired_cnt = 0U;
+  peer->byid_expired_cnt = fd_uint_if( byid, 0U, peer->byid_expired_cnt ); /* a positional reply does not vouch for by-id */
   peer->rttvar    = fd_long_if( !!peer->srtt, (3L*peer->rttvar+(long)fd_long_abs( peer->srtt-rtt ))/4L, rtt/2L ); /* RFC 6298 */
   peer->srtt      = fd_long_if( !!peer->srtt, (7L*peer->srtt+rtt)/8L,                                   rtt     );
   place( strat, (ulong)( peer-strat->cur.peers ) );
@@ -250,19 +277,25 @@ fd_rotor_strat_request_failed( fd_rotor_strat_t *  strat,
   place( strat, (ulong)( peer-strat->cur.peers ) );
 }
 
-void
+int
 fd_rotor_strat_request_expired( fd_rotor_strat_t *  strat,
                                 fd_pubkey_t const * id_key,
-                                long                ban_ts ) {
+                                long                ban_ts,
+                                int                 byid ) {
   fd_rotor_strat_peer_t * peer = fd_rotor_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
-  if( FD_UNLIKELY( !peer ) ) return; /* forgotten while the request was in flight */
+  if( FD_UNLIKELY( !peer ) ) return 0; /* forgotten while the request was in flight */
 
   peer->inflight -= !!peer->inflight;
-  if( FD_UNLIKELY( ++peer->expired_cnt>=FD_ROTOR_STRAT_EXPIRED_MAX ) ) {
-    peer->ban_ts      = fd_long_max( peer->ban_ts, ban_ts );
-    peer->expired_cnt = 0U;
+  peer->byid_expired_cnt += (uint)!!byid;
+  int byid_ban = peer->byid_expired_cnt>=FD_ROTOR_STRAT_BYID_MAX;
+  int ban      = fd_int_if( byid_ban, 1, -(++peer->expired_cnt>=FD_ROTOR_STRAT_EXPIRED_MAX) );
+  if( FD_UNLIKELY( ban ) ) {
+    peer->ban_ts           = fd_long_max( peer->ban_ts, ban_ts );
+    peer->expired_cnt      = 0U;
+    peer->byid_expired_cnt = 0U;
   }
   place( strat, (ulong)( peer-strat->cur.peers ) );
+  return ban;
 }
 
 void
