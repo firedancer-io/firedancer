@@ -218,6 +218,12 @@ fd_quic_retry_create(
     long                      expire_at
 );
 
+/* fd_quic_retry_server_verify returns FD_QUIC_SUCCESS for a valid token,
+   FD_QUIC_RETRY_EXPIRED for a token we issued to this ip:port that has
+   since expired, and FD_QUIC_FAILED otherwise. */
+
+#define FD_QUIC_RETRY_EXPIRED (2)
+
 int
 fd_quic_retry_server_verify(
     fd_quic_pkt_t const *     pkt,

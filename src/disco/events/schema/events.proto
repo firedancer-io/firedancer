@@ -9048,6 +9048,8 @@ message MetricsQuic {
   uint64 retry_pkt_tx = 67;
   // QUIC packets retransmitted, by encryption level
   MetricsQuicPktRetransmitted pkt_retransmitted = 68;
+  // Initials with an expired Retry token, also counted in ConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects
+  uint64 conn_retry_expired_rejected = 69;
 }
 
 // Metrics of one bundle tile instance, one row per sweep
@@ -11608,6 +11610,8 @@ message MetricsVotor {
   MetricsVotorServerServiceDurationNanos server_service_duration_nanos = 100;
   // Duration of processing one received packet
   MetricsVotorServerPktRxDurationNanos server_pkt_rx_duration_nanos = 101;
+  // Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects
+  uint64 server_conn_retry_expired_rejected = 102;
 }
 
 // Metrics of one gui tile instance, one row per sweep

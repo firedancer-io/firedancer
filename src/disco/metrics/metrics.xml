@@ -405,6 +405,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="ConnRetried" summary="Connections established with retry" />
     <counter name="ConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
     <counter name="ConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
+    <counter name="ConnRetryExpiredRejected" summary="Initials with an expired Retry token, also counted in ConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" />
 
     <counter name="PktDropped" enum="QuicPktDropReason" summary="Received packets dropped, by reason" />
     <counter name="PktNoConnDropped" enum="QuicPktType" summary="Packets with an unknown connection ID, by packet type" />
@@ -2055,6 +2056,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="ServerConnTimedOut" summary="Connections timed out" />
     <counter name="ServerConnNoSlotRejected" summary="Connections that failed to create due to lack of slots" />
     <counter name="ServerConnRetryRejected" summary="Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client" />
+    <counter name="ServerConnRetryExpiredRejected" summary="Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" />
     <counter name="ServerPktDecryptFailed" enum="QuicEncryptionLevel" summary="Packets that failed decryption, by encryption level" />
     <counter name="ServerPktNoKeyDropped" enum="QuicEncryptionLevel" summary="Packets dropped because the decryption key was missing, by encryption level" />
     <counter name="ServerPktDropped" enum="QuicPktDropReason" summary="Received packets dropped, by reason" />

@@ -324,6 +324,7 @@
                 "handshake": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Handshake" },
                 "app":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "App data" }
             }
-        }
+        },
+        "conn_retry_expired_rejected":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Initials with an expired Retry token, also counted in ConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" }
     }
 }

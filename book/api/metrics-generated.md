@@ -289,6 +289,7 @@
 | <span class="metrics-name">quic_&#8203;conn_&#8203;retried</span> | counter | Connections established with retry |
 | <span class="metrics-name">quic_&#8203;conn_&#8203;no_&#8203;slot_&#8203;rejected</span> | counter | Connections that failed to create due to lack of slots |
 | <span class="metrics-name">quic_&#8203;conn_&#8203;retry_&#8203;rejected</span> | counter | Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client |
+| <span class="metrics-name">quic_&#8203;conn_&#8203;retry_&#8203;expired_&#8203;rejected</span> | counter | Initials with an expired Retry token, also counted in ConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;dropped</span><br/>{quic_&#8203;pkt_&#8203;drop_&#8203;reason="<span class="metrics-enum">undersize</span>"} | counter | Received packets dropped, by reason (QUIC packet too small) |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;dropped</span><br/>{quic_&#8203;pkt_&#8203;drop_&#8203;reason="<span class="metrics-enum">oversize</span>"} | counter | Received packets dropped, by reason (QUIC packet too large) |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;dropped</span><br/>{quic_&#8203;pkt_&#8203;drop_&#8203;reason="<span class="metrics-enum">src_&#8203;ip_&#8203;mismatch</span>"} | counter | Received packets dropped, by reason (Wrong source IP) |
@@ -2382,6 +2383,7 @@
 | <span class="metrics-name">votor_&#8203;server_&#8203;conn_&#8203;timed_&#8203;out</span> | counter | Connections timed out |
 | <span class="metrics-name">votor_&#8203;server_&#8203;conn_&#8203;no_&#8203;slot_&#8203;rejected</span> | counter | Connections that failed to create due to lack of slots |
 | <span class="metrics-name">votor_&#8203;server_&#8203;conn_&#8203;retry_&#8203;rejected</span> | counter | Retries rejected: an invalid or expired token as server, a late or invalid Retry packet as client |
+| <span class="metrics-name">votor_&#8203;server_&#8203;conn_&#8203;retry_&#8203;expired_&#8203;rejected</span> | counter | Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects |
 | <span class="metrics-name">votor_&#8203;server_&#8203;pkt_&#8203;decrypt_&#8203;failed</span><br/>{quic_&#8203;encryption_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Packets that failed decryption, by encryption level (Initial) |
 | <span class="metrics-name">votor_&#8203;server_&#8203;pkt_&#8203;decrypt_&#8203;failed</span><br/>{quic_&#8203;encryption_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Packets that failed decryption, by encryption level (Early data) |
 | <span class="metrics-name">votor_&#8203;server_&#8203;pkt_&#8203;decrypt_&#8203;failed</span><br/>{quic_&#8203;encryption_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Packets that failed decryption, by encryption level (Handshake) |

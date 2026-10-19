@@ -180,6 +180,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
 
   FD_MCNT_SET(   QUIC, CONN_NO_SLOT_REJECTED, ctx->quic->metrics.conn_err_no_slots_cnt );
   FD_MCNT_SET(   QUIC, CONN_RETRY_REJECTED,   ctx->quic->metrics.conn_err_retry_fail_cnt );
+  FD_MCNT_SET(   QUIC, CONN_RETRY_EXPIRED_REJECTED, ctx->quic->metrics.conn_err_retry_expired_cnt );
 
   FD_MCNT_ENUM_COPY( QUIC, PKT_DECRYPT_FAILED,  ctx->quic->metrics.pkt_decrypt_fail_cnt );
   FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY_DROPPED,  ctx->quic->metrics.pkt_no_key_cnt );
