@@ -89,14 +89,15 @@
             "type": "Tuple",
             "description": "Inbound datagrams dispatched, by result",
             "aliases": {
-                "all": ["vote", "cert", "not_ready", "too_small", "unknown_tag"]
+                "all": ["vote", "cert", "not_ready", "too_small", "unknown_tag", "not_admitted"]
             },
             "fields": {
-                "vote":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram carried a vote and was handed to vote rx" },
-                "cert":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram carried a cert and was handed to cert rx" },
-                "not_ready":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram arrived before the votor tile was initialized" },
-                "too_small":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram was too small to hold a version and a tag" },
-                "unknown_tag": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram tag was neither a vote nor a cert" }
+                "vote":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram carried a vote and was handed to vote rx" },
+                "cert":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram carried a cert and was handed to cert rx" },
+                "not_ready":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram arrived before the votor tile was initialized" },
+                "too_small":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram was too small to hold a version and a tag" },
+                "unknown_tag":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram tag was neither a vote nor a cert" },
+                "not_admitted": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Datagram arrived on a connection not yet admitted, or already closed" }
             }
         },
         "vote_rx": {
