@@ -108,7 +108,7 @@ test_bundle_msg_oversized_wraparound( fd_wksp_t * wksp ) {
   FD_TEST( fd_h2_rbuf_used_sz( client->frame_rx )==0UL );
   FD_TEST( client->conn->rx_data_cnt_rem==0U );
   FD_TEST( state->defer_reset==1 );
-  FD_TEST( state->backoff_iter==1U );
+  FD_TEST( state->backoff_iter==0U ); /* backoff is taken by the deferred reset */
   FD_TEST( !state->bundle_subscription_live );
   FD_TEST( !state->bundle_subscription_wait );
   FD_TEST( client->stream_cnt==0UL );

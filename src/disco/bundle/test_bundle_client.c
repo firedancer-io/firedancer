@@ -538,7 +538,21 @@ FD_UNIT_TEST( bundle_client_reset ) {
   FD_TEST( state->grpc_client->h2_hs_done==1 );
   FD_TEST( state->grpc_client->stream_cnt==2 );
 
+  /* A due PING waits out a backoff instead of reporting a past
+     deadline the client cannot act on */
+  long now = fd_bundle_now( state );
+  state->keepalive->interval   = (long)1e9;
+  state->keepalive->inflight   = 0;
+  state->keepalive->ts_next_tx = now-1L;
+  state->backoff_until         = now+(long)5e9;
+  FD_TEST( fd_bundle_client_next_deadline( state, now )==state->backoff_until );
+  state->backoff_until         = 0L;
+  FD_TEST( fd_bundle_client_next_deadline( state, now )<=now );
+
+  /* Resetting a connection is not a failure: no backoff step */
+  uint iter = state->backoff_iter;
   fd_bundle_client_reset( state );
+  FD_TEST( state->backoff_iter==iter );
 
   FD_TEST( state->tcp_sock==-1 );
   FD_TEST( state->tcp_sock_connected==0 );

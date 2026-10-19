@@ -56,10 +56,15 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
 
   fd_memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
 
-  fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
-
   fd_bundle_auther_reset( &ctx->auther );
   fd_grpc_client_reset( ctx->grpc_client );
+}
+
+static void
+fd_bundle_client_fail( fd_bundle_tile_t * ctx ) {
+  fd_bundle_client_reset( ctx );
+  fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
+  ctx->metrics.transport_fail_cnt++;
 }
 
 static int
@@ -101,8 +106,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   int err = fd_getaddrinfo( ctx->server_fqdn, &hints, &res, &pscratch, sizeof(scratch) );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_getaddrinfo `%s` failed (%d-%s)", ctx->server_fqdn, err, fd_gai_strerror( err ) ));
-    fd_bundle_client_reset( ctx );
-    ctx->metrics.transport_fail_cnt++;
+    fd_bundle_client_fail( ctx );
     return;
   }
   uint const ip4_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
@@ -148,8 +152,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
       FD_LOG_WARNING(( "connect(tcp_sock," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
                       FD_IP4_ADDR_FMT_ARGS( ip4_addr ), ctx->server_tcp_port,
                       connect_err, fd_io_strerror( connect_err ) ));
-      fd_bundle_client_reset( ctx );
-      ctx->metrics.transport_fail_cnt++;
+      fd_bundle_client_fail( ctx );
       return;
     }
   }
@@ -294,14 +297,15 @@ fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                    fd_grpc_client_tls_rx_pending( ctx->grpc_client ) &&
                    !fd_grpc_client_tls_tx_pending( ctx->grpc_client ) ) ) return now;
 
-  long deadline = fd_grpc_client_next_deadline( ctx->grpc_client );
-  if( FD_LIKELY( ctx->keepalive->interval ) )
-    deadline = fd_long_min( deadline, ctx->keepalive->inflight ? ctx->keepalive->ts_deadline
-                                                               : ctx->keepalive->ts_next_tx );
-  if( FD_LIKELY( ctx->builder_info_avail & !ctx->builder_info_wait ) )
+  int   stall    = ctx->backoff_until>now;
+  long  deadline = fd_grpc_client_next_deadline( ctx->grpc_client );
+  if( FD_LIKELY( ctx->keepalive->interval ) ) {
+    if( ctx->keepalive->inflight ) deadline = fd_long_min( deadline, ctx->keepalive->ts_deadline );
+    else if( !stall )              deadline = fd_long_min( deadline, ctx->keepalive->ts_next_tx  );
+  }
+  if( FD_LIKELY( ctx->builder_info_avail & !ctx->builder_info_wait & !stall ) )
     deadline = fd_long_min( deadline, ctx->builder_info_valid_until );
-  if( FD_UNLIKELY( ctx->backoff_until>now ) )
-    deadline = fd_long_min( deadline, ctx->backoff_until );
+  if( FD_UNLIKELY( stall ) ) deadline = fd_long_min( deadline, ctx->backoff_until );
   return deadline;
 }
 
@@ -367,8 +371,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
       connect_result = fd_bundle_client_get_connect_result( ctx );
     connect_failed:
       FD_LOG_INFO(( "Bundle gRPC connect attempt failed (%i-%s)", connect_result, fd_io_strerror( connect_result ) ));
-      fd_bundle_client_reset( ctx );
-      ctx->metrics.transport_fail_cnt++;
+      fd_bundle_client_fail( ctx );
       *charge_busy = 1;
       return;
     }
@@ -411,8 +414,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
 
   /* Drive I/O, SSL handshake, and any inflight requests */
   if( FD_UNLIKELY( -1==fd_bundle_client_drive_io( ctx, check_ts, charge_busy ) || ctx->defer_reset /* new error? */ ) ) {
-    fd_bundle_client_reset( ctx );
-    ctx->metrics.transport_fail_cnt++;
+    fd_bundle_client_fail( ctx );
     *charge_busy = 1;
     return;
   }
@@ -454,8 +456,7 @@ fd_bundle_client_step( fd_bundle_tile_t * ctx,
     int flush_err = ctx->is_ssl ? fd_grpc_client_tls_flush     ( ctx->grpc_client, ctx->tcp_sock )
                                 : fd_grpc_client_tx_flush_socket( ctx->grpc_client, ctx->tcp_sock );
     if( FD_UNLIKELY( -1==flush_err ) ) {
-      fd_bundle_client_reset( ctx );
-      ctx->metrics.transport_fail_cnt++;
+      fd_bundle_client_fail( ctx );
       *charge_busy = 1;
       return;
     }
@@ -475,15 +476,14 @@ void
 fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
                         long               now ) {
   uint iter = ctx->backoff_iter;
-  if( now < ctx->backoff_reset ) iter = 0U;
+  if( now>=ctx->backoff_reset ) iter = 0U;
   iter++;
 
-  /* FIXME proper backoff */
-  long wait_ns = (long)2e9;
-  wait_ns = (long)( fd_rng_ulong( ctx->rng ) & ( (1UL<<fd_ulong_find_msb_w_default( (ulong)wait_ns, 0 ))-1UL ) );
+  long base    = (long)250e6 << fd_uint_min( iter-1U, 7U );
+  long wait_ns = base/2L + (long)( fd_rng_ulong( ctx->rng ) % (ulong)(base/2L) );
 
   ctx->backoff_until = now +   wait_ns;
-  ctx->backoff_reset = now + 2*wait_ns;
+  ctx->backoff_reset = now + 2*base;
 
   ctx->backoff_iter = iter;
 }
@@ -878,7 +878,6 @@ fd_bundle_client_grpc_rx_msg(
 static void
 fd_bundle_client_request_failed( fd_bundle_tile_t * ctx,
                                  ulong              request_ctx ) {
-  fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
@@ -923,7 +922,6 @@ fd_bundle_client_grpc_rx_end(
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
     ctx->packet_subscription_live = 0;
     ctx->packet_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     ctx->defer_reset = 1;
     FD_LOG_INFO(( "SubscribePackets stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
@@ -931,7 +929,6 @@ fd_bundle_client_grpc_rx_end(
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
     ctx->bundle_subscription_live = 0;
     ctx->bundle_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     ctx->defer_reset = 1;
     FD_LOG_INFO(( "SubscribeBundles stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
@@ -947,6 +944,7 @@ fd_bundle_client_grpc_rx_end(
     FD_LOG_INFO(( "gRPC request failed (gRPC status %u-%s): %.*s",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
                   (int)resp->grpc_msg_len, resp->grpc_msg ));
+    fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     fd_bundle_client_request_failed( ctx, request_ctx );
     if( resp->grpc_status==FD_GRPC_STATUS_UNAUTHENTICATED ||
         resp->grpc_status==FD_GRPC_STATUS_PERMISSION_DENIED ) {
