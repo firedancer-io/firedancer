@@ -9441,6 +9441,10 @@ message MetricsReplay {
   bool is_runtime_loaded = 116;
   // Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them
   uint64 fec_rooted_past_skipped = 117;
+  // Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow)
+  uint64 leader_window_already_produced = 118;
+  // Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)
+  uint64 leader_window_superseded = 119;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
@@ -10907,6 +10911,8 @@ message MetricsVotor {
   uint64 bls_signature_checked = 40;
   // First slot votor may vote in, past the vote history file and the votes it sent
   uint64 wait_to_vote_slot = 41;
+  // Leader windows given up because certificates already let a later window start, eg. while catching up after a restart
+  uint64 leader_window_superseded = 42;
 }
 
 // Metrics of one gui tile instance, one row per sweep

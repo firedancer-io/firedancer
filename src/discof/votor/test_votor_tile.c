@@ -850,6 +850,12 @@ test_votor_wfs_keyswitch_during_wait( void ) {
   votor_wfs_test_ctx_delete( &ctx );
 }
 
+static uchar reward_out_mem   [ 1UL<<20 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static uchar reward_mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+/* reward_out_mem is a plain buffer, not a dcache: the last chunk a
+   message of sizeof(fd_votor_msg_t) may start at */
+#define REWARD_OUT_WMARK ( ( sizeof(reward_out_mem) - fd_ulong_align_up( sizeof(fd_votor_msg_t), 2UL*FD_CHUNK_SZ ) ) >> FD_CHUNK_LG_SZ )
+
 static void
 test_votor_wfs_parent_ready_survives_wait( void ) {
   static fd_votor_tile_t ctx;
@@ -890,9 +896,28 @@ test_votor_wfs_parent_ready_survives_wait( void ) {
   votor_wfs_test_done( &ctx, 1UL );
   FD_TEST( ctx.init );
 
-  after_credit( &ctx, NULL, &poll_in, &charge_busy );
+  /* Delivering it publishes PARENT_READY, so replay can drop a LEADER
+     it still holds for an earlier window. */
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( reward_mcache_mem, 128UL, 0UL, 0UL ) );
+  FD_TEST( mcache );
+  ctx.votor_out_mem    = reward_out_mem;
+  ctx.votor_out_chunk0 = 0UL;
+  ctx.votor_out_chunk  = 0UL;
+  ctx.votor_out_wmark  = REWARD_OUT_WMARK;
+  fd_frag_meta_t *  mcaches[1]      = { mcache };
+  ulong             seqs[1]         = { 0UL };
+  ulong             depths[1]       = { 128UL };
+  ulong             cr_avail[1]     = { ULONG_MAX };
+  ulong             min_cr_avail[1] = { ULONG_MAX };
+  int               reliable[1]     = { 0 };
+  fd_stem_context_t stem[1]         = {{ .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = min_cr_avail, .out_reliable = reliable }};
+  after_credit( &ctx, stem, &poll_in, &charge_busy );
   FD_TEST( !ag_pool_metrics( ctx.pool ).pool_events_cnt );
   FD_TEST( ctx.highest_parent_ready_slot==boot_slot+1UL );
+  fd_frag_meta_t const * meta = mcache + fd_mcache_line_idx( seqs[ 0 ]-1UL, 128UL );
+  FD_TEST( meta->sig==FD_VOTOR_SIG_PARENT_READY );
+  FD_TEST( ((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->parent_ready.slot==boot_slot+1UL );
+
 
   votor_wfs_test_ctx_delete( &ctx );
 }
@@ -2343,8 +2368,91 @@ test_boot_vote_history_floor( void ) {
   FD_LOG_NOTICE(( "pass: test_boot_vote_history_floor" ));
 }
 
-static uchar reward_out_mem   [ 1UL<<20 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-static uchar reward_mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+
+/* Skip certs that make a later window ParentReady in the same burst as
+   ours: the leader gate reads the pool, which knows at once, not the
+   delivered events, so our window is given up, not led. */
+
+static void
+test_leader_window_superseded( void ) {
+  static fd_votor_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx->vote_history_fd_dir = -1;
+  fd_clock_tile_init( ctx->clock );
+
+  ulong const slot_max = 4UL*AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA; /* room for two windows of skips */
+  void * pool_mem  = aligned_alloc( ag_pool_align(),  fd_ulong_align_up( ag_pool_footprint ( slot_max, QUIC_DGRAM_BURST ), ag_pool_align()  ) );
+  void * votor_mem = aligned_alloc( ag_votor_align(), fd_ulong_align_up( ag_votor_footprint( slot_max                   ), ag_votor_align() ) );
+  FD_TEST( pool_mem && votor_mem );
+  ctx->pool        = ag_pool_join ( ag_pool_new ( pool_mem,  slot_max, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->votor       = ag_votor_join( ag_votor_new( votor_mem, slot_max, 42UL ) );
+  ctx->peers       = peers_join( peers_new( park_peers_mem ) );
+  ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
+  ctx->quic_client = park_quic( park_quic_mem[ 0 ], FD_QUIC_ROLE_CLIENT );
+  ctx->quic_server = park_quic( park_quic_mem[ 1 ], FD_QUIC_ROLE_SERVER );
+  static uchar mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+  ctx->mleaders    = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
+  FD_TEST( ctx->pool && ctx->votor && ctx->peers && ctx->reconn_prq && ctx->mleaders );
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+  ctx->next_leader_slot = ULONG_MAX;
+  ctx->ns_per_slot      = 400000000L;
+  ctx->standstill_slot  = ULONG_MAX;
+  ctx->standstill_ts    = LONG_MAX;
+  ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
+  long now = fd_clock_tile_now( ctx->clock );
+  ag_pool_from_genesis  ( ctx->pool,  &(ag_block_id_t){ .slot = 0UL } );
+  ag_pool_advance_epoch ( ctx->pool,  epoch_info, USHORT_MAX, 0UL );
+  ag_votor_init         ( ctx->votor, &(ag_block_id_t){ .slot = 0UL }, now, ctx->ns_per_slot, 1, park_sign, ctx );
+  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, 0UL, 0UL, NULL );
+  ctx->shred_version = 1;
+  ctx->init          = 1;
+  while( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ); /* genesis' own window */
+  ctx->highest_parent_ready_slot = 0UL;
+
+  /* Skips of slots 1..2W-1 make windows W and 2W ParentReady at once,
+     both events queued.  We lead window W. */
+  ulong W = AG_SLOTS_PER_WINDOW;
+  for( ulong slot=1UL; slot<2UL*W; slot++ ) {
+    ag_cert_t skip = standstill_cert( AG_CERT_KIND_SKIP, slot );
+    FD_TEST( ag_pool_add_cert( ctx->pool, &skip, 1, ctx->scratch.bad )==AG_POOL_SUCCESS );
+  }
+  FD_TEST( ag_pool_wait_for_parent_ready( ctx->pool, W ).slot!=ULONG_MAX );
+  FD_TEST( ag_pool_highest_parent_ready( ctx->pool )==2UL*W );
+  FD_TEST( ctx->highest_parent_ready_slot<W ); /* none delivered */
+
+  /* A real votor_out so after_credit can run; the gate runs in step 1,
+     before step 4a delivers any queued ParentReady. */
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( reward_mcache_mem, 128UL, 0UL, 0UL ) );
+  FD_TEST( mcache );
+  ctx->votor_out_mem    = reward_out_mem;
+  ctx->votor_out_chunk0 = 0UL;
+  ctx->votor_out_chunk  = 0UL;
+  ctx->votor_out_wmark  = REWARD_OUT_WMARK;
+  fd_frag_meta_t *  mcaches[1]      = { mcache };
+  ulong             seqs[1]         = { 0UL };
+  ulong             depths[1]       = { 128UL };
+  ulong             cr_avail[1]     = { ULONG_MAX };
+  ulong             min_cr_avail[1] = { ULONG_MAX };
+  int               reliable[1]     = { 0 };
+  fd_stem_context_t stem[1]         = {{ .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = min_cr_avail, .out_reliable = reliable }};
+
+  ctx->next_leader_slot = W;
+  int charge_busy = 0;
+  int poll_in     = 1;
+  after_credit( ctx, stem, &poll_in, &charge_busy );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX ); /* no later slot of ours in the empty schedule */
+  FD_TEST( ctx->metrics.leader_window_superseded==1UL );
+  for( ulong i=0UL; i<seqs[ 0 ]; i++ ) FD_TEST( mcache[ fd_mcache_line_idx( i, 128UL ) ].sig!=FD_VOTOR_SIG_LEADER ); /* never led */
+
+  reconn_prq_delete( reconn_prq_leave( ctx->reconn_prq ) );
+  free( votor_mem );
+  free( pool_mem );
+  FD_LOG_NOTICE(( "pass: test_leader_window_superseded" ));
+}
 
 /* reward_vote_sig returns the signature of the voter at rank over the
    vote of kind for slot and hash. */
@@ -2388,7 +2496,7 @@ test_reward_certs( void ) {
   ctx.votor_out_mem    = reward_out_mem;
   ctx.votor_out_chunk0 = 0UL;
   ctx.votor_out_chunk  = 0UL;
-  ctx.votor_out_wmark  = fd_dcache_compact_wmark( reward_out_mem, reward_out_mem, sizeof(fd_votor_msg_t) );
+  ctx.votor_out_wmark  = REWARD_OUT_WMARK;
   fd_frag_meta_t *  mcaches[1]      = { mcache };
   ulong             seqs[1]         = { 0UL };
   ulong             depths[1]       = { 128UL };
@@ -2483,6 +2591,7 @@ main( int     argc,
   test_conn_ahead();
   test_park();
   test_standstill();
+  test_leader_window_superseded();
   test_write_vote_history();
   test_boot_vote_history_floor();
   test_reward_certs();

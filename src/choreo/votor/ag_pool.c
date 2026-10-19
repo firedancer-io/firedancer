@@ -751,6 +751,11 @@ ag_pool_finalized_slot( ag_pool_t const * self ) {
   return ag_finality_tracker_highest_finalized_slot( self->finality_tracker );
 }
 
+FD_FN_PURE ulong
+ag_pool_highest_parent_ready( ag_pool_t const * self ) {
+  return self->parent_ready_tracker->highest_ready;
+}
+
 FD_FN_PURE uchar const *
 ag_pool_finalized_block_hash( ag_pool_t const * self ) {
   return ag_finality_tracker_highest_finalized_block_hash( self->finality_tracker );

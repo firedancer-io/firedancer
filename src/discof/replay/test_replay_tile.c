@@ -5206,7 +5206,7 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   fd_hash_t id2     = { .ul = { 202UL } };
   fd_hash_t other1  = { .ul = { 301UL } };
   fd_hash_t id3     = { .ul = { 203UL } };
-  setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
+  fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
 
   ctx->votor_final->slot = 3UL;
   FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
@@ -5224,6 +5224,35 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   ctx->consensus_root      = other1;
   FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
+
+  /* The cluster already produced a slot of the window (the network's
+     copy of our past slot 3, replayed during catch-up): give it up. */
+  ctx->next_leader_slot = 2UL;
+  ctx->consensus_root   = id1;
+  fd_hash_t net3 = { .ul = { 403UL } };
+  fd_bank_t * b3 = add_replayable_block( ctx, b1, 3UL, &net3 );
+  ulong produced0 = ctx->metrics.leader_slot_already_produced;
+  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->metrics.leader_slot_already_produced==produced0+1UL );
+  b3->bank_seq++; /* the network block goes away */
+
+  /* A LEADER replay still holds goes stale when certs make a later
+     window ParentReady after it was sent: give it up. */
+  setup_votor_input( ctx, wksp );
+  ctx->next_leader_slot = 2UL;
+  ctx->consensus_root   = id1;
+  ulong chunk = ctx->in[ TEST_VOTOR_IN_IDX ].chunk0;
+  fd_votor_msg_t * msg = fd_chunk_to_laddr( ctx->in[ TEST_VOTOR_IN_IDX ].mem, chunk );
+  msg->parent_ready = (fd_votor_parent_ready_t){ .slot = 2UL+AG_SLOTS_PER_WINDOW };
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_PARENT_READY, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+  produced0 = ctx->metrics.leader_slot_already_produced;
+  ulong superseded0 = ctx->metrics.leader_window_superseded;
+  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->metrics.leader_window_superseded==superseded0+1UL );
+  FD_TEST( ctx->metrics.leader_slot_already_produced==produced0 ); /* nothing was produced */
+  ctx->votor_parent_ready_slot = 0UL;
 
   /* Rooted at the parent itself: lead. */
   ctx->next_leader_slot = 2UL;

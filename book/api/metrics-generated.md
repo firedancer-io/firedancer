@@ -1156,6 +1156,8 @@
 | <span class="metrics-name">replay_&#8203;fec_&#8203;parent_&#8203;missing_&#8203;dropped</span> | counter | FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;rooted_&#8203;past_&#8203;skipped</span> | counter | Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them |
 | <span class="metrics-name">replay_&#8203;root_&#8203;advance_&#8203;deferred</span> | counter | Times the storage root could not advance to the consensus root yet |
+| <span class="metrics-name">replay_&#8203;leader_&#8203;window_&#8203;already_&#8203;produced</span> | counter | Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow) |
+| <span class="metrics-name">replay_&#8203;leader_&#8203;window_&#8203;superseded</span> | counter | Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Program cache entries rooted |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;class_&#8203;used</span><br/>{progcache_&#8203;class="<span class="metrics-enum">le128_&#8203;kib</span>"} | gauge | Program cache value slots in use, by size class (0-128 KiB) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;class_&#8203;used</span><br/>{progcache_&#8203;class="<span class="metrics-enum">le512_&#8203;kib</span>"} | gauge | Program cache value slots in use, by size class (128-512 KiB) |
@@ -2360,6 +2362,7 @@
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Inbound certificates processed, by result (Cert failed the stake threshold or the aggregate signature check) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Inbound certificates processed, by result (Sender is banned for a failed signature verification) |
 | <span class="metrics-name">votor_&#8203;bls_&#8203;signature_&#8203;checked</span> | counter | Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once |
+| <span class="metrics-name">votor_&#8203;leader_&#8203;window_&#8203;superseded</span> | counter | Leader windows given up because certificates already let a later window start, eg. while catching up after a restart |
 | <span class="metrics-name">votor_&#8203;voting_&#8203;slot_&#8203;used</span> | gauge | Slots tracked by the voting state machine |
 | <span class="metrics-name">votor_&#8203;voting_&#8203;slot_&#8203;free</span> | gauge | Free entries in the voting state machine's slot table |
 | <span class="metrics-name">votor_&#8203;highest_&#8203;final_&#8203;cert_&#8203;slot</span> | gauge | Highest slot with a final or fast-final cert seen by votor, 0 if none |
