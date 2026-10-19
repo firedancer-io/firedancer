@@ -50,6 +50,7 @@ typedef struct ag_parent_ready_states ag_parent_ready_states_t;
 struct __attribute__((aligned(128UL))) ag_parent_ready_tracker {
   ag_parent_ready_states_t states;
   ulong                    root;
+  ulong                    highest_ready;
 };
 typedef struct ag_parent_ready_tracker ag_parent_ready_tracker_t;
 

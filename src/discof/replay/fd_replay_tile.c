@@ -353,6 +353,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_LEADER_FREEZE_WAIT,  ctx->metrics.leader_bid_wait );
   FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_BANK_FULL,           ctx->metrics.banks_full );
   FD_MCNT_SET( REPLAY, FEC_PARENT_MISSING_DROPPED,           ctx->metrics.parent_unavailable );
+  FD_MCNT_SET( REPLAY, LEADER_WINDOW_ALREADY_PRODUCED,       ctx->metrics.leader_slot_already_produced );
+  FD_MCNT_SET( REPLAY, LEADER_WINDOW_SUPERSEDED,             ctx->metrics.leader_window_superseded     );
   FD_MCNT_SET( REPLAY, FEC_ROOTED_PAST_SKIPPED,              ctx->metrics.fec_rooted_past    );
   FD_MCNT_SET( REPLAY, ROOT_ADVANCE_DEFERRED,               ctx->metrics.storage_root_behind );
 
@@ -1771,6 +1773,14 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
     return 0;
   }
 
+  /* Certs made a later window ParentReady after votor sent this one:
+     the cluster skipped it. */
+  if( FD_UNLIKELY( ctx->next_leader_slot<ctx->votor_parent_ready_slot ) ) {
+    ctx->metrics.leader_window_superseded++;
+    ctx->next_leader_slot = ULONG_MAX;
+    return 0;
+  }
+
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
@@ -1782,6 +1792,20 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !leader || !fd_pubkey_eq( leader, ctx->identity_pubkey ) ) ) {
     ctx->next_leader_slot = ULONG_MAX;
     return 0;
+  }
+
+  /* The cluster already produced a slot of this window, eg. our own
+     past slots replayed during catch-up after a restart. */
+  ulong window_end = ctx->next_leader_slot - ctx->next_leader_slot%AG_SLOTS_PER_WINDOW + AG_SLOTS_PER_WINDOW;
+  for( ulong idx=0UL; idx<ctx->block_id_len; idx++ ) {
+    fd_block_id_ele_t const * ele = &ctx->block_id_arr[ idx ];
+    if( FD_LIKELY( ele->slot<ctx->next_leader_slot || ele->slot>=window_end ) ) continue;
+    fd_bank_t const * bank = fd_banks_bank_query( ctx->banks, idx );
+    if( FD_UNLIKELY( bank && bank->bank_seq==ele->bank_seq && !bank->is_leader ) ) {
+      ctx->metrics.leader_slot_already_produced++;
+      ctx->next_leader_slot = ULONG_MAX;
+      return 0;
+    }
   }
 
   /* In Alpenglow, the "reset" block is signaled by ParentReady (a state
@@ -5247,6 +5271,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
           break;
         default: break;
         }
+      } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_PARENT_READY ) ) {
+        fd_votor_parent_ready_t const * pr = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        ctx->votor_parent_ready_slot = fd_ulong_max( ctx->votor_parent_ready_slot, pr->slot );
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_REWARD ) ) {
         fd_votor_reward_t const * reward = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_reward_t *       ring   = &ctx->votor_reward[ reward->slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
@@ -5743,7 +5770,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
 
-  ctx->votor_final->slot = ULONG_MAX;
+  ctx->votor_final->slot       = ULONG_MAX;
+  ctx->votor_parent_ready_slot = 0UL;
   for( ulong i=0UL; i<FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL; i++ ) ctx->votor_reward[ i ].slot = ULONG_MAX;
 
   ctx->caught_up                = 0;

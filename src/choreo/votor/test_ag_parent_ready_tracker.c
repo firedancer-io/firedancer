@@ -401,6 +401,7 @@ test_wait_for_parent_ready( void ) {
 
   got = ag_parent_ready_tracker_wait_for_parent_ready( tracker, window3 );
   FD_TEST( got.slot==ULONG_MAX );
+  FD_TEST( tracker->highest_ready==window2 );
 
   for( ulong slot=window2; slot<window2+SLOTS_PER_WINDOW; slot++ ) {
     ag_parent_ready_tracker_mark_skipped( tracker, slot, out );
@@ -409,6 +410,7 @@ test_wait_for_parent_ready( void ) {
   got = ag_parent_ready_tracker_wait_for_parent_ready( tracker, window3 );
   FD_TEST( got.slot!=ULONG_MAX );
   FD_TEST( ag_block_id_eq( &got, &genesis ) );
+  FD_TEST( tracker->highest_ready==window3 ); /* as soon as marked, before any event is delivered */
 
   teardown_tracker( tracker );
 }
