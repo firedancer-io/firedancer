@@ -2457,7 +2457,6 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
     fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
     FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
-    FD_TEST( in_link->kind_id==i );
     fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
     ctx->in[ i ].wksp   = in_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].wksp, in_link->dcache );

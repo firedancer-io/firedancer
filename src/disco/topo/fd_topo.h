@@ -680,6 +680,7 @@ struct fd_topo_tile {
 
       int    incremental_snapshots;
       int    fast_boot;
+      int    stream;
       uint   max_full_snapshots_to_keep;
       uint   max_incremental_snapshots_to_keep;
       uint   max_retry_abort;
@@ -697,6 +698,10 @@ struct fd_topo_tile {
       int    wfs_hash_is_zero;
       ushort wfs_shred_version;
     } snapld;
+
+    struct {
+      int stream;
+    } snapdc;
 
     struct {
       ulong     wait_for_supermajority_at_slot;
