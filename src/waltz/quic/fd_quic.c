@@ -1385,6 +1385,65 @@ fd_quic_send_retry( fd_quic_t *               quic,
   return 0UL;
 }
 
+/* fd_quic_send_invalid_token answers a post-Retry Initial whose token
+   expired with a stateless Initial CONNECTION_CLOSE(INVALID_TOKEN), so
+   the client fails the dial at once and redials for a fresh Retry
+   (RFC 9000 8.1.2).  The keys come from the DCID the client used. */
+
+static void
+fd_quic_send_invalid_token( fd_quic_t *               quic,
+                            fd_quic_pkt_t *           pkt,
+                            fd_quic_conn_id_t const * dcid,
+                            fd_quic_conn_id_t const * peer_scid ) {
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  fd_quic_crypto_secrets_t secrets[1];
+  fd_quic_crypto_keys_t    keys[1];
+  fd_quic_gen_initial_secrets( secrets, dcid->conn_id, dcid->sz, /* is_server */ 1 );
+  fd_quic_gen_keys( keys, secrets->secret[ fd_quic_enc_level_initial_id ][ 1 ] );
+
+  uchar plain[ 64 ];
+  ulong our_cid = fd_quic_rng_ulong( state );
+  fd_quic_initial_t initial = {
+    .h0              = fd_quic_initial_h0( 3 ), /* 4 byte pkt num */
+    .version         = 1,
+    .dst_conn_id_len = peer_scid->sz,
+    .src_conn_id_len = FD_QUIC_CONN_ID_SZ,
+    .len             = 0x3fff, /* 2 byte varint, patched below */
+    .pkt_num         = 0UL
+  };
+  fd_memcpy( initial.dst_conn_id, peer_scid->conn_id, peer_scid->sz );
+  FD_STORE( ulong, initial.src_conn_id, our_cid );
+  ulong hdr_sz = fd_quic_encode_initial( plain, sizeof(plain), &initial );
+  if( FD_UNLIKELY( hdr_sz==FD_QUIC_PARSE_FAIL ) ) return;
+
+  /* CONNECTION_CLOSE, padded so the header protection sample exists */
+  fd_quic_conn_close_0_frame_t frame = { .error_code = FD_QUIC_CONN_REASON_INVALID_TOKEN };
+  ulong frame_sz = fd_quic_encode_conn_close_0_frame( plain+hdr_sz, sizeof(plain)-hdr_sz, &frame );
+  if( FD_UNLIKELY( frame_sz==FD_QUIC_PARSE_FAIL ) ) return;
+  ulong payload_sz = fd_ulong_max( frame_sz, FD_QUIC_CRYPTO_SAMPLE_SZ );
+  fd_memset( plain+hdr_sz+frame_sz, 0, payload_sz-frame_sz ); /* PADDING frames */
+  uint len = 4U + (uint)payload_sz + FD_QUIC_CRYPTO_TAG_SZ;
+  FD_STORE( ushort, plain+hdr_sz-6UL, fd_ushort_bswap( (ushort)( 0x4000U|len ) ) );
+
+  uchar out[ 128 ];
+  ulong out_sz = sizeof(out);
+#if FD_QUIC_DISABLE_CRYPTO
+  (void)keys;
+  out_sz = hdr_sz+payload_sz;
+  fd_memcpy( out, plain, out_sz );
+  memset( out+out_sz, 0, FD_QUIC_CRYPTO_TAG_SZ ); /* MAC tag */
+  out_sz += FD_QUIC_CRYPTO_TAG_SZ;
+#else
+  if( FD_UNLIKELY( fd_quic_crypto_encrypt( out, &out_sz, plain, hdr_sz, plain+hdr_sz, payload_sz, keys, keys, 0UL )!=FD_QUIC_SUCCESS ) ) return;
+#endif
+
+  uchar * tx_ptr = out + out_sz;
+  fd_quic_tx_buffered_raw( quic, &tx_ptr, out, &pkt->ip4->net_id,
+                           pkt->ip4->saddr, pkt->udp->net_sport,
+                           pkt->ip4->daddr, pkt->udp->net_dport );
+}
+
 /* fd_quic_tls_hs_cache_evict evicts the oldest tls_hs if it's exceeded its ttl
    Assumes cache is non-empty
    and returns 1 if evicted, otherwise returns 0. */
@@ -1549,7 +1608,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         int retry_ok = fd_quic_retry_server_verify( pkt, initial, &odcid, &scid, state->retry_secret, state->retry_iv, state->now, quic->config.retry_ttl );
         if( FD_UNLIKELY( retry_ok!=FD_QUIC_SUCCESS ) ) {
           metrics->conn_err_retry_fail_cnt++;
-          /* No need to set conn error, no conn object exists */
+          /* No conn object exists.  A token we issued that expired gets a
+             stateless close, so the client redials instead of probing
+             with it until its handshake times out. */
+          if( retry_ok==FD_QUIC_RETRY_EXPIRED ) {
+            metrics->conn_err_retry_expired_cnt++;
+            fd_quic_send_invalid_token( quic, pkt, dcid, peer_scid );
+          }
           return FD_QUIC_PARSE_FAIL;
         };
       }

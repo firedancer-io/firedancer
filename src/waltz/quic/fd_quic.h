@@ -199,7 +199,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* retry_ttl: time-to-live for retry tokens */
   long retry_ttl;
-# define FD_QUIC_DEFAULT_RETRY_TTL (long)(1e9) /* 1s */
+# define FD_QUIC_DEFAULT_RETRY_TTL (long)(10e9) /* 10s: a client's PTO probes at +1, +3, +7 s still carry a valid token */
 
   /* hs_ttl: time-to-live for tls_hs */
   long tls_hs_ttl;
@@ -347,6 +347,7 @@ union fd_quic_metrics {
     ulong conn_retry_cnt;          /* number of conns established with retry */
     ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
     ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
+    ulong conn_err_retry_expired_cnt; /* of those, our own tokens that expired, answered with INVALID_TOKEN */
     ulong conn_state_cnt[ 8 ];     /* current number of conns in each state */
 
     /* Packet metrics */

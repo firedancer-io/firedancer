@@ -1960,6 +1960,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_SET        ( VOTOR, SERVER_CONN_TIMED_OUT,               ctx->quic_server->metrics.conn_timeout_cnt        );
   FD_MCNT_SET        ( VOTOR, SERVER_CONN_NO_SLOT_REJECTED,        ctx->quic_server->metrics.conn_err_no_slots_cnt   );
   FD_MCNT_SET        ( VOTOR, SERVER_CONN_RETRY_REJECTED,          ctx->quic_server->metrics.conn_err_retry_fail_cnt );
+  FD_MCNT_SET        ( VOTOR, SERVER_CONN_RETRY_EXPIRED_REJECTED,  ctx->quic_server->metrics.conn_err_retry_expired_cnt );
   FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_DECRYPT_FAILED,           ctx->quic_server->metrics.pkt_decrypt_fail_cnt    );
   FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_NO_KEY_DROPPED,           ctx->quic_server->metrics.pkt_no_key_cnt          );
   FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_NO_CONN_DROPPED,          ctx->quic_server->metrics.pkt_no_conn_cnt         );

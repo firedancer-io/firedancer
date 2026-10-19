@@ -266,7 +266,7 @@ static fd_metrics_sample_field_t const fields_sock[ 52 ] = {
   { FD_METRICS_COUNTER_SOCK_PKT_RX_BYTES_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_quic[ 196 ] = {
+static fd_metrics_sample_field_t const fields_quic[ 197 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -343,6 +343,7 @@ static fd_metrics_sample_field_t const fields_quic[ 196 ] = {
   { FD_METRICS_COUNTER_QUIC_CONN_RETRIED_OFF, 48U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_QUIC_CONN_NO_SLOT_REJECTED_OFF, 49U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_QUIC_CONN_RETRY_REJECTED_OFF, 50U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_QUIC_CONN_RETRY_EXPIRED_REJECTED_OFF, 69U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_QUIC_PKT_DROPPED_OFF, 51U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_COUNTER_QUIC_PKT_DROPPED_UNDERSIZE_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_QUIC_PKT_DROPPED_OVERSIZE_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -3408,7 +3409,7 @@ static fd_metrics_sample_field_t const fields_execrp[ 202 ] = {
   { FD_METRICS_COUNTER_EXECRP_ACCDB_COPIED_BYTES_OFF, 63U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_votor[ 356 ] = {
+static fd_metrics_sample_field_t const fields_votor[ 357 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -3649,6 +3650,7 @@ static fd_metrics_sample_field_t const fields_votor[ 356 ] = {
   { FD_METRICS_COUNTER_VOTOR_SERVER_CONN_TIMED_OUT_OFF, 83U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_VOTOR_SERVER_CONN_NO_SLOT_REJECTED_OFF, 84U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_VOTOR_SERVER_CONN_RETRY_REJECTED_OFF, 85U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_VOTOR_SERVER_CONN_RETRY_EXPIRED_REJECTED_OFF, 102U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_VOTOR_SERVER_PKT_DECRYPT_FAILED_OFF, 86U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_COUNTER_VOTOR_SERVER_PKT_DECRYPT_FAILED_INITIAL_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_VOTOR_SERVER_PKT_DECRYPT_FAILED_EARLY_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4350,7 +4352,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "net", 22U, fields_net, 80UL, 949UL },
   { "mlx5", 23U, fields_mlx5, 66UL, 800UL },
   { "sock", 24U, fields_sock, 52UL, 657UL },
-  { "quic", 25U, fields_quic, 196UL, 2098UL },
+  { "quic", 25U, fields_quic, 197UL, 2110UL },
   { "bundle", 26U, fields_bundle, 75UL, 899UL },
   { "verify", 27U, fields_verify, 47UL, 598UL },
   { "dedup", 28U, fields_dedup, 43UL, 552UL },
@@ -4379,7 +4381,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "mwaitx", 51U, fields_mwaitx, 44UL, 564UL },
   { "ipecho", 52U, fields_ipecho, 55UL, 674UL },
   { "execrp", 53U, fields_execrp, 202UL, 2135UL },
-  { "votor", 54U, fields_votor, 356UL, 3707UL },
+  { "votor", 54U, fields_votor, 357UL, 3719UL },
   { "gui", 55U, fields_gui, 256UL, 2708UL },
   { "event", 56U, fields_event, 54UL, 699UL },
   { "snapmk", 57U, fields_snapmk, 66UL, 767UL },

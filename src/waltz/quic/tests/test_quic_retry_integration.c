@@ -102,6 +102,39 @@ test_initial_token_odd_sz( fd_quic_t * server_quic,
   FD_LOG_NOTICE(( "46-byte token test pass" ));
 }
 
+/* Test that a post-Retry Initial whose token expired is answered with
+   CONNECTION_CLOSE(INVALID_TOKEN), which the client takes as the end of
+   the dial, instead of being dropped silently. */
+void
+test_retry_token_expired( fd_quic_t * server_quic,
+                          fd_quic_t * client_quic ) {
+  FD_LOG_NOTICE(( "Testing Initial with an expired Retry token" ));
+
+  ulong retry_cnt   = server_quic->metrics.retry_tx_cnt;
+  ulong fail_cnt    = server_quic->metrics.conn_err_retry_fail_cnt;
+  ulong expired_cnt = server_quic->metrics.conn_err_retry_expired_cnt;
+  ulong created_cnt = server_quic->metrics.conn_created_cnt;
+  ulong client_closed_cnt = client_quic->metrics.conn_closed_cnt;
+
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
+  FD_TEST( client_conn );
+
+  /* The client's first Initial gets a Retry; its token Initial then
+     arrives after the token expired. */
+  fd_quic_service( client_quic, now );
+  fd_quic_service( server_quic, now );
+  FD_TEST( server_quic->metrics.retry_tx_cnt==retry_cnt+1UL );
+  fd_quic_service( server_quic, now+server_quic->config.retry_ttl ); /* only the server's clock moves */
+  for( ulong j=0UL; j<5UL; j++ ) fd_quic_service( client_quic, now );
+
+  FD_TEST( server_quic->metrics.conn_err_retry_fail_cnt   ==fail_cnt+1UL    );
+  FD_TEST( server_quic->metrics.conn_err_retry_expired_cnt==expired_cnt+1UL );
+  FD_TEST( server_quic->metrics.conn_created_cnt          ==created_cnt     ); /* no conn for the stale token */
+  FD_TEST( client_quic->metrics.conn_closed_cnt==client_closed_cnt+1UL ); /* the close decrypted and ended the dial */
+
+  FD_LOG_NOTICE(( "expired token test pass" ));
+}
+
 void
 test_retry_integration( fd_quic_t * server_quic,
                         fd_quic_t * client_quic ) {
@@ -260,6 +293,9 @@ main( int argc, char ** argv ) {
 
   /* Run the 46-byte token test */
   test_initial_token_odd_sz( server_quic, client_quic );
+
+  /* Run the expired token test */
+  test_retry_token_expired( server_quic, client_quic );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );

@@ -205,7 +205,15 @@ fd_quic_retry_server_verify(
   memcpy( orig_dst_conn_id->conn_id,  retry_token->data.odcid, FD_QUIC_MAX_CONN_ID_SZ ); /* oversz copy ok */
   *retry_src_conn_id = retry_token->data.rscid;
 
-  return is_match ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
+  if( FD_LIKELY( is_match ) ) return FD_QUIC_SUCCESS;
+  int is_expired =
+    vfy_res  == FD_QUIC_SUCCESS          &&
+    pkt_dcid == retry_token->data.rscid  &&
+    is_ip4                               &&
+    pkt_ip4  == retry_ip4                &&
+    pkt_port == retry_port               &&
+    now >= expire_at;
+  return is_expired ? FD_QUIC_RETRY_EXPIRED : FD_QUIC_FAILED;
 }
 
 int
