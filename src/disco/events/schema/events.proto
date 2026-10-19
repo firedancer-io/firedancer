@@ -9949,6 +9949,8 @@ message MetricsReplay {
   uint64 accdb_copied_bytes = 115;
   // Whether the runtime has loaded a bank and can replay
   bool is_runtime_loaded = 116;
+  // Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them
+  uint64 fec_rooted_past_skipped = 117;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
