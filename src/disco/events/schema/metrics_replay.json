@@ -370,6 +370,7 @@
         "accdb_disk_written_bytes":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
         "accdb_disk_written":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
         "accdb_copied_bytes":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" },
-        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" }
+        "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" },
+        "fec_rooted_past_skipped":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them" }
     }
 }

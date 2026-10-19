@@ -618,6 +618,7 @@ struct fd_replay_tile {
     ulong leader_bid_wait;
     ulong banks_full;
     ulong parent_unavailable;
+    ulong fec_rooted_past;
     ulong storage_root_behind;
 
     ulong voted_slot; /* monotone, ULONG_MAX if none */

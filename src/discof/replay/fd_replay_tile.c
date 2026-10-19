@@ -353,6 +353,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_LEADER_FREEZE_WAIT,  ctx->metrics.leader_bid_wait );
   FD_MCNT_SET( REPLAY, FEC_POLL_SKIPPED_BANK_FULL,           ctx->metrics.banks_full );
   FD_MCNT_SET( REPLAY, FEC_PARENT_MISSING_DROPPED,           ctx->metrics.parent_unavailable );
+  FD_MCNT_SET( REPLAY, FEC_ROOTED_PAST_SKIPPED,              ctx->metrics.fec_rooted_past    );
   FD_MCNT_SET( REPLAY, ROOT_ADVANCE_DEFERRED,               ctx->metrics.storage_root_behind );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
@@ -3399,6 +3400,17 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
       self = live_block_id_ele( ctx, fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &self_key, NULL, ctx->block_id_arr ) );
     }
     if( FD_UNLIKELY( self && ( self->block_id_seen || self->latest_fec_idx>=fec->fec_set_idx ) ) ) return PROCESS_FEC_SKIP;
+  }
+
+  /* Rooted past: the block is rooted or on a dead fork, so no
+     redelivery can help.  A DROP would ask for another, and during
+     catch-up that one also lands behind the backlog, rooted past. */
+
+  if( FD_UNLIKELY( ctx->published_root_slot!=ULONG_MAX &&
+                   ( fec->slot<=ctx->published_root_slot ||
+                     fec->parent_slot<ctx->published_root_slot ) ) ) {
+    ctx->metrics.fec_rooted_past++;
+    return PROCESS_FEC_SKIP;
   }
 
   ulong               parent_bank_idx = UINT_MAX;
