@@ -1002,11 +1002,13 @@ after_credit( fd_rotor_tile_t *   ctx,
     pending_t * pending = pending_dlist_ele_peek_head( ctx->pending_dlist, ctx->pending_pool );
     if( FD_LIKELY( now-pending->ts<PENDING_TTL ) ) break;
 
-    /* An unanswered request counts as a reply at PENDING_TTL, unless
-       the root moved past it and the shred tile ignored the reply. */
+    /* No rtt sample: silence also means a deduped reply, or a highest
+       or orphan request no peer can answer yet.  Only a run of shred
+       and meta requests left unanswered bans the peer. */
 
-    if( FD_LIKELY( pending->slot>ctx->rotor->root ) ) fd_rotor_strat_request_done  ( ctx->strat, &pending->peer, PENDING_TTL );
-    else                                              fd_rotor_strat_request_failed( ctx->strat, &pending->peer, 0           );
+    int answerable = pending->slot>ctx->rotor->root && pending->tag!=FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX && pending->tag!=FD_ROTOR_SERDE_TAG_ORPHAN;
+    if( FD_LIKELY( answerable ) ) fd_rotor_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL );
+    else                          fd_rotor_strat_request_failed ( ctx->strat, &pending->peer, 0           );
     ctx->metrics->req_expired++;
     pending_dlist_ele_pop_head ( ctx->pending_dlist, ctx->pending_pool );
     pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );

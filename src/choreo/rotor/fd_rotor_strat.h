@@ -17,6 +17,7 @@
 #define FD_ROTOR_STRAT_PEER_MAX     FD_CONTACT_INFO_TABLE_SIZE
 #define FD_ROTOR_STRAT_INFLIGHT_MAX (8U)
 #define FD_ROTOR_STRAT_EXPLORE      (16UL) /* every 16th pick tries an unmeasured peer first */
+#define FD_ROTOR_STRAT_EXPIRED_MAX  (32U)  /* requests in a row a peer leaves unanswered before it is banned */
 #define FD_ROTOR_STRAT_HEDGE_NS     (200L*1000000L) /* hedge time of an unmeasured peer */
 #define FD_ROTOR_STRAT_EAGER_MIN_NS (20L*1000000L)
 #define FD_ROTOR_STRAT_EAGER_MAX_NS (250L*1000000L)  /* also the eager wait until turbine is measured */
@@ -44,6 +45,7 @@ struct fd_rotor_strat_peer {
   long        rttvar;         /* its mean deviation */
   long        ping_ts;        /* last ping, 0 if none */
   long        ban_ts;         /* skipped until this time */
+  uint        expired_cnt;    /* requests in a row it left unanswered */
   long        turbine_srtt;   /* as leader, smoothed time from a FEC set's first shred to complete, 0 if never measured */
   long        turbine_rttvar; /* its mean deviation */
   ulong       turbine_cnt;    /* its samples */
@@ -155,6 +157,16 @@ void
 fd_rotor_strat_request_failed( fd_rotor_strat_t *  strat,
                                fd_pubkey_t const * id_key,
                                long                ban_ts );
+
+/* fd_rotor_strat_request_expired ends a request picked from id_key that
+   a live peer should have answered but did not.  It takes no rtt
+   sample; after FD_ROTOR_STRAT_EXPIRED_MAX in a row with no reply the
+   peer is skipped until ban_ts. */
+
+void
+fd_rotor_strat_request_expired( fd_rotor_strat_t *  strat,
+                                fd_pubkey_t const * id_key,
+                                long                ban_ts );
 
 /* fd_rotor_strat_turbine_done records t, the time from a FEC set's
    first shred to its completion, for the slot's leader id_key. */
