@@ -31,31 +31,31 @@ test_order( void ) {
   for( ulong i=0UL; i<32UL; i++ ) {
     fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick( strat, 0L, 1, ULONG_MAX );
     FD_TEST( peer && peer!=fd_rotor_strat_query( strat, &u ) ); /* staked only */
-    fd_rotor_strat_request_done( strat, &peer->id_key, 150L*1000000L );
+    fd_rotor_strat_request_done( strat, &peer->id_key, 150L*1000000L, 0 );
   }
 
   /* A fast unstaked peer beats slow staked ones. */
 
-  fd_rotor_strat_request_done( strat, &u, 10L*1000000L );
+  fd_rotor_strat_request_done( strat, &u, 10L*1000000L, 0 );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_25MS );
   FD_TEST( fd_rotor_strat_pick( strat, 0L, 0, ULONG_MAX )==fd_rotor_strat_query( strat, &u ) );
-  fd_rotor_strat_request_done( strat, &u, 10L*1000000L );
+  fd_rotor_strat_request_done( strat, &u, 10L*1000000L, 0 );
 
   /* One slow reply demotes it, its jitter counting against it as in
      its hedge, repeated ones more.  Fast replies bring it back. */
 
-  fd_rotor_strat_request_done( strat, &u, 1000L*1000000L );
+  fd_rotor_strat_request_done( strat, &u, 1000L*1000000L, 0 );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_200MS );
-  for( ulong i=0UL; i<2UL; i++ ) fd_rotor_strat_request_done( strat, &u, 1000L*1000000L );
+  for( ulong i=0UL; i<2UL; i++ ) fd_rotor_strat_request_done( strat, &u, 1000L*1000000L, 0 );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_SLOW );
-  for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, 10L*1000000L );
+  for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, 10L*1000000L, 0 );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_25MS );
 
   /* A jittery peer ranks slower than its mean. */
 
-  for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, fd_long_if( i&1UL, 190L, 10L )*1000000L );
+  for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, fd_long_if( i&1UL, 190L, 10L )*1000000L, 0 );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_200MS );
-  for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, 1000L*1000000L );
+  for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, 1000L*1000000L, 0 );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_SLOW );
 
   /* Of two peers in a bucket, the one with fewer requests in flight. */
@@ -64,7 +64,7 @@ test_order( void ) {
   fd_rotor_strat_query( strat, &b )->inflight = 5U;
   for( ulong i=0UL; i<4UL; i++ ) {
     FD_TEST( fd_rotor_strat_pick( strat, 0L, 1, ULONG_MAX )==fd_rotor_strat_query( strat, &a ) );
-    fd_rotor_strat_request_done( strat, &a, 150L*1000000L );
+    fd_rotor_strat_request_done( strat, &a, 150L*1000000L, 0 );
   }
 
   /* A failed reply bans without an rtt sample. */
@@ -101,7 +101,7 @@ test_inflight_and_remove( void ) {
 
   for( uint i=0U; i<FD_ROTOR_STRAT_INFLIGHT_MAX; i++ ) FD_TEST( fd_rotor_strat_pick( strat, 0L, 0, ULONG_MAX )==fd_rotor_strat_query( strat, &a ) );
   FD_TEST( !fd_rotor_strat_pick( strat, 0L, 0, ULONG_MAX ) );
-  fd_rotor_strat_request_done( strat, &a, 1000000L );
+  fd_rotor_strat_request_done( strat, &a, 1000000L, 0 );
   FD_TEST( fd_rotor_strat_pick( strat, 0L, 0, ULONG_MAX )==fd_rotor_strat_query( strat, &a ) );
 
   fd_rotor_strat_contact_info_removed( strat, &a );
@@ -168,7 +168,7 @@ test_retry_spread( void ) {
     fd_rotor_strat_contact_info_updated( strat, &ids[ i ].key, 2U+i, 1 );
   }
   fd_rotor_strat_epoch_advanced( strat, ids, 4UL );
-  for( ulong i=0UL; i<4UL; i++ ) fd_rotor_strat_request_done( strat, &ids[ i ].key, 10L*1000000L );
+  for( ulong i=0UL; i<4UL; i++ ) fd_rotor_strat_request_done( strat, &ids[ i ].key, 10L*1000000L, 0 );
 
   ulong seen = 0UL;
   ulong last = ULONG_MAX;
@@ -188,7 +188,7 @@ test_retry_spread( void ) {
   for( ulong i=0UL; i<4UL; i++ ) {
     fd_rotor_strat_peer_t * peer = fd_rotor_strat_query( strat, &ids[ i ].key );
     peer->srtt = 0L; peer->rttvar = 0L;
-    fd_rotor_strat_request_done( strat, &ids[ i ].key, (long)( 151UL-(i&1UL)*2UL+(i>>1)*2UL )*1000000L ); /* 151, 149, 153, 151 ms */
+    fd_rotor_strat_request_done( strat, &ids[ i ].key, (long)( 151UL-(i&1UL)*2UL+(i>>1)*2UL )*1000000L, 0 ); /* 151, 149, 153, 151 ms */
   }
   ulong b = fd_rotor_strat_query( strat, &ids[ 0 ].key )->bucket;
   strat->cursor[ b ] = FD_ROTOR_STRAT_PEER_MAX-1UL; /* the next pick starts at slot 0 */
@@ -223,6 +223,72 @@ test_retry_spread( void ) {
   FD_TEST( fd_rotor_strat_slot_remap( strat, 3UL )==ULONG_MAX );
 }
 
+/* By-id expiries ban a peer after FD_ROTOR_STRAT_BYID_MAX in a row
+   even while it answers positional requests; a by-id reply resets the
+   run.  The stuck pick draws only available staked peers, never avoid. */
+
+static void
+test_byid_and_stuck( void ) {
+  fd_rotor_strat_t * strat = fd_rotor_strat_join( fd_rotor_strat_new( mem, 42UL ) );
+  fd_stake_weight_t ids[4];
+  for( uchar i=0; i<4; i++ ) {
+    ids[ i ] = (fd_stake_weight_t){ .key = key( (uchar)(i+1) ), .stake = 40UL-i };
+    fd_rotor_strat_contact_info_updated( strat, &ids[ i ].key, 2U+i, 1 );
+  }
+  fd_stake_weight_t u = { .key = key( 9 ) };
+  fd_rotor_strat_contact_info_updated( strat, &u.key, 9U, 1 ); /* unstaked */
+  fd_rotor_strat_epoch_advanced( strat, ids, 4UL );
+  fd_rotor_strat_peer_t * a = fd_rotor_strat_query( strat, &ids[ 0 ].key );
+
+  for( uint i=0U; i<FD_ROTOR_STRAT_BYID_MAX-1U; i++ ) {
+    FD_TEST( !fd_rotor_strat_request_expired( strat, &a->id_key, 100L, 1 ) );
+    fd_rotor_strat_request_done( strat, &a->id_key, 1000000L, 0 ); /* positional replies do not reset it */
+  }
+  FD_TEST( fd_rotor_strat_request_expired( strat, &a->id_key, 100L, 1 )==1 );
+  FD_TEST( a->ban_ts==100L && !a->byid_expired_cnt );
+
+  /* A by-id expiry that ends a run of any kind is not a by-id ban. */
+
+  fd_rotor_strat_peer_t * b = fd_rotor_strat_query( strat, &ids[ 1 ].key );
+  for( uint i=0U; i<FD_ROTOR_STRAT_EXPIRED_MAX-1U; i++ ) FD_TEST( !fd_rotor_strat_request_expired( strat, &b->id_key, 100L, 0 ) );
+  FD_TEST( fd_rotor_strat_request_expired( strat, &b->id_key, 100L, 1 )==-1 );
+  b->ban_ts = 0L;
+
+  for( uint i=0U; i<FD_ROTOR_STRAT_BYID_MAX-1U; i++ ) FD_TEST( !fd_rotor_strat_request_expired( strat, &a->id_key, 200L, 1 ) );
+  fd_rotor_strat_request_done( strat, &a->id_key, 1000000L, 1 );
+  FD_TEST( !fd_rotor_strat_request_expired( strat, &a->id_key, 200L, 1 ) );
+  FD_TEST( a->ban_ts==100L );
+
+  /* Many draws: only staked, available and not avoided; high stake
+     drawn more often. */
+
+  fd_rotor_strat_request_failed( strat, &ids[ 3 ].key, 1000L ); /* banned */
+  ulong hit[ 4 ] = {0};
+  for( ulong i=0UL; i<4000UL; i++ ) {
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, 1UL, fd_ulong_hash( i ) );
+    ulong slot = (ulong)( peer-strat->cur.peers );
+    FD_TEST( peer && slot<4UL && slot!=1UL && slot!=3UL );
+    hit[ slot ]++;
+    fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
+  }
+  FD_TEST( hit[ 0 ]>hit[ 2 ] );
+
+  /* With the top rank avoided and the lowest banned, the higher of the
+     two left is still drawn more often. */
+
+  hit[ 1 ] = hit[ 2 ] = 0UL;
+  for( ulong i=0UL; i<4000UL; i++ ) {
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, 0UL, fd_ulong_hash( i ) );
+    ulong slot = (ulong)( peer-strat->cur.peers );
+    FD_TEST( slot==1UL || slot==2UL );
+    hit[ slot ]++;
+    fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
+  }
+  FD_TEST( hit[ 1 ]>hit[ 2 ] );
+  for( ulong i=0UL; i<3UL; i++ ) fd_rotor_strat_request_failed( strat, &ids[ i ].key, 1000L );
+  FD_TEST( !fd_rotor_strat_pick_staked( strat, 200L, ULONG_MAX, 7UL ) ); /* the unstaked peer is never drawn */
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -231,6 +297,7 @@ main( int     argc,
   test_inflight_and_remove();
   test_turbine();
   test_retry_spread();
+  test_byid_and_stuck();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

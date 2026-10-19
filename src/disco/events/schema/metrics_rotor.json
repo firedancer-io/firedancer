@@ -167,10 +167,13 @@
         "timeout_cancelled":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeouts dropped because their block is gone or their work is done" },
         "timeout_no_peer_deferred":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeouts deferred because no peer could be picked" },
         "request_hedged":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Request attempts after the first for the same timer" },
-        "request_expired":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Pending requests with no response after about 1 s (PENDING_TTL); the peer is not banned, pending-pool evictions not counted" },
+        "request_expired":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted" },
         "ping_probe_tx":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Requests sent to elicit a ping from a peer with a new address" },
         "eager_delay_nanos":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled)" },
         "sign_request_pending":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Messages in the sign pool waiting for a signature from the sign tiles" },
-        "catchup_slot":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot past the window with a verified cert, the staked catchup target, 0 if none" }
+        "catchup_slot":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot past the window with a verified cert, the staked catchup target, 0 if none" },
+        "request_by_id_expired":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "WindowIndexForBlockId requests that expired unanswered, at or above the root" },
+        "request_stuck_escaped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set" },
+        "peer_by_id_banned":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies" }
     }
 }

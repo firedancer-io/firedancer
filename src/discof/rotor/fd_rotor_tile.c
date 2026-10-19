@@ -39,6 +39,8 @@ struct timeout {
   uchar  tag;       /* FD_ROTOR_SERDE_TAG_*, WINDOW_INDEX for any FEC set */
   uchar  attempt;
   ushort last_peer; /* 1+strat slot of the peer last asked, 0 if none */
+  uint   rcvd;      /* the FEC set's rcvd at the last attempt */
+  uint   stuck;     /* attempts in a row that brought no new shred */
 };
 typedef struct timeout timeout_t;
 FD_STATIC_ASSERT( FD_ROTOR_STRAT_PEER_MAX<USHORT_MAX, last_peer );
@@ -122,9 +124,10 @@ typedef struct sign sign_t;
 #define DEQUE_T    fd_pubkey_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
-#define PING_TTL (500L*1000000L)   /* a ping is answered this long after we sent its peer a request, Agave's 2*DELTA */
-#define BAN_TTL  (10L*1000000000L) /* a peer whose response fails to verify is not picked for this long */
-#define NO_PEER  (10L*1000000L)    /* a req with no peer to pick waits this long */
+#define PING_TTL  (500L*1000000L)   /* a ping is answered this long after we sent its peer a request, Agave's 2*DELTA */
+#define BAN_TTL   (10L*1000000000L) /* a peer whose response fails to verify is not picked for this long */
+#define STUCK_MAX (3U)              /* attempts with no new shred before a retry leaves the bucket order */
+#define NO_PEER   (10L*1000000L)    /* a req with no peer to pick waits this long */
 
 static fd_ed25519_sig_t const sig_null = {0};
 
@@ -264,6 +267,9 @@ struct fd_rotor_tile {
     ulong      req_no_peer;
     ulong      req_hedged;
     ulong      req_expired;
+    ulong      req_stuck_escaped;
+    ulong      peer_byid_banned;
+    ulong      byid_expired;
     fd_histf_t response_latency[ 1 ];
     fd_histf_t retry_delay[ 1 ];
   } metrics[ 1 ];
@@ -522,7 +528,7 @@ handle_shred( fd_rotor_tile_t * ctx,
     pending_t * pending = reply ? pending_map_ele_query( ctx->pending_map, &key, NULL, ctx->pending_pool ) : NULL;
     for( ; pending; pending = (pending_t *)pending_map_ele_next_const( pending, NULL, ctx->pending_pool ) ) {
       if( FD_LIKELY( fd_rnonce_ss_compute( ctx->rnonce_ss, normal, slot, shred->idx, pending->ts )!=msg->rnonce ) ) continue;
-      fd_rotor_strat_request_done( ctx->strat, &pending->peer, now-pending->ts );
+      fd_rotor_strat_request_done( ctx->strat, &pending->peer, now-pending->ts, pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
       fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-pending->ts ) );
       ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
       fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
@@ -757,7 +763,7 @@ handle_parent_and_fec_set_count_res( fd_rotor_tile_t *    ctx,
     fd_rotor_strat_request_failed( ctx->strat, &sent.peer, now+BAN_TTL );
     return;
   }
-  fd_rotor_strat_request_done( ctx->strat, &sent.peer, now-sent.ts );
+  fd_rotor_strat_request_done( ctx->strat, &sent.peer, now-sent.ts, 0 );
   fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
   ctx->metrics->parent_fec_count_ok++;
 
@@ -799,7 +805,7 @@ handle_fec_set_root_res( fd_rotor_tile_t *    ctx,
     fd_rotor_strat_request_failed( ctx->strat, &sent.peer, now+BAN_TTL );
     return;
   }
-  fd_rotor_strat_request_done( ctx->strat, &sent.peer, now-sent.ts );
+  fd_rotor_strat_request_done( ctx->strat, &sent.peer, now-sent.ts, 0 );
   fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
   ctx->metrics->fec_root_ok++;
 
@@ -891,6 +897,9 @@ metrics_write( fd_rotor_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, TIMEOUT_NO_PEER_DEFERRED, ctx->metrics->req_no_peer   );
   FD_MCNT_SET( ROTOR, REQUEST_HEDGED,           ctx->metrics->req_hedged    );
   FD_MCNT_SET( ROTOR, REQUEST_EXPIRED,          ctx->metrics->req_expired   );
+  FD_MCNT_SET( ROTOR, REQUEST_BY_ID_EXPIRED,    ctx->metrics->byid_expired      );
+  FD_MCNT_SET( ROTOR, REQUEST_STUCK_ESCAPED,    ctx->metrics->req_stuck_escaped );
+  FD_MCNT_SET( ROTOR, PEER_BY_ID_BANNED,        ctx->metrics->peer_byid_banned  );
 
   FD_MCNT_SET      ( ROTOR, SHRED_OLD_IGNORED, ctx->metrics->shred_old );
   FD_MCNT_ENUM_COPY( ROTOR, SHRED_RX,          ctx->metrics->shred_rx  );
@@ -1009,7 +1018,9 @@ after_credit( fd_rotor_tile_t *   ctx,
        and meta requests left unanswered bans the peer. */
 
     int answerable = pending->slot>ctx->rotor->root && pending->tag!=FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX && pending->tag!=FD_ROTOR_SERDE_TAG_ORPHAN;
-    if( FD_LIKELY( answerable ) ) fd_rotor_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL );
+    int byid = pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID;
+    ctx->metrics->byid_expired += (ulong)( answerable && byid );
+    if( FD_LIKELY( answerable ) ) ctx->metrics->peer_byid_banned += (ulong)( fd_rotor_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid )==1 );
     else                          fd_rotor_strat_request_failed ( ctx->strat, &pending->peer, 0           );
     ctx->metrics->req_expired++;
     pending_dlist_ele_pop_head ( ctx->pending_dlist, ctx->pending_pool );
@@ -1078,7 +1089,15 @@ after_credit( fd_rotor_tile_t *   ctx,
       continue;
     }
 
-    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick( ctx->strat, now, !blk->eager && req.attempt, (ulong)req.last_peer-1UL ); /* a retry asks someone else */
+    /* A retry asks someone else.  After STUCK_MAX attempts that brought
+       no new shred, the fastest peers are not answering: pick a staked
+       peer at random instead. */
+    uint rcvd   = fec ? fec->rcvd : 0U;
+    uint stuck  = fd_uint_if( req.attempt && !( rcvd & ~req.rcvd ), req.stuck+1U, 0U ); /* only new shreds are progress, not an eviction; kept only once sent */
+    int  escape = stuck>=STUCK_MAX && !blk->eager;
+    fd_rotor_strat_peer_t * peer = escape ? fd_rotor_strat_pick_staked( ctx->strat, now, (ulong)req.last_peer-1UL, fd_rng_ulong( ctx->rng ) ) : NULL;
+    ctx->metrics->req_stuck_escaped += (ulong)!!peer;
+    if( FD_LIKELY( !peer ) ) peer = fd_rotor_strat_pick( ctx->strat, now, !blk->eager && req.attempt, (ulong)req.last_peer-1UL );
     if( FD_UNLIKELY( !peer ) ) {
       ctx->metrics->req_no_peer++;
       req.timeout = now+NO_PEER;
@@ -1086,6 +1105,8 @@ after_credit( fd_rotor_tile_t *   ctx,
       break;
     }
     peer->ping_ts = now;
+    req.stuck     = stuck;
+    req.rcvd      = rcvd;
 
     uint nonce = fd_rng_uint( ctx->rng );
     while( meta && pending_map_ele_query_const( ctx->pending_map, &(ulong){ nonce }, NULL, ctx->pending_pool ) ) nonce = fd_rng_uint( ctx->rng );

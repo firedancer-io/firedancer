@@ -2313,7 +2313,10 @@
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;cancelled</span> | counter | Timeouts dropped because their block is gone or their work is done |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;no_&#8203;peer_&#8203;deferred</span> | counter | Timeouts deferred because no peer could be picked |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;hedged</span> | counter | Request attempts after the first for the same timer |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;expired</span> | counter | Pending requests with no response after about 1 s (PENDING_TTL); the peer is not banned, pending-pool evictions not counted |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;expired</span> | counter | Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;by_&#8203;id_&#8203;expired</span> | counter | WindowIndexForBlockId requests that expired unanswered, at or above the root |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;stuck_&#8203;escaped</span> | counter | Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set |
+| <span class="metrics-name">rotor_&#8203;peer_&#8203;by_&#8203;id_&#8203;banned</span> | counter | Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;probe_&#8203;tx</span> | counter | Requests sent to elicit a ping from a peer with a new address |
 | <span class="metrics-name">rotor_&#8203;eager_&#8203;delay_&#8203;nanos</span> | gauge | Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled) |
 | <span class="metrics-name">rotor_&#8203;sign_&#8203;request_&#8203;pending</span> | gauge | Messages in the sign pool waiting for a signature from the sign tiles |
