@@ -3049,9 +3049,8 @@ test_stream_mode( void ) {
   pub0 = test_pub_cnt;
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( test_pub_cnt==pub0+n+1UL );
-  FD_TEST( test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_DONE ) && test_pub_out_idx[ pub0 ]==0UL );
-  for( ulong i=1UL; i<=n; i++ ) FD_TEST( test_pub_sig[ pub0+i ]==FD_SNAPSHOT_MSG_CTRL_DONE );
+  FD_TEST( test_pub_cnt==pub0+n );
+  for( ulong i=0UL; i<n; i++ ) FD_TEST( test_pub_sig[ pub0+i ]==FD_SNAPSHOT_MSG_CTRL_DONE );
   FD_TEST( test_accdb_advance_root_cnt==1UL && test_accdb_load_end_cnt==1UL && test_feature_restore_cnt==1UL );
 
   test_cluster_delete( cl );
@@ -3077,9 +3076,8 @@ test_stream_ends_early( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
   FD_TEST( test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) );
-  FD_TEST( test_pub_sig[ pub0+1UL ]==fd_ssmsg_sig( FD_SSMSG_DONE ) );
-  FD_TEST( test_pub_sig[ pub0+2UL ]==FD_SNAPSHOT_MSG_CTRL_DONE );
-  FD_TEST( test_pub_cnt==pub0+n+2UL );
+  FD_TEST( test_pub_sig[ pub0+1UL ]==FD_SNAPSHOT_MSG_CTRL_DONE );
+  FD_TEST( test_pub_cnt==pub0+n+1UL );
   FD_TEST( test_accdb_advance_root_cnt==1UL && test_accdb_load_end_cnt==1UL && test_feature_restore_cnt==1UL );
   test_cluster_delete( cl );
 }
@@ -3211,11 +3209,11 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( cl->ctx[ 0 ].lead.accdb_incr_fork_id.val==USHORT_MAX );
   FD_TEST( test_stake_publish_cnt==1UL && test_stake_publish_fork==3U ); /* stake fork published */
   FD_TEST( test_stake_evict_cnt==2UL && test_stake_evict_fork==3U );     /* and released */
-  /* n DONE acks plus tile 0's REPLAY_READY and DONE on snapin_manif. */
-  FD_TEST( test_pub_cnt==pub0+n+2UL );
+  /* n DONE acks plus tile 0's REPLAY_READY on snapin_manif. */
+  FD_TEST( test_pub_cnt==pub0+n+1UL );
   ulong manif_pubs = 0UL;
   for( ulong i=pub0; i<test_pub_cnt; i++ ) manif_pubs += test_pub_out_idx[ i ]==0UL;
-  FD_TEST( manif_pubs==2UL );
+  FD_TEST( manif_pubs==1UL );
 
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
   for( ulong t=0UL; t<n; t++ ) {

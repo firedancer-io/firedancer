@@ -1733,6 +1733,11 @@ fd_accdb_cmd_pending( fd_accdb_t const * accdb ) {
   return FD_VOLATILE_CONST( accdb->shmem->cmd_op )!=FD_ACCDB_CMD_IDLE;
 }
 
+int
+fd_accdb_snapshot_loading( fd_accdb_t const * accdb ) {
+  return FD_VOLATILE_CONST( accdb->shmem->snapshot_loading );
+}
+
 void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {

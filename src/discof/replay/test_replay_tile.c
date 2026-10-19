@@ -249,6 +249,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
 #define fd_accdb_cmd_pending(a)              ( (a) ? (fd_accdb_cmd_pending)(a) : 0 )
+#define fd_accdb_snapshot_loading(a)         ( (a) ? (fd_accdb_snapshot_loading)(a) : 0 )
 #define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
@@ -1268,7 +1269,6 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ulong slot_seq0 = test_stem_seqs[ ctx->slot_out->idx ];
   mock_snapshot_boot = 1;
   on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) );
-  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
   mock_snapshot_boot = 0;
   fd_metrics_tl = saved_metrics_tl;
   FD_TEST( root->accdb_fork_id.val==37U );

@@ -247,6 +247,12 @@ fd_accdb_advance_root( fd_accdb_t *       accdb,
 int
 fd_accdb_cmd_pending( fd_accdb_t const * accdb );
 
+/* fd_accdb_snapshot_loading returns 1 while a snapshot or fast boot
+   stream is being loaded, 0 otherwise. */
+
+int
+fd_accdb_snapshot_loading( fd_accdb_t const * accdb );
+
 /* fd_accdb_purge removes the provided fork and all of its descendants
    from the accounts database.  This is an extremely rare operation,
    used to handle cases where a leader equivocated and produced two

@@ -1803,6 +1803,15 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
   int reprocess_frag = ctx->in[ in_idx ].pos<sz;
   if( FD_LIKELY( !reprocess_frag ) ) ctx->in[ in_idx ].pos = 0UL;
+
+  /* If we're reading a stream and replay started, flush any records
+     ASAP so replay doesn't stay waiting for accounts that have already
+     been loaded. */
+  if( FD_UNLIKELY( ctx->lead.flags.replay_started && writer_flush( ctx ) ) ) {
+    transition_malformed( ctx, stem );
+    return 0;
+  }
+
   return reprocess_frag;
 }
 
@@ -2117,7 +2126,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fold_account_counts( ctx );
         root_fork( ctx, &ctx->lead.accdb_full_fork_id );
         fd_accdb_snapshot_load_end( ctx->accdb );
-        fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->lead.init_completed = 0;
         break;
       }
@@ -2162,7 +2170,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL );
-      fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ),         0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->lead.init_completed = 0;
       break;
     }
@@ -2521,12 +2528,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
     1. snapin_ct    - worst case: 1 message (ack or unsolicited ERROR)
-    2. snapin_manif - worst case: 2 messages (tile 0 only: REPLAY_READY, DONE)
+    2. snapin_manif - worst case: 1 message (tile 0 only)
     3. snapin_gui   - worst case: 1 message (config program account)
    The STEM_BURST is the max value across these 3 links (not the sum).
    Note that snapin_txn is excluded from this calculation, since it is
    an unreliable link, working as a dcache place holder. */
-#define STEM_BURST 2UL
+#define STEM_BURST 1UL
 
 #define STEM_LAZY  (128L*3000L)
 

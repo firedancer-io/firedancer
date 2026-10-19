@@ -381,7 +381,6 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SNAP: {
-      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) return 0;
       if( FD_LIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_REPLAY_READY ) ) {
         uchar first_buf[ FD_SHRED_MAX_SZ ];
         ulong first_sz = ctx->src ? ctx->src->vt->first_shred( ctx->src, first_buf, sizeof(first_buf) ) : 0UL;
