@@ -556,8 +556,7 @@ test_notarized_shreds_build_eager( void ) {
   FD_TEST( !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) );
   FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
   FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
-  fd_rotor_deque_t a0 = fd_rotor_deque_pop_head( rotor->reasm_deque ), b0 = fd_rotor_deque_pop_head( rotor->reasm_deque ); /* both versions consumed FEC set 0 */
-  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
+  expect( rotor, e1, 0U ); /* the notar blk was held behind the eager blk */
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -567,11 +566,10 @@ test_notarized_shreds_build_eager( void ) {
 /* Slot 2's turbine version names slot 1's block before slot 1's
    turbine version completes, so it waits unlinked.  Slot 1 equivocates
    and never completes, slot 1's repaired version adopts it, it names
-   it, so both of slot 2's versions deliver FEC set 0 under it: replay
-   builds the turbine version on a bank of its own (it keys it by slot)
-   and abandons the repaired version's.  When slot 2's turbine version
-   then completes as the same block, it survives the merge as the slot's
-   turbine blk and delivers the rest. */
+   it, so slot 2's turbine version delivers FEC set 0 under it while its
+   repaired version, holding the same FEC sets, is held.  When slot 2's
+   turbine version then completes as the same block, it survives the
+   merge as the slot's turbine blk and delivers the rest. */
 
 static void
 test_twin_merge_ahead( void ) {
@@ -612,9 +610,8 @@ test_twin_merge_ahead( void ) {
   fd_rotor_fec_notarized( rotor, 2UL, &d2, 0U,               &k20, 0L );
   fd_rotor_fec_notarized( rotor, 2UL, &d2, FD_FEC_SHRED_CNT, &k21, 0L );
   complete( rotor, 2UL, 1UL, 0U, 0, &m20 );
-  expect( rotor, n2, 0U );
-  expect( rotor, e2, 0U );
-  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+  expect( rotor, e2, 0U ); /* the notar blk is held behind the eager blk */
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) && !n2->cons_fec_cnt );
 
   complete( rotor, 2UL, 1UL, 1U, 1, &m21 );
   FD_TEST( !memcmp( &e2->dmr, &d2, sizeof(fd_mr32_t) ) );
@@ -1322,6 +1319,7 @@ test_notar_out_of_order( void ) {
 
   fd_rotor_t *     rotor = setup();
   fd_rotor_blk_t * n     = notar( rotor, 1UL, 0x10 );
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L ); /* the notar blk alone builds the block */
   parented( rotor, 1UL, 0x10, 0UL, 0xEE, 3U );
   fecs    ( rotor, 1UL, 0x10, 3U );
   mr = hash( 0x13 ); complete( rotor, 1UL, 0UL, 2U, 1, &mr );
@@ -1335,6 +1333,7 @@ test_notar_out_of_order( void ) {
 
   rotor = setup();
   n     = notar( rotor, 1UL, 0x10 );
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
   fecs( rotor, 1UL, 0x10, 2U );
   mr = hash( 0x12 ); complete( rotor, 1UL, 0UL, 1U, 1, &mr );
   mr = hash( 0x11 ); complete( rotor, 1UL, 0UL, 0U, 0, &mr );
@@ -1345,6 +1344,7 @@ test_notar_out_of_order( void ) {
 
   rotor = setup();
   n     = notar( rotor, 1UL, 0x10 );
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
   fecs( rotor, 1UL, 0x10, 3U );
   mr = hash( 0x11 ); complete( rotor, 1UL, 0UL, 0U, 0, &mr );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1359,7 +1359,8 @@ test_notar_out_of_order( void ) {
 }
 
 /* A FEC set held by both the eager blk and a notar blk of the slot is
-   delivered for both, in blk_map chain order. */
+   delivered once, for the eager blk, while that blk is live.  When the
+   eager blk is invalidated, the notar blk delivers it. */
 
 static void
 test_shared_fec( void ) {
@@ -1373,13 +1374,18 @@ test_shared_fec( void ) {
   ulong            one   = 1UL;
   fd_rotor_blk_t * e1    = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   FD_TEST( e1!=n1 && !rotor->slot_meta[ one % rotor->slot_max ].invalidated );
-  expect( rotor, n1, 0U ); expect( rotor, e1, 0U );
+  expect( rotor, e1, 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) && !n1->cons_fec_cnt );
+
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  expect( rotor, n1, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   orphan_cnt( rotor );
 }
 
-/* A notar blk notarizes a FEC set the eager blk already completed.  No
-   completion follows, so the notarization itself delivers it. */
+/* A notar blk notarizes a FEC set the eager blk already completed and
+   delivered.  The notar blk is held: the eager blk carries the block.
+   Once the eager blk is invalidated, the notar blk delivers it. */
 
 static void
 test_notarized_complete_fec( void ) {
@@ -1395,7 +1401,10 @@ test_notarized_complete_fec( void ) {
   fd_rotor_blk_t * n1 = notar( rotor, 1UL, 0x10 );
   parented( rotor, 1UL, 0x10, 0UL, 0xEE, 2U );
   fecs    ( rotor, 1UL, 0x10, 1U );
-  FD_TEST( n1->buff_fec_cnt==1U );
+  FD_TEST( n1->buff_fec_cnt==1U && !n1->cons_fec_cnt );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
   expect( rotor, n1, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   orphan_cnt( rotor );
@@ -1500,16 +1509,14 @@ test_finalize_moves_child( void ) {
   FD_TEST( fd_rotor_fec_notarized( rotor, 1UL, &d1, 0U,               &k0, 0L ) );
   FD_TEST( fd_rotor_fec_notarized( rotor, 1UL, &d1, FD_FEC_SHRED_CNT, &k1, 0L ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
-  ulong            one    = 1UL;
-  ulong            n1_idx = fd_rotor_blk_pool_idx( rotor->blk_pool, n1 );
-  fd_rotor_blk_t * e1     = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  ulong            one = 1UL;
+  fd_rotor_blk_t * e1  = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   FD_TEST( e1 && e1!=n1 );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
   FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].final==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
-  fd_rotor_deque_t a0 = fd_rotor_deque_pop_head( rotor->reasm_deque ), b0 = fd_rotor_deque_pop_head( rotor->reasm_deque ); /* both versions consumed FEC set 0 */
-  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
+  expect( rotor, e1, 0U ); /* the notar blk was held behind the eager blk */
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1723,6 +1730,9 @@ test_fork( void ) {
   fd_rotor_blk_t * a     = notar( rotor, 1UL, 0x10 );
   fd_rotor_blk_t * b     = notar( rotor, 2UL, 0x20 );
   fd_rotor_blk_t * c     = notar( rotor, 3UL, 0x30 );
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  fd_rotor_slot_invalidated( rotor, 2UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  fd_rotor_slot_invalidated( rotor, 3UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
   parented( rotor, 1UL, 0x10, 0UL, 0xEE, 1U );
   parented( rotor, 2UL, 0x20, 1UL, 0x10, 1U );
   parented( rotor, 3UL, 0x30, 1UL, 0x10, 2U );
@@ -1857,6 +1867,9 @@ test_root_advanced( void ) {
   fd_rotor_blk_t * a     = notar( rotor, 1UL, 0x10 );
   fd_rotor_blk_t * b     = notar( rotor, 2UL, 0x20 );
   fd_rotor_blk_t * c     = notar( rotor, 3UL, 0x30 );
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  fd_rotor_slot_invalidated( rotor, 2UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+  fd_rotor_slot_invalidated( rotor, 3UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
   parented( rotor, 1UL, 0x10, 0UL, 0xEE, 2U );
   parented( rotor, 2UL, 0x20, 1UL, 0x10, 2U );
   parented( rotor, 3UL, 0x30, 2UL, 0x20, 2U );
@@ -1946,6 +1959,9 @@ test_perm_notar_chain( void ) {
     blks[ 0 ] = notar( rotor, 1UL, 0x10 );
     blks[ 1 ] = notar( rotor, 2UL, 0x20 );
     blks[ 2 ] = notar( rotor, 3UL, 0x30 );
+    fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+    fd_rotor_slot_invalidated( rotor, 2UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
+    fd_rotor_slot_invalidated( rotor, 3UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
     fecs( rotor, 1UL, 0x10, 2U );
     fecs( rotor, 2UL, 0x20, 1U );
     fecs( rotor, 3UL, 0x30, 1U );
@@ -2020,6 +2036,7 @@ static void
 test_leader_first( void ) {
   fd_rotor_t *     rotor = setup();
   fd_rotor_blk_t * a     = notar( rotor, 1UL, 0x10 );
+  fd_rotor_slot_invalidated( rotor, 1UL, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, 0L );
   parented( rotor, 1UL, 0x10, 0UL, 0xEE, 2U );
   fecs    ( rotor, 1UL, 0x10, 2U );
   fd_mr32_t mr;
