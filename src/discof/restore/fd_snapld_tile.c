@@ -31,6 +31,11 @@
    once it answered that nothing new is there yet. */
 #define FD_SNAPLD_STREAM_RETRY_NS (50L*1000L*1000L) /* 50 milliseconds */
 
+/* How long polls of a caught up fast boot stream may keep failing
+   before the load fails.  Replay is running by then, so a short
+   network blip is retried from the current offset instead. */
+#define FD_SNAPLD_STREAM_GIVE_UP_NS (30L*1000L*1000L*1000L) /* 30 seconds */
+
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
    for later decompression. */
@@ -54,8 +59,9 @@ typedef struct fd_snapld_tile {
   struct {
     int   active;
     int   caught_up;
-    ulong off;  /* bytes of the stream read so far */
-    long  wait; /* when to ask for more, LONG_MAX while a request runs */
+    ulong off;     /* bytes of the stream read so far */
+    long  wait;    /* when to ask for more, LONG_MAX while a request runs */
+    long  give_up; /* when to stop retrying failed polls */
   } stream;
 
   ulong  bytes_in_batch;
@@ -295,6 +301,21 @@ transition_malformed( fd_snapld_tile_t *  ctx,
   fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
+/* handle_connection_failure asks a caught up fast boot stream for its
+   bytes again from the current offset, since replay is already running
+   and must not restart.  Returns 0 when this is not a caught up stream
+   or its requests have failed for too long, the caller fails the load
+   then. */
+static int
+handle_connection_failure( fd_snapld_tile_t * ctx,
+                           long               now ) {
+  if( FD_LIKELY( !ctx->stream.caught_up || now>=ctx->stream.give_up ) ) return 0;
+  fd_sshttp_cancel( ctx->sshttp );
+  ctx->window_deadline = LONG_MAX;
+  ctx->stream.wait     = now+FD_SNAPLD_STREAM_RETRY_NS;
+  return 1;
+}
+
 static int
 check_download_progress( fd_snapld_tile_t *  ctx,
                          fd_stem_context_t * stem,
@@ -316,6 +337,7 @@ check_download_progress( fd_snapld_tile_t *  ctx,
                        "is below the minimum download speed %u MiB/s, cancelling download",
                        download_speed_mibs, FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9,
                        ctx->load_full ? "full" : "incremental", ctx->config.min_download_speed_mibs ));
+      if( FD_UNLIKELY( handle_connection_failure( ctx, now ) ) ) return -1;
       transition_malformed( ctx, stem );
       fd_sshttp_cancel( ctx->sshttp );
       return -1;
@@ -378,7 +400,7 @@ after_credit( fd_snapld_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->stream.wait!=LONG_MAX ) ) {
       if( FD_LIKELY( now<ctx->stream.wait ) ) return;
       if( FD_UNLIKELY( fd_sshttp_resume( ctx->sshttp, now, ctx->stream.off ) ) ) {
-        transition_malformed( ctx, stem );
+        if( FD_LIKELY( !handle_connection_failure( ctx, now ) ) ) transition_malformed( ctx, stem );
         return;
       }
       ctx->stream.wait = LONG_MAX;
@@ -510,6 +532,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         if( FD_UNLIKELY( ctx->stream.active ) ) {
           ctx->window_deadline = LONG_MAX;
           ctx->stream.wait     = now;
+          ctx->stream.give_up  = now+FD_SNAPLD_STREAM_GIVE_UP_NS;
           break;
         }
         FD_LOG_INFO(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
@@ -521,7 +544,8 @@ after_credit( fd_snapld_tile_t *  ctx,
           ctx->stream.caught_up = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, 0UL, 0UL, 0UL );
         }
-        ctx->stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
+        ctx->stream.wait    = now+FD_SNAPLD_STREAM_RETRY_NS;
+        ctx->stream.give_up = now+FD_SNAPLD_STREAM_GIVE_UP_NS;
         break;
       case FD_SSHTTP_ADVANCE_NOT_FOUND:
         if( FD_UNLIKELY( !ctx->stream.active ) ) {
@@ -539,6 +563,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       case FD_SSHTTP_ADVANCE_ERROR:
+        if( FD_UNLIKELY( handle_connection_failure( ctx, now ) ) ) break;
         FD_LOG_WARNING(( "HTTP advance error during %s snapshot download, entering error state",
                          ctx->load_full ? "full" : "incremental" ));
         transition_malformed( ctx, stem );

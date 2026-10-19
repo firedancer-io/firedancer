@@ -278,6 +278,12 @@ test_stream( void ) {
   FD_TEST( publish_cnt==4UL && ctx->stream.wait!=LONG_MAX );
   ctx->stream.wait = 0L;
 
+  /* The server drops a poll: asked again from the same offset. */
+  serve_one( ctx, server, "Range: bytes=8-\r\n", "" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==4UL && ctx->stream.wait!=LONG_MAX );
+  ctx->stream.wait = 0L;
+
   /* More bytes. */
   serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 8-11/12\r\nContent-Length: 4\r\n\r\nmore" );
   drive_until( ctx, &ctx->stream.off, 12UL );
@@ -287,6 +293,10 @@ test_stream( void ) {
   serve_one( ctx, server, "Range: bytes=12-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
   drive_until( ctx, &publish_cnt, 6UL );
   FD_TEST( publish_sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE && ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+
+  /* Past the give up time a failed poll is not retried. */
+  ctx->stream.give_up = 0L;
+  FD_TEST( !handle_connection_failure( ctx, 1L ) );
 
   fd_sshttp_cancel( http );
   FD_TEST( !close( server ) );
