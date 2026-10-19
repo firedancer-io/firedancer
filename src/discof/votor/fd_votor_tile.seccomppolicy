@@ -1,12 +1,18 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
 #
-# dir_fd: The directory holding the vote history file.
+# vote_history_fd_dir: The directory holding the vote history file.
 #
-# vote_history_fd_0, vote_history_fd_1: The staging and live vote
-#                                       history files.  They swap roles
-#                                       after every write.
-uint logfile_fd, uint dir_fd, uint vote_history_fd_0, uint vote_history_fd_1
+# vote_history_fd_swp, vote_history_fd: The staging and live vote
+#                                       history files.  They swap
+#                                       roles after every write.
+#
+# vote_history_fd_bak: The spare, the .bin.bak of the identity last
+#                      switched away from, or the boot identity's at
+#                      boot.  A switch hands it to the new identity as
+#                      its staging file.  The three files rotate roles
+#                      at a switch.
+uint logfile_fd, uint vote_history_fd_dir, uint vote_history_fd_swp, uint vote_history_fd, uint vote_history_fd_bak
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -27,31 +33,38 @@ fsync: (eq (arg 0) logfile_fd)
 #               staging file
 #
 # The staging and live names are exchanged after every write, so the
-# live file is always complete.  After an identity switch, the files
-# are renamed to the new identity, and a file that already has that
-# name is moved to an .old name.  A rename that replaces a file is not
-# allowed.
+# live file is always complete.  A switch renames the old identity's
+# live file to its .bin.bak and the spare to the new identity's staging
+# file, after moving any live file already at the new identity's name
+# to its .bin.bak.  The first write after the switch renames the
+# staging file to the new identity's live file and the old identity's
+# staging file to the new identity's.  vote_history_fd_dir is the vote
+# history directory, by default the base directory.
 #
 # arg 0 and arg 2 are the directory file descriptors of the two names.
-# arg 4 is the flags, RENAME_EXCHANGE (2) for a write, or
-# RENAME_NOREPLACE (1) for a rename.
-renameat2: (and (eq (arg 0) dir_fd)
-                (eq (arg 2) dir_fd)
-                (or (eq (arg 4) 1)
+# arg 4 is the flags, RENAME_EXCHANGE (2) for a write, 0 for a rename,
+# or RENAME_NOREPLACE (1) to detect a file copied in at the new
+# identity's name on the first write after a switch.
+renameat2: (and (eq (arg 0) vote_history_fd_dir)
+                (eq (arg 2) vote_history_fd_dir)
+                (or (eq (arg 4) 0)
+                    (eq (arg 4) 1)
                     (eq (arg 4) 2)))
 
 # vote history: write the vote history file to the staging file
 #
 # arg 0 is the file descriptor to write to.
-pwritev2: (or (eq (arg 0) vote_history_fd_0)
-              (eq (arg 0) vote_history_fd_1))
+pwritev2: (or (eq (arg 0) vote_history_fd_swp)
+              (eq (arg 0) vote_history_fd)
+              (eq (arg 0) vote_history_fd_bak))
 
 # vote history: the staging file might be longer than the new vote
 # history so the staging file is truncated to its size.
 #
 # arg 0 is the file descriptor to truncate.
-ftruncate: (or (eq (arg 0) vote_history_fd_0)
-               (eq (arg 0) vote_history_fd_1))
+ftruncate: (or (eq (arg 0) vote_history_fd_swp)
+               (eq (arg 0) vote_history_fd)
+               (eq (arg 0) vote_history_fd_bak))
 
 # QUIC uses getrandom for cryptographically secure randomness.
 getrandom

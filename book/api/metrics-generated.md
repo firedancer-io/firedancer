@@ -2551,8 +2551,7 @@
 | <span class="metrics-name">votor_&#8203;server_&#8203;service_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one fd_quic_service call that processed a due connection timer |
 | <span class="metrics-name">votor_&#8203;server_&#8203;pkt_&#8203;rx_&#8203;duration_&#8203;nanos</span> | histogram | Duration of processing one received packet |
 | <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;written</span> | counter | Times the vote history file was written |
-| <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;slot</span> | gauge | Root of the last written vote history file, which votor waits to vote past, 0 if not written yet |
-| <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;size_&#8203;bytes</span> | gauge | Size of the last written vote history file |
+| <span class="metrics-name">votor_&#8203;wait_&#8203;to_&#8203;vote_&#8203;slot</span> | gauge | First slot votor may vote in, past the vote history file and the votes it sent |
 
 </div>
 

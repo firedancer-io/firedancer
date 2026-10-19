@@ -47,7 +47,7 @@ union fdctl_args {
     int     force;
     uchar const * keypair;
     char    name[ 64UL ];
-    ulong   wait_to_vote_slot;
+    ulong   vote_history_slot;
     uchar   tower_file[ FD_TOWER_FILE_MAX ];
     ulong   tower_file_sz;
   } set_identity;
