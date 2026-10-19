@@ -11583,6 +11583,8 @@ message MetricsVotor {
   uint64 wait_to_vote_slot = 99;
   // Leader windows given up because certificates already let a later window start, eg. while catching up after a restart
   uint64 leader_window_superseded = 100;
+  // Certificates and standstill votes not sent because we are not staked in their epoch
+  uint64 cert_tx_unstaked_skipped = 101;
 }
 
 // Metrics of one gui tile instance, one row per sweep

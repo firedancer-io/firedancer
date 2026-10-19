@@ -103,6 +103,15 @@ ag_votor_process_replay( ag_votor_t *            self,
                          ulong                   slot,
                          ag_block_info_t const * block_info );
 
+/* ag_votor_set_catchup_vote_slot raises the first slot worth a vote
+   while catching up, from verified certs past the pool window.  Below
+   it, state still advances, but votes are not signed and certs not
+   broadcast. */
+
+void
+ag_votor_set_catchup_vote_slot( ag_votor_t * self,
+                                ulong        slot );
+
 /* Algorithm 1, lines 6-8. Votor::handle_timeout_event */
 
 void

@@ -2021,6 +2021,7 @@ static void
 test_standstill( void ) {
   static fd_votor_tile_t ctx[1];
   memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx->id_key.uc[ 0 ] = 1;
   ctx->vote_history_fd_dir = -1;
   fd_clock_tile_init( ctx->clock );
 
@@ -2055,6 +2056,8 @@ test_standstill( void ) {
   ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, 0UL, 0UL, NULL );
   ctx->shred_version = 1;
   ctx->init          = 1;
+  peer_t * self = test_peer( ctx, 1, 0 ); /* staked, so standstill items are sent */
+  self->next_rank = 0;
 
   ag_cert_t skip1  = standstill_cert( AG_CERT_KIND_SKIP,  1UL );
   ag_cert_t notar2 = standstill_cert( AG_CERT_KIND_NOTAR, 2UL );
@@ -2134,6 +2137,18 @@ test_standstill( void ) {
   FD_TEST( ag_cert_slot( &ctx->standstill_iter->cert )==3UL && ctx->standstill_iter->cert.kind==AG_CERT_KIND_SKIP );
   standstill_pass( ctx );
   FD_TEST( ag_pool_standstill_iter_done( ctx->standstill_iter ) );
+  FD_TEST( !ctx->metrics.cert_tx_unstaked ); /* every item went out */
+
+  /* Unstaked, each item is skipped but the bundle still advances.
+     Stale items are skipped ahead of the stake check. */
+
+  self->curr_rank = USHORT_MAX;
+  self->next_rank = USHORT_MAX;
+  standstill_pass( ctx );
+  FD_TEST( !ag_pool_standstill_iter_done( ctx->standstill_iter ) && ctx->metrics.cert_tx_unstaked==1UL );
+  ctx->catchup_vote_slot = 4UL;
+  standstill_pass( ctx );
+  FD_TEST( ag_pool_standstill_iter_done( ctx->standstill_iter ) && ctx->metrics.cert_tx_unstaked==1UL );
 
   reconn_prq_delete( reconn_prq_leave( ctx->reconn_prq ) );
   free( pool_mem );
@@ -2377,6 +2392,7 @@ static void
 test_leader_window_superseded( void ) {
   static fd_votor_tile_t ctx[1];
   memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx->id_key.uc[ 0 ] = 1;
   ctx->vote_history_fd_dir = -1;
   fd_clock_tile_init( ctx->clock );
 
