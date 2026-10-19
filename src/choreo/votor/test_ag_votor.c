@@ -704,6 +704,37 @@ test_prunes_to_finalized_window( void ) {
   teardown_votor( votor );
 }
 
+/* While catching up, replayed blocks below the catch-up vote slot still
+   chain but are not signed, and their certs are not returned for
+   broadcast.  From that slot on, votor votes again. */
+
+static void
+test_catchup_final_suppresses_stale( void ) {
+  ag_votor_t *  votor  = setup_votor( 0L );
+  ag_block_id_t parent = genesis_block_id();
+  ag_votor_set_catchup_vote_slot( votor, AG_SLOTS_PER_WINDOW ); /* a final cert at W+7 */
+
+  ag_vote_t vote;
+  for( ulong slot=1UL; slot<AG_SLOTS_PER_WINDOW; slot++ ) {
+    ag_block_info_t block = {0};
+    random_hash( block.hash );
+    block.parent = parent;
+    ag_votor_process_replay( votor, slot, &block );
+    FD_TEST( !try_recv( votor, &vote ) && has_voted( votor, slot ) );
+    parent = ag_block_id( slot, block.hash );
+  }
+
+  ag_vote_t       notar = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, parent.slot, parent.hash, (ushort)1, TEST_SHRED_VERSION );
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_notar( &notar.notar, 1UL, g_epoch_info ) };
+  FD_TEST( !ag_votor_handle_pool_event( votor, &event, 0L ) );
+  FD_TEST( !try_recv( votor, &vote ) ); /* no final either */
+
+  parent_ready( votor, AG_SLOTS_PER_WINDOW, &parent );
+  send_block_and_expect_notar( votor, AG_SLOTS_PER_WINDOW, &parent );
+
+  teardown_votor( votor );
+}
+
 /* A final cert 8 slots ahead moves first_unpruned_slot to window start
    8, whose parents are in the window below.  A block at 8 that replays
    after that still gets its notar vote, both when the parent's cert
@@ -859,6 +890,7 @@ main( int     argc,
   test_boot_mid_window_notar_child();
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
+  test_catchup_final_suppresses_stale();
   test_timeout_below_final();
   test_arm_cannot_reanchor_timeouts();
   test_init_does_not_arm();

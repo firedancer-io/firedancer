@@ -560,6 +560,7 @@
             }
         },
         "wait_to_vote_slot":                   { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "First slot votor may vote in, past the vote history file and the votes it sent" },
-        "leader_window_superseded":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up because certificates already let a later window start, eg. while catching up after a restart" }
+        "leader_window_superseded":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up because certificates already let a later window start, eg. while catching up after a restart" },
+        "cert_tx_unstaked_skipped":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Certificates and standstill votes not sent because we are not staked in their epoch" }
     }
 }

@@ -299,6 +299,8 @@ struct fd_votor_tile {
   ulong                      highest_parent_ready_slot;
   ulong                      highest_certed_final_slot; /* highest slot whose final cert was published paired with its notar cert */
   ulong                      catchup_slot;              /* highest slot past the pool window with a verified cert, 0 if none */
+  ulong                      catchup_final_slot;        /* same, for a final or fast-final cert */
+  ulong                      catchup_vote_slot;         /* first slot worth a vote or cert while catching up: slot_max behind catchup_slot, or the first whose reward block follows catchup_final_slot */
 
   /* Alpenglow data structures */
 
@@ -381,6 +383,7 @@ struct fd_votor_tile {
     ulong bls_verify;
     ulong vote_history_write;
     ulong leader_window_superseded;
+    ulong cert_tx_unstaked;
   } metrics;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
@@ -1034,6 +1037,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( cert_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( cert_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     if( FD_UNLIKELY( epoch_info && bit_cnt>epoch_info->validator_cnt ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX ]++; return; }
 
+    int  final             = cert->kind==AG_CERT_KIND_FINAL || cert->kind==AG_CERT_KIND_FAST_FINAL;
     long verify_start_time = fd_clock_tile_now( ctx->clock );
     switch( ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, 0, ctx->scratch.bad ) ) {
     case AG_POOL_SUCCESS:
@@ -1042,7 +1046,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       break;
     case AG_POOL_ERR_SLOT_TOO_OLD: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; break;
     case AG_POOL_ERR_SLOT_TOO_NEW:
-      if( FD_LIKELY( cert_slot<=ctx->catchup_slot || cert_slot>=ctx->next_epoch_slot+ctx->slots_per_epoch ) ) break;
+      if( FD_LIKELY( ( cert_slot<=ctx->catchup_slot && ( !final || cert_slot<=ctx->catchup_final_slot ) ) || cert_slot>=ctx->next_epoch_slot+ctx->slots_per_epoch ) ) break;
       ctx->metrics.bls_verify++;
       if( FD_UNLIKELY( ag_cert_verify( cert, epoch_info )!=AG_CERT_VERIFY_SUCCESS ) ) {
         ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++;
@@ -1052,6 +1056,16 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       }
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_NEW, verify_start_time, 0L );
+      if( FD_UNLIKELY( final ) ) ctx->catchup_final_slot = cert_slot;
+      ulong vote_slot = fd_ulong_max( fd_ulong_sat_sub( cert_slot+1UL, ctx->slot_max ), fd_ulong_if( final, fd_ulong_sat_sub( cert_slot+1UL, AG_REWARD_SLOT_DELTA ), 0UL ) );
+      if( FD_UNLIKELY( vote_slot>ctx->catchup_vote_slot ) ) {
+        ctx->catchup_vote_slot = vote_slot;
+        ag_votor_set_catchup_vote_slot( ctx->votor, vote_slot );
+        for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
+          if( FD_UNLIKELY( ctx->reward_votes[ i ].slot<vote_slot ) ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+        }
+      }
+      if( FD_UNLIKELY( cert_slot<=ctx->catchup_slot ) ) break;
       ctx->catchup_slot = cert_slot;
       fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
       chunk->repair = (fd_votor_repair_t){ .slot = cert_slot };
@@ -1879,6 +1893,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MGAUGE_SET( VOTOR, HIGHEST_POOL_FINALIZED_SLOT,       fd_ulong_if( pool_metrics.finalized_slot!=ULONG_MAX, pool_metrics.finalized_slot, 0UL ) );
   FD_MCNT_SET  ( VOTOR, BLS_SIGNATURE_CHECKED,             pool_metrics.bls_verify_cnt+ctx->metrics.bls_verify );
   FD_MCNT_SET  ( VOTOR, LEADER_WINDOW_SUPERSEDED,          ctx->metrics.leader_window_superseded );
+  FD_MCNT_SET  ( VOTOR, CERT_TX_UNSTAKED_SKIPPED,          ctx->metrics.cert_tx_unstaked );
 
   peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   ulong rank = self && self->curr_rank!=USHORT_MAX ? self->curr_rank : ULONG_MAX;
@@ -1964,6 +1979,22 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_SET        ( VOTOR, SERVER_FRAME_PARSE_FAILED,           ctx->quic_server->metrics.frame_rx_err_cnt        );
   FD_MHIST_COPY      ( VOTOR, SERVER_SERVICE_DURATION_NANOS,       ctx->quic_server->metrics.service_duration        );
   FD_MHIST_COPY      ( VOTOR, SERVER_PKT_RX_DURATION_NANOS,        ctx->quic_server->metrics.receive_duration        );
+}
+
+/* cert_tx_skip returns 1 if a cert or standstill vote for slot should
+   not be sent: stale while catching up, or we are unstaked in its epoch
+   (peers only accept staked conns). */
+
+static int
+cert_tx_skip( fd_votor_tile_t * ctx,
+              ulong             slot ) {
+  if( FD_UNLIKELY( slot<ctx->catchup_vote_slot ) ) return 1;
+  peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
+  if( FD_UNLIKELY( !self || USHORT_MAX==fd_ushort_if( slot>=ctx->next_epoch_slot, self->next_rank, fd_ushort_if( slot>=ctx->curr_epoch_slot, self->curr_rank, self->prev_rank ) ) ) ) {
+    ctx->metrics.cert_tx_unstaked++;
+    return 1;
+  }
+  return 0;
 }
 
 /* after_credit is the tile's event loop.  Each step handles at most
@@ -2078,7 +2109,7 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_pool_event_t const * event = &ctx->scratch.pool_event;
     ag_cert_t const * broadcast = NULL;
     if( FD_LIKELY( event->kind!=AG_POOL_EVENT_IMPLICITLY_FINALIZED && event->kind!=AG_POOL_EVENT_IMPLICITLY_SKIPPED ) ) broadcast = ag_votor_handle_pool_event( ctx->votor, event, now );
-    if( FD_UNLIKELY( broadcast ) ) {
+    if( FD_UNLIKELY( broadcast && !cert_tx_skip( ctx, ag_cert_slot( broadcast ) ) ) ) {
       ulong ser_sz               = ag_cert_ser( broadcast, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
       for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
@@ -2214,7 +2245,7 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
     ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, vote_slot );
-    if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot+ctx->slot_max>ctx->catchup_slot && !blst_p2_affine_is_inf( ag_vote_sig( &ctx->scratch.vote ) ) ) ) {
+    if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot>=ctx->catchup_vote_slot && !blst_p2_affine_is_inf( ag_vote_sig( &ctx->scratch.vote ) ) ) ) {
       if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
       ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
@@ -2285,7 +2316,9 @@ after_credit( fd_votor_tile_t *   ctx,
   ag_pool_standstill_iter_t * standstill_iter = ctx->standstill_iter;
   if( FD_UNLIKELY( standstill_iter->finalized!=finalized_slot ) ) FD_LOG_WARNING(( "standstill at finalized slot %lu, re-broadcasting", finalized_slot ));
   if( FD_UNLIKELY( ag_pool_standstill_iter_done( standstill_iter ) || standstill_iter->finalized!=finalized_slot ) ) ag_pool_standstill_iter_init( standstill_iter, ctx->pool );
-  if( FD_LIKELY( !ag_pool_standstill_iter_done( standstill_iter ) ) ) {
+  if( FD_LIKELY( !ag_pool_standstill_iter_done( standstill_iter ) && cert_tx_skip( ctx, standstill_iter->is_vote ? ag_vote_slot( &standstill_iter->vote ) : ag_cert_slot( &standstill_iter->cert ) ) ) ) {
+    ag_pool_standstill_iter_next( standstill_iter, ctx->pool );
+  } else if( FD_LIKELY( !ag_pool_standstill_iter_done( standstill_iter ) ) ) {
     ulong ser_sz = standstill_iter->is_vote ? ag_vote_ser( &standstill_iter->vote, ctx->scratch.ser ) : ag_cert_ser( &standstill_iter->cert, ctx->scratch.ser );
     for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
@@ -2603,6 +2636,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_certed_final_slot = 0UL;
   ctx->catchup_slot              = 0UL;
+  ctx->catchup_final_slot        = 0UL;
+  ctx->catchup_vote_slot         = 0UL;
   ctx->slot_max                  = tile->votor.max_live_slots;
   ctx->standstill_slot           = ULONG_MAX;
   ctx->standstill_ts             = LONG_MAX;
