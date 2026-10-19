@@ -1121,6 +1121,7 @@ deliberate exception with lint-allow="<rule id>")
 
     <counter name="FecPollSkipped" enum="FecPollSkipReason" summary="Replay loop iterations that processed no FEC set, by reason" />
     <counter name="FecParentMissingDropped" summary="FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past" />
+    <counter name="FecRootedPastSkipped" summary="Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them" />
     <counter name="RootAdvanceDeferred" summary="Times the storage root could not advance to the consensus root yet" />
 
     <counter name="ProgcacheRooted" summary="Program cache entries rooted" />
