@@ -765,6 +765,13 @@ test_control_publication_counts( void ) {
   send_control( env, FD_SNAPSHOT_MSG_LOAD_COMPLETE );
   FD_TEST( !test_pub_cnt );
 
+  /* Caught up goes on to snapin, and does not reset the frame state. */
+  env->ctx->dirty = 1;
+  send_control( env, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
+  FD_TEST( test_pub_cnt==1UL && test_pub[0].sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP && env->ctx->dirty );
+  env->ctx->dirty = 0;
+  capture_reset( env );
+
   fd_memset( env->meta, 0, sizeof(fd_ssctrl_meta_t) );
   fd_memcpy( env->in, env->meta, sizeof(fd_ssctrl_meta_t) );
   send_control( env, FD_SNAPSHOT_MSG_META );
@@ -775,6 +782,8 @@ test_control_publication_counts( void ) {
   FD_TEST( test_pub_cnt==2UL );
   FD_TEST( test_pub[1].sig==FD_SNAPSHOT_MSG_CTRL_ERROR );
   send_control( env, FD_SNAPSHOT_MSG_CTRL_DONE );
+  FD_TEST( test_pub_cnt==2UL );
+  send_control( env, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
   FD_TEST( test_pub_cnt==2UL );
   send_control( env, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( test_pub_cnt==3UL );

@@ -502,6 +502,28 @@ change_partition( fd_accdb_t *           accdb,
                   int *                  has_partition,
                   uchar                  layer );
 
+/* wait_for_partition_switch waits for the writer whose reservation
+   crossed the end of the layer-0 partition to finish switching the
+   head away from it.
+
+   A switch is detected by the head moving to a different partition
+   index OR its offset dropping back to a valid position (a switch
+   resets the offset to 0).  We must not key the wait solely on the
+   index changing: the initial write head is a sentinel whose packed
+   index can coincide with a real pool index. */
+
+static inline void
+wait_for_partition_switch( fd_accdb_t *           accdb,
+                           accdb_offset_t const * stale ) {
+  ulong stale_partition = packed_partition_idx( stale );
+  for(;;) {
+    accdb_offset_t cur = { .val = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val ) };
+    if( packed_partition_idx( &cur )!=stale_partition ) break;
+    if( packed_partition_offset( &cur )<=accdb->shmem->partition_sz ) break;
+    FD_SPIN_PAUSE();
+  }
+}
+
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   fd_accdb_flush_metrics( accdb );
@@ -511,16 +533,20 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
      layer 0 head to a new hot partition. */
   ulong const cold = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
   if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] ) ) {
-    if( FD_LIKELY( !accdb->shmem->has_partition[ cold ] ) ) {
-      accdb_offset_t snap_head = accdb->shmem->whead[ 0 ];
-      int            no_head   = 0;
-      change_partition( accdb, &snap_head, &accdb->shmem->whead[ 0 ], &no_head, 0 );
+    /* Avoid partition switching races with replay since it may be
+       running concurrently. */
+    accdb_offset_t before = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, accdb->shmem->partition_sz+1UL ) };
+    if( FD_UNLIKELY( packed_partition_offset( &before )>accdb->shmem->partition_sz ) ) {
+      wait_for_partition_switch( accdb, &before );
+    } else if( FD_LIKELY( !accdb->shmem->has_partition[ cold ] ) ) {
+      int no_head = 0;
+      change_partition( accdb, &before, &accdb->shmem->whead[ 0 ], &no_head, 0 );
       spin_lock_acquire( &accdb->shmem->partition_lock );
-      accdb->shmem->whead[ cold ]         = snap_head;
+      accdb->shmem->whead[ cold ]         = before;
       accdb->shmem->has_partition[ cold ] = 1;
       spin_lock_release( &accdb->shmem->partition_lock );
     } else {
-      change_partition( accdb, &accdb->shmem->whead[ 0 ], &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
+      change_partition( accdb, &before, &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
     }
   }
 
@@ -1981,21 +2007,8 @@ reserve_next_write( fd_accdb_t * accdb,
       /* This can happen if another thread also raced to allocate the
          next write and won.  Wait for the partition switch to finish
          before retrying, so we do not keep doing fetch-and-adds that
-         advance the offset further past the boundary.
-
-         A switch is detected by the head moving to a different
-         partition index OR its offset dropping back to a valid position
-         (a switch resets the offset to 0).  We must not key the wait
-         solely on the index changing: the initial write head is a
-         sentinel whose packed index can coincide with a real pool
-         index. */
-      ulong stale_partition = packed_partition_idx( &offset );
-      for(;;) {
-        accdb_offset_t cur = { .val = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val ) };
-        if( packed_partition_idx( &cur )!=stale_partition ) break;
-        if( packed_partition_offset( &cur )<=accdb->shmem->partition_sz ) break;
-        FD_SPIN_PAUSE();
-      }
+         advance the offset further past the boundary. */
+      wait_for_partition_switch( accdb, &offset );
       continue;
     }
 
@@ -4303,7 +4316,7 @@ int
 fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               fd_accdb_fork_id_t  fork_id,
                               int                 is_incremental,
-                              int                 allow_same_slot_duplicates,
+                              int                 skip_duplicates,
                               ulong               cnt,
                               uchar const * const pubkeys[],
                               ulong  const        slots[],
@@ -4352,7 +4365,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
 
   /* Phase 1b: reject same-slot duplicate pubkeys. */
 
-  if( !allow_same_slot_duplicates ) {
+  if( !skip_duplicates ) {
     for( ulong i=1UL; i<cnt; i++ ) {
       for( ulong j=0UL; j<i; j++ ) {
         if( FD_UNLIKELY( hashes[ j ]==hashes[ i ] && slots[ j ]==slots[ i ] &&
@@ -4417,7 +4430,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
           continue;
         }
 
-        if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] || ((ulong)candidate->cache_idx==slots[ i ] && allow_same_slot_duplicates) ) ) {
+        if( FD_LIKELY( skip_duplicates || (ulong)candidate->cache_idx>slots[ i ] ) ) {
           skip = 1;
         } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: duplicate account at slot %lu", slots[ i ] ));

@@ -2516,14 +2516,20 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                      ulong               chunk,
                      ulong               sig ) {
   ulong msg = fd_ssmsg_sig_message( sig );
-  if( FD_LIKELY( msg==FD_SSMSG_DONE ) ) {
+  if( FD_UNLIKELY( msg==FD_SSMSG_DONE ) ) {
+    ctx->snapin_active = 0;
+    return;
+  }
+
+  if( FD_LIKELY( msg==FD_SSMSG_REPLAY_READY ) ) {
     long snapshot_done_nanos = fd_log_wallclock();
 
     /* An end of message notification indicates the snapshot is loaded.
        Replay is able to start executing from this point onwards. */
     /* TODO: replay should finish booting. Could make replay a
        state machine and set the state here accordingly. */
-    ctx->is_booted = 1;
+    ctx->is_booted     = 1;
+    ctx->snapin_active = 1;
 
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
     if( FD_UNLIKELY( !bank ) ) {
@@ -3087,7 +3093,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     int is_new_block = fec->fec_set_idx==0U && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
-      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
+      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active && !ctx->strmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
       return PROCESS_FEC_WAIT;
     }
   }
@@ -3194,8 +3200,10 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
   /* accdb pauses advance_root while producing a snapshot, so submitting
-     one would stall the next wait_cmd until the snapshot completes. */
-  if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
+     one would stall the next wait_cmd until the snapshot completes.
+     Loading a fast boot stream holds the root at its start slot until
+     the snapin tiles are done. */
+  if( FD_UNLIKELY( ctx->snapmk.active || ctx->snapin_active ) ) return 0;
 
   /* Don't spin in advance_root on the previous root, replay instead and
      retry next iteration. */
@@ -3229,9 +3237,9 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
     if( target_bank->f.identity_vote_idx==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
   }
 
-  /* A fast boot stream holds the root at its start slot until the
-     next snapshot and stream are due.  Once the next snapshot is due,
-     have strmk end its current stream and start a new one. */
+  /* Serving a fast boot stream holds the root at its start slot until
+     the next snapshot and stream are due.  Once the next snapshot is
+     due, have strmk end its current stream and start a new one. */
   if( FD_UNLIKELY( ctx->strmk.active ) ) {
     int incremental;
     if( FD_UNLIKELY( !ctx->strmk.stopping &&
@@ -3353,7 +3361,7 @@ static int
 try_prune_bank( fd_replay_tile_t * ctx ) {
   /* A cancellation purges accdb, which would spin on a pending root.
      Check before popping the bank so the cancel info isn't lost. */
-  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
+  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) || ctx->snapin_active ) ) return 0;
 
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
 
@@ -4075,6 +4083,12 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( ctx->snapin_active ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but the fast boot stream is still loading. ignoring ..." ));
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+    return;
+  }
+
   /* A stream holds the published root; it ends for a scheduled snapshot. */
   if( FD_UNLIKELY( ctx->strmk.active ) ) {
     if( FD_UNLIKELY( ctx->snapmk.scheduled_at_slot!=ULONG_MAX ) ) {
@@ -4082,7 +4096,7 @@ admin_snap_create( fd_replay_tile_t *  ctx,
       admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
       return;
     }
-    
+
     ctx->snapmk.scheduled_at_slot = ctx->published_root_slot+1UL;
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
     return;
@@ -4659,6 +4673,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->drain_rotor_fecs      = 0;
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
   ctx->snapmk.active                        = 0;
+  ctx->snapin_active                        = 0;
   ctx->snapmk.supported                     = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
   ctx->snapmk.scheduled_at_slot             = ULONG_MAX;
   ctx->snapmk.full_interval_blocks          = tile->replay.full_snapshot_interval_blocks;

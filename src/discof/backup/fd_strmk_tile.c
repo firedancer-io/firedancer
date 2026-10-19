@@ -36,6 +36,7 @@
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../tango/fseq/fd_fseq.h"
 
@@ -48,7 +49,7 @@
 #define STRMK_COMP_BUF_SZ (1UL<<20)
 
 #define STRMK_WINDOW  (64UL)    /* slots a key is kept for when the pool is full */
-#define STRMK_KEY_MAX (1UL<<19) /* map key capacity */
+#define STRMK_KEY_MAX (1UL<<20) /* map key capacity */
 
 /* One account key a block touched.  While a stream is open, being in
    the set means the stream sent the key. */
@@ -333,9 +334,11 @@ strmk_stream_close( fd_strmk_t *        ctx,
                     fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->cur==UINT_MAX ) ) return;
   strmk_stream_t * stream = &ctx->stream[ ctx->cur ];
+  static uchar const end[ 2UL*FD_TAR_BLOCK_SZ ] = {0};
+  zip_push( ctx, stream, end, sizeof(end), ZSTD_e_end );
   FD_LOG_INFO(( "closing the fast boot stream at slot %lu (%lu bytes)", stream->start_slot, stream->file_sz ));
 
-  if( FD_LIKELY( stream->announced ) ) strmk_announce( ctx, stem, ctx->cur, FD_STRMK_MSG_CLOSE );
+  strmk_announce( ctx, stem, ctx->cur, FD_STRMK_MSG_CLOSE );
   stream->announced = 0;
   ctx->cur          = UINT_MAX;
 }
@@ -405,7 +408,7 @@ strmk_appendvec_add( fd_strmk_t *        ctx,
                      strmk_stream_t *    stream,
                      fd_pubkey_t const * key ) {
   if( FD_UNLIKELY( ctx->raw_sz+sizeof(snap_acc_hdr_t)+FD_RUNTIME_ACC_SZ_MAX>FD_SSMANIFEST_BUF_MIN ) ) strmk_appendvec_flush( ctx, stream );
-  
+
   snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw+ctx->raw_sz );
   memset( hdr, 0, sizeof(snap_acc_hdr_t) );
   hdr->pubkey = *key;
@@ -481,7 +484,7 @@ strmk_catch_up( fd_strmk_t *     ctx,
 }
 
 /* strmk_runtime_keys sends runtime-wide accounts (e.g. sysvars,
-   vote accounts, fee collectors, etc). */
+   feature gates, vote accounts, fee collectors). */
 
 static void
 strmk_runtime_keys( fd_strmk_t *     ctx,
@@ -502,6 +505,10 @@ strmk_runtime_keys( fd_strmk_t *     ctx,
     fd_pubkey_t key;
     fd_alpenglow_pda( seed[ i ], &key );
     strmk_send_key( ctx, &key, slot );
+  }
+
+  for( fd_feature_id_t const * id = fd_feature_iter_init(); !fd_feature_iter_done( id ); id = fd_feature_iter_next( id ) ) {
+    strmk_send_key( ctx, &id->id, slot );
   }
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );

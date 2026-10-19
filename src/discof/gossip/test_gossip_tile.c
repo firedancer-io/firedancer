@@ -16,7 +16,7 @@ test_sign_fn( void *        sign_ctx  FD_PARAM_UNUSED,
 static uchar * manifest_mem;
 
 /* Drives snapin_manif: the manifest carries the boot slot, the
-   FD_SSMSG_DONE that follows classifies it (see fd_wfs.h). */
+   FD_SSMSG_REPLAY_READY that follows classifies it (see fd_wfs.h). */
 
 static void
 wfs_manifest( ulong slot ) {
@@ -28,7 +28,7 @@ wfs_manifest( ulong slot ) {
 
 static void
 wfs_done( void ) {
-  FD_TEST( !returnable_frag( &ctx, 1UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( !returnable_frag( &ctx, 1UL, 0UL, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
 }
 
 /* Boots with the given WFS config, feeds a manifest at boot_slot and

@@ -940,8 +940,8 @@ stream_reset( fd_snapct_tile_t *  ctx,
   ctx->malformed = 0;
   fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
   ctx->flush_ack      = 0;
-  ctx->state          = FD_SNAPCT_STATE_FLUSHING_STREAM_RESET;
   ctx->deadline_nanos = now+FD_SNAPCT_STREAM_RETRY_NANOS;
+  set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_RESET );
   FD_LOG_WARNING(( "failed to load the fast boot stream from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                    FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
 }
@@ -1038,7 +1038,7 @@ after_credit( fd_snapct_tile_t *  ctx,
           break;
         }
         ctx->peer.addr = ctx->resolved_servers[ i ].addr;
-        ctx->state     = FD_SNAPCT_STATE_READING_STREAM;
+        set_state( ctx, FD_SNAPCT_STATE_READING_STREAM );
         init_load( ctx, stem, 1, 0 );
         break;
       }
@@ -1556,6 +1556,7 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
     case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET: {
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
+      if( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && now<ctx->deadline_nanos ) break;
 
       char const * kind = ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ? "fast boot stream" : "full snapshot";
       if( ctx->metrics.full.num_retries>=ctx->config.max_retry_abort ) {
@@ -1575,9 +1576,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->metrics.incremental.bytes_total   = 0UL;
 
       if( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) {
-        if( now<ctx->deadline_nanos ) break;
-
-        ctx->state = FD_SNAPCT_STATE_READING_STREAM;
+        set_state( ctx, FD_SNAPCT_STATE_READING_STREAM );
         init_load( ctx, stem, 1, 0 );
       } else if( !ctx->download_enabled ) {
         /* if we are unable to download new snapshots and unable to load
@@ -1716,7 +1715,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_UNLIKELY( ctx->load_complete ) ) {
         ctx->load_complete = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->state = FD_SNAPCT_STATE_FLUSHING_STREAM_FINI;
+        set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_FINI );
         ctx->flush_ack = 0;
       }
       break;
@@ -1730,7 +1729,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
-      ctx->state = FD_SNAPCT_STATE_FLUSHING_STREAM_DONE;
+      set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_DONE );
       fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->flush_ack = 0;
       break;
@@ -1745,7 +1744,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       log_completion( ctx, 1/*full*/ );
-      ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
+      set_state( ctx, FD_SNAPCT_STATE_SHUTDOWN );
       fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
 

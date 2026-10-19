@@ -172,7 +172,7 @@ struct fd_rotor_tile {
 
   /* Snapshot */
 
-  ulong     snapshot_slot;   /* root of the snapshot being loaded, applied at FD_SSMSG_DONE */
+  ulong     snapshot_slot;   /* root of the snapshot being loaded, applied at FD_SSMSG_REPLAY_READY */
   fd_mr32_t snapshot_blk_mr;
 
   /* Epoch metadata */
@@ -586,7 +586,7 @@ handle_snapshot( fd_rotor_tile_t * ctx,
     memcpy( ctx->snapshot_blk_mr.uc, manifest->block_id, sizeof(fd_mr32_t) );
     break;
   }
-  case FD_SSMSG_DONE:
+  case FD_SSMSG_REPLAY_READY:
     fd_rotor_init( ctx->rotor, ctx->snapshot_slot, &ctx->snapshot_blk_mr, report_block_received, ctx );
     break;
   default:
@@ -1220,7 +1220,7 @@ before_frag( fd_rotor_tile_t * ctx,
   }
   case IN_KIND_SNAP: {
     ulong msg = fd_ssmsg_sig_message( sig );
-    return msg!=FD_SSMSG_MANIFEST_FULL && msg!=FD_SSMSG_MANIFEST_INCREMENTAL && msg!=FD_SSMSG_DONE;
+    return msg!=FD_SSMSG_MANIFEST_FULL && msg!=FD_SSMSG_MANIFEST_INCREMENTAL && msg!=FD_SSMSG_REPLAY_READY;
   }
   case IN_KIND_VOTOR:
     if( FD_UNLIKELY( ctx->rotor->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */

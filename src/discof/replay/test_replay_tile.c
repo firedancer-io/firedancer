@@ -1258,6 +1258,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ulong seq0    = test_stem_seqs[ out_idx ];
   ulong slot_seq0 = test_stem_seqs[ ctx->slot_out->idx ];
   mock_snapshot_boot = 1;
+  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) );
   on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
   mock_snapshot_boot = 0;
   fd_metrics_tl = saved_metrics_tl;
@@ -3357,7 +3358,7 @@ snapshot_done( fd_replay_tile_t * ctx ) {
   volatile ulong * saved = fd_metrics_tl;
   fd_metrics_tl      = wfs_metrics;
   mock_snapshot_boot = 1;
-  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
+  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) );
   mock_snapshot_boot = 0;
   fd_metrics_tl      = saved;
 }
