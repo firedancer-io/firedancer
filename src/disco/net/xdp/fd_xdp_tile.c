@@ -468,8 +468,8 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
-  ctx->metrics.tx_busy_cnt = 0UL;
   ctx->metrics.tx_idle_cnt = fd_seq_diff( ctx->free_tx.prod, ctx->free_tx.cons );
+  ctx->metrics.tx_busy_cnt = (long)ctx->free_tx.depth - ctx->metrics.tx_idle_cnt;
   for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
     fd_xsk_t * xsk = &ctx->xsk[ j ];
     FD_COMPILER_MFENCE();
@@ -488,8 +488,6 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
     FD_COMPILER_MFENCE();
     ctx->metrics.rx_busy_cnt += (long)(int)( xsk->ring_rx.cached_prod - xsk->ring_rx.cached_cons );
     ctx->metrics.rx_idle_cnt += (long)(int)( xsk->ring_fr.cached_prod - xsk->ring_fr.cached_cons );
-    ctx->metrics.tx_busy_cnt += (long)(int)( xsk->ring_tx.cached_prod - xsk->ring_tx.cached_cons );
-    ctx->metrics.tx_busy_cnt += (long)(int)( xsk->ring_cr.cached_prod - xsk->ring_cr.cached_cons );
   }
 
   if( now > ctx->next_xdp_stats_refresh ) {
