@@ -2520,7 +2520,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( msg==FD_SSMSG_REPLAY_READY ) ) {
     long snapshot_done_nanos = fd_log_wallclock();
 
-    /* An end of message notification indicates the snapshot is loaded.
+    /* The snapshot is loaded, or a fast boot stream is caught up.
        Replay is able to start executing from this point onwards. */
     /* TODO: replay should finish booting. Could make replay a
        state machine and set the state here accordingly. */
@@ -2590,9 +2590,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       }
     }
 
-    /* Manifest message must arrive before DONE */
+    /* Manifest message must arrive before REPLAY_READY */
     if( FD_UNLIKELY( !ctx->has_expected_genesis_timestamp ) ) {
-      FD_LOG_CRIT(( "snapshot DONE received before manifest" ));
+      FD_LOG_CRIT(( "snapshot REPLAY_READY received before manifest" ));
     }
 
     /* FIXME: This is a hack when the block id of the snapshot slot

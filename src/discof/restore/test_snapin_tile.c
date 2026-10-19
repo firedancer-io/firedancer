@@ -3002,9 +3002,9 @@ test_verify_sysvars_gates_controls( void ) {
   }
 }
 
-/* A fast boot stream: FINI is fine without an end-of-archive marker,
-   the records go in with repeats allowed, and DONE does not check the
-   capitalization. */
+/* A fast boot stream: replay starts at caught up with the root held,
+   the records go in with repeats allowed, and DONE roots the fork
+   without checking the capitalization. */
 static void
 test_stream_mode( void ) {
   ulong const n = 2UL;
