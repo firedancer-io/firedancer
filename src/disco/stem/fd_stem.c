@@ -533,7 +533,7 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       *then = *now;
     } else {
       /* Credits only, nothing else is due yet. */
-      STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, (ulong)backpressured );
+      STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, 0UL );
       *then = *now + (long)async_min;
     }
   }

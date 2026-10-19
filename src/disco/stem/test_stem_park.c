@@ -301,7 +301,7 @@ main( int     argc,
   FD_TEST( !pthread_join( waker, NULL ) );
   FD_TEST( ctx.done );
   FD_TEST( ctx.bp_parks==BP_PARKS );
-  FD_TEST( slow[ 0 ]>=1UL ); /* backpressured wakes charge the slowest consumer */
+  FD_TEST( slow[ 0 ]<=1UL ); /* blame is charged at housekeeping (at most one in the window), not per backpressured park wake */
 
   /* The shutdown flush published out 0 and left out 1 alone */
   FD_TEST( fd_mcache_seq_query( fd_mcache_seq_laddr( out_mcache[ 0 ] ) )==ctx.pub_cnt );
