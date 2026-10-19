@@ -39,6 +39,7 @@ struct fd_mwaitx_tile {
   int   eventfd[ FD_SLEEP_TILE_MAX ];
 
   long  next_sweep; /* tick of the next deadline/sweep pass */
+  int   napped;     /* wakes go out on the stem iteration after a nap */
 
   ulong metrics_nap;
   ulong metrics_wake;
@@ -108,24 +109,25 @@ static void
 before_credit( fd_mwaitx_tile_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem;
-
-  long now = fd_tickcount();
-
-  /* Nap until a store lands on the doorbell line or the nap deadline
-     passes. */
-  long deadline = now+MWAITX_NAP_TICKS;
+  /* Nap and wake in separate stem iterations, so the nap is billed
+     idle and only the wakes are billed busy. */
+  if( FD_LIKELY( !ctx->napped ) ) {
+    long deadline = stem->now+MWAITX_NAP_TICKS;
 #if FD_HAS_X86
-  if(      FD_LIKELY( ctx->has_waitpkg ) ) idle_umwait( ctx->sleep->doorbell, deadline );
-  else if( FD_LIKELY( ctx->has_mwaitx  ) ) idle_mwaitx( ctx->sleep->doorbell, MWAITX_NAP_TICKS );
-  else
+    if(      FD_LIKELY( ctx->has_waitpkg ) ) idle_umwait( ctx->sleep->doorbell, deadline );
+    else if( FD_LIKELY( ctx->has_mwaitx  ) ) idle_mwaitx( ctx->sleep->doorbell, MWAITX_NAP_TICKS );
+    else
 #endif
-  while( FD_LIKELY( fd_tickcount()<deadline ) ) {
-    if( FD_UNLIKELY( doorbell_rung( ctx->sleep->doorbell ) ) ) break;
-    FD_SPIN_PAUSE();
-  }
+    while( FD_LIKELY( fd_tickcount()<deadline ) ) {
+      if( FD_UNLIKELY( doorbell_rung( ctx->sleep->doorbell ) ) ) break;
+      FD_SPIN_PAUSE();
+    }
 
-  ctx->metrics_nap++;
+    ctx->metrics_nap++;
+    ctx->napped = 1;
+    return;
+  }
+  ctx->napped = 0;
 
   /* Nap ended ... send wakes if any first for latency.  No need to wake
      if already woken, and snapshot the parked bits to avoid races. */
@@ -137,8 +139,10 @@ before_credit( fd_mwaitx_tile_t *   ctx,
     while( rung ) {
       ulong tid = (w<<6) + (ulong)fd_ulong_find_lsb( rung );
       rung &= rung-1UL;
-      if( FD_LIKELY( !FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) wake( ctx, tid, FD_SLEEP_UNPARK_RING );
-      *charge_busy = 1;
+      if( FD_LIKELY( !FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) {
+        wake( ctx, tid, FD_SLEEP_UNPARK_RING );
+        *charge_busy = 1;
+      }
     }
   }
 
@@ -148,8 +152,8 @@ before_credit( fd_mwaitx_tile_t *   ctx,
      parks untimed and relies on this pass for its cap, so every parked
      tile is visited every pass. */
 
-  if( FD_LIKELY( now<ctx->next_sweep ) ) return;
-  ctx->next_sweep = now+MWAITX_NAP_TICKS;
+  if( FD_LIKELY( stem->now<ctx->next_sweep ) ) return;
+  ctx->next_sweep = stem->now+MWAITX_NAP_TICKS;
 
   for( ulong w=0UL; w<FD_SLEEP_BITS_CNT; w++ ) {
     ulong parked = FD_VOLATILE_CONST( ctx->sleep->parked_bits[ w ] );
@@ -159,7 +163,7 @@ before_credit( fd_mwaitx_tile_t *   ctx,
       if( FD_UNLIKELY( FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) continue; /* already woken */
 
       int cause = -1;
-      if( FD_UNLIKELY( (long)FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].deadline )<=now ) ) {
+      if( FD_UNLIKELY( (long)FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].deadline )<=stem->now ) ) {
         cause = FD_SLEEP_UNPARK_DEADLINE;
         ctx->metrics_deadline++;
       } else if( FD_LIKELY( !(FD_VOLATILE_CONST( ctx->sleep->credit_bits[ w ] ) & (1UL<<(tid&63UL))) ) ) {
@@ -219,6 +223,7 @@ unprivileged_init( fd_topo_t const *      topo,
 #endif
 
   ctx->next_sweep       = 0L;
+  ctx->napped           = 0;
   ctx->metrics_nap      = 0UL;
   ctx->metrics_wake     = 0UL;
   ctx->metrics_deadline = 0UL;
