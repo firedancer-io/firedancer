@@ -539,8 +539,9 @@ report_alpenglow_cert( fd_votor_tile_t * ctx,
 }
 
 static void
-ban_peer( peer_t * peer,
-          long     now ) {
+ban_peer( fd_votor_tile_t * ctx,
+          peer_t *          peer,
+          long              now ) {
   FD_BASE58_ENCODE_32_BYTES( peer->id_key.uc, id_key_b58 );
   FD_LOG_WARNING(( "banning peer %s", id_key_b58 ));
   if( FD_LIKELY( peer->rx_conn ) ) {
@@ -554,6 +555,11 @@ ban_peer( peer_t * peer,
     peer->tx_conn = NULL;
   }
   peer->ban_ts = now;
+  if( FD_LIKELY( !peer->reconn_pending ) ) { /* redial outbound when the ban lapses */
+    reconn_t reconn = { .timeout = now+QUIC_BAN_TIMEOUT_NS, .id_key = peer->id_key };
+    reconn_prq_insert( ctx->reconn_prq, &reconn );
+    peer->reconn_pending = 1;
+  }
 }
 
 static void
@@ -569,7 +575,7 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
     fd_pubkey_t id_key; memcpy( id_key.uc, epoch_info->validators[ rank ].id_key, sizeof(ag_id_key_t) );
     peer_t * peer = peers_query( ctx->peers, id_key, NULL );
     if( FD_UNLIKELY( !peer || now<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) continue;
-    ban_peer( peer, now );
+    ban_peer( ctx, peer, now );
   }
 }
 
@@ -651,7 +657,15 @@ quic_client_connect( fd_votor_tile_t *      ctx,
     if( FD_UNLIKELY( root<ctx->next_epoch_slot && (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot>QUIC_CONN_AHEAD_NS ) ) return;
   }
   if( FD_UNLIKELY( peer->prev_rank==USHORT_MAX && peer->curr_rank==USHORT_MAX && peer->next_rank==USHORT_MAX ) ) return;
-  if( FD_UNLIKELY( peer->tx_conn || now<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) return;
+  if( FD_UNLIKELY( peer->tx_conn ) ) return;
+  if( FD_UNLIKELY( now<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) { /* redial when the ban lapses, nothing else would */
+    if( FD_LIKELY( !peer->reconn_pending ) ) {
+      reconn_t reconn = { .timeout = peer->ban_ts+QUIC_BAN_TIMEOUT_NS, .id_key = peer->id_key };
+      reconn_prq_insert( ctx->reconn_prq, &reconn );
+      peer->reconn_pending = 1;
+    }
+    return;
+  }
 
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
   if( FD_UNLIKELY( !conn ) ) {
@@ -924,7 +938,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     case AG_VOTE_DE_SUCCESS:   break;
     case AG_VOTE_DE_ERR_SZ:    ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_SIZE_IDX         ]++;                                              return;
     case AG_VOTE_DE_ERR_INVAL: ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_BAD_ENCODING_IDX     ]++;                                              return;
-    case AG_VOTE_DE_ERR_SIG:   ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++; ban_peer( peer, fd_clock_tile_now( ctx->clock ) ); return;
+    case AG_VOTE_DE_ERR_SIG:   ctx->metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++; ban_peer( ctx, peer, fd_clock_tile_now( ctx->clock ) ); return;
     default:                   FD_LOG_CRIT(( "unhandled ag_vote_de err %d", err ));
     }
     ag_vote_t * vote      = &ctx->scratch.vote;
@@ -1005,7 +1019,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       if( FD_UNLIKELY( ag_cert_verify( cert, epoch_info )!=AG_CERT_VERIFY_SUCCESS ) ) {
         ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++;
         report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY, verify_start_time, 0L );
-        ban_peer( peer, fd_clock_tile_now( ctx->clock ) );
+        ban_peer( ctx, peer, fd_clock_tile_now( ctx->clock ) );
         break;
       }
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++;
@@ -1023,7 +1037,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     case AG_POOL_ERR_CERT_VERIFY:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY, verify_start_time, 0L );
-      ban_peer( peer, fd_clock_tile_now( ctx->clock ) );
+      ban_peer( ctx, peer, fd_clock_tile_now( ctx->clock ) );
       break;
     default:
       FD_LOG_CRIT(( "unhandled kind" ));
