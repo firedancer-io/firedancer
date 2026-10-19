@@ -63,6 +63,7 @@
 
 #define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH             (0x3001UL)
 #define FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY         (0x3002UL)
+#define FD_SET_IDENTITY_RESULT_SAME_IDENTITY                (0x3003UL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -83,7 +84,7 @@ typedef struct fd_adminctl_snap_create_v1 fd_adminctl_snap_create_t;
 struct fd_adminctl_set_identity_v3 {
   ulong version;           /* ==FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION */
   uchar keypair[ 64UL ];
-  ulong wait_to_vote_slot; /* scanned by the command from the vote history file, 0 if none was provided */
+  ulong vote_history_slot; /* scanned by the command from the vote history file, 0 if none was provided */
   ulong tower_file_sz;     /* 0 if no tower file was provided */
   uchar tower_file[ FD_TOWER_FILE_MAX ];
 };

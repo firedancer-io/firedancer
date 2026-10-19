@@ -2029,9 +2029,10 @@ deliberate exception with lint-allow="<rule id>")
     <!-- Vote history file -->
 
     <counter name="VoteHistoryFileWritten" summary="Times the vote history file was written" />
-    <gauge name="VoteHistoryFileSlot" summary="Root of the last written vote history file, which votor waits to vote past, 0 if not written yet" />
-    <gauge name="VoteHistoryFileSizeBytes" summary="Size of the last written vote history file" />
+    <gauge name="VoteHistoryFileSlot" deprecated="true" summary="Root of the last written vote history file, which votor waits to vote past, 0 if not written yet" />
+    <gauge name="VoteHistoryFileSizeBytes" deprecated="true" summary="Size of the last written vote history file" />
     <counter name="VoteHistoryFileSkipped" deprecated="true" summary="Vote history writes skipped because the history was too large; the file is emptied until it fits" />
+    <gauge name="WaitToVoteSlot" summary="First slot votor may vote in, past the vote history file and the votes it sent" />
 </tile>
 
 <tile name="gui">
