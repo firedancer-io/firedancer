@@ -1051,6 +1051,7 @@ struct fd_gui_summary {
   ulong slot_estimated;
   ulong slot_caught_up;
   ulong slot_repair;
+  ulong slot_repair_max; /* highest slot of a repair shred before caught up, ULONG_MAX if none */
   ulong slot_turbine;
   ulong slot_reset;
   ulong slot_storage;

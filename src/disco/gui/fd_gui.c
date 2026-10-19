@@ -260,6 +260,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.slot_estimated                = ULONG_MAX;
   gui->summary.slot_caught_up                = ULONG_MAX;
   gui->summary.slot_repair                   = ULONG_MAX;
+  gui->summary.slot_repair_max               = ULONG_MAX;
   gui->summary.slot_turbine                  = ULONG_MAX;
   gui->summary.slot_reset                    = ULONG_MAX;
   gui->summary.slot_storage                  = ULONG_MAX;
@@ -1766,8 +1767,6 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now ) {
 
     fd_gui_printf_repair_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
-
-    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_run_length_slot( gui->summary.catch_up_repair, FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_repair_sz, slot );
   }
 }
 
@@ -1968,6 +1967,11 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
        overview slots vis correct.  TODO: do this properly using frags
        sent over a link */
     if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) fd_gui_sample_repair_slot( gui, now );
+    else if( FD_UNLIKELY( gui->summary.slot_repair_max!=ULONG_MAX && gui->summary.slot_repair_max!=gui->summary.slot_repair ) ) {
+      gui->summary.slot_repair = gui->summary.slot_repair_max;
+      fd_gui_printf_repair_slot( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
 
     if( FD_UNLIKELY( gui->snapsv.pending_cnt ) ) {
       fd_gui_printf_snapshot_transfers( gui );
@@ -2522,8 +2526,12 @@ fd_gui_handle_shred( fd_gui_t * gui,
 
   /* If we haven't caught up yet, update repair slot using received
      shreds. This is not technically correct, but close enough and will
-     make the progress bar look correct. */
-  if( FD_UNLIKELY( !is_turbine && gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_handle_repair_slot( gui, slot, tsorig );
+     make the progress bar look correct.  Published from the 50 ms poll,
+     a broadcast per shred floods viewers. */
+  if( FD_UNLIKELY( !is_turbine && gui->summary.slot_caught_up==ULONG_MAX ) ) {
+    gui->summary.slot_repair_max = fd_ulong_if( gui->summary.slot_repair_max==ULONG_MAX, slot, fd_ulong_max( gui->summary.slot_repair_max, slot ) );
+    fd_gui_try_insert_run_length_slot( gui->summary.catch_up_repair, FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_repair_sz, slot );
+  }
 
   if( FD_UNLIKELY( !was_sent && is_turbine && slot!=gui->summary.slot_turbine ) ) {
     gui->summary.slot_turbine = slot;
