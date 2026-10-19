@@ -1329,6 +1329,37 @@ test_reserve_write_dead_tail( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_snapshot_write_head: the loader writes through its own head,
+   never the hot one.  Its partitions are Cold.  When the load ends
+   its last partition becomes the cold write head, or is closed when
+   that head is taken. */
+static void
+test_snapshot_write_head( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 11UL<<20UL );
+  fd_accdb_shmem_t const *     shmem = test_shmem_mem;
+  fd_accdb_partition_t const * pool  = (fd_accdb_partition_t const *)( (uchar const *)shmem + shmem->partition_pool_off );
+  ulong const                  cold  = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
+
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong snap_idx = fd_accdb_snapshot_reserve_write( accdb, 8192UL, 0UL )/shmem->partition_sz;
+  FD_TEST( shmem->has_partition[ FD_ACCDB_SNAPSHOT_WHEAD ] && !shmem->has_partition[ 0 ] );
+  FD_TEST( pool[ snap_idx ].layer==cold );
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( !shmem->has_partition[ FD_ACCDB_SNAPSHOT_WHEAD ] );
+  FD_TEST( shmem->has_partition[ cold ] && packed_partition_idx( &shmem->whead[ cold ] )==snap_idx );
+  FD_TEST( packed_partition_offset( &shmem->whead[ cold ] )==8192UL );
+
+  /* The cold head is taken now, so the next load's partition is closed. */
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong next_idx = fd_accdb_snapshot_reserve_write( accdb, 8192UL, 0UL )/shmem->partition_sz;
+  FD_TEST( next_idx!=snap_idx );
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( packed_partition_idx( &shmem->whead[ cold ] )==snap_idx );
+  FD_TEST( pool[ next_idx ].write_offset==8192UL && pool[ next_idx ].bytes_freed==shmem->partition_sz-8192UL );
+  test_teardown( accdb, fd );
+}
+
 /* test_revert_whead: revert_whead releases partitions and restores
    disk_current_bytes.  Use a partition size close to the minimum and
    large account writes to deterministically allocate additional
@@ -2688,6 +2719,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_reserve_write_dead_tail ..." ));
   test_reserve_write_dead_tail();
+  FD_LOG_NOTICE(( "test_snapshot_write_head ..." ));
+  test_snapshot_write_head();
 
   FD_LOG_NOTICE(( "test_overwrite_same_fork ..." ));
   test_overwrite_same_fork();

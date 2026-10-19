@@ -416,7 +416,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 
   /* Write heads: sentinel values that force partition-switch on first
      write. */
-  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+  for( ulong k=0UL; k<FD_ACCDB_WHEAD_CNT; k++ ) {
     shmem->whead[ k ] = accdb_offset( shmem->partition_cnt, shmem->partition_sz );
     shmem->has_partition[ k ] = 0;
   }
@@ -495,66 +495,43 @@ fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
 }
 
-static inline void
-change_partition( fd_accdb_t *           accdb,
-                  accdb_offset_t const * offset_before,
-                  accdb_offset_t *       out_offset,
-                  int *                  has_partition,
-                  uchar                  layer );
-
-/* wait_for_partition_switch waits for the writer whose reservation
-   crossed the end of the layer-0 partition to finish switching the
-   head away from it.
-
-   A switch is detected by the head moving to a different partition
-   index OR its offset dropping back to a valid position (a switch
-   resets the offset to 0).  We must not key the wait solely on the
-   index changing: the initial write head is a sentinel whose packed
-   index can coincide with a real pool index. */
+/* close_partition records where writing to the partition at offset
+   stopped and counts its unused tail as dead.  Called with the
+   partition lock held. */
 
 static inline void
-wait_for_partition_switch( fd_accdb_t *           accdb,
-                           accdb_offset_t const * stale ) {
-  ulong stale_partition = packed_partition_idx( stale );
-  for(;;) {
-    accdb_offset_t cur = { .val = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val ) };
-    if( packed_partition_idx( &cur )!=stale_partition ) break;
-    if( packed_partition_offset( &cur )<=accdb->shmem->partition_sz ) break;
-    FD_SPIN_PAUSE();
-  }
+close_partition( fd_accdb_t *           accdb,
+                 accdb_offset_t const * offset,
+                 long                   now_ticks ) {
+  fd_accdb_partition_t * partition = partition_pool_ele( accdb->partition_pool, packed_partition_idx( offset ) );
+  ulong free_size = accdb->shmem->partition_sz - packed_partition_offset( offset );
+  partition->write_offset = packed_partition_offset( offset );
+  FD_ATOMIC_FETCH_AND_ADD( &partition->bytes_freed, free_size );
+  FD_VOLATILE( partition->filled_ticks ) = now_ticks;
+  /* The tail slack is now committed dead — count it as current
+     (written-through) so fragmentation reflects it. */
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, free_size );
 }
 
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   fd_accdb_flush_metrics( accdb );
 
-  /* Once the snapshot is done loading, the cold partition we were
-     writing into is left open as the layer 2 head, and we switch the
-     layer 0 head to a new hot partition. */
-  ulong const cold = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
-  if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] ) ) {
-    /* Avoid partition switching races with replay since it may be
-       running concurrently. */
-    accdb_offset_t before = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, accdb->shmem->partition_sz+1UL ) };
-    if( FD_UNLIKELY( packed_partition_offset( &before )>accdb->shmem->partition_sz ) ) {
-      wait_for_partition_switch( accdb, &before );
-    } else if( FD_LIKELY( !accdb->shmem->has_partition[ cold ] ) ) {
-      int no_head = 0;
-      change_partition( accdb, &before, &accdb->shmem->whead[ 0 ], &no_head, 0 );
-      spin_lock_acquire( &accdb->shmem->partition_lock );
-      accdb->shmem->whead[ cold ]         = before;
-      accdb->shmem->has_partition[ cold ] = 1;
-      spin_lock_release( &accdb->shmem->partition_lock );
-    } else {
-      change_partition( accdb, &before, &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
-    }
-  }
-
   spin_lock_acquire( &accdb->shmem->partition_lock );
-  if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] ) ) {
-    ulong new_idx = packed_partition_idx( &accdb->shmem->whead[ 0 ] );
-    fd_accdb_partition_t * newp = partition_pool_ele( accdb->partition_pool, new_idx );
-    FD_VOLATILE( newp->layer ) = 0;
+
+  /* Hand the snapshot whead's partition to the cold whead if it has
+     none yet.  Otherwise freeze it, the sweep below will compact it. */
+  ulong const snap_whead = FD_ACCDB_SNAPSHOT_WHEAD;
+  ulong const cold_whead = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
+  if( FD_LIKELY( accdb->shmem->has_partition[ snap_whead ] ) ) {
+    if( FD_LIKELY( !accdb->shmem->has_partition[ cold_whead ] ) ) {
+      accdb->shmem->whead[ cold_whead ]         = accdb->shmem->whead[ snap_whead ];
+      accdb->shmem->has_partition[ cold_whead ] = 1;
+    } else {
+      close_partition( accdb, &accdb->shmem->whead[ snap_whead ], (long)fd_tickcount() );
+    }
+    accdb->shmem->whead[ snap_whead ]         = accdb_offset( accdb->shmem->partition_cnt, accdb->shmem->partition_sz );
+    accdb->shmem->has_partition[ snap_whead ] = 0;
   }
 
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 0;
@@ -625,8 +602,8 @@ fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
   /* Flush metrics to update disk_current_bytes. */
   fd_accdb_flush_metrics( accdb );
 
-  out->whead_val          = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val );
-  out->has_partition      = FD_VOLATILE_CONST( accdb->shmem->has_partition[ 0 ] );
+  out->whead_val          = FD_VOLATILE_CONST( accdb->shmem->whead[ FD_ACCDB_SNAPSHOT_WHEAD ].val );
+  out->has_partition      = FD_VOLATILE_CONST( accdb->shmem->has_partition[ FD_ACCDB_SNAPSHOT_WHEAD ] );
   out->partition_max      = FD_VOLATILE_CONST( accdb->shmem->partition_max );
   out->disk_current_bytes = FD_VOLATILE_CONST( accdb->shmem->shmetrics->disk_current_bytes );
 
@@ -658,12 +635,12 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
      before releasing.  Closed partitions have write_offset set by
      change_partition, but the last active partition still has
      write_offset == 0 from its initialization.  The real byte offset
-     is encoded in whead[0]. */
-  if( shmem->has_partition[ 0 ] && cur_partition_max>recover->partition_max ) {
-    ulong active_idx = packed_partition_idx( &shmem->whead[ 0 ] );
+     is encoded in the loader's write head. */
+  if( shmem->has_partition[ FD_ACCDB_SNAPSHOT_WHEAD ] && cur_partition_max>recover->partition_max ) {
+    ulong active_idx = packed_partition_idx( &shmem->whead[ FD_ACCDB_SNAPSHOT_WHEAD ] );
     if( active_idx>=recover->partition_max && active_idx<cur_partition_max ) {
       fd_accdb_partition_t * active = partition_pool_ele( accdb->partition_pool, active_idx );
-      active->write_offset = packed_partition_offset( &shmem->whead[ 0 ] );
+      active->write_offset = packed_partition_offset( &shmem->whead[ FD_ACCDB_SNAPSHOT_WHEAD ] );
     }
   }
 
@@ -686,9 +663,9 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
     partition_pool_ele_release( accdb->partition_pool, part );
   }
 
-  shmem->whead[ 0 ].val     = recover->whead_val;
-  shmem->has_partition[ 0 ] = recover->has_partition;
-  shmem->partition_max      = recover->partition_max;
+  shmem->whead[ FD_ACCDB_SNAPSHOT_WHEAD ].val     = recover->whead_val;
+  shmem->has_partition[ FD_ACCDB_SNAPSHOT_WHEAD ] = recover->has_partition;
+  shmem->partition_max                            = recover->partition_max;
 
   /* disk_used_bytes is NOT saved/restored here.  It is implicitly
      reverted by purge_inner -> acc_unlink, which decrements
@@ -1934,26 +1911,12 @@ change_partition( fd_accdb_t *           accdb,
      move to the next one.  */
   spin_lock_acquire( &accdb->shmem->partition_lock );
   ulong partition_idx_before = packed_partition_idx( offset_before );
-  ulong partition_offset_before = packed_partition_offset( offset_before );
-  if( FD_LIKELY( *has_partition ) ) {
-    fd_accdb_partition_t * before = partition_pool_ele( accdb->partition_pool, partition_idx_before );
-    before->write_offset = partition_offset_before;
-  }
 
   /* Single rdtsc per partition lifecycle event: stamp the closing
      partition's filled time and the new partition's created time off
      the same sample. */
   long now_ticks = (long)fd_tickcount();
-
-  ulong free_size = accdb->shmem->partition_sz - partition_offset_before;
-  if( FD_LIKELY( *has_partition ) ) {
-    fd_accdb_partition_t * old = partition_pool_ele( accdb->partition_pool, partition_idx_before );
-    FD_ATOMIC_FETCH_AND_ADD( &old->bytes_freed, free_size );
-    FD_VOLATILE( old->filled_ticks ) = now_ticks;
-    /* The tail slack is now committed dead — count it as current
-       (written-through) so fragmentation reflects it. */
-    FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, free_size );
-  }
+  if( FD_LIKELY( *has_partition ) ) close_partition( accdb, offset_before, now_ticks );
 
   if( FD_UNLIKELY( !partition_pool_free( accdb->partition_pool ) ) ) FD_LOG_ERR(( "accounts database file is at capacity" ));
   fd_accdb_partition_t * partition = partition_pool_ele_acquire( accdb->partition_pool );
@@ -1974,24 +1937,12 @@ change_partition( fd_accdb_t *           accdb,
   ulong new_partition_idx = partition_pool_idx( accdb->partition_pool, partition );
   int had_partition = *has_partition;
 
-  /* Snapshot-load tiering: accounts loaded from a snapshot never get
-     a second write, so compaction-driven promotion never fires and
-     they would otherwise live in Hot forever.  When snapshot_loading
-     is set, tag the new partition as Cold up front.  We do not set
-     has_partition[Cold] / whead[Cold] — those are owned by the
-     compaction tile and represent the live Cold write head, which is
-     independent of snapshot-loaded partitions that happen to be
-     labeled Cold. */
-  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->snapshot_loading ) && layer==0 ) ) {
-    FD_VOLATILE( partition->layer ) = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
-  }
-
   if( FD_UNLIKELY( new_partition_idx>=accdb->shmem->partition_max ) ) FD_VOLATILE( accdb->shmem->partition_max ) = new_partition_idx+1UL;
   spin_lock_release( &accdb->shmem->partition_lock );
 
   /* Back the partition before publishing the head, so no writer
-     reserves into it while fallocate is running.  Layer-0 writers spin
-     on the head until then. */
+     reserves into it while fallocate is running.  Writers spin on the
+     head until then. */
   if( FD_UNLIKELY( new_partition_idx>=FD_VOLATILE_CONST( accdb->shmem->partition_fallocated ) ) ) {
     spin_lock_acquire( &accdb->shmem->grow_lock );
     grow_locked( accdb, new_partition_idx, layer, had_partition ? partition_idx_before : ULONG_MAX, 0 );
@@ -2008,15 +1959,18 @@ change_partition( fd_accdb_t *           accdb,
   spin_lock_release( &accdb->shmem->partition_lock );
 }
 
-/* Reserve sz bytes in the layer-0 write head and set
-   out_partition_idx to where they landed.  Bumps no counters. */
+/* Reserve sz bytes in the hot or the snapshot loader's write head and
+   set out_partition_idx to where they landed.  Bumps no counters. */
 
 static inline ulong
 reserve_next_write( fd_accdb_t * accdb,
+                    ulong        head,
                     ulong        sz,
                     ulong *      out_partition_idx ) {
+  /* A partition opened by the snapshot whead is tagged Cold. */
+  uchar layer = head==FD_ACCDB_SNAPSHOT_WHEAD ? (uchar)(FD_ACCDB_COMPACTION_LAYER_CNT-1UL) : (uchar)0;
   for(;;) {
-    accdb_offset_t offset = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, sz ) };
+    accdb_offset_t offset = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ head ].val, sz ) };
     if( FD_LIKELY( packed_partition_offset( &offset )+sz<=accdb->shmem->partition_sz ) ) {
       *out_partition_idx = packed_partition_idx( &offset );
       return packed_partition_file_offset( &offset, accdb->shmem->partition_sz );
@@ -2026,23 +1980,37 @@ reserve_next_write( fd_accdb_t * accdb,
       /* This can happen if another thread also raced to allocate the
          next write and won.  Wait for the partition switch to finish
          before retrying, so we do not keep doing fetch-and-adds that
-         advance the offset further past the boundary. */
-      wait_for_partition_switch( accdb, &offset );
+         advance the offset further past the boundary.
+
+         A switch is detected by the head moving to a different
+         partition index OR its offset dropping back to a valid position
+         (a switch resets the offset to 0).  We must not key the wait
+         solely on the index changing: the initial write head is a
+         sentinel whose packed index can coincide with a real pool
+         index. */
+      ulong stale_partition = packed_partition_idx( &offset );
+      for(;;) {
+        accdb_offset_t cur = { .val = FD_VOLATILE_CONST( accdb->shmem->whead[ head ].val ) };
+        if( packed_partition_idx( &cur )!=stale_partition ) break;
+        if( packed_partition_offset( &cur )<=accdb->shmem->partition_sz ) break;
+        FD_SPIN_PAUSE();
+      }
       continue;
     }
 
-    change_partition( accdb, &offset, &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
+    change_partition( accdb, &offset, &accdb->shmem->whead[ head ], &accdb->shmem->has_partition[ head ], layer );
   }
 }
 
-/* Reserve sz bytes.  Layer-0 write metrics are deferred until
-   explicitly flushed. */
+/* Reserve sz bytes.  Write metrics are deferred until explicitly
+   flushed. */
 
 static inline ulong
 allocate_next_write( fd_accdb_t * accdb,
+                     ulong        head,
                      ulong        sz ) {
   ulong partition_idx;
-  ulong file_offset = reserve_next_write( accdb, sz, &partition_idx );
+  ulong file_offset = reserve_next_write( accdb, head, sz, &partition_idx );
 
   /* Very rarely the reservation crosses into a new partition.  Since
      stats are aggregated per-partition, any accumulated stats are
@@ -2063,7 +2031,7 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
                                  ulong        sz,
                                  ulong        dead_tail_sz ) {
   FD_TEST( sz && sz<=accdb->shmem->partition_sz && dead_tail_sz<=sz );
-  ulong off = allocate_next_write( accdb, sz );
+  ulong off = allocate_next_write( accdb, FD_ACCDB_SNAPSHOT_WHEAD, sz );
   if( dead_tail_sz ) fd_accdb_shmem_bytes_freed( accdb->shmem, off+sz-dead_tail_sz, dead_tail_sz );
   return off;
 }
@@ -2859,7 +2827,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   ulong file_offset;
   int   batch_contiguous;
   if( FD_LIKELY( total_write_sz && total_write_sz<=accdb->shmem->partition_sz ) ) {
-    file_offset      = allocate_next_write( accdb, total_write_sz );
+    file_offset      = allocate_next_write( accdb, 0UL, total_write_sz );
     batch_contiguous = 1;
   } else {
     file_offset      = 0UL;
@@ -2889,7 +2857,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         FD_TEST( pending_cnt<(int)(sizeof(pending_accs)/sizeof(pending_accs[0])) );
         pending_accs [ pending_cnt ] = evicted;
         if( FD_LIKELY( batch_contiguous ) ) pending_offs[ pending_cnt ] = file_offset + cumulative_offset;
-        else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, entry_sz );
+        else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, 0UL, entry_sz );
         pending_lines[ pending_cnt ] = destination_cache_lines[ i ][ j ];
         pending_cnt++;
         cumulative_offset += entry_sz;
@@ -2906,7 +2874,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         FD_TEST( pending_cnt<(int)(sizeof(pending_accs)/sizeof(pending_accs[0])) );
         pending_accs [ pending_cnt ] = evicted;
         if( FD_LIKELY( batch_contiguous ) ) pending_offs[ pending_cnt ] = file_offset + cumulative_offset;
-        else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, entry_sz );
+        else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, 0UL, entry_sz );
         pending_lines[ pending_cnt ] = original_cache_line[ i ];
         pending_cnt++;
         cumulative_offset += entry_sz;
@@ -2925,7 +2893,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       FD_TEST( pending_cnt<(int)(sizeof(pending_accs)/sizeof(pending_accs[0])) );
       pending_accs [ pending_cnt ] = evicted;
       if( FD_LIKELY( batch_contiguous ) ) pending_offs[ pending_cnt ] = file_offset + cumulative_offset;
-      else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, entry_sz );
+      else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, 0UL, entry_sz );
       pending_lines[ pending_cnt ] = original_cache_line[ i ];
       pending_cnt++;
       cumulative_offset += entry_sz;
@@ -4201,7 +4169,7 @@ preevict_flush( fd_accdb_t *             accdb,
   }
   FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, freed );
 
-  ulong file_off = allocate_next_write( accdb, stage_sz );
+  ulong file_off = allocate_next_write( accdb, 0UL, stage_sz );
   ulong written  = 0UL;
   while( written<stage_sz ) {
     struct iovec iov = { .iov_base = accdb->stage+written, .iov_len = stage_sz-written };
@@ -4890,7 +4858,7 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
       { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
       { .iov_base = (void *)(line+1UL), .iov_len = FD_ACCDB_SIZE_DATA( accmeta->executable_size ) }
     };
-    ulong file_off = allocate_next_write( accdb, entry_sz );
+    ulong file_off = allocate_next_write( accdb, 0UL, entry_sz );
     ulong written  = 0UL;
     while( written<entry_sz ) {
       long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );

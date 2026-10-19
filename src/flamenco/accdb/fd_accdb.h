@@ -127,9 +127,10 @@ fd_accdb_join_readonly( void *             ljoin,
                         int                fd_ro );
 
 /* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
-   writers build the index.  New layer-0 partitions are tagged Cold;
-   load_end opens a fresh Hot partition for runtime writes.  Call begin
-   before any writer starts and end after all writers stop. */
+   writers build the index.  The writers fill Cold partitions through
+   their own write head; load_end hands the last partition to the cold
+   write head, or closes it when that head is taken.  Call begin before
+   any writer starts and end after all writers stop. */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
@@ -150,13 +151,14 @@ int
 fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
                                  fd_accdb_fork_id_t fork_id );
 
-/* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata.
-   Used by fd_accdb_snapshot_{save,revert}_whead to save and restore
-   accdb state across an incremental snapshot attempt. */
+/* fd_accdb_snapshot_recovery_t captures the snapshot loader's write
+   head metadata.  Used by fd_accdb_snapshot_{save,revert}_whead to
+   save and restore accdb state across an incremental snapshot
+   attempt. */
 
 struct fd_accdb_snapshot_recovery {
-  ulong whead_val;             /* whead[0].val */
-  int   has_partition;         /* has_partition[0] */
+  ulong whead_val;             /* whead[FD_ACCDB_SNAPSHOT_WHEAD].val */
+  int   has_partition;         /* has_partition[FD_ACCDB_SNAPSHOT_WHEAD] */
   ulong partition_max;         /* partition_max */
   ulong disk_current_bytes;    /* disk_current_bytes metric */
   ulong savepoint_bytes_freed; /* bytes_freed of the save-point partition */
@@ -164,8 +166,8 @@ struct fd_accdb_snapshot_recovery {
 
 typedef struct fd_accdb_snapshot_recovery fd_accdb_snapshot_recovery_t;
 
-/* fd_accdb_snapshot_save_whead captures the current layer-0 write head,
-   partition state, and disk_current_bytes metric into the provided
+/* fd_accdb_snapshot_save_whead captures the snapshot loader's write
+   head, partition state, and disk_current_bytes metric into the provided
    recovery struct.  Also captures the save-point partition's
    bytes_freed. */
 
@@ -173,8 +175,8 @@ void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
                               fd_accdb_snapshot_recovery_t * out );
 
-/* fd_accdb_snapshot_revert_whead restores the layer-0 write head to a
-   previously saved position.
+/* fd_accdb_snapshot_revert_whead restores the snapshot loader's write
+   head to a previously saved position.
 
    It internally waits for the pending background purge command to
    complete on T2 before releasing partitions, so the caller does not
@@ -535,9 +537,10 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
 void
 fd_accdb_reset( fd_accdb_t * accdb );
 
-/* Reserves one contiguous range of sz bytes in the layer-0 account
-   log.  The last dead_tail_sz bytes are padding with no live record
-   and are counted as freed. */
+/* Reserves one contiguous range of sz bytes in the snapshot loader's
+   partition of the account log.  Only the snapin tiles write there.
+   The last dead_tail_sz bytes are padding with no live record and are
+   counted as freed. */
 
 ulong
 fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
@@ -672,8 +675,8 @@ fd_accdb_shmetrics( fd_accdb_t * accdb );
 fd_accdb_metrics_t const *
 fd_accdb_metrics( fd_accdb_t * accdb );
 
-/* fd_accdb_flush_metrics publishes this joiner's pending layer-0 write
-   metrics.  Normal layer-0 writes defer these metrics by default.
+/* fd_accdb_flush_metrics publishes this joiner's pending write
+   metrics.  Normal writes defer these metrics by default.
 
    NOTE: A flush delayed past partition reuse can credit old counters
    to the new partition.  The impact on metrics accuracy is expected
