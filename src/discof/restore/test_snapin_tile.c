@@ -3033,7 +3033,7 @@ test_stream_mode( void ) {
   FD_TEST( test_pub_cnt==pub0+1UL && test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) && test_pub_out_idx[ pub0 ]==0UL );
   FD_TEST( test_write_skip_duplicates==1 );
   FD_TEST( !test_accdb_advance_root_cnt && test_feature_restore_cnt==1UL && !test_accdb_load_end_cnt ); /* the stream fork stays unrooted */
-  FD_TEST( test_pwrite_call_cnt==1UL && test_pwrite_sz[ 0 ]==sizeof(fd_accdb_disk_meta_t) ); /* a stream is written unpadded */
+  FD_TEST( test_pwrite_call_cnt==1UL && test_pwrite_sz[ 0 ]==FD_SNAPIN_DIRECT_ALIGN ); /* a stream is written like a snapshot */
 
   FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
   test_stream_init( 0UL );
@@ -3043,7 +3043,7 @@ test_stream_mode( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_FINISHING );
   FD_TEST( test_pub_cnt==pub0+n && test_pub_sig[ pub0 ]==FD_SNAPSHOT_MSG_CTRL_FINI );
-  FD_TEST( test_pwrite_call_cnt==2UL && test_pwrite_sz[ 1 ]==sizeof(fd_accdb_disk_meta_t) );
+  FD_TEST( test_pwrite_call_cnt==2UL && test_pwrite_sz[ 1 ]==FD_SNAPIN_DIRECT_ALIGN );
 
   /* The stream's end roots the fork and releases replay's root. */
   pub0 = test_pub_cnt;
@@ -3235,7 +3235,7 @@ test_writer_short_write_and_eintr( void ) {
   test_pwrite_push(  2L, 0     );
   test_pwrite_push(  3L, 0     );
 
-  writer_pwrite( ctx, ctx->writer.accdb_direct_fd, data, sizeof(data), 10UL );
+  writer_pwrite( ctx, data, sizeof(data), 10UL );
   FD_TEST( test_pwrite_call_cnt==3UL );
   FD_TEST( test_pwrite_sz [0]==5UL && test_pwrite_off[0]==10UL && test_pwrite_data[0][0]==1U );
   FD_TEST( test_pwrite_sz [1]==5UL && test_pwrite_off[1]==10UL && test_pwrite_data[1][0]==1U );
@@ -3256,7 +3256,7 @@ test_writer_disk_error_fatal( void ) {
     fd_log_level_stderr_set( 6 );
     test_io_reset();
     test_pwrite_push( -1L, EIO );
-    writer_pwrite( ctx, ctx->writer.accdb_direct_fd, data, sizeof(data), 0UL );
+    writer_pwrite( ctx, data, sizeof(data), 0UL );
     _exit( 0 );
   }
 

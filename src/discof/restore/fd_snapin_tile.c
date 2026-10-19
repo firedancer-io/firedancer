@@ -1373,13 +1373,12 @@ snoop_stake_delegation( fd_snapin_tile_t *       ctx,
 
 static void
 writer_pwrite( fd_snapin_tile_t * ctx,
-               int                fd,
                uchar const *      buf,
                ulong              sz,
                ulong              off ) {
   ulong done = 0UL;
   while( done<sz ) {
-    long res = pwrite( fd, buf+done, sz-done, (long)(off+done) );
+    long res = pwrite( ctx->writer.accdb_direct_fd, buf+done, sz-done, (long)(off+done) );
     if( FD_UNLIKELY( res<=0L ) ) {
       int err = res<0L ? errno : EIO;
       if( res<0L && err==EINTR ) continue;
@@ -1394,25 +1393,23 @@ static int
 writer_flush( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->writer.buf_used ) ) return 0;
 
-  ulong used = ctx->writer.buf_used;
-  ulong sz   = used;
-  int   fd   = FD_ACCDB_FD_RW;
+  /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
+     is a dead record so compaction reclaims it after snapshot loading
+     finishes. */
+  ulong used   = ctx->writer.buf_used;
+  ulong padded = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
+  FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ );
+  fd_memset( ctx->writer.buf+used, 0, padded-used );
+  fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
+  dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
 
-  /* A snapshot is written with O_DIRECT, padded to
-     FD_SNAPIN_DIRECT_ALIGN with a dead record.  A stream is small and
-     shares the log with replay once it has started, so it is written
-     through the page cache. */
-  if( FD_LIKELY( !ctx->stream ) ) {
-    sz = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
-    FD_TEST( sz<=FD_SNAPIN_WRITE_BUF_SZ );
-    fd_memset( ctx->writer.buf+used, 0, sz-used );
-    fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
-    dummy_record->size = (uint)( sz-used-sizeof(fd_accdb_disk_meta_t) );
-    fd = ctx->writer.accdb_direct_fd;
-  }
-
-  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, sz, sz-used );
-  writer_pwrite( ctx, fd, ctx->writer.buf, sz, base_off );
+  /* The offset is aligned because partition sizes are multiples of
+     FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
+     writers on the loader's write head, and every reservation they
+     make is a multiple of FD_SNAPIN_DIRECT_ALIGN. */
+  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded, padded-used );
+  FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
+  writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
 
   fd_accdb_fork_id_t          fork_id    = { .val = (ushort)ctx->load_fork };
   ushort                      stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
