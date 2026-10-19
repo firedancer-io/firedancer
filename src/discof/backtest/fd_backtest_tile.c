@@ -486,7 +486,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         /* In Alpenglow, dead blocks should never be in the ledger, so
            if Firedancer's replay marked a block as dead this should be
            fatal. */
-        if( FD_UNLIKELY( ctx->alpenglow ) ) {
+        if( FD_UNLIKELY( ctx->alpenglow && memcmp( msg->block_id.uc, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) ) {
           FD_LOG_ERR(( "replay marked slot=%lu as dead", msg->slot ));
         }
         FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
