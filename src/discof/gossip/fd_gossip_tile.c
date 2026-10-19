@@ -490,7 +490,6 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_SNAPIN_MANIF: {
       if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
-      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) break;
 
       if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_REPLAY_READY ) ) {
         /* Classify boot against WFS (see fd_wfs.h):

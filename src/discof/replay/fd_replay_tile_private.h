@@ -457,7 +457,6 @@ struct fd_replay_tile {
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */
   int is_booted;
-  int snapin_active; /* the snapin tiles still write the accounts db: the root is held and nothing is purged */
 
   fd_multi_epoch_leaders_t * mleaders;
 
