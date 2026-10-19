@@ -335,6 +335,10 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   if( hops!=ULONG_MAX ) {
     http->hops = hops;
+    if( !range_start ) {
+      memmove( http->path, http->location, path_len+1UL );
+      http->path_len = path_len;
+    }
     fd_cstr_fini( http->snapshot_name );
     http->resolved_slot = 0UL;
     fd_memset( http->resolved_hash, 0, FD_HASH_FOOTPRINT );
@@ -410,7 +414,9 @@ int
 fd_sshttp_resume( fd_sshttp_t * http,
                   long          now,
                   ulong         range_start ) {
-  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, 4UL, now, range_start );
+  char const * path     = range_start ? http->location     : http->path;
+  ulong        path_len = range_start ? http->location_len : http->path_len;
+  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, path, path_len, 4UL, now, range_start );
 }
 
 void

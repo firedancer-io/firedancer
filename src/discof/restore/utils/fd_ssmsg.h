@@ -7,15 +7,16 @@
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
-#define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
+#define FD_SSMSG_REPLAY_READY         (2) /* The accounts replay needs are loaded, replay can start */
 #define FD_SSMSG_EXPECTED_SLOT        (3) /* Expected rooted slot from incremental snapshot */
+#define FD_SSMSG_DONE                 (4) /* The loader wrote its last account and rooted its fork, replay may advance the root */
 
 FD_FN_CONST static inline ulong
 fd_ssmsg_sig( ulong message ) {
-  return (message & 0x3UL);
+  return (message & 0x7UL);
 }
 
-FD_FN_CONST static inline ulong fd_ssmsg_sig_message( ulong sig ) { return (sig & 0x3UL); }
+FD_FN_CONST static inline ulong fd_ssmsg_sig_message( ulong sig ) { return (sig & 0x7UL); }
 struct epoch_credits {
   ulong epoch;
   ulong credits;

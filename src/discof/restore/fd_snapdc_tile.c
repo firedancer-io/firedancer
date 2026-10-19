@@ -118,7 +118,14 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                      ulong               sig,
                      ulong               chunk,
                      ulong               sz ) {
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE || sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP ) ) return;
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
+
+  /* snapld has caught up to the streaming server, but there are still
+     more bytes to read.  Forward an empty message to snapin. */
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP ) ) {
+    if( FD_LIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+    return;
+  }
 
   /* All control messages except META reset the decompression stream */
   if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_META ) ) {
