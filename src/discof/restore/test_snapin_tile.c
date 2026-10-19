@@ -238,6 +238,7 @@ static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 
 /* Outcome mock_accdb_restore_write_batch reports for every account. */
 static uchar test_write_result = FD_ACCDB_RESTORE_WRITE_LOADED;
+static int   test_write_allow_same_slot_duplicates;
 
 /* The mocks above hide these prototypes; tests reach the real ones. */
 ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
@@ -361,6 +362,7 @@ int
 mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
                                 fd_accdb_fork_id_t                   fork_id,
                                 int                                  is_incremental,
+                                int                                  allow_same_slot_duplicates,
                                 ulong                                cnt,
                                 uchar const * const                  pubkeys[],
                                 ulong const                          slots[],
@@ -383,6 +385,7 @@ mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
   (void)data_lens;
   (void)executables;
   (void)file_offsets;
+  test_write_allow_same_slot_duplicates = allow_same_slot_duplicates;
   *accounts_ignored      = 0UL;
   *accounts_replaced     = 0UL;
   *accounts_loaded       = cnt;
@@ -2999,6 +3002,46 @@ test_verify_sysvars_gates_controls( void ) {
   }
 }
 
+/* A fast boot stream: FINI is fine without an end-of-archive marker,
+   the records go in with repeats allowed, and DONE does not check the
+   capitalization. */
+static void
+test_stream_mode( void ) {
+  ulong const n = 2UL;
+  test_cluster_t * cl = test_cluster_new( n, 1UL );
+  test_counters_reset();
+  test_io_reset();
+  for( ulong t=0UL; t<n; t++ ) ((fd_ssctrl_init_t *)cl->ctx[ t ].in[ 0 ].wksp)->stream = 1;
+
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_PROCESSING && cl->ctx[ t ].full && cl->ctx[ t ].stream );
+  FD_TEST( test_accdb_reset_cnt==1UL && test_accdb_load_begin_cnt==1UL );
+
+  uchar pubkey[ 32UL ] = {1};
+  uchar owner [ 32UL ] = {2};
+  cl->ctx[ 0 ].load_fork = 7UL;
+  test_write_allow_same_slot_duplicates = -1;
+  FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
+
+  ulong pub0 = test_pub_cnt;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_FINISHING );
+  FD_TEST( test_pub_cnt==pub0+n && test_pub_sig[ pub0 ]==FD_SNAPSHOT_MSG_CTRL_FINI );
+  FD_TEST( test_write_allow_same_slot_duplicates==1 );
+
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
+  cl->ctx[ 0 ].lead.manifest_capitalization = 1UL; /* a snapshot would fail this */
+  pub0 = test_pub_cnt;
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
+  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
+  FD_TEST( test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_DONE ) );
+  FD_TEST( test_pub_sig[ pub0+1UL ]==FD_SNAPSHOT_MSG_CTRL_DONE );
+  FD_TEST( test_pub_cnt==pub0+n+1UL );
+  FD_TEST( test_accdb_advance_root_cnt==1UL && test_accdb_load_end_cnt==1UL && test_feature_restore_cnt==1UL );
+
+  test_cluster_delete( cl );
+}
+
 /* Full lifecycle ******************************************************/
 
 /* Nine tiles through a whole load: full attempt, an incremental
@@ -3436,6 +3479,7 @@ main( int     argc,
   test_verify_sysvars_rent_bounds();
   test_verify_sysvars_epoch_rewards();
   test_verify_sysvars_gates_controls();
+  test_stream_mode();
 
   free( test_ctx );
   FD_LOG_NOTICE(( "pass" ));

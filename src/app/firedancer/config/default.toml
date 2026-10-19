@@ -650,10 +650,14 @@ telemetry = true
 
     # Firedancer supports fast booting off other Firedancer nodes which
     # allows clients to vote on blocks while snapshots are still
-    # loading.  Enabling this allows other Firedancer clients to connect
-    # to this validator and start up via fast boot.  Needs
-    # [snapshots.server] and incremental snapshot production both
-    # enabled.
+    # loading.  Enabling this boots from the fast boot stream served by
+    # the first server in [snapshots.sources.servers].
+    [snapshots.fast_boot]
+        enabled = false
+
+    # Enabling this allows other Firedancer clients to connect to this
+    # validator and start up via fast boot.  Needs [snapshots.server]
+    # and incremental snapshot production both enabled.
     [snapshots.fast_boot.serve]
         enabled = false
 

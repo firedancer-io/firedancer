@@ -50,8 +50,10 @@ fd_sshttp_resolved_hash( fd_sshttp_t const * http );
    value (e.g. when following a redirect internally).  now is the
    current timestamp.  A nonzero range_start asks the server to resume
    the body at that byte offset, which it must answer with a 206; a
-   416 (nothing there yet) finishes the request with no bytes.
-   Returns 0 on success and -1 on failure. */
+   416 (nothing there yet) finishes the request with
+   FD_SSHTTP_ADVANCE_NOT_YET.  A 404 to any request finishes it with
+   FD_SSHTTP_ADVANCE_NOT_FOUND.  Returns 0 on success and -1 on
+   failure. */
 
 int
 fd_sshttp_init( fd_sshttp_t * http,
@@ -64,6 +66,15 @@ fd_sshttp_init( fd_sshttp_t * http,
                 long          now,
                 ulong         range_start );
 
+/* fd_sshttp_resume asks for the file of the last request again, from
+   byte range_start, following any redirect that request took.  The
+   connection must be idle. */
+
+int
+fd_sshttp_resume( fd_sshttp_t * http,
+                  long          now,
+                  ulong         range_start );
+
 void
 fd_sshttp_cancel( fd_sshttp_t * http );
 
@@ -73,10 +84,12 @@ fd_sshttp_cancel( fd_sshttp_t * http );
 long
 fd_sshttp_deadline( fd_sshttp_t const * http );
 
-#define FD_SSHTTP_ADVANCE_ERROR (-1)
-#define FD_SSHTTP_ADVANCE_AGAIN ( 0)
-#define FD_SSHTTP_ADVANCE_DATA  ( 1)
-#define FD_SSHTTP_ADVANCE_DONE  ( 2)
+#define FD_SSHTTP_ADVANCE_ERROR     (-1)
+#define FD_SSHTTP_ADVANCE_AGAIN     ( 0)
+#define FD_SSHTTP_ADVANCE_DATA      ( 1)
+#define FD_SSHTTP_ADVANCE_DONE      ( 2)
+#define FD_SSHTTP_ADVANCE_NOT_YET   ( 3)
+#define FD_SSHTTP_ADVANCE_NOT_FOUND ( 4)
 
 int
 fd_sshttp_advance( fd_sshttp_t * http,

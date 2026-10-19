@@ -58,6 +58,10 @@ FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI==FD_METRICS_ENU
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_INCREMENTAL_HTTP_DONE_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_INCREMENTAL_HTTP_RESET_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_SHUTDOWN==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_SHUTDOWN_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPCT_STATE_READING_STREAM==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_READING_STREAM_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_STREAM_FINI==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_STREAM_FINI_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_STREAM_DONE==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_STREAM_DONE_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_STREAM_RESET==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_STREAM_RESET_IDX, metrics_state );
 
 #define NAME "snapct"
 
@@ -82,6 +86,7 @@ struct fd_snapct_out_link {
 typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 
 #define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT (90L*1000L*1000L*1000L) /* 1.5 minutes */
+#define FD_SNAPCT_STREAM_RETRY_NANOS       (1L*1000L*1000L*1000L)  /* 1 second */
 
 struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
@@ -689,9 +694,13 @@ init_load( fd_snapct_tile_t *  ctx,
            int                 file ) {
   ctx->snapshot_start_timestamp_ns = fd_clock_tile_now( ctx->clock );
   fd_ssctrl_init_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
-  out->file = file;
-  out->zstd = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
-  if( file ) {
+  out->file   = file;
+  out->stream = ctx->state==FD_SNAPCT_STATE_READING_STREAM;
+  out->zstd   = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
+  if( out->stream ) {
+    out->slot = 0UL;
+    fd_memset( out->snapshot_hash, 0, FD_HASH_FOOTPRINT );
+  } else if( file ) {
     out->slot = full ? ctx->local_in.full_snapshot_slot : ctx->local_in.incremental_snapshot_slot;
     if( full ) fd_memcpy( out->snapshot_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT );
     else       fd_memcpy( out->snapshot_hash, ctx->local_in.incremental_snapshot_hash, FD_HASH_FOOTPRINT );
@@ -712,7 +721,9 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->start_sent = 0;
   ctx->load_complete = 0;
 
-  if( !file ) {
+  if( out->stream ) {
+    FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "fast-boot-stream.tar.zst" ) );
+  } else if( !file ) {
     FD_TEST( fd_cstr_printf_check( full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name,
                                  PATH_MAX, NULL, full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ) );
     snapshot_output_prepare( ctx, full );
@@ -896,10 +907,28 @@ next_deadline( fd_snapct_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS             ||
                    ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL ||
                    ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS              ||
-                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL ) ) next = fd_long_min( next, ctx->deadline_nanos );
+                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL  ||
+                   ctx->state==FD_SNAPCT_STATE_INIT                          ||
+                   ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) next = fd_long_min( next, ctx->deadline_nanos );
   if( FD_UNLIKELY( next==LONG_MAX ) ) return LONG_MAX;
   if( FD_UNLIKELY( next<=0L ) ) return 0L;
   return fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
+}
+
+/* stream_reset fails the current fast boot stream attempt and resets
+   the pipeline for another. */
+
+static void
+stream_reset( fd_snapct_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              long                now ) {
+  ctx->malformed = 0;
+  fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+  ctx->flush_ack      = 0;
+  ctx->state          = FD_SNAPCT_STATE_FLUSHING_STREAM_RESET;
+  ctx->deadline_nanos = now+FD_SNAPCT_STREAM_RETRY_NANOS;
+  FD_LOG_WARNING(( "failed to load the fast boot stream from http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                   FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
 }
 
 static void
@@ -939,13 +968,17 @@ after_credit( fd_snapct_tile_t *  ctx,
                    (ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE        ||
                     ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP        ||
                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ||
-                    ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP) ) ) {
-    int file = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
-    int full = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP;
+                    ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ||
+                    ctx->state==FD_SNAPCT_STATE_READING_STREAM) ) ) {
+    int file   = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
+    int full   = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP;
+    int stream = ctx->state==FD_SNAPCT_STATE_READING_STREAM;
     if( !file ) {
       fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
       out->addr = ctx->peer.addr;
-      if( full ) {
+      if( stream ) {
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/fast-boot-stream.tar.zst" ) );
+      } else if( full ) {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
       } else {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot.tar.bz2" ) );
@@ -961,7 +994,12 @@ after_credit( fd_snapct_tile_t *  ctx,
           break;
         }
       }
-      log_download( ctx, full, out->is_https );
+      if( stream ) {
+        FD_LOG_NOTICE(( "downloading the fast boot stream from %s://" FD_IP4_ADDR_FMT ":%hu", out->is_https ? "https" : "http",
+                        FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+      } else {
+        log_download( ctx, full, ctx->peer.addr, full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot );
+      }
     }
     ulong sz = file ? 0UL : sizeof(fd_ssctrl_start_t);
     fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sz, 0UL, 0UL, 0UL );
@@ -976,6 +1014,20 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_INIT: {
+      if( FD_UNLIKELY( ctx->config.fast_boot ) ) {
+        /* Take the first server from the config to stream from */
+        ulong i = 0UL;
+        while( i<ctx->resolved_servers_cnt && strcmp( ctx->resolved_servers[ i ].hostname, ctx->dns_servers[ 0 ].hostname ) ) i++;
+        if( FD_UNLIKELY( i==ctx->resolved_servers_cnt ) ) {
+          if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out resolving [snapshots.sources.servers] for fast boot." ));
+          break;
+        }
+        ctx->peer.addr = ctx->resolved_servers[ i ].addr;
+        ctx->state     = FD_SNAPCT_STATE_READING_STREAM;
+        init_load( ctx, stem, 1, 0 );
+        break;
+      }
+
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
         /* Download is disabled, so the incremental on disk is the only
            thing that can lift a full short of the target. */
@@ -1487,15 +1539,17 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
+    case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET: {
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
 
+      char const * kind = ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ? "fast boot stream" : "full snapshot";
       if( ctx->metrics.full.num_retries>=ctx->config.max_retry_abort ) {
-        FD_LOG_ERR(( "hit retry limit of %u for full snapshot, aborting", ctx->config.max_retry_abort ));
+        FD_LOG_ERR(( "hit retry limit of %u for %s, aborting", ctx->config.max_retry_abort, kind ));
       }
 
       ctx->metrics.full.num_retries++;
-      FD_LOG_NOTICE(( "retrying full snapshot download (attempt %u/%u)",
-                      ctx->metrics.full.num_retries, ctx->config.max_retry_abort ));
+      FD_LOG_NOTICE(( "retrying %s download (attempt %u/%u)",
+                      kind, ctx->metrics.full.num_retries, ctx->config.max_retry_abort ));
 
       ctx->metrics.full.bytes_read           = 0UL;
       ctx->metrics.full.bytes_written        = 0UL;
@@ -1505,7 +1559,12 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->metrics.incremental.bytes_written = 0UL;
       ctx->metrics.incremental.bytes_total   = 0UL;
 
-      if( !ctx->download_enabled ) {
+      if( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) {
+        if( now<ctx->deadline_nanos ) break;
+
+        ctx->state = FD_SNAPCT_STATE_READING_STREAM;
+        init_load( ctx, stem, 1, 0 );
+      } else if( !ctx->download_enabled ) {
         /* if we are unable to download new snapshots and unable to load
            our local snapshot, we must shutdown the validator. */
         FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.full_snapshot_path ));
@@ -1515,6 +1574,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->deadline_nanos = 0L;
       }
       break;
+    }
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
@@ -1629,6 +1689,49 @@ after_credit( fd_snapct_tile_t *  ctx,
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI );
         ctx->flush_ack = 0;
       }
+      break;
+
+    /* ============================================================== */
+    case FD_SNAPCT_STATE_READING_STREAM:
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        stream_reset( ctx, stem, now );
+        break;
+      }
+      if( FD_UNLIKELY( ctx->flush_ack < ctx->flush_ack_cnt ) ) break;
+      if( FD_UNLIKELY( ctx->load_complete ) ) {
+        ctx->load_complete = 0;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_STREAM_FINI;
+        ctx->flush_ack = 0;
+      }
+      break;
+
+    /* ============================================================== */
+    case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        stream_reset( ctx, stem, now );
+        break;
+      }
+
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
+
+      ctx->state = FD_SNAPCT_STATE_FLUSHING_STREAM_DONE;
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
+      break;
+
+    /* ============================================================== */
+    case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        stream_reset( ctx, stem, now );
+        break;
+      }
+
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
+
+      log_completion( ctx, 1/*full*/ );
+      ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
 
     /* ============================================================== */
@@ -1818,11 +1921,13 @@ process_ctrl_ack( fd_snapct_tile_t * ctx,
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP ||
-                     ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE ) ) {
+                     ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE ||
+                     ctx->state==FD_SNAPCT_STATE_READING_STREAM ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
-                              ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ) ) {
+                              ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
+                              ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
         /* Safe to ignore -- stale ack from before RESET. */
       } else return -1;
       return 0;
@@ -1853,13 +1958,15 @@ process_ctrl_ack( fd_snapct_tile_t * ctx,
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE ) ) {
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_DONE ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
                               ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
                               ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ||
-                              ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
+                              ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ||
+                              ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
         /* Safe to ignore -- stale ack from before RESET. */
       } else return -1;
       return 0;
@@ -1868,13 +1975,15 @@ process_ctrl_ack( fd_snapct_tile_t * ctx,
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI ) ) {
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_FINI ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
                               ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
                               ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ||
-                              ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
+                              ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ||
+                              ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
         /* Safe to ignore -- stale ack from before RESET. */
       } else return -1;
       return 0;
@@ -1900,11 +2009,13 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE: full = 0; file = 1; break;
       case FD_SNAPCT_STATE_READING_FULL_HTTP:        full = 1; file = 0; break;
       case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP: full = 0; file = 0; break;
+      case FD_SNAPCT_STATE_READING_STREAM:           full = 1; file = 0; break;
 
       case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
       case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
+      case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET:
         return; /* Ignore */
       default: FD_LOG_ERR(( "invalid meta frag in state %s", fd_snapct_state_str( ctx->state ) ));
     }
@@ -1950,7 +2061,8 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
                    ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
                    ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ||
-                   ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
+                   ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ||
+                   ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
       ctx->flush_ack++;
       FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
     } else {
@@ -1974,6 +2086,9 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
+      case FD_SNAPCT_STATE_READING_STREAM:
+      case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:
+      case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:
         FD_LOG_WARNING(( "received error from snapld in state %d (%s)",
                          ctx->state, fd_snapct_state_str( ctx->state ) ));
         ctx->malformed = 1;
@@ -1983,6 +2098,10 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     }
     return;
   }
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP ) ) {
+    FD_LOG_NOTICE(( "caught up with the fast boot stream" ));
+    return;
+  }
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) {
     int full = 0;
     switch( ctx->state ) {
@@ -1990,10 +2109,14 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       case FD_SNAPCT_STATE_READING_FULL_HTTP:        full = 1; break;
       case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
       case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP: full = 0; break;
+      case FD_SNAPCT_STATE_READING_STREAM:
+        if( FD_LIKELY( !ctx->malformed ) ) ctx->load_complete = 1;
+        return;
       case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
       case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
+      case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET:
         return; /* Ignore during reset. */
       default:
         FD_LOG_ERR(( "invalid load_complete in state %s", fd_snapct_state_str( ctx->state ) ));
@@ -2020,18 +2143,20 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     return;
   }
 
-  int full, file;
+  int full, file, stream = 0;
   switch( ctx->state ) {
     /* Expected cases, fall through below */
     case FD_SNAPCT_STATE_READING_FULL_FILE:        full = 1; file = 1; break;
     case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE: full = 0; file = 1; break;
     case FD_SNAPCT_STATE_READING_FULL_HTTP:        full = 1; file = 0; break;
     case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP: full = 0; file = 0; break;
+    case FD_SNAPCT_STATE_READING_STREAM:           full = 1; file = 0; stream = 1; break;
 
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
+    case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET:
       /* We are waiting for a reset to fully propagate through the
          pipeline, just throw away any trailing data frags. */
       return;
@@ -2040,10 +2165,12 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
+    case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:
       /* Based on previously received data frags, we expected that the
          current full / incremental snapshot was finished, but then we
          received additional data frags.  Unsafe to continue so throw
@@ -2086,7 +2213,7 @@ snapld_frag( fd_snapct_tile_t *  ctx,
   if( full ) ctx->metrics.full.bytes_read        += sz;
   else       ctx->metrics.incremental.bytes_read += sz;
 
-  if( !file && -1!=ctx->local_out.dir_fd ) {
+  if( !file && !stream && -1!=ctx->local_out.dir_fd ) {
     uchar const * data = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
     int fd = full ? ctx->local_out.full_snapshot_fd : ctx->local_out.incremental_snapshot_fd;
     ulong written_sz = 0;
@@ -2106,6 +2233,8 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     if( full ) ctx->metrics.full.bytes_written        += sz;
     else       ctx->metrics.incremental.bytes_written += sz;
   }
+
+  if( FD_UNLIKELY( stream ) ) return; /* a stream keeps growing past the size it was first served at */
 
   if( FD_UNLIKELY( ( full && ctx->metrics.full.bytes_read        > ctx->metrics.full.bytes_total ) ||
                    (!full && ctx->metrics.incremental.bytes_read > ctx->metrics.incremental.bytes_total ) ) ) {
@@ -2129,7 +2258,8 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else {
@@ -2154,6 +2284,9 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
         case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
         case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
         case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
+        case FD_SNAPCT_STATE_READING_STREAM:
+        case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:
+        case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:
           /* Do not publish MSG_CTRL_ERROR: the error originated
              downstream, so re-publishing would be redundant.
              MSG_CTRL_FAIL follows on the next state machine tick. */

@@ -125,7 +125,8 @@
 #define FD_SNAPSHOT_MSG_CTRL_FINI             (10UL) /* Current snapshot has been fully loaded, finish processing */
 
 /* snapld -> snapct (via snapld_dc) */
-#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (11UL) /* snapld finished reading/downloading all data */
+#define FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP      (11UL) /* snapld read the fast boot stream up to the server's current end */
+#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (12UL) /* snapld finished reading/downloading all data */
 
 /* Sigs passed from snapdc to snapin contain the frame index of the
    frag so snapin knows how to order frames as they arrive. */
@@ -156,6 +157,7 @@ typedef struct fd_ssctrl_init {
   uchar         snapshot_hash[ FD_HASH_FOOTPRINT ]; /* advertised snapshot hash from snapshot file name */
   int           is_redirect; /* 1 if using well-known redirect path */
   ulong         file_sz;     /* file size in bytes (file loads only, 0 for HTTP) */
+  int           stream;      /* 1 for a fast boot stream, which grows while it is read */
 } fd_ssctrl_init_t;
 
 /* Fetch target sent only from snapct to snapld after all INIT acks.
@@ -235,6 +237,7 @@ fd_ssctrl_msg_ctrl_str( ulong sig ) {
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:         return "shutdown";
     case FD_SNAPSHOT_MSG_CTRL_ERROR:            return "error";
     case FD_SNAPSHOT_MSG_CTRL_FINI:             return "fini";
+    case FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP:      return "stream_caught_up";
     case FD_SNAPSHOT_MSG_LOAD_COMPLETE:         return "load_complete";
     default:                                    return "unknown";
   }
