@@ -15,6 +15,13 @@
 
 #define FD_ACCDB_COMPACTION_LAYER_CNT (3UL)
 
+/* The snapshot loader writes to its own whead so that it has exclusive
+   O_DIRECT access to its partitions, since replay does not guarantee
+   aligned writes to the accdb. */
+
+#define FD_ACCDB_SNAPSHOT_WHEAD (FD_ACCDB_COMPACTION_LAYER_CNT)
+#define FD_ACCDB_WHEAD_CNT      (FD_ACCDB_COMPACTION_LAYER_CNT+1UL)
+
 #define FD_ACCDB_COMPACTION_THRESHOLD_PCT (30UL)
 
 typedef struct fd_accdb_shmem_private fd_accdb_shmem_t;

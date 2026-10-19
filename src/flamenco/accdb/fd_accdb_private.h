@@ -465,9 +465,11 @@ struct fd_accdb_shmem_private {
   /* Per-layer write heads.  whead[0] is the hot (execution) write
      head, updated with atomic fetch-and-add by acquire/release
      threads.  whead[1..N-1] are compaction write heads, each
-     single-writer (compaction tile only). */
-  accdb_offset_t whead[ FD_ACCDB_COMPACTION_LAYER_CNT ];
-  int            has_partition[ FD_ACCDB_COMPACTION_LAYER_CNT ];
+     single-writer (compaction tile only).  whead[N] is the snapshot
+     loader's head, updated with atomic fetch-and-add by the snapin
+     tiles; its partitions are Cold. */
+  accdb_offset_t whead[ FD_ACCDB_WHEAD_CNT ];
+  int            has_partition[ FD_ACCDB_WHEAD_CNT ];
 
   ulong partition_cnt;
   ulong partition_sz;

@@ -371,7 +371,7 @@ fd_accdb_shmem_new( void * shmem,
     accdb->cache_free_low_water[ c ] = (target * 3UL) / 4UL;
   }
 
-  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+  for( ulong k=0UL; k<FD_ACCDB_WHEAD_CNT; k++ ) {
     /* Sentinel: partition_offset == partition_sz forces the first
        allocate_next_write to fall into the partition-switch slow path,
        which acquires a real partition from the pool.
@@ -487,7 +487,7 @@ fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
      write_offset is not yet finalized, so compaction cannot determine
      the valid data range.  The partition_lock serializes this check
      with change_partition, so it is not racy. */
-  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+  for( ulong k=0UL; k<FD_ACCDB_WHEAD_CNT; k++ ) {
     if( FD_UNLIKELY( accdb->has_partition[ k ] && packed_partition_idx( &accdb->whead[ k ] )==partition_idx ) ) return;
   }
 
@@ -556,7 +556,7 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
      "0 until rolled" snapshot.  The tip is a reservation that can
      briefly overrun the partition, so clamp rather than show >100%. */
   ulong head_off = ULONG_MAX;
-  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+  for( ulong k=0UL; k<FD_ACCDB_WHEAD_CNT; k++ ) {
     if( !FD_VOLATILE_CONST( accdb->has_partition[ k ] ) ) continue;
     accdb_offset_t whead = { .val = FD_VOLATILE_CONST( accdb->whead[ k ].val ) };
     if( packed_partition_idx( &whead )==partition_idx ) {
