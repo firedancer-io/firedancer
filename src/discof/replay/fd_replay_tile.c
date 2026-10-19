@@ -1103,7 +1103,7 @@ update_metric_vote_account( fd_replay_tile_t *  ctx,
       if( !deq_fd_vote_epoch_credits_t_empty( ec ) ) {
         fd_vote_epoch_credits_t const * last_ec = deq_fd_vote_epoch_credits_t_peek_tail_const( ec );
         if( last_ec->epoch==bank->f.epoch ) {
-          epoch_credits = last_ec->credits;
+          epoch_credits = fd_ulong_sat_sub( last_ec->credits, last_ec->prev_credits ); /* credits is the lifetime total */
         }
       }
     }
