@@ -788,8 +788,8 @@ test_votor_wfs_done_before_epoch( void ) {
 static void
 test_votor_wfs_keyswitch_during_wait( void ) {
   static fd_votor_tile_t ctx;
-  static peer_t          peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
-  static contact_info_t  contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+  static uchar           peers_mem        [ 1UL<<20 ] __attribute__((aligned(128)));
+  static uchar           contact_infos_mem[ 1UL<<22 ] __attribute__((aligned(128)));
   static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
   static fd_keyswitch_t  av_keyswitch_mem[1];
   static fd_aio_t        aio_mem[1];
@@ -807,8 +807,8 @@ test_votor_wfs_keyswitch_during_wait( void ) {
   bls_pubkey_client_init( ctx.keyguard_client, bls_keys, 1UL );
 
   ctx.mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem      ) );
-  ctx.peers         = peers_join        ( peers_new        ( peers_mem         ) );
-  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  ctx.peers         = peers_join        ( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
+  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
   FD_TEST( ctx.mleaders && ctx.peers && ctx.contact_infos );
 
   fd_aio_t * aio = fd_aio_join( fd_aio_new( aio_mem, NULL, drop_aio_send ) );
@@ -853,8 +853,8 @@ test_votor_wfs_keyswitch_during_wait( void ) {
 static void
 test_votor_wfs_parent_ready_survives_wait( void ) {
   static fd_votor_tile_t ctx;
-  static peer_t          peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
-  static contact_info_t  contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+  static uchar           peers_mem        [ 1UL<<20 ] __attribute__((aligned(128)));
+  static uchar           contact_infos_mem[ 1UL<<22 ] __attribute__((aligned(128)));
   static fd_aio_t        aio_mem[1];
   static uchar           reconn_mem[ 1UL<<19 ] __attribute__((aligned(128)));
   static uchar           mleaders_mem2[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
@@ -862,8 +862,8 @@ test_votor_wfs_parent_ready_survives_wait( void ) {
   ulong boot_slot = AG_SLOTS_PER_WINDOW-1UL; /* ends its window */
   votor_wfs_test_ctx_new( &ctx, boot_slot );
 
-  ctx.peers         = peers_join        ( peers_new        ( peers_mem         ) );
-  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  ctx.peers         = peers_join        ( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
+  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
   ctx.mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem2 ) );
   FD_TEST( ctx.mleaders );
   FD_TEST( reconn_prq_footprint( RECONN_MAX )<=sizeof(reconn_mem) );
@@ -900,16 +900,16 @@ test_votor_wfs_parent_ready_survives_wait( void ) {
 static void
 test_votor_wfs_standstill_from_resume( int ipecho_first ) {
   static fd_votor_tile_t ctx;
-  static peer_t          peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
-  static contact_info_t  contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+  static uchar           peers_mem        [ 1UL<<20 ] __attribute__((aligned(128)));
+  static uchar           contact_infos_mem[ 1UL<<22 ] __attribute__((aligned(128)));
   static uchar           reconn_mem[ 1UL<<19 ] __attribute__((aligned(128)));
   static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
   static fd_aio_t        aio_mem[1];
 
   votor_wfs_test_ctx_new( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
 
-  ctx.peers         = peers_join        ( peers_new        ( peers_mem         ) );
-  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  ctx.peers         = peers_join        ( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
+  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
   ctx.mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
   FD_TEST( reconn_prq_footprint( RECONN_MAX )<=sizeof(reconn_mem) );
   ctx.reconn_prq    = reconn_prq_join   ( reconn_prq_new   ( reconn_mem, RECONN_MAX ) );
@@ -963,8 +963,8 @@ static void
 test_id_keyswitch( void ) {
   static fd_votor_tile_t ctx;
   static auth_vtr_t      auth_vtr_mem     [ 1UL<<AUTH_VTR_LG_SLOT_CNT      ];
-  static peer_t          peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
-  static contact_info_t  contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+  static uchar           peers_mem        [ 1UL<<20 ] __attribute__((aligned(128)));
+  static uchar           contact_infos_mem[ 1UL<<22 ] __attribute__((aligned(128)));
   static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
   static fd_keyswitch_t  av_keyswitch_mem[1];
   static fd_aio_t        aio_mem[1];
@@ -1005,8 +1005,8 @@ test_id_keyswitch( void ) {
   FD_TEST( ag_pool_add_block( ctx.pool, &b1, &root, ctx.scratch.bad )==AG_POOL_SUCCESS );
 
   ctx.mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
-  ctx.peers         = peers_join        ( peers_new        ( peers_mem         ) );
-  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  ctx.peers         = peers_join        ( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
+  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
   FD_TEST( ctx.mleaders && ctx.peers && ctx.contact_infos );
 
   /* The new identity leads every slot, and the window at slot 4 is
@@ -1044,7 +1044,7 @@ test_id_keyswitch( void ) {
   ci->ip4  = FD_IP4_ADDR( 127, 0, 0, 2 );
   ci->port = (ushort)9001;
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx.reward_votes[ i ].slot = ULONG_MAX;
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx.peers ); slot++ ) {
     peer_t * peer = &ctx.peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
     contact_info_t const * ci = contact_infos_query( ctx.contact_infos, peer->id_key, NULL );
@@ -1223,7 +1223,7 @@ test_id_keyswitch( void ) {
   /* Epoch and gossip updates still arrive while halted, but must not
      dial before the sign tile has the new key. */
 
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx.peers ); slot++ ) {
     peer_t * peer = &ctx.peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
     contact_info_t const * ci = contact_infos_query( ctx.contact_infos, peer->id_key, NULL );
@@ -1358,8 +1358,8 @@ test_sign_bls_request( void ) {
   }
 }
 
-static peer_t         peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
-static contact_info_t contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+static uchar          peers_mem        [ 1UL<<20 ] __attribute__((aligned(128)));
+static uchar          contact_infos_mem[ 1UL<<22 ] __attribute__((aligned(128)));
 static uchar          reconn_prq_mem   [ 1UL<<19 ] __attribute__((aligned(128)));
 static uchar          quic_mem         [ 1UL<<24 ] __attribute__((aligned(FD_QUIC_ALIGN)));
 static uchar          pool_mem         [ (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)*(sizeof(ag_slot_state_t)+AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX*sizeof(fd_bls_sig_ele_t)+(AG_VAT_MAX+AG_NOTAR_FALLBACK_HASH_MAX)*(sizeof(ag_vote_stake_ele_t)+sizeof(ulong))+1024UL)+(4UL<<20) ] __attribute__((aligned(128)));
@@ -1409,8 +1409,8 @@ static void
 test_ctx_new( fd_votor_tile_t * ctx,
               ulong             conn_cnt ) {
   static fd_aio_t aio;
-  ctx->peers         = peers_join( peers_new( peers_mem ) );
-  ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  ctx->peers         = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
+  ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
   FD_TEST( reconn_prq_footprint( RECONN_MAX )<=sizeof(reconn_prq_mem) );
   ctx->reconn_prq    = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   FD_TEST( ag_pool_footprint( AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST )<=sizeof(pool_mem) );
@@ -1655,7 +1655,7 @@ test_gossip_before_stake( void ) {
   FD_TEST( contact_infos_query( ctx.contact_infos, id_key, NULL ) );
 
   peer_t * other = test_peer( &ctx, 2, 0 );
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt( ctx.peers ); slot++ ) {
     peer_t * peer = &ctx.peers[ slot ];
     if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
     contact_info_t const * ci = contact_infos_query( ctx.contact_infos, peer->id_key, NULL );
@@ -1821,10 +1821,10 @@ test_park( void ) {
   void * park_pool_mem = aligned_alloc( ag_pool_align(), fd_ulong_align_up( ag_pool_footprint( PARK_SLOT_MAX, QUIC_DGRAM_BURST ), ag_pool_align() ) );
   FD_TEST( park_pool_mem );
   FD_TEST( ag_votor_footprint( PARK_SLOT_MAX )<=sizeof(park_votor_mem) );
-  FD_TEST( peers_footprint()<=sizeof(park_peers_mem) );
+  FD_TEST( peers_footprint( PEERS_LG_SLOT_CNT )<=sizeof(park_peers_mem) );
   ctx->pool        = ag_pool_join ( ag_pool_new ( park_pool_mem,  PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
   ctx->votor       = ag_votor_join( ag_votor_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
-  ctx->peers       = peers_join( peers_new( park_peers_mem ) );
+  ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   ctx->quic_client = park_quic( park_quic_mem[ 0 ], FD_QUIC_ROLE_CLIENT );
   ctx->quic_server = park_quic( park_quic_mem[ 1 ], FD_QUIC_ROLE_SERVER );
@@ -2003,7 +2003,7 @@ test_standstill( void ) {
   FD_TEST( pool_mem );
   ctx->pool        = ag_pool_join ( ag_pool_new ( pool_mem,       PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
   ctx->votor       = ag_votor_join( ag_votor_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
-  ctx->peers       = peers_join( peers_new( park_peers_mem ) );
+  ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   ctx->quic_client = park_quic( park_quic_mem[ 0 ], FD_QUIC_ROLE_CLIENT );
   ctx->quic_server = park_quic( park_quic_mem[ 1 ], FD_QUIC_ROLE_SERVER );
@@ -2377,7 +2377,7 @@ test_reward_certs( void ) {
   ctx.next_epoch_slot = ULONG_MAX;
   ctx.shred_version   = 1;
   ctx.pool            = test_pool( epoch_info, 0UL );
-  ctx.peers           = peers_join( peers_new( peers_mem ) );
+  ctx.peers           = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx.reconn_prq      = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   FD_TEST( ctx.peers && ctx.reconn_prq );
   fd_clock_tile_init( ctx.clock );
@@ -2448,6 +2448,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  FD_TEST( contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )<=sizeof(contact_infos_mem) && peers_footprint( PEERS_LG_SLOT_CNT )<=sizeof(peers_mem) );
 
   test_rank_voters_resets_total_stake();
   test_quic_client_ack_range();
