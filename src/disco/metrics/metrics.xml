@@ -2019,6 +2019,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="CertRx" enum="CertRxResult" summary="Inbound certificates processed, by result" />
     <counter name="BlsSignatureChecked" summary="Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once" />
     <counter name="LeaderWindowSuperseded" summary="Leader windows given up because certificates already let a later window start, eg. while catching up after a restart" />
+    <counter name="CertTxUnstakedSkipped" summary="Certificates and standstill votes not sent because we are not staked in their epoch" />
 
     <gauge name="VotingSlotUsed" summary="Slots tracked by the voting state machine" />
     <gauge name="VotingSlotFree" summary="Free entries in the voting state machine's slot table" />
