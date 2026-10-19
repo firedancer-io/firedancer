@@ -1327,6 +1327,7 @@ test_sign_bls_request( void ) {
 static peer_t         peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
 static contact_info_t contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
 static uchar          reconn_prq_mem   [ 1UL<<19 ] __attribute__((aligned(128)));
+static banned_ip_t    banned_ip_mem    [ 1UL<<BANNED_IP_LG_SLOT_CNT ];
 static uchar          quic_mem         [ 1UL<<24 ] __attribute__((aligned(FD_QUIC_ALIGN)));
 static uchar          pool_mem         [ (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)*(sizeof(ag_slot_state_t)+AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX*sizeof(fd_bls_sig_ele_t)+(AG_VAT_MAX+AG_NOTAR_FALLBACK_HASH_MAX)*(sizeof(ag_vote_stake_ele_t)+sizeof(ulong))+1024UL)+(4UL<<20) ] __attribute__((aligned(128)));
 
@@ -2365,7 +2366,9 @@ test_reward_certs( void ) {
   ctx.pool            = test_pool( epoch_info, 0UL );
   ctx.peers           = peers_join( peers_new( peers_mem ) );
   ctx.reconn_prq      = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
-  FD_TEST( ctx.peers && ctx.reconn_prq );
+  ctx.contact_infos   = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  ctx.banned_ips      = banned_ip_join( banned_ip_new( banned_ip_mem ) );
+  FD_TEST( ctx.peers && ctx.reconn_prq && ctx.contact_infos && ctx.banned_ips );
   fd_clock_tile_init( ctx.clock );
   for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx.reward_certs[ i ].slot = ULONG_MAX;
 
