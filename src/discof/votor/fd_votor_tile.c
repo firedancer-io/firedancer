@@ -30,6 +30,7 @@
 #include "../replay/fd_replay_tile.h"
 #include "../restore/utils/fd_wfs.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -154,12 +155,6 @@ typedef struct reconn reconn_t;
 
 #define RECONN_MAX (1UL<<PEERS_LG_SLOT_CNT)
 
-struct vote_history_file {
-  int  fd; /* -1 if not written */
-  char name[ PATH_MAX ];
-};
-typedef struct vote_history_file vote_history_file_t;
-
 /* reward_vote specially tracks that our vote for slot is ACK'd by the
    leader for the reward slot (slot + 8). */
 
@@ -256,27 +251,30 @@ struct fd_votor_tile {
   /* Signing */
 
   fd_pubkey_t          id_key;
+  fd_pubkey_t          id_key_bak;    /* the identity whose .bak is the vote history spare */
   fd_keyswitch_t *     id_keyswitch;
-  int                  halt_signing;      /* switching identity, see during_housekeeping */
-  ulong                replay_in_seq;     /* seq after the last replay_slot frag consumed */
-  ulong                wait_to_vote_slot; /* from the new identity's vote history file, 0 if none */
+  int                  halt_signing;  /* switching identity, see during_housekeeping */
+  ulong                replay_in_seq; /* seq after the last replay_slot frag consumed */
   auth_vtr_t *         auth_vtr;
   ulong                auth_vtr_path_cnt;
   fd_keyswitch_t *     auth_vtr_keyswitch;
   fd_keyguard_client_t keyguard_client[1];
 
-  /* The vote history file.  Each write goes to the staging file, then
-     the two names are exchanged, so the live file is always complete. */
+  /* Vote history */
 
-  int                    vote_history_dir_fd;
-  vote_history_file_t    vote_history_new;       /* staging, <name>.new */
-  vote_history_file_t    vote_history_old;       /* live, <name> */
-  uchar                  vote_history_buf[ AG_VOTE_HISTORY_SER_SZ ];
+  ulong       vote_history_slot;     /* first slot votor may vote in, from the vote history file, 0 if none */
+  int         vote_history_bak_full; /* the spare holds id_key_bak's vote history */
+  int         vote_history_pending;  /* the next write names the new identity's file, which a switch leaves unnamed */
+  int         vote_history_fd;
+  int         vote_history_fd_swp;   /* swap file, atomic rename */
+  int         vote_history_fd_bak;   /* spare, the new identity's at a switch */
+  int         vote_history_fd_dir;
 
   /* Initialization */
 
   int           init;
   ag_block_id_t boot_block_id;
+  ulong         slot_max; /* max_live_slots */
 
   /* Wait-for-supermajority (see fd_wfs.h). */
 
@@ -298,6 +296,7 @@ struct fd_votor_tile {
   ulong                      next_epoch_slot;
   fd_multi_epoch_leaders_t * mleaders;
   ulong                      next_leader_slot;
+  ulong                      highest_vote_or_lead_slot; /* voting can be out of order, so track a hi-watermark of every vote votor decided and window it led */
   ulong                      highest_parent_ready_slot;
   ulong                      highest_certed_final_slot; /* highest slot whose final cert was published paired with its notar cert */
   ulong                      catchup_slot;              /* highest slot past the pool window with a verified cert, 0 if none */
@@ -371,6 +370,7 @@ struct fd_votor_tile {
     ag_epoch_info_t next_epoch_info;
     uchar           ser[ SER_MAX ];
     fd_bls_set_t    bad[ fd_bls_set_word_cnt ];
+    uchar           vote_history[ AG_VOTE_HISTORY_SER_SZ ];
   } scratch;
 
   /* Metrics */
@@ -380,10 +380,7 @@ struct fd_votor_tile {
     ulong vote_rx    [ FD_METRICS_ENUM_VOTE_RX_RESULT_CNT     ];
     ulong cert_rx    [ FD_METRICS_ENUM_CERT_RX_RESULT_CNT     ];
     ulong bls_verify;
-
     ulong vote_history_write;
-    ulong vote_history_slot;
-    ulong vote_history_sz;
   } metrics;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
@@ -1156,6 +1153,10 @@ sign_vote( void *         signer_ctx,
            uchar const *  payload,
            ulong          payload_sz ) {
   fd_votor_tile_t * ctx = signer_ctx;
+  if( FD_UNLIKELY( ctx->halt_signing ) ) {
+    memset( sig, 0, sizeof(fd_bls_sig_t) );
+    return;
+  }
   auth_vtr_t const * auth_vtr = auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( public_key ), NULL );
   if( FD_UNLIKELY( !auth_vtr ) ) FD_LOG_CRIT(( "no key derives the requested BLS public key" ));
   uchar sig_bytes[ FD_BLS_SIG_SZ ];
@@ -1163,105 +1164,84 @@ sign_vote( void *         signer_ctx,
   if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
 }
 
-/* rename_vote_history atomically replaces the Agave-compatible vote
-   history file with a new one.
-
-   Examples:
-
-   vote_history-A.bin      renamed to vote_history-B.bin
-   vote_history-B.bin      already there, moved to vote_history-B.bin.old
-   vote_history-B.bin.old  already there too, so vote_history-B.bin.old.1, ... */
-
-static void
-rename_vote_history( int                   dir_fd,
-                     vote_history_file_t * file,
-                     char const *          name ) {
-  if( FD_UNLIKELY( syscall( SYS_renameat2, dir_fd, file->name, dir_fd, name, RENAME_NOREPLACE ) ) ) {
-    if( FD_UNLIKELY( errno!=EEXIST ) ) FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", file->name, name, errno, fd_io_strerror( errno ) ));
-    char old[ PATH_MAX ];
-    for( ulong j=0UL;; j++ ) {
-      if( j ) FD_TEST( fd_cstr_printf_check( old, PATH_MAX, NULL, "%s.old.%lu", name, j ) );
-      else    FD_TEST( fd_cstr_printf_check( old, PATH_MAX, NULL, "%s.old",     name    ) );
-      if( FD_LIKELY( !syscall( SYS_renameat2, dir_fd, name, dir_fd, old, RENAME_NOREPLACE ) ) ) break;
-      if( FD_UNLIKELY( errno!=EEXIST ) ) FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", name, old, errno, fd_io_strerror( errno ) ));
-    }
-    FD_LOG_WARNING(( "vote history file %s already existed, moved it to %s", name, old ));
-    if( FD_UNLIKELY( syscall( SYS_renameat2, dir_fd, file->name, dir_fd, name, RENAME_NOREPLACE ) ) )
-      FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", file->name, name, errno, fd_io_strerror( errno ) ));
-  }
-  FD_TEST( fd_cstr_printf_check( file->name, PATH_MAX, NULL, "%s", name ) );
-}
-
 /* write_vote_history writes out an Agave-compatible vote history file.
+   Firedancer only writes out a single slot, the wait-to-vote slot.
 
    Examples:
 
    vote_history-A.bin          live
-   vote_history-A.bin.new      staging, swapped with live on each write
-   vote_history-B.bin(.new)    the A files, renamed on the first write as B
-   vote_history-B.bin.old      a B file already there (.old.1, .old.2, ...) */
+   vote_history-A.bin.swp      staging, swapped with live on each write
+   vote_history-B.bin.bak      B as of the switch away from it, the spare
+                               the next switch reuses */
 
 static void
 write_vote_history( fd_votor_tile_t * ctx ) {
   FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
-  char new_name[ PATH_MAX ];
-  char old_name[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( new_name, PATH_MAX, NULL, "vote_history-%s.bin.new", id_key_b58 ) );
-  FD_TEST( fd_cstr_printf_check( old_name, PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
+  char swp[ PATH_MAX ];
+  char bin[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", id_key_b58 ) );
+  FD_TEST( fd_cstr_printf_check( bin, PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
 
-  if( FD_UNLIKELY( strcmp( old_name, ctx->vote_history_old.name ) ) ) {
-    FD_LOG_NOTICE(( "vote history file %s renamed to %s for the new identity", ctx->vote_history_old.name, old_name ));
-    rename_vote_history( ctx->vote_history_dir_fd, &ctx->vote_history_new, new_name );
-    rename_vote_history( ctx->vote_history_dir_fd, &ctx->vote_history_old, old_name );
-  }
-
-  uchar * buf  = ctx->vote_history_buf;
-  ulong   sz   = AG_VOTE_HISTORY_SER_SZ;
-  ulong   root = ag_votor_vote_history( ctx->votor );
-  ag_vote_history_ser( ctx->id_key.uc, root, buf );
+  uchar * buf = ctx->scratch.vote_history;
+  ulong   sz  = AG_VOTE_HISTORY_SER_SZ;
+  ag_vote_history_ser( ctx->id_key.uc, ag_first_slot_in_window( ctx->highest_vote_or_lead_slot )+AG_SLOTS_PER_WINDOW-1UL, buf );
   fd_keyguard_client_sign( ctx->keyguard_client, buf+AG_VOTE_HISTORY_SERDE_SIG_OFF, buf+AG_VOTE_HISTORY_SERDE_DATA_OFF, sz-AG_VOTE_HISTORY_SERDE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   for( ulong off=0UL; off<sz; ) {
-    long n = pwritev2( ctx->vote_history_new.fd, &(struct iovec){ .iov_base=buf+off, .iov_len=sz-off }, 1, (long)off, 0 );
+    long n = pwritev2( ctx->vote_history_fd_swp, &(struct iovec){ .iov_base=buf+off, .iov_len=sz-off }, 1, (long)off, 0 );
     if( FD_UNLIKELY( -1==n && errno==EINTR ) ) continue;
-    if( FD_UNLIKELY( n<=0 ) ) FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", ctx->vote_history_new.name, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( n<=0 ) ) FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", swp, errno, fd_io_strerror( errno ) ));
     off += (ulong)n;
   }
-  while( FD_UNLIKELY( ftruncate( ctx->vote_history_new.fd, (long)sz ) ) ) {
-    if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->vote_history_new.name, errno, fd_io_strerror( errno ) ));
+  while( FD_UNLIKELY( ftruncate( ctx->vote_history_fd_swp, (long)sz ) ) ) {
+    if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", swp, errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_dir_fd, ctx->vote_history_new.name, ctx->vote_history_dir_fd, ctx->vote_history_old.name, RENAME_EXCHANGE ) ) )
-    FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->vote_history_new.name, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
-  int fd = ctx->vote_history_new.fd; ctx->vote_history_new.fd = ctx->vote_history_old.fd; ctx->vote_history_old.fd = fd;
+  if( FD_UNLIKELY( ctx->vote_history_pending ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->id_key_bak.uc, bak_b58 );
+    char bak_swp[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( bak_swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", bak_b58 ) );
+    if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, swp, ctx->vote_history_fd_dir, bin, RENAME_NOREPLACE ) && errno==EEXIST ) )
+      FD_LOG_WARNING(( "replacing vote history file %s, which was copied in.  set-identity takes the vote history from --vote-history-file", bin ));
+    if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, swp, ctx->vote_history_fd_dir, bin, 0 ) && errno!=ENOENT ) )
+      FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", swp, bin, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, bak_swp, ctx->vote_history_fd_dir, swp, 0 ) ) )
+      FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", bak_swp, swp, errno, fd_io_strerror( errno ) ));
+    ctx->vote_history_pending = 0;
+  } else if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, swp, ctx->vote_history_fd_dir, bin, RENAME_EXCHANGE ) ) ) {
+    FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", swp, bin, errno, fd_io_strerror( errno ) ));
+  }
+  int fd = ctx->vote_history_fd_swp; ctx->vote_history_fd_swp = ctx->vote_history_fd; ctx->vote_history_fd = fd;
 
   ctx->metrics.vote_history_write++;
-  ctx->metrics.vote_history_slot = root;
-  ctx->metrics.vote_history_sz   = sz;
 }
 
-/* read_vote_history reads in an Agave-compatible vote history file. */
+/* read_vote_history returns the wait-to-vote slot of an Agave-compatible
+   vote history file, 0 if it is missing or empty. */
 
-static void
+static ulong
 read_vote_history( fd_votor_tile_t * ctx,
-                   char const *      path ) {
-  int fd = openat( ctx->vote_history_dir_fd, ctx->vote_history_old.name, O_RDONLY );
-  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+                   char const *      path,
+                   char const *      name ) {
+  int fd = openat( ctx->vote_history_fd_dir, name, O_RDONLY );
+  if( FD_UNLIKELY( -1==fd && errno==ENOENT ) ) return 0UL;
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
   struct stat st;
-  if( FD_UNLIKELY( -1==fstat( fd, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( !st.st_size ) ) { /* never written, the identity was never switched away from here */
-    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
-    return;
+  if( FD_UNLIKELY( -1==fstat( fd, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !st.st_size ) ) { /* never written, the identity never voted from here */
+    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+    return 0UL;
   }
 
   ulong         sz   = (ulong)st.st_size;
   uchar const * file = mmap( NULL, sz, PROT_READ, MAP_PRIVATE, fd, 0 );
-  if( FD_UNLIKELY( file==MAP_FAILED ) ) FD_LOG_ERR(( "mmap(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
-  int err = ag_vote_history_de( file, sz, ctx->id_key.uc, &ctx->wait_to_vote_slot );
-  if( FD_UNLIKELY( munmap( (void *)file, sz ) ) ) FD_LOG_ERR(( "munmap(`%s/%s`) failed (%i-%s)", path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "vote history file `%s/%s` is invalid (%i) or not for this identity, remove it to boot without it", path, ctx->vote_history_old.name, err ));
-  FD_LOG_NOTICE(( "vote history file `%s/%s` has votes, waiting to vote until slot %lu", path, ctx->vote_history_old.name, ctx->wait_to_vote_slot ));
+  if( FD_UNLIKELY( file==MAP_FAILED ) ) FD_LOG_ERR(( "mmap(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  ulong vote_history_slot;
+  int   err = ag_vote_history_de( file, sz, ctx->id_key.uc, &vote_history_slot );
+  if( FD_UNLIKELY( munmap( (void *)file, sz ) ) ) FD_LOG_ERR(( "munmap(`%s/%s`) failed (%i-%s)", path, name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "vote history file `%s/%s` is invalid (%i) or not for this identity. Please copy this identity's latest %s into %s.", path, name, err, name, path ));
+  return vote_history_slot;
 }
 
 static ag_epoch_info_t *
@@ -1485,7 +1465,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   /* Slot 0 is genesis.  Slot 1 is ParentReady on genesis (see
      ag_parent_ready_tracker_mark_root) even though it does not start a
      window. */
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( msg->start_slot, 1UL ), ctx->wait_to_vote_slot ), &ctx->id_key );
+  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( msg->start_slot, 1UL ), ctx->vote_history_slot ), &ctx->id_key );
 
   ctx->init = !!ctx->next_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version && votor_wfs_is_green( ctx );
 }
@@ -1555,6 +1535,18 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ctx->boot_block_id = block_id;
+
+      /* A cluster restart, booting at the wait-for-supermajority slot,
+         starts a new fork, so votes before it no longer bind, as in
+         Agave's maybe_cluster_restart_with_hard_fork. */
+
+      if( FD_UNLIKELY( fd_wfs_mode( ctx->wfs_slot, ctx->wfs_hash_is_zero, (ulong)ctx->wfs_shred_version, block_id.slot )==FD_WFS_MODE_MATCH && ctx->vote_history_slot ) ) {
+        FD_LOG_WARNING(( "cluster restart at slot %lu, discarding the vote history floor %lu", block_id.slot, ctx->vote_history_slot ));
+        ctx->vote_history_slot         = 0UL;
+        ctx->highest_vote_or_lead_slot = 0UL;
+        ctx->next_leader_slot          = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( ctx->curr_epoch_slot, 1UL ), &ctx->id_key );
+      }
+
       if( block_id.slot==0UL ) ag_pool_from_genesis ( ctx->pool, &block_id );
       else                     ag_pool_from_snapshot( ctx->pool, &block_id );
       int wfs_green = votor_wfs_is_green( ctx );
@@ -1562,6 +1554,7 @@ handle_replay( fd_votor_tile_t *           ctx,
       if( FD_LIKELY( ctx->shred_version ) ) {
         long now = fd_clock_tile_now( ctx->clock );
         ag_votor_init( ctx->votor, &block_id, now, ctx->ns_per_slot, ctx->shred_version, sign_vote, ctx );
+        ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, block_id.slot );
         if( FD_LIKELY( wfs_green ) ) ag_votor_arm_skip_timeouts( ctx->votor, now );
       }
       ctx->init = !!ctx->next_epoch_info && !!ctx->shred_version && wfs_green;
@@ -1722,18 +1715,15 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
 
     /* Halt signing at first. */
 
-    if( !ctx->halt_signing ) {
-      ctx->halt_signing = 1;
-      ag_votor_halt_signing( ctx->votor );
-    }
+    ctx->halt_signing = 1;
 
     /* If votes and pool events drained close quic conns and update
        leader tracking.  The pool queue drains only under ctx->init,
        so waiting on it while held never completes: a late ipecho
        stalls there, and under WFS the boot ParentReady sits in
-       it for the whole wait.  Skipping it is safe because a held
-       votor casts no vote, so the queue holds nothing decided under
-       the old identity. */
+       it for the whole wait.  Skipping it is safe because no vote
+       built while halted is signed, so none decided under the old
+       identity goes out. */
 
     if( FD_LIKELY( !ag_votor_metrics( ctx->votor ).vote_events_cnt &&
                    ( !ctx->init || !ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) ) {
@@ -1741,9 +1731,54 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
       /* Save the votes drained since the halt as the old identity.  The
          admin tile switches the sign tile only after this completes. */
 
-      if( FD_LIKELY( ctx->vote_history_dir_fd!=-1 ) ) write_vote_history( ctx );
+      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
+      /* Leaving an identity saves its file as its .bak, and hands the
+         spare, the .bak votor holds, to the new identity as its staging
+         file.  The new identity's file is named only once it is written
+         at unhalt, so a restart before then finds no file and refuses to
+         boot rather than reading an empty one as never voted. */
+
+      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 && memcmp( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc,           id_key_b58 );
+        FD_BASE58_ENCODE_32_BYTES( ctx->id_keyswitch->bytes, switch_b58 );
+        FD_BASE58_ENCODE_32_BYTES( ctx->id_key_bak.uc,       spare_b58  );
+        char swp       [ PATH_MAX ];
+        char bin       [ PATH_MAX ];
+        char bak       [ PATH_MAX ];
+        char spare     [ PATH_MAX ];
+        char switch_swp[ PATH_MAX ];
+        char switch_bin[ PATH_MAX ];
+        char switch_bak[ PATH_MAX ];
+        FD_TEST( fd_cstr_printf_check( swp,        PATH_MAX, NULL, "vote_history-%s.bin.swp", id_key_b58 ) );
+        FD_TEST( fd_cstr_printf_check( bin,        PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
+        FD_TEST( fd_cstr_printf_check( bak,        PATH_MAX, NULL, "vote_history-%s.bin.bak", id_key_b58 ) );
+        FD_TEST( fd_cstr_printf_check( spare,      PATH_MAX, NULL, "vote_history-%s.bin.bak", spare_b58  ) );
+        FD_TEST( fd_cstr_printf_check( switch_swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", switch_b58 ) );
+        FD_TEST( fd_cstr_printf_check( switch_bin, PATH_MAX, NULL, "vote_history-%s.bin",     switch_b58 ) );
+        FD_TEST( fd_cstr_printf_check( switch_bak, PATH_MAX, NULL, "vote_history-%s.bin.bak", switch_b58 ) );
+        int spare_mine   = fd_pubkey_eq( &ctx->id_key_bak, &ctx->id_key );
+        int spare_switch = !memcmp( ctx->id_key_bak.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
+        if( FD_UNLIKELY( ctx->vote_history_bak_full && !spare_mine && !spare_switch ) ) {
+          FD_LOG_WARNING(( "reusing vote history file %s for %s.  Copy it out first to keep that identity's vote history", spare, switch_bin ));
+        }
+        FD_LOG_NOTICE(( "vote history file %s saved as %s", bin, bak ));
+        if( FD_UNLIKELY( !spare_switch && syscall( SYS_renameat2, ctx->vote_history_fd_dir, switch_bin, ctx->vote_history_fd_dir, switch_bak, 0 ) && errno!=ENOENT ) )
+          FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", switch_bin, switch_bak, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, spare, ctx->vote_history_fd_dir, switch_swp, 0 ) ) )
+          FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", spare, switch_swp, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, bin, ctx->vote_history_fd_dir, bak, 0 ) ) )
+          FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", bin, bak, errno, fd_io_strerror( errno ) ));
+        int fd = ctx->vote_history_fd_bak;
+        ctx->vote_history_fd_bak   = ctx->vote_history_fd;
+        ctx->vote_history_fd       = ctx->vote_history_fd_swp;
+        ctx->vote_history_fd_swp   = fd;
+        ctx->id_key_bak            = ctx->id_key;
+        ctx->vote_history_bak_full = 1;
+        ctx->vote_history_pending  = 1;
+      }
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
-      ctx->wait_to_vote_slot = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL );
+      ctx->vote_history_slot         = fd_ulong_max( FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL ), ag_first_slot_in_window( ctx->highest_vote_or_lead_slot )+AG_SLOTS_PER_WINDOW );
+      ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, fd_ulong_sat_sub( ctx->vote_history_slot, 1UL ) );
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
       fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
@@ -1771,11 +1806,11 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
       for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ] = (reward_cert_t){ .slot = ULONG_MAX };
 
       /* Skip the window in progress, it may already have a leader, and
-         those below the vote history file's floor, which the identity
-         may have led on another machine. */
+         those below the floor, which the identity may have voted or led
+         in here or on another machine. */
 
       ulong next_window = ag_first_slot_in_window( ctx->highest_parent_ready_slot )+AG_SLOTS_PER_WINDOW;
-      ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, next_window ), ctx->wait_to_vote_slot ), &ctx->id_key );
+      ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, next_window ), ctx->vote_history_slot ), &ctx->id_key );
       fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     }
   }
@@ -1787,10 +1822,10 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
     load_keys( ctx, ctx->auth_vtr_path_cnt );
     ctx->halt_signing = 0;
-    ag_votor_wait_to_vote( ctx->votor, ctx->wait_to_vote_slot );
+    ctx->vote_history_slot = fd_ulong_max( ctx->vote_history_slot, ag_first_slot_in_window( ctx->highest_vote_or_lead_slot )+AG_SLOTS_PER_WINDOW );
+    if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx ); /* the sign tile has the new key, so its floor is on disk before it votes */
     update_own_rank( ctx );
     update_own_bls_key( ctx );
-    ag_votor_unhalt_signing( ctx->votor );
     ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool ); /* its next vote was copied as the old identity */
     for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
       peer_t * peer = &ctx->peers[ slot ];
@@ -1829,8 +1864,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( VOTOR, CERT_RX,     ctx->metrics.cert_rx     );
 
   FD_MCNT_SET  ( VOTOR, VOTE_HISTORY_FILE_WRITTEN,    ctx->metrics.vote_history_write     );
-  FD_MGAUGE_SET( VOTOR, VOTE_HISTORY_FILE_SLOT,       fd_ulong_if( ctx->metrics.vote_history_slot==ULONG_MAX, 0UL, ctx->metrics.vote_history_slot ) );
-  FD_MGAUGE_SET( VOTOR, VOTE_HISTORY_FILE_SIZE_BYTES, ctx->metrics.vote_history_sz        );
+  FD_MGAUGE_SET( VOTOR, WAIT_TO_VOTE_SLOT,            ctx->vote_history_slot              );
 
   ag_votor_metrics_t votor_metrics = ag_votor_metrics( ctx->votor );
   FD_MGAUGE_SET( VOTOR, VOTING_SLOT_USED,        votor_metrics.slot_state_pool_used );
@@ -1900,12 +1934,17 @@ after_credit( fd_votor_tile_t *   ctx,
 
   /* 1. Notify if we can become leader. */
 
-  while( FD_UNLIKELY( ctx->next_leader_slot!=ULONG_MAX && ctx->next_leader_slot<=ag_pool_finalized_slot( ctx->pool ) ) ) {
+  while( FD_UNLIKELY(    ctx->next_leader_slot!=ULONG_MAX
+                      && ( ctx->next_leader_slot<=ag_pool_finalized_slot( ctx->pool )
+                        || ctx->next_leader_slot+ctx->slot_max<=ctx->catchup_slot
+                        || ctx->next_leader_slot<ctx->vote_history_slot ) ) ) {
     ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW, &ctx->id_key );
   }
   ag_block_id_t parent = { .slot = ULONG_MAX }; /* never will be leader, schedule exhausted, or the pool has not granted parent ready yet */
   if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
-  if( FD_UNLIKELY( parent.slot!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( parent.slot!=ULONG_MAX && !ctx->halt_signing ) ) {
+    ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW-1UL );
+    if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx ); /* a restart does not lead the window again */
     fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
     chunk->leader = (fd_votor_leader_t){ .slot = ctx->next_leader_slot, .parent_slot = parent.slot, .parent_block_id = FD_LOAD( fd_hash_t, parent.hash ), .parent_ready_ns = now };
     fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -2084,7 +2123,9 @@ after_credit( fd_votor_tile_t *   ctx,
     ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote );
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
-    if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
+    ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, vote_slot );
+    if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot+ctx->slot_max>ctx->catchup_slot && !blst_p2_affine_is_inf( ag_vote_sig( &ctx->scratch.vote ) ) ) ) {
+      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
       ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
 
@@ -2259,6 +2300,7 @@ after_frag( fd_votor_tile_t *   ctx,
     if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) {
       long now = fd_clock_tile_now( ctx->clock );
       ag_votor_init( ctx->votor, &ctx->boot_block_id, now, ctx->ns_per_slot, (ushort)sig, sign_vote, ctx );
+      ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, ctx->boot_block_id.slot );
       if( FD_LIKELY( wfs_green ) ) ag_votor_arm_skip_timeouts( ctx->votor, now );
     }
     ctx->shred_version = (ushort)sig;
@@ -2302,39 +2344,76 @@ privileged_init( fd_topo_t const *      topo,
   ctx->auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr ) );
   ctx->id_key   = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
 
-  ctx->vote_history_dir_fd  = -1;
-  ctx->vote_history_new.fd = -1;
-  ctx->vote_history_old.fd = -1;
-  ctx->wait_to_vote_slot   = 0UL;
+  ctx->vote_history_fd_dir       = -1;
+  ctx->vote_history_fd           = -1;
+  ctx->vote_history_fd_swp       = -1;
+  ctx->vote_history_fd_bak       = -1;
+  ctx->id_key_bak                = ctx->id_key;
+  ctx->vote_history_bak_full     = 0;
+  ctx->vote_history_pending      = 0;
+  ctx->vote_history_slot         = 0UL;
+  ctx->highest_vote_or_lead_slot = 0UL;
   if( FD_LIKELY( tile->votor.vote_history_path[ 0 ] ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
-    FD_TEST( fd_cstr_printf_check( ctx->vote_history_old.name, PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
-    FD_TEST( fd_cstr_printf_check( ctx->vote_history_new.name, PATH_MAX, NULL, "vote_history-%s.bin.new", id_key_b58 ) );
+    char bin[ PATH_MAX ];
+    char swp[ PATH_MAX ];
+    char bak[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( bin, PATH_MAX, NULL, "vote_history-%s.bin",     id_key_b58 ) );
+    FD_TEST( fd_cstr_printf_check( swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", id_key_b58 ) );
+    FD_TEST( fd_cstr_printf_check( bak, PATH_MAX, NULL, "vote_history-%s.bin.bak", id_key_b58 ) );
 
-    ctx->vote_history_dir_fd = open( tile->votor.vote_history_path, O_RDONLY|O_DIRECTORY );
-    if( FD_UNLIKELY( -1==ctx->vote_history_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+    ctx->vote_history_fd_dir = open( tile->votor.vote_history_path, O_RDONLY|O_DIRECTORY );
+    if( FD_UNLIKELY( -1==ctx->vote_history_fd_dir ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+
+    /* Without the identity's file, the directory must hold no other
+       vote history file, which may hold the identity's votes under
+       another name, like the .bak a set-identity away from it saves, or
+       the file an earlier version renamed to the new identity. */
+
+    if( FD_UNLIKELY( -1==faccessat( ctx->vote_history_fd_dir, bin, F_OK, 0 ) ) ) {
+      if( FD_UNLIKELY( errno!=ENOENT ) ) FD_LOG_ERR(( "faccessat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, bin, errno, fd_io_strerror( errno ) ));
+      DIR * dir = opendir( tile->votor.vote_history_path );
+      if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "opendir(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+      errno = 0;
+      for( struct dirent * ent; (ent = readdir( dir )); ) {
+        if( FD_LIKELY( strncmp( ent->d_name, "vote_history-", sizeof("vote_history-")-1UL ) ) ) continue;
+        FD_LOG_ERR(( "Booting as %s, but detected %s in %s, which is missing %s. Please either copy %s into %s or remove the vote_history-* files there if you wish to boot without a vote history file.",
+                     id_key_b58, ent->d_name, tile->votor.vote_history_path, bin, bin, tile->votor.vote_history_path ));
+      }
+      if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir(`%s`) failed (%i-%s)", tile->votor.vote_history_path, errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "vote history file `%s/%s` does not exist, creating it.  This identity is assumed to have never voted.", tile->votor.vote_history_path, bin ));
+    }
+    ctx->vote_history_slot         = read_vote_history( ctx, tile->votor.vote_history_path, bin );
+    ctx->highest_vote_or_lead_slot = fd_ulong_sat_sub( ctx->vote_history_slot, 1UL );
+    if( FD_LIKELY( ctx->vote_history_slot ) ) FD_LOG_NOTICE(( "vote history file `%s/%s` has votes, waiting to vote until slot %lu", tile->votor.vote_history_path, bin, ctx->vote_history_slot ));
 
     /* Switch to non-root uid/gid for file creation. */
+    struct stat st;
     gid_t gid = getgid();
     uid_t uid = getuid();
     if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->votor.target_gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->votor.target_uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    struct stat st;
-    ctx->vote_history_new.fd = openat( ctx->vote_history_dir_fd, ctx->vote_history_new.name, O_WRONLY|O_CREAT, 0644 );
-    if( FD_UNLIKELY( -1==ctx->vote_history_new.fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->votor.vote_history_path, ctx->vote_history_new.name, errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==fstat( ctx->vote_history_new.fd, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, ctx->vote_history_new.name, errno, fd_io_strerror( errno ) ));
+    ctx->vote_history_fd = openat( ctx->vote_history_fd_dir, bin, O_WRONLY|O_CREAT, 0644 );
+    if( FD_UNLIKELY( -1==ctx->vote_history_fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->votor.vote_history_path, bin, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fstat( ctx->vote_history_fd, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, bin, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( st.st_uid!=tile->votor.target_uid ) ) {
-      FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, ctx->vote_history_new.name, st.st_uid, tile->votor.target_uid ));
+      FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, bin, st.st_uid, tile->votor.target_uid ));
     }
-    ctx->vote_history_old.fd = openat( ctx->vote_history_dir_fd, ctx->vote_history_old.name, O_WRONLY|O_CREAT, 0644 );
-    if( FD_UNLIKELY( -1==ctx->vote_history_old.fd ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->votor.vote_history_path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==fstat( ctx->vote_history_old.fd, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, ctx->vote_history_old.name, errno, fd_io_strerror( errno ) ));
+    ctx->vote_history_fd_swp = openat( ctx->vote_history_fd_dir, swp, O_WRONLY|O_CREAT, 0644 );
+    if( FD_UNLIKELY( -1==ctx->vote_history_fd_swp ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->votor.vote_history_path, swp, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fstat( ctx->vote_history_fd_swp, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, swp, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( st.st_uid!=tile->votor.target_uid ) ) {
-      FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, ctx->vote_history_old.name, st.st_uid, tile->votor.target_uid ));
+      FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, swp, st.st_uid, tile->votor.target_uid ));
     }
-
-    read_vote_history( ctx, tile->votor.vote_history_path );
+    ctx->vote_history_fd_bak = openat( ctx->vote_history_fd_dir, bak, O_WRONLY|O_CREAT, 0644 );
+    if( FD_UNLIKELY( -1==ctx->vote_history_fd_bak ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s), make sure the configured user owns it", tile->votor.vote_history_path, bak, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fstat( ctx->vote_history_fd_bak, &st ) ) ) FD_LOG_ERR(( "fstat(`%s/%s`) failed (%i-%s)", tile->votor.vote_history_path, bak, errno, fd_io_strerror( errno ) ));
+    ctx->vote_history_bak_full = !!st.st_size;
+    if( FD_UNLIKELY( st.st_uid!=tile->votor.target_uid ) ) {
+      FD_LOG_ERR(( "vote history file `%s/%s` is owned by uid %u but the configured user is uid %u, chown it to the configured user", tile->votor.vote_history_path, bak, st.st_uid, tile->votor.target_uid ));
+    }
 
     if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -2370,7 +2449,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->shred_version = (ushort)0;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
-  ctx->metrics.vote_history_slot = ULONG_MAX;
 
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
@@ -2380,7 +2458,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
   FD_TEST( ctx->votor );
-  ag_votor_wait_to_vote( ctx->votor, ctx->wait_to_vote_slot );
 
   ctx->prev_epoch_info = NULL;
   ctx->prev_epoch_slot = ULONG_MAX;
@@ -2433,6 +2510,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_certed_final_slot = 0UL;
   ctx->catchup_slot              = 0UL;
+  ctx->slot_max                  = tile->votor.max_live_slots;
   ctx->standstill_slot           = ULONG_MAX;
   ctx->standstill_ts             = LONG_MAX;
   ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );
@@ -2568,7 +2646,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
 
-  populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->vote_history_dir_fd, (uint)ctx->vote_history_new.fd, (uint)ctx->vote_history_old.fd );
+  populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->vote_history_fd_dir, (uint)ctx->vote_history_fd_swp, (uint)ctx->vote_history_fd, (uint)ctx->vote_history_fd_bak );
   return sock_filter_policy_fd_votor_tile_instr_cnt;
 }
 
@@ -2581,16 +2659,17 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
-  if( FD_LIKELY( -1!=ctx->vote_history_dir_fd ) ) {
-    out_fds[ out_cnt++ ] = ctx->vote_history_dir_fd;
-    out_fds[ out_cnt++ ] = ctx->vote_history_new.fd;
-    out_fds[ out_cnt++ ] = ctx->vote_history_old.fd;
+  if( FD_LIKELY( -1!=ctx->vote_history_fd_dir ) ) {
+    out_fds[ out_cnt++ ] = ctx->vote_history_fd_dir;
+    out_fds[ out_cnt++ ] = ctx->vote_history_fd_swp;
+    out_fds[ out_cnt++ ] = ctx->vote_history_fd;
+    out_fds[ out_cnt++ ] = ctx->vote_history_fd_bak;
   }
   return out_cnt;
 }

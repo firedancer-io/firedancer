@@ -591,9 +591,9 @@ votor_wfs_test_ctx_new( fd_votor_tile_t * ctx,
   ctx->next_leader_slot    = ULONG_MAX;
   ctx->standstill_slot     = ULONG_MAX;
   ctx->standstill_ts       = LONG_MAX;
-  ctx->vote_history_dir_fd = -1;
-  ctx->vote_history_new.fd = -1;
-  ctx->vote_history_old.fd = -1;
+  ctx->vote_history_fd_dir = -1;
+  ctx->vote_history_fd     = -1;
+  ctx->vote_history_fd_swp = -1;
 
   ctx->wfs_slot          = wfs_slot;
   ctx->wfs_hash_is_zero  = 0;
@@ -1078,28 +1078,45 @@ test_id_keyswitch( void ) {
   ulong net_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR, FD_NETMUX_SIG_MIN_HDR_SZ );
   FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
 
-  /* The old identity's vote history file */
+  /* The old identity, which votor booted as, has its vote history
+     files and the spare.  The new identity's file is already there. */
 
   char dir[] = "/tmp/test_id_keyswitch_XXXXXX";
   FD_TEST( mkdtemp( dir ) );
-  ctx.vote_history_dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
-  FD_TEST( -1!=ctx.vote_history_dir_fd );
+  ctx.vote_history_fd_dir = open( dir, O_RDONLY|O_DIRECTORY );
+  FD_TEST( -1!=ctx.vote_history_fd_dir );
   FD_BASE58_ENCODE_32_BYTES( old_id.uc, old_b58 );
-  FD_TEST( fd_cstr_printf_check( ctx.vote_history_old.name, PATH_MAX, NULL, "vote_history-%s.bin", old_b58 ) );
-  FD_TEST( fd_cstr_printf_check( ctx.vote_history_new.name, PATH_MAX, NULL, "%s.new", ctx.vote_history_old.name ) );
-  ctx.vote_history_new.fd = openat( ctx.vote_history_dir_fd, ctx.vote_history_new.name, O_WRONLY|O_CREAT, 0644 );
-  ctx.vote_history_old.fd = openat( ctx.vote_history_dir_fd, ctx.vote_history_old.name, O_WRONLY|O_CREAT, 0644 );
-  FD_TEST( -1!=ctx.vote_history_new.fd && -1!=ctx.vote_history_old.fd );
+  FD_BASE58_ENCODE_32_BYTES( new_id.uc, new_b58 );
+  char old_bin[ PATH_MAX ];
+  char old_swp[ PATH_MAX ];
+  char old_bak[ PATH_MAX ];
+  char new_bin[ PATH_MAX ];
+  char new_swp[ PATH_MAX ];
+  char new_bak[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( old_bin, PATH_MAX, NULL, "vote_history-%s.bin", old_b58 ) );
+  FD_TEST( fd_cstr_printf_check( old_swp, PATH_MAX, NULL, "%s.swp", old_bin ) );
+  FD_TEST( fd_cstr_printf_check( old_bak, PATH_MAX, NULL, "%s.bak", old_bin ) );
+  FD_TEST( fd_cstr_printf_check( new_bin, PATH_MAX, NULL, "vote_history-%s.bin", new_b58 ) );
+  FD_TEST( fd_cstr_printf_check( new_swp, PATH_MAX, NULL, "%s.swp", new_bin ) );
+  FD_TEST( fd_cstr_printf_check( new_bak, PATH_MAX, NULL, "%s.bak", new_bin ) );
+  ctx.id_key_bak          = old_id;
+  ctx.vote_history_fd_swp = openat( ctx.vote_history_fd_dir, old_swp, O_WRONLY|O_CREAT, 0644 );
+  ctx.vote_history_fd     = openat( ctx.vote_history_fd_dir, old_bin, O_WRONLY|O_CREAT, 0644 );
+  ctx.vote_history_fd_bak = openat( ctx.vote_history_fd_dir, old_bak, O_WRONLY|O_CREAT, 0644 );
+  FD_TEST( -1!=ctx.vote_history_fd_swp && -1!=ctx.vote_history_fd && -1!=ctx.vote_history_fd_bak );
+  FD_TEST( 4L==write( ctx.vote_history_fd_bak, "junk", 4UL ) );
+  int new_fd = openat( ctx.vote_history_fd_dir, new_bin, O_WRONLY|O_CREAT, 0644 );
+  FD_TEST( -1!=new_fd && 4L==write( new_fd, "copy", 4UL ) && !close( new_fd ) );
 
   /* A vote signed as the old identity is waiting to go out. */
 
   ag_block_info_t block = {0};
   memcpy( block.hash, b1.hash, sizeof(ag_block_hash_t) );
   ag_votor_process_replay( ctx.votor, 1UL, &block );
-  FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL && !ctx.metrics.vote_history_write );
+  FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL );
 
   memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
-  FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, 4UL ); /* the vote history file's wait_to_vote_slot */
+  FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, 4UL ); /* the vote history file's vote_history_slot */
   ctx.id_keyswitch->param = 8UL;
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
 
@@ -1118,7 +1135,13 @@ test_id_keyswitch( void ) {
   FD_TEST( fd_pubkey_eq( &ctx.id_key, &old_id ) && peer->tx_conn==old_conn );
   FD_TEST( before_frag( &ctx, 0UL, 0UL, net_sig ) );
 
-  /* Halted, votor signs nothing more, and the queued vote goes out. */
+  /* Halted, the tile signs nothing more, so block 2's vote carries the
+     identity signature the send path drops, and the queued vote goes
+     out. */
+
+  fd_bls_sig_t halted_sig;
+  sign_vote( &ctx, &halted_sig, bls_keys[0], NULL, 0UL );
+  FD_TEST( blst_p2_affine_is_inf( &halted_sig ) );
 
   block = (ag_block_info_t){0};
   block.parent = b1;
@@ -1128,6 +1151,7 @@ test_id_keyswitch( void ) {
   uchar     reason;
   FD_TEST( ag_votor_poll_vote( ctx.votor, &vote, &reason ) );
   FD_TEST( ag_vote_slot( &vote )==1UL && ag_vote_rank( &vote )==0UL );
+  FD_TEST( ag_votor_poll_vote( ctx.votor, &vote, &reason ) && ag_vote_slot( &vote )==2UL );
   FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
 
   /* The other voters skip slot 1, which the old identity notarized, so
@@ -1159,12 +1183,13 @@ test_id_keyswitch( void ) {
     ag_votor_handle_pool_event( ctx.votor, &pool_event, 0L );
   }
   FD_TEST( safe_to_skip );
+  while( ag_votor_poll_vote( ctx.votor, &vote, &reason ) ); /* unsigned while halted, the send path drops them */
   FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
 
   during_housekeeping( &ctx );
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( fd_pubkey_eq( &ctx.id_key, &new_id ) );
-  FD_TEST( ctx.wait_to_vote_slot==4UL );
+  FD_TEST( ctx.vote_history_slot==4UL );
   FD_TEST( ctx.next_leader_slot==8UL );
   FD_TEST( !memcmp( ctx.quic_client->config.identity_public_key, new_id.uc, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( ctx.quic_server->config.identity_public_key, new_id.uc, sizeof(fd_pubkey_t) ) );
@@ -1173,18 +1198,27 @@ test_id_keyswitch( void ) {
   FD_TEST( hs_conn->state==FD_QUIC_CONN_STATE_CLOSE_PENDING && hc_conn->state==FD_QUIC_CONN_STATE_CLOSE_PENDING );
   FD_TEST( before_frag( &ctx, 0UL, 0UL, net_sig ) );
 
-  /* The old identity's file was written once, at the switch, with the
-     end of the window of the vote sent after the halt as its root. */
+  /* The old identity's file was written once, at the switch, and saved
+     as its .bak.  The new identity has the spare, untouched, as its staging
+     file and no file until unhalt writes one, and its file already
+     there was moved to its .bak.  The floor from the switch is part of
+     what votor voted. */
 
-  FD_TEST( ctx.metrics.vote_history_write==1UL && ctx.metrics.vote_history_slot==AG_SLOTS_PER_WINDOW-1UL );
   uchar head[ AG_VOTE_HISTORY_SERDE_DATA_OFF+32UL ];
-  int   head_fd = openat( ctx.vote_history_dir_fd, ctx.vote_history_old.name, O_RDONLY );
+  int   head_fd = openat( ctx.vote_history_fd_dir, old_bak, O_RDONLY );
   FD_TEST( -1!=head_fd && read( head_fd, head, sizeof(head) )==(long)sizeof(head) && !close( head_fd ) );
-  FD_TEST( strstr( ctx.vote_history_old.name, old_b58 ) && fd_memeq( head+AG_VOTE_HISTORY_SERDE_DATA_OFF, old_id.uc, 32UL ) );
-  FD_TEST( !unlinkat( ctx.vote_history_dir_fd, ctx.vote_history_new.name, 0 ) && !close( ctx.vote_history_new.fd ) );
-  FD_TEST( !unlinkat( ctx.vote_history_dir_fd, ctx.vote_history_old.name, 0 ) && !close( ctx.vote_history_old.fd ) );
-  FD_TEST( !close( ctx.vote_history_dir_fd ) && !rmdir( dir ) );
-  ctx.vote_history_dir_fd = -1;
+  FD_TEST( fd_memeq( head+AG_VOTE_HISTORY_SERDE_DATA_OFF, old_id.uc, 32UL ) );
+  struct stat st;
+  FD_TEST( -1==faccessat( ctx.vote_history_fd_dir, old_bin, F_OK, 0 ) && -1==faccessat( ctx.vote_history_fd_dir, new_bin, F_OK, 0 ) );
+  FD_TEST( !fstatat( ctx.vote_history_fd_dir, new_swp, &st, 0 ) && st.st_size==4L );
+  FD_TEST( !fstatat( ctx.vote_history_fd_dir, new_bak, &st, 0 ) && st.st_size==4L );
+  FD_TEST( !faccessat( ctx.vote_history_fd_dir, old_swp, F_OK, 0 ) );
+  FD_TEST( fd_pubkey_eq( &ctx.id_key_bak, &old_id ) && ctx.vote_history_pending && ctx.highest_vote_or_lead_slot>=3UL );
+  char const * files[] = { old_bak, old_swp, new_swp, new_bak };
+  for( ulong i=0UL; i<4UL; i++ ) FD_TEST( !unlinkat( ctx.vote_history_fd_dir, files[ i ], 0 ) );
+  FD_TEST( !close( ctx.vote_history_fd_swp ) && !close( ctx.vote_history_fd ) && !close( ctx.vote_history_fd_bak ) );
+  FD_TEST( !close( ctx.vote_history_fd_dir ) && !rmdir( dir ) );
+  ctx.vote_history_fd_dir = -1;
 
   /* Epoch and gossip updates still arrive while halted, but must not
      dial before the sign tile has the new key. */
@@ -1204,7 +1238,7 @@ test_id_keyswitch( void ) {
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
   during_housekeeping( &ctx );
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
-  FD_TEST( ag_votor_vote_history( ctx.votor )==AG_SLOTS_PER_WINDOW-1UL );
+  FD_TEST( ctx.vote_history_slot==AG_SLOTS_PER_WINDOW );
   FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
   FD_TEST( paths_idx_of( &ctx, bls_keys[1] )==ULONG_MAX && paths_idx_of( &ctx, bls_keys[0] )==(ulong)LONG_MAX );
   FD_TEST( ag_pool_slot_state( ctx.pool, 1UL )->own_rank==1UL );
@@ -1248,7 +1282,7 @@ test_id_keyswitch( void ) {
   FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, 72UL ); /* epoch 1 starts at slot 64, not yet tracked */
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
   during_housekeeping( &ctx );
-  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED && ctx.wait_to_vote_slot==72UL && ctx.next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED && ctx.vote_history_slot==72UL && ctx.next_leader_slot==ULONG_MAX );
 
   static uchar epoch_msg_mem[ FD_EPOCH_INFO_MSG_HEADER_SZ+sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(8)));
   fd_epoch_info_msg_t * epoch_msg = fd_type_pun( epoch_msg_mem );
@@ -1781,6 +1815,7 @@ static void
 test_park( void ) {
   static fd_votor_tile_t ctx[1];
   memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx->vote_history_fd_dir = -1;
   fd_clock_tile_init( ctx->clock );
 
   void * park_pool_mem = aligned_alloc( ag_pool_align(), fd_ulong_align_up( ag_pool_footprint( PARK_SLOT_MAX, QUIC_DGRAM_BURST ), ag_pool_align() ) );
@@ -1961,6 +1996,7 @@ static void
 test_standstill( void ) {
   static fd_votor_tile_t ctx[1];
   memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx->vote_history_fd_dir = -1;
   fd_clock_tile_init( ctx->clock );
 
   void * pool_mem = aligned_alloc( ag_pool_align(), fd_ulong_align_up( ag_pool_footprint( PARK_SLOT_MAX, QUIC_DGRAM_BURST ), ag_pool_align() ) );
@@ -2128,10 +2164,17 @@ file_is( int                 dir_fd,
   return n==(long)sizeof(buf) && FD_LOAD( uint, buf )==AG_VOTE_HISTORY_SERDE_KIND && fd_memeq( buf+AG_VOTE_HISTORY_SERDE_DATA_OFF, identity->uc, 32UL );
 }
 
-/* write_vote_history writes a root past the votes votor cast, renames
-   the files to a new identity on the first write after a switch, and
-   keeps a file that already has the new name under .old.  It always
-   fits. */
+static ulong
+file_root( int          dir_fd,
+           char const * name ) {
+  uchar buf[ AG_VOTE_HISTORY_SER_SZ ];
+  int   fd = openat( dir_fd, name, O_RDONLY );
+  FD_TEST( -1!=fd && read( fd, buf, sizeof(buf) )==(long)sizeof(buf) && !close( fd ) );
+  return FD_LOAD( ulong, buf+AG_VOTE_HISTORY_SER_SZ-sizeof(ulong) );
+}
+
+/* write_vote_history writes a root past the votes votor cast.  It
+   always fits. */
 
 static void
 test_write_vote_history( void ) {
@@ -2158,67 +2201,37 @@ test_write_vote_history( void ) {
   FD_TEST( mkdtemp( dir ) );
   int dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
   FD_TEST( -1!=dir_fd );
-  ctx.vote_history_dir_fd = dir_fd;
+  ctx.vote_history_fd_dir = dir_fd;
 
-  /* identities U and A */
+  /* identity U */
 
-  fd_pubkey_t id[ 2 ];
-  char        name[ 2 ][ 2 ][ PATH_MAX ];
-  char        old[ PATH_MAX ];
-  for( ulong i=0UL; i<2UL; i++ ) {
-    memset( id[ i ].uc, (int)(0x11UL*(i+1UL)), 32UL );
-    FD_BASE58_ENCODE_32_BYTES( id[ i ].uc, b58 );
-    FD_TEST( fd_cstr_printf_check( name[ i ][ 1 ], PATH_MAX, NULL, "vote_history-%s.bin", b58 ) );
-    FD_TEST( fd_cstr_printf_check( name[ i ][ 0 ], PATH_MAX, NULL, "%s.new", name[ i ][ 1 ] ) );
-  }
-  FD_TEST( fd_cstr_printf_check( old, PATH_MAX, NULL, "%s.old", name[ 1 ][ 1 ] ) );
+  fd_pubkey_t id;
+  char        name[ 2 ][ PATH_MAX ];
+  memset( id.uc, 0x11, 32UL );
+  FD_BASE58_ENCODE_32_BYTES( id.uc, b58 );
+  FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "vote_history-%s.bin", b58 ) );
+  FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "%s.swp", name[ 1 ] ) );
 
-  ctx.id_key = id[ 0 ];
-  memcpy( ctx.vote_history_new.name, name[ 0 ][ 0 ], PATH_MAX );
-  memcpy( ctx.vote_history_old.name, name[ 0 ][ 1 ], PATH_MAX );
-  ctx.vote_history_new.fd = openat( dir_fd, ctx.vote_history_new.name, O_WRONLY|O_CREAT, 0644 );
-  ctx.vote_history_old.fd = openat( dir_fd, ctx.vote_history_old.name, O_WRONLY|O_CREAT, 0644 );
-  FD_TEST( -1!=ctx.vote_history_new.fd && -1!=ctx.vote_history_old.fd );
+  ctx.id_key              = id;
+  ctx.vote_history_fd_swp = openat( dir_fd, name[ 0 ], O_WRONLY|O_CREAT, 0644 );
+  ctx.vote_history_fd     = openat( dir_fd, name[ 1 ], O_WRONLY|O_CREAT, 0644 );
+  FD_TEST( -1!=ctx.vote_history_fd_swp && -1!=ctx.vote_history_fd );
 
-  /* the first write as U, whose first bytes look like a txn message
-     header */
+  /* the first write, whose first bytes look like a txn message header */
 
   write_vote_history( &ctx );
-  FD_TEST( file_is( dir_fd, name[ 0 ][ 1 ], NULL, &id[ 0 ] ) );
-  FD_TEST( ctx.metrics.vote_history_write==1UL && ctx.metrics.vote_history_slot==AG_SLOTS_PER_WINDOW-1UL );
-  FD_TEST( ctx.metrics.vote_history_sz==AG_VOTE_HISTORY_SERDE_DATA_OFF+32UL+9UL*8UL+8UL );
+  FD_TEST( file_is( dir_fd, name[ 1 ], NULL, &id ) );
+  FD_TEST( file_root( dir_fd, name[ 1 ] )==AG_SLOTS_PER_WINDOW-1UL );
 
-  /* switching to A, whose name has the vote history file passed to
-     set-identity, keeps that file under an .old name */
+  /* a vote in slot 63 moves the root to the end of its window */
 
-  file_make( dir_fd, name[ 1 ][ 1 ], "copy" );
-  ctx.id_key = id[ 1 ];
+  ctx.highest_vote_or_lead_slot = 63UL;
   write_vote_history( &ctx );
-  FD_TEST( file_is( dir_fd, name[ 1 ][ 1 ], NULL,   &id[ 1 ] ) );
-  FD_TEST( file_is( dir_fd, name[ 1 ][ 0 ], NULL,   &id[ 0 ] ) );
-  FD_TEST( file_is( dir_fd, old,            "copy", NULL     ) );
-  FD_TEST( -1==faccessat( dir_fd, name[ 0 ][ 0 ], F_OK, 0 ) && -1==faccessat( dir_fd, name[ 0 ][ 1 ], F_OK, 0 ) );
+  FD_TEST( file_is( dir_fd, name[ 1 ], NULL, &id ) );
+  FD_TEST( file_root( dir_fd, name[ 1 ] )==63UL );
 
-  /* a skip or notar and 7 notar fallbacks in each of 63 slots, which
-     the full history could not fit, still write the same size file,
-     with the root at the end of slot 63's window */
-
-  for( ulong slot=1UL; slot<64UL; slot++ ) {
-    for( ulong i=0UL; i<AG_EQVOC_BLOCK_HASH_MAX; i++ ) {
-      ag_pool_event_t event = { .kind = AG_POOL_EVENT_SAFE_TO_NOTAR, .safe_to_notar = { .slot = slot } };
-      memset( event.safe_to_notar.hash, (int)( i+2UL ), sizeof(ag_block_hash_t) );
-      ag_votor_handle_pool_event( ctx.votor, &event, 0L );
-      while( ag_votor_poll_vote( ctx.votor, &vote, &reason ) );
-    }
-  }
-  write_vote_history( &ctx );
-  FD_TEST( file_is( dir_fd, name[ 1 ][ 1 ], NULL, &id[ 1 ] ) );
-  FD_TEST( ctx.metrics.vote_history_write==3UL && ctx.metrics.vote_history_slot==63UL );
-  FD_TEST( ctx.metrics.vote_history_sz==AG_VOTE_HISTORY_SERDE_DATA_OFF+32UL+9UL*8UL+8UL );
-
-  char const * files[] = { name[ 1 ][ 0 ], name[ 1 ][ 1 ], old };
-  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !unlinkat( dir_fd, files[ i ], 0 ) );
-  FD_TEST( !close( ctx.vote_history_new.fd ) && !close( ctx.vote_history_old.fd ) );
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !unlinkat( dir_fd, name[ i ], 0 ) );
+  FD_TEST( !close( ctx.vote_history_fd_swp ) && !close( ctx.vote_history_fd ) );
   FD_TEST( !close( dir_fd ) );
   FD_TEST( !rmdir( dir ) );
   ag_votor_delete( ag_votor_leave( ctx.votor ) );
@@ -2272,19 +2285,21 @@ test_boot_vote_history_floor( void ) {
 
   uchar buf[ AG_VOTE_HISTORY_SER_SZ ];
   ulong sz = AG_VOTE_HISTORY_SER_SZ;
-  ag_vote_history_ser( keypair+32UL, ag_votor_vote_history( votor ), buf );
+  ag_vote_history_ser( keypair+32UL, AG_SLOTS_PER_WINDOW-1UL, buf );
   fd_ed25519_sign( buf+AG_VOTE_HISTORY_SERDE_SIG_OFF, buf+AG_VOTE_HISTORY_SERDE_DATA_OFF, sz-AG_VOTE_HISTORY_SERDE_DATA_OFF, keypair+32UL, keypair, sha );
   ag_votor_delete( ag_votor_leave( votor ) );
 
   FD_BASE58_ENCODE_32_BYTES( keypair+32UL, id_b58 );
   char name[ PATH_MAX ];
-  char name_new[ PATH_MAX ];
+  char name_swp[ PATH_MAX ];
+  char name_bak[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name,     PATH_MAX, NULL, "vote_history-%s.bin",     id_b58 ) );
-  FD_TEST( fd_cstr_printf_check( name_new, PATH_MAX, NULL, "vote_history-%s.bin.new", id_b58 ) );
+  FD_TEST( fd_cstr_printf_check( name_swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", id_b58 ) );
+  FD_TEST( fd_cstr_printf_check( name_bak, PATH_MAX, NULL, "vote_history-%s.bin.bak", id_b58 ) );
   int fd = openat( dir_fd, name, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
   FD_TEST( -1!=fd && (long)sz==write( fd, buf, sz ) && !close( fd ) );
 
-  /* the boot, then one without the file */
+  /* the boot, then one without vote history files */
 
   ulong       ctx_sz = sizeof(fd_votor_tile_t)+auth_vtr_footprint()+4096UL;
   fd_wksp_t * wksp   = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, ctx_sz/FD_SHMEM_NORMAL_PAGE_SZ+2UL, fd_shmem_cpu_idx( 0UL ), "test_boot_vote_history_floor", 0UL );
@@ -2303,25 +2318,24 @@ test_boot_vote_history_floor( void ) {
 
   ulong floor[2] = { AG_SLOTS_PER_WINDOW, 0UL };
   for( ulong i=0UL; i<2UL; i++ ) {
-    if( i==1UL ) FD_TEST( !unlinkat( dir_fd, name, 0 ) );
+    if( i==1UL ) FD_TEST( !unlinkat( dir_fd, name, 0 ) && !unlinkat( dir_fd, name_swp, 0 ) && !unlinkat( dir_fd, name_bak, 0 ) );
     privileged_init( topo, tile );
     fd_votor_tile_t * ctx = mem;
-    FD_TEST( ctx->wait_to_vote_slot==floor[ i ] );
+    FD_TEST( ctx->vote_history_slot==floor[ i ] );
 
     /* as unprivileged_init: no skip vote in slot 1's window */
 
     votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
-    ag_votor_wait_to_vote ( votor, ctx->wait_to_vote_slot );
     ag_votor_init         ( votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
     ag_votor_advance_epoch( votor, 400000000L, 0UL, 0UL, bls_key[0] );
     ag_votor_handle_skip_timeout( votor, 1UL );
-    FD_TEST( ag_votor_poll_vote( votor, &vote, &reason )==!floor[ i ] );
+    FD_TEST( ag_votor_poll_vote( votor, &vote, &reason ) && ( ag_vote_slot( &vote )>=ctx->vote_history_slot )==!floor[ i ] );
     ag_votor_delete( ag_votor_leave( votor ) );
 
-    FD_TEST( !close( ctx->vote_history_new.fd ) && !close( ctx->vote_history_old.fd ) && !close( ctx->vote_history_dir_fd ) );
+    FD_TEST( !close( ctx->vote_history_fd_swp ) && !close( ctx->vote_history_fd ) && !close( ctx->vote_history_fd_bak ) && !close( ctx->vote_history_fd_dir ) );
   }
 
-  FD_TEST( !unlinkat( dir_fd, name, 0 ) && !unlinkat( dir_fd, name_new, 0 ) && !unlinkat( dir_fd, "identity.json", 0 ) );
+  FD_TEST( !unlinkat( dir_fd, name, 0 ) && !unlinkat( dir_fd, name_swp, 0 ) && !unlinkat( dir_fd, name_bak, 0 ) && !unlinkat( dir_fd, "identity.json", 0 ) );
   FD_TEST( !close( dir_fd ) && !rmdir( dir ) );
   fd_wksp_free_laddr( mem );
   fd_wksp_delete_anonymous( wksp );

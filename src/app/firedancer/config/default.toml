@@ -80,6 +80,9 @@ telemetry = true
     #  +-- tower-1_9-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin
     #  +-- tower-1_9-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin.new
     #  +-- vote-account.json
+    #  +-- vote_history-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin
+    #  +-- vote_history-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin.swp
+    #  +-- vote_history-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin.bak
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
@@ -244,19 +247,23 @@ telemetry = true
     # Firedancer instance.
     guidb = ""
 
-    # Absolute directory path for the tower/vote history file used for
-    # safe identity switching. If no path is provided, it defaults to
-    # the base directory above. The tower file is only created here if
+    # Absolute directory path for the vote history file used for safe
+    # identity switching.  If no path is provided, it defaults to the
+    # base directory above.  The directory must exist, be writable by
+    # the Firedancer user.
+
+    # In Tower, the tower file is only created if
     # `[tiles.tower.write_vote_history_file]` is set to true.  The
-    # directory must exist, be writable by the Firedancer user.
-    #
-    # In Tower, the validator saves its last vote to
-    # `tower-1_9-<identity>.bin` in this directory after each vote,
-    # which is the file name Agave uses. In Alpenglow, the validator
-    # instead writes `vote_history-<identity>.bin`. This is an
+    # validator saves its last vote to `tower-1_9-<identity>.bin` in
+    # this directory after each vote, which is the file name Agave uses.
+
+    # In Alpenglow, the validator writes `vote_history-<identity>.bin`
+    # before each vote and each block it produces.  This is an
     # Agave-compatible vote history file and it protects against
-    # equivocation, both double voting and double producing blocks.
-    #
+    # equivocation (both double-voting and double-producing blocks) on
+    # set-identity or restart.  See the book for a sample runbook on how
+    # to safely set-identity.
+
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
     # as above, and "{name}" will be replaced with the name of the

@@ -10898,13 +10898,15 @@ message MetricsVotor {
   // Times the vote history file was written
   uint64 vote_history_file_written = 36;
   // Root of the last written vote history file, which votor waits to vote past, 0 if not written yet
-  uint64 vote_history_file_slot = 37;
+  uint64 vote_history_file_slot = 37 [deprecated = true];
   // Size of the last written vote history file
-  uint64 vote_history_file_size_bytes = 38;
+  uint64 vote_history_file_size_bytes = 38 [deprecated = true];
   // Vote history writes skipped because the history was too large; the file is emptied until it fits
   uint64 vote_history_file_skipped = 39 [deprecated = true];
   // Aggregate BLS signature checks of votes, certificates and reward certificates; a search for bad signers counts once
   uint64 bls_signature_checked = 40;
+  // First slot votor may vote in, past the vote history file and the votes it sent
+  uint64 wait_to_vote_slot = 41;
 }
 
 // Metrics of one gui tile instance, one row per sweep
