@@ -219,7 +219,8 @@ fd_rotor_strat_request_done( fd_rotor_strat_t *  strat,
   fd_rotor_strat_peer_t * peer = fd_rotor_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
   if( FD_UNLIKELY( !peer ) ) return; /* forgotten while the request was in flight */
 
-  peer->inflight -= !!peer->inflight;
+  peer->inflight   -= !!peer->inflight;
+  peer->expired_cnt = 0U;
   peer->rttvar    = fd_long_if( !!peer->srtt, (3L*peer->rttvar+(long)fd_long_abs( peer->srtt-rtt ))/4L, rtt/2L ); /* RFC 6298 */
   peer->srtt      = fd_long_if( !!peer->srtt, (7L*peer->srtt+rtt)/8L,                                   rtt     );
   place( strat, (ulong)( peer-strat->cur.peers ) );
@@ -234,6 +235,21 @@ fd_rotor_strat_request_failed( fd_rotor_strat_t *  strat,
 
   peer->inflight -= !!peer->inflight;
   peer->ban_ts    = fd_long_max( peer->ban_ts, ban_ts ); /* an expiry does not shorten a verify failure's ban */
+  place( strat, (ulong)( peer-strat->cur.peers ) );
+}
+
+void
+fd_rotor_strat_request_expired( fd_rotor_strat_t *  strat,
+                                fd_pubkey_t const * id_key,
+                                long                ban_ts ) {
+  fd_rotor_strat_peer_t * peer = fd_rotor_strat_peer_map_ele_query( strat->cur.map, id_key, NULL, strat->cur.peers );
+  if( FD_UNLIKELY( !peer ) ) return; /* forgotten while the request was in flight */
+
+  peer->inflight -= !!peer->inflight;
+  if( FD_UNLIKELY( ++peer->expired_cnt>=FD_ROTOR_STRAT_EXPIRED_MAX ) ) {
+    peer->ban_ts      = fd_long_max( peer->ban_ts, ban_ts );
+    peer->expired_cnt = 0U;
+  }
   place( strat, (ulong)( peer-strat->cur.peers ) );
 }
 
