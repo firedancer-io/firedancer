@@ -1,8 +1,8 @@
 # Initializing
 
 ## Overview
-The `fdctl configure` command is used to setup the host operator system
-so Firedancer can run correctly. It does the following:
+The `firedancer configure` command is used to setup the host operator
+system so Firedancer can run correctly. It does the following:
 
 * **mlx5** Loads the `ib_uverbs` kernel module required by the mlx5
   network provider and clears network configuration left by XDP.
@@ -36,7 +36,7 @@ is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
 device, `irq-affinity` and `irq-balance` configure IRQ affinities for
 CPUs.
 
-The configure command is run like `fdctl configure <mode> <stage>...`
+The configure command is run like `firedancer configure <mode> <stage>...`
 where `mode` is one of:
 
  - `init` Configures the provided stages if they are not already
@@ -81,8 +81,8 @@ bond member. Devices already at defaults are left unchanged.
 Run this stage after boot if the uverbs interface is unavailable, or
 when switching from XDP to mlx5. If leftover XDP configuration is
 found during startup, Firedancer stops and recommends running
-`fdctl configure init mlx5` to restore the device defaults. The stage
-has no dependencies on any other stage.
+`firedancer configure init mlx5` to restore the device defaults. The
+stage has no dependencies on any other stage.
 
 Changing device settings or loading the module requires root
 privileges. `CAP_SYS_MODULE` is also required when the module needs
@@ -189,13 +189,15 @@ like this:
 
 <<< @/snippets/hyperthreads.ansi
 
-When using the `auto` layout, Firedancer will ensure no other tiles are
-assigned to run on the hyperthread pairs, but if using a manual layout,
-it is possible to assign another tile to the pair.
+When using the `auto` layout, Firedancer will avoid assigning tiles to
+run as hyperthread pairs, except when it is beneficial. But if using a
+manual layout, it is possible to assign another tile to the pair.
 
 This stage has no dependencies on any other stage, but it is dependent
 on the topology specified in your configuration. It is recommended that
-you turn off the CPUs specified in the warning for optimal performance.
+you either turn off the CPUs specified in the warning, or run
+`configure init cpuset` so they are kept idle in the isolated
+partition.
 
 ## bonding
 Validator hosts commonly use bonded network devices to increase

@@ -1,5 +1,5 @@
-$ ./build/fddev bench --config src/app/fdctl/config/bench-zen3-32core.toml
+$ ./build/firedancer-dev bench --config src/app/firedancer/config/bench-zen3-32core.toml
 [ ... snip ... ]
-[32mNOTICE [0m bencho:0 fd_bencho.c(137): 272840 txn/s
-[32mNOTICE [0m bencho:0 fd_bencho.c(137): 278380 txn/s
-[32mNOTICE [0m bencho:0 fd_bencho.c(137): 268246 txn/s
+[38;5;208m◈ [1mnode        [0m[2m│[0m  [2mcluster [0m[38;5;245m[1munknown [0m  [2mid [0m[1m3uYXNz17iYDfQrCxh7jz2LhQ5wNfdfPzd7SV8mXWX4Jy[0m  [2mvote [0m382TtMsxrs3mEMbf1i5NfxfjF3DCnH2uoR3WZaChsuP1  [2muptime [0m1m 30s        [2mshred [0m49771    [2mgenesis [0mCHGUKK…8NZtU1[K
+[92m◎ [1mbench       [0m[2m│[0m  [2mtps [0m  2.3 M  [2mbenchg [0m [31m97.9[2m%[0m[0m [31m97.9[2m%[0m[0m [31m97.9[2m%[0m[0m [31m97.8[2m%[0m[0m [31m97.9[2m%[0m[0m [31m97.9[2m%[0m[0m [31m97.8[2m%[0m[0m [31m97.8[2m%[0m[0m [31m97.9[2m%[0m[0m [31m97.8[2m%[0m[0m [31m97.8[2m%[0m[0m [31m97.8[2m%[0m[0m  [2mbenchs [0m [31m90.3[2m%[0m[0m [31m90.3[2m%[0m[0m[K
+[35m▶ [1mreplay      [0m[2m│[0m  [2mslot [0m[1m249[0m [2m-01[0m  [2mcu/s [0m114.6 M  [2mtps [0m389.5 K  [2msps [0m    3.0  [2mleader in [0mnow  [2mroot dist [0m0  [2mbanks [0m 4[K

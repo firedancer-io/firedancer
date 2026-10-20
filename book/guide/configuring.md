@@ -33,9 +33,16 @@ user = "firedancer"
         "entrypoint3.testnet.solana.com:8001",
     ]
 
+[paths]
+    identity_key = "/home/firedancer/validator-keypair.json"
+    vote_account = "/home/firedancer/vote-keypair.json"
+
 [consensus]
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
-    known_validators = [
+
+[snapshots.sources.gossip]
+    allow_any = false
+    allow_list = [
         "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on",
         "dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs",
         "Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN",
@@ -43,14 +50,8 @@ user = "firedancer"
         "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv",
     ]
 
-[rpc]
-    port = 9099
-    full_api = true
-    private = true
-
-[consensus]
-    identity_path = "/home/firedancer/validator-keypair.json"
-    vote_account_path = "/home/firedancer/vote-keypair.json"
+[tiles.rpc]
+    rpc_listen_port = 9099
 ```
 
 :::

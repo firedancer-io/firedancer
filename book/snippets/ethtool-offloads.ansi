@@ -1,12 +1,15 @@
-$ sudo fdctl configure init ethtool-offloads
-[32mNOTICE [0m ethtool-offloads ... unconfigured ... device `ens3f0np0` has rx-udp-gro-forwarding enabled. Should be disabled
-[32mNOTICE [0m ethtool-offloads ... configuring
-[32mNOTICE [0m RUN: `ethtool --features ens3f0np0 rx-udp-gro-forwarding off`
-[32mNOTICE [0m RUN: `ethtool --features ens3f0np0 tx-gre-segmentation off`
-[32mNOTICE [0m RUN: `ethtool --features ens3f0np0 tx-gre-csum-segmentation off`
+$ sudo firedancer configure init ethtool-offloads
+[32mNOTICE [0m [1methtool-offloads[0m ... unconfigured ... [2mdevice `enp1s0f0np0` has rx-udp-gro-forwarding enabled. Should be disabled[0m
+[32mNOTICE [0m [1methtool-offloads[0m ... configuring
+[32mNOTICE [0m [2mRUN: `ethtool --features enp1s0f0np0 rx-udp-gro-forwarding off`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --features enp1s0f0np0 tx-gre-segmentation off`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --features enp1s0f0np0 tx-gre-csum-segmentation off`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --features enp1s0f1np1 rx-udp-gro-forwarding off`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --features enp1s0f1np1 tx-gre-segmentation off`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --features enp1s0f1np1 tx-gre-csum-segmentation off`[0m
 
-$ ethtool --show-offload ens3f0np0 | grep rx-udp-gro-forwarding
+$ ethtool --show-offload enp1s0f0np0 | grep rx-udp-gro-forwarding
 rx-udp-gro-forwarding: off
 
-$ ethtool --show-offload ens3f0np0 | grep tx-gre-segmentation
+$ ethtool --show-offload enp1s0f0np0 | grep tx-gre-segmentation
 tx-gre-segmentation: off

@@ -1,15 +1,31 @@
-$ sudo fdctl configure init ethtool-channels
-[32mNOTICE [0m ethtool-channels ... unconfigured ... device `ens3f0` missing ethtool-channels network configuration
-[32mNOTICE [0m ethtool-channels ... configuring
-[32mNOTICE [0m RUN: `ethtool --set-channels ens3f0 combined 2`
+$ sudo firedancer configure init ethtool-channels
+[32mNOTICE [0m [1methtool-channels[0m ... unconfigured ... [2mdevice `bond0` missing ethtool-channels network configuration[0m
+[32mNOTICE [0m [1methtool-channels[0m ... configuring
+[32mNOTICE [0m [2mRUN: `ethtool --set-rxfh-indir enp1s0f0np0 default`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-channels enp1s0f0np0 combined 128`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-rxfh-indir enp1s0f0np0 start 2 equal 126`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --config-ntuple enp1s0f0np0 flow-type udp4 dst-port 8003 src-ip 0.0.0.0 m 255.255.255.254 queue 0`[0m
+[93mWARNING[0m error configuring network device (enp1s0f0np0), ioctl(SIOCETHTOOL,ETHTOOL_SRXCLSRLINS) failed (95-ENOTSUP-operation not supported)
+[93mWARNING[0m error configuring network device (bond0), rss_queue_mode "auto" attempted "dedicated" configuration but falling back to "simple".
+[32mNOTICE [0m [2mRUN: `ethtool --set-rxfh-indir enp1s0f0np0 default`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-channels enp1s0f0np0 combined 128`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-rxfh-indir enp1s0f0np0 default`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-rxfh-indir enp1s0f0np0 default`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-channels enp1s0f0np0 combined 2`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-rxfh-indir enp1s0f0np0 default`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --config-nfc enp1s0f0np0 rx-flow-hash udp4 sdfn`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-rxfh-indir enp1s0f1np1 default`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-channels enp1s0f1np1 combined 2`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --set-rxfh-indir enp1s0f1np1 default`[0m
+[32mNOTICE [0m [2mRUN: `ethtool --config-nfc enp1s0f1np1 rx-flow-hash udp4 sdfn`[0m
 
-$ ethtool --show-channels ens3f0
-Channel parameters for ens3f0:
+$ ethtool --show-channels enp1s0f0np0
+Channel parameters for enp1s0f0np0:
 Pre-set maximums:
-RX:		64
-TX:		64
+RX:		128
+TX:		128
 Other:		1
-Combined:	64
+Combined:	128
 Current hardware settings:
 RX:		0
 TX:		0

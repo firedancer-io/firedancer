@@ -1,2 +1,3 @@
-$ sudo fdctl set-identity --config ~/config.toml ~/keys/validator-keypair.json
-[32mNOTICE [0m Validator identity key switched to `4UCZB7zfquCVN7GafWETFVLTceNH3nm2mndyHeDuSggC`
+$ sudo firedancer set-identity junk.json
+[32mNOTICE [0m attached to [32mlive[0m validator [1mfd1[0m version 0.1.1 [2m(babe91c83ca)[0m pid 1983468 up 3m at [2m/mnt/.fd[0m
+[32mNOTICE [0m validator identity key switched to [1m6jywfRwuaMztF6fqa2BVFjQEZQjyMHzdEViAkaqGZW4[0m

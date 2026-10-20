@@ -1,11 +1,11 @@
-$ sudo fdctl configure init hugetlbfs
-[32mNOTICE [0m hugetlbfs ... unconfigured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
-[32mNOTICE [0m hugetlbfs ... configuring
-[32mNOTICE [0m RUN: `mkdir -p /mnt/.fd/.huge`
-[32mNOTICE [0m RUN: `mount -t hugetlbfs none /mnt/.fd/.huge -o pagesize=2097152,min_size=228589568`
-[32mNOTICE [0m RUN: `mkdir -p /mnt/.fd/.gigantic`
-[32mNOTICE [0m RUN: `mount -t hugetlbfs none /mnt/.fd/.gigantic -o pagesize=1073741824,min_size=27917287424`
+$ sudo firedancer configure init hugetlbfs
+[32mNOTICE [0m [1mhugetlbfs[0m ... unconfigured ... [2mmounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist[0m
+[32mNOTICE [0m [1mhugetlbfs[0m ... configuring
+[32mNOTICE [0m [2mRUN: `mkdir -p /mnt/.fd/.huge`[0m
+[32mNOTICE [0m [2mRUN: `mount -t hugetlbfs none /mnt/.fd/.huge -o pagesize=2097152,min_size=6155141120`[0m
+[32mNOTICE [0m [2mRUN: `mkdir -p /mnt/.fd/.gigantic`[0m
+[32mNOTICE [0m [2mRUN: `mount -t hugetlbfs none /mnt/.fd/.gigantic -o pagesize=1073741824,min_size=150323855360`[0m
 
 $ cat /proc/mounts | grep \\.fd
-none /mnt/.fd/.gigantic hugetlbfs rw,seclabel,relatime,pagesize=1024M,min_size=540092137472 0 0
-none /mnt/.fd/.huge hugetlbfs rw,seclabel,relatime,pagesize=2M,min_size=95124124 0 0
+none /mnt/.fd/.huge hugetlbfs rw,relatime,pagesize=2M,min_size=6155141120 0 0
+none /mnt/.fd/.gigantic hugetlbfs rw,relatime,pagesize=1024M,min_size=150323855360 0 0
