@@ -65,8 +65,47 @@ test_sysvar_epoch_rewards_invalid_active( fd_wksp_t * wksp ) {
   test_sysvar_cache_env_destroy( env );
 }
 
+/* Like Agave, an unreadable EpochRewards sysvar reads as the default
+   (inactive, zeroed) value instead of aborting. */
+
+static void
+test_sysvar_epoch_rewards_set_inactive_default( fd_wksp_t *   wksp,
+                                                void const *  data,
+                                                ulong         data_len ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+
+  env->bank->f.rent = (fd_rent_t) {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 100
+  };
+
+  if( data ) {
+    fd_sysvar_account_update( env->bank, env->accdb, NULL,
+                              &fd_sysvar_epoch_rewards_id, data, data_len );
+  }
+
+  fd_sysvar_epoch_rewards_set_inactive( env->bank, env->accdb, NULL );
+
+  fd_sysvar_epoch_rewards_t const zero = {0};
+  fd_sysvar_epoch_rewards_t       out;
+  FD_TEST( fd_sysvar_epoch_rewards_read( env->accdb, env->bank->accdb_fork_id, &out ) );
+  FD_TEST( 0==memcmp( &out, &zero, sizeof(fd_sysvar_epoch_rewards_t) ) );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
 static void
 test_sysvar_epoch_rewards( fd_wksp_t * wksp ) {
   test_sysvar_epoch_rewards_bounds();
   test_sysvar_epoch_rewards_invalid_active( wksp );
+
+  test_sysvar_epoch_rewards_set_inactive_default( wksp, NULL, 0UL );
+
+  fd_sysvar_epoch_rewards_t const bad_active = { .total_rewards=100UL, .distributed_rewards=40UL, .active=2 };
+  test_sysvar_epoch_rewards_set_inactive_default( wksp, &bad_active, sizeof(bad_active) );
+
+  uchar short_data[ FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ-1UL ] = {0};
+  test_sysvar_epoch_rewards_set_inactive_default( wksp, short_data, sizeof(short_data) );
 }

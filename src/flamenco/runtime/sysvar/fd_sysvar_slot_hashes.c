@@ -30,13 +30,16 @@ fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
   }
   uchar * data    = acc.data;
   ulong   data_sz = acc.data_len;
-  if( FD_UNLIKELY( data_sz < FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
+  if( FD_UNLIKELY( data_sz < sizeof(ulong) ) ) {
     FD_LOG_HEXDUMP_ERR(( "invalid slot hashes sysvar", data, data_sz ));
   }
 
   ulong cnt = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( cnt > FD_SYSVAR_SLOT_HASHES_CAP ) ) {
     FD_LOG_HEXDUMP_ERR(( "corrupt slot hashes sysvar", data, data_sz ));
+  }
+  if( FD_UNLIKELY( data_sz < sizeof(ulong) + cnt*sizeof(fd_slot_hash_t) ) ) {
+    FD_LOG_HEXDUMP_ERR(( "invalid slot hashes sysvar", data, data_sz ));
   }
 
   /* Search for existing entry with parent_slot */
@@ -57,6 +60,12 @@ fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
     fd_memcpy( &entries[0].hash, &bank->f.bank_hash, sizeof(fd_hash_t) );
     FD_STORE( ulong, data, keep + 1UL );
   }
+
+  /* Agave rewrites the account at max(size_of, serialized_size)
+     https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
+  ulong used_sz = sizeof(ulong) + FD_LOAD( ulong, data )*sizeof(fd_slot_hash_t);
+  fd_memset( data+used_sz, 0, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ-used_sz );
+  acc.data_len = FD_SYSVAR_SLOT_HASHES_BINCODE_SZ;
 
   fd_sysvar_adjust_balance_for_rent( bank, &acc );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
