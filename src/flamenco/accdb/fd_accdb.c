@@ -19,6 +19,12 @@ FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_m
 #define FD_ACCDB_BOUNCE_SZ (16UL<<20)
 FD_STATIC_ASSERT( FD_ACCDB_BOUNCE_SZ>=FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk_meta_t), bounce_fits_any_record );
 
+/* Preevict batches up to PREEVICT_BATCH_SZ bytes, but stages a larger
+   record alone, so its buffer holds one record of any size. */
+#define PREEVICT_BATCH_SZ (256UL<<10)
+#define PREEVICT_STAGE_SZ (FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk_meta_t))
+FD_STATIC_ASSERT( PREEVICT_BATCH_SZ<=PREEVICT_STAGE_SZ, batch_fits_stage );
+
 #if FD_HAS_RACESAN
 /* Test-only telemetry: background_compact publishes the pubkey + dest
    offset of the record it is about to relocation-CAS at the
@@ -28,6 +34,7 @@ FD_STATIC_ASSERT( FD_ACCDB_BOUNCE_SZ>=FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk
 uchar fd_accdb_dbg_reloc_pubkey[ 32UL ];
 ulong fd_accdb_dbg_reloc_dest;
 ulong fd_accdb_dbg_reloc_cnt;
+ulong fd_accdb_dbg_compact_scanned; /* bytes compaction stepped over */
 #endif
 
 #include <stddef.h>
@@ -114,6 +121,12 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   /* Compaction bounce buffer. */
   uchar * bounce;
+  ulong   carry_off;
+  ulong   carry_sz;
+  ulong   carry_layer;
+
+  /* Preevict write staging, PREEVICT_STAGE_SZ bytes. */
+  uchar * stage;
 
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
@@ -244,7 +257,7 @@ fd_accdb_footprint( ulong max_live_slots,
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_ACCDB_ALIGN,           sizeof(fd_accdb_t)                     );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
-  if( compaction ) l = FD_LAYOUT_APPEND( l, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ );
+  if( compaction ) l = FD_LAYOUT_APPEND( l, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ+PREEVICT_STAGE_SZ );
   return FD_LAYOUT_FINI( l, FD_ACCDB_ALIGN );
 }
 
@@ -297,7 +310,7 @@ fd_accdb_new( void *              ljoin,
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),           sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t),   max_live_slots*sizeof(fd_accdb_fork_t) );
-  void * _bounce          = compaction ? FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ ) : NULL;
+  uchar * _bounce         = compaction ? FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ+PREEVICT_STAGE_SZ ) : NULL;
 
   accdb->fd = fd;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
@@ -336,7 +349,11 @@ fd_accdb_new( void *              ljoin,
   accdb->external_epoch_slots = external_epoch_slots;
   accdb->external_epoch_cnt   = external_epoch_cnt;
 
-  accdb->bounce = _bounce;
+  accdb->bounce      = _bounce;
+  accdb->carry_off   = 0UL;
+  accdb->carry_sz    = 0UL;
+  accdb->carry_layer = 0UL;
+  accdb->stage       = _bounce ? _bounce+FD_ACCDB_BOUNCE_SZ : NULL;
 
   accdb->deferred_acc_buf = (uint *)( (uchar *)shmem + shmem->deferred_acc_buf_off );
 
@@ -768,6 +785,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->external_epoch_slots = NULL;
   accdb->external_epoch_cnt   = 0UL;
   accdb->bounce               = NULL;
+  accdb->stage                = NULL;
 
   accdb->deferred_acc_buf    = NULL;
   accdb->deferred_fork_head  = NULL;
@@ -2090,8 +2108,10 @@ background_compact( fd_accdb_t * accdb,
   ulong compact_base = partition_pool_idx( accdb->partition_pool, compact )*accdb->shmem->partition_sz;
   ulong dest_layer   = fd_ulong_min( src_layer+1UL, FD_ACCDB_COMPACTION_LAYER_CNT-1UL );
 
-  ulong   want = fd_ulong_min( FD_ACCDB_BOUNCE_SZ, compact->write_offset-compact->compaction_offset );
-  ulong bytes_read = 0UL;
+  ulong want  = fd_ulong_min( FD_ACCDB_BOUNCE_SZ, compact->write_offset-compact->compaction_offset );
+  ulong carry = fd_ulong_if( accdb->carry_off==compact_base+compact->compaction_offset, fd_ulong_min( accdb->carry_sz, want ), 0UL );
+  accdb->carry_sz = 0UL;
+  ulong bytes_read = carry;
   while( bytes_read<want ) {
     long result = pread( accdb->fd, accdb->bounce+bytes_read, want-bytes_read, (long)(compact_base+compact->compaction_offset+bytes_read) );
     if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
@@ -2218,6 +2238,16 @@ background_compact( fd_accdb_t * accdb,
   fd_racesan_hook( "accdb_compact:post_relocate" );
 
   compact->compaction_offset += span;
+#if FD_HAS_RACESAN
+  fd_accdb_dbg_compact_scanned += span;
+#endif
+
+  if( FD_LIKELY( span<bytes_read ) ) {
+    memmove( accdb->bounce, accdb->bounce+span, bytes_read-span );
+    accdb->carry_off   = compact_base+compact->compaction_offset;
+    accdb->carry_sz    = bytes_read-span;
+    accdb->carry_layer = src_layer;
+  }
 
   if( FD_UNLIKELY( compact->compaction_offset>=compact->write_offset ) ) {
     FD_LOG_INFO(( "compaction of partition %lu completed", partition_pool_idx( accdb->partition_pool, compact ) ));
@@ -2273,7 +2303,7 @@ background_compact( fd_accdb_t * accdb,
     spin_lock_release( &accdb->shmem->partition_lock );
   }
 
-  accdb->metrics->bytes_read += bytes_read;
+  accdb->metrics->bytes_read += bytes_read-carry;
   accdb->metrics->bytes_written += live_bytes;
 
   FD_COMPILER_MFENCE();
@@ -4017,7 +4047,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   return result;
 }
 
-/* Dirty lines are staged in the bounce buffer and written with one
+/* Dirty lines are staged in accdb->stage and written with one
    pwritev2 per batch, so the kernel's inode lock is taken once per
    batch instead of once per account.  Evictions are performed
    per-class in batches of up to PREEVICT_TICK_BUDGET records or
@@ -4026,8 +4056,6 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
    for the batch write to finish. */
 
 #define PREEVICT_TICK_BUDGET (256UL)
-#define PREEVICT_BATCH_SZ    (256UL<<10)
-FD_STATIC_ASSERT( PREEVICT_BATCH_SZ<=FD_ACCDB_BOUNCE_SZ, batch_fits_bounce );
 
 /* cache_line_free invalidates a claimed line and returns it to its
    class free list. */
@@ -4076,7 +4104,7 @@ preevict_flush( fd_accdb_t *             accdb,
   ulong file_off = allocate_next_write( accdb, stage_sz );
   ulong written  = 0UL;
   while( written<stage_sz ) {
-    struct iovec iov = { .iov_base = accdb->bounce+written, .iov_len = stage_sz-written };
+    struct iovec iov = { .iov_base = accdb->stage+written, .iov_len = stage_sz-written };
     long result = pwritev2( accdb->fd, &iov, 1, (long)(file_off+written), 0 );
     if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
     else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
@@ -4134,7 +4162,7 @@ background_preevict( fd_accdb_t * accdb,
   fd_accdb_shmem_t * shmem = accdb->shmem;
 
   /* A batch has to fit one disk partition. */
-  FD_TEST( accdb->bounce );
+  FD_TEST( accdb->stage );
   ulong batch_max = fd_ulong_min( PREEVICT_BATCH_SZ, shmem->partition_sz );
 
   fd_accdb_cache_line_t * pend_line[ PREEVICT_TICK_BUDGET ];
@@ -4214,7 +4242,7 @@ background_preevict( fd_accdb_t * accdb,
         stage_sz = 0UL;
       }
 
-      fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)( accdb->bounce+stage_sz );
+      fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)( accdb->stage+stage_sz );
       fd_memcpy( meta->pubkey, accmeta->key.pubkey, 32UL );
       meta->size       = data_sz;
       meta->generation = accmeta->key.generation;
@@ -4497,6 +4525,7 @@ fd_accdb_background( fd_accdb_t * accdb,
         accdb->deferred_fork_head  = NULL;
         accdb->deferred_fork_tail  = NULL;
         accdb->deferred_fork_epoch = 0UL;
+        accdb->carry_sz            = 0UL;
         break;
       }
       default:
@@ -4568,6 +4597,7 @@ fd_accdb_background( fd_accdb_t * accdb,
   }
 
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+    if( FD_UNLIKELY( accdb->carry_sz && k!=accdb->carry_layer ) ) continue; /* would overwrite the carried tail */
     background_compact( accdb, k, charge_busy );
   }
 }
