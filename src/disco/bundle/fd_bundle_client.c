@@ -27,6 +27,7 @@
 #include <netinet/tcp.h>
 
 #define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
+#define FD_BUNDLE_CONN_TIMEOUT_NS        ((long)3e9) /* TCP connect plus TLS and HTTP/2 setup */
 
 
 __attribute__((weak)) long
@@ -167,6 +168,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 
   fd_grpc_client_reset( ctx->grpc_client );
   fd_keepalive_init( ctx->keepalive, ctx->rng, ctx->keepalive_interval, ctx->keepalive_interval, fd_bundle_now( ctx ) );
+  ctx->conn_deadline = fd_bundle_now( ctx ) + FD_BUNDLE_CONN_TIMEOUT_NS;
 }
 
 static int
@@ -279,8 +281,8 @@ long
 fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                                 long                     now ) {
   /* Connecting: completion/failure arrives as an EPOLLOUT/EPOLLERR
-     event, nothing is time-driven yet. */
-  if( FD_UNLIKELY( ctx->tcp_sock>=0 && !ctx->tcp_sock_connected ) ) return LONG_MAX;
+     event, or the setup times out. */
+  if( FD_UNLIKELY( ctx->tcp_sock>=0 && !ctx->tcp_sock_connected ) ) return ctx->conn_deadline;
 
   /* Disconnected: next action is the reconnect attempt. */
   if( FD_UNLIKELY( ctx->tcp_sock<0 ) ) return fd_long_max( ctx->backoff_until, now );
@@ -302,6 +304,8 @@ fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
     deadline = fd_long_min( deadline, ctx->builder_info_valid_until );
   if( FD_UNLIKELY( ctx->backoff_until>now ) )
     deadline = fd_long_min( deadline, ctx->backoff_until );
+  if( FD_UNLIKELY( !fd_grpc_client_is_connected( ctx->grpc_client ) ) )
+    deadline = fd_long_min( deadline, ctx->conn_deadline );
   return deadline;
 }
 
@@ -348,6 +352,16 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
 static void
 fd_bundle_client_step1( fd_bundle_tile_t * ctx,
                         int *              charge_busy ) {
+  if( FD_UNLIKELY( ctx->tcp_sock>=0 &&
+                   !( ctx->tcp_sock_connected && fd_grpc_client_is_connected( ctx->grpc_client ) ) &&
+                   fd_bundle_now( ctx )>=ctx->conn_deadline ) ) {
+    FD_LOG_INFO(( "Bundle connect to " FD_IP4_ADDR_FMT ":%hu timed out (%s)", FD_IP4_ADDR_FMT_ARGS( ctx->server_ip4_addr ), ctx->server_tcp_port,
+                  ctx->tcp_sock_connected ? "TLS/HTTP/2 setup" : "TCP connect" ));
+    fd_bundle_client_reset( ctx );
+    ctx->metrics.transport_fail_cnt++;
+    *charge_busy = 1;
+    return;
+  }
 
   /* Wait for TCP socket to connect */
   if( FD_UNLIKELY( !ctx->tcp_sock_connected ) ) {
