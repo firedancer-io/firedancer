@@ -119,6 +119,9 @@ fd_active_set_advance( fd_active_set_t *   active_set,
                        long                now,
                        int *               charge_busy );
 
+long
+fd_active_set_next_deadline( fd_active_set_t const * active_set );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_active_set_h */

@@ -1297,6 +1297,15 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   }
 }
 
+long
+fd_gossip_next_deadline( fd_gossip_t const * gossip ) {
+  if( FD_UNLIKELY( gossip->my_contact_info.refresh_due ) ) return 0L;
+  long deadline = fd_long_min( gossip->timers.next_contact_info_refresh, fd_active_set_next_deadline( gossip->active_set ) );
+  deadline = fd_long_min( deadline, fd_ping_tracker_next_deadline( gossip->ping_tracker ) );
+  if( FD_LIKELY( gossip->my_contact_info.crds_val_sz ) ) deadline = fd_long_min( deadline, gossip->timers.next_pull_request );
+  return deadline;
+}
+
 void
 fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
                               uchar const * peer_pubkey,

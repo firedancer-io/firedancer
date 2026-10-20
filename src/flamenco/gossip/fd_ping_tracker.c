@@ -402,6 +402,15 @@ fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
   return (peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING) && peer->address.addr==peer_address.addr && peer->address.port==peer_address.port;
 }
 
+long
+fd_ping_tracker_next_deadline( fd_ping_tracker_t const * ping_tracker ) {
+  if( FD_UNLIKELY( !unpinged_list_is_empty( ping_tracker->unpinged, ping_tracker->pool ) ) ) return 0L;
+  long deadline = LONG_MAX;
+  if( FD_LIKELY( !refreshing_list_is_empty( ping_tracker->refreshing, ping_tracker->pool ) ) ) deadline = refreshing_list_ele_peek_head_const( ping_tracker->refreshing, ping_tracker->pool )->next_ping_nanos;
+  if( FD_LIKELY( !waiting_list_is_empty( ping_tracker->waiting, ping_tracker->pool ) ) ) deadline = fd_long_min( deadline, waiting_list_ele_peek_head_const( ping_tracker->waiting, ping_tracker->pool )->next_ping_nanos );
+  return deadline;
+}
+
 int
 fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              long                   now,

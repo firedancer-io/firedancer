@@ -184,6 +184,9 @@ fd_gossip_advance( fd_gossip_t *       gossip,
                    fd_stem_context_t * stem,
                    int *               charge_busy );
 
+long
+fd_gossip_next_deadline( fd_gossip_t const * gossip );
+
 /* fd_gossip_rx handles an incoming packet received on the gossip socket
    from the network.  It is expected that the packet is a UDP packet but
    otherwise no assumptions are made about the contents of the packet,

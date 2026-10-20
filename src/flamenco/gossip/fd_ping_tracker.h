@@ -156,6 +156,9 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );
 
+long
+fd_ping_tracker_next_deadline( fd_ping_tracker_t const * ping_tracker );
+
 fd_ping_tracker_metrics_t const *
 fd_ping_tracker_metrics( fd_ping_tracker_t const * ping_tracker );
 
