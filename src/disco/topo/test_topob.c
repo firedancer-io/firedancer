@@ -1901,6 +1901,47 @@ FD_UNIT_TEST( test_smt_budget_24x2_partners ) {
   }
 }
 
+/* Snapshot load gets whole cores where they are free then, steady
+   state placement does not move */
+FD_UNIT_TEST( test_startup_whole_cores ) {
+  /* the last two have offline siblings before the free cores */
+  static ulong const OFF[] = { 29, 31, 33, 35, ULONG_MAX };
+  for( ulong v=0UL; v<4UL; v++ ) {
+    ulong n = v ? 24UL : 32UL;
+    static fd_topo_cpus_t cpus[1];
+    make_cpus_shape( cpus, 1UL, 1UL, n, 0UL, v<2UL ? SMT_ON : SMT_ADJACENT, v<2UL ? NULL : OFF+2UL*(v-2UL) );
+    static fd_topo_t _topo[1];
+    fd_topo_t * topo = _topo;
+    fd_memset( topo, 0, sizeof(*topo) );
+    make_tiles( topo, MAINNET_TILES );
+    set_blocklist( topo, (ulong const[]){ 0UL, cpus->cpu[ 0 ].sibling, ULONG_MAX } );
+    topo->sleep_obj_id = ULONG_MAX;
+    fd_topob_auto_layout_cpus( topo, cpus, 0 );
+
+    uchar load[ FD_TILE_MAX ] = {0};
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topo_tile_t const * tile = &topo->tiles[ i ];
+      if( tile->cpu_idx==ULONG_MAX || ( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_POSTSTART ) ) continue;
+      load[ tile->cpu_idx ]++;
+    }
+    ulong whole = 0UL, idle = 0UL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topo_tile_t const * tile = &topo->tiles[ i ];
+      if( fd_topob_tile_priority_type( tile )!=FD_TOPOB_PRIORITY_STARTUP ) continue;
+      FD_TEST( load[ tile->cpu_idx ]==1 );
+      ulong s = cpus->cpu[ tile->cpu_idx ].sibling;
+      whole += (ulong)( s==ULONG_MAX || !load[ s ] );
+    }
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+      ulong s = cpus->cpu[ i ].sibling;
+      idle += (ulong)( cpus->cpu[ i ].online && i!=0UL && s!=0UL && !load[ i ] && ( s==ULONG_MAX || ( s>i && !load[ s ] ) ) );
+    }
+    FD_TEST( whole==10UL || !idle );
+    ulong snapin = topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ].cpu_idx;
+    FD_TEST( cpus->cpu[ snapin ].sibling==ULONG_MAX || !load[ cpus->cpu[ snapin ].sibling ] || whole<1UL );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
