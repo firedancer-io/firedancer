@@ -170,6 +170,9 @@ struct fd_boot_report {
   ulong  cpu_to_core_cnt;
   ushort launch_cpus[ 1024 ];
   ulong  launch_cpus_cnt;
+  int    cpuset_partition;
+  ushort cpuset_partition_cpus[ 1024 ];
+  ulong  cpuset_partition_cpus_cnt;
   int    float_pool; /* not encoded; the launchers float floaters, else pin them */
 
   fd_boot_report_dimm_t dmi_dimms[ 64 ];

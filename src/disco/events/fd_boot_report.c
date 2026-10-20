@@ -481,6 +481,23 @@ collect_affinity( fd_boot_report_t *     r,
     r->launch_cpus[ r->launch_cpus_cnt++ ] = (ushort)cpu;
 }
 
+static ulong
+read_cpulist( char const * path,
+              ushort *     out ) {
+  char list[ 16384 ]; /* worst-case alternating cpulist over 1024 cpus */
+  if( read_cstr( path, list, sizeof(list) ) ) return 0UL;
+  ulong cnt = 0UL;
+  char * saveptr = NULL;
+  for( char * range = strtok_r( list, ",", &saveptr ); range; range = strtok_r( NULL, ",", &saveptr ) ) {
+    ulong lo, hi;
+    if(      2==sscanf( range, "%lu-%lu", &lo, &hi ) ) {}
+    else if( 1==sscanf( range, "%lu",     &lo      ) ) hi = lo;
+    else continue;
+    for( ulong cpu=lo; cpu<=hi && cnt<1024UL; cpu++ ) out[ cnt++ ] = (ushort)fd_ulong_min( cpu, USHORT_MAX );
+  }
+  return cnt;
+}
+
 static void
 collect_mem( fd_boot_report_t * r ) {
   char meminfo[ 8192 ];
@@ -512,18 +529,28 @@ collect_mem( fd_boot_report_t * r ) {
   }
   r->numa_cpu_to_node_cnt = max_cpu;
 
-  char isolated[ 16384 ]; /* worst-case alternating cpulist over 1024 cpus */
-  if( !read_cstr( "/sys/devices/system/cpu/isolated", isolated, sizeof(isolated) ) && isolated[ 0 ] ) {
-    char * saveptr = NULL;
-    for( char * range = strtok_r( isolated, ",", &saveptr ); range; range = strtok_r( NULL, ",", &saveptr ) ) {
-      ulong lo, hi;
-      if(      2==sscanf( range, "%lu-%lu", &lo, &hi ) ) {}
-      else if( 1==sscanf( range, "%lu",     &lo      ) ) hi = lo;
-      else continue;
-      for( ulong cpu=lo; cpu<=hi && r->isolated_cpus_cnt<1024UL; cpu++ )
-        r->isolated_cpus[ r->isolated_cpus_cnt++ ] = (ushort)fd_ulong_min( cpu, USHORT_MAX );
-    }
+  r->isolated_cpus_cnt = read_cpulist( "/sys/devices/system/cpu/isolated", r->isolated_cpus );
+}
+
+static void
+collect_cpuset_partition( fd_boot_report_t * r,
+                          char const *       app_name ) {
+  char path[ PATH_MAX ];
+  char val[ 256 ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup/%s/cpuset.cpus.partition", app_name ) );
+  if( read_cstr( path, val, sizeof(val) ) ) {
+    r->cpuset_partition = errno==ENOENT ? 1 /* none */ : 6 /* unknown */;
+    return;
   }
+  /* "root invalid (reason)" and "isolated invalid (reason)" when rejected */
+  if(      strstr( val, "invalid" )   ) r->cpuset_partition = 5;
+  else if( !strcmp( val, "member" )   ) r->cpuset_partition = 2;
+  else if( !strcmp( val, "root" )     ) r->cpuset_partition = 3;
+  else if( !strcmp( val, "isolated" ) ) r->cpuset_partition = 4;
+  else                                  r->cpuset_partition = 6; /* unknown */
+
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup/%s/cpuset.cpus.effective", app_name ) );
+  r->cpuset_partition_cpus_cnt = read_cpulist( path, r->cpuset_partition_cpus );
 }
 
 static char const *
@@ -1377,6 +1404,7 @@ fd_boot_report_collect( fd_boot_report_t *     r,
   collect_l3( r ); /* after collect_mem: sized by the numa cpu map */
   collect_cores( r );
   collect_affinity( r, tile );
+  collect_cpuset_partition( r, topo->app_name );
 
   static fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
@@ -1686,6 +1714,8 @@ fd_boot_report_publish( fd_boot_report_t *  r,
   for( ulong i=0UL; i<r->cpu_features_cnt; i++ )     ok &= push_cstr( encoder, 77U, r->cpu_features[ i ] );
   for( ulong i=0UL; i<r->cpu_to_core_cnt; i++ )      ok &= !!fd_pb_push_uint32( encoder, 78U, r->cpu_to_core[ i ] );
   for( ulong i=0UL; i<r->launch_cpus_cnt; i++ )      ok &= !!fd_pb_push_uint32( encoder, 79U, r->launch_cpus[ i ] );
+  if( r->cpuset_partition )                         ok &= !!fd_pb_push_int32(  encoder, 80U, r->cpuset_partition );
+  for( ulong i=0UL; i<r->cpuset_partition_cpus_cnt; i++ ) ok &= !!fd_pb_push_uint32( encoder, 81U, r->cpuset_partition_cpus[ i ] );
 
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
