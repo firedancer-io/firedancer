@@ -2,16 +2,14 @@
 #include "../fd_runtime.h"
 #include "../fd_borrowed_account.h"
 
-ulong
-fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
-                                             fd_pubkey_t const *         pubkey ) {
-  for( ulong i=0UL; i<ctx->instr->acct_cnt; i++ ) {
-    ushort idx_in_txn = ctx->instr->accounts[ i ].index_in_transaction;
-    if( memcmp( pubkey->uc, ctx->txn_out->accounts.keys[ idx_in_txn ].uc, sizeof(fd_pubkey_t) )==0 ) {
-      return i;
-    }
+void
+fd_exec_instr_ctx_instr_account_map( fd_exec_instr_ctx_t const * ctx,
+                                     ushort                      map[ MAX_TX_ACCOUNT_LOCKS ] ) {
+  memset( map, 0xff, MAX_TX_ACCOUNT_LOCKS*sizeof(ushort) );
+  for( ulong i=ctx->instr->acct_cnt; i; i-- ) {
+    ushort idx_in_txn = ctx->instr->accounts[ i-1UL ].index_in_transaction;
+    if( FD_LIKELY( idx_in_txn<MAX_TX_ACCOUNT_LOCKS ) ) map[ idx_in_txn ] = (ushort)(i-1UL);
   }
-  return ULONG_MAX;
 }
 
 int
