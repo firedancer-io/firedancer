@@ -6,6 +6,8 @@
 #include <zstd_errors.h>
 
 #include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #define TEST_PUB_MAX  (512UL)
 #define TEST_DATA_MAX (32UL*FD_SNAPSHOT_DATA_MTU)
@@ -575,6 +577,18 @@ test_controls_and_retry( void ) {
   test_env_delete( env );
 }
 
+/* A fast boot stream is shut down wherever it is, so a shutdown
+   applies while still processing. */
+static void
+test_stream_shutdown( void ) {
+  test_env_t * env = test_env_new( 0UL, 1UL );
+  begin_load( env, 1, 1 );
+  FD_TEST( env->ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+  send_control( env, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+  FD_TEST( env->ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN );
+  test_env_delete( env );
+}
+
 static void
 test_retry_resets_frame_state( void ) {
   static uchar const payload[] = "retry frame ownership";
@@ -838,6 +852,7 @@ main( int     argc,
   test_truncated_and_malformed();
   test_raw_tile_zero();
   test_controls_and_retry();
+  test_stream_shutdown();
   test_retry_resets_frame_state();
   test_malformed_unowned_frame();
   test_mixed_frame_rotation();

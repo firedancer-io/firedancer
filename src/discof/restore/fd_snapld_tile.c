@@ -27,14 +27,9 @@
    while. */
 #define FD_SNAPLD_DOWNLOAD_WINDOW_NS (10L*1000L*1000L*1000L) /* 10 seconds */
 
-/* How long to wait before asking a fast boot stream server for more
-   once it answered that nothing new is there yet. */
+/* How long to wait before asking the fast boot stream server again
+   for more data. */
 #define FD_SNAPLD_STREAM_RETRY_NS (50L*1000L*1000L) /* 50 milliseconds */
-
-/* How long polls of a caught up fast boot stream may keep failing
-   before the load fails.  Replay is running by then, so a short
-   network blip is retried from the current offset instead. */
-#define FD_SNAPLD_STREAM_GIVE_UP_NS (30L*1000L*1000L*1000L) /* 30 seconds */
 
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
@@ -59,9 +54,10 @@ typedef struct fd_snapld_tile {
   struct {
     int   active;
     int   caught_up;
-    ulong off;     /* bytes of the stream read so far */
-    long  wait;    /* when to ask for more, LONG_MAX while a request runs */
-    long  give_up; /* when to stop retrying failed polls */
+    int   next_stream; /* the stream ended, the next request asks for the newest one */
+    ulong slot;        /* open slot of the stream being read */
+    ulong off;         /* bytes of the stream read so far */
+    long  wait;        /* when to ask for more, LONG_MAX while a request runs */
   } fast_boot_stream;
 
   ulong  bytes_in_batch;
@@ -301,15 +297,14 @@ transition_malformed( fd_snapld_tile_t *  ctx,
   fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
-/* handle_connection_failure asks a caught up fast boot stream for its
-   bytes again from the current offset, since replay is already running
-   and must not restart.  Returns 0 when this is not a caught up stream
-   or its requests have failed for too long, the caller fails the load
-   then. */
+/* handle_connection_failure asks a fast boot stream for its bytes
+   again from the current offset.  A stream never fails on its own:
+   replay runs on it and it ends once the snapshots behind it are in.
+   Returns 0 for anything but a stream, the caller fails the load then. */
 static int
 handle_connection_failure( fd_snapld_tile_t * ctx,
                            long               now ) {
-  if( FD_LIKELY( !ctx->fast_boot_stream.caught_up || now>=ctx->fast_boot_stream.give_up ) ) return 0;
+  if( FD_LIKELY( !ctx->fast_boot_stream.active ) ) return 0;
   fd_sshttp_cancel( ctx->sshttp );
   ctx->window_deadline       = LONG_MAX;
   ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
@@ -326,10 +321,12 @@ check_download_progress( fd_snapld_tile_t *  ctx,
     ctx->bytes_in_window = 0UL;
   }
 
-  /* A stream request only needs to receive at least 1 byte */
+  /* A stream only needs a byte per window; a stalled poll is asked
+     again from the current offset. */
   ulong min_bytes = ctx->fast_boot_stream.active ? 1UL : ctx->min_bytes_in_window;
   if( FD_UNLIKELY( now>ctx->window_deadline ) ) {
     if( FD_UNLIKELY( ctx->bytes_in_window<min_bytes ) ) {
+      if( FD_UNLIKELY( handle_connection_failure( ctx, now ) ) ) return -1;
       /* cancel the download if the download progress speed in the last
          window is less than the minimum download speed. */
       double download_speed_mibs = (double)ctx->bytes_in_window / (double)(FD_SNAPLD_DOWNLOAD_WINDOW_NS / 1e9) / (double)(1<<20UL);
@@ -337,7 +334,6 @@ check_download_progress( fd_snapld_tile_t *  ctx,
                        "is below the minimum download speed %u MiB/s, cancelling download",
                        download_speed_mibs, FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9,
                        ctx->load_full ? "full" : "incremental", ctx->config.min_download_speed_mibs ));
-      if( FD_UNLIKELY( handle_connection_failure( ctx, now ) ) ) return -1;
       transition_malformed( ctx, stem );
       fd_sshttp_cancel( ctx->sshttp );
       return -1;
@@ -480,6 +476,7 @@ after_credit( fd_snapld_tile_t *  ctx,
               break;
             }
             meta->resolved_slot = resolved_slot;
+            ctx->fast_boot_stream.slot = resolved_slot;
             fd_memcpy( meta->resolved_hash, fd_sshttp_resolved_hash( ctx->sshttp ), FD_HASH_FOOTPRINT );
             fd_cstr_ncpy( meta->resolved_name, resolved_name, PATH_MAX );
             FD_LOG_INFO(( "redirect resolved to `%s` (slot %lu) for %s snapshot",
@@ -490,6 +487,21 @@ after_credit( fd_snapld_tile_t *  ctx,
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
         }
+
+        if( FD_UNLIKELY( ctx->fast_boot_stream.next_stream ) ) {
+          /* The newest stream must come after the one that ended. */
+          ulong slot = fd_sshttp_resolved_slot( ctx->sshttp );
+          if( FD_UNLIKELY( slot<=ctx->fast_boot_stream.slot ) ) {
+            FD_LOG_WARNING(( "the newest fast boot stream is at slot %lu, not after the one that ended at slot %lu", slot, ctx->fast_boot_stream.slot ));
+            transition_malformed( ctx, stem );
+            fd_sshttp_cancel( ctx->sshttp );
+            break;
+          }
+          FD_LOG_INFO(( "following the fast boot stream at slot %lu", slot ));
+          ctx->fast_boot_stream.slot = slot;
+          ctx->fast_boot_stream.next_stream = 0;
+        }
+
         if( FD_LIKELY( data_len!=0UL ) ) {
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
@@ -530,9 +542,7 @@ after_credit( fd_snapld_tile_t *  ctx,
           break;
         }
         if( FD_UNLIKELY( ctx->fast_boot_stream.active ) ) {
-          ctx->window_deadline          = LONG_MAX;
-          ctx->fast_boot_stream.wait    = now;
-          ctx->fast_boot_stream.give_up = now+FD_SNAPLD_STREAM_GIVE_UP_NS;
+          ctx->fast_boot_stream.wait = now;
           break;
         }
         FD_LOG_INFO(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
@@ -544,8 +554,7 @@ after_credit( fd_snapld_tile_t *  ctx,
           ctx->fast_boot_stream.caught_up = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, 0UL, 0UL, 0UL );
         }
-        ctx->fast_boot_stream.wait    = now+FD_SNAPLD_STREAM_RETRY_NS;
-        ctx->fast_boot_stream.give_up = now+FD_SNAPLD_STREAM_GIVE_UP_NS;
+        ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
         break;
       case FD_SSHTTP_ADVANCE_NOT_FOUND:
         if( FD_UNLIKELY( !ctx->fast_boot_stream.active ) ) {
@@ -553,14 +562,19 @@ after_credit( fd_snapld_tile_t *  ctx,
           transition_malformed( ctx, stem );
           break;
         }
-        if( FD_UNLIKELY( !ctx->sent_meta ) ) {
-          /* The server has no stream right now, between two streams. */
+        if( FD_UNLIKELY( !ctx->sent_meta || ctx->fast_boot_stream.next_stream ) ) {
+          /* The server has no stream right now.  It may be between two
+             streams. */
           ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
           break;
         }
-        FD_LOG_INFO(( "the fast boot stream ended after %lu bytes", ctx->fast_boot_stream.off ));
-        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
+
+        /* Finished the current stream but snapshot loading is still
+           in progress. Ask for the newest stream. */
+        FD_LOG_INFO(( "the fast boot stream ended after %lu bytes, following the next one", ctx->fast_boot_stream.off ));
+        ctx->fast_boot_stream.next_stream = 1;
+        ctx->fast_boot_stream.off  = 0UL;
+        ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
         break;
       case FD_SSHTTP_ADVANCE_ERROR:
         if( FD_UNLIKELY( handle_connection_failure( ctx, now ) ) ) break;
@@ -586,11 +600,12 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
-  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL && sig!=FD_SNAPSHOT_MSG_CTRL_SHUTDOWN ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
-       valid messages.  Only a fail message can revert this. */
+       valid messages.  Only a fail message can revert this, and a
+       shutdown applies in any state. */
     return 0;
   };
 
@@ -612,10 +627,12 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->is_redirect = msg_in->is_redirect;
       ctx->file_sz     = msg_in->file_sz;
 
-      ctx->fast_boot_stream.active    = msg_in->fast_boot_stream;
-      ctx->fast_boot_stream.caught_up = 0;
-      ctx->fast_boot_stream.off       = 0UL;
-      ctx->fast_boot_stream.wait      = LONG_MAX;
+      ctx->fast_boot_stream.active      = msg_in->fast_boot_stream;
+      ctx->fast_boot_stream.caught_up   = 0;
+      ctx->fast_boot_stream.next_stream = 0;
+      ctx->fast_boot_stream.slot        = 0UL;
+      ctx->fast_boot_stream.off         = 0UL;
+      ctx->fast_boot_stream.wait        = LONG_MAX;
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
@@ -676,7 +693,8 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      /* Shut down any in-progress fast boot stream. */
+      fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
     }

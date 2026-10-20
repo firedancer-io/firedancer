@@ -323,8 +323,9 @@ test_block_list_contact_info_insert( void ) {
 }
 
 /* A fast boot stream has no size of its own: data beyond the size it
-   was first served at is fine, caught up is just noted, and the end
-   needs no byte count. */
+   was first served at is fine, caught up is just noted, and it ends
+   when snapin says the snapshots behind it are in, never by a
+   LOAD_COMPLETE from snapld. */
 static void
 test_stream_signals( void ) {
   fd_snapct_tile_t ctx[1];
@@ -340,8 +341,18 @@ test_stream_signals( void ) {
   snapld_frag( ctx, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, NULL );
   FD_TEST( !ctx->malformed && !ctx->load_complete );
 
-  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
-  FD_TEST( ctx->load_complete==1 );
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) { snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL ); _exit( 0 ); }
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+
+  /* STOP from snapin ends the stream load and shuts snapld down. */
+  ctx->in_kind[ 0 ] = IN_KIND_ACK;
+  test_publish_cnt  = 0UL;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_STOP, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_SHUTDOWN && test_publish_cnt==1UL && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
 }
 
 /* The snapct behind a fast boot loads the full by redirect, then the
