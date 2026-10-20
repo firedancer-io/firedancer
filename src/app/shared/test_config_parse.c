@@ -1,6 +1,6 @@
 #include "fd_config_private.h"
 #include "../../ballet/toml/fd_toml.h"
-#include "../../util/fd_boolau.h"
+#include "../../util/fd_bool_auto.h"
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -230,12 +230,32 @@ main( int     argc,
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_3, sizeof(cfg_str_3)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
-  FD_TEST( config->net.xdp.xdp_zero_copy == 2 );
-  FD_TEST( config->net.xdp.native_bond   == 2 );
+  FD_TEST( config->net.xdp.xdp_zero_copy == FD_BOOLAF_AUTO );
+  FD_TEST( config->net.xdp.native_bond   == FD_BOOLAU_AUTO );
 
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_4, sizeof(cfg_str_4)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( !fd_config_extract_pod( pod, config ) );
+
+  /* Only boolaf settings accept "force". */
+
+  static struct { char const * key; int accepted; } const force_cases[] = {
+    { "net.xdp.xdp_zero_copy",                  1 },
+    { "net.xdp.native_bond",                    0 },
+    { "net.xdp.listen_gre",                     0 },
+    { "consensus.wait_for_vote_to_start_leader", 0 }
+  };
+  for( ulong i=0UL; i<sizeof(force_cases)/sizeof(force_cases[0]); i++ ) {
+    char toml[ 128 ];
+    FD_TEST( fd_cstr_printf_check( toml, sizeof(toml), NULL,
+                                  "%s = \"force\"", force_cases[ i ].key ) );
+    memset( config, 0, sizeof(config_t) );
+    config->is_firedancer = 1;
+    pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+    FD_TEST( fd_toml_parse( toml, strlen(toml), pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+    FD_TEST( (fd_config_extract_pod( pod, config )==config)==force_cases[ i ].accepted );
+    if( force_cases[ i ].accepted ) FD_TEST( config->net.xdp.xdp_zero_copy==FD_BOOLAF_FORCE );
+  }
 
   /* Parse runtime genesis limits */
 

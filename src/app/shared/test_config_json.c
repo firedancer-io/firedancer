@@ -1,5 +1,5 @@
 #include "fd_config_json.h"
-#include "../../util/fd_boolau.h"
+#include "../../util/fd_bool_auto.h"
 
 #include <string.h>
 
@@ -29,9 +29,10 @@ extractor_cstr_keys( char const * src,
     if( *q!='(' ) continue;
     q++;
     while( *q==' ' ) q++;
-    /* boolau values are strings in toml ("auto"/"true"/"false") */
+    /* boolau and boolaf also accept strings in TOML. */
     if(      !strncmp( q, "cstr,",   5UL ) || !strncmp( q, "cstr ",   5UL ) ) q += 4UL;
     else if( !strncmp( q, "boolau,", 7UL ) || !strncmp( q, "boolau ", 7UL ) ) q += 6UL;
+    else if( !strncmp( q, "boolaf,", 7UL ) || !strncmp( q, "boolaf ", 7UL ) ) q += 6UL;
     else continue;
     while( *q==' ' || *q==',' ) q++;
     ulong len = 0UL;

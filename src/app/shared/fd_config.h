@@ -228,7 +228,7 @@ struct fd_config_net {
 
   struct {
     char xdp_mode[ 8 ]; /* "drv", "skb" or "auto" */
-    int  xdp_zero_copy; /* true/false or "auto" */
+    int  xdp_zero_copy; /* true/false, "auto", or "force" */
     char poll_mode[ 16 ]; /* "prefbusy", "softirq" or "auto" */
 
     uint xdp_rx_queue_size;

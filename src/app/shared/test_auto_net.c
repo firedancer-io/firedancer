@@ -1,5 +1,7 @@
 #include "fd_auto_net.c" /* fd_auto_net_apply is static */
 
+#include <sys/wait.h>
+
 /* Test the auto config resolution policy with hand built system
    info.  The scrape functions (uname, sysfs, bonding) are not
    covered here. */
@@ -13,7 +15,7 @@ reset_auto( uint net_tile_cnt ) {
   strcpy( config->net.xdp.xdp_mode,       "auto" );
   strcpy( config->net.xdp.poll_mode,      "auto" );
   strcpy( config->net.xdp.rss_queue_mode, "auto" );
-  config->net.xdp.xdp_zero_copy = 2;
+  config->net.xdp.xdp_zero_copy = FD_BOOLAF_AUTO;
   config->net.xdp.native_bond   = 2;
   config->net.xdp.listen_gre    = 2;
   config->layout.net_tile_count = net_tile_cnt;
@@ -183,6 +185,33 @@ main( int     argc,
   FD_TEST( config->net.xdp.xdp_zero_copy==0 );
   FD_TEST( config->net.xdp.native_bond  ==0 );
   FD_TEST( config->net.xdp.listen_gre   ==0 );
+
+  /* Unsafe drivers accept a force override, but reject ordinary true. */
+
+  static char const * const unsafe_drivers[] = { "i40e", "ice" };
+  static int const zc_values[] = { FD_BOOLAF_FALSE, FD_BOOLAF_AUTO, FD_BOOLAF_FORCE };
+  for( ulong i=0UL; i<sizeof(unsafe_drivers)/sizeof(unsafe_drivers[0]); i++ ) {
+    fd_auto_info_t unsafe_info = { .linux_major=7, .linux_minor=0 };
+    strcpy( unsafe_info.driver, unsafe_drivers[ i ] );
+    for( ulong j=0UL; j<sizeof(zc_values)/sizeof(zc_values[0]); j++ ) {
+      reset_auto( 1U );
+      config->net.xdp.xdp_zero_copy = zc_values[ j ];
+      fd_auto_net_apply( config, &unsafe_info );
+      FD_TEST( config->net.xdp.xdp_zero_copy==(zc_values[ j ]==FD_BOOLAF_AUTO ? FD_BOOLAF_FALSE : zc_values[ j ]) );
+    }
+
+    int pid = fork();
+    FD_TEST( pid>=0 );
+    if( !pid ) {
+      reset_provider_auto( 1U );
+      config->net.xdp.xdp_zero_copy = FD_BOOLAF_TRUE;
+      fd_auto_net_apply( config, &unsafe_info );
+      _exit( 0 );
+    }
+    int status;
+    FD_TEST( waitpid( pid, &status, 0 )==pid );
+    FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
