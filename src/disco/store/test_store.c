@@ -252,6 +252,16 @@ test_file_create( fd_wksp_t * wksp ) {
   FD_TEST( pwrite( ro_fd, &value, 1UL, 0 )<0L && errno==EBADF );
   close( ro_fd );
   close( fd );
+
+  /* Reopening keeps the previous contents and resizes to the new ring. */
+  store->disk_max_shreds = 32UL;
+  fd = fd_store_file_create( TEST_PAYLOAD_PATH, store->wire_off, store->disk_max_shreds );
+  FD_TEST( fd>=0 );
+  FD_TEST( !fstat( fd, st ) );
+  FD_TEST( (ulong)st->st_size==store->wire_off + store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
+  observed = 0U;
+  FD_TEST( pread( fd, &observed, 1UL, 0 )==1L && observed==value );
+  close( fd );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
 
