@@ -153,7 +153,7 @@
         },
         "isolated_cpus": {
             "type": "Array",
-            "description": "Logical processors isolated from the kernel scheduler at boot; tiles pinned to isolated processors run without competition from system tasks, and an empty set on a host that pins tiles means every tile shares its core with the rest of the system.",
+            "description": "Logical processors isolated from the kernel scheduler at boot by the isolcpus= kernel parameter. Isolation by the validator's cpuset partition is not listed here; see cpuset_partition.",
             "max_len": 1024,
             "element": { "type": "UInt16", "description": "Index of one isolated logical processor." }
         },
@@ -430,6 +430,24 @@
             "description": "Logical processors in the affinity the validator inherited from its launcher (taskset, systemd CPUAffinity, or a cgroup cpuset). Tiles without a core assignment run inside it; auto layout itself ignores it. Empty when it could not be read.",
             "max_len": 1024,
             "element": { "type": "UInt16", "description": "Index of one logical processor in the inherited affinity." }
+        },
+        "cpuset_partition": {
+            "type": "LowCardinality(String)",
+            "description": "Type of the validator's cpuset partition (the cgroup named after the instance that the cpuset configure stage creates), which isolates pinned tiles from other tasks at run time.",
+            "variants": {
+                "none":     { "description": "No such cgroup, or no cpuset controller." },
+                "member":   { "description": "The cgroup exists but is not a partition, so it does not isolate." },
+                "root":     { "description": "A partition with its own scheduler domain: other tasks are kept off its processors." },
+                "isolated": { "description": "A partition without scheduler domains or load balancing: other tasks are kept off its processors." },
+                "invalid":  { "description": "The kernel rejected the partition, so it does not isolate." },
+                "unknown":  { "description": "Unlisted or unreadable." }
+            }
+        },
+        "cpuset_partition_cpus": {
+            "type": "Array",
+            "description": "Logical processors effectively assigned to the validator's cpuset partition. Empty when there is none.",
+            "max_len": 1024,
+            "element": { "type": "UInt16", "description": "Index of one logical processor in the partition." }
         }
     }
 }

@@ -365,6 +365,17 @@ enum BootContainerType {
   BOOT_CONTAINER_TYPE_UNKNOWN = 8;  // Unlisted or undeterminable.
 }
 
+// Type of the validator's cpuset partition (the cgroup named after the instance that the cpuset configure stage creates), which isolates pinned tiles from other tasks at run time.
+enum BootCpusetPartition {
+  BOOT_CPUSET_PARTITION_UNSPECIFIED = 0;
+  BOOT_CPUSET_PARTITION_NONE = 1;  // No such cgroup, or no cpuset controller.
+  BOOT_CPUSET_PARTITION_MEMBER = 2;  // The cgroup exists but is not a partition, so it does not isolate.
+  BOOT_CPUSET_PARTITION_ROOT = 3;  // A partition with its own scheduler domain: other tasks are kept off its processors.
+  BOOT_CPUSET_PARTITION_ISOLATED = 4;  // A partition without scheduler domains or load balancing: other tasks are kept off its processors.
+  BOOT_CPUSET_PARTITION_INVALID = 5;  // The kernel rejected the partition, so it does not isolate.
+  BOOT_CPUSET_PARTITION_UNKNOWN = 6;  // Unlisted or unreadable.
+}
+
 // Snapshot production result.
 enum SnapshotCreatedResult {
   SNAPSHOT_CREATED_RESULT_UNSPECIFIED = 0;
@@ -8093,7 +8104,7 @@ message Boot {
   uint64 host_memory_available_bytes = 33;
   // For each logical processor, the memory locality domain it belongs to; joins tile placements against the locality of network and storage devices to find cross-domain pinning.
   repeated uint32 numa_cpu_to_node = 34;
-  // Logical processors isolated from the kernel scheduler at boot; tiles pinned to isolated processors run without competition from system tasks, and an empty set on a host that pins tiles means every tile shares its core with the rest of the system.
+  // Logical processors isolated from the kernel scheduler at boot by the isolcpus= kernel parameter. Isolation by the validator's cpuset partition is not listed here; see cpuset_partition.
   repeated uint32 isolated_cpus = 35;
   // Per-module memory inventory: mismatched speeds clock the whole bus down, and a module differing after a swap explains a machine that got slower after maintenance.
   repeated BootDmiDimms dmi_dimms = 36;
@@ -8183,6 +8194,10 @@ message Boot {
   repeated uint32 cpu_to_core = 78;
   // Logical processors in the affinity the validator inherited from its launcher (taskset, systemd CPUAffinity, or a cgroup cpuset). Tiles without a core assignment run inside it; auto layout itself ignores it. Empty when it could not be read.
   repeated uint32 launch_cpus = 79;
+  // Type of the validator's cpuset partition (the cgroup named after the instance that the cpuset configure stage creates), which isolates pinned tiles from other tasks at run time.
+  BootCpusetPartition cpuset_partition = 80;
+  // Logical processors effectively assigned to the validator's cpuset partition. Empty when there is none.
+  repeated uint32 cpuset_partition_cpus = 81;
 }
 
 // The result of a snapshot production attempt.

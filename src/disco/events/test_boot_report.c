@@ -178,6 +178,9 @@ main( int     argc,
   }
   FD_LOG_NOTICE(( "hypervisor %d container %d chassis %d",
                   report->hypervisor_vendor, report->container_type, report->dmi_chassis_type ));
+  FD_TEST( report->cpuset_partition>=1 && report->cpuset_partition<=6 );
+  FD_TEST( report->cpuset_partition!=1 || !report->cpuset_partition_cpus_cnt );
+  FD_LOG_NOTICE(( "cpuset partition %d over %lu cpus", report->cpuset_partition, report->cpuset_partition_cpus_cnt ));
 
   ulong  cap = 16UL<<20;
   void * mem = aligned_alloc( FD_CIRCQ_ALIGN, fd_ulong_align_up( fd_circq_footprint( cap ), FD_CIRCQ_ALIGN ) );
@@ -342,6 +345,8 @@ main( int     argc,
   maxed->l3_cpu_to_domain_cnt = 1024UL;
   maxed->cpu_to_core_cnt      = 1024UL;
   maxed->launch_cpus_cnt      = 1024UL;
+  maxed->cpuset_partition     = 6;
+  maxed->cpuset_partition_cpus_cnt = 1024UL;
   maxed->dmi_dimms_cnt        = 64UL;
   maxed->nic_devices_cnt      = 16UL;
   maxed->nic_bond_slaves_cnt  = 16UL;
