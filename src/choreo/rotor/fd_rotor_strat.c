@@ -176,7 +176,7 @@ fd_rotor_strat_pick( fd_rotor_strat_t * strat,
                      int                staked,
                      ulong              avoid ) {
   ulong end      = fd_ulong_if( staked, strat->staked_cnt, FD_ROTOR_STRAT_PEER_MAX );
-  int   explore  = !( ++strat->pick_cnt % FD_ROTOR_STRAT_EXPLORE );
+  int   explore  = avoid==ULONG_MAX && !( ++strat->pick_cnt % FD_ROTOR_STRAT_EXPLORE ); /* a retry is already late, it goes to a measured peer */
   int   fallback = 0; /* avoid was available */
   for( ulong i=0UL; i<FD_ROTOR_STRAT_BUCKET_CNT; i++ ) {
     ulong                        b     = fd_ulong_if( explore, (i+FD_ROTOR_STRAT_BUCKET_UNMEASURED)%FD_ROTOR_STRAT_BUCKET_CNT, i ); /* unmeasured first when exploring */

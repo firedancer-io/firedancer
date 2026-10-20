@@ -203,6 +203,25 @@ test_retry_spread( void ) {
   }
   FD_TEST( fd_ulong_popcnt( seen )>=3 );
 
+  /* Every FD_ROTOR_STRAT_EXPLORE-th first pick tries an unmeasured
+     peer; a retry (a slot to avoid) never does. */
+
+  fd_stake_weight_t u = { .key = key( 9 ) };
+  fd_rotor_strat_contact_info_updated( strat, &u.key, 9U, 1 ); /* unstaked, never answers */
+  for( ulong i=0UL; i<4UL*FD_ROTOR_STRAT_EXPLORE; i++ ) {
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick( strat, 0L, 0, 0UL );
+    FD_TEST( peer!=fd_rotor_strat_query( strat, &u.key ) );
+    fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
+  }
+  ulong explored = 0UL;
+  for( ulong i=0UL; i<4UL*FD_ROTOR_STRAT_EXPLORE; i++ ) {
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick( strat, 0L, 0, ULONG_MAX );
+    explored += peer==fd_rotor_strat_query( strat, &u.key );
+    fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
+  }
+  FD_TEST( explored==4UL );
+  fd_rotor_strat_contact_info_removed( strat, &u.key );
+
   /* The only available peer is still picked. */
 
   for( ulong i=1UL; i<4UL; i++ ) fd_rotor_strat_request_failed( strat, &ids[ i ].key, 100L );

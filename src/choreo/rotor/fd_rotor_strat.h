@@ -7,8 +7,9 @@
    latency buckets by srtt+rttvar/4.  A pick takes the fastest
    bucket's cheaper of the next two peers by srtt*(inflight+1), the
    cursor advancing one peer so every peer meets every neighbor,
-   every FD_ROTOR_STRAT_EXPLORE-th pick tries an unmeasured peer first,
-   and a request is hedged after srtt+4*rttvar (RFC 6298).  It also
+   every FD_ROTOR_STRAT_EXPLORE-th first pick tries an unmeasured peer
+   first (a retry never does), and a request is hedged after
+   srtt+4*rttvar (RFC 6298).  It also
    estimates each leader's turbine time, which decides how long a
    missing FEC set waits for turbine before it is repaired. */
 
@@ -17,7 +18,7 @@
 
 #define FD_ROTOR_STRAT_PEER_MAX     FD_CONTACT_INFO_TABLE_SIZE
 #define FD_ROTOR_STRAT_INFLIGHT_MAX (8U)
-#define FD_ROTOR_STRAT_EXPLORE      (16UL) /* every 16th pick tries an unmeasured peer first */
+#define FD_ROTOR_STRAT_EXPLORE      (16UL) /* every 16th first pick tries an unmeasured peer first */
 #define FD_ROTOR_STRAT_EXPIRED_MAX  (32U)  /* requests in a row a peer leaves unanswered before it is banned */
 #define FD_ROTOR_STRAT_BYID_MAX     (4U)   /* by-id requests in a row, other replies aside */
 #define FD_ROTOR_STRAT_HEDGE_NS     (200L*1000000L) /* hedge time of an unmeasured peer */
@@ -138,7 +139,9 @@ fd_rotor_strat_contact_info_removed( fd_rotor_strat_t *  strat,
    peers.  The fastest bucket with an available peer wins; within it the
    cheaper of the next two peers after its cursor, in stake order.
    Banned peers are skipped, and slot avoid unless no other peer is
-   available (ULONG_MAX for none). */
+   available (ULONG_MAX for none).  A pick with a slot to avoid is a
+   retry: it never explores an unmeasured peer, whose silence would
+   cost the request another hedge. */
 
 fd_rotor_strat_peer_t *
 fd_rotor_strat_pick( fd_rotor_strat_t * strat,

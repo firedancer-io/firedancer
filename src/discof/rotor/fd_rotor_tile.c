@@ -825,7 +825,23 @@ handle_fec_set_root_res( fd_rotor_tile_t *    ctx,
   ctx->metrics->fec_root_ok++;
 
   if( FD_UNLIKELY( sent.slot<=ctx->rotor->root ) ) return; /* rooted while in flight */
-  fd_rotor_fec_notarized( ctx->rotor, sent.slot, &sent.dmr, sent.fec_idx*FD_FEC_SHRED_CNT, &fec_mr, now );
+  fd_rotor_fec_t const * fec = fd_rotor_fec_notarized( ctx->rotor, sent.slot, &sent.dmr, sent.fec_idx*FD_FEC_SHRED_CNT, &fec_mr, now );
+  if( FD_UNLIKELY( !fec || fec->complete ) ) return;
+
+  /* The set's shreds can be asked for by blk id now.  Its req is in the
+     prq on the FEC root's hedge, up to 8x a slow peer's rtt: a second
+     req asks at once, as a first attempt of a different question.  Both
+     ask by blk id until the set completes, which cancels them.  A full
+     prq leaves the first req to its hedge rather than rewind the blk. */
+
+  fd_rotor_blk_t * blk = fd_rotor_blk_pool_ele( ctx->rotor->blk_pool, sent.blk );
+  if( FD_UNLIKELY( blk->slot!=sent.slot || memcmp( &blk->dmr, &sent.dmr, sizeof(fd_mr32_t) ) ) ) return; /* freed and reused in flight, fd_rotor_fec_notarized found it by dmr */
+  fd_rotor_slot_meta_t const * meta = fd_rotor_slot_meta( ctx->rotor, blk->slot );
+  timeout_t *                  prq  = meta->final==sent.blk ? ctx->final_prq : meta->notar==sent.blk ? ctx->notar_prq : ctx->eager_prq;
+
+  if( FD_UNLIKELY( timeout_prq_cnt( prq )>=timeout_prq_max( prq ) ) ) return;
+  timeout_t req = { .timeout = now, .slot = sent.slot, .blk = sent.blk, .fec_idx = sent.fec_idx, .tag = FD_ROTOR_SERDE_TAG_WINDOW_INDEX };
+  timeout_prq_insert( prq, &req );
 }
 
 static void
