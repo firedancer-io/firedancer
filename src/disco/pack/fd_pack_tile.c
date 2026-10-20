@@ -465,7 +465,7 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
     fd_keyswitch_state( ctx->crank->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
-  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
+  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX && ctx->slot_mixin_per_tick ) ) {
     ulong raw = compute_dynamic_max_microblocks( ctx );
     ulong prev = ctx->slot_dynamic_max_microblocks;
 
