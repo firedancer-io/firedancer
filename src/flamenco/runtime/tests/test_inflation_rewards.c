@@ -616,7 +616,7 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
   }
 
   fd_footer_cache_t * cache = new_cache();
-  ulong fused_cnt = 0UL, split_cnt = 0UL, rev_diff_cnt = 0UL;
+  ulong fused_cnt = 0UL, split_cnt = 0UL, rev_diff_cnt = 0UL, memo_hit_cnt = 0UL;
   for( ulong it=0UL; it<200UL; it++ ) {
     ulong root_idx = fd_svm_mini_reset( mini, params );
     activate_alpenglow( mini );
@@ -718,8 +718,23 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     for( ulong b=0UL; b<4UL; b+=3UL ) { lthash[b] = *fd_bank_lthash_locking_query( bank[b] ); fd_bank_lthash_end_locking_query( bank[b] ); }
     FD_TEST( fd_lthash_eq( lthash+0, lthash+3 ) );
     for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) FD_TEST( fused_accounts_eq( mini, bank[0], bank[3], vote+i ) );
+
+    /* a stored account's memo slot is its rank in the bank's epoch
+       (t-2) set and holds its latest image, whichever epoch's set
+       stored it, so the next footer hits */
+    fd_bank_t * root = fd_svm_mini_bank( mini, root_idx );
+    for( ulong i=0UL; i<FUSED_VAL_CNT; i++ ) {
+      fd_vote_stakes_ele_t ele[1];
+      if( !fd_vote_stakes_query_t_2( vote_stakes, vs_fork, vote+i, ele ) || ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) continue;
+      if( fused_accounts_eq( mini, root, bank[3], vote+i ) ) continue; /* not stored */
+      fd_footer_cache_memo_t const * memo = cache->memo+ele->rank;
+      fd_acc_t acc = fd_accdb_read_one( accdb, bank[3]->accdb_fork_id, vote[i].uc );
+      FD_TEST( !memcmp( memo->pubkey, vote[i].uc, 32UL ) && memo->lamports==acc.lamports && memo->data_len==acc.data_len && !memcmp( memo->data, acc.data, acc.data_len ) );
+      fd_accdb_unread_one( accdb, &acc );
+      memo_hit_cnt++;
+    }
   }
-  FD_TEST( fused_cnt && split_cnt && rev_diff_cnt );
+  FD_TEST( fused_cnt && split_cnt && rev_diff_cnt && memo_hit_cnt );
   free( cache );
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "test_footer_fused_matches_sequential: PASSED (fused %lu, split %lu, reverse order differs %lu)", fused_cnt, split_cnt, rev_diff_cnt ));

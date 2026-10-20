@@ -468,6 +468,22 @@ slot_timestamp( fd_bank_t * bank,
   return fd_long_sat_sub( (long)footer_time_nanos, (long)dur );
 }
 
+static ulong
+memo_rank( fd_bank_t const *   bank,
+           int                 iter_kind,
+           fd_pubkey_t const * pubkey ) {
+  fd_vote_stakes_ele_t ele[1];
+  int found;
+  switch( iter_kind ) {
+  case FD_VOTE_STAKES_ITER_T_2: found = fd_vote_stakes_query_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, pubkey, ele ); break;
+  case FD_VOTE_STAKES_ITER_T_3: found = fd_vote_stakes_query_t_3( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, pubkey, ele ); break;
+  default:                      return ULONG_MAX;
+  }
+  if( FD_UNLIKELY( !found || ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) return ULONG_MAX;
+  FD_TEST( ele->rank<AG_VAT_MAX );
+  return (ulong)ele->rank;
+}
+
 int
 fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_accdb_t *              accdb,
@@ -587,7 +603,9 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
 
   fd_pubkey_t const * leader_vote_pubkey = fd_epoch_leaders_get_vote( fd_bank_epoch_leaders_query( bank, current_epoch ), bank_slot );
   FD_TEST( leader_vote_pubkey );
-  ulong leader_rank = ULONG_MAX; /* memo slot, if the leader is ranked */
+
+  int   memo_kind   = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, current_epoch );
+  ulong leader_rank = memo_rank( bank, memo_kind, leader_vote_pubkey );
 
   int fused = has_reward && final_kind==reward_kind;
   for( ulong pass=0UL; pass<2UL; pass++ ) {
@@ -608,7 +626,6 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       FD_TEST( ele->rank<AG_VAT_MAX );
       have_ranked_vote = 1;
       ulong r      = (ulong)ele->rank;
-      if( fd_pubkey_eq( &ele->pubkey, leader_vote_pubkey ) ) leader_rank = r;
       int   in_rwd = rwd && fd_bls_set_test( reward_set, r );
       int   in_fin = fin && fd_bls_set_test( final_set,  r );
       if( !in_rwd && !in_fin ) continue;
@@ -646,7 +663,8 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
           .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = final_ts_ns,
         } );
       }
-      vote_account_store( bank, accdb, capture_ctx, &acc, vs, cache->memo+r, q );
+      ulong m = iter_kind==memo_kind ? r : memo_rank( bank, memo_kind, &ele->pubkey );
+      vote_account_store( bank, accdb, capture_ctx, &acc, vs, m!=ULONG_MAX ? cache->memo+m : NULL, q );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       if( rwd ) FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu",    bank_slot, reward_slot ));
