@@ -478,6 +478,24 @@ static char const * const FD_EFF_48X2_L3[] = {
 };
 #define FD_EFF_48X2_L3_LEN (sizeof(FD_EFF_48X2_L3)/sizeof(FD_EFF_48X2_L3[0]))
 
+/* ---- Firedancer performance mode, 48x2 in 8 L3 domains of 6 cores -----
+   FD_SKIP_HT with pack, poh and execle first in the 5 free cores of L3
+   0 (no accdb in this tile set), the rest in sequence after them.      */
+
+static char const * const FD_48X2_L3_PERF[] = {
+  /*  0 */ __,        /*  1 */ "pack",    /*  2 */ "poh",     /*  3 */ "execle",
+  /*  4 */ "execle",  /*  5 */ "net",     /*  6 */ "net",     /*  7 */ "quic",
+  /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "verify",  /* 11 */ "verify",
+  /* 12 */ "verify",  /* 13 */ "verify",  /* 14 */ "dedup",   /* 15 */ "resolv",
+  /* 16 */ "sign",    /* 17 */ "sign",    /* 18 */ "shred",   /* 19 */ "gui",
+  /* 20 */ "gossvf",  /* 21 */ "gossvf",  /* 22 */ "gossip",  /* 23 */ "repair",
+  /* 24 */ "replay",  /* 25 */ "tower",   /* 26 */ "execrp",  /* 27 */ "execrp",
+  /* 28 */ "execrp",  /* 29 */ "execrp",  /* 30 */ "execrp",  /* 31 */ "execrp",
+  /* 32 */ "execrp",  /* 33 */ "execrp",  /* 34 */ "execrp",  /* 35 */ "execrp",
+  /* 36 */ "txsend",
+};
+#define FD_48X2_L3_PERF_LEN (sizeof(FD_48X2_L3_PERF)/sizeof(FD_48X2_L3_PERF[0]))
+
 /* ---- Frankendancer, skip-HT tile prefix (shared by 48/64/128) ----------
    Tiles on physical cores 1-21, core 0 blocked.
    Used as prefix; each test adds _A_ for the agave region.               */
@@ -493,45 +511,44 @@ static char const * const FRANK_SKIP_HT_PREFIX[] = {
 };
 #define FRANK_SKIP_HT_PREFIX_LEN (sizeof(FRANK_SKIP_HT_PREFIX)/sizeof(FRANK_SKIP_HT_PREFIX[0]))
 
-/* ---- Firedancer 24×2  (no skip HT, 36 tiles > 23 physical cores) ------ */
+/* ---- Firedancer 24×2  (no skip HT, 36 tiles > 23 physical cores) ------
+   13 cores shared: pack and poh alone, execrp:0..7 whole, replay, tower,
+   shred and net:0 next to cold tiles.                                    */
 
 static char const * const FD_24X2[] = {
-  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolv",  /*  7 */ "pack",
-  /*  8 */ "sign",    /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "repair",
-  /* 12 */ "tower",   /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
-  /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ "execrp",  /* 21 */ "execrp",  /* 22 */ "execrp",  /* 23 */ "execrp",
+  /*  0 */ __,       /*  1 */ "net",    /*  2 */ "net",    /*  3 */ "quic",
+  /*  4 */ "verify", /*  5 */ "verify", /*  6 */ "verify", /*  7 */ "pack",
+  /*  8 */ "sign",   /*  9 */ "sign",   /* 10 */ "shred",  /* 11 */ "gui",
+  /* 12 */ "gossvf", /* 13 */ "execle", /* 14 */ "poh",    /* 15 */ "execrp",
+  /* 16 */ "execrp", /* 17 */ "execrp", /* 18 */ "execrp", /* 19 */ "execrp",
+  /* 20 */ "execrp", /* 21 */ "execrp", /* 22 */ "execrp", /* 23 */ "execrp",
   /* --- HT siblings (24-47) --- */
-  /* 24 */ __,        /* 25 */ "net",     /* 26 */ "verify",  /* 27 */ "verify",
-  /* 28 */ "verify",  /* 29 */ "dedup",   /* 30 */ "sign",    /* 31 */ __,
-  /* 32 */ "shred",   /* 33 */ "gossvf",  /* 34 */ "gossip",  /* 35 */ "replay",
-  /* 36 */ "execle",  /* 37 */ "execrp",  /* 38 */ __,        /* 39 */ __,
-  /* 40 */ __,        /* 41 */ __,        /* 42 */ __,        /* 43 */ __,
-  /* 44 */ __,        /* 45 */ __,        /* 46 */ __,        /* 47 */ "txsend",
+  /* 24 */ __,       /* 25 */ "gossip", /* 26 */ "dedup",  /* 27 */ "resolv",
+  /* 28 */ "verify", /* 29 */ "verify", /* 30 */ "verify", /* 31 */ __,
+  /* 32 */ "txsend", /* 33 */ "replay", /* 34 */ "gossvf", /* 35 */ "repair",
+  /* 36 */ "tower",  /* 37 */ "execle", /* 38 */ __,       /* 39 */ __,
+  /* 40 */ __,       /* 41 */ __,       /* 42 */ __,       /* 43 */ __,
+  /* 44 */ __,       /* 45 */ __,       /* 46 */ __,       /* 47 */ "execrp",
 };
 #define FD_24X2_LEN (sizeof(FD_24X2)/sizeof(FD_24X2[0]))
 
-/* ---- Firedancer 32×2  (no skip HT, 36 tiles > 31 physical cores) ------ */
+/* ---- Firedancer 32×2  (no skip HT, 36 tiles > 31 physical cores) ------
+   5 cores shared, no core left idle.                                     */
 
 static char const * const FD_32X2[] = {
-  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolv",  /*  7 */ "pack",
-  /*  8 */ "sign",    /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "repair",
-  /* 12 */ "tower",   /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
-  /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ "execrp",  /* 21 */ "execrp",  /* 22 */ "execrp",  /* 23 */ "execrp",
-  /* 24 */ "execrp",  /* 25 */ __,        /* 26 */ __,        /* 27 */ __,
-  /* 28 */ __,        /* 29 */ __,        /* 30 */ __,        /* 31 */ __,
+  /*  0 */ __,       /*  1 */ "net",    /*  2 */ "net",    /*  3 */ "quic",
+  /*  4 */ "verify", /*  5 */ "verify", /*  6 */ "verify", /*  7 */ "verify",
+  /*  8 */ "verify", /*  9 */ "dedup",  /* 10 */ "resolv", /* 11 */ "pack",
+  /* 12 */ "sign",   /* 13 */ "sign",   /* 14 */ "shred",  /* 15 */ "gossvf",
+  /* 16 */ "repair", /* 17 */ "replay", /* 18 */ "tower",  /* 19 */ "execle",
+  /* 20 */ "execle", /* 21 */ "poh",    /* 22 */ "execrp", /* 23 */ "execrp",
+  /* 24 */ "execrp", /* 25 */ "execrp", /* 26 */ "execrp", /* 27 */ "execrp",
+  /* 28 */ "execrp", /* 29 */ "execrp", /* 30 */ "execrp", /* 31 */ "execrp",
   /* --- HT siblings (32-63) --- */
-  /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
-  /* 36 */ "verify",  /* 37 */ "dedup",   /* 38 */ "sign",    /* 39 */ __,
-  /* 40 */ "shred",   /* 41 */ "gossvf",  /* 42 */ "gossip",  /* 43 */ "replay",
-  /* 44 */ "execle",  /* 45 */ "txsend",  /* 46 */ __,        /* 47 */ __,
-  /* 48 */ __,        /* 49 */ __,        /* 50 */ __,        /* 51 */ __,
-  /* 52 */ __,        /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
-  /* 56 */ __,        /* 57 */ __,        /* 58 */ __,        /* 59 */ __,
-  /* 60 */ __,        /* 61 */ __,        /* 62 */ __,        /* 63 */ __,
+  /* 32 */ __,       /* 33 */ __,       /* 34 */ "txsend", /* 35 */ __,
+  /* 36 */ __,       /* 37 */ __,       /* 38 */ __,       /* 39 */ "verify",
+  /* 40 */ "gossvf", /* 41 */ __,       /* 42 */ __,       /* 43 */ __,
+  /* 44 */ __,       /* 45 */ "gui",    /* 46 */ __,       /* 47 */ "gossip",
 };
 #define FD_32X2_LEN (sizeof(FD_32X2)/sizeof(FD_32X2[0]))
 
@@ -648,26 +665,22 @@ static char const * const FRANK_32X2_MORE_BANK[] = {
 #define FRANK_32X2_MORE_BANK_LEN (sizeof(FRANK_32X2_MORE_BANK)/sizeof(FRANK_32X2_MORE_BANK[0]))
 
 /* ---- Variation: Firedancer 32×2, extra blocklist -----------------------
-   blocklist = "0h,5h" → {0,32,5,37}. 29 phys avail. 36 tiles > 29.     */
+   blocklist = "0h,5h" → {0,32,5,37}. 30 phys avail. 36 tiles > 30.     */
 
 static char const * const FD_32X2_EXTRA_BL[] = {
-  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ __,        /*  6 */ "verify",  /*  7 */ "resolv",
-  /*  8 */ "pack",    /*  9 */ "sign",    /* 10 */ "gui",     /* 11 */ "gossvf",
-  /* 12 */ "repair",  /* 13 */ "tower",   /* 14 */ "execle",  /* 15 */ "poh",
-  /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ "execrp",  /* 21 */ "execrp",  /* 22 */ "execrp",  /* 23 */ "execrp",
-  /* 24 */ "execrp",  /* 25 */ "execrp",  /* 26 */ __,        /* 27 */ __,
-  /* 28 */ __,        /* 29 */ __,        /* 30 */ __,        /* 31 */ __,
+  /*  0 */ __,       /*  1 */ "net",    /*  2 */ "net",    /*  3 */ "quic",
+  /*  4 */ "verify", /*  5 */ __,       /*  6 */ "verify", /*  7 */ "verify",
+  /*  8 */ "verify", /*  9 */ "dedup",  /* 10 */ "resolv", /* 11 */ "pack",
+  /* 12 */ "sign",   /* 13 */ "sign",   /* 14 */ "shred",  /* 15 */ "gossvf",
+  /* 16 */ "repair", /* 17 */ "replay", /* 18 */ "tower",  /* 19 */ "execle",
+  /* 20 */ "execle", /* 21 */ "poh",    /* 22 */ "execrp", /* 23 */ "execrp",
+  /* 24 */ "execrp", /* 25 */ "execrp", /* 26 */ "execrp", /* 27 */ "execrp",
+  /* 28 */ "execrp", /* 29 */ "execrp", /* 30 */ "execrp", /* 31 */ "execrp",
   /* --- HT siblings (32-63) --- */
-  /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
-  /* 36 */ "verify",  /* 37 */ __,        /* 38 */ "dedup",   /* 39 */ "sign",
-  /* 40 */ __,        /* 41 */ "shred",   /* 42 */ "gossvf",  /* 43 */ "gossip",
-  /* 44 */ "replay",  /* 45 */ "execle",  /* 46 */ "txsend",  /* 47 */ __,
-  /* 48 */ __,        /* 49 */ __,        /* 50 */ __,        /* 51 */ __,
-  /* 52 */ __,        /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
-  /* 56 */ __,        /* 57 */ __,        /* 58 */ __,        /* 59 */ __,
-  /* 60 */ __,        /* 61 */ __,        /* 62 */ __,        /* 63 */ __,
+  /* 32 */ __,       /* 33 */ __,       /* 34 */ "txsend", /* 35 */ __,
+  /* 36 */ __,       /* 37 */ __,       /* 38 */ "verify", /* 39 */ "verify",
+  /* 40 */ "gossvf", /* 41 */ __,       /* 42 */ __,       /* 43 */ __,
+  /* 44 */ __,       /* 45 */ "gui",    /* 46 */ __,       /* 47 */ "gossip",
 };
 #define FD_32X2_EXTRA_BL_LEN (sizeof(FD_32X2_EXTRA_BL)/sizeof(FD_32X2_EXTRA_BL[0]))
 
@@ -744,9 +757,9 @@ FD_UNIT_TEST( test_firedancer_128x2 ) {
 
 /* --- Firedancer efficient mode ------------------------------------------ */
 
-/* Performance mode ignores the cache topology */
+/* Performance mode only places pack, poh and execle by L3 */
 FD_UNIT_TEST( test_firedancer_48x2_l3_performance ) {
-  run_layout( 48, 6, NULL, 0, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+  run_layout( 48, 6, NULL, 0, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), 0, FD_48X2_L3_PERF_LEN, FD_48X2_L3_PERF );
 }
 
 /* One L3 domain, or none known, keeps the sequential layout */
@@ -1602,11 +1615,20 @@ static tile_spec_t const MAINNET_WIDE_TILES[] = {
   { NULL, 0 }
 };
 
+static int
+name_in( char const *         name,
+         char const * const * names ) {
+  for( char const * const * p = names; *p; p++ ) if( !strcmp( name, *p ) ) return 1;
+  return 0;
+}
+
 /* Layout invariants that hold on every host shape.  steady counts
    ALWAYS and POST_START tiles, the deliberate STARTUP overlap aside. */
 static void
 check_layout_invariants( fd_topo_t const *      topo,
-                         fd_topo_cpus_t const * cpus ) {
+                         fd_topo_cpus_t const * cpus,
+                         int                    efficient,
+                         ulong                  execrp_whole_min ) {
   fd_topob_validate_cpu_overlaps( topo );
 
   uchar steady[ FD_TILE_MAX ] = {0};
@@ -1637,7 +1659,64 @@ check_layout_invariants( fd_topo_t const *      topo,
     else          execrp_shared = fd_ulong_min( execrp_shared, tile->kind_id );
   }
   FD_TEST( execrp_shared==ULONG_MAX || execrp_last<execrp_shared || !execrp_whole );
+  FD_TEST( execrp_whole>=execrp_whole_min );
 
+  /* No idle whole core while any steady core is shared.  Efficient mode
+     floats most tiles, and multi-NUMA hosts may keep a node free. */
+  if( efficient || cpus->numa_node_cnt>1UL ) return;
+  int shared = 0, idle = 0;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    ulong s = cpus->cpu[ i ].sibling;
+    if( s==ULONG_MAX || s<i ) continue;
+    shared |= steady[ i ] && steady[ s ];
+    int usable = cpus->cpu[ i ].online && cpus->cpu[ s ].online;
+    for( ulong b=0UL; b<topo->blocklist_cores_cnt; b++ ) usable &= topo->blocklist_cores_cpu_idx[ b ]!=i && topo->blocklist_cores_cpu_idx[ b ]!=s;
+    idle |= usable && !steady[ i ] && !steady[ s ];
+  }
+  FD_TEST( !( shared && idle ) );
+}
+
+/* Performance mode with a cache topology keeps poh, accdb and the
+   lowest execle in pack's L3, spilling only the highest execle */
+static void
+check_group_l3( fd_topo_t const *      topo,
+                fd_topo_cpus_t const * cpus ) {
+  ulong pack = fd_topo_find_tile( topo, "pack", 0UL );
+  FD_TEST( pack!=ULONG_MAX );
+  ulong l3 = cpus->cpu[ topo->tiles[ pack ].cpu_idx ].l3_idx;
+  ulong spill = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( !name_in( tile->name, (char const *[]){ "poh", "motor", "accdb", "execle", NULL } ) ) continue;
+    int in = cpus->cpu[ tile->cpu_idx ].l3_idx==l3;
+    if( strcmp( tile->name, "execle" ) ) FD_TEST( in );
+    else if( !in ) spill++;
+    else           FD_TEST( !spill );
+  }
+}
+
+/* Whole core execrp count of the dedicated budget on main */
+static ulong
+main_execrp_whole( fd_topo_cpus_t const * cpus,
+                   fd_topo_t const *      topo ) {
+  ulong free_logical = 0UL, need = 0UL, critical = 0UL, startup = 0UL, post = 0UL, execrp = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    int blocked = !cpus->cpu[ i ].online;
+    for( ulong b=0UL; b<topo->blocklist_cores_cnt; b++ ) blocked |= topo->blocklist_cores_cpu_idx[ b ]==i;
+    free_logical += (ulong)!blocked;
+  }
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    uint cls = fd_topob_tile_class( tile->name );
+    if( fd_topob_tile_priority_type( tile )==FD_TOPOB_PRIORITY_FLOATING ) continue;
+    need     += (ulong)!!( cls & FD_TOPOB_TILE_ALWAYS );
+    startup  += (ulong)!!( cls & FD_TOPOB_TILE_STARTUP );
+    post     += (ulong)!!( cls & FD_TOPOB_TILE_POSTSTART );
+    critical += (ulong)!!( cls & FD_TOPOB_TILE_SMT_CRITICAL );
+    execrp   += (ulong)!strcmp( tile->name, "execrp" );
+  }
+  need += fd_ulong_max( startup, post );
+  return fd_ulong_min( execrp, fd_ulong_sat_sub( free_logical, need+critical ) );
 }
 
 static void
@@ -1654,7 +1733,13 @@ layout_shape( fd_topo_cpus_t const * shape,
   set_blocklist( topo, blocklist );
   topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX;
   fd_topob_auto_layout_cpus( topo, cpus, 0 );
-  check_layout_invariants( topo, cpus );
+
+  /* SMT hosts short of whole cores keep at least main's whole execrp */
+  ulong p2 = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) p2 += (ulong)( cpus->cpu[ i ].sibling!=ULONG_MAX && cpus->cpu[ i ].sibling>i );
+  ulong execrp_min = !efficient && p2 && cpus->numa_node_cnt==1UL ? fd_ulong_min( main_execrp_whole( cpus, topo ), 10UL ) : 0UL;
+  check_layout_invariants( topo, cpus, efficient, execrp_min );
+  if( !efficient && fd_topo_cpus_l3_complete( cpus ) ) check_group_l3( topo, cpus );
 }
 
 static int
@@ -1710,6 +1795,108 @@ FD_UNIT_TEST( test_fleet_shapes ) {
           if( FD_UNLIKELY( !ok && ( !SHAPE[ i ].small || TILES[ t ]==FD_FEWER_TILES ) ) ) FD_LOG_ERR(( "shape %lu l3 %lu tiles %lu efficient %d failed", i, l3, t, efficient ));
         }
       }
+    }
+  }
+}
+
+/* 20..48 physical cores x verify {3,6}, without and with 6 core L3s:
+   graded pairing keeps every invariant and never shrinks the boot
+   envelope of main */
+FD_UNIT_TEST( test_smt_budget_sweep ) {
+  for( ulong l3=0UL; l3<=6UL; l3+=6UL ) {
+    for( ulong n=20UL; n<=48UL; n++ ) {
+      static fd_topo_cpus_t cpus[1];
+      make_cpus_shape( cpus, 1UL, 1UL, n, l3, SMT_ON, NULL );
+      ulong bl[ 3 ] = { 0UL, n, ULONG_MAX };
+      /* main boots default counts from 21 cores, the wide ones from 23 */
+      int ok_main = layout_shape_ok( cpus, MAINNET_TILES,      bl, 0 );
+      int ok_wide = layout_shape_ok( cpus, MAINNET_WIDE_TILES, bl, 0 );
+      FD_TEST( ok_main || n<21UL );
+      FD_TEST( ok_wide || n<23UL );
+      FD_TEST( layout_shape_ok( cpus, FIREDANCER_TILES,   bl, 0 ) );
+    }
+  }
+}
+
+/* CI bench on a 9474F (8 L3 of 6 cores): pack, motor, accdb and
+   execle:0-5 paired in one L3, execle:6-7 paired in the next */
+FD_UNIT_TEST( test_group_l3_bench_9474f ) {
+  static tile_spec_t const BENCH_TILES[] = {
+    { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 }, { "genesi", 1 }, { "ipecho", 1 },
+    { "gossvf", 1 }, { "gossip", 1 }, { "shred",  1 }, { "rotor",  1 }, { "rserve", 1 }, { "replay", 1 },
+    { "accdb",  1 }, { "execrp", 1 }, { "votor",  1 }, { "quic",   2 }, { "verify",32 }, { "dedup",  1 },
+    { "resolv", 1 }, { "pack",   1 }, { "execle", 8 }, { "motor",  1 }, { "sign",   2 }, { "rpc",    1 },
+    { "admin",  1 }, { "waker",  1 }, { "bencho", 1 }, { "benchg",16 }, { "benchs", 4 }, { NULL, 0 }
+  };
+  for( ulong v=0UL; v<2UL; v++ ) {
+    static fd_topo_cpus_t cpus[1];
+    make_cpus_shape( cpus, 1UL, 1UL, 48UL, v ? 4UL : 6UL, SMT_ON, NULL );
+    static fd_topo_t _topo[1];
+    fd_topo_t * topo = _topo;
+    fd_memset( topo, 0, sizeof(*topo) );
+    make_tiles( topo, BENCH_TILES );
+    set_blocklist( topo, BLOCKLIST_0H( 48 ) );
+    topo->sleep_obj_id = ULONG_MAX;
+    fd_topob_auto_layout_cpus( topo, cpus, 0 );
+    check_layout_invariants( topo, cpus, 0, 0UL );
+    check_group_l3( topo, cpus );
+
+    /* 4 core L3s (v=1) hold pack, motor, accdb and execle:0-1 */
+    ulong l3 = cpus->cpu[ topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ].cpu_idx ].l3_idx;
+    for( ulong k=0UL; k<8UL; k++ ) {
+      ulong c = topo->tiles[ fd_topo_find_tile( topo, "execle", k ) ].cpu_idx;
+      FD_TEST( cpus->cpu[ c ].l3_idx==l3+( k>=( v ? 2UL : 6UL ) ) );
+      FD_TEST( topo->tiles[ fd_topo_find_tile( topo, "execle", k^1UL ) ].cpu_idx==cpus->cpu[ c ].sibling );
+    }
+  }
+}
+
+/* 32x2 efficient with isolcpus=16-31,48-63 boots like on main: the
+   graded plan would strand the floaters, the sequential layout keeps
+   them off isolated CPUs */
+FD_UNIT_TEST( test_smt_budget_efficient_isolcpus ) {
+  static tile_spec_t const MAINNET_EFF_TILES[] = {
+    { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 }, { "waker",  1 }, { "mwaitx", 1 },
+    { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 }, { "genesi", 1 }, { "ipecho", 1 },
+    { "gossvf", 1 }, { "gossip", 1 }, { "shred",  1 }, { "repair", 1 }, { "rserve", 1 }, { "replay", 1 },
+    { "accdb",  1 }, { "execrp",10 }, { "tower",  1 }, { "txsend", 1 }, { "quic",   1 }, { "verify", 3 },
+    { "dedup",  1 }, { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "poh",    1 }, { "sign",   2 },
+    { "rpc",    1 }, { "admin",  1 }, { "event",  1 }, { "bundle", 1 }, { "gui",    1 }, { NULL, 0 }
+  };
+  static fd_topo_cpus_t cpus[1];
+  make_cpus_shape( cpus, 1UL, 1UL, 32UL, 16UL, SMT_ON, NULL );
+  for( ulong i=16UL; i<32UL; i++ ) { cpus->cpu[ i ].isolated = 1; cpus->cpu[ i+32UL ].isolated = 1; }
+  FD_TEST( layout_shape_ok( cpus, MAINNET_EFF_TILES, BLOCKLIST_0H( 32 ), 1 ) );
+}
+
+/* 24x2 mainnet: replay, tower, shred:0, net:0 and accdb get a cold
+   sibling or none, no two different AVX heavy kinds share, and 7
+   execrp stay whole like on main */
+FD_UNIT_TEST( test_smt_budget_24x2_partners ) {
+  static fd_topo_cpus_t cpus[1];
+  make_cpus_shape( cpus, 1UL, 1UL, 24UL, 0UL, SMT_ON, NULL );
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, MAINNET_TILES );
+  set_blocklist( topo, BLOCKLIST_0H( 24 ) );
+  topo->sleep_obj_id = ULONG_MAX;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  check_layout_invariants( topo, cpus, 0, 7UL );
+
+  char const * cold[] = { "gui", "rpc", "event", "rserve", "gossip", "gossvf", "sign", NULL };
+  char const * avx [] = { "verify", "sign", "shred", NULL };
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * a = &topo->tiles[ i ];
+    if( a->cpu_idx==ULONG_MAX || fd_topob_tile_priority_type( a )==FD_TOPOB_PRIORITY_STARTUP ) continue;
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t const * b = &topo->tiles[ j ];
+      if( j==i || b->cpu_idx!=cpus->cpu[ a->cpu_idx ].sibling || fd_topob_tile_priority_type( b )==FD_TOPOB_PRIORITY_STARTUP ) continue;
+      int protect   = !strcmp( a->name, "replay" ) || !strcmp( a->name, "tower" ) || !strcmp( a->name, "accdb" ) ||
+                      ( !a->kind_id && ( !strcmp( a->name, "shred" ) || !strcmp( a->name, "net" ) ) );
+      int b_cold = name_in( b->name, cold ) && ( strcmp( b->name, "sign" ) || b->kind_id );
+      if( protect ) FD_TEST( b_cold );
+      if( strcmp( a->name, b->name ) ) FD_TEST( !( name_in( a->name, avx ) && name_in( b->name, avx ) ) );
     }
   }
 }
