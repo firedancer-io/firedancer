@@ -38,7 +38,7 @@ tune the performance of Firedancer.
 
 ## Configuration
 The default configuration provided if no options are specified is given
-in the [`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml)
+in the [`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/firedancer/config/default.toml)
 file:
 
 ::: code-group
@@ -62,7 +62,7 @@ the GUI is disabled or enabled. The rest are fixed at one thread each.
 
 The assignment of tiles to CPU cores is determined by the `affinity`
 string, which is documented fully in the
-[`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml)
+[`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/firedancer/config/default.toml)
 file itself. The Frankendancer validator currently starts an Agave
 process to perform functionality like replay, gossip, and repair that is
 not yet implemented in Firedancer. The `agave_affinity` string
