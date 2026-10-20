@@ -5,7 +5,7 @@ Firedancer is configured via a [TOML](https://toml.io/en/) file. Almost
 all options have a recommended default value that is set automatically
 by Firedancer, and an operator needs only to specify values for options
 they wish to change. The full list of options is as specified in the
-[`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml)
+[`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/firedancer/config/default.toml)
 file is documented below.
 
 ::: tip MIGRATING
@@ -110,7 +110,7 @@ should be started.
 It is suggested to run as many tiles as possible and tune the tile
 counts for maximum system throughput so that the Solana network can run
 faster.  There are some example tuned configurations in the
-`src/app/fdctl/config/` folder to work from.
+`src/app/firedancer/config/` folder to work from.
 
 ::: tip TIP
 
@@ -141,6 +141,6 @@ change.
 
 ::: code-group
 
-<<< @/../src/app/fdctl/config/default.toml
+<<< @/../src/app/firedancer/config/default.toml
 
 :::

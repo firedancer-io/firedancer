@@ -217,7 +217,7 @@ The Firedancer client can report diagnostic metrics similar to an Agave
 client. It is recommended to set the `[reporting.solana_metrics_config]`
 in the config file to the appropriate value for the cluster. The options
 for the different clusters are listed in the `default.toml` file in the
-[`reporting`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml#L144)
+[`reporting`](https://github.com/firedancer-io/firedancer/blob/main/src/app/firedancer/config/default.toml)
 section.
 
 ### Permissions
