@@ -489,15 +489,14 @@ void
 fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
                         long               now ) {
   uint iter = ctx->backoff_iter;
-  if( now < ctx->backoff_reset ) iter = 0U;
+  if( now>=ctx->backoff_reset ) iter = 0U;
   iter++;
 
-  /* FIXME proper backoff */
-  long wait_ns = (long)2e9;
-  wait_ns = (long)( fd_rng_ulong( ctx->rng ) & ( (1UL<<fd_ulong_find_msb_w_default( (ulong)wait_ns, 0 ))-1UL ) );
+  long base    = (long)250e6 << fd_uint_min( iter-1U, 7U );
+  long wait_ns = base/2L + (long)( fd_rng_ulong( ctx->rng ) % (ulong)(base/2L) );
 
   ctx->backoff_until = now +   wait_ns;
-  ctx->backoff_reset = now + 2*wait_ns;
+  ctx->backoff_reset = now + 2*base;
 
   ctx->backoff_iter = iter;
 }
@@ -892,7 +891,6 @@ fd_bundle_client_grpc_rx_msg(
 static void
 fd_bundle_client_request_failed( fd_bundle_tile_t * ctx,
                                  ulong              request_ctx ) {
-  fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
@@ -937,7 +935,6 @@ fd_bundle_client_grpc_rx_end(
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
     ctx->packet_subscription_live = 0;
     ctx->packet_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     ctx->defer_reset = 1;
     FD_LOG_INFO(( "SubscribePackets stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
@@ -945,7 +942,6 @@ fd_bundle_client_grpc_rx_end(
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
     ctx->bundle_subscription_live = 0;
     ctx->bundle_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     ctx->defer_reset = 1;
     FD_LOG_INFO(( "SubscribeBundles stream failed (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
@@ -961,6 +957,7 @@ fd_bundle_client_grpc_rx_end(
     FD_LOG_INFO(( "gRPC request failed (gRPC status %u-%s): %.*s",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
                   (int)resp->grpc_msg_len, resp->grpc_msg ));
+    fd_bundle_tile_backoff( ctx, fd_bundle_now( ctx ) );
     fd_bundle_client_request_failed( ctx, request_ctx );
     if( resp->grpc_status==FD_GRPC_STATUS_UNAUTHENTICATED ||
         resp->grpc_status==FD_GRPC_STATUS_PERMISSION_DENIED ) {
