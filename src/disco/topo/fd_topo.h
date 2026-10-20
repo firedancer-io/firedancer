@@ -810,6 +810,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong max_live_slots;
       ulong max_txn_per_slot;
+      ulong stream_max;
     } strmk;
   };
 };

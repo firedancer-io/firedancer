@@ -95,11 +95,12 @@ struct strmk_stream {
 typedef struct strmk_stream strmk_stream_t;
 
 struct fd_strmk {
-  uint  cur;       /* the stream being written, UINT_MAX if none */
-  uint  next;      /* the pool file the next stream goes in */
-  ulong incr_slot; /* slot of the newest incremental snapshot on disk */
+  uint  cur;        /* the stream being written, UINT_MAX if none */
+  uint  next;       /* the pool file the next stream goes in */
+  uint  stream_max; /* pool files, as many as incremental snapshots are kept */
+  ulong incr_slot;  /* slot of the newest incremental snapshot on disk */
 
-  strmk_stream_t stream[ FD_STRMK_POOL ];
+  strmk_stream_t stream[ FD_STRMK_POOL_MAX ];
 
   /* in links, and the frag the stem callbacks hand to each other */
   uchar       in_kind  [ FD_TOPO_MAX_TILE_IN_LINKS ];
@@ -569,10 +570,10 @@ strmk_stream_start( fd_strmk_t *                   ctx,
 
   strmk_stream_close( ctx, stem );
 
-  /* the other file: the file server stopped serving it an incremental
-     ago, when it saw that stream close */
+  /* the next file: the file server stopped serving it long ago, when
+     it saw that stream close */
   uint idx = ctx->next;
-  ctx->next = ( idx+1U )%FD_STRMK_POOL;
+  ctx->next = ( idx+1U )%ctx->stream_max;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
   FD_CHECK_CRIT( bank && bank->f.slot==msg->slot, "snapshot bank is not the one replay named" );
@@ -692,15 +693,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo; (void)tile;
-  if( FD_UNLIKELY( out_fds_cnt<4UL+FD_STRMK_POOL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  (void)topo;
+  if( FD_UNLIKELY( out_fds_cnt<4UL+tile->strmk.stream_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
   out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
-  for( ulong i=0UL; i<FD_STRMK_POOL; i++ ) out_fds[ out_cnt++ ] = FD_STRMK_FD( i );
+  for( ulong i=0UL; i<tile->strmk.stream_max; i++ ) out_fds[ out_cnt++ ] = FD_STRMK_FD( i );
   return out_cnt;
 }
 
@@ -709,11 +710,11 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo; (void)tile;
+  (void)topo;
   populate_sock_filter_policy_fd_strmk_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
-      (uint)FD_STRMK_FD( 0 ), (uint)FD_STRMK_FD( FD_STRMK_POOL-1UL ),
+      (uint)FD_STRMK_FD( 0 ), (uint)FD_STRMK_FD( tile->strmk.stream_max-1UL ),
       (uint)FD_ACCDB_FD_RO,
       (uint)FD_VOTE_STAKES_FD );
   return sock_filter_policy_fd_strmk_tile_instr_cnt;
@@ -758,7 +759,8 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "ZSTD_CCtx_setParameter failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
 
-  for( uint i=0U; i<FD_STRMK_POOL; i++ ) ctx->stream[ i ].fd = FD_STRMK_FD( i );
+  ctx->stream_max = (uint)tile->strmk.stream_max;
+  for( uint i=0U; i<ctx->stream_max; i++ ) ctx->stream[ i ].fd = FD_STRMK_FD( i );
 
   ctx->current_slot = 0UL;
   ctx->pruned_slot  = 0UL;

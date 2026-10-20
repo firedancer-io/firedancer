@@ -232,10 +232,10 @@ struct fd_snapsv {
      is the slot the stream in pool file i starts at, ULONG_MAX while
      the file is not served. */
   ulong fast_boot_max;
-  ulong fast_boot_slot  [ FD_STRMK_POOL ];
-  uchar fast_boot_hash  [ FD_STRMK_POOL ][ 32 ];
-  int   fast_boot_fd    [ FD_STRMK_POOL ];
-  int   fast_boot_closed[ FD_STRMK_POOL ];
+  ulong fast_boot_slot  [ FD_STRMK_POOL_MAX ];
+  uchar fast_boot_hash  [ FD_STRMK_POOL_MAX ][ 32 ];
+  int   fast_boot_fd    [ FD_STRMK_POOL_MAX ];
+  int   fast_boot_closed[ FD_STRMK_POOL_MAX ];
 
   /* tango input links */
   ulong in_cnt;
@@ -454,7 +454,7 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   ctx->fast_boot_max = tile->snapsv.fast_boot_stream_max;
-  FD_CHECK_ERR( ctx->fast_boot_max<=FD_STRMK_POOL, "too many fast boot streams" );
+  FD_CHECK_ERR( ctx->fast_boot_max<=FD_STRMK_POOL_MAX, "too many fast boot streams" );
   for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) ctx->fast_boot_fd[ i ] = FD_STRMK_RO_FD( i );
 
   /* Build file descriptor table */
@@ -2359,7 +2359,7 @@ msg_snapmk( fd_snapsv_t *           ctx,
    file is ready to serve, or stopped growing.  The file size is read
    with fstat on each request because the stream grows while it is
    served.  A closed stream is served to its end until its file is
-   reused, which is when the next stream closes. */
+   reused by a later stream. */
 
 static void
 msg_strmk( fd_snapsv_t *          ctx,
@@ -2373,11 +2373,9 @@ msg_strmk( fd_snapsv_t *          ctx,
     ctx->fast_boot_closed[ msg->idx ] = 0;
     memcpy( ctx->fast_boot_hash[ msg->idx ], msg->hash, 32UL );
   } else {
-    for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
-      if( i!=msg->idx && ctx->fast_boot_closed[ i ] ) {
-        ctx->fast_boot_slot[ i ] = ULONG_MAX;
-      }
-    }
+    /* The next stream goes into the next pool file: stop serving the
+       closed stream still in it. */
+    ctx->fast_boot_slot  [ (msg->idx+1UL)%ctx->fast_boot_max ] = ULONG_MAX;
     ctx->fast_boot_closed[ msg->idx ] = 1;
   }
 }

@@ -126,7 +126,8 @@
 
 /* snapld -> snapct (via snapld_dc) */
 #define FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP      (11UL) /* snapld read the fast boot stream up to the server's current end */
-#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (12UL) /* snapld finished reading/downloading all data */
+#define FD_SNAPSHOT_MSG_STREAM_STOP           (12UL) /* snapin -> snapct: the snapshots behind the fast boot stream are done loading, shut the stream pipeline down */
+#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (13UL) /* snapld finished reading/downloading all data */
 
 /* Sigs passed from snapdc to snapin contain the frame index of the
    frag so snapin knows how to order frames as they arrive. */
@@ -238,6 +239,7 @@ fd_ssctrl_msg_ctrl_str( ulong sig ) {
     case FD_SNAPSHOT_MSG_CTRL_ERROR:            return "error";
     case FD_SNAPSHOT_MSG_CTRL_FINI:             return "fini";
     case FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP:      return "stream_caught_up";
+    case FD_SNAPSHOT_MSG_STREAM_STOP:           return "stream_stop";
     case FD_SNAPSHOT_MSG_LOAD_COMPLETE:         return "load_complete";
     default:                                    return "unknown";
   }

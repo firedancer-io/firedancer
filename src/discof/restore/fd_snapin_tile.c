@@ -203,8 +203,9 @@ struct fd_snapin_lead {
 
   /* Fast boot.  The stream itself is written on accdb_full_fork_id. */
   struct {
-    int                replay_started;   /* replay runs on the unrooted stream fork */
-    fd_accdb_fork_id_t snapshot_fork_id; /* the full and incremental snapshots behind the stream */
+    int                replay_started;    /* replay runs on the unrooted stream fork */
+    int                snapshot_finished; /* the snapshots behind the stream are finished loading */
+    fd_accdb_fork_id_t snapshot_fork_id;  /* the full and incremental snapshots behind the stream */
   } fast_boot;
 
   ulong advertised_slot;
@@ -1683,6 +1684,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
          /* Tile 0 only. */
         if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
+        /* Every later stream repeats the manifest and status cache. */
+        if( FD_UNLIKELY( ctx->fast_boot.stream && ctx->lead.flags.manifest_processed ) ) break;
+
         if( FD_UNLIKELY( ctx->lead.flags.manifest_done ) ) {
           FD_LOG_WARNING(( "excess data after manifest" ));
           transition_malformed( ctx, stem );
@@ -1709,6 +1713,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_STATUS_CACHE: {
         /* Tile 0 only. */
         if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+
+        /* Every later stream repeats the manifest and status cache. */
+        if( FD_UNLIKELY( ctx->fast_boot.stream && ctx->lead.flags.manifest_processed ) ) break;
 
         fd_slot_delta_parser_advance_result_t sd_result[1];
         ulong bytes_remaining = result->status_cache.data_sz;
@@ -1797,6 +1804,15 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_DONE:
+        if( FD_UNLIKELY( ctx->fast_boot.stream ) ) {
+          /* Streaming only ends when snapshot loading is finished.  If
+             we've reached the end of a stream, we need to start reading
+             the next. */
+          fd_ssparse_init( ctx->ssparse );
+          fd_ssparse_batch_enable( ctx->ssparse, 1 );
+          break;
+        }
+
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
       default:
@@ -1909,25 +1925,6 @@ fold_account_counts( fd_snapin_tile_t * ctx ) {
     ctx->lead.account_counts.loaded     += ctx->shmem->values[ i ].loaded;
     ctx->lead.account_counts.duplicates += ctx->shmem->values[ i ].duplicates;
   }
-}
-
-/* start_replay checks the sysvars of the stream and tells replay to
-   start on the stream fork, which stays unrooted until the stream and
-   the snapshots behind it are all in.  Returns 1 when the sysvars are
-   bad.
-   TODO: inline into the caught-up handler in piece 6, once the DONE
-   handler no longer calls it. */
-static int
-start_replay( fd_snapin_tile_t *  ctx,
-              fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
-    FD_LOG_WARNING(( "sysvar verification failed for the fast boot stream" ));
-    return 1;
-  }
-  fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, ctx->lead.accdb_full_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
-  fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL );
-  ctx->lead.fast_boot.replay_started = 1;
-  return 0;
 }
 
 static void
@@ -2087,10 +2084,14 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         transition_malformed( ctx, stem );
         break;
       }
-      if( FD_UNLIKELY( writer_flush( ctx ) || start_replay( ctx, stem ) ) ) {
+      if( FD_UNLIKELY( writer_flush( ctx ) ) ) {
         transition_malformed( ctx, stem );
         break;
       }
+
+      fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, ctx->lead.accdb_full_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
+      fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->lead.fast_boot.replay_started = 1;
       break;
     }
 
@@ -2161,27 +2162,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       if( FD_LIKELY( !is_lead( ctx ) ) ) {
         if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) FD_VOLATILE( ctx->shmem->fast_boot.snapshots_done ) = 1;
-        break;
-      }
-
-      /* The stream ended and the snapshots behind it are in.  Start
-         replay if the stream ended before caught up, then root the
-         snapshot fork and the stream fork and end load mode.  Replay's
-         root moves on from there.
-         TODO: will remove the start_replay call in piece 6, caught up
-         always comes before DONE once streams rotate. */
-      if( FD_UNLIKELY( ctx->fast_boot.stream ) ) {
-        if( FD_UNLIKELY( !ctx->lead.fast_boot.replay_started && start_replay( ctx, stem ) ) ) {
-          transition_malformed( ctx, stem );
-          forward_msg = 0;
-          break;
-        }
-        FD_COMPILER_MFENCE();
-        fold_account_counts( ctx );
-        if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) root_fork( ctx, &ctx->lead.fast_boot.snapshot_fork_id );
-        root_fork( ctx, &ctx->lead.accdb_full_fork_id );
-        fd_accdb_snapshot_load_end( ctx->accdb );
-        ctx->lead.init_completed = 0;
         break;
       }
 
@@ -2269,7 +2249,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
     }
@@ -2297,21 +2276,46 @@ all_controls_seen( fd_snapin_tile_t const * ctx ) {
   return all_seen;
 }
 
+/* For the streaming snapin tile only.  Check if snapshot loading has
+   finished.  If it has, root the snapshot fork and the stream fork, end
+   snapshot loading, and shut the stream down as we now have all the
+   accounts we need to run the validator normally. */
+static void
+after_credit( fd_snapin_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               charge_busy ) {
+  if( FD_LIKELY( !ctx->fast_boot.stream || ctx->lead.fast_boot.snapshot_finished || ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) return;
+  if( FD_LIKELY( !ctx->lead.fast_boot.replay_started || !FD_VOLATILE_CONST( ctx->shmem->fast_boot.snapshots_done ) ) ) return;
+
+  if( FD_UNLIKELY( writer_flush( ctx ) ) ) {
+    transition_malformed( ctx, stem );
+    return;
+  }
+
+  FD_COMPILER_MFENCE();
+  fold_account_counts( ctx );
+  root_fork( ctx, &ctx->lead.fast_boot.snapshot_fork_id );
+  root_fork( ctx, &ctx->lead.accdb_full_fork_id );
+  fd_accdb_snapshot_load_end( ctx->accdb );
+  ctx->lead.fast_boot.snapshot_finished = 1;
+  fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_STREAM_STOP, 0UL, 0UL, 0UL, 0UL, 0UL );
+  *charge_busy = 1;
+}
+
 static inline int
 before_frag( fd_snapin_tile_t * ctx,
              ulong              in_idx,
              ulong              seq    FD_PARAM_UNUSED,
              ulong              sig ) {
   /* Behind a fast boot the workers' fork comes from the stream's INIT
-     on tile 0, which may still be on its way, and tile 0 keeps the
-     stream's DONE until the snapshots behind it are in.
-     TODO: piece 6 makes the DONE hold an assert, the stream pipeline
-     only ends once the snapshots are in. */
+     on tile 0, which may still be on its way.  A finished stream only
+     waits for its SHUTDOWN. */
   if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) {
     if( FD_LIKELY( !is_lead( ctx ) ) ) {
       if( FD_UNLIKELY( FD_VOLATILE_CONST( ctx->shmem->fork_id )==ULONG_MAX ) ) return -1;
-    } else if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_DONE && !FD_VOLATILE_CONST( ctx->shmem->fast_boot.snapshots_done ) ) ) {
-      return -1;
+    } else if( FD_UNLIKELY( ctx->lead.fast_boot.snapshot_finished && sig!=FD_SNAPSHOT_MSG_CTRL_SHUTDOWN ) ) {
+      return 1;
     }
   }
 
@@ -2613,6 +2617,7 @@ unprivileged_init( fd_topo_t const *      topo,
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_BEFORE_FRAG     before_frag
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
