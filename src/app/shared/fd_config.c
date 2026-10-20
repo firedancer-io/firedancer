@@ -181,14 +181,6 @@ fd_config_fillf( fd_config_t * config ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
   }
-
-  if( FD_UNLIKELY( config->firedancer.failover.enabled ) ) {
-    FD_TEST( fd_cstr_printf_check( config->firedancer.failover.junk_identity_path,
-                                   sizeof(config->firedancer.failover.junk_identity_path),
-                                   NULL,
-                                   "%s/junk-identity.json",
-                                   config->paths.base ) );
-  }
 }
 
 static void

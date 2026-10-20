@@ -1,4 +1,5 @@
 #include "topology.h"
+#include "../../disco/keyguard/fd_keyload.h"
 #include "../shared/fd_config_json.h"
 
 #include "../../discof/poh/fd_poh.h"
@@ -1604,8 +1605,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
      set-identity installs a voting key.  A demoted machine rebooting under the
      staked key would make the doppelganger rule shut down the promoted
      peer instead. */
-  char const * identity_key_path = config->firedancer.failover.enabled
-                                 ? config->firedancer.failover.junk_identity_path
+  char const * identity_key_path = config->firedancer.failover.enabled && fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX
+                                 ? FD_KEYLOAD_FAILOVER_JUNK
                                  : config->paths.identity_key;
 
   if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
@@ -2079,6 +2080,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
 
     fd_cstr_ncpy( tile->sign.identity_key_path, identity_key_path, sizeof(tile->sign.identity_key_path) );
+    tile->sign.identity_key_fd = -1;
     tile->sign.failover_enabled = fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
     fd_cstr_ncpy( tile->sign.failover_staked_key_path, config->firedancer.failover.enabled ? config->paths.identity_key : "", sizeof(tile->sign.failover_staked_key_path) );
 
