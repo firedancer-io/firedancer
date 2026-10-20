@@ -32,7 +32,7 @@ complete_as( fd_rotor_t *      rotor,
   shred->idx             = fec_idx*FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT - 1U;
   shred->data.parent_off = (ushort)( slot-parent_slot );
   shred->data.flags      = last ? FD_SHRED_DATA_FLAG_SLOT_COMPLETE : 0;
-  return fd_rotor_fec_complete( rotor, shred, mr, is_leader, 0U, 0U, 0U, 0L );
+  return fd_rotor_fec_complete( rotor, shred, mr, is_leader, 0U, 0U, 0U, 0U, 0U, 0U, 0L );
 }
 
 static fd_rotor_fec_t *
@@ -396,13 +396,13 @@ test_telemetry( void ) {
   e1->telemetry.first_req_ts   = 6L;
 
   shred->idx = 2U*FD_FEC_SHRED_CNT-1U; shred->data.flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
-  fd_rotor_fec_t const * f11 = fd_rotor_fec_complete( rotor, shred, &m11, 0, 10U, 2U, 4U, 20L );
-  FD_TEST( f11 && f11->cmpl_ts==20L );
+  fd_rotor_fec_t const * f11 = fd_rotor_fec_complete( rotor, shred, &m11, 0, 10U, 2U, 4U, 0x0fffffffU, 0x3U, 0x0000000cU, 20L );
+  FD_TEST( f11 && f11->cmpl_ts==20L && f11->data_rcvd==0x0fffffffU && f11->parity_rcvd==0x3U && f11->repair_rcvd==0x0000000cU );
   FD_TEST( e1->telemetry.last_cmpl_fec_idx==FD_FEC_SHRED_CNT && !e1->telemetry.last_shred_ts ); /* FEC set 0 is missing */
-  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m11, 0, 99U, 99U, 99U, 25L )->cmpl_ts==20L ); /* again, not counted */
+  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m11, 0, 99U, 99U, 99U, 99U, 99U, 99U, 25L )->cmpl_ts==20L && f11->data_rcvd==0x0fffffffU ); /* again, not counted */
 
   shred->idx = FD_FEC_SHRED_CNT-1U; shred->data.flags = 0;
-  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m10, 0, 30U, 1U, 0U, 40L )->cmpl_ts==40L );
+  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m10, 0, 30U, 1U, 0U, 0U, 0U, 0U, 40L )->cmpl_ts==40L );
   FD_TEST( is_eager( rotor, e1 ) && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
   FD_TEST( e1->telemetry.turbine_shred_cnt==40U && e1->telemetry.repair_shred_cnt==3U && e1->telemetry.recovered_shred_cnt==4U );
   FD_TEST( !e1->telemetry.cancelled_reason && !e1->telemetry.cancelled_ts );
@@ -477,7 +477,7 @@ test_telemetry_final_src( void ) {
   FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
 
   shred->idx = FD_FEC_SHRED_CNT-1U;
-  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m10, 0, 0U, 0U, 0U, 4L )==f10 && f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m10, 0, 0U, 0U, 0U, 0U, 0U, 0U, 4L )==f10 && f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
   shred->idx = 4U; fd_rotor_shred_insert( rotor, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 5L );
   FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR ); /* frozen */
 
@@ -486,7 +486,7 @@ test_telemetry_final_src( void ) {
   FD_TEST( f11 && f11->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE ); /* a new set takes its first shred's source */
 
   shred->slot = 2UL; shred->idx = FD_FEC_SHRED_CNT-1U; shred->data.flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
-  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m20, 1, 0U, 0U, 0U, 7L )->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER );
+  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m20, 1, 0U, 0U, 0U, 0U, 0U, 0U, 7L )->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER );
   orphan_cnt( rotor );
 }
 
@@ -1330,7 +1330,7 @@ test_complete_again( void ) {
   shred->idx             = FD_FEC_SHRED_CNT - 1U;
   shred->data.parent_off = 1;
   shred->data.flags      = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
-  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m10, 1, 0U, 0U, 0U, 0L )->is_leader );
+  FD_TEST( fd_rotor_fec_complete( rotor, shred, &m10, 1, 0U, 0U, 0U, 0U, 0U, 0U, 0L )->is_leader );
   FD_TEST( complete( rotor, 1UL, 0UL, 0U, 1, &m10 )->is_leader );
   ulong one = 1UL;
   expect( rotor, fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ), 0U );

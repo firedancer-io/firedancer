@@ -678,6 +678,9 @@ fd_rotor_fec_complete( fd_rotor_t *       rotor,
                        uint               turbine_cnt,
                        uint               repair_cnt,
                        uint               recovered_cnt,
+                       uint               data_rcvd,
+                       uint               parity_rcvd,
+                       uint               repair_rcvd,
                        long               ts ) {
   fd_rotor_shred_insert( rotor, last_shred, fec_mr, 0, ts ); /* the last shred's header, its source was given when it arrived */
 
@@ -689,6 +692,9 @@ fd_rotor_fec_complete( fd_rotor_t *       rotor,
   int first_complete = !fec->complete;
   fec->cmpl_ts       = fd_long_if( first_complete, ts, fec->cmpl_ts );
   fec->final_src     = fd_int_if( first_complete && is_leader, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER, fec->final_src );
+  fec->data_rcvd     = fd_uint_if( first_complete, data_rcvd,   fec->data_rcvd   );
+  fec->parity_rcvd   = fd_uint_if( first_complete, parity_rcvd, fec->parity_rcvd );
+  fec->repair_rcvd   = fd_uint_if( first_complete, repair_rcvd, fec->repair_rcvd );
   fec->mr32          = *fec_mr;
   fec->rcvd          = UINT_MAX;
   fec->complete      = 1;
@@ -788,6 +794,9 @@ fd_rotor_fec_notarized( fd_rotor_t *      rotor,
     fec->first_ts      = 0L;
     fec->cmpl_ts       = 0L;
     fec->is_leader     = 0;
+    fec->data_rcvd     = 0U;
+    fec->parity_rcvd   = 0U;
+    fec->repair_rcvd   = 0U;
     fd_rotor_fec_map_ele_insert( rotor->fec_map, fec, rotor->fec_pool );
   }
   fec->notarized       = 1;
@@ -929,6 +938,9 @@ fd_rotor_shred_insert( fd_rotor_t *       rotor,
     fec->cmpl_ts       = 0L;
     fec->is_leader     = 0;
     fec->notarized     = 0;
+    fec->data_rcvd     = 0U;
+    fec->parity_rcvd   = 0U;
+    fec->repair_rcvd   = 0U;
     fd_rotor_fec_map_ele_insert( rotor->fec_map, fec, rotor->fec_pool );
   }
   blk->fecs[ fec_idx ] = fd_rotor_fec_pool_idx( rotor->fec_pool, fec );

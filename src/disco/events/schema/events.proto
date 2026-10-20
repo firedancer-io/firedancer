@@ -4062,11 +4062,11 @@ message MetricsRotorPingRejected {
 
 // Data shreds received as repair responses, by the pending request they matched
 message MetricsRotorShredRx {
-  // First response to a WindowIndexForBlockId request
+  // Response to a pending WindowIndexForBlockId request
   uint64 for_block_id = 1;
-  // First response to a WindowIndex or HighestWindowIndex request
+  // Response to a pending WindowIndex or HighestWindowIndex request
   uint64 slot_index = 2;
-  // Matched no pending request, including later answers to an already matched or expired request
+  // Matched no pending request: a duplicate, or an answer to an expired or evicted request
   uint64 unmatched = 3;
 }
 
@@ -10036,7 +10036,7 @@ message MetricsRotor {
   uint64 first_turbine_slot = 29;
   // Blocks in the eager, notar and final block treaps, waiting for discovery
   uint64 block_pending = 30;
-  // Pending request attempts awaiting a first response; a hedge is another attempt
+  // Pending request attempts awaiting a response; a hedge is another attempt
   uint64 request_in_flight = 31;
   // FEC sets published to replay
   uint64 fec_delivered = 32;
