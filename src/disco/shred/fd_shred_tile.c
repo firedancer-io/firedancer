@@ -199,6 +199,7 @@ typedef struct {
   ushort net_id;
 
   int skip_frag;
+  int parse_failed; /* during_frag's parse failed and this tile owns the frag, counted in after_frag once not overrun */
 
   ulong                    adtl_dests_leader_cnt;
   fd_shred_dest_weighted_t adtl_dests_leader    [ FD_TOPO_ADTL_DESTS_MAX ];
@@ -516,7 +517,8 @@ during_frag( fd_shred_ctx_t * ctx,
              ulong            sz,
              ulong            ctl ) {
 
-  ctx->skip_frag = 0;
+  ctx->skip_frag    = 0;
+  ctx->parse_failed = 0;
 
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -919,13 +921,14 @@ alpenglow_marker:
     uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
-    /* Use the looser ctx->shred_limit as the max_shred_idx for this
-       parse, as we do not have the slot for the shred yet. The
-       tighter shred-specific max_shred_idx will be applied in the
-       parse in after_frag. */
+    /* ctx->shred_limit is the smallest per-slot max_shred_idx, so no
+       later parse is stricter.  The result may be garbage if the frag
+       is overrun meanwhile, which the stem detects before after_frag. */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz, ctx->shred_limit );
     if( FD_UNLIKELY( !shred ) ) {
-      ctx->skip_frag = 1;
+      ulong owner = sz-hdr_sz>=sizeof(ulong) ? fd_ulong_load_8( dcache_entry+hdr_sz )%ctx->round_robin_cnt : 0UL; /* round-robin key, the signature */
+      ctx->parse_failed = owner==ctx->round_robin_id;
+      ctx->skip_frag    = 1;
       return;
     };
 
@@ -1233,7 +1236,10 @@ after_frag( fd_shred_ctx_t *    ctx,
   (void)tsorig;
   (void)_tspub;
 
-  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+  if( FD_UNLIKELY( ctx->skip_frag ) ) {
+    ctx->metrics->shred_processing_result[ FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_PARSE_FAILED_IDX ] += (ulong)ctx->parse_failed;
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     finalize_new_cluster_contact_info( ctx );
@@ -1323,16 +1329,11 @@ after_frag( fd_shred_ctx_t *    ctx,
     uchar * shred_buffer    = ctx->shred_buffer;
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
-    /* Accessing the slot like this is safe because we have already
-       parsed the shred in during_frag */
-    ulong shred_slot    = ((fd_shred_t const *)shred_buffer)->slot;
+    /* Parsed in during_frag */
+    fd_shred_t const * shred = (fd_shred_t const *)shred_buffer;
     ulong max_shred_idx = ctx->current_max_shred_idx;
-    if( FD_UNLIKELY( shred_slot< ctx->current_max_shred_idx_start_slot ) ) max_shred_idx = ctx->prev_max_shred_idx;
-    if( FD_UNLIKELY( shred_slot>=ctx->next_max_shred_idx_start_slot    ) ) max_shred_idx = ctx->next_max_shred_idx;
-
-    fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz, max_shred_idx );
-
-    if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_PARSE_FAILED_IDX ]++; return; }
+    if( FD_UNLIKELY( shred->slot< ctx->current_max_shred_idx_start_slot ) ) max_shred_idx = ctx->prev_max_shred_idx;
+    if( FD_UNLIKELY( shred->slot>=ctx->next_max_shred_idx_start_slot    ) ) max_shred_idx = ctx->next_max_shred_idx;
 
     fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
     if( FD_UNLIKELY( !lsched      ) ) { ctx->metrics->shred_processing_result[ FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_LEADER_UNKNOWN_IDX ]++; return; }

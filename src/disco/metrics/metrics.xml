@@ -947,7 +947,7 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="StoreFecSyncSpillDurationNanos" min="100" max="100000000" source="ticks">
         <summary>Duration of synchronously spilling one FEC payload to the store</summary>
     </histogram>
-    <counter name="Processed" enum="ShredProcessResult" summary="Shreds assigned to this tile that passed the initial parse and chained check, by processing result; InitialRejected and FecFatalRejected are subsets of Rejected" />
+    <counter name="Processed" enum="ShredProcessResult" summary="Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected" />
     <counter name="FecIncompleteEvicted" summary="Incomplete FEC sets evicted from the resolver to make room for new ones" />
     <counter name="InitialRejected" summary="Shreds rejected before any resources were allocated for the FEC set" />
     <counter name="UnchainedRejected" summary="Shreds rejected because they're not chained merkle shreds" />
