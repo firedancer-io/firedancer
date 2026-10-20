@@ -41,7 +41,7 @@ jobs:
             run-unit-tests: true
           - test-case: native
             machine: native
-            label: 512G
+            label: X64
             extras: "rpath handholding"
             targets: "all integration-test fdctl firedancer"
             compiler: gcc

@@ -32,7 +32,7 @@ jobs:
   backtest-ledger-replay:
     timeout-minutes: ${{ fromJSON(inputs.timeout) }}
     runs-on:
-      labels: [self-hosted, 512G]
+      labels: [self-hosted, X64]
       group: fd-public-repo
     env:
       CC: gcc
