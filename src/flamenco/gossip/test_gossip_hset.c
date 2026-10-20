@@ -2,6 +2,8 @@
 #include "fd_gossip_hset.h"
 #include "fd_gossip_purged.h"
 #include "fd_crds.h"
+#include "fd_gossip_wsample.h"
+#include "fd_active_set.h"
 #include "fd_bloom.h"
 
 #include <stdlib.h>
@@ -152,6 +154,108 @@ test_push_dups( fd_rng_t * rng ) {
     for( ulong k=0UL; k<3UL; k++ ) FD_TEST( fd_crds_insert( crds, value, bytes, 128UL, 1UL, 0, 0, route[ t ][ k ], 1L<<40, stem )==want[ t ][ k ] );
   }
 
+  free( crds_mem );
+  free( purged_mem );
+}
+
+/* An entrypoint's contact info counts while it is fresh: it stops
+   counting when it goes unfresh, moves to another address, or expires,
+   and counts again when re-received. */
+
+static void
+ci_upsert( fd_crds_t * crds, fd_rng_t * rng, fd_stem_context_t * stem, ulong origin, uint ip4, ushort port, ulong stake, ulong wallclock, long now, int is_me ) {
+  fd_gossip_value_t value[1];
+  memset( value, 0, sizeof(value) );
+  value->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
+  FD_STORE( ulong, value->origin, origin );
+  value->wallclock = wallclock;
+  value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4  = ip4;
+  value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port = port;
+  for( ulong i=0UL; i<64UL; i++ ) value->signature[ i ] = fd_rng_uchar( rng );
+  uchar bytes[ 128 ];
+  memcpy( bytes, value->signature, 64UL );
+  for( ulong i=64UL; i<128UL; i++ ) bytes[ i ] = fd_rng_uchar( rng );
+  FD_TEST( !fd_crds_insert( crds, value, bytes, 128UL, stake, 1, is_me, 0, now, stem ) );
+}
+
+static void
+test_entrypoint_fresh( fd_rng_t * rng ) {
+  ulong ele_max = 64UL;
+  void * purged_mem  = aligned_alloc( fd_gossip_purged_align(),  fd_gossip_purged_footprint( ele_max )                  );
+  void * crds_mem    = aligned_alloc( fd_crds_align(),           fd_crds_footprint( ele_max )                           );
+  void * wsample_mem = aligned_alloc( fd_gossip_wsample_align(), fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
+  void * as_mem      = aligned_alloc( fd_active_set_align(),     fd_active_set_footprint()                              );
+  fd_gossip_purged_t *  purged  = fd_gossip_purged_join( fd_gossip_purged_new( purged_mem, rng, ele_max ) );
+  fd_gossip_wsample_t * wsample = fd_gossip_wsample_join( fd_gossip_wsample_new( wsample_mem, rng, FD_CONTACT_INFO_TABLE_SIZE ) );
+  /* Expiry publishes a removal on the contact info link, so give it one. */
+  static uchar mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+  static uchar dcache_mem[ FD_DCACHE_FOOTPRINT( 1UL<<20, 0UL ) ] __attribute__((aligned(FD_DCACHE_ALIGN)));
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( mcache_mem, 128UL, 0UL, 0UL ) );
+  uchar *          dcache = fd_dcache_join( fd_dcache_new( dcache_mem, 1UL<<20, 0UL ) );
+  FD_TEST( mcache && dcache );
+  fd_gossip_out_ctx_t out[ FD_GOSSIP_UPDATE_LINK_CNT ];
+  for( ulong i=0UL; i<FD_GOSSIP_UPDATE_LINK_CNT; i++ ) out[ i ] = (fd_gossip_out_ctx_t){ .idx = ULONG_MAX };
+  ulong chunk0 = fd_dcache_compact_chunk0( dcache_mem, dcache );
+  out[ FD_GOSSIP_UPDATE_LINK_CI_ADDR ] = (fd_gossip_out_ctx_t){ .mem = (fd_wksp_t *)dcache_mem, .chunk0 = chunk0, .chunk = chunk0, .wmark = fd_dcache_compact_wmark( dcache_mem, dcache, FD_NET_MTU ), .idx = 0UL };
+  fd_frag_meta_t * mcaches[1]      = { mcache };
+  ulong            seqs[1]         = { 0UL };
+  ulong            depths[1]       = { 128UL };
+  ulong            cr_avail[1]     = { ULONG_MAX };
+  ulong            min_cr_avail[1] = { ULONG_MAX };
+  int              reliable[1]     = { 0 };
+  fd_stem_context_t stem[1] = {{ .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = min_cr_avail, .out_reliable = reliable }};
+
+  fd_ip4_port_t entrypoints[ 2 ] = { { .addr = FD_IP4_ADDR( 10, 0, 0, 1 ), .port = fd_ushort_bswap( 8001 ) },
+                                     { .addr = FD_IP4_ADDR( 10, 0, 0, 2 ), .port = fd_ushort_bswap( 8001 ) } };
+  uchar identity[ 32 ] = {0};
+  fd_crds_t *       crds = fd_crds_join( fd_crds_new( crds_mem, entrypoints, 2UL, wsample, as_mem, rng, ele_max, purged, dummy_activity, NULL, out ) );
+  fd_active_set_t * as   = fd_active_set_join( fd_active_set_new( as_mem, wsample, crds, rng, identity, 0UL, NULL, NULL ) );
+  FD_TEST( crds && wsample && as );
+
+  /* Unstaked contact infos expire (15 s) before they go unfresh (60 s)
+     once a staked node is known, so the unfresh steps use staked ones. */
+  long s = 1000L*1000L*1000L;
+  long now = 1L<<40;
+  ci_upsert( crds, rng, stem, 1UL, FD_IP4_ADDR( 10, 0, 0, 9 ), fd_ushort_bswap( 8001 ), 1UL, 1UL, now, 0 ); /* not an entrypoint */
+  ci_upsert( crds, rng, stem, 2UL, FD_IP4_ADDR( 10, 0, 0, 1 ), fd_ushort_bswap( 8002 ), 1UL, 1UL, now, 0 ); /* entrypoint address, other port */
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==0UL );
+  ci_upsert( crds, rng, stem, 3UL, FD_IP4_ADDR( 10, 0, 0, 1 ), fd_ushort_bswap( 8001 ), 1UL, 1UL, now, 0 );
+  ci_upsert( crds, rng, stem, 4UL, FD_IP4_ADDR( 10, 0, 0, 2 ), fd_ushort_bswap( 8001 ), 1UL, 1UL, now, 0 );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==2UL );
+
+  /* Re-received: still counted once.  The other goes unfresh at 60 s. */
+  now += 30L*s;
+  ci_upsert( crds, rng, stem, 3UL, FD_IP4_ADDR( 10, 0, 0, 1 ), fd_ushort_bswap( 8001 ), 1UL, 2UL, now, 0 );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==2UL );
+  now += 31L*s;
+  fd_crds_advance( crds, now, stem, NULL );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==1UL );
+
+  /* Re-received after going unfresh: counted again.  One that moves
+     to another address stops counting. */
+  ci_upsert( crds, rng, stem, 4UL, FD_IP4_ADDR( 10, 0, 0, 2 ), fd_ushort_bswap( 8001 ), 1UL, 3UL, now, 0 );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==2UL );
+  ci_upsert( crds, rng, stem, 3UL, FD_IP4_ADDR( 10, 0, 0, 7 ), fd_ushort_bswap( 8001 ), 1UL, 4UL, now, 0 );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==1UL );
+
+  /* Our own contact info never counts, even at an entrypoint address. */
+  ci_upsert( crds, rng, stem, 6UL, FD_IP4_ADDR( 10, 0, 0, 2 ), fd_ushort_bswap( 8001 ), 1UL, 5UL, now, 1 );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==1UL );
+  ci_upsert( crds, rng, stem, 4UL, FD_IP4_ADDR( 10, 0, 0, 3 ), fd_ushort_bswap( 8001 ), 1UL, 6UL, now, 0 );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==0UL );
+  ci_upsert( crds, rng, stem, 4UL, FD_IP4_ADDR( 10, 0, 0, 2 ), fd_ushort_bswap( 8001 ), 1UL, 7UL, now, 0 );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==1UL );
+
+  /* An unstaked one counts until it expires. */
+  ci_upsert( crds, rng, stem, 5UL, FD_IP4_ADDR( 10, 0, 0, 1 ), fd_ushort_bswap( 8001 ), 0UL, 1UL, now, 0 );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==2UL );
+  now += 20L*s;
+  fd_crds_advance( crds, now, stem, NULL );
+  FD_TEST( fd_crds_peer_count( crds )==5UL );
+  FD_TEST( fd_crds_entrypoint_fresh_cnt( crds )==1UL );
+
+  free( as_mem );
+  free( wsample_mem );
   free( crds_mem );
   free( purged_mem );
 }
@@ -350,6 +454,7 @@ main( int     argc,
   test_hset_ref( rng, 1024UL );
   test_hset_ref( rng, 16384UL );
   test_push_dups( rng );
+  test_entrypoint_fresh( rng );
   if( bench ) { bench_update( rng ); test_tables( rng, 524288UL, 230000UL, 423000UL, 1 ); }
   else        test_tables( rng, 16384UL, 7000UL, 12000UL, 0 );
 
