@@ -1,3 +1,2 @@
-$ sudo fdctl configure init hyperthreads
-[93mWARNING[0m  pack cpu 5 has hyperthread pair cpu 29 which should be offline. Proceeding but performance may be reduced.
-[93mWARNING[0m  poh cpu 9 has hyperthread pair cpu 33 which should be offline. Proceeding but performance may be reduced.
+$ firedancer configure check hyperthreads
+[93mWARNING[0m pack cpu 1 has hyperthread pair cpu 65 which should be offline or in the isolated cpuset partition (`configure init cpuset`). Proceeding but performance may be reduced.
