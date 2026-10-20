@@ -465,7 +465,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
   ctx->tile_idx = tile->kind_id;
 
-  char const * ticket_label = tile->snapdc.stream ? "str_ticket" : "frame_ticket";
+  char const * ticket_label = tile->snapdc.fast_boot_stream ? "str_ticket" : "frame_ticket";
   fd_topo_obj_t const * ticket_obj = fd_topo_find_obj( topo, "fseq", ticket_label, ULONG_MAX );
   FD_TEST( ticket_obj );
   ctx->next_frame_ticket = fd_fseq_join( fd_topo_obj_laddr( topo, ticket_obj->id ) );

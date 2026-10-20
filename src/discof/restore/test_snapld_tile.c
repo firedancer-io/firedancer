@@ -223,13 +223,13 @@ test_stream( void ) {
 
   fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)input;
   fd_memset( init, 0, sizeof(*init) );
-  init->slot        = 0UL; /* nothing is known about the stream yet */
-  init->is_redirect = 1;
-  init->stream      = 1;
+  init->slot             = 0UL; /* nothing is known about the stream yet */
+  init->is_redirect      = 1;
+  init->fast_boot_stream = 1;
   init_slot   = init->slot;
   publish_cnt = init_cnt = 0UL;
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
-  FD_TEST( ctx->stream.active && ctx->stream.wait==LONG_MAX );
+  FD_TEST( ctx->fast_boot_stream.active && ctx->fast_boot_stream.wait==LONG_MAX );
   ulong meta_chunk = ctx->out_dc.chunk; /* META goes out next */
 
   fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
@@ -256,12 +256,12 @@ test_stream( void ) {
   serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
   drive_until( ctx, &init_cnt, 1UL );
   for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->stream.wait!=LONG_MAX && publish_cnt==1UL );
-  ctx->stream.wait = 0L;
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->fast_boot_stream.wait!=LONG_MAX && publish_cnt==1UL );
+  ctx->fast_boot_stream.wait = 0L;
 
   serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", redirect );
   serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnapshot" );
-  drive_until( ctx, &ctx->stream.off, 8UL );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
   FD_TEST( ctx->sent_meta && publish_cnt==3UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
   FD_TEST( http->location[ 0 ]=='/' && !strcmp( http->location+1, name ) );
   fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( output, meta_chunk );
@@ -270,23 +270,23 @@ test_stream( void ) {
   /* Nothing new yet: caught up, once. */
   serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n" );
   drive_until( ctx, &publish_cnt, 4UL );
-  FD_TEST( ctx->stream.caught_up && publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
-  FD_TEST( ctx->stream.wait!=LONG_MAX );
-  ctx->stream.wait = 0L;
+  FD_TEST( ctx->fast_boot_stream.caught_up && publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
+  FD_TEST( ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
   serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n" );
   for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
-  FD_TEST( publish_cnt==4UL && ctx->stream.wait!=LONG_MAX );
-  ctx->stream.wait = 0L;
+  FD_TEST( publish_cnt==4UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
 
   /* The server drops a poll: asked again from the same offset. */
   serve_one( ctx, server, "Range: bytes=8-\r\n", "" );
   for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==4UL && ctx->stream.wait!=LONG_MAX );
-  ctx->stream.wait = 0L;
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==4UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
 
   /* More bytes. */
   serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 8-11/12\r\nContent-Length: 4\r\n\r\nmore" );
-  drive_until( ctx, &ctx->stream.off, 12UL );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 12UL );
   FD_TEST( publish_cnt==5UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
 
   /* The stream ended. */
@@ -295,7 +295,7 @@ test_stream( void ) {
   FD_TEST( publish_sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE && ctx->state==FD_SNAPSHOT_STATE_FINISHING );
 
   /* Past the give up time a failed poll is not retried. */
-  ctx->stream.give_up = 0L;
+  ctx->fast_boot_stream.give_up = 0L;
   FD_TEST( !handle_connection_failure( ctx, 1L ) );
 
   fd_sshttp_cancel( http );

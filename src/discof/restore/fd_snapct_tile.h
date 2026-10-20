@@ -44,7 +44,6 @@
 #define FD_SNAPCT_STATE_READING_STREAM                  (22) /* Reading a fast boot stream from HTTP */
 #define FD_SNAPCT_STATE_FLUSHING_STREAM_FINI            (23) /* The stream ended, signal downstream to finish all pending operations */
 #define FD_SNAPCT_STATE_FLUSHING_STREAM_DONE            (24) /* The stream ended, and all other tiles have finished processing it */
-#define FD_SNAPCT_STATE_FLUSHING_STREAM_RESET           (25) /* Resetting to read the stream again, confirm decompress and inserter are reset too */
 
 
 
@@ -76,7 +75,6 @@ fd_snapct_state_str( int state ) {
     case FD_SNAPCT_STATE_READING_STREAM:                  return "reading_stream";
     case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:            return "flushing_stream_fini";
     case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:            return "flushing_stream_done";
-    case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET:           return "flushing_stream_reset";
     default:                                              return "unknown";
   }
 }
