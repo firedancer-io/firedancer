@@ -1411,7 +1411,6 @@ deliberate exception with lint-allow="<rule id>")
     <int value="22" name="ReadingStream" label="Downloading fast boot stream" />
     <int value="23" name="FlushingStreamFini" label="Stream ended, draining downstream" />
     <int value="24" name="FlushingStreamDone" label="Stream loaded, draining downstream" />
-    <int value="25" name="FlushingStreamReset" label="Stream load aborted, resetting downstream" />
 </enum>
 
 <tile name="snapct">

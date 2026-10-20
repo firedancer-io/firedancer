@@ -538,6 +538,17 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
                                  ulong        sz,
                                  ulong        dead_tail_sz );
 
+/* fd_accdb_restore_hide_ancestor is for the snapshot loader only.  It
+   makes reads on fork_id, and on the forks created under it
+   afterwards, skip the records of ancestor_id until ancestor_id is
+   rooted: behind a fast boot stream, account lookups must not reach
+   past the stream fork into the snapshots still loading under it. */
+
+void
+fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
+                                fd_accdb_fork_id_t fork_id,
+                                fd_accdb_fork_id_t ancestor_id );
+
 /* fd_accdb_restore_write_batch processes up to 8 accounts at once,
    using software prefetching to overlap hash chain memory latency with
    useful work.  It is thread safe across distinct joins and locks each
@@ -568,17 +579,24 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
    results receives one FD_ACCDB_RESTORE_WRITE_* code per account.
    Not meaningful when -1 is returned.
 
-   fork_id is the fork the versions are written on.  is_incremental
-   selects how the load can be undone:
+   fork_id is the fork the versions are written on.
+   is_incremental_or_fast_boot_stream is set when the load goes on top
+   of an older load that lives on the parent fork, and gets rooted after
+   it.  Two cases: the incremental on top of the full, and the fast boot
+   stream on top of the snapshots behind it.  It selects how the load
+   can be undone:
 
-     0, full-snapshot mode.  Existing entries with the same pubkey are
-        replaced in-place.  No txn entries are created, so the load can
-        only be undone by fd_accdb_reset.
+     0, full-snapshot mode (including the snapshots behind a fast boot
+        stream).  Existing entries with the same pubkey are replaced
+        in-place.  No txn entries are created, so the load can only be
+        undone by fd_accdb_reset.
 
-     1, incremental-snapshot mode.  Cross-snapshot overrides insert a
-        new acc_pool entry alongside the old one and create a txn
-        record on fork_id, so fd_accdb_purge can revert the incremental
-        writes on failure.  Intra-fork duplicates are replaced in-place.
+     1, incremental-snapshot mode (including fast boot streams).
+        Cross-fork overrides insert a new acc_pool entry alongside the
+        old one and create a txn record on fork_id, so fd_accdb_purge
+        can revert the writes on failure and rooting fork_id drops the
+        older copies they shadow.  Intra-fork duplicates are replaced
+        in-place.
 
    A version written while the load runs on a fork the loader's fork
    cannot see is a live write.  The snapshot copy is linked behind it,
@@ -592,7 +610,7 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
 int
 fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               fd_accdb_fork_id_t  fork_id,
-                              int                 is_incremental,
+                              int                 is_incremental_or_fast_boot_stream,
                               int                 skip_duplicates,
                               ulong               cnt,
                               uchar const * const pubkeys[],

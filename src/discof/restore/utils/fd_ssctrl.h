@@ -155,9 +155,9 @@ typedef struct fd_ssctrl_init {
   int           zstd;
   ulong         slot; /* slot advertised by the snapshot peer */
   uchar         snapshot_hash[ FD_HASH_FOOTPRINT ]; /* advertised snapshot hash from snapshot file name */
-  int           is_redirect; /* 1 if using well-known redirect path */
-  ulong         file_sz;     /* file size in bytes (file loads only, 0 for HTTP) */
-  int           stream;      /* 1 for a fast boot stream, which grows while it is read */
+  int           is_redirect;      /* 1 if using well-known redirect path */
+  ulong         file_sz;          /* file size in bytes (file loads only, 0 for HTTP) */
+  int           fast_boot_stream; /* 1 for a fast boot stream, which grows while it is read */
 } fd_ssctrl_init_t;
 
 /* Fetch target sent only from snapct to snapld after all INIT acks.

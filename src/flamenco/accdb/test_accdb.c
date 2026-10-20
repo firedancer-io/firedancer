@@ -1652,7 +1652,7 @@ typedef struct {
 static test_batch_result_t
 test_write_batch_on( fd_accdb_t *                         accdb,
                      fd_accdb_fork_id_t                   fork_id,
-                     int                                  is_incremental,
+                     int                                  is_incremental_or_fast_boot_stream,
                      int                                  skip_duplicates,
                      ulong                                cnt,
                      uchar const * const                  pubkeys[],
@@ -1681,7 +1681,7 @@ test_write_batch_on( fd_accdb_t *                         accdb,
   }
 
   test_batch_result_t result = {0};
-  result.err = fd_accdb_restore_write_batch( accdb, fork_id, is_incremental, skip_duplicates, cnt, pubkeys, slots, lamports, data_lens,
+  result.err = fd_accdb_restore_write_batch( accdb, fork_id, is_incremental_or_fast_boot_stream, skip_duplicates, cnt, pubkeys, slots, lamports, data_lens,
                                               executables, file_offsets, &result.ignored, &result.replaced,
                                               &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
                                               result.results );
@@ -1702,6 +1702,62 @@ test_write_batch( fd_accdb_t *                         accdb,
   int incremental = fork_id.val!=USHORT_MAX;
   if( !incremental ) fork_id = fd_accdb_root_fork_id( accdb );
   return test_write_batch_on( accdb, fork_id, incremental, 0, cnt, pubkeys, slots, lamports, data_lens, executables, store );
+}
+
+/* test_fork_hide_ancestor: a fork reads past a hidden ancestor until
+   that ancestor is rooted, and its own records stay ahead of the
+   hidden ones whichever side writes first. */
+static void
+test_fork_hide_ancestor( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  test_store_ctx_t store = { .fd=fd };
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t snap  = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t seen  = fd_accdb_attach_child( accdb, snap );
+  fd_accdb_fork_id_t blind = fd_accdb_attach_child( accdb, snap );
+  fd_accdb_restore_hide_ancestor( accdb, blind, snap );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, blind ); /* inherits the hiding */
+  fd_accdb_snapshot_load_begin( accdb );
+
+  /* pk1 only on snap; pk2 snap first, then blind; pk3 blind first. */
+  uchar pk1[ 32 ] = {9}; uchar pk2[ 32 ] = {8}; uchar pk3[ 32 ] = {7};
+  uchar const * k1[ 1 ] = { pk1 }; uchar const * k2[ 1 ] = { pk2 }; uchar const * k3[ 1 ] = { pk3 };
+  ulong snap_slot[ 1 ] = { 5UL };    ulong blind_slot[ 1 ] = { 7UL };
+  ulong snap_lamp[ 1 ] = { 100UL };  ulong blind_lamp[ 1 ] = { 200UL };
+  ulong len[ 1 ] = { 0UL }; int exec[ 1 ] = { 0 };
+  test_write_batch_on( accdb, snap,  0, 0, 1UL, k1, snap_slot,  snap_lamp,  len, exec, &store );
+  test_write_batch_on( accdb, snap,  0, 0, 1UL, k2, snap_slot,  snap_lamp,  len, exec, &store );
+  test_write_batch_on( accdb, blind, 1, 1, 1UL, k2, blind_slot, blind_lamp, len, exec, &store );
+  test_write_batch_on( accdb, blind, 1, 1, 1UL, k3, blind_slot, blind_lamp, len, exec, &store );
+  test_write_batch_on( accdb, snap,  0, 0, 1UL, k3, snap_slot,  snap_lamp,  len, exec, &store );
+
+  FD_TEST( fd_accdb_lamports( accdb, seen,  pk1 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, seen,  pk2 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, seen,  pk3 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk1 )==0UL   );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk1 )==0UL   );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk3 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk3 )==200UL );
+
+  /* Rooting snap reveals pk1; blind's own records still win. */
+  fd_accdb_advance_root( accdb, snap );
+  drain_background( accdb );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk1 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk1 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk3 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk3 )==200UL );
+  fd_accdb_advance_root( accdb, blind );
+  drain_background( accdb );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk3 )==200UL );
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL ); /* the shadowed copies are gone */
+  test_teardown( accdb, fd );
 }
 
 typedef struct {
@@ -2713,6 +2769,8 @@ main( int     argc,
   test_reserve_write_dead_tail();
   FD_LOG_NOTICE(( "test_snapshot_write_head ..." ));
   test_snapshot_write_head();
+  FD_LOG_NOTICE(( "test_fork_hide_ancestor ..." ));
+  test_fork_hide_ancestor();
 
   FD_LOG_NOTICE(( "test_overwrite_same_fork ..." ));
   test_overwrite_same_fork();

@@ -680,7 +680,7 @@ struct fd_topo_tile {
 
       int    incremental_snapshots;
       int    fast_boot;
-      int    stream;
+      int    fast_boot_stream;
       uint   max_full_snapshots_to_keep;
       uint   max_incremental_snapshots_to_keep;
       uint   max_retry_abort;
@@ -700,7 +700,7 @@ struct fd_topo_tile {
     } snapld;
 
     struct {
-      int stream;
+      int fast_boot_stream;
     } snapdc;
 
     struct {
@@ -714,6 +714,7 @@ struct fd_topo_tile {
       ulong     shmem_obj_id; /* shared parallel snapin state */
       ulong     max_txn_per_slot;
       int       alpenglow;
+      int       fast_boot;
     } snapin;
 
     struct {
