@@ -642,14 +642,11 @@ during_frag( fd_shred_ctx_t * ctx,
 
     ulong   pending_batch_wmark = FD_SHRED_BATCH_WMARK_CHAINED;
     uchar * chained_merkle_root = ctx->chained_merkle_root;
-    ulong   load_for_32_shreds  = FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
     /* All fec sets in the last batch of a block need to be resigned.
        This needs to match Agave's behavior - as a reference, see:
        https://github.com/anza-xyz/agave/blob/v2.3/ledger/src/shred/merkle.rs#L1040 */
     if( FD_UNLIKELY( entry_meta->block_complete==1 ) ) {
       pending_batch_wmark = FD_SHRED_BATCH_WMARK_RESIGNED;
-      /* chained_merkle_root also applies to resigned FEC sets. */
-      load_for_32_shreds = FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ;
     }
 
     /* If this microblock completes the block, the batch is then
@@ -679,10 +676,7 @@ during_frag( fd_shred_ctx_t * ctx,
 
 alpenglow_marker:
     if( FD_LIKELY( process_current_batch )) {
-      /* Batch and padding size calculation. */
-      ulong batch_sz        = sizeof(ulong) + ctx->pending_batch.pos; /* without padding */
-      ulong batch_sz_padded = load_for_32_shreds * ( ( batch_sz + load_for_32_shreds - 1UL ) / load_for_32_shreds );
-      ulong padding_sz      = batch_sz_padded - batch_sz;
+      ulong batch_sz = sizeof(ulong) + ctx->pending_batch.pos;
 
       if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
         /* If it's our turn, shred this batch. FD_UNLIKELY because shred
@@ -690,15 +684,13 @@ alpenglow_marker:
 
         long shredding_timing = -fd_tickcount();
 
-        fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, padding_sz );
-
         if( FD_UNLIKELY( !writing_marker ) ) ctx->send_fec_set_cnt = 0UL; /* verbose */
 
-        fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz_padded, target_slot, entry_meta );
+        fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
 
-        ulong pend_sz  = batch_sz_padded;
-        ulong pend_idx = ctx->send_fec_set_cnt;
-        while( pend_sz > 0UL ) {
+        ulong fec_set_cnt = fd_shredder_count_fec_sets( batch_sz, entry_meta->block_complete==1 );
+        ulong pend_idx    = ctx->send_fec_set_cnt;
+        for( ulong j=0UL; j<fec_set_cnt; j++ ) {
 
           fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
 
@@ -716,7 +708,6 @@ alpenglow_marker:
           ctx->send_fec_set_cnt += 1UL;
           ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
 
-          pend_sz -= load_for_32_shreds;
           pend_idx++;
         }
 
@@ -724,13 +715,13 @@ alpenglow_marker:
         shredding_timing += fd_tickcount();
 
         /* Update metrics */
-        fd_histf_sample( ctx->metrics->batch_sz,             batch_sz /* without padding */    );
+        fd_histf_sample( ctx->metrics->batch_sz,             batch_sz                          );
         fd_histf_sample( ctx->metrics->batch_microblock_cnt, ctx->pending_batch.microblock_cnt );
         fd_histf_sample( ctx->metrics->shredding_timing,     (ulong)shredding_timing           );
       } else {
         if( FD_UNLIKELY( !writing_marker ) ) ctx->send_fec_set_cnt = 0UL; /* verbose */
 
-        fd_shredder_skip_batch( ctx->shredder, batch_sz_padded, target_slot, entry_meta->block_complete==1 );
+        fd_shredder_skip_batch( ctx->shredder, batch_sz, target_slot, entry_meta->block_complete==1 );
       }
 
       ctx->pending_batch.slot           = 0UL;
