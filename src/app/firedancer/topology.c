@@ -628,7 +628,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile( topo, "snaprd", "snaprd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
     FOR(snapsv_tile_cnt) fd_topob_tile( topo, "snapsv", "snapsv", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   }
-  if( strmk_enabled ) fd_topob_tile( topo, "strmk", "strmk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
+  if( strmk_enabled ) fd_topob_tile( topo, "strmk", "strmk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
   /**/                 fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,                 0,                 1 )->allow_shutdown = 1;
   /**/                 fd_topob_tile( topo, "ipecho",  "ipecho",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,                 0,                 1 );
