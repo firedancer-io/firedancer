@@ -1995,7 +1995,7 @@ telemetry = true
 # does not run failover, such as Agave.
 [failover]
     # Whether to accept incoming handoff requests.  When true, the
-    # validator boots as standby under its junk identity.
+    # validator boots as standby under a junk identity generated in memory.
     # When false, it boots normally under [paths.identity_key].  For a
     # nonvoting requester, use an unstaked junk key as [paths.identity_key]
     # and the active's vote account as [paths.vote_account].  Request an
