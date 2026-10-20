@@ -2330,6 +2330,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   for( ulong i=0UL; i<ctx->enable_features_cnt; i++ ) one_offs[ i ] = ctx->enable_features[ i ];
   fd_features_enable_one_offs( &bank->f.features, one_offs, (uint)ctx->enable_features_cnt, 0UL );
   FD_CHECK_CRIT( FD_FEATURE_ACTIVE_BANK( bank, alpenglow )==!!ctx->alpenglow, "alpenglow feature activation does not match [consensus.alpenglow]" );
+  bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( bank, ctx->accdb );
 
   /* Set slot params based on the feature gates in the snapshot,
      and assert that these are consistent with the values from the
