@@ -126,6 +126,7 @@ struct fd_bundle_tile {
   uint sock_in_epoll : 1;
   uint epoll_out_armed : 1;
   long cached_ts;
+  long conn_deadline;
 
   ulong   waker_client_idx;
   ulong * waker_fseq;
