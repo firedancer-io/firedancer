@@ -161,6 +161,9 @@ fd_crds_hset( fd_crds_t const * crds );
 ulong
 fd_crds_peer_count( fd_crds_t const * crds );
 
+ulong
+fd_crds_entrypoint_fresh_cnt( fd_crds_t const * crds );
+
 fd_gossip_contact_info_t const *
 fd_crds_ci( fd_crds_t const * crds,
             ulong             ci_idx );

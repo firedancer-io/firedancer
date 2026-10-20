@@ -1223,7 +1223,10 @@ tx_pull_request( fd_gossip_t *       gossip,
   fd_memcpy( bits_ptr, bloom_bits, bloom_word_cnt*sizeof(ulong) );
   FD_STORE( ulong, bits_set, (ulong)num_bits_set );
 
+  /* While no entrypoint's contact info is fresh in the table, send
+     every other pull to an entrypoint. */
   ulong idx = fd_gossip_wsample_sample_pull_request( gossip->wsample );
+  if( FD_UNLIKELY( gossip->entrypoints_cnt && !fd_crds_entrypoint_fresh_cnt( gossip->crds ) && fd_rng_uint( gossip->rng )&1U ) ) idx = ULONG_MAX;
   fd_ip4_port_t peer_addr;
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
     if( FD_UNLIKELY( !gossip->entrypoints_cnt ) ) {

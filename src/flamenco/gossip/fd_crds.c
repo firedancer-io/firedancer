@@ -10,6 +10,8 @@
 struct fd_crds_contact_info_entry {
   fd_gossip_contact_info_t contact_info[1];
   long                     received_wallclock_nanos;
+  uchar                    is_me;
+  uchar                    is_entrypoint;
 
   fd_crds_entry_t *        crds_entry; /* Back-pointer to CRDS pool entry */
 
@@ -306,6 +308,7 @@ struct fd_crds_private {
 
   fd_ip4_port_t entrypoints[ 16UL ];
   ulong         entrypoints_cnt;
+  ulong         entrypoint_fresh_cnt;
 
   fd_crds_entry_t * pool;
   fd_crds_contact_info_entry_t * ci_pool;
@@ -455,6 +458,7 @@ fd_crds_new( void *                       shmem,
   FD_TEST( entrypoints_cnt<=16UL );
   for( ulong i=0UL; i<entrypoints_cnt; i++ ) crds->entrypoints[ i ] = entrypoints[ i ];
   crds->entrypoints_cnt = entrypoints_cnt;
+  crds->entrypoint_fresh_cnt = 0UL;
 
   memset( crds->metrics, 0, sizeof(fd_crds_metrics_t) );
 
@@ -515,7 +519,10 @@ crds_unindex( fd_crds_t *       crds,
     else                            crds->metrics->peer_unstaked_cnt--;
     crds->metrics->peer_visible_stake -= entry->stake;
 
-    if( FD_LIKELY( entry->ci->fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
+    if( FD_LIKELY( entry->ci->fresh_dlist.in_list ) ) {
+      crds_contact_info_fresh_list_ele_remove( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
+      crds->entrypoint_fresh_cnt -= entry->ci->is_entrypoint;
+    }
     if( FD_LIKELY( entry->ci->fresh_15s_dlist.in_list ) ) {
       ci_fresh_15s_dlist_ele_remove( crds->ci_fresh_15s_dlist, entry->ci, crds->ci_pool );
       crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)entry->key.pubkey, entry->ci->contact_info, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE );
@@ -540,6 +547,13 @@ crds_index( fd_crds_t *       crds,
     if( FD_LIKELY( entry->stake ) ) crds->metrics->peer_staked_cnt++;
     else                            crds->metrics->peer_unstaked_cnt++;
     crds->metrics->peer_visible_stake += entry->stake;
+
+    fd_gossip_socket_t const * sock = &entry->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ];
+    entry->ci->is_entrypoint = 0;
+    for( ulong i=0UL; !entry->ci->is_me && i<crds->entrypoints_cnt; i++ ) {
+      entry->ci->is_entrypoint |= (uchar)( !sock->is_ipv6 && sock->ip4==crds->entrypoints[ i ].addr && sock->port==crds->entrypoints[ i ].port );
+    }
+    crds->entrypoint_fresh_cnt += entry->ci->is_entrypoint;
 
     ci_evict_treap_ele_insert( crds->ci_evict_treap, entry->ci, crds->ci_pool );
     crds_contact_info_fresh_list_ele_push_tail( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
@@ -677,6 +691,7 @@ unfresh( fd_crds_t * crds,
     head = crds_contact_info_fresh_list_ele_pop_head( crds->ci_fresh_dlist, crds->ci_pool );
     FD_TEST( head->fresh_dlist.in_list );
     head->fresh_dlist.in_list = 0;
+    crds->entrypoint_fresh_cnt -= head->is_entrypoint;
 
     fd_gossip_wsample_fresh( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, head ), 0 );
     if( charge_busy ) *charge_busy = 1;
@@ -921,6 +936,7 @@ fd_crds_insert( fd_crds_t *               crds,
   } else if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     *incumbent->ci->contact_info            = *value->contact_info;
     incumbent->ci->received_wallclock_nanos = now;
+    incumbent->ci->is_me                    = (uchar)!!is_me;
   }
 
   crds_index( crds, incumbent );
@@ -958,6 +974,11 @@ fd_crds_hset( fd_crds_t const * crds ) {
 ulong
 fd_crds_peer_count( fd_crds_t const * crds ){
   return crds_contact_info_pool_used( crds->ci_pool );
+}
+
+ulong
+fd_crds_entrypoint_fresh_cnt( fd_crds_t const * crds ) {
+  return crds->entrypoint_fresh_cnt;
 }
 
 fd_gossip_contact_info_t const *
