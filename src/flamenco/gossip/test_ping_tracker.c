@@ -74,6 +74,7 @@ test_basic( void ) {
   FD_TEST( ping_tracker );
   long now = fd_log_wallclock();
   for( ulong i=0UL; i<100UL; i++) FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now, NULL, NULL, NULL ) );
+  FD_TEST( fd_ping_tracker_next_deadline( ping_tracker )==LONG_MAX );
 
   uchar random_pubkey[ 32UL ] = { 0 };
   for( ulong i=0UL; i<32UL; i++ ) random_pubkey[ i ] = fd_rng_uchar( rng );
@@ -86,6 +87,7 @@ test_basic( void ) {
   /* Low stake nodes do get tracked ... */
   peer_t p = generate_random_peer( rng );
   fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+  FD_TEST( fd_ping_tracker_next_deadline( ping_tracker )==0L );
 
   uchar const *         out_pubkey;
   fd_ip4_port_t const * out_address;
@@ -96,12 +98,14 @@ test_basic( void ) {
   FD_TEST( out_address->port==p.address.port );
 
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(10), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( fd_ping_tracker_next_deadline( ping_tracker )==now+seconds(30) );
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(29), &out_pubkey, &out_address, &out_token ) );
   FD_TEST( fd_ping_tracker_pop_request ( ping_tracker, now+seconds(30), &out_pubkey, &out_address, &out_token ) );
   /* Peer should still be in invalid state, so no invocations to change fn */
   FD_TEST( !change_ctx->invoke_cnt );
 
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(30), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( fd_ping_tracker_next_deadline( ping_tracker )==now+seconds(50) );
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(49), &out_pubkey, &out_address, &out_token ) );
   FD_TEST( fd_ping_tracker_pop_request ( ping_tracker, now+seconds(50), &out_pubkey, &out_address, &out_token ) );
   FD_TEST( !change_ctx->invoke_cnt );

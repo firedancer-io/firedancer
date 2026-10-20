@@ -355,3 +355,13 @@ fd_active_set_advance( fd_active_set_t *   active_set,
     if( charge_busy ) *charge_busy = 1;
   }
 }
+
+long
+fd_active_set_next_deadline( fd_active_set_t const * active_set ) {
+  long deadline = active_set->next_rotate_nanos;
+  if( FD_LIKELY( !push_dlist_is_empty( active_set->push_dlist, active_set->peers ) ) ) {
+    fd_active_set_peer_t const * head = push_dlist_ele_peek_head_const( active_set->push_dlist, active_set->peers );
+    deadline = fd_long_min( deadline, head->timestamp+1L*1000L*1000L+1L );
+  }
+  return deadline;
+}

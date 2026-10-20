@@ -192,7 +192,9 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
 
 static inline long
 next_deadline( fd_gossip_tile_ctx_t const * ctx ) {
-  return fd_gui_gossip_bw_next_deadline( ctx->gui_bw );
+  long deadline = fd_gui_gossip_bw_next_deadline( ctx->gui_bw );
+  if( FD_UNLIKELY( !ctx->my_contact_info->shred_version || ctx->is_halting_signing ) ) return deadline; /* advance not run */
+  return fd_long_min( deadline, fd_clock_tile_wallclock_to_tickcount( ctx->clock, fd_gossip_next_deadline( ctx->gossip ) ) );
 }
 
 static inline void
