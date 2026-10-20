@@ -9639,6 +9639,10 @@ message MetricsExecle {
   uint64 accdb_disk_written = 60;
   // Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded
   uint64 accdb_copied_bytes = 61;
+  // Account lookups that waited for the fast boot stream to deliver the account
+  uint64 accdb_fast_boot_waited = 531869510;
+  // Time spent waiting for the fast boot stream to deliver accounts
+  uint64 accdb_fast_boot_wait_duration_nanos = 274944463;
 }
 
 // Metrics of one shred tile instance, one row per sweep
@@ -10077,6 +10081,10 @@ message MetricsReplay {
   uint64 leader_window_already_produced = 118;
   // Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)
   uint64 leader_window_superseded = 119;
+  // Account lookups that waited for the fast boot stream to deliver the account
+  uint64 accdb_fast_boot_waited = 485185375;
+  // Time spent waiting for the fast boot stream to deliver accounts
+  uint64 accdb_fast_boot_wait_duration_nanos = 452751186;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
@@ -11507,6 +11515,10 @@ message MetricsExecrp {
   uint64 accdb_disk_written = 62;
   // Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded
   uint64 accdb_copied_bytes = 63;
+  // Account lookups that waited for the fast boot stream to deliver the account
+  uint64 accdb_fast_boot_waited = 323331159;
+  // Time spent waiting for the fast boot stream to deliver accounts
+  uint64 accdb_fast_boot_wait_duration_nanos = 437216431;
 }
 
 // Metrics of one votor tile instance, one row per sweep
