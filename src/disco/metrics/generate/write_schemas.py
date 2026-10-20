@@ -10,7 +10,11 @@ name, so a fork's additions never collide with the next position upstream
 assigns.  A new schema gets a provisional id.  Before landing,
 `make -C src/disco/metrics metrics-assign` drops the provisional numbers
 (the fields keep their place at the end) and assigns the next free id;
-gen_events.py --no-provisional enforces it."""
+gen_events.py --no-provisional enforces it.
+
+A field backported to a release branch keeps the number main gave it: copy
+main's number into the release schema file as a pinned field_number (below
+EVENT_ID_PROVISIONAL).  It is kept as committed, never reassigned."""
 
 from .types import *
 import copy
@@ -174,8 +178,10 @@ def _order(where: str, fields: dict, committed: Optional[list], assign: bool) ->
     else:
         by_from = { old: k for k, v in fields.items() for old in v.get('_from', []) }
         out, csubs = {}, {}
+        pinned = {}
         for cname, cnum, cfields, cvariants, cdep, ctype, chist, caliases in committed:
-            if cnum is not None: continue   # a provisional entry is an addition
+            if cnum is not None and cnum>=EVENT_ID_PROVISIONAL: continue   # a provisional entry is an addition
+            if cnum is not None: pinned[cname] = cnum
             k = cname if cname in fields else by_from.get(cname)
             if k is None:
                 raise SystemExit(f'{where}.{cname}: committed field is gone; removing it would shift every later field number.  Mark it deprecated="true" in metrics.xml (or rename with renamed_from)')
@@ -194,10 +200,12 @@ def _order(where: str, fields: dict, committed: Optional[list], assign: bool) ->
                 if a not in fields[k].get('aliases', {}):
                     raise SystemExit(f'{where}.{k}: committed alias column {k}_{a} is gone; keep the <group> (an alias column cannot be removed or renamed), or restore the schema from main if it never landed')
             out[k] = fields[k]
+            if cname in pinned: out[k]['field_number'] = pinned[cname]
             csubs[k] = ( cfields, cvariants )
         for k, v in fields.items():
             if k in out or v.get('deprecated'): continue   # a tombstone that never landed is dropped
-            if not assign: v['field_number'] = provisional(f'{where}.{k}')
+            if not assign:  v['field_number'] = provisional(f'{where}.{k}')
+            elif pinned:    raise SystemExit(f'{where}.{k}: cannot be numbered by position after pinned fields; copy the field_number main gave it into the schema file, then rerun metrics-assign')
             out[k] = v
     for k, v in out.items():
         v.pop('_from', None)

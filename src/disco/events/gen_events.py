@@ -105,7 +105,8 @@ class Field:
     dynamic: bool = False  # Array only: stored at the end of the C struct and
                            # shipped to the event tile at its used length
                            # rather than max_len capacity
-    field_number: Optional[int] = None  # provisional number of an addition;
+    field_number: Optional[int] = None  # pinned number of a backported field,
+                                        # or provisional number of an addition;
                                         # fields are otherwise positional
     deprecated: bool = False  # kept in place so later positions never shift;
                               # never encoded, absent from the C struct
@@ -191,27 +192,36 @@ def live(fields: Dict[str, Field]) -> Dict[str, Field]:
 
 def has_provisional(fields: Dict[str, Field]) -> bool:
     for f in fields.values():
-        if f.field_number is not None: return True
+        if f.field_number is not None and f.field_number>=EVENT_ID_PROVISIONAL: return True
         inner = f.element if f.chtype == ClickHouseType.Array else f
         if inner.fields and has_provisional(inner.fields): return True
     return False
 
+def field_numbers(fields: Dict[str, Field]) -> List[int]:
+    """Proto field number of each field in order: positional, unless an
+    explicit field_number gives it."""
+    return [i if f.field_number is None else f.field_number for i, f in enumerate(fields.values(), 1)]
+
 def check_field_numbers(where: str, fields: Dict[str, Field]) -> None:
-    """Fields are numbered by position.  An explicit field_number is only a
-    provisional number (an addition not yet landed), trailing every
-    positional field so it shifts no position."""
+    """Fields are numbered by position.  An explicit field_number is either
+    pinned, below EVENT_ID_PROVISIONAL, for a field backported to a release
+    branch at a position its main number does not match, or provisional, an
+    addition not yet landed.  Either trails every positional field so it
+    shifts no position."""
     seen: Dict[int, str] = {}
-    for name, f in fields.items():
-        n = f.field_number
-        if n is None:
-            if seen:
-                raise SystemExit(f"ERROR: {where}.{name}: positional field after a provisional one")
+    explicit = False
+    for name, n in zip(fields, field_numbers(fields)):
+        f = fields[name]
+        if f.field_number is None:
+            if explicit:
+                raise SystemExit(f"ERROR: {where}.{name}: positional field after an explicit field_number")
         else:
-            if not (EVENT_ID_PROVISIONAL <= n <= PB_FIELD_NUMBER_MAX) or n in PB_RESERVED:
-                raise SystemExit(f"ERROR: {where}.{name}: explicit field_number {n} must be a provisional number (>= {EVENT_ID_PROVISIONAL})")
-            if n in seen:
-                raise SystemExit(f"ERROR: {where}: field_number {n} used by both {seen[n]} and {name}")
-            seen[n] = name
+            explicit = True
+            if not (1 <= n <= PB_FIELD_NUMBER_MAX) or n in PB_RESERVED:
+                raise SystemExit(f"ERROR: {where}.{name}: field_number {n} is not a valid protobuf field number")
+        if n in seen:
+            raise SystemExit(f"ERROR: {where}: field_number {n} used by both {seen[n]} and {name}")
+        seen[n] = name
         inner = f.element if f.chtype == ClickHouseType.Array else f
         if inner.fields:
             check_field_numbers(f"{where}.{name}", inner.fields)
@@ -231,7 +241,7 @@ def collect_nested_messages(fields: Dict[str, Field], prefix: str = "") -> List[
 def generate_message_fields(fields: Dict[str, Field], prefix: str = "") -> List[str]:
     lines = []
 
-    for i, (name, f) in enumerate(fields.items(), 1):
+    for n, (name, f) in zip(field_numbers(fields), fields.items()):
         inner = f.element if f.chtype == ClickHouseType.Array else f
         if inner.chtype == ClickHouseType.Tuple or inner.variants:
             proto_type = inner.shared_name or f"{prefix}{to_pascal_case(name)}"
@@ -239,7 +249,7 @@ def generate_message_fields(fields: Dict[str, Field], prefix: str = "") -> List[
             proto_type = inner.chtype.to_protobuf_type()
         label = "repeated " if f.chtype == ClickHouseType.Array else ""
         opt   = " [deprecated = true]" if f.deprecated else ""
-        lines += [f"  // {f.description}", f"  {label}{proto_type} {name} = {f.field_number or i}{opt};"]
+        lines += [f"  // {f.description}", f"  {label}{proto_type} {name} = {n}{opt};"]
 
     return lines
 
@@ -701,7 +711,7 @@ def encode_tuple( f: Field, field_id: int, acc: str, ind: str ) -> List[str]:
     """Emit a submessage encoding a Tuple value at field_id.  acc is the C
     accessor for the tuple struct (e.g. 'msg->x' or 'msg->arr[ k ]')."""
     out = [f"{ind}ok &= !!fd_pb_submsg_open( encoder, {field_id}U );"]
-    for j, (sn, sf) in enumerate(f.fields.items(), 1):
+    for j, (sn, sf) in zip(field_numbers(f.fields), f.fields.items()):
         if sf.deprecated: continue
         out += encode_scalar( sf, j, f"{acc}.{sn}", ind, omit_default=True )
     out += [f"{ind}ok &= !!fd_pb_submsg_close( encoder );"]
@@ -804,7 +814,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
         # default).  Fixed-byte fields are always emitted (a 32-byte hash is
         # meaningful content, not the empty `bytes` default).  Dynamic arrays
         # are accessed via the packed-tail locals declared above.
-        for i, (name, f) in enumerate(s.fields.items(), 1):
+        for i, (name, f) in zip(field_numbers(s.fields), s.fields.items()):
             if f.deprecated: continue   # keeps its number, never encoded
             acc = name if f.dynamic else f"msg->{name}"
             lines += encode_field( f, i, name, acc, "  " )
