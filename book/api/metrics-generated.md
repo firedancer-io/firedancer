@@ -868,6 +868,7 @@
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;used</span><br/>{crds_&#8203;value_&#8203;type="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | gauge | Entries in the data store (Restart Heaviest Fork) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;expired</span> | counter | Entries expired from the data store due to age |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;evicted</span> | counter | Entries evicted from the data store to make space for new entries |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;relay_&#8203;coalesced</span> | counter | Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;capacity</span> | gauge | Capacity for storing peers in the data store |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;count</span><br/>{crds_&#8203;peer_&#8203;stake_&#8203;class="<span class="metrics-enum">staked</span>"} | gauge | Peers in the data store, by stake class (Peer has stake) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;peer_&#8203;count</span><br/>{crds_&#8203;peer_&#8203;stake_&#8203;class="<span class="metrics-enum">unstaked</span>"} | gauge | Peers in the data store, by stake class (Peer has no stake) |

@@ -1334,6 +1334,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="CrdsUsed" enum="CrdsValueType" summary="Entries in the data store" />
     <counter name="CrdsExpired" summary="Entries expired from the data store due to age" />
     <counter name="CrdsEvicted" summary="Entries evicted from the data store to make space for new entries" />
+    <counter name="CrdsRelayCoalesced" summary="Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval" />
 
     <gauge name="CrdsPeerCapacity" summary="Capacity for storing peers in the data store" />
     <gauge name="CrdsPeerCount" enum="CrdsPeerStakeClass" summary="Peers in the data store, by stake class" />

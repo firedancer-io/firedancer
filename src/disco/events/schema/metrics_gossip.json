@@ -318,6 +318,7 @@
                 "stale":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Contact info not received for 60 s" },
                 "identity": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Became our identity" }
             }
-        }
+        },
+        "crds_relay_coalesced":                          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval" }
     }
 }

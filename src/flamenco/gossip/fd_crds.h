@@ -23,6 +23,7 @@ struct fd_crds_metrics {
   ulong count[ FD_METRICS_ENUM_CRDS_VALUE_TYPE_CNT ];
   ulong expired_cnt;
   ulong evicted_cnt;
+  ulong relay_coalesced_cnt;
 
   ulong peer_staked_cnt;
   ulong peer_unstaked_cnt;
@@ -116,7 +117,14 @@ fd_crds_len( fd_crds_t const * crds );
    (not inserted), or >0 if the candidate was a duplicate.  For a push
    duplicate the return is 1 plus the number of earlier pushes of the
    value, counting the push that inserted it; a pull duplicate returns
-   1 and does not count. */
+   1 and does not count.
+
+   If opt_relay is non-NULL, *opt_relay is set to 1 if the upserted
+   value should be pushed to peers now, else 0.  Versions of one key
+   arriving within 100 ms of its last relay are held, and
+   fd_crds_advance pushes the latest of them once that passes, so peers
+   see at most one version of a key per 100 ms.  Values outside the
+   +/-15 s wallclock window are never relayed. */
 
 long
 fd_crds_insert( fd_crds_t *               crds,
@@ -128,7 +136,8 @@ fd_crds_insert( fd_crds_t *               crds,
                 int                       is_me,
                 int                       is_push,
                 long                      now,
-                fd_stem_context_t *       stem );
+                fd_stem_context_t *       stem,
+                int *                     opt_relay );
 
 void
 fd_crds_entry_value( fd_crds_entry_t const * entry,

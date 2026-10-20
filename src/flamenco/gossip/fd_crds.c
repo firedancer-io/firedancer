@@ -153,9 +153,24 @@ struct fd_crds_entry_private {
     uint  prev;
     uint  next;
   } expire;
+
+  /* Relays of one key are coalesced to one per FD_CRDS_RELAY_COALESCE_NANOS:
+     a version arriving sooner waits in relay_treap, ordered by due time,
+     and only the latest one is pushed.  nanos is the last relay time, or
+     the due time while pending. */
+  struct {
+    long nanos;
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    int  pending;
+  } relay;
 };
 
-FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1352UL, crds_entry_footprint );
+FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1384UL, crds_entry_footprint );
+
+#define FD_CRDS_RELAY_COALESCE_NANOS (100L*1000L*1000L)
 
 #define POOL_NAME   crds_pool
 #define POOL_T      fd_crds_entry_t
@@ -203,6 +218,19 @@ FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1352UL, crds_entry_footprint );
 #define DLIST_NEXT      expire.next
 
 #include "../../util/tmpl/fd_dlist.c"
+
+#define TREAP_NAME      relay_treap
+#define TREAP_T         fd_crds_entry_t
+#define TREAP_QUERY_T   void *
+#define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; }))
+#define TREAP_IDX_T     uint
+#define TREAP_LT(e0,e1) ((e0)->relay.nanos<(e1)->relay.nanos)
+#define TREAP_PARENT    relay.parent
+#define TREAP_LEFT      relay.left
+#define TREAP_RIGHT     relay.right
+#define TREAP_PRIO      relay.prio
+
+#include "../../util/tmpl/fd_treap.c"
 
 /* fresh_15s_dlist tracks all contact info crds entries from the last
    15 seconds. */
@@ -316,6 +344,7 @@ struct fd_crds_private {
   evict_treap_t *           evict_treap;
   staked_expire_dlist_t *   staked_expire_dlist;
   unstaked_expire_dlist_t * unstaked_expire_dlist;
+  relay_treap_t *           relay_treap;
   ci_fresh_15s_dlist_t *    ci_fresh_15s_dlist;
   lookup_map_t *            lookup_map;
   fd_gossip_hset_t *        hset;
@@ -347,6 +376,7 @@ fd_crds_footprint( ulong ele_max ) {
   l = FD_LAYOUT_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )                               );
   l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()                                );
   l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()                              );
+  l = FD_LAYOUT_APPEND( l, relay_treap_align(),                   relay_treap_footprint( ele_max )                               );
   l = FD_LAYOUT_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()                                 );
   l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
   l = FD_LAYOUT_APPEND( l, fd_gossip_hset_align(),                fd_gossip_hset_footprint( ele_max )                            );
@@ -404,6 +434,7 @@ fd_crds_new( void *                       shmem,
   void * _evict_treap           = FD_SCRATCH_ALLOC_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )                               );
   void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()                                );
   void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()                              );
+  void * _relay_treap           = FD_SCRATCH_ALLOC_APPEND( l, relay_treap_align(),                   relay_treap_footprint( ele_max )                               );
   void * _ci_fresh_15s_dlist    = FD_SCRATCH_ALLOC_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()                                 );
   void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
   void * _hset                  = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_hset_align(),                fd_gossip_hset_footprint( ele_max )                            );
@@ -428,6 +459,10 @@ fd_crds_new( void *                       shmem,
 
   crds->unstaked_expire_dlist = unstaked_expire_dlist_join( unstaked_expire_dlist_new( _unstaked_expire_dlist ) );
   FD_TEST( crds->unstaked_expire_dlist );
+
+  crds->relay_treap = relay_treap_join( relay_treap_new( _relay_treap, ele_max ) );
+  FD_TEST( crds->relay_treap );
+  relay_treap_seed( crds->pool, ele_max, fd_rng_ulong( rng ) );
 
   crds->ci_fresh_15s_dlist = ci_fresh_15s_dlist_join( ci_fresh_15s_dlist_new( _ci_fresh_15s_dlist ) );
   FD_TEST( crds->ci_fresh_15s_dlist );
@@ -590,6 +625,7 @@ crds_release( fd_crds_t *         crds,
               int                 evicting,
               fd_stem_context_t * stem ) {
   crds_unindex( crds, entry );
+  if( FD_UNLIKELY( entry->relay.pending ) ) relay_treap_ele_remove( crds->relay_treap, entry, crds->pool );
   fd_gossip_purged_insert_replaced( crds->purged, entry->value_hash, now );
 
   if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
@@ -711,6 +747,30 @@ unfresh( fd_crds_t * crds,
   }
 }
 
+/* uncoalesce pushes the latest version of each key whose relay was
+   held back and is now due. */
+
+static inline void
+uncoalesce( fd_crds_t *         crds,
+            long                now,
+            fd_stem_context_t * stem,
+            int *               charge_busy ) {
+  ulong now_ms = (ulong)FD_NANOSEC_TO_MILLI( now );
+  while( relay_treap_ele_cnt( crds->relay_treap ) ) {
+    fd_crds_entry_t * head = relay_treap_fwd_iter_ele( relay_treap_fwd_iter_init( crds->relay_treap, crds->pool ), crds->pool );
+    if( FD_LIKELY( head->relay.nanos>now ) ) break;
+    relay_treap_ele_remove( crds->relay_treap, head, crds->pool );
+    head->relay.pending = 0;
+    if( FD_UNLIKELY( head->wallclock+15000UL<now_ms || head->wallclock>now_ms+15000UL ) ) {
+      head->relay.nanos -= FD_CRDS_RELAY_COALESCE_NANOS; /* back to the last relay, none went out */
+      continue;
+    }
+    head->relay.nanos = now;
+    fd_active_set_push( crds->active_set, head->value_bytes, head->value_sz, head->key.pubkey, head->stake, stem, now, 0 );
+    if( charge_busy ) *charge_busy = 1;
+  }
+}
+
 void
 fd_crds_advance( fd_crds_t *         crds,
                  long                now,
@@ -718,6 +778,7 @@ fd_crds_advance( fd_crds_t *         crds,
                  int *               charge_busy ) {
   expire( crds, now, stem, charge_busy );
   unfresh( crds, now, charge_busy );
+  uncoalesce( crds, now, stem, charge_busy );
 }
 
 static inline void
@@ -863,7 +924,9 @@ fd_crds_insert( fd_crds_t *               crds,
                 int                       is_me,
                 int                       is_push,
                 long                      now,
-                fd_stem_context_t *       stem ) {
+                fd_stem_context_t *       stem,
+                int *                     opt_relay ) {
+  if( opt_relay ) *opt_relay = 0;
   fd_crds_key_t candidate_key = {
     .tag = (uchar)value->tag,
   };
@@ -884,7 +947,9 @@ fd_crds_insert( fd_crds_t *               crds,
     fd_sha256_hash( value_bytes, value_bytes_len, value_hash );
 
     incumbent = crds_acquire( crds, value->tag==FD_GOSSIP_VALUE_CONTACT_INFO, now, stem );
-    incumbent->key = candidate_key;
+    incumbent->key           = candidate_key;
+    incumbent->relay.nanos   = now-FD_CRDS_RELAY_COALESCE_NANOS;
+    incumbent->relay.pending = 0;
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       fd_gossip_wsample_add( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake, origin_ping_tracked, is_me );
     }
@@ -945,6 +1010,20 @@ fd_crds_insert( fd_crds_t *               crds,
 
   publish_update_msg( crds, incumbent, value, ci_changed, now, stem );
 
+  if( FD_UNLIKELY( incumbent->relay.pending ) ) {
+    crds->metrics->relay_coalesced_cnt++;
+    return 0L;
+  }
+  ulong now_ms = (ulong)FD_NANOSEC_TO_MILLI( now );
+  if( FD_UNLIKELY( !opt_relay || value->wallclock+15000UL<now_ms || value->wallclock>now_ms+15000UL ) ) return 0L;
+  if( FD_LIKELY( now-incumbent->relay.nanos>=FD_CRDS_RELAY_COALESCE_NANOS ) ) {
+    incumbent->relay.nanos = now;
+    *opt_relay = 1;
+  } else {
+    incumbent->relay.pending = 1;
+    incumbent->relay.nanos  += FD_CRDS_RELAY_COALESCE_NANOS;
+    relay_treap_ele_insert( crds->relay_treap, incumbent, crds->pool );
+  }
   return 0L;
 }
 

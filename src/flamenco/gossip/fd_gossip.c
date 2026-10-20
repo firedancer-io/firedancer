@@ -276,7 +276,7 @@ fd_gossip_sign_response( fd_gossip_t *       gossip,
     fd_gossip_value_t * value = gossip->sign_pend[ idx ].value;
     fd_memcpy( value->signature, signature, 64UL );
     int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
-    if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem ) ) ) break;
+    if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem, NULL ) ) ) break;
     fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     break;
   }
@@ -291,7 +291,7 @@ fd_gossip_sign_response( fd_gossip_t *       gossip,
     fd_memcpy( gossip->my_contact_info.pull_val, data, sz );
     gossip->my_contact_info.pull_val_sz = sz;
     int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
-    fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem );
+    fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem, NULL );
     fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     break;
   }
@@ -840,7 +840,8 @@ rx_values( fd_gossip_t *             gossip,
       }
     }
 
-    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, is_push, now, stem );
+    int relay;
+    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, is_push, now, stem, &relay );
     if( FD_UNLIKELY( results[ i ] ) ) continue;
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
@@ -857,8 +858,7 @@ rx_values( fd_gossip_t *             gossip,
       if( FD_LIKELY( fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr ) ) ) fd_gossip_purged_drain_no_contact_info( gossip->purged, value->origin );
     }
 
-    ulong now_ms = (ulong)FD_NANOSEC_TO_MILLI( now );
-    if( FD_UNLIKELY( value->wallclock+15000UL<now_ms || value->wallclock>now_ms+15000UL ) ) continue;
+    if( FD_UNLIKELY( !relay ) ) continue;
     fd_active_set_push( gossip->active_set, payload+value->offset, value->length, value->origin, origin_stake, stem, now, 0 );
   }
 }
