@@ -333,6 +333,18 @@ poll_timeout( fd_rotor_tile_t * ctx,
         push_timeout( ctx, blk, &req );
         continue;
       }
+      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX && !blk->eager && !meta->invalidated ) ) { /* turbine may still fill the set, wait as the eager blk would */
+        fd_rotor_blk_t const * eager    = fd_rotor_blk_pool_ele_const( ctx->rotor->blk_pool, meta->eager );
+        eager                           = fd_ptr_if( eager!=blk, eager, (fd_rotor_blk_t const *)NULL );
+        fd_rotor_fec_t const * tfec     = fec ? fec : fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, eager ? eager->fecs[ req.fec_idx ] : fd_rotor_fec_pool_idx_null( ctx->rotor->fec_pool ) );
+        long                   deadline = tfec && tfec->first_ts && !tfec->complete                             ? tfec->first_ts+t_eager     :
+                                          eager && ( eager->rcvd_fec_cnt<=req.fec_idx || ( tfec && tfec->complete ) ) ? eager->rcvd_fec_ts+t_eager : 0L; /* a set turbine skipped past goes now, one it completed waits for dedup */
+        if( FD_UNLIKELY( deadline>now ) ) {
+          req.timeout = deadline;
+          push_timeout( ctx, blk, &req );
+          continue;
+        }
+      }
       *out = req;
       return blk;
     }
