@@ -433,6 +433,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snapld_dc"   );
     fd_topob_wksp( topo, "snapdc_in"   );
     fd_topob_wksp( topo, "snapin_ct"   );
+    if( fast_boot ) fd_topob_wksp( topo, "snapct_ct" );
     fd_topob_wksp( topo, "snapin_shmem" );
 
     if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapct_gui"  );
@@ -497,6 +498,7 @@ fd_topo_initialize( config_t * config ) {
       FOR(snapin_tile_cnt) fd_topob_link( topo, "snapin_gui",    "snapin_gui",    128UL,                                    FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, 1UL );
     }
     FOR(snapin_tile_cnt) fd_topob_link( topo, "snapin_ct",     "snapin_ct",     128UL,                                    0UL,                           1UL );
+    if( fast_boot )      fd_topob_link( topo, "snapct_ct",     "snapct_ct",     128UL,                                    sizeof(fd_ssctrl_meta_t),      1UL );
   }
   FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     1024UL,                                   sizeof(fd_backup_frag_t),      1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "replay_snapmk", "replay_snapmk", 16UL,                                     sizeof(fd_replay_snap_start_t),1UL );
@@ -735,6 +737,9 @@ fd_topo_initialize( config_t * config ) {
       for( ulong i=1UL; i<snapin_tile_cnt; i++ ) {
         fd_topob_tile_in( topo, "snapct", 1UL, "metric_in", "snapin_ct", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
       }
+
+      fd_topob_tile_out( topo, "snapct", 0UL, "snapct_ct", 0UL );
+      fd_topob_tile_in ( topo, "snapct", 1UL, "metric_in", "snapct_ct", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
       fd_topob_tile_in( topo, "snapdc", 0UL, "metric_in", "snapld_dc", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
       for( ulong i=1UL; i<snapdc_tile_cnt; i++ ) {
