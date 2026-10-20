@@ -108,7 +108,7 @@ struct fd_failover_request {
   uint               addr;           /* the address we dial, a resume may replace it */
   long               until;          /* when the request pauses, zero while paused */
   int                sent;           /* sent on this session */
-  int                peer_restarted; /* paused because the boot we authenticated restarted */
+  int                peer_restarted; /* paused because the authenticated member or boot changed */
   ulong              last_id;        /* id of our latest request, kept for status */
   ulong              result;         /* FD_FAILOVER_HANDOFF_* of our latest request */
   ulong              send_cnt;       /* how many times we sent it */
@@ -353,10 +353,8 @@ privileged_init( fd_topo_t const *      topo,
   ctx->tower_seen_seq        = ULONG_MAX;
   FD_TEST( fd_rng_secure( &ctx->handoff_base, sizeof(ulong) ) );
 
-  /* The junk identity is this machine's own key, it goes into HELLO and
-     TLS.  We keep only the public keys of it and of the staked
-     [paths.identity_key].  Like every tile's identity load, the loader
-     reads the whole file and zeroes the private half before it returns. */
+  /* The boot identity goes into HELLO and TLS.  With failover enabled
+     it is generated for this boot.  Only Sign holds its private key. */
   uchar const * junk_pubkey = fd_keyload_load( tile->failov.identity_key_path, 1 );
   fd_memcpy( ctx->hello.junk_pubkey, junk_pubkey, 32UL );
   fd_keyload_unload( junk_pubkey, 1 );
@@ -369,7 +367,7 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   if( FD_UNLIKELY( fd_memeq( ctx->hello.junk_pubkey, ctx->hello.staked_pubkey, 32UL ) ) ) {
-    FD_LOG_ERR(( "the failover junk identity `%s` is the staked [paths.identity_key], each failover machine boots under its own key", tile->failov.identity_key_path ));
+    FD_LOG_ERR(( "the boot identity must differ from the staked [paths.identity_key]" ));
   }
 
   /* The vote key is a base58 pubkey or a keypair file, same as in the
@@ -406,7 +404,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->channel );
   fd_tls_sign_t signer = { .ctx=ctx, .sign_fn=sign_ed25519 };
   if( FD_UNLIKELY( !ctx->target_pending && fd_failover_channel_set_identity( ctx->channel, ctx->hello.junk_pubkey, signer, (fd_failover_proof_signer_t){ .ctx=ctx, .sign_fn=sign_proof }, &ctx->hello ) ) ) {
-    FD_LOG_ERR(( "failover TLS setup failed for the junk identity `%s`", tile->failov.identity_key_path ));
+    FD_LOG_ERR(( "failover TLS setup failed for the boot identity" ));
   }
 
   if( !ctx->client_only ) fd_failover_channel_init_listener( ctx->channel, tile->failov.listen_addr, tile->failov.port );
@@ -1651,7 +1649,10 @@ request_wait( fd_failover_tile_ctx_t const * ctx ) {
 /* What the operator can do about a paused request. */
 static char const *
 request_next( fd_failover_tile_ctx_t const * ctx ) {
-  if( FD_UNLIKELY( ctx->request.peer_restarted ) ) return "the active boot we authenticated restarted, `failover promote` here starts a new handoff";
+  if( FD_UNLIKELY( ctx->request.peer_restarted ) ) {
+    if( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) return "the authenticated peer changed, `failover promote` here ends the confirmation wait without changing our identity";
+    return "the authenticated member or boot changed, `failover promote` here starts a new handoff";
+  }
   switch( ctx->action ) {
   case FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER:
     if( !ctx->request.send_cnt ) return "nothing was sent and the active is unchanged, `failover promote` here resumes the request, "
@@ -2001,10 +2002,11 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
       request_end( ctx, now, active ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
       return;
     }
-    /* A changed peer pauses the request without replacing its binding.
-       The same member on a new boot will not demote for it. */
-    ctx->request.peer_restarted = ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && fd_memeq( peer->junk_pubkey, ctx->request.peer.junk, 32UL );
-    request_pause( ctx, now, ctx->request.peer_restarted ? "the authenticated boot restarted" : "authenticated member or boot changed" );
+    /* A fresh boot has a new junk key.  Keep the old binding until the
+       operator ends this request, without accepting another peer's final
+       state or acknowledgement for it. */
+    ctx->request.peer_restarted = 1;
+    request_pause( ctx, now, "authenticated member or boot changed" );
     return;
   }
   fd_failover_handoff_request_t request = { .handoff_id=ctx->request.id, .target_boot_id=ctx->request.peer.boot_id, .replay_slot=ctx->replay_slot };
@@ -2085,8 +2087,16 @@ apply_control( fd_failover_tile_ctx_t *           ctx,
   case FD_ADMINCTL_FAILOVER_CMD_HANDOFF: {
     int paused = request_paused( ctx ) && ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT;
     if( FD_UNLIKELY( paused && ctx->request.peer_restarted ) ) {
-      /* The active restarted before it demoted, so start a new request. */
-      FD_LOG_NOTICE(( "handoff %lu was bound to active boot %016lx, which restarted, ending it and starting a new handoff", ctx->request.id, ctx->request.peer.boot_id ));
+      if( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) {
+        /* Local adoption is already settled.  This command ends only
+           our wait, without confirming anything on the old peer. */
+        int active = ctx->role==FD_FAILOVER_ROLE_ACTIVE;
+        FD_LOG_WARNING(( "handoff %lu: the authenticated peer changed before it confirmed our answer, ending the confirmation wait, %s, the old peer's acknowledgement remains unknown",
+                         ctx->request.id, active ? "we hold the staked identity" : "we remain standby" ));
+        request_end( ctx, now, active ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED );
+        return FD_ADMINCTL_RESULT_SUCCESS;
+      }
+      FD_LOG_NOTICE(( "handoff %lu was bound to active boot %016lx, the authenticated peer changed, ending it and starting a new handoff", ctx->request.id, ctx->request.peer.boot_id ));
       request_end( ctx, now, FD_FAILOVER_HANDOFF_RESTARTED );
       paused = 0;
     }

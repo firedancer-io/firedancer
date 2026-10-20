@@ -6,6 +6,7 @@
 #include "../sleep/fd_sleep.h"
 #include "../metrics/fd_metrics.h"
 #include "../events/fd_event_report.h"
+#include "../keyguard/fd_keyload.h"
 #include "../../util/tile/fd_tile_private.h"
 
 #include <unistd.h>
@@ -77,6 +78,8 @@ fd_topo_run_tile( fd_topo_t *          topo,
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile, core_dump_level );
   fd_topo_mlock_code();
+
+  fd_keyload_set_boot_identity( topo->boot_identity, strcmp( tile->name, "sign" ) ? -1 : tile->sign.identity_key_fd );
 
   if( FD_UNLIKELY( tile_run->privileged_init ) )
     tile_run->privileged_init( topo, tile );

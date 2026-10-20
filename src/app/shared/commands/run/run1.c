@@ -2,6 +2,7 @@
 #include "run.h"
 
 #include "../../../../util/tile/fd_tile_private.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 
 #include <sched.h>
 #include <stdlib.h> /* strtoul */
@@ -93,6 +94,9 @@ run1_cmd_fn( args_t *   args,
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_t clone_pid = clone( tile_main, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &clone_args );
   if( FD_UNLIKELY( clone_pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( !strcmp( tile->name, "sign" ) && !strcmp( tile->sign.identity_key_path, FD_KEYLOAD_FAILOVER_JUNK ) ) {
+    if( FD_UNLIKELY( close( tile->sign.identity_key_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_LIKELY( args->run1.pipe_fd!=-1 ) ) {
     ulong pid = (ulong)clone_pid;
