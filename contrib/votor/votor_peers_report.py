@@ -202,7 +202,28 @@ def host_snap():
     try: st[ 'operstate' ] = open( f'/sys/class/net/{d}/operstate' ).read().strip()
     except OSError: pass
     ifstat[ d ] = st
-  return dict( t=time.time(), snmp=snmp(), xdp_if=xdp_if, xsk=xsk, queues=queues, masters=masters, socks=udp_sockets(), bonds=bonds, ifstat=ifstat )
+  nicstat = {}  # hardware/driver counters, include kernel-bypass (mlx5/XDP) traffic
+  for d in os.listdir( '/sys/class/net' ):
+    if not os.path.exists( f'/sys/class/net/{d}/device' ): continue
+    st = {}
+    for ln in sh( f'ethtool -S {d} 2>/dev/null' ).splitlines():
+      m_ = re.match( r'\s*([\w.\-]+):\s*(\d+)\s*$', ln )
+      if m_ and re.search( r'_phy$|steer|discard|out_of_buffer|^rx_packets$|^tx_packets$|^rx_vport_unicast_packets$|^tx_vport_unicast_packets$', m_.group( 1 ) ):
+        st[ m_.group( 1 ) ] = int( m_.group( 2 ) )
+    nicstat[ d ] = st
+  ib = {}
+  for dev in sorted( glob.glob( '/sys/class/infiniband/*' ) ):
+    for pt in sorted( glob.glob( f'{dev}/ports/*' ) ):
+      nd = sorted( set( os.path.basename( os.readlink( x ) ) if os.path.islink( x ) else open( x ).read().strip() for x in glob.glob( f'{pt}/gid_attrs/ndevs/*' ) if os.path.exists( x ) ) - { '' } )
+      st = ''
+      try: st = open( f'{pt}/state' ).read().strip()
+      except OSError: pass
+      cnt = {}
+      for c in ( 'port_rcv_packets', 'port_xmit_packets', 'port_rcv_discards', 'port_xmit_discards' ):
+        try: cnt[ c ] = int( open( f'{pt}/counters/{c}' ).read() )
+        except (OSError, ValueError): pass
+      ib[ f'{os.path.basename(dev)}/{os.path.basename(pt)}' ] = dict( ndevs=nd, state=st, cnt=cnt )
+  return dict( t=time.time(), snmp=snmp(), xdp_if=xdp_if, xsk=xsk, queues=queues, masters=masters, socks=udp_sockets(), bonds=bonds, ifstat=ifstat, nicstat=nicstat, ib=ib )
 
 def related_procs( vpid ):
   """Processes that look like a validator, with start times."""
@@ -211,7 +232,7 @@ def related_procs( vpid ):
     if not d.isdigit(): continue
     try:
       cmd = open( f'/proc/{d}/cmdline', 'rb' ).read().replace( b'\0', b' ' ).decode( errors='replace' )
-      if re.search( r'firedancer|fdctl|fddev|agave-validator|solana-validator', cmd ):
+      if re.search( r'(^|/)(firedancer|firedancer-dev|fdctl|fddev|agave-validator|solana-validator) ', cmd ):
         out.append( ( int( d ), os.stat( f'/proc/{d}' ).st_mtime, cmd.strip()[ :100 ] ) )
     except OSError: continue
   return out
@@ -474,7 +495,8 @@ def main():
     print( f'- {b}: ' + '; '.join( f'{k}: {v}' for k, v in hdr.items() ) )
     m_ = re.search( r'Active Aggregator Info:\s*\n\s*Aggregator ID: (\d+)', txt )
     active_agg = m_.group( 1 ) if m_ else None
-    print( '\n| member | MII | link failures | aggregator | actor churn | partner churn | partner mac | rx pkts | tx pkts | rx drop | tx drop | rx err |' )
+    print( '\n(partner column: partner mac, actor/partner LACP port state with C=collecting D=distributing; a member missing D carries no traffic)' )
+    print( '\n| member | MII | link failures | aggregator | actor churn | partner churn | partner mac / LACP state | rx pkts | tx pkts | rx drop | tx drop | rx err |' )
     print( '|---|---|---|---|---|---|---|---|---|---|---|---|' )
     for blk in txt.split( 'Slave Interface: ' )[ 1: ]:
       name = blk.split( '\n', 1 )[ 0 ].strip()
@@ -482,11 +504,42 @@ def main():
       mii, fails, agg = g( r'^MII Status: (.*)$' ), g( r'^Link Failure Count: (.*)$' ), g( r'^Aggregator ID: (.*)$' )
       achurn, pchurn = g( r'Actor Churn State: (.*)$' ), g( r'Partner Churn State: (.*)$' )
       pmac = g( r'details partner lacp pdu:[\s\S]*?system mac address: (.*)$' )
+      ast  = g( r'details actor lacp pdu:[\s\S]*?port state: (\d+)' )
+      pst  = g( r'details partner lacp pdu:[\s\S]*?port state: (\d+)' )
+      bits = lambda v: ( '?' if not v.isdigit() else ''.join( c for c, b in ( ( 'C', 0x10 ), ( 'D', 0x20 ) ) if int( v )&b ) or 'none' )
+      pmac = f'{pmac} actor {ast}({bits(ast)}) partner {pst}({bits(pst)})'
       st0 = h0[ 'ifstat' ].get( name, {} ); st1 = ( h1 or h0 )[ 'ifstat' ].get( name, {} )
       dv = lambda k: ( st1.get( k, 0 )-st0.get( k, 0 ) ) if h1 else st0.get( k, 0 )
       print( f'| {name} | {mii} | {fails} | {agg}{" (active)" if agg==active_agg else " (NOT ACTIVE)" if active_agg and agg!="?" else ""} | {achurn} | {pchurn} | {pmac} | {dv("rx_packets")} | {dv("tx_packets")} | {dv("rx_dropped")} | {dv("tx_dropped")} | {dv("rx_errors")} |' )
+      if ( ast.isdigit() and not int( ast )&0x30==0x30 ) or ( pst.isdigit() and ( int( pst )&0x30 )!=0x30 ): bad_member.append( f'{b}/{name} LACP not collecting+distributing' )
       if mii!='up' or ( active_agg and agg not in ( '?', active_agg ) ) or 'churned' in achurn+pchurn or ( h1 and ( dv( 'rx_packets' )==0 ) != ( dv( 'tx_packets' )==0 ) ):
         bad_member.append( f'{b}/{name}' )
+  print( '\n### NIC hardware counters' + ( ' (delta in interval)' if h1 else ' (since driver load)' ) + ': include kernel-bypass traffic the kernel counters above do not see\n' )
+  keys = [ 'rx_packets_phy', 'tx_packets_phy', 'rx_vport_unicast_packets', 'tx_vport_unicast_packets', 'rx_discards_phy', 'tx_discards_phy', 'rx_out_of_buffer', 'rx_steer_missed_packets' ]
+  shown = [ d for d in sorted( h0[ 'nicstat' ] ) if any( k in h0[ 'nicstat' ][ d ] for k in keys ) ]
+  if shown:
+    print( '| interface | ' + ' | '.join( keys ) + ' |' ); print( '|---|' + '---|'*len( keys ) )
+    for d in shown:
+      v0 = h0[ 'nicstat' ][ d ]; v1 = ( h1 or h0 )[ 'nicstat' ].get( d, v0 )
+      print( f'| {d} | ' + ' | '.join( ( str( v1[ k ]-v0[ k ] ) if h1 else str( v0[ k ] ) ) if k in v0 else '-' for k in keys ) + ' |' )
+    if h1:
+      for b in h0[ 'bonds' ]:
+        mem = [ d for d in shown if h0[ 'masters' ].get( d )==b or d in re.findall( r'Slave Interface: (\S+)', h0[ 'bonds' ][ b ] ) ]
+        rxp = { d: ( h1[ 'nicstat' ][ d ].get( 'rx_packets_phy', 0 )-h0[ 'nicstat' ][ d ].get( 'rx_packets_phy', 0 ) ) for d in mem if 'rx_packets_phy' in h0[ 'nicstat' ][ d ] }
+        txp = { d: ( h1[ 'nicstat' ][ d ].get( 'tx_packets_phy', 0 )-h0[ 'nicstat' ][ d ].get( 'tx_packets_phy', 0 ) ) for d in mem if 'tx_packets_phy' in h0[ 'nicstat' ][ d ] }
+        dead = [ d for d in rxp if rxp[ d ]<0.05*max( rxp.values() or [ 0 ] ) or txp.get( d, 1 )<0.05*max( txp.values() or [ 0 ] ) ]
+        verdict.append( ( f'{b} member passing (almost) no hardware traffic in one direction while another carries it', bool( dead ) and len( mem )>1, f'phy rx {rxp} tx {txp}' ) )
+      miss = { d: h1[ 'nicstat' ][ d ].get( 'rx_steer_missed_packets', 0 )-h0[ 'nicstat' ][ d ].get( 'rx_steer_missed_packets', 0 ) for d in shown }
+      verdict.append( ( 'packets dropped for missing steering rules (rx_steer_missed_packets rising)', any( v>0 for v in miss.values() ), str( { k: v for k, v in miss.items() if v } ) or 'none' ) )
+  else: print( 'no driver counters (ethtool -S) available' )
+  if h0[ 'ib' ]:
+    print( '\n| rdma device/port | state | netdevs | rcv pkts | xmit pkts |' ); print( '|---|---|---|---|---|' )
+    for k, v in h0[ 'ib' ].items():
+      c1 = ( h1 or h0 )[ 'ib' ].get( k, v )[ 'cnt' ]
+      dv = lambda c: ( c1.get( c, 0 )-v[ 'cnt' ].get( c, 0 ) ) if h1 else v[ 'cnt' ].get( c, '-' )
+      print( f'| {k} | {v["state"]} | {",".join(v["ndevs"]) or "-"} | {dv("port_rcv_packets")} | {dv("port_xmit_packets")} |' )
+    print( '(the mlx5 net tile binds the FIRST rdma device/port whose netdev is the configured interface or one of its bond members; without RoCE LAG that is one physical port)' )
+
   verdict.append( ( 'bond member down, in a different LACP aggregator, churned, or carrying traffic in only one direction (a layer3+4 hash would then lose a fixed half of all flows, both directions)', bool( bad_member ), ', '.join( bad_member ) or 'none' ) )
 
   print( '\n### kernel UDP sockets on the votor port and on ports the validator owns\n' )
