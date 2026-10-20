@@ -71,6 +71,29 @@ check( config_t const * config,
     else if( FD_UNLIKELY( pair_online ) ) FD_LOG_WARNING(( "%s cpu %lu has hyperthread pair cpu %lu which should be offline or in the isolated cpuset partition (`configure init cpuset`). Proceeding but performance may be reduced.", tile->name, tile->cpu_idx, pair ));
   }
 
+  /* One summary line for the other hot tiles sharing a core */
+  static char const * const HOT[] = { "replay", "shred", "execle", "execrp", "motor" };
+  char  pairs[ 512 ] = "";
+  ulong len = 0UL;
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt && config->is_firedancer; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    int hot = 0;
+    for( ulong k=0UL; k<sizeof(HOT)/sizeof(HOT[0]); k++ ) hot |= !strcmp( tile->name, HOT[ k ] );
+    if( !hot || tile->floats || tile->cpu_idx>=cpus->cpu_cnt ) continue;
+    ulong pair = cpus->cpu[ tile->cpu_idx ].sibling;
+    for( ulong j=0UL; j<topo->tile_cnt && pair<cpus->cpu_cnt; j++ ) {
+      fd_topo_tile_t const * other = &topo->tiles[ j ];
+      if( other->cpu_idx!=pair || other->floats || ( fd_topob_tile_class( other->name ) & FD_TOPOB_TILE_STARTUP ) ) continue;
+      ulong n = 0UL;
+      if( cnt<8UL ) FD_TEST( fd_cstr_printf_check( pairs+len, sizeof(pairs)-len, &n, " %s:%lu/%s:%lu", tile->name, tile->kind_id, other->name, other->kind_id ) );
+      len += n;
+      cnt++;
+      break;
+    }
+  }
+  if( FD_UNLIKELY( cnt ) ) FD_LOG_NOTICE(( "%lu hot tiles share a physical core with another tile:%s%s", cnt, pairs, cnt>8UL ? " ..." : "" ));
+
   CONFIGURE_OK();
 }
 

@@ -17,6 +17,8 @@
      - With a physical core per tile, every tile gets a whole core.
        Otherwise SMT_CRITICAL tiles still get one, DEDICATED tiles get
        one while spare logical CPUs last, and the rest share cores.
+       Firedancer ranks the steady tiles instead and shares only as
+       many cores as needed, lowest ranked first.
 
    In efficient mode (tiles park when idle), only SMT_CRITICAL,
    THROUGHPUT and PIN_EFFICIENT tiles are pinned; the rest float over

@@ -565,6 +565,210 @@ retry:
 #undef CT_NH
 #undef CT_IH
 
+static ulong
+name_idx( char const *         name,
+          char const * const * names ) {
+  for( ulong i=0UL; names[ i ]; i++ ) if( !strcmp( name, names[ i ] ) ) return i;
+  return ULONG_MAX;
+}
+
+/* Whole core rank of a steady tile, lower first, tier in bits 24+ */
+
+#define SMT_TIER_COLD (7UL)
+
+static ulong
+smt_rank( fd_topo_tile_t const * tile,
+          ulong                  execrp_floor,
+          int                    replay_first ) {
+  static char const * const T4[] = { "tower", "votor", "shred", "net", "mlx5", "sock", "accdb", NULL };
+  static char const * const T5[] = { "repair", "rotor", NULL };
+  static char const * const T6[] = { "execle", "dedup", "sign", "resolv", "quic", "verify", "txsend", "bundle", "shred", "net", "mlx5", "sock", NULL };
+  static char const * const T7[] = { "gui", "rpc", "event", "rserve", "gossip", "gossvf", NULL };
+
+  char const * name = tile->name;
+  ulong        k    = tile->kind_id;
+  if( fd_topob_tile_class( name ) & FD_TOPOB_TILE_SMT_CRITICAL ) return k;
+  if( !strcmp( name, "replay" ) ) return replay_first ? 1UL<<24 : 2UL<<24;
+  if( !strcmp( name, "execrp" ) ) return ( k>=execrp_floor ? 3UL<<24 : replay_first ? 2UL<<24 : 1UL<<24 ) | k;
+  if( !strcmp( name, "sign" ) && k ) return (SMT_TIER_COLD<<24) | (4095UL<<12) | k;
+  ulong i;
+  if( !k && (i=name_idx( name, T4 ))!=ULONG_MAX ) return (4UL<<24)            | (i<<12);
+  if(       (i=name_idx( name, T5 ))!=ULONG_MAX ) return (5UL<<24)            | (i<<12) | k;
+  if(       (i=name_idx( name, T6 ))!=ULONG_MAX ) return (6UL<<24)            | (i<<12) | k;
+  if(       (i=name_idx( name, T7 ))!=ULONG_MAX ) return (SMT_TIER_COLD<<24) | (i<<12) | k;
+  return (6UL<<24) | (4094UL<<12) | k;
+}
+
+#define SMT_WHOLE (0)
+#define SMT_HALF  (1)
+#define SMT_PAIR  (2)
+
+/* Shares only as many cores as needed, lowest ranked tiles first.
+   Returns 0 if the tiles do not fit or a critical tile would pair. */
+
+static int
+smt_plan( fd_topo_t const *      topo,
+          fd_topo_cpus_t const * cpus,
+          cpu_bv_t const         assigned[ static cpu_bv_word_cnt ],
+          ulong const *          tile_idx,
+          ulong                  cnt,
+          ulong                  execrp_floor,
+          int                    efficient,
+          uchar *                mode,
+          ulong *                partner ) {
+  static char const * const AVX[] = { "verify", "sign", "shred", "benchg", NULL };
+
+  ulong p2 = 0UL, p1 = 0UL, half = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    if( cpu_bv_test( assigned, i ) ) continue;
+    ulong s = cpus->cpu[ i ].sibling;
+    if(      s==ULONG_MAX                ) p1++;
+    else if( !cpu_bv_test( assigned, s ) ) p2 += (ulong)( s>i );
+    else                                   half++;
+  }
+  ulong h = fd_ulong_min( half, fd_ulong_sat_sub( cnt, p2+p1 ) );
+  ulong d = fd_ulong_sat_sub( cnt, p2+p1+half );
+  if( FD_UNLIKELY( d>p2 ) ) return 0;
+  ulong whole = cnt - h - 2UL*d;
+
+  ulong top = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ tile_idx[ i ] ];
+    top += (ulong)( ( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_SMT_CRITICAL ) || !strcmp( tile->name, "replay" ) ||
+                    ( !strcmp( tile->name, "execrp" ) && tile->kind_id<execrp_floor ) );
+  }
+  int replay_first = whole>=top;
+
+  ulong order[ FD_TOPO_MAX_TILES ];
+  ulong key  [ FD_TOPO_MAX_TILES ];
+  FD_TEST( cnt<=FD_TOPO_MAX_TILES );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ulong k = smt_rank( &topo->tiles[ tile_idx[ i ] ], execrp_floor, replay_first );
+    ulong j = i;
+    for( ; j && key[ j-1UL ]>k; j-- ) { key[ j ] = key[ j-1UL ]; order[ j ] = order[ j-1UL ]; }
+    key[ j ] = k; order[ j ] = i;
+  }
+  for( ulong j=whole; j<cnt; j++ ) {
+    if( FD_UNLIKELY( !(key[ j ]>>24) ) ) return 0;
+  }
+
+  for( ulong j=0UL; j<cnt; j++ ) {
+    mode   [ order[ j ] ] = (uchar)( j<whole ? SMT_WHOLE : j<whole+h ? SMT_HALF : SMT_PAIR );
+    partner[ order[ j ] ] = ULONG_MAX;
+  }
+
+  for( ulong pass=0UL; pass<6UL; pass++ ) {
+    for( ulong a=whole+h; a<cnt; a++ ) {
+      if( partner[ order[ a ] ]!=ULONG_MAX ) continue;
+      fd_topo_tile_t const * ta = &topo->tiles[ tile_idx[ order[ a ] ] ];
+      for( ulong b=cnt-1UL; b>a; b-- ) {
+        if( partner[ order[ b ] ]!=ULONG_MAX ) continue;
+        fd_topo_tile_t const * tb = &topo->tiles[ tile_idx[ order[ b ] ] ];
+        int hot_a  = (key[ a ]>>24)<=4UL && !( fd_topob_tile_class( ta->name ) & FD_TOPOB_TILE_DEDICATED );
+        int cold_a = (key[ a ]>>24)==SMT_TIER_COLD;
+        int cold_b = (key[ b ]>>24)==SMT_TIER_COLD;
+        int same   = !strcmp( ta->name, tb->name );
+        int avx    = !same && name_idx( ta->name, AVX )!=ULONG_MAX && name_idx( tb->name, AVX )!=ULONG_MAX;
+        int pin_a  = !!( fd_topob_tile_class( ta->name ) & FD_TOPOB_TILE_EFFICIENT_PINNED );
+        int pin_b  = !!( fd_topob_tile_class( tb->name ) & FD_TOPOB_TILE_EFFICIENT_PINNED );
+        int strict = !avx && ( !efficient || pin_a==pin_b );
+        int ok;
+        switch( pass ) { /* a hot tile that must share gets a cold sibling */
+          case 0UL: ok = strict && hot_a && cold_b;               break;
+          case 1UL: ok = strict && cold_a && cold_b;              break;
+          case 2UL: ok = strict && same;                          break;
+          case 3UL: ok = strict && cold_b;                        break;
+          case 4UL: ok = strict;                                  break;
+          default:  ok = 1;                                       break;
+        }
+        if( !ok ) continue;
+        if( FD_UNLIKELY( pass==5UL && avx ) ) FD_LOG_WARNING(( "auto layout is short of physical cores and puts AVX heavy tile `%s:%lu` on the hyperthread sibling of tile `%s:%lu`",
+                                                        tb->name, tb->kind_id, ta->name, ta->kind_id ));
+        partner[ order[ a ] ] = order[ b ];
+        partner[ order[ b ] ] = order[ a ];
+        break;
+      }
+    }
+  }
+  return 1;
+}
+
+/* Places plan entries [lo,hi) in CPU order */
+
+static void
+smt_place( fd_topo_t *            topo,
+           fd_topo_cpus_t const * cpus,
+           cpu_bv_t               assigned[ static cpu_bv_word_cnt ],
+           ushort const           cpu_ordering[ static FD_TILE_MAX ],
+           ulong const *          tile_idx,
+           ulong                  lo,
+           ulong                  hi,
+           ulong                  cnt,
+           uchar *                mode,
+           ulong *                partner,
+           int                    efficient ) {
+  ulong p2_free = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    ulong s = cpus->cpu[ i ].sibling;
+    p2_free += (ulong)( s!=ULONG_MAX && s>i && !cpu_bv_test( assigned, i ) && !cpu_bv_test( assigned, s ) );
+  }
+  ulong pairs_left = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) pairs_left += (ulong)( mode[ i ]==SMT_PAIR && partner[ i ]>i && partner[ i ]!=ULONG_MAX &&
+                                                        topo->tiles[ tile_idx[ i ] ].cpu_idx==ULONG_MAX );
+
+  for( ulong i=lo; i<hi; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ tile_idx[ i ] ];
+    if( tile->cpu_idx!=ULONG_MAX ) continue;
+    int avoid = efficient && !( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_EFFICIENT_PINNED );
+    int pair  = mode[ i ]==SMT_PAIR && partner[ i ]!=ULONG_MAX;
+    fd_topo_tile_t * mate = pair ? &topo->tiles[ tile_idx[ partner[ i ] ] ] : NULL;
+    int mate_avoid = pair && efficient && !( fd_topob_tile_class( mate->name ) & FD_TOPOB_TILE_EFFICIENT_PINNED );
+
+    ulong pick = ULONG_MAX;
+    ulong any  = ULONG_MAX;
+    for( ulong j=0UL; j<cpus->cpu_cnt && pick==ULONG_MAX; j++ ) {
+      ulong c = cpu_ordering[ j ];
+      fd_topo_cpu_t const * cpu = &cpus->cpu[ c ];
+      if( cpu_bv_test( assigned, c ) || ( avoid && cpu->isolated ) ) continue;
+      if( any==ULONG_MAX ) any = c;
+      ulong s        = cpu->sibling;
+      int   sib_free = s!=ULONG_MAX && !cpu_bv_test( assigned, s );
+      int   ok;
+      if(      pair                ) ok = sib_free && !( mate_avoid && cpus->cpu[ s ].isolated );
+      else if( mode[ i ]==SMT_HALF ) ok = s!=ULONG_MAX && !sib_free;
+      else                           ok = s==ULONG_MAX || ( sib_free && p2_free>pairs_left );
+      if( ok ) pick = c;
+    }
+
+    if( FD_UNLIKELY( pick==ULONG_MAX ) ) {
+      if( FD_UNLIKELY( any==ULONG_MAX ) ) {
+        char note[ 128 ];
+        FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned%s%s", tile->name, tile->kind_id,
+                     avoid ? " or isolated by isolcpus=" : "", offline_note( cpus, note ) ));
+      }
+      if( pair ) { /* the mate is placed on its own */
+        mode   [ partner[ i ] ] = SMT_HALF;
+        partner[ partner[ i ] ] = ULONG_MAX;
+        pairs_left--;
+      }
+      pick = any;
+      tile->cpu_idx = pick;
+      cpu_bv_insert( assigned, pick );
+      ulong s = cpus->cpu[ pick ].sibling;
+      if( s!=ULONG_MAX && !cpu_bv_test( assigned, s ) ) p2_free--;
+      continue;
+    }
+
+    ulong s = cpus->cpu[ pick ].sibling;
+    tile->cpu_idx = pick;
+    cpu_bv_insert( assigned, pick );
+    if( mode[ i ]==SMT_HALF || s==ULONG_MAX ) continue;
+    cpu_bv_insert( assigned, s );
+    p2_free--;
+    if( pair ) { mate->cpu_idx = s; pairs_left--; }
+  }
+}
+
 void
 fd_topob_auto_layout_cpus( fd_topo_t *      topo,
                            fd_topo_cpus_t * cpus,
@@ -687,6 +891,131 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     spare_siblings = fd_ulong_sat_sub( free_logical, tiles_to_assign+critical_cnt );
   }
 
+  /* Short of physical cores: share only as many as needed, by rank */
+  ulong  steady_idx    [ FD_TOPO_MAX_TILES ];
+  uchar  steady_mode   [ FD_TOPO_MAX_TILES ];
+  ulong  steady_partner[ FD_TOPO_MAX_TILES ];
+  ulong  steady_cnt = 0UL;
+  ulong  always_cnt = 0UL;
+  int    graded     = !skip_ht_pairs && !l3_layout && !reserve_agave_cores;
+  /* Efficient mode floaters avoid isolcpus=, which the plan ignores */
+  for( ulong i=0UL; i<cpus->cpu_cnt && graded && efficient; i++ ) graded = cpu_bv_test( cpu_assigned, i ) || !cpus->cpu[ i ].isolated;
+  cpu_bv_t numa_fence[ cpu_bv_word_cnt ]; cpu_bv_new( numa_fence );
+
+  /* Pack, poh, accdb and execle go first into one L3 with the cores the
+     plan gives them, pairing execle to fit and spilling the highest to
+     the next L3.  The rest is planned around them, or without them if
+     it then does not fit. */
+  static char const * const GROUP[] = { "pack", "poh", "motor", "accdb", "execle", NULL };
+  int group = !efficient && !reserve_agave_cores && fd_topo_cpus_l3_complete( cpus );
+  cpu_bv_t base      [ cpu_bv_word_cnt ]; cpu_bv_copy( base, cpu_assigned );
+  cpu_bv_t group_post[ cpu_bv_word_cnt ]; cpu_bv_new( group_post ); /* free during snapshot load */
+  for( ulong attempt=0UL;; attempt++ ) {
+    if( graded ) {
+      steady_cnt = 0UL;
+      for( ulong r=0UL; r<TILE_CLASS_CNT; r++ ) {
+        if( !( TILE_CLASS[ r ].flags & FD_TOPOB_TILE_ALWAYS ) ) continue;
+        for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+          if( tile_is_floating( &topo->tiles[ j ] ) || topo->tiles[ j ].cpu_idx!=ULONG_MAX || strcmp( topo->tiles[ j ].name, TILE_CLASS[ r ].name ) ) continue;
+          steady_idx[ steady_cnt++ ] = j;
+        }
+      }
+      always_cnt = steady_cnt;
+      for( ulong r=0UL; r<TILE_CLASS_CNT; r++ ) {
+        if( !( TILE_CLASS[ r ].flags & FD_TOPOB_TILE_POSTSTART ) ) continue;
+        for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+          if( topo->tiles[ j ].cpu_idx!=ULONG_MAX || strcmp( topo->tiles[ j ].name, TILE_CLASS[ r ].name ) ) continue;
+          steady_idx[ steady_cnt++ ] = j;
+        }
+      }
+      /* Fill the first NUMA nodes that fit before crossing to the next */
+      ulong need = steady_cnt;
+      for( ulong i=0UL; i<steady_cnt; i++ ) need += (ulong)!!( fd_topob_tile_class( topo->tiles[ steady_idx[ i ] ].name ) & FD_TOPOB_TILE_SMT_CRITICAL );
+      ulong node_cnt = 0UL;
+      ulong free_cnt = 0UL;
+      for( ; node_cnt<cpus->numa_node_cnt && free_cnt<need; node_cnt++ ) {
+        for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) free_cnt += (ulong)( cpus->cpu[ i ].numa_node==node_cnt && !cpu_bv_test( cpu_assigned, i ) );
+      }
+      for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+        if( cpus->cpu[ i ].numa_node>=node_cnt && !cpu_bv_test( cpu_assigned, i ) ) cpu_bv_insert( numa_fence, i );
+      }
+      cpu_bv_union( cpu_assigned, cpu_assigned, numa_fence );
+      graded = smt_plan( topo, cpus, cpu_assigned, steady_idx, steady_cnt, spare_siblings, efficient, steady_mode, steady_partner );
+      if( !graded ) {
+        cpu_bv_subtract( cpu_assigned, cpu_assigned, numa_fence );
+        cpu_bv_new( numa_fence );
+        graded = smt_plan( topo, cpus, cpu_assigned, steady_idx, steady_cnt, spare_siblings, efficient, steady_mode, steady_partner );
+      }
+    }
+    if( attempt==1UL && !graded ) {
+      for( ulong j=0UL; j<topo->tile_cnt; j++ ) topo->tiles[ j ].cpu_idx = ULONG_MAX;
+      cpu_bv_copy( cpu_assigned, base );
+      cpu_bv_new( numa_fence );
+      cpu_bv_new( group_post );
+      graded = 1;
+      continue;
+    }
+    if( attempt || !group || !( graded || skip_ht_pairs ) ) break;
+
+    ulong lead = 0UL, ex = 0UL, ew = 0UL; /* cores of pack, poh and accdb, execle, execle on whole cores */
+    for( ulong i=0UL; i<( graded ? steady_cnt : topo->tile_cnt ); i++ ) {
+      ulong g = name_idx( topo->tiles[ graded ? steady_idx[ i ] : i ].name, GROUP );
+      lead += (ulong)( g<4UL );
+      ex   += (ulong)( g==4UL );
+      ew   += (ulong)( g==4UL && ( !graded || steady_mode[ i ]==SMT_WHOLE ) );
+    }
+    /* First L3 in CPU order that fits, else fits execle paired, else the largest */
+    ulong l3 = ULONG_MAX, l3_cores = 0UL, best = 0UL;
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+      ulong k = cpus->cpu[ cpu_ordering[ i ] ].l3_idx;
+      if( k==ULONG_MAX || ( i && k==cpus->cpu[ cpu_ordering[ i-1UL ] ].l3_idx ) ) continue;
+      ulong c     = l3_free_core_cnt( cpus, cpu_assigned, k, 0 );
+      ulong score = c>=lead+ew+(ex-ew+1UL)/2UL ? ULONG_MAX : c>=lead+(ex+1UL)/2UL ? ULONG_MAX-1UL : c;
+      if( score>best ) { best = score; l3 = k; l3_cores = c; }
+    }
+    while( ew && lead+ew+(ex-ew+1UL)/2UL>l3_cores ) ew--; /* the lowest execle stay whole */
+    ulong e = 0UL;
+    for( ulong g=0UL; GROUP[ g ] && l3!=ULONG_MAX; g++ ) {
+      for( ulong j=0UL; j<topo->tile_cnt && l3!=ULONG_MAX; j++ ) {
+        fd_topo_tile_t * tile = &topo->tiles[ j ];
+        if( tile->cpu_idx!=ULONG_MAX || strcmp( tile->name, GROUP[ g ] ) ) continue;
+        ulong c = ULONG_MAX;
+        for( ulong d=0UL; d<cpus->l3_cnt && c==ULONG_MAX; d++ ) {
+          for( ulong i=0UL; i<cpus->cpu_cnt && c==ULONG_MAX; i++ ) {
+            ulong k = cpu_ordering[ i ];
+            ulong s = cpus->cpu[ k ].sibling;
+            if( cpus->cpu[ k ].l3_idx==l3 && !cpu_bv_test( cpu_assigned, k ) && ( s==ULONG_MAX || !cpu_bv_test( cpu_assigned, s ) ) ) c = k;
+          }
+          if( c==ULONG_MAX ) l3 = (l3+1UL)%cpus->l3_cnt;
+        }
+        if( c==ULONG_MAX ) { l3 = ULONG_MAX; break; } /* the rest is placed as usual */
+        ulong s = cpus->cpu[ c ].sibling;
+        ulong m = ULONG_MAX; /* tile on the sibling, which goes to the rest if s is cleared */
+        if( g<4UL ) {
+          for( ulong i=0UL; i<steady_cnt && graded; i++ ) { /* as planned */
+            if( steady_idx[ i ]!=j ) continue;
+            if( steady_mode[ i ]==SMT_PAIR && steady_partner[ i ]!=ULONG_MAX ) m = steady_idx[ steady_partner[ i ] ];
+            if( steady_mode[ i ]==SMT_HALF ) s = ULONG_MAX;
+          }
+        } else if( e++>=ew ) { /* paired with the next execle */
+          for( ulong k=j+1UL; k<topo->tile_cnt && m==ULONG_MAX; k++ ) if( topo->tiles[ k ].cpu_idx==ULONG_MAX && !strcmp( topo->tiles[ k ].name, "execle" ) ) m = k;
+          if( m==ULONG_MAX || s==ULONG_MAX ) s = m = ULONG_MAX;
+          e += (ulong)( m!=ULONG_MAX );
+        }
+        tile->cpu_idx = c;
+        cpu_bv_insert( cpu_assigned, c );
+        if( g ) cpu_bv_insert( group_post, c );
+        if( s==ULONG_MAX ) continue;
+        cpu_bv_insert( cpu_assigned, s );
+        if( m!=ULONG_MAX ) topo->tiles[ m ].cpu_idx = s;
+        if( g && ( m==ULONG_MAX || ( fd_topob_tile_class( topo->tiles[ m ].name ) & FD_TOPOB_TILE_POSTSTART ) ) ) cpu_bv_insert( group_post, s );
+      }
+    }
+    if( !graded ) break;
+    cpu_bv_subtract( cpu_assigned, cpu_assigned, numa_fence );
+    cpu_bv_new( numa_fence );
+  }
+
   if( FD_UNLIKELY( l3_layout ) ) {
     ulong hot_l3 = ULONG_MAX;
     for( char const ** p = HOT_TILES; *p; p++ ) {
@@ -700,7 +1029,8 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
 
   /* First, assign always-on tiles */
   ulong cpu_idx = 0UL;
-  for( ulong r=0UL; r<TILE_CLASS_CNT; r++ ) {
+  if( graded ) smt_place( topo, cpus, cpu_assigned, cpu_ordering, steady_idx, 0UL, always_cnt, steady_cnt, steady_mode, steady_partner, efficient );
+  for( ulong r=0UL; r<TILE_CLASS_CNT && !graded; r++ ) {
     if( !( TILE_CLASS[ r ].flags & FD_TOPOB_TILE_ALWAYS ) ) continue;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
@@ -708,9 +1038,10 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
       auto_tile_cpu( tile, cpus, &cpu_idx, cpu_assigned, cpu_ordering, skip_ht_pairs, &spare_siblings, efficient, dem, 0UL );
     }
   }
-  ulong cpu_idx_startup = cpu_idx;
+  ulong cpu_idx_startup = cpu_bv_is_null( group_post ) ? cpu_idx : 0UL; /* may reuse group post-start cores */
   cpu_bv_t cpu_assigned_startup[ cpu_bv_word_cnt ];
-  cpu_bv_copy( cpu_assigned_startup, cpu_assigned );
+  cpu_bv_subtract( cpu_assigned_startup, cpu_assigned, numa_fence );
+  cpu_bv_subtract( cpu_assigned_startup, cpu_assigned_startup, group_post );
   ulong dem_startup[ 9 ] = { 0UL, 0UL, 0UL, dem[ 3 ], dem[ 4 ], dem[ 5 ], 0UL, 0UL, 0UL };
   dem[ 3 ] = dem[ 4 ] = dem[ 5 ] = 0UL;
 
@@ -723,7 +1054,8 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
       auto_tile_cpu( tile, cpus, &cpu_idx_startup, cpu_assigned_startup, cpu_ordering, skip_ht_pairs, &spare_siblings, efficient, dem_startup, 1UL );
     }
   }
-  for( ulong r=0UL; r<TILE_CLASS_CNT; r++ ) {
+  if( graded ) smt_place( topo, cpus, cpu_assigned, cpu_ordering, steady_idx, always_cnt, steady_cnt, steady_cnt, steady_mode, steady_partner, efficient );
+  for( ulong r=0UL; r<TILE_CLASS_CNT && !graded; r++ ) {
     if( !( TILE_CLASS[ r ].flags & FD_TOPOB_TILE_POSTSTART ) ) continue;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
