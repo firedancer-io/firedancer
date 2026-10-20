@@ -1581,6 +1581,7 @@ seq_read_check( fd_accdb_t *       accdb,
 extern uchar fd_accdb_dbg_reloc_pubkey[ 32UL ];
 extern ulong fd_accdb_dbg_reloc_dest;
 extern ulong fd_accdb_dbg_reloc_cnt;
+extern ulong fd_accdb_dbg_compact_scanned;
 #endif
 
 static uchar g_cold_data[ 10UL<<20 ];
@@ -1684,8 +1685,9 @@ test_compact_reloc_integrity( void ) {
    a 24 MiB partition.  Rewriting three of them frees 37%, above the
    compaction threshold, leaving live records 0, 2, 3, 4 with dead
    ones at 1, 5, 6; five records fit the 16 MiB bounce so the run
-   splits after record 4.  Every record is then cold read and checked
-   byte for byte. */
+   splits after record 4, and the step after reuses the cut-off tail
+   instead of reading it again.  Every record is then cold read and
+   checked byte for byte. */
 
 #define BATCH_REC_CNT  (7UL)
 #define BATCH_REC_DATA (3UL<<20)
@@ -1719,9 +1721,16 @@ test_compact_batch( void ) {
   fd_accdb_shmem_metrics_t const * m = fd_accdb_shmetrics( ctl );
   ulong before_rel = m->accounts_relocated;
   ulong before_ops = fd_accdb_metrics( jc )->copy_ops;
+  ulong before_rd  = fd_accdb_metrics( jc )->bytes_read;
+  ulong before_cmp = m->compactions_completed;
+  ulong before_scn = fd_accdb_dbg_compact_scanned;
   for( int s=0; s<256; s++ ) drain_background( jc );
   ulong relocated = m->accounts_relocated-before_rel;
   ulong writes    = fd_accdb_metrics( jc )->copy_ops-before_ops;
+  /* each compacted partition is read once: the cut-off tail of a
+     window is reused, not read again */
+  FD_TEST( m->compactions_completed>before_cmp );
+  FD_TEST( fd_accdb_metrics( jc )->bytes_read-before_rd==fd_accdb_dbg_compact_scanned-before_scn );
   FD_LOG_NOTICE(( "  test_compact_batch: %lu records relocated by %lu pwritev2 calls in %lu compactions", relocated, writes, m->compactions_completed ));
   FD_TEST( writes<relocated ); /* batched: fewer writes than records */
 
