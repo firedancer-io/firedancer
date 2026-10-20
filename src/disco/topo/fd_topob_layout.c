@@ -769,6 +769,79 @@ smt_place( fd_topo_t *            topo,
   }
 }
 
+/* Whole cores free during snapshot load for startup tiles, snapin
+   first, preferring execrp's cores */
+
+static void
+auto_startup_cpus( fd_topo_t *            topo,
+                   fd_topo_cpus_t const * cpus,
+                   cpu_bv_t               snap[ static cpu_bv_word_cnt ],
+                   ushort const           cpu_ordering[ static FD_TILE_MAX ],
+                   int                    efficient ) {
+  static char const * const ORDER[] = { "snapin", "snapdc", "snapld", "snapct", NULL };
+
+  ulong idx[ FD_TOPO_MAX_TILES ];
+  ulong cnt = 0UL;
+  for( ulong r=0UL; r<4UL+TILE_CLASS_CNT; r++ ) {
+    char const * name = r<4UL ? ORDER[ r ] : TILE_CLASS[ r-4UL ].name;
+    if( r>=4UL && ( !( TILE_CLASS[ r-4UL ].flags & FD_TOPOB_TILE_STARTUP ) || name_idx( name, ORDER )!=ULONG_MAX ) ) continue;
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      if( tile_is_floating( &topo->tiles[ j ] ) || strcmp( topo->tiles[ j ].name, name ) ) continue;
+      idx[ cnt++ ] = j;
+    }
+  }
+  if( !cnt ) return;
+
+  cpu_bv_t banned[ cpu_bv_word_cnt ]; cpu_bv_new( banned );
+  cpu_bv_t execrp[ cpu_bv_word_cnt ]; cpu_bv_new( execrp );
+  for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) cpu_bv_insert( banned, topo->blocklist_cores_cpu_idx[ i ] );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) if( !cpus->cpu[ i ].online ) cpu_bv_insert( banned, i );
+  for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ j ];
+    ulong c = tile->cpu_idx;
+    if( c>=cpus->cpu_cnt ) continue;
+    uint  cls = fd_topob_tile_class( tile->name );
+    ulong s   = cpus->cpu[ c ].sibling;
+    if( !strcmp( tile->name, "execrp" ) ) { cpu_bv_insert( execrp, c ); if( s!=ULONG_MAX ) cpu_bv_insert( execrp, s ); }
+    if( !( cls & FD_TOPOB_TILE_ALWAYS ) ) continue;
+    cpu_bv_insert( banned, c );
+    if( ( cls & FD_TOPOB_TILE_SMT_CRITICAL ) && s!=ULONG_MAX ) cpu_bv_insert( banned, s );
+  }
+
+  ulong free_cnt = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) free_cnt += (ulong)!cpu_bv_test( snap, i );
+  ulong spare = fd_ulong_sat_sub( free_cnt, cnt ); /* siblings that can idle */
+
+  for( ulong k=0UL; k<cnt; k++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ idx[ k ] ];
+    int avoid = efficient && !( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_EFFICIENT_PINNED );
+    ulong pick = ULONG_MAX;
+    for( ulong pass=0UL; pass<4UL && pick==ULONG_MAX; pass++ ) {
+      for( ulong j=0UL; j<cpus->cpu_cnt && pick==ULONG_MAX; j++ ) {
+        ulong c = cpu_ordering[ j ];
+        ulong s = cpus->cpu[ c ].sibling;
+        if( avoid && cpus->cpu[ c ].isolated ) continue;
+        switch( pass ) {
+          case 0UL:
+          case 1UL: if( cpu_bv_test( snap, c ) || ( s!=ULONG_MAX && ( cpu_bv_test( snap, s ) || !spare ) ) || ( !pass && !cpu_bv_test( execrp, c ) ) ) continue; break;
+          case 2UL: if( cpu_bv_test( snap, c ) ) continue; break;
+          default:  if( cpu_bv_test( banned, c ) ) continue; break;
+        }
+        pick = c;
+        if( pass<2UL && s!=ULONG_MAX ) { cpu_bv_insert( snap, s ); spare--; }
+      }
+    }
+    if( FD_UNLIKELY( pick==ULONG_MAX ) ) {
+      char note[ 128 ];
+      FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned%s%s", tile->name, tile->kind_id,
+                   avoid ? " or isolated by isolcpus=" : "", offline_note( cpus, note ) ));
+    }
+    tile->cpu_idx = pick;
+    cpu_bv_insert( snap,   pick );
+    cpu_bv_insert( banned, pick );
+  }
+}
+
 void
 fd_topob_auto_layout_cpus( fd_topo_t *      topo,
                            fd_topo_cpus_t * cpus,
@@ -1046,7 +1119,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   dem[ 3 ] = dem[ 4 ] = dem[ 5 ] = 0UL;
 
   /* Separately assign startup and post-start tiles */
-  for( ulong r=0UL; r<TILE_CLASS_CNT; r++ ) {
+  for( ulong r=0UL; r<TILE_CLASS_CNT && !graded; r++ ) {
     if( !( TILE_CLASS[ r ].flags & FD_TOPOB_TILE_STARTUP ) ) continue;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
@@ -1055,6 +1128,10 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     }
   }
   if( graded ) smt_place( topo, cpus, cpu_assigned, cpu_ordering, steady_idx, always_cnt, steady_cnt, steady_cnt, steady_mode, steady_partner, efficient );
+  if( graded ) {
+    cpu_bv_subtract( cpu_assigned, cpu_assigned, numa_fence );
+    auto_startup_cpus( topo, cpus, cpu_assigned_startup, cpu_ordering, efficient );
+  }
   for( ulong r=0UL; r<TILE_CLASS_CNT && !graded; r++ ) {
     if( !( TILE_CLASS[ r ].flags & FD_TOPOB_TILE_POSTSTART ) ) continue;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
