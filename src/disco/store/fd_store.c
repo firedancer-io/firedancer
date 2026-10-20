@@ -550,7 +550,9 @@ fd_store_file_create( char const * path,
     return -1;
   }
 
-  int fd = open( path, O_RDWR|O_CREAT|O_TRUNC, (mode_t)0600 );
+  /* No O_TRUNC it frees a previous run's extents and page cache
+     synchronously. */
+  int fd = open( path, O_RDWR|O_CREAT, (mode_t)0600 );
   if( FD_UNLIKELY( fd<0 ) ) return -1;
 
   int err = 0;

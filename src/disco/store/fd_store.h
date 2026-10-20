@@ -385,11 +385,12 @@ fd_store_t * fd_store_join ( void * shstore );
 void *       fd_store_leave( fd_store_t const * store );
 void *       fd_store_delete( void * shstore );
 
-/* Creates, truncates, and sizes the Store backing file. */
+/* Creates and sizes the Store backing file */
 
-int fd_store_file_create( char const * path,
-                          ulong        wire_off,
-                          ulong        disk_max_shreds );
+int
+fd_store_file_create( char const * path,
+                      ulong        wire_off,
+                      ulong        disk_max_shreds );
 
 
 FD_FN_PURE static inline fd_wksp_t *
