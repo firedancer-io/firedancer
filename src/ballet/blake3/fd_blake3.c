@@ -629,10 +629,11 @@ fd_blake3_fini( fd_blake3_t * sha,
 
 static void
 fd_blake3_fini_xof_setup( fd_blake3_t * sha ) {
-  fd_blake3_pos_t * s = &sha->pos;
+  fd_blake3_pos_t * s   = &sha->pos;
+  uchar const *     buf = sha->block;
 
   /* TODO HACKY!! */
-  s->input    = sha->block - ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ );
+  s->input    = buf - ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ );
   s->input_sz = ( s->leaf_idx << FD_BLAKE3_CHUNK_LG_SZ ) + sha->block_sz;
 }
 
