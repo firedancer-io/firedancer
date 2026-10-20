@@ -14,6 +14,9 @@
    - A backpressured tile resumes publishing as soon as its consumers
      return credits, without parking again on the stale count.
 
+   - Waker readiness doesn't stop a backpressured park, and is still
+     set for after_credit when credits return.
+
    - The stem stores the seq_mirror of an out it published blindly, and
      never touches the mirror of an out it did not publish (a link
      another client of the tile publishes, like a keyguard sign link),
@@ -71,6 +74,7 @@ typedef struct test_ctx test_ctx_t;
 static test_ctx_t ctx;
 
 static fd_sleep_t * sleep_obj;
+static ulong *      waker_fseq;
 static volatile int waker_mode;
 static volatile int waker_done;
 
@@ -211,6 +215,7 @@ after_credit( test_ctx_t *        ctx,
       FD_TEST( hk>=(ulong)( elapsed/( 2L*( ctx->hk_ticks+ctx->park_ticks ) ) ) ); /* but about once per lazy */
       FD_TEST( tile_metrics[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIME_OFF ]>ctx->heartbeat0 );
       ctx->phase = PHASE_BP;
+      fd_fseq_update( waker_fseq, 1UL );
     }
     break;
 
@@ -225,6 +230,8 @@ after_credit( test_ctx_t *        ctx,
     /* The credit return must be seen by the wake that follows it */
     FD_TEST( stem->cr_avail[ 0 ]==DEPTH );
     FD_TEST( ctx->parks_after_return<=1UL ); /* one if that attempt was too close to its deadline to park */
+    FD_TEST( fd_fseq_query( waker_fseq )==1UL );
+    fd_fseq_update( waker_fseq, 0UL );
     ctx->done = 1;
     break;
   }
@@ -244,6 +251,7 @@ static uchar mcache_mem [ 2 ][ FD_MCACHE_FOOTPRINT( DEPTH, 0UL ) ] __attribute__
 static uchar fseq_mem   [ CONS_CNT ][ FD_FSEQ_FOOTPRINT ]     __attribute__((aligned(FD_FSEQ_ALIGN)));
 static uchar metrics_mem[ FD_METRICS_FOOTPRINT( 0UL ) ]       __attribute__((aligned(FD_METRICS_ALIGN)));
 static uchar sleep_mem  [ sizeof(fd_sleep_t) ]                __attribute__((aligned(FD_SLEEP_ALIGN)));
+static uchar waker_mem  [ FD_FSEQ_FOOTPRINT ]                 __attribute__((aligned(FD_FSEQ_ALIGN)));
 static uchar scratch    [ 1UL<<16 ]                           __attribute__((aligned(128UL)));
 
 int
@@ -289,6 +297,9 @@ main( int     argc,
   fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = sleep_obj }};
   sleep->tile_id     = 0UL;
   sleep->out_link_id = out_link_id;
+  waker_fseq = fd_fseq_join( fd_fseq_new( waker_mem, 0UL ) );
+  FD_TEST( waker_fseq );
+  sleep->waker_fseq  = waker_fseq;
 
   pthread_t waker;
   FD_TEST( !pthread_create( &waker, NULL, waker_thread, NULL ) );

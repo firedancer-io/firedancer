@@ -297,7 +297,15 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     }
   }
 
-  if( FD_LIKELY( sleep->waker_fseq ) ) {
+  /* Backpressured, waker readiness and already due work wait for
+     after_credit, which runs once credits return and ring us.  A
+     before_credit tile still does them while backpressured. */
+#ifdef STEM_CALLBACK_BEFORE_CREDIT
+  int bp_defer = 0;
+#else
+  int bp_defer = backpressured;
+#endif
+  if( FD_LIKELY( !bp_defer && sleep->waker_fseq ) ) {
     if( FD_UNLIKELY( fd_fseq_query( sleep->waker_fseq )==1UL ) ) return 0;
   }
 
@@ -312,7 +320,9 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 
   long due = deadline_hint;
 #ifdef STEM_CALLBACK_NEXT_DEADLINE
-  due = fd_long_min( due, STEM_CALLBACK_NEXT_DEADLINE( ctx ) );
+  long cb_due = STEM_CALLBACK_NEXT_DEADLINE( ctx );
+  if( FD_UNLIKELY( bp_defer && cb_due<=now ) ) cb_due = LONG_MAX;
+  due = fd_long_min( due, cb_due );
 #endif
   long deadline = fd_long_min( now+cap_ticks, due );
   if( FD_UNLIKELY( deadline-now<min_ticks ) ) return 0; /* already close enough to deadline, don't waste a syscall */
@@ -384,7 +394,7 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       pending |= __atomic_load_n( cons_fseq[ c ], __ATOMIC_ACQUIRE )!=cons_seq[ c ];
     }
   }
-  if( FD_LIKELY( sleep->waker_fseq ) ) pending |= fd_fseq_query( sleep->waker_fseq )==1UL;
+  if( FD_LIKELY( !bp_defer && sleep->waker_fseq ) ) pending |= fd_fseq_query( sleep->waker_fseq )==1UL;
 #ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
   pending |= STEM_CALLBACK_SHOULD_SHUTDOWN( ctx );
 #endif
