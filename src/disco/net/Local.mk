@@ -4,4 +4,5 @@ $(call add-objs,fd_net_tile_topo,fd_disco)
 endif
 ifdef FD_HAS_LINUX
 $(call add-objs,fd_linux_bond,fd_disco)
+$(call add-objs,fd_net_tile_fib4,fd_disco)
 endif
