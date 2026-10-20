@@ -89,7 +89,7 @@ enum {
 
 #define FD_METRICS_COUNTER_SHRED_PROCESSED_NAME "shred_processed"
 #define FD_METRICS_COUNTER_SHRED_PROCESSED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_SHRED_PROCESSED_DESC "Shreds assigned to this tile that passed the initial parse and chained check, by processing result; InitialRejected and FecFatalRejected are subsets of Rejected"
+#define FD_METRICS_COUNTER_SHRED_PROCESSED_DESC "Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected"
 #define FD_METRICS_COUNTER_SHRED_PROCESSED_CVT  (FD_METRICS_CONVERTER_NONE)
 #define FD_METRICS_COUNTER_SHRED_PROCESSED_CNT  (9UL)
 

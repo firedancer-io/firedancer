@@ -3180,7 +3180,7 @@ message MetricsShredRepairLeadDelayNanos {
   uint64 sum = 17;
 }
 
-// Shreds assigned to this tile that passed the initial parse and chained check, by processing result; InitialRejected and FecFatalRejected are subsets of Rejected
+// Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected
 message MetricsShredProcessed {
   // Shred was for a slot whose leader is unknown
   uint64 leader_unknown = 1;
@@ -9602,7 +9602,7 @@ message MetricsShred {
   MetricsShredAddShredDurationNanos add_shred_duration_nanos = 31;
   // Duration of synchronously spilling one FEC payload to the store
   MetricsShredStoreFecSyncSpillDurationNanos store_fec_sync_spill_duration_nanos = 32;
-  // Shreds assigned to this tile that passed the initial parse and chained check, by processing result; InitialRejected and FecFatalRejected are subsets of Rejected
+  // Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected
   MetricsShredProcessed processed = 33;
   // Incomplete FEC sets evicted from the resolver to make room for new ones
   uint64 fec_incomplete_evicted = 34;

@@ -228,7 +228,7 @@
         },
         "processed": {
             "type": "Tuple",
-            "description": "Shreds assigned to this tile that passed the initial parse and chained check, by processing result; InitialRejected and FecFatalRejected are subsets of Rejected",
+            "description": "Shreds assigned to this tile that passed the initial parse and chained check, by processing result, plus received frags that failed the initial parse; InitialRejected and FecFatalRejected are subsets of Rejected",
             "aliases": {
                 "all": ["own_leader_echoed", "leader_unknown", "parse_failed", "equivocated", "rejected", "ignored", "duplicate", "accepted", "completed"]
             },
