@@ -399,9 +399,10 @@ cannot be authenticated, the local request cannot complete the handoff.
 
 Set `[failover.enabled]` to `true` on both validators. Configure the same
 staked identity in `[paths.identity_key]` and the same vote account in
-`[paths.vote_account]`. Firedancer creates a junk identity for each
-validator if one does not already exist. Both boot under their junk
-identities without voting and listen for handoff requests.
+`[paths.vote_account]`. Firedancer generates a fresh junk identity in memory
+on each startup. This junk identity's key is not written to a file. Both
+validators boot under their junk identities without voting and listen for
+handoff requests.
 
 Once one validator is active, run the following on the standby to request
 a handoff. The staked identity keypair is already loaded from the

@@ -413,6 +413,7 @@ struct fd_topo_tile {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
+      int   identity_key_fd;
       int   failover_enabled;
       char  failover_staked_key_path[ PATH_MAX ];
       ulong authorized_voter_paths_cnt;
@@ -818,6 +819,7 @@ typedef struct {
    between them. */
 struct fd_topo {
   char           app_name[ 256UL ];
+  uchar          boot_identity[ 32 ]; /* generated public key, zero for a file-backed identity */
   uchar          props[ 32768UL ];
 
   ulong          sleep_obj_id;
