@@ -34,10 +34,18 @@ struct fd_execrp_txn_exec_msg {
 };
 typedef struct fd_execrp_txn_exec_msg fd_execrp_txn_exec_msg_t;
 
+/* A sigverify batch holds consecutive transactions of one block whose
+   signatures together fit FD_EXECRP_SIGVERIFY_SIG_PARA lanes.  The
+   first transaction of a batch is always taken, so a transaction with
+   more signatures than that travels alone and the batch then holds up
+   to FD_EXECRP_SIGVERIFY_LANE_MAX signatures. */
+#define FD_EXECRP_SIGVERIFY_SIG_PARA 8
+#define FD_EXECRP_SIGVERIFY_LANE_MAX (FD_EXECRP_SIGVERIFY_SIG_PARA>FD_TXN_SIG_MAX ? FD_EXECRP_SIGVERIFY_SIG_PARA : FD_TXN_SIG_MAX)
 struct fd_execrp_txn_sigverify_msg {
   ulong      bank_idx;
-  ulong      txn_idx;
-  fd_txn_p_t txn[ 1 ];
+  ulong      cnt;                                 /* In [1,FD_EXECRP_SIGVERIFY_SIG_PARA] */
+  ulong      txn_idx[ FD_EXECRP_SIGVERIFY_SIG_PARA ];
+  fd_txn_p_t txn    [ FD_EXECRP_SIGVERIFY_SIG_PARA ];
 };
 typedef struct fd_execrp_txn_sigverify_msg fd_execrp_txn_sigverify_msg_t;
 
@@ -135,8 +143,9 @@ struct fd_execrp_txn_exec_done_msg {
 typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
 
 struct fd_execrp_txn_sigverify_done_msg {
-  ulong txn_idx;
-  int   err;
+  ulong cnt;                                 /* Same as in the task message */
+  ulong txn_idx[ FD_EXECRP_SIGVERIFY_SIG_PARA ];
+  int   err    [ FD_EXECRP_SIGVERIFY_SIG_PARA ]; /* Non-zero if any signature of the transaction failed */
 };
 typedef struct fd_execrp_txn_sigverify_done_msg fd_execrp_txn_sigverify_done_msg_t;
 

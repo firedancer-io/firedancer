@@ -145,6 +145,9 @@ typedef struct {
   ulong txn_idx;
   ulong exec_idx;
   ulong local_txn_idx;
+  ulong sig_cnt;
+  ulong sig_txn_idx      [ FD_SCHED_SIGVERIFY_SIG_PARA ];
+  ulong sig_local_txn_idx[ FD_SCHED_SIGVERIFY_SIG_PARA ];
   ulong     poh_cnt;
   ulong     hashcnt;
   ulong     mblk_idx      [ FD_SCHED_POH_PARA ];
@@ -905,18 +908,22 @@ complete_task( case_t *     tc,
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
-      fd_sched_txn_info_t * info = fd_sched_get_txn_info( tc->sched, task->txn_idx );
-      FD_TEST( info );
-      FD_TEST( !(info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
+      for( ulong i=0UL; i<task->sig_cnt; i++ ) {
+        fd_sched_txn_info_t * info = fd_sched_get_txn_info( tc->sched, task->sig_txn_idx[ i ] );
+        FD_TEST( info );
+        FD_TEST( !(info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
+      }
       if( FD_UNLIKELY( block->failure_mode==TEST_FAIL_SIG && !block->failure_injected ) ) {
         block->failure_injected = 1;
         block->dead_seen        = 1;
         fd_sched_block_abandon( tc->sched, task->bank_idx, FD_SCHED_ABANDON_INVALID );
       }
-      FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_idx, task->exec_idx, NULL ) );
-      info = fd_sched_get_txn_info( tc->sched, task->txn_idx );
-      FD_TEST( info && (info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
-      block->sig_done_mask |= 1UL << task->local_txn_idx;
+      FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, task->exec_idx, NULL ) );
+      for( ulong i=0UL; i<task->sig_cnt; i++ ) {
+        fd_sched_txn_info_t * info = fd_sched_get_txn_info( tc->sched, task->sig_txn_idx[ i ] );
+        FD_TEST( info && (info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
+        block->sig_done_mask |= 1UL << task->sig_local_txn_idx[ i ];
+      }
       break;
     }
     case FD_SCHED_TT_POH_HASH: {
@@ -1231,11 +1238,10 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         rdisp_mirror_try_retire_dead_blocks( tc, mirror );
         break;
       }
-      case FD_SCHED_TT_TXN_EXEC:
-      case FD_SCHED_TT_TXN_SIGVERIFY: {
-        bank_idx = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->bank_idx, task->txn_sigverify->bank_idx );
-        ulong txn_idx  = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_sigverify->txn_idx );
-        ulong exec_idx = fd_ulong_if( task->task_type==FD_SCHED_TT_TXN_EXEC, task->txn_exec->exec_idx, task->txn_sigverify->exec_idx );
+      case FD_SCHED_TT_TXN_EXEC: {
+        bank_idx = task->txn_exec->bank_idx;
+        ulong txn_idx  = task->txn_exec->txn_idx;
+        ulong exec_idx = task->txn_exec->exec_idx;
         FD_TEST( bank_idx>0UL && bank_idx<=tc->block_cnt );
         block_t * block = tc->block + (bank_idx-1UL);
         fd_txn_p_t * txn = fd_sched_get_txn( tc->sched, txn_idx );
@@ -1247,14 +1253,8 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         FD_TEST( block->start_seen );
         FD_TEST( info->slot==block->slot );
         FD_TEST( info->index_in_slot==local );
-        if( FD_LIKELY( task->task_type==FD_SCHED_TT_TXN_EXEC ) )
-          FD_TEST( (block->exec_done_mask & block->pred_mask[ local ]) == block->pred_mask[ local ] );
-        if( FD_LIKELY( task->task_type==FD_SCHED_TT_TXN_EXEC ) ) {
-          FD_TEST( !(info->flags & FD_SCHED_TXN_EXEC_DONE) );
-        } else {
-          FD_TEST( !(info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
-          FD_TEST( info->sigverify_exec_tile_idx==exec_idx );
-        }
+        FD_TEST( (block->exec_done_mask & block->pred_mask[ local ]) == block->pred_mask[ local ] );
+        FD_TEST( !(info->flags & FD_SCHED_TXN_EXEC_DONE) );
         inflight[ inflight_cnt++ ] = (inflight_t) {
           .task_type     = task->task_type,
           .bank_idx      = bank_idx,
@@ -1262,6 +1262,44 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
           .exec_idx      = exec_idx,
           .local_txn_idx = local,
         };
+        break;
+      }
+      case FD_SCHED_TT_TXN_SIGVERIFY: {
+        bank_idx = task->txn_sigverify->bank_idx;
+        ulong exec_idx = task->txn_sigverify->exec_idx;
+        FD_TEST( bank_idx>0UL && bank_idx<=tc->block_cnt );
+        block_t * block = tc->block + (bank_idx-1UL);
+        FD_TEST( block->start_seen );
+        FD_TEST( task->txn_sigverify->cnt && task->txn_sigverify->cnt<=FD_SCHED_SIGVERIFY_SIG_PARA );
+        inflight_t * entry = inflight + inflight_cnt++;
+        *entry = (inflight_t) {
+          .task_type = task->task_type,
+          .bank_idx  = bank_idx,
+          .txn_idx   = ULONG_MAX,
+          .exec_idx  = exec_idx,
+          .sig_cnt   = task->txn_sigverify->cnt,
+        };
+        /* The batch is a run of consecutive transactions whose
+           signatures fit the lane budget, with the first always taken. */
+        ulong sig_cnt = 0UL;
+        for( ulong i=0UL; i<task->txn_sigverify->cnt; i++ ) {
+          ulong txn_idx = task->txn_sigverify->txn_idx[ i ];
+          fd_txn_p_t * txn = fd_sched_get_txn( tc->sched, txn_idx );
+          fd_sched_txn_info_t * info = fd_sched_get_txn_info( tc->sched, txn_idx );
+          FD_TEST( txn );
+          FD_TEST( info );
+          ulong local = find_txn( block, txn );
+          FD_TEST( local!=ULONG_MAX );
+          FD_TEST( info->slot==block->slot );
+          FD_TEST( info->index_in_slot==local );
+          if( i ) FD_TEST( local==entry->sig_local_txn_idx[ i-1UL ]+1UL );
+          FD_TEST( !(info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
+          FD_TEST( info->sigverify_exec_tile_idx==exec_idx );
+          sig_cnt += TXN( txn )->signature_cnt;
+          FD_TEST( i==0UL || sig_cnt<=FD_SCHED_SIGVERIFY_SIG_PARA );
+          entry->sig_txn_idx      [ i ] = txn_idx;
+          entry->sig_local_txn_idx[ i ] = local;
+        }
         break;
       }
       case FD_SCHED_TT_POH_HASH: {

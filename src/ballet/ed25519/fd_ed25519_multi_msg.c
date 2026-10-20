@@ -1,0 +1,28 @@
+#include "fd_ed25519.h"
+
+void
+fd_ed25519_verify_batch_multi_msg( uchar const * const msgs[],
+                                   ulong const         msg_szs[],
+                                   uchar const * const sigs[],
+                                   uchar const * const public_keys[],
+                                   fd_sha512_t *       shas[],
+                                   int                 results[],
+                                   ulong               batch_sz ) {
+  for( ulong j=0UL; j<batch_sz; j++ ) {
+    results[ j ] = fd_ed25519_verify( msgs[ j ], msg_szs[ j ], sigs[ j ], public_keys[ j ], shas[ j ] );
+  }
+}
+
+void
+fd_ed25519_verify_batch_multi_msg_cached( uchar const * const  msgs[],
+                                          ulong const          msg_szs[],
+                                          uchar const * const  sigs[],
+                                          uchar const * const  public_keys[],
+                                          fd_sha512_t *        shas[],
+                                          int                  results[],
+                                          ulong                batch_sz,
+                                          fd_ed25519_cache_t * cache ) {
+  for( ulong j=0UL; j<batch_sz; j++ ) {
+    results[ j ] = fd_ed25519_verify_cached( msgs[ j ], msg_szs[ j ], sigs[ j ], public_keys[ j ], shas[ j ], cache );
+  }
+}
