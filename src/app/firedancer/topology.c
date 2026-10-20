@@ -294,6 +294,8 @@ fd_topo_initialize( config_t * config ) {
                   "[snapshots.fast_boot.enabled] requires a stream server in [snapshots.sources.servers]" );
     FD_CHECK_ERR( snapin_tile_cnt>=2UL,
                   "[snapshots.fast_boot.enabled] requires at least two snapin tiles in [layout.snapin_tile_count]" );
+    FD_CHECK_ERR( config->firedancer.snapshots.incremental_snapshots,
+                  "[snapshots.fast_boot.enabled] requires [snapshots.incremental_snapshots]" );
   }
   if( FD_UNLIKELY( strmk_enabled ) ) {
     FD_CHECK_ERR( snapsv_tile_cnt && snapmk_enabled,
@@ -1594,7 +1596,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.sources.max_local_incremental_age    = config->firedancer.snapshots.sources.max_local_incremental_age;
     tile->snapct.incremental_snapshots                = config->firedancer.snapshots.incremental_snapshots;
     tile->snapct.fast_boot                            = config->firedancer.snapshots.fast_boot.enabled;
-    tile->snapct.stream                               = config->firedancer.snapshots.fast_boot.enabled && tile->kind_id==0UL;
+    tile->snapct.fast_boot_stream                     = config->firedancer.snapshots.fast_boot.enabled && tile->kind_id==0UL;
     tile->snapct.max_full_snapshots_to_keep           = config->firedancer.snapshots.max_full_snapshots_to_keep;
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
@@ -1633,7 +1635,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
 
-    tile->snapdc.stream = config->firedancer.snapshots.fast_boot.enabled && tile->kind_id==0UL;
+    tile->snapdc.fast_boot_stream = config->firedancer.snapshots.fast_boot.enabled && tile->kind_id==0UL;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
@@ -1642,6 +1644,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.expected_shred_version = config->consensus.expected_shred_version;
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.max_txn_per_slot = config->limits.max_txn_per_slot;
+    tile->snapin.fast_boot        = config->firedancer.snapshots.fast_boot.enabled;
     tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
     tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );

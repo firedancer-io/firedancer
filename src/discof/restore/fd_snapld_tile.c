@@ -62,7 +62,7 @@ typedef struct fd_snapld_tile {
     ulong off;     /* bytes of the stream read so far */
     long  wait;    /* when to ask for more, LONG_MAX while a request runs */
     long  give_up; /* when to stop retrying failed polls */
-  } stream;
+  } fast_boot_stream;
 
   ulong  bytes_in_batch;
   double download_speed_mibs;
@@ -284,7 +284,7 @@ during_housekeeping( fd_snapld_tile_t * ctx ) {
 static long
 next_deadline( fd_snapld_tile_t * ctx ) {
   if( FD_LIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING || ctx->load_file ) ) return LONG_MAX;
-  long next = fd_long_min( fd_long_min( fd_sshttp_deadline( ctx->sshttp ), ctx->window_deadline ), ctx->stream.wait );
+  long next = fd_long_min( fd_long_min( fd_sshttp_deadline( ctx->sshttp ), ctx->window_deadline ), ctx->fast_boot_stream.wait );
   return next==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
 }
 
@@ -309,10 +309,10 @@ transition_malformed( fd_snapld_tile_t *  ctx,
 static int
 handle_connection_failure( fd_snapld_tile_t * ctx,
                            long               now ) {
-  if( FD_LIKELY( !ctx->stream.caught_up || now>=ctx->stream.give_up ) ) return 0;
+  if( FD_LIKELY( !ctx->fast_boot_stream.caught_up || now>=ctx->fast_boot_stream.give_up ) ) return 0;
   fd_sshttp_cancel( ctx->sshttp );
-  ctx->window_deadline = LONG_MAX;
-  ctx->stream.wait     = now+FD_SNAPLD_STREAM_RETRY_NS;
+  ctx->window_deadline       = LONG_MAX;
+  ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
   return 1;
 }
 
@@ -327,7 +327,7 @@ check_download_progress( fd_snapld_tile_t *  ctx,
   }
 
   /* A stream request only needs to receive at least 1 byte */
-  ulong min_bytes = ctx->stream.active ? 1UL : ctx->min_bytes_in_window;
+  ulong min_bytes = ctx->fast_boot_stream.active ? 1UL : ctx->min_bytes_in_window;
   if( FD_UNLIKELY( now>ctx->window_deadline ) ) {
     if( FD_UNLIKELY( ctx->bytes_in_window<min_bytes ) ) {
       /* cancel the download if the download progress speed in the last
@@ -397,13 +397,13 @@ after_credit( fd_snapld_tile_t *  ctx,
   } else {
     long now = fd_clock_tile_now( ctx->clock );
 
-    if( FD_UNLIKELY( ctx->stream.wait!=LONG_MAX ) ) {
-      if( FD_LIKELY( now<ctx->stream.wait ) ) return;
-      if( FD_UNLIKELY( fd_sshttp_resume( ctx->sshttp, now, ctx->stream.off ) ) ) {
+    if( FD_UNLIKELY( ctx->fast_boot_stream.wait!=LONG_MAX ) ) {
+      if( FD_LIKELY( now<ctx->fast_boot_stream.wait ) ) return;
+      if( FD_UNLIKELY( fd_sshttp_resume( ctx->sshttp, now, ctx->fast_boot_stream.off ) ) ) {
         if( FD_LIKELY( !handle_connection_failure( ctx, now ) ) ) transition_malformed( ctx, stem );
         return;
       }
-      ctx->stream.wait = LONG_MAX;
+      ctx->fast_boot_stream.wait = LONG_MAX;
     }
 
     int   downloading = 0;
@@ -456,9 +456,9 @@ after_credit( fd_snapld_tile_t *  ctx,
             }
             int is_full_filename   = !strncmp( resolved_name, "snapshot-", 9 );
             int is_stream_filename = !strncmp( resolved_name, "fast-boot-stream-", 17 );
-            if( FD_UNLIKELY( is_stream_filename!=ctx->stream.active || (!ctx->stream.active && is_full_filename!=ctx->load_full) ) ) {
+            if( FD_UNLIKELY( is_stream_filename!=ctx->fast_boot_stream.active || (!ctx->fast_boot_stream.active && is_full_filename!=ctx->load_full) ) ) {
               FD_LOG_WARNING(( "resolved snapshot type mismatch: expected %s but got %s filename `%s`",
-                               ctx->stream.active ? "stream" : ctx->load_full ? "full" : "incremental",
+                               ctx->fast_boot_stream.active ? "stream" : ctx->load_full ? "full" : "incremental",
                                is_stream_filename ? "stream" : is_full_filename ? "full" : "incremental", resolved_name ));
               transition_malformed( ctx, stem );
               fd_sshttp_cancel( ctx->sshttp );
@@ -493,11 +493,11 @@ after_credit( fd_snapld_tile_t *  ctx,
         if( FD_LIKELY( data_len!=0UL ) ) {
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
-          ctx->bytes_in_batch += data_len;
-          ctx->stream.off     += data_len;
+          ctx->bytes_in_batch       += data_len;
+          ctx->fast_boot_stream.off += data_len;
 
           /* measure download speed every 100 MiB */
-          if( !ctx->stream.active && ctx->bytes_in_batch>=100<<20UL ) {
+          if( !ctx->fast_boot_stream.active && ctx->bytes_in_batch>=100<<20UL ) {
             ctx->end_batch = fd_clock_tile_now( ctx->clock );
             /* as a precaution, make sure elapsed_batch is positive
                and larger than zero (to avoid division by zero). */
@@ -529,10 +529,10 @@ after_credit( fd_snapld_tile_t *  ctx,
           fd_sshttp_cancel( ctx->sshttp );
           break;
         }
-        if( FD_UNLIKELY( ctx->stream.active ) ) {
-          ctx->window_deadline = LONG_MAX;
-          ctx->stream.wait     = now;
-          ctx->stream.give_up  = now+FD_SNAPLD_STREAM_GIVE_UP_NS;
+        if( FD_UNLIKELY( ctx->fast_boot_stream.active ) ) {
+          ctx->window_deadline          = LONG_MAX;
+          ctx->fast_boot_stream.wait    = now;
+          ctx->fast_boot_stream.give_up = now+FD_SNAPLD_STREAM_GIVE_UP_NS;
           break;
         }
         FD_LOG_INFO(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
@@ -540,25 +540,25 @@ after_credit( fd_snapld_tile_t *  ctx,
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       case FD_SSHTTP_ADVANCE_NOT_YET:
-        if( FD_UNLIKELY( !ctx->stream.caught_up ) ) {
-          ctx->stream.caught_up = 1;
+        if( FD_UNLIKELY( !ctx->fast_boot_stream.caught_up ) ) {
+          ctx->fast_boot_stream.caught_up = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, 0UL, 0UL, 0UL );
         }
-        ctx->stream.wait    = now+FD_SNAPLD_STREAM_RETRY_NS;
-        ctx->stream.give_up = now+FD_SNAPLD_STREAM_GIVE_UP_NS;
+        ctx->fast_boot_stream.wait    = now+FD_SNAPLD_STREAM_RETRY_NS;
+        ctx->fast_boot_stream.give_up = now+FD_SNAPLD_STREAM_GIVE_UP_NS;
         break;
       case FD_SSHTTP_ADVANCE_NOT_FOUND:
-        if( FD_UNLIKELY( !ctx->stream.active ) ) {
+        if( FD_UNLIKELY( !ctx->fast_boot_stream.active ) ) {
           FD_LOG_WARNING(( "%s snapshot not found at the peer", ctx->load_full ? "full" : "incremental" ));
           transition_malformed( ctx, stem );
           break;
         }
         if( FD_UNLIKELY( !ctx->sent_meta ) ) {
           /* The server has no stream right now, between two streams. */
-          ctx->stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
+          ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
           break;
         }
-        FD_LOG_INFO(( "the fast boot stream ended after %lu bytes", ctx->stream.off ));
+        FD_LOG_INFO(( "the fast boot stream ended after %lu bytes", ctx->fast_boot_stream.off ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
@@ -612,10 +612,10 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->is_redirect = msg_in->is_redirect;
       ctx->file_sz     = msg_in->file_sz;
 
-      ctx->stream.active    = msg_in->stream;
-      ctx->stream.caught_up = 0;
-      ctx->stream.off       = 0UL;
-      ctx->stream.wait      = LONG_MAX;
+      ctx->fast_boot_stream.active    = msg_in->fast_boot_stream;
+      ctx->fast_boot_stream.caught_up = 0;
+      ctx->fast_boot_stream.off       = 0UL;
+      ctx->fast_boot_stream.wait      = LONG_MAX;
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;

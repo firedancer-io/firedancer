@@ -4332,10 +4332,34 @@ background_preevict( fd_accdb_t * accdb,
   }
 }
 
+void
+fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
+                                fd_accdb_fork_id_t fork_id,
+                                fd_accdb_fork_id_t ancestor_id ) {
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+  FD_TEST( fork->shmem->child_id.val==USHORT_MAX );
+  FD_TEST( descends_set_test( fork->descends, ancestor_id.val ) );
+  descends_set_remove( fork->descends, ancestor_id.val );
+}
+
+/* fork_is_ancestor says whether candidate is fork_id or one of its
+   ancestors, hidden ones included.  The parent chain is stable while
+   restore writers run, no fork is rooted or purged then. */
+
+static inline int
+fork_is_ancestor( fd_accdb_t const * accdb,
+                  fd_accdb_fork_id_t fork_id,
+                  ushort             candidate ) {
+  for( ushort cur=fork_id.val; cur!=USHORT_MAX; cur=accdb->fork_pool[ cur ].shmem->parent_id.val ) {
+    if( cur==candidate ) return 1;
+  }
+  return 0;
+}
+
 int
 fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               fd_accdb_fork_id_t  fork_id,
-                              int                 is_incremental,
+                              int                 is_incremental_or_fast_boot_stream,
                               int                 skip_duplicates,
                               ulong               cnt,
                               uchar const * const pubkeys[],
@@ -4441,11 +4465,14 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
       if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
         /* Live records must sit before snapshot-loaded records so any
            queries during replay return the live version of the
-           account. */
+           account.  A record of a hidden ancestor (the snapshots behind
+           a fast boot stream) is not findable until snapshot loading is
+           finished.  Make sure the stream record comes first so any
+           queries return the stream's record. */
         if( FD_UNLIKELY( candidate->key.generation>root_generation &&
                          fd_accdb_acc_fork_id( candidate )!=fork_id.val &&
                          !descends_set_test( fork->descends, fd_accdb_acc_fork_id( candidate ) ) ) ) {
-          last_live = next_acc;
+          if( FD_LIKELY( !fork_is_ancestor( accdb, fork_id, fd_accdb_acc_fork_id( candidate ) ) ) ) last_live = next_acc;
           next_acc = candidate->map.next;
           continue;
         }
@@ -4458,7 +4485,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
           FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
           result = -1;
           goto fini;
-        } else if( FD_UNLIKELY( is_incremental ) && candidate->key.generation!=fork_gen ) {
+        } else if( FD_UNLIKELY( is_incremental_or_fast_boot_stream ) && candidate->key.generation!=fork_gen ) {
           cross_existing = candidate;
         } else {
           existing = candidate;
@@ -4507,7 +4534,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
         new_head = acc_idx;
       }
 
-      if( FD_UNLIKELY( is_incremental ) ) {
+      if( FD_UNLIKELY( is_incremental_or_fast_boot_stream ) ) {
         fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
         if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
         txn->acc_pool_idx = acc_idx;

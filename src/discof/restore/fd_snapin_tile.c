@@ -199,8 +199,13 @@ struct fd_snapin_lead {
     int manifest_done;
     int status_cache_done;
     int manifest_processed;
-    int replay_started;
   } flags;
+
+  /* Fast boot.  The stream itself is written on accdb_full_fork_id. */
+  struct {
+    int                replay_started;   /* replay runs on the unrooted stream fork */
+    fd_accdb_fork_id_t snapshot_fork_id; /* the full and incremental snapshots behind the stream */
+  } fast_boot;
 
   ulong advertised_slot;
   ulong bank_slot;
@@ -264,6 +269,12 @@ struct fd_snapin_shmem {
   /* Stake delegations fork for incremental writes, USHORT_MAX for full. */
   ushort stake_fork;
 
+  /* Behind a fast boot the workers signal when the full and
+     incremental snapshots are in. */
+  struct {
+    int snapshots_done;
+  } fast_boot;
+
   /* Per-tile attempt values.  Lamport totals are 128-bit <*_hi,*>:
      they count every account version, which can pass 2^64. */
   struct __attribute__((aligned(128))) {
@@ -283,8 +294,14 @@ typedef struct fd_snapin_shmem fd_snapin_shmem_t;
 
 struct fd_snapin_tile {
   int  state;
-  uint full   : 1;  /* loading a full snapshot? */
-  uint stream : 1;  /* loading a fast boot stream? */
+  uint full : 1;  /* loading a full snapshot? */
+
+  /* Fast boot: tile 0 loads the stream, the other tiles load the full
+     and incremental snapshots behind it. */
+  struct {
+    uint enabled : 1;
+    uint stream  : 1;  /* this tile loads the stream */
+  } fast_boot;
 
   fd_snapin_lead_t lead;
 
@@ -1441,7 +1458,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     }
 
     ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
-    if( FD_UNLIKELY( fd_accdb_restore_write_batch( ctx->accdb, fork_id, !ctx->full, ctx->stream, cnt, pubkeys,
+    if( FD_UNLIKELY( fd_accdb_restore_write_batch( ctx->accdb, fork_id, ctx->fast_boot.stream || (!ctx->full && !ctx->fast_boot.enabled), ctx->fast_boot.stream, cnt, pubkeys,
                                                    slots, batch->lamports+batch_off,
                                                    data_lens, batch->executables+batch_off,
                                                    file_offsets, &accounts_ignored, &accounts_replaced,
@@ -1651,7 +1668,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         /* Parse only this tile's claimed appendvecs.  Tile 0 loads a
            stream alone, so it knows when every record is in. */
         ulong appendvec_idx = ctx->appendvec_seq++;
-        if( FD_UNLIKELY( ctx->stream ) ) {
+        if( FD_UNLIKELY( ctx->fast_boot.stream ) ) {
           if( FD_LIKELY( is_lead( ctx ) ) ) fd_ssparse_appendvec_parse( ctx->ssparse );
         } else if( FD_UNLIKELY( appendvec_idx==ctx->claimed_appendvec ) ) {
           ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec_ticket, 1UL );
@@ -1804,7 +1821,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   /* If we're reading a stream and replay started, flush any records
      ASAP so replay doesn't stay waiting for accounts that have already
      been loaded. */
-  if( FD_UNLIKELY( ctx->lead.flags.replay_started && writer_flush( ctx ) ) ) {
+  if( FD_UNLIKELY( ctx->lead.fast_boot.replay_started && writer_flush( ctx ) ) ) {
     transition_malformed( ctx, stem );
     return 0;
   }
@@ -1834,11 +1851,12 @@ reset_attempt_state( fd_snapin_tile_t * ctx ) {
 static void
 start_processing_attempt( fd_snapin_tile_t * ctx ) {
   FD_COMPILER_MFENCE();
-  ctx->load_fork = FD_VOLATILE_CONST( ctx->shmem->fork_id );
+  if( FD_LIKELY( !is_lead( ctx ) ) ) ctx->load_fork = FD_VOLATILE_CONST( ctx->shmem->fork_id );
+  else                               ctx->load_fork = ctx->full ? (ulong)ctx->lead.accdb_full_fork_id.val : (ulong)ctx->lead.accdb_incr_fork_id.val;
   FD_TEST( ctx->load_fork<(ulong)USHORT_MAX );
 
   /* Claim before the first data fragment. */
-  ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec_ticket, 1UL );
+  if( FD_LIKELY( !ctx->fast_boot.stream ) ) ctx->claimed_appendvec = FD_ATOMIC_FETCH_AND_ADD( &ctx->shmem->next_appendvec_ticket, 1UL );
 }
 
 static int
@@ -1891,6 +1909,25 @@ fold_account_counts( fd_snapin_tile_t * ctx ) {
   }
 }
 
+/* start_replay checks the sysvars of the stream and tells replay to
+   start on the stream fork, which stays unrooted until the stream and
+   the snapshots behind it are all in.  Returns 1 when the sysvars are
+   bad.
+   TODO: inline into the caught-up handler in piece 6, once the DONE
+   handler no longer calls it. */
+static int
+start_replay( fd_snapin_tile_t *  ctx,
+              fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
+    FD_LOG_WARNING(( "sysvar verification failed for the fast boot stream" ));
+    return 1;
+  }
+  fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, ctx->lead.accdb_full_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
+  fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL );
+  ctx->lead.fast_boot.replay_started = 1;
+  return 0;
+}
+
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
@@ -1916,7 +1953,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
 
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
-      ctx->stream = !!msg->stream;
+      ctx->fast_boot.stream = !!msg->fast_boot_stream;
 
       reset_attempt_state( ctx );
 
@@ -1934,6 +1971,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.incremental_bytes_read = 0UL;
       }
 
+      FD_VOLATILE( ctx->shmem->next_appendvec_ticket ) = 0UL;
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
       /* Roll back before publishing this attempt. */
@@ -1967,10 +2005,21 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ctx->lead.accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
 
+        /* The full and incremental snapshots behind a fast boot are
+           written on a fork under the stream's.  Until the snapshot
+           loading is done, replay must solely rely on the stream's
+           fork id for account lookups. */
+        fd_accdb_fork_id_t parent = ctx->lead.accdb_root_fork_id;
+        if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) {
+          ctx->lead.fast_boot.snapshot_fork_id = fd_accdb_attach_child( ctx->accdb, parent );
+          parent = ctx->lead.fast_boot.snapshot_fork_id;
+        }
+
         /* The full snapshot is written on its own fork and rooted at
            DONE, so nothing outside that fork sees it until the whole
            load is complete. */
-        ctx->lead.accdb_full_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
+        ctx->lead.accdb_full_fork_id = fd_accdb_attach_child( ctx->accdb, parent );
+        if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) fd_accdb_restore_hide_ancestor( ctx->accdb, ctx->lead.accdb_full_fork_id, ctx->lead.fast_boot.snapshot_fork_id );
 
         fd_accdb_snapshot_load_begin( ctx->accdb );
       } else {
@@ -1995,11 +2044,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       /* Reset shared state before publishing the fork. */
       fd_memset( &ctx->shmem->values, 0, sizeof(ctx->shmem->values) );
-      FD_VOLATILE( ctx->shmem->next_appendvec_ticket ) = 0UL;
       FD_COMPILER_MFENCE();
 
-      /* Publish before acknowledging INIT. */
-      FD_VOLATILE( ctx->shmem->fork_id    ) = ctx->full ? (ulong)ctx->lead.accdb_full_fork_id.val : (ulong)ctx->lead.accdb_incr_fork_id.val;
+      /* Publish before acknowledging INIT.  Behind a fast boot the
+         workers write the snapshots, not the stream. */
+      fd_accdb_fork_id_t workers_fork;
+      if(      FD_UNLIKELY( ctx->fast_boot.enabled ) ) workers_fork = ctx->lead.fast_boot.snapshot_fork_id;
+      else if( ctx->full )                             workers_fork = ctx->lead.accdb_full_fork_id;
+      else                                             workers_fork = ctx->lead.accdb_incr_fork_id;
+      FD_VOLATILE( ctx->shmem->fork_id    ) = (ulong)workers_fork.val;
       FD_VOLATILE( ctx->shmem->stake_fork ) = stake_fork;
       FD_COMPILER_MFENCE();
       break;
@@ -2026,27 +2079,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       forward_msg = 0;
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
-      FD_TEST( ctx->stream && !ctx->lead.flags.replay_started );
+      FD_TEST( ctx->fast_boot.stream && !ctx->lead.fast_boot.replay_started );
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING || !ctx->lead.flags.manifest_processed ) ) {
         FD_LOG_WARNING(( "caught up with the fast boot stream before its manifest or after its end" ));
         transition_malformed( ctx, stem );
         break;
       }
-      if( FD_UNLIKELY( writer_flush( ctx ) ) ) {
+      if( FD_UNLIKELY( writer_flush( ctx ) || start_replay( ctx, stem ) ) ) {
         transition_malformed( ctx, stem );
         break;
       }
-      if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
-        FD_LOG_WARNING(( "sysvar verification failed for the fast boot stream" ));
-        transition_malformed( ctx, stem );
-        break;
-      }
-
-      /* The stream fork stays unrooted until the stream ends, replay
-         holds its root until then. */
-      fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, ctx->lead.accdb_full_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
-      fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL );
-      ctx->lead.flags.replay_started = 1;
       break;
     }
 
@@ -2115,12 +2157,26 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+      if( FD_LIKELY( !is_lead( ctx ) ) ) {
+        if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) FD_VOLATILE( ctx->shmem->fast_boot.snapshots_done ) = 1;
+        break;
+      }
 
-      /* Replay took over at caught up with its root held.  Root the
-         stream fork now and let replay move on. */
-      if( FD_UNLIKELY( ctx->lead.flags.replay_started ) ) {
+      /* The stream ended and the snapshots behind it are in.  Start
+         replay if the stream ended before caught up, then root the
+         snapshot fork and the stream fork and end load mode.  Replay's
+         root moves on from there.
+         TODO: will remove the start_replay call in piece 6, caught up
+         always comes before DONE once streams rotate. */
+      if( FD_UNLIKELY( ctx->fast_boot.stream ) ) {
+        if( FD_UNLIKELY( !ctx->lead.fast_boot.replay_started && start_replay( ctx, stem ) ) ) {
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
+        FD_COMPILER_MFENCE();
         fold_account_counts( ctx );
+        if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) root_fork( ctx, &ctx->lead.fast_boot.snapshot_fork_id );
         root_fork( ctx, &ctx->lead.accdb_full_fork_id );
         fd_accdb_snapshot_load_end( ctx->accdb );
         ctx->lead.init_completed = 0;
@@ -2135,7 +2191,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( FD_UNLIKELY( !ctx->stream && validate_capitalization( ctx ) ) ) {
+      if( FD_UNLIKELY( validate_capitalization( ctx ) ) ) {
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
@@ -2179,7 +2235,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
-      if( FD_UNLIKELY( is_lead( ctx ) && ctx->lead.flags.replay_started ) ) FD_LOG_ERR(( "the fast boot stream failed after replay started" ));
       fd_accdb_flush_metrics( ctx->accdb );
 
       FD_COMPILER_MFENCE();
@@ -2245,6 +2300,19 @@ before_frag( fd_snapin_tile_t * ctx,
              ulong              in_idx,
              ulong              seq    FD_PARAM_UNUSED,
              ulong              sig ) {
+  /* Behind a fast boot the workers' fork comes from the stream's INIT
+     on tile 0, which may still be on its way, and tile 0 keeps the
+     stream's DONE until the snapshots behind it are in.
+     TODO: piece 6 makes the DONE hold an assert, the stream pipeline
+     only ends once the snapshots are in. */
+  if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) {
+    if( FD_LIKELY( !is_lead( ctx ) ) ) {
+      if( FD_UNLIKELY( FD_VOLATILE_CONST( ctx->shmem->fork_id )==ULONG_MAX ) ) return -1;
+    } else if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_DONE && !FD_VOLATILE_CONST( ctx->shmem->fast_boot.snapshots_done ) ) ) {
+      return -1;
+    }
+  }
+
   /* If we're currently in ERROR state we should only process FAIL
      control frags */
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
@@ -2424,6 +2492,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->tile_idx = tile->kind_id;
   if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));
+  ctx->fast_boot.enabled = !!tile->snapin.fast_boot;
 
   ctx->full     = 1;
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
@@ -2514,6 +2583,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->lead.accdb_full_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   fd_memset( &ctx->lead.recovery.accdb_metadata, 0, sizeof(ctx->lead.recovery.accdb_metadata) );
   fd_memset( &ctx->lead.flags, 0, sizeof(ctx->lead.flags) );
+  fd_memset( &ctx->lead.fast_boot, 0, sizeof(ctx->lead.fast_boot) );
+  ctx->lead.fast_boot.snapshot_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   ctx->lead.boot_timestamp = fd_log_wallclock();
 
   ctx->wfs_slot          = tile->snapin.wait_for_supermajority_at_slot;

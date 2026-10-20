@@ -3,7 +3,7 @@
 #include "fd_metrics_sample_gen.h"
 #include "fd_metrics_all.h"
 
-uint const fd_metrics_sample_snapct_state[ FD_METRICS_SAMPLE_SNAPCT_STATE_CNT ] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26 };
+uint const fd_metrics_sample_snapct_state[ FD_METRICS_SAMPLE_SNAPCT_STATE_CNT ] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
 
 static uint const state_net_state[ 3 ] = { 1, 2, 3 };
 static uint const state_mlx5_state[ 3 ] = { 1, 2, 3 };
@@ -27,7 +27,7 @@ static uint const state_gossvf_state[ 3 ] = { 1, 2, 3 };
 static uint const state_sign_state[ 3 ] = { 1, 2, 3 };
 static uint const state_netlnk_state[ 3 ] = { 1, 2, 3 };
 static uint const state_snapct_state[ 3 ] = { 1, 2, 3 };
-static uint const state_snapct_load_state[ 26 ] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26 };
+static uint const state_snapct_load_state[ 25 ] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25 };
 static uint const state_snapld_state[ 3 ] = { 1, 2, 3 };
 static uint const state_snapld_stream_state[ 5 ] = { 1, 2, 3, 4, 5 };
 static uint const state_snapdc_state[ 3 ] = { 1, 2, 3 };
@@ -2554,7 +2554,7 @@ static fd_metrics_sample_field_t const fields_snapct[ 56 ] = {
   { FD_METRICS_COUNTER_TILE_DEVICE_IRQ_OFF, 22U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_OFF, 23U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_TILE_TIMER_IRQ_OFF, 24U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_OFF, 25U, FD_METRICS_SAMPLE_STATE, state_snapct_load_state, 26UL },
+  { FD_METRICS_GAUGE_SNAPCT_LOAD_STATE_OFF, 25U, FD_METRICS_SAMPLE_STATE, state_snapct_load_state, 25UL },
   { FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_OFF, 26U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_FULL_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_SNAPCT_READ_PROGRESS_BYTES_INCREMENTAL_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },

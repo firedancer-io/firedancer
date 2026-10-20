@@ -35,6 +35,7 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
 #undef fd_stem_publish
 #include <stdlib.h>
 #include <sys/epoll.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -341,42 +342,95 @@ test_stream_signals( void ) {
 
   snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
   FD_TEST( ctx->load_complete==1 );
-
-  ctx->load_complete = 0;
-  ctx->state = FD_SNAPCT_STATE_FLUSHING_STREAM_RESET;
-  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
-  FD_TEST( !ctx->load_complete );
 }
 
-/* A stream retry is counted once, when the wait before it is over. */
+/* The snapct behind a fast boot loads the full, then the incremental,
+   both by redirect, and checks the incremental is based on that full. */
 static void
-test_stream_retry_once( void ) {
+test_background_snapshot_instance( void ) {
+  /* The output files sit at the fd numbers the snapshot pool uses. */
+  struct rlimit nofile; FD_TEST( !getrlimit( RLIMIT_NOFILE, &nofile ) );
+  if( FD_UNLIKELY( nofile.rlim_max<(rlim_t)FD_SNAP_FD( 2U ) ) ) { FD_LOG_WARNING(( "RLIMIT_NOFILE hard limit %lu below %d, skipping", (ulong)nofile.rlim_max, FD_SNAP_FD( 2U ) )); return; }
+  if( nofile.rlim_cur<(rlim_t)FD_SNAP_FD( 2U ) ) { nofile.rlim_cur = (rlim_t)FD_SNAP_FD( 2U ); FD_TEST( !setrlimit( RLIMIT_NOFILE, &nofile ) ); }
+
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx = scratch;
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar input [ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
   fd_memset( ctx, 0, sizeof(*ctx) );
   test_ctx_wake_init( ctx );
-  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
-  FD_TEST( ctx->selector );
-  ctx->state                      = FD_SNAPCT_STATE_FLUSHING_STREAM_RESET;
-  ctx->flush_ack_cnt              = 1;
-  ctx->flush_ack                  = 1;
-  ctx->config.max_retry_abort     = 2U;
-  ctx->deadline_nanos             = LONG_MAX;
-  ctx->local_out.full_snapshot_fd = -1;
-  ctx->out_ld.mem                 = (fd_wksp_t *)output;
-  ctx->out_ld.wmark               = 128UL;
-  test_output                     = output;
+  ctx->selector                          = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->state                             = FD_SNAPCT_STATE_INIT;
+  ctx->config.fast_boot                  = 1;
+  ctx->config.incremental_snapshots      = 1;
+  ctx->load_incremental                  = 1;
+  ctx->resolved_servers_cnt              = 1UL;
+  ctx->out_ld.mem                        = (fd_wksp_t *)output;
+  ctx->out_ld.wmark                      = 128UL;
+  ctx->snapld_in_mem                     = input;
+  test_output                            = output;
+
+  /* Downloads land in real files: a partial file per snapshot in a
+     scratch directory, at the fd numbers the pool expects. */
+  char dir[] = "/tmp/test_snapct_XXXXXX"; FD_TEST( mkdtemp( dir ) );
+  ctx->local_out.dir_fd = open( dir, O_RDONLY|O_DIRECTORY ); FD_TEST( ctx->local_out.dir_fd!=-1 );
+  fd_snap_pool_partial_name( ctx->local_out.full_snapshot_name,        0U );
+  fd_snap_pool_partial_name( ctx->local_out.incremental_snapshot_name, 1U );
+  int full_fd = openat( ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name,        O_CREAT|O_RDWR, 0600 ); FD_TEST( full_fd!=-1 );
+  int incr_fd = openat( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name, O_CREAT|O_RDWR, 0600 ); FD_TEST( incr_fd!=-1 );
+  FD_TEST( dup2( full_fd, FD_SNAP_FD( 0U ) )==FD_SNAP_FD( 0U ) ); close( full_fd );
+  FD_TEST( dup2( incr_fd, FD_SNAP_FD( 1U ) )==FD_SNAP_FD( 1U ) ); close( incr_fd );
+  ctx->local_out.full_snapshot_fd        = FD_SNAP_FD( 0U );
+  ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( 1U );
 
   int busy = 0;
   after_credit( ctx, NULL, NULL, &busy );
-  after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && !ctx->metrics.full.num_retries );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP && ctx->load_incremental );
+  fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && !init->slot && !init->fast_boot_stream && init->is_redirect );
 
-  ctx->deadline_nanos = 0L;
+  /* The full's META pins the base slot the incremental must have. */
+  fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)input;
+  memset( meta, 0, sizeof(*meta) );
+  meta->total_sz      = 1000UL;
+  meta->resolved_slot = 100UL;
+  strcpy( meta->resolved_name, "snapshot-100-BSP9ztdFEjwvkBo2LhHA47g9Q3PDwja9x5fj7taFRKH5.tar.zst" );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( ctx->full_snapshot_slot==100UL );
+
+  ctx->state     = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE;
+  ctx->flush_ack = ctx->flush_ack_cnt;
   after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->metrics.full.num_retries==1U );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP );
+  init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR && !init->slot && !init->fast_boot_stream && init->is_redirect );
+
+  /* An incremental based on that full is accepted. */
+  meta->resolved_slot = 150UL;
+  strcpy( meta->resolved_name, "incremental-snapshot-100-150-45eJ5C91fEenPRFc8NiqaDXMCHcPFwRUTMH3k1zY6a1B.tar.zst" );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+
+  /* One based on another full is fatal, so is any malformed load. */
+  pid_t pid = fork(); FD_TEST( pid>=0 );
+  if( !pid ) {
+    strcpy( meta->resolved_name, "incremental-snapshot-99-150-45eJ5C91fEenPRFc8NiqaDXMCHcPFwRUTMH3k1zY6a1B.tar.zst" );
+    snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+    _exit( 0 );
+  }
+  int status; FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+  pid = fork(); FD_TEST( pid>=0 );
+  if( !pid ) { ctx->malformed = 1; after_credit( ctx, NULL, NULL, &busy ); _exit( 0 ); }
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+
+  close( FD_SNAP_FD( 0U ) );
+  close( FD_SNAP_FD( 1U ) );
+  unlinkat( ctx->local_out.dir_fd, ctx->http_full_snapshot_name,            0 );
+  unlinkat( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name, 0 );
+  close( ctx->local_out.dir_fd );
+  rmdir( dir );
   free( sel );
   free( scratch );
 }
@@ -1495,7 +1549,7 @@ main( int     argc,
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
   test_stream_signals();
-  test_stream_retry_once();
+  test_background_snapshot_instance();
   test_start_after_init_acks();
   test_snapct_needs_incr();
   test_incr_use_local();
