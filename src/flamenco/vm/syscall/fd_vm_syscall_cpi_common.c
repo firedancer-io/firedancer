@@ -71,7 +71,9 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
   ulong program_id_idx = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, program_id );
   if( FD_LIKELY( program_id_idx!=ULONG_MAX ) ) out_instr->program_id = (uchar)program_id_idx;
 
-  uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  uchar  acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  ushort caller_map[ MAX_TX_ACCOUNT_LOCKS ];
+  fd_exec_instr_ctx_instr_account_map( vm->instr_ctx, caller_map );
 
   for( ushort i=0; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
@@ -90,13 +92,12 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
 
     /* Use USHORT_MAX to indicate account not found
         https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/invoke_context.rs#L395-L397 */
-    ulong idx_in_txn    = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, pubkey );
-    ulong idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( vm->instr_ctx, pubkey );
+    ulong idx_in_txn = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, pubkey );
 
     fd_instr_info_setup_instr_account( out_instr,
                                        acc_idx_seen,
                                        idx_in_txn!=ULONG_MAX ? (ushort)idx_in_txn : USHORT_MAX,
-                                       idx_in_caller!=ULONG_MAX ? (ushort)idx_in_caller : USHORT_MAX,
+                                       idx_in_txn!=ULONG_MAX ? caller_map[ idx_in_txn ] : USHORT_MAX,
                                        i,
                                        VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ),
                                        VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) );

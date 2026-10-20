@@ -70,6 +70,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   fd_instruction_account_t deduplicated_instruction_accounts[ FD_TXN_INSTR_ACCT_MAX ] = {0};
   ulong duplicate_indicies_cnt                                                                     = 0;
   ulong duplicate_indices[ FD_TXN_INSTR_ACCT_MAX ]                                    = {0};
+  uchar dedup_idx[ MAX_TX_ACCOUNT_LOCKS ]; /* index_in_transaction -> deduplicated index, UCHAR_MAX if none */
+  memset( dedup_idx, 0xff, sizeof(dedup_idx) );
 
   /* This function is either called by a true CPI or by a native cpi invocation.
      The native CPI invocation is never called with more than 3 instruction
@@ -98,13 +100,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* If there was an instruction account before this one which referenced the same
        transaction account index, find it's index in the deduplicated_instruction_accounts
        array. */
-    ulong duplicate_index = ULONG_MAX;
-    for( ulong j=0UL; j<deduplicated_instruction_accounts_cnt; j++ ) {
-      if( deduplicated_instruction_accounts[j].index_in_transaction==index_in_transaction ) {
-        duplicate_index = j;
-        break;
-      }
-    }
+    ulong duplicate_index = dedup_idx[ index_in_transaction ]!=UCHAR_MAX ? (ulong)dedup_idx[ index_in_transaction ] : ULONG_MAX;
 
     /* If this was account referenced in a previous iteration, update the flags to include those set
        in this iteration. This ensures that after all the iterations, the de-duplicated account flags
@@ -127,6 +123,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
          create the deduplicated_instruction_accounts fd_instruction_account_t object. */
 
       /* Add the instruction account to the duplicate indices array */
+      dedup_idx[ index_in_transaction ] = (uchar)deduplicated_instruction_accounts_cnt;
       duplicate_indices[duplicate_indicies_cnt++] = deduplicated_instruction_accounts_cnt;
 
       /* Initialize the instruction account in the deduplicated_instruction_accounts array */
@@ -191,7 +188,10 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
   /* Obtain the program account index and return a MissingAccount error if not found.
     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L421-L436 */
-  ulong program_idx = fd_exec_instr_ctx_find_idx_of_instr_account( instr_ctx, callee_program_id_pubkey );
+  ushort caller_map[ MAX_TX_ACCOUNT_LOCKS ];
+  fd_exec_instr_ctx_instr_account_map( instr_ctx, caller_map );
+  ulong program_idx_in_txn = fd_runtime_find_index_of_account( instr_ctx->txn_out, callee_program_id_pubkey );
+  ulong program_idx        = program_idx_in_txn!=ULONG_MAX && caller_map[ program_idx_in_txn ]!=USHORT_MAX ? caller_map[ program_idx_in_txn ] : ULONG_MAX;
   if( FD_UNLIKELY( program_idx==ULONG_MAX ) ) {
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );

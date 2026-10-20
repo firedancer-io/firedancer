@@ -28,6 +28,8 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
 
   fd_pubkey_t instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ];
   uchar       acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  ushort      caller_map[ MAX_TX_ACCOUNT_LOCKS ];
+  fd_exec_instr_ctx_instr_account_map( ctx, caller_map );
 
   instr_info->acct_cnt = (ushort)acct_metas_len;
   for( ushort j=0U; j<acct_metas_len; j++ ) {
@@ -35,13 +37,12 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
     fd_pubkey_t const *               acct_key      = fd_type_pun_const( acct_meta->pubkey );
     instr_acct_keys[j] = *acct_key;
 
-    ulong idx_in_txn    = fd_runtime_find_index_of_account( ctx->txn_out, acct_key );
-    ulong idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( ctx, acct_key );
+    ulong idx_in_txn = fd_runtime_find_index_of_account( ctx->txn_out, acct_key );
 
     fd_instr_info_setup_instr_account( instr_info,
                                        acc_idx_seen,
                                        idx_in_txn!=ULONG_MAX ? (ushort)idx_in_txn : USHORT_MAX,
-                                       idx_in_caller!=ULONG_MAX ? (ushort)idx_in_caller : USHORT_MAX,
+                                       idx_in_txn!=ULONG_MAX ? caller_map[ idx_in_txn ] : USHORT_MAX,
                                        j,
                                        acct_meta->is_writable,
                                        acct_meta->is_signer );

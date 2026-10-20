@@ -59,16 +59,15 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t const * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::find_index_of_instruction_account.
+/* fd_exec_instr_ctx_instr_account_map fills map with, for each
+   transaction account index, the first index of that account in the
+   instruction, or USHORT_MAX.  Transaction keys are unique, so
+   map[ fd_runtime_find_index_of_account( pubkey ) ] is the index of
+   pubkey in the instruction. */
 
-   Returns the index of the instruction account given the account pubkey
-   or ULONG_MAX if the account is not found.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L524-L538 */
-
-ulong
-fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
-                                             fd_pubkey_t const *         pubkey );
+void
+fd_exec_instr_ctx_instr_account_map( fd_exec_instr_ctx_t const * ctx,
+                                     ushort                      map[ MAX_TX_ACCOUNT_LOCKS ] );
 
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_index_of_instruction_account_in_transaction
 
