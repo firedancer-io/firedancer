@@ -196,7 +196,7 @@ def host_snap():
   ifstat = {}
   for d in os.listdir( '/sys/class/net' ):
     st = {}
-    for k in ( 'rx_packets', 'tx_packets', 'rx_dropped', 'tx_dropped', 'rx_errors', 'tx_errors', 'rx_missed_errors' ):
+    for k in ( 'rx_packets', 'tx_packets', 'rx_dropped', 'tx_dropped', 'rx_errors', 'tx_errors', 'rx_missed_errors' ):  # missing or unreadable files are skipped
       try: st[ k ] = int( open( f'/sys/class/net/{d}/statistics/{k}' ).read() )
       except (OSError, ValueError): pass
     try: st[ 'operstate' ] = open( f'/sys/class/net/{d}/operstate' ).read().strip()
@@ -211,18 +211,19 @@ def host_snap():
       if m_ and re.search( r'_phy$|steer|discard|out_of_buffer|^rx_packets$|^tx_packets$|^rx_vport_unicast_packets$|^tx_vport_unicast_packets$', m_.group( 1 ) ):
         st[ m_.group( 1 ) ] = int( m_.group( 2 ) )
     nicstat[ d ] = st
-  ib = {}
+  ib = {}  # every sysfs read guarded: some attributes return EINVAL on read
+  def rdf( path ):
+    try: return open( path ).read().strip()
+    except OSError: return None
   for dev in sorted( glob.glob( '/sys/class/infiniband/*' ) ):
+    try: nd = sorted( os.listdir( f'{dev}/device/net' ) )
+    except OSError: nd = []
     for pt in sorted( glob.glob( f'{dev}/ports/*' ) ):
-      nd = sorted( set( os.path.basename( os.readlink( x ) ) if os.path.islink( x ) else open( x ).read().strip() for x in glob.glob( f'{pt}/gid_attrs/ndevs/*' ) if os.path.exists( x ) ) - { '' } )
-      st = ''
-      try: st = open( f'{pt}/state' ).read().strip()
-      except OSError: pass
       cnt = {}
       for c in ( 'port_rcv_packets', 'port_xmit_packets', 'port_rcv_discards', 'port_xmit_discards' ):
-        try: cnt[ c ] = int( open( f'{pt}/counters/{c}' ).read() )
-        except (OSError, ValueError): pass
-      ib[ f'{os.path.basename(dev)}/{os.path.basename(pt)}' ] = dict( ndevs=nd, state=st, cnt=cnt )
+        v = rdf( f'{pt}/counters/{c}' )
+        if v and v.isdigit(): cnt[ c ] = int( v )
+      ib[ f'{os.path.basename(dev)}/{os.path.basename(pt)}' ] = dict( ndevs=nd, state=rdf( f'{pt}/state' ) or '?', cnt=cnt )
   return dict( t=time.time(), snmp=snmp(), xdp_if=xdp_if, xsk=xsk, queues=queues, masters=masters, socks=udp_sockets(), bonds=bonds, ifstat=ifstat, nicstat=nicstat, ib=ib )
 
 def related_procs( vpid ):
