@@ -321,6 +321,11 @@ struct fd_txn_out {
     fd_pubkey_t executable_skipped_key[ MAX_TX_ACCOUNT_LOCKS ];
     ulong       executable_skipped_len[ MAX_TX_ACCOUNT_LOCKS ];
 
+    /* Programdata not present on the parent fork which are not in the
+       executable list above.  For example, programs deployed this slot. */
+    ushort      executable_missing_cnt;
+    fd_pubkey_t executable_missing_key[ MAX_TX_ACCOUNT_LOCKS ];
+
     /* Flags to demarcate if an account is queued up to update the vote
        or stakes caches in the commit stage of a transaction. */
     uchar stake_update[ MAX_TX_ACCOUNT_LOCKS ];

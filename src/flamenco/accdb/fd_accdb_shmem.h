@@ -54,6 +54,8 @@ struct fd_accdb_metrics {
   ulong accounts_committed_overwrite_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_not_found_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_waited;
+  ulong fast_boot_waited;
+  ulong fast_boot_wait_ticks;
   ulong accounts_deleted;
 
   ulong acquire_failed;

@@ -775,6 +775,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbAccountOverwriteCommitted" enum="AccdbCacheClass" summary="Account versions committed over an existing version of the same fork and generation, by destination cache size class" />
     <counter name="AccdbAccountCacheMissed" enum="AccdbCacheClass" summary="Accounts not found in the account database cache and read from disk, by cache size class" />
     <counter name="AccdbAccountWaited" summary="Accounts that had to wait for another reader to finish loading them into the cache" />
+    <counter name="AccdbFastBootWaited" summary="Account lookups that waited for the fast boot stream to deliver the account" />
+    <counter name="AccdbFastBootWaitDurationNanos" source="ticks" summary="Time spent waiting for the fast boot stream to deliver accounts" />
     <counter name="AccdbBatchAcquired" summary="Batch acquire calls made by this tile" />
     <counter name="AccdbCacheReserveRetried" summary="Spin retries while waiting to reserve cache lines for a transaction" />
     <counter name="AccdbDiskReadBytes" summary="Bytes read from the account database file" />
@@ -1010,6 +1012,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbAccountOverwriteCommitted" enum="AccdbCacheClass" summary="Account versions committed over an existing version of the same fork and generation, by destination cache size class" />
     <counter name="AccdbAccountCacheMissed" enum="AccdbCacheClass" summary="Accounts not found in the account database cache and read from disk, by cache size class" />
     <counter name="AccdbAccountWaited" summary="Accounts that had to wait for another reader to finish loading them into the cache" />
+    <counter name="AccdbFastBootWaited" summary="Account lookups that waited for the fast boot stream to deliver the account" />
+    <counter name="AccdbFastBootWaitDurationNanos" source="ticks" summary="Time spent waiting for the fast boot stream to deliver accounts" />
     <counter name="AccdbBatchAcquired" summary="Batch acquire calls made by this tile" />
     <counter name="AccdbCacheReserveRetried" summary="Spin retries while waiting to reserve cache lines for a transaction" />
     <counter name="AccdbDiskReadBytes" summary="Bytes read from the account database file" />
@@ -1736,6 +1740,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbAccountOverwriteCommitted" enum="AccdbCacheClass" summary="Account versions committed over an existing version of the same fork and generation, by destination cache size class" />
     <counter name="AccdbAccountCacheMissed" enum="AccdbCacheClass" summary="Accounts not found in the account database cache and read from disk, by cache size class" />
     <counter name="AccdbAccountWaited" summary="Accounts that had to wait for another reader to finish loading them into the cache" />
+    <counter name="AccdbFastBootWaited" summary="Account lookups that waited for the fast boot stream to deliver the account" />
+    <counter name="AccdbFastBootWaitDurationNanos" source="ticks" summary="Time spent waiting for the fast boot stream to deliver accounts" />
     <counter name="AccdbBatchAcquired" summary="Batch acquire calls made by this tile" />
     <counter name="AccdbCacheReserveRetried" summary="Spin retries while waiting to reserve cache lines for a transaction" />
     <counter name="AccdbDiskReadBytes" summary="Bytes read from the account database file" />

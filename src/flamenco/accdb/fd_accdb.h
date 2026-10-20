@@ -249,6 +249,13 @@ fd_accdb_advance_root( fd_accdb_t *       accdb,
 int
 fd_accdb_cmd_pending( fd_accdb_t const * accdb );
 
+/* fd_accdb_wait_on_stream makes this join's lookups (acquire, read
+   and exists) block on keys that haven't been loaded in yet through a
+   fast boot stream. */
+
+void
+fd_accdb_wait_on_stream( fd_accdb_t * accdb );
+
 /* fd_accdb_snapshot_loading returns 1 while a snapshot or fast boot
    stream is being loaded, 0 otherwise. */
 
@@ -438,6 +445,14 @@ int
 fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey );
+
+/* fd_accdb_has_record is like fd_accdb_exists but also counts
+   tombstone records (loaded from a fast boot stream with 0 lamports). */
+
+int
+fd_accdb_has_record( fd_accdb_t *       accdb,
+                     fd_accdb_fork_id_t fork_id,
+                     uchar const *      pubkey );
 
 /* fd_accdb_probe_pd_this_fork checks whether the newest version of
    pubkey visible on fork_id was committed on fork_id itself.  If so,
@@ -748,6 +763,8 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
     FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_OVERWRITE_COMMITTED, _m->accounts_committed_overwrite_per_class ); \
     FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_CACHE_MISSED,        _m->accounts_not_found_per_class           ); \
     FD_MCNT_SET      ( TILE, ACCDB_ACCOUNT_WAITED,              _m->accounts_waited                        ); \
+    FD_MCNT_SET      ( TILE, ACCDB_FAST_BOOT_WAITED,            _m->fast_boot_waited                       ); \
+    FD_MCNT_SET      ( TILE, ACCDB_FAST_BOOT_WAIT_DURATION_NANOS, _m->fast_boot_wait_ticks                 ); \
     FD_MCNT_SET      ( TILE, ACCDB_BATCH_ACQUIRED,              _m->acquire_calls                          ); \
     FD_MCNT_SET      ( TILE, ACCDB_CACHE_RESERVE_RETRIED,       _m->acquire_failed                         ); \
     FD_MCNT_SET      ( TILE, ACCDB_DISK_READ_BYTES,             _m->bytes_read                             ); \

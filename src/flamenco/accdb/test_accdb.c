@@ -1740,6 +1740,15 @@ test_fork_hide_ancestor( void ) {
   test_write_batch_on( accdb, blind, 1, 1, 1UL, k3, blind_slot, blind_lamp, len, exec, &store );
   test_write_batch_on( accdb, snap,  0, 0, 1UL, k3, snap_slot,  snap_lamp,  len, exec, &store );
 
+  /* A hidden record is not there yet to the hiding fork, an empty
+     streamed one is: that is how a fast boot peer tells a key not
+     streamed yet from one that does not exist. */
+  uchar pk4[ 32 ] = {6}; uchar const * k4[ 1 ] = { pk4 }; ulong zero[ 1 ] = { 0UL };
+  test_write_batch_on( accdb, blind, 1, 1, 1UL, k4, blind_slot, zero, len, exec, &store );
+  FD_TEST(  fd_accdb_has_record( accdb, blind, pk4 ) && !fd_accdb_exists( accdb, blind, pk4 ) );
+  FD_TEST( !fd_accdb_has_record( accdb, blind, pk1 ) &&  fd_accdb_has_record( accdb, seen, pk1 ) );
+  FD_TEST(  fd_accdb_has_record( accdb, blind, pk2 ) );
+
   FD_TEST( fd_accdb_lamports( accdb, seen,  pk1 )==100UL );
   FD_TEST( fd_accdb_lamports( accdb, seen,  pk2 )==100UL );
   FD_TEST( fd_accdb_lamports( accdb, seen,  pk3 )==100UL );
@@ -1764,9 +1773,91 @@ test_fork_hide_ancestor( void ) {
   FD_TEST( fd_accdb_lamports( accdb, child, pk2 )==200UL );
   FD_TEST( fd_accdb_lamports( accdb, child, pk3 )==200UL );
   fd_accdb_snapshot_load_end( accdb );
-  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL ); /* the shadowed copies are gone */
+  FD_TEST(  fd_accdb_has_record( accdb, child, pk1 ) );
+  FD_TEST( !fd_accdb_has_record( accdb, child, pk4 ) ); /* rooting drops empty records */
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL ); /* and the shadowed copies */
   test_teardown( accdb, fd );
 }
+
+/* test_wait_on_stream: a join that opted in waits, while a fast boot
+   stream loads, for a key with no record; a tombstone or a cleared
+   load bit ends the wait at once. */
+typedef struct {
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t fork;
+  uchar const *      pubkey;
+  test_store_ctx_t * store;
+} test_late_writer_t;
+
+static void *
+test_late_writer_main( void * arg ) {
+  test_late_writer_t * w = arg;
+  usleep( 50000 );
+  uchar const * k[ 1 ] = { w->pubkey }; ulong slot[ 1 ] = { 5UL }; ulong lamp[ 1 ] = { 300UL }; ulong len[ 1 ] = { 0UL }; int exec[ 1 ] = { 0 };
+  test_write_batch_on( w->accdb, w->fork, 0, 0, 1UL, k, slot, lamp, len, exec, w->store );
+  return NULL;
+}
+
+static void *
+test_late_load_end_main( void * arg ) {
+  usleep( 50000 );
+  fd_accdb_snapshot_load_end( arg );
+  return NULL;
+}
+
+static void
+test_wait_on_stream( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL ); /* two joins */
+  test_store_ctx_t store = { .fd=fd };
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_wait_on_stream( accdb );
+  uchar pk1[ 32 ] = {1}; uchar pk2[ 32 ] = {2}; uchar pk3[ 32 ] = {3};
+
+  /* No load running: a missing key reads as empty at once. */
+  fd_acc_t acc = fd_accdb_read_one( accdb, root, pk1 );
+  FD_TEST( !acc.lamports ); fd_accdb_unread_one( accdb, &acc );
+  FD_TEST( !fd_accdb_metrics( accdb )->fast_boot_waited );
+
+  fd_accdb_snapshot_load_begin( accdb );
+
+  /* A tombstone is a record: no wait. */
+  uchar const * k2[ 1 ] = { pk2 }; ulong slot[ 1 ] = { 5UL }; ulong zero[ 1 ] = { 0UL }; ulong len[ 1 ] = { 0UL }; int exec[ 1 ] = { 0 };
+  test_write_batch_on( accdb, root, 0, 0, 1UL, k2, slot, zero, len, exec, &store );
+  acc = fd_accdb_read_one( accdb, root, pk2 );
+  FD_TEST( !acc.lamports ); fd_accdb_unread_one( accdb, &acc );
+  FD_TEST( !fd_accdb_metrics( accdb )->fast_boot_waited );
+
+  /* A key with no record waits until the stream writes it. */
+  fd_accdb_t * writer = test_join_writer( fd );
+  test_late_writer_t w = { .accdb=writer, .fork=root, .pubkey=pk3, .store=&store };
+  pthread_t thread; FD_TEST( !pthread_create( &thread, NULL, test_late_writer_main, &w ) );
+  acc = fd_accdb_read_one( accdb, root, pk3 );
+  FD_TEST( acc.lamports==300UL ); fd_accdb_unread_one( accdb, &acc );
+  FD_TEST( !pthread_join( thread, NULL ) );
+  FD_TEST( fd_accdb_metrics( accdb )->fast_boot_waited==1UL && fd_accdb_metrics( accdb )->fast_boot_wait_ticks>0UL );
+
+  /* fd_accdb_exists waits the same way. */
+  uchar pk4[ 32 ] = {4};
+  w.pubkey = pk4;
+  FD_TEST( !pthread_create( &thread, NULL, test_late_writer_main, &w ) );
+  FD_TEST( fd_accdb_exists( accdb, root, pk4 ) );
+  FD_TEST( !pthread_join( thread, NULL ) );
+  FD_TEST( fd_accdb_metrics( accdb )->fast_boot_waited==2UL );
+
+  /* The load ending ends a wait in progress: a missing key is final. */
+  FD_TEST( !pthread_create( &thread, NULL, test_late_load_end_main, writer ) );
+  acc = fd_accdb_read_one( accdb, root, pk1 );
+  FD_TEST( !acc.lamports ); fd_accdb_unread_one( accdb, &acc );
+  FD_TEST( !pthread_join( thread, NULL ) );
+  FD_TEST( fd_accdb_metrics( accdb )->fast_boot_waited==3UL );
+  acc = fd_accdb_read_one( accdb, root, pk1 );
+  FD_TEST( !acc.lamports ); fd_accdb_unread_one( accdb, &acc );
+  FD_TEST( fd_accdb_metrics( accdb )->fast_boot_waited==3UL );
+  free( writer );
+  test_teardown( accdb, fd );
+}
+
 
 typedef struct {
   fd_accdb_t *       accdb;
@@ -2779,6 +2870,8 @@ main( int     argc,
   test_snapshot_write_head();
   FD_LOG_NOTICE(( "test_fork_hide_ancestor ..." ));
   test_fork_hide_ancestor();
+  FD_LOG_NOTICE(( "test_wait_on_stream ..." ));
+  test_wait_on_stream();
 
   FD_LOG_NOTICE(( "test_overwrite_same_fork ..." ));
   test_overwrite_same_fork();

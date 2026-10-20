@@ -1451,6 +1451,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
     FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
     if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
+      txn_out->accounts.executable_missing_key[ txn_out->accounts.executable_missing_cnt++ ] = *programdata_key;
       int   skip_pd  = 0;
       ulong skip_len = 0UL;
       ulong skip_lamports = 0UL;
@@ -1517,9 +1518,9 @@ fd_executor_read_keys( fd_txn_in_t const *  txn_in,
     memcpy( out_keys[ cnt++ ].uc, txn_out->accounts.executable[ i ]->pubkey, 32UL );
   }
 
-  /* Executable skipped account keys */
-  memcpy( out_keys+cnt, txn_out->accounts.executable_skipped_key, txn_out->accounts.executable_skipped_cnt*sizeof(fd_pubkey_t) );
-  cnt += txn_out->accounts.executable_skipped_cnt;
+  /* Programdata not live on the parent. */
+  memcpy( out_keys+cnt, txn_out->accounts.executable_missing_key, txn_out->accounts.executable_missing_cnt*sizeof(fd_pubkey_t) );
+  cnt += txn_out->accounts.executable_missing_cnt;
 
   /* Lookup tables */
   fd_txn_t const *               txn  = TXN( txn_in->txn );
