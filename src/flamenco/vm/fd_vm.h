@@ -379,61 +379,55 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
      INVAL     - NULL vm (or, for fd_vm_exec_trace, the vm is not
                  attached to trace).  FIXME: ADD OTHER INPUT ARG CHECKS?
 
-     SIGTEXT   - A jump/call set the program counter outside the text
-                 region or the program counter incremented beyond the
-                 text region.  pc will be at the out of bounds location.
-                 ic and cu will not include the out of bounds location.
-                 For a call, the call stack frame was allocated.
+     SIGTEXT   - The program counter moved beyond the text region or
+                 a callx targeted outside the text region.
 
      SIGSPLIT  - A jump/call set the program counter into the middle of
                  a multiword instruction or a multiword instruction went
-                 past the text region end.  pc will be at the split.  ic
-                 and cu will not include the split.  For a call, the
-                 call stack frame was allocated.
+                 past the text region end.
 
      SIGCALL   - A call set the program counter to a non-function
-                 location.  pc will be at the non-function location.  ic
-                 and cu will include the call but not include the
-                 non-function location.  The call stack frame was
-                 allocated.
+                 location.
 
-     SIGSTACK  - The call depth limit was exceeded.  pc will be at the
-                 call.  ic and cu will include the call but not the call
-                 target.  The call stack frame was not allocated.
+     SIGSTACK  - The call depth limit was exceeded.
 
      SIGILL    - An invalid instruction was encountered (including an
-                 invalid opcode and an endian swap with an invalid bit
-                 width).  pc will be at the invalid instruction.  ic and
-                 cu will not include the invalid instruction.
+                 invalid opcode, an endian swap with an invalid bit
+                 width and an invalid call target).
 
      SIGSEGV   - An invalid memory access (outside the program memory
-                 map) was encountered.  pc will be at the faulting
-                 instruction.  ic and cu will not include the faulting
-                 instruction.
+                 map) was encountered.
 
-     SIGBUS    - An unaligned memory access was encountered.  pc will be
-                 at the faulting instruction.  ic and cu will not
-                 include the faulting instruction.  (Note: currently
-                 mapped to SIGSEGV and then only if check_align is
-                 enabled.)
+     SIGBUS    - An unaligned memory access was encountered.  (Note:
+                 currently mapped to SIGSEGV and then only if
+                 check_align is enabled.)
 
      SIGRDONLY - A write to read-only memory address was encountered.
-                 pc will be at the faulting instruction.  ic and cu will
-                 not include the faulting instruction.  (Note: currently
-                 mapped to SIGSEGV.)
+                 (Note: currently mapped to SIGSEGV.)
 
-     SIGCOST   - The compute limit was exceeded.  pc will be at the
-                 first non-executed instruction (if pc is a syscall, the
-                 syscall might have been partially executed when it ran
-                 out of budget .. see safety tip below).  ic will cover
-                 all executed instructions.  cu will be zero.
+     SIGCOST   - The compute limit was exceeded.  cu will be zero.
 
-   This will considers any error returned by a syscall as a fault and
-   returns the syscall error code here.  See syscall documentation for
-   details here.  When a syscall faults, pc will be at the syscall, ic
-   will include the syscall and cu will include the syscall and any
-   additional costs the syscall might have incurred up to that point of
-   the fault.
+   Failures fall into two classes with different guarantees:
+
+   VM exceptions are faults raised by the VM itself (all of the above,
+   e.g. an invalid instruction, an access violation or a division by
+   zero).  On a VM exception, pc, ic and the call stack are undefined.
+   cu is the remaining compute budget as billed by the Agave instruction
+   meter.  Note that the runtime additionally consumes all remaining
+   compute units of the instruction on a VM exception (SIMD-0182,
+   deplete_cu_meter_on_vm_failure).  A VM exception that coincides with
+   the compute limit being exceeded may be reported as either fault.
+
+   Syscall errors are runtime errors returned by a syscall (e.g. a
+   failed CPI).  These are reported as FD_VM_ERR_EBPF_SYSCALL_ERROR and
+   the specific error is recorded in the instruction context's
+   transaction error.  See syscall documentation for details.  Unlike
+   VM exceptions, syscall errors have precise accounting: pc will be at
+   the syscall, ic will include the syscall and cu will include the
+   syscall and any additional costs the syscall might have incurred up
+   to the point of the error (cu is zero if the syscall exceeded the
+   compute budget).  The runtime does not deplete the remaining compute
+   units on a syscall error.
 
    IMPORTANT SAFETY TIP!  Ideally, a syscall should only modify vm's
    state when it knows its overall syscall will be successful.
@@ -453,9 +447,8 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
    a vm faults with, for example, SIGSEGV from a speculatively
    executed memory access while a non-speculative execution would have
    faulted with SIGCOST on an earlier instruction.  In these situations,
-   pc will be at the faulting speculatively executed instruction, ic
-   will include all the speculatively executed instructions, cu will be
-   zero and vm's state will include the impact of all the speculation.
+   cu will be zero and vm's state will include the impact of all the
+   speculation.
 
    IMPORTANT SAFETY TIP!  While different vm implementations can
    disagree on why a program faulted (e.g. SIGCOST versus SIGSEGV in the
