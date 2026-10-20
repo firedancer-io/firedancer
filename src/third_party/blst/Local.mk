@@ -20,6 +20,11 @@ BLST_OBJS+=$(OBJDIR)/obj/third_party/blst/assembly.o
 else
 BLST_CFLAGS_NOWARN+=-D__BLST_NO_ASM__ -U__x86_64__ -U__aarch64__ -ffreestanding
 endif
+ifdef FD_HAS_UBSAN
+ifdef FD_USING_CLANG
+BLST_CFLAGS_NOWARN+=-fno-sanitize=implicit-conversion
+endif
+endif
 
 $(OBJDIR)/obj/third_party/blst/fd_blst_%.o : src/third_party/blst/fd_blst_%.c $(OBJDIR)/.flags src/third_party/blst/Local.mk
 	@$(info CC$(TAB)$(notdir $@))
