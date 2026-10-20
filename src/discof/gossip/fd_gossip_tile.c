@@ -233,6 +233,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MGAUGE_ENUM_COPY( GOSSIP, CRDS_USED,    crds_metrics->count );
   FD_MCNT_SET(         GOSSIP, CRDS_EXPIRED, crds_metrics->expired_cnt );
   FD_MCNT_SET(         GOSSIP, CRDS_EVICTED, crds_metrics->evicted_cnt );
+  FD_MCNT_SET(         GOSSIP, CRDS_RELAY_COALESCED, crds_metrics->relay_coalesced_cnt );
 
   FD_MGAUGE_SET( GOSSIP, CRDS_PEER_COUNT_STAKED,   crds_metrics->peer_staked_cnt    );
   FD_MGAUGE_SET( GOSSIP, CRDS_PEER_COUNT_UNSTAKED, crds_metrics->peer_unstaked_cnt  );

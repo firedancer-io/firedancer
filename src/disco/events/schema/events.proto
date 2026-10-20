@@ -10324,6 +10324,8 @@ message MetricsGossip {
   MetricsGossipWaitForSupermajorityState wait_for_supermajority_state = 55;
   // Peers removed from the ping tracker, by reason
   MetricsGossipPingPeerRemoved ping_peer_removed = 56;
+  // Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval
+  uint64 crds_relay_coalesced = 57;
 }
 
 // Metrics of one gossvf tile instance, one row per sweep

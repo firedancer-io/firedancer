@@ -44,6 +44,7 @@ enum {
   FD_METRICS_GAUGE_GOSSIP_CRDS_USED_RESTART_HEAVIEST_FORK_OFF,
   FD_METRICS_COUNTER_GOSSIP_CRDS_EXPIRED_OFF,
   FD_METRICS_COUNTER_GOSSIP_CRDS_EVICTED_OFF,
+  FD_METRICS_COUNTER_GOSSIP_CRDS_RELAY_COALESCED_OFF,
   FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_CAPACITY_OFF,
   FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_COUNT_OFF,
   FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_COUNT_STAKED_OFF = FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_COUNT_OFF,
@@ -196,6 +197,11 @@ enum {
 #define FD_METRICS_COUNTER_GOSSIP_CRDS_EVICTED_DESC "Entries evicted from the data store to make space for new entries"
 #define FD_METRICS_COUNTER_GOSSIP_CRDS_EVICTED_CVT  (FD_METRICS_CONVERTER_NONE)
 
+#define FD_METRICS_COUNTER_GOSSIP_CRDS_RELAY_COALESCED_NAME "gossip_crds_relay_coalesced"
+#define FD_METRICS_COUNTER_GOSSIP_CRDS_RELAY_COALESCED_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_GOSSIP_CRDS_RELAY_COALESCED_DESC "Received entry versions not relayed because a newer version of the same entry replaced them within the relay interval"
+#define FD_METRICS_COUNTER_GOSSIP_CRDS_RELAY_COALESCED_CVT  (FD_METRICS_CONVERTER_NONE)
+
 #define FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_CAPACITY_NAME "gossip_crds_peer_capacity"
 #define FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_CAPACITY_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_CAPACITY_DESC "Capacity for storing peers in the data store"
@@ -304,7 +310,7 @@ enum {
 #define FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STATE_DESC "Wait-for-supermajority progress: 0=unset (Not started), 1=loading_stakes (Loading stakes from the snapshot), 2=waiting_for_stake (Waiting for enough stake to come online), 3=publishing (Publishing our contact info to start), 4=done_or_disabled (Done, or wait-for-supermajority is disabled)"
 #define FD_METRICS_GAUGE_GOSSIP_WAIT_FOR_SUPERMAJORITY_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GOSSIP_TOTAL (121UL)
+#define FD_METRICS_GOSSIP_TOTAL (122UL)
 extern const fd_metrics_meta_t FD_METRICS_GOSSIP[FD_METRICS_GOSSIP_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_gossip_h */

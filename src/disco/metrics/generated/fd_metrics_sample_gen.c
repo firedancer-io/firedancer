@@ -2074,7 +2074,7 @@ static fd_metrics_sample_field_t const fields_rserve[ 145 ] = {
   { FD_METRICS_COUNTER_RSERVE_PING_CACHE_EVICTED_OFF, 52U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_gossip[ 183 ] = {
+static fd_metrics_sample_field_t const fields_gossip[ 184 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -2154,6 +2154,7 @@ static fd_metrics_sample_field_t const fields_gossip[ 183 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_GOSSIP_CRDS_EXPIRED_OFF, 34U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_GOSSIP_CRDS_EVICTED_OFF, 35U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_GOSSIP_CRDS_RELAY_COALESCED_OFF, 57U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_CAPACITY_OFF, 36U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_COUNT_OFF, 37U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_GAUGE_GOSSIP_CRDS_PEER_COUNT_STAKED_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4364,7 +4365,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "replay", 34U, fields_replay, 241UL, 2591UL },
   { "rotor", 35U, fields_rotor, 124UL, 1416UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
-  { "gossip", 37U, fields_gossip, 183UL, 1940UL },
+  { "gossip", 37U, fields_gossip, 184UL, 1952UL },
   { "gossvf", 38U, fields_gossvf, 124UL, 1416UL },
   { "sign", 39U, fields_sign, 57UL, 708UL },
   { "netlnk", 40U, fields_netlnk, 55UL, 673UL },
