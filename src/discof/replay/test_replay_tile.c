@@ -267,6 +267,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
 #define fd_rewards_recalculate_partitioned_rewards(k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(k,a,s,c); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
+static ulong mock_migration_slot = ULONG_MAX;
+#define fd_alpenglow_migration_slot(b,a) (mock_snapshot_boot ? mock_migration_slot : (fd_alpenglow_migration_slot)(b,a))
 #define fd_runtime_block_execute_prepare     mock_runtime_block_execute_prepare_fn
 
 /* Isolate footer rooting from scheduler storage and runtime settlement. */
@@ -5416,6 +5418,20 @@ snapshot_done( fd_replay_tile_t * ctx ) {
 }
 
 static void
+test_snapshot_boot_bank_migration_slot( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[1];
+  static fd_runtime_stack_t stack[1];
+
+  memset( ctx, 0, sizeof(*ctx) );
+  fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  mock_migration_slot = 64UL;
+  snapshot_done( ctx );
+  FD_TEST( root->f.alpenglow_migration_slot==64UL );
+
+  FD_LOG_NOTICE(( "pass: test_snapshot_boot_bank_migration_slot" ));
+}
+
+static void
 test_wfs_auto_override( fd_wksp_t * wksp ) {
   static fd_replay_tile_t  ctx[1];
   static fd_runtime_stack_t stack[1];
@@ -5823,6 +5839,7 @@ main( int     argc,
   test_wait_info_snapshot_intervals();
   test_wait_info_produced_incr_cnt( wksp );         fd_wksp_reset( wksp, 42U );
   test_wfs_auto_override( wksp );                   fd_wksp_reset( wksp, 42U );
+  test_snapshot_boot_bank_migration_slot( wksp );   fd_wksp_reset( wksp, 42U );
   test_wfs_error_aborts( wksp );                    fd_wksp_reset( wksp, 42U );
   test_wfs_bank_hash_mismatch( wksp );              fd_wksp_reset( wksp, 42U );
   test_wfs_done_idempotency( wksp );                fd_wksp_reset( wksp, 42U );
