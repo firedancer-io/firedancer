@@ -1038,15 +1038,18 @@ collect_block_devices( fd_boot_report_t * r ) {
         !strncmp( n, "sr", 2UL )   || !strncmp( n, "fd", 2UL )  || !strncmp( n, "nbd", 3UL )  ||
         !strncmp( n, "dm-", 3UL ) ) continue;
 
+    char path[ PATH_MAX ], buf[ 256 ];
+    ulong v;
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/block/%s/hidden", n ) );
+    if( !read_ulong( path, &v ) && v ) continue; /* an nvme multipath path disk, listed through its head */
+
     fd_boot_report_block_device_t * d = &r->block_devices[ r->block_devices_cnt++ ];
     fd_memset( d, 0, sizeof(*d) );
     fd_cstr_printf( d->name, sizeof(d->name), NULL, "%s", n );
 
-    char path[ PATH_MAX ], buf[ 256 ];
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/block/%s/device/model", n ) );
     if( !read_cstr( path, buf, sizeof(buf) ) ) fd_cstr_printf( d->model, sizeof(d->model), NULL, "%s", buf );
 
-    ulong v;
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/block/%s/size", n ) );
     if( !read_ulong( path, &v ) ) d->capacity_bytes = v*512UL;
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/block/%s/queue/rotational", n ) );
@@ -1107,14 +1110,34 @@ collect_nvme( fd_boot_report_t * r ) {
     char path[ PATH_MAX ], buf[ 256 ];
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/block/%s/device/firmware_rev", n ) );
     if( !read_cstr( path, buf, sizeof(buf) ) ) fd_cstr_printf( d->firmware_rev, sizeof(d->firmware_rev), NULL, "%s", buf );
-    long l;
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/block/%s/device/device/numa_node", n ) );
-    if( !read_long( path, &l ) && l>=0L && l<255L ) d->numa_node = (uchar)l;
 
+    /* With nvme multipath the disk's device is the subsystem, not a
+       controller (and ctrl_num is the subsystem instance), so take the
+       first controller listed under the subsystem. */
     char ctrl[ 64 ];
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/block/%s/device", n ) );
     readlink_base( path, ctrl, sizeof(ctrl) );
-    if( !ctrl[ 0 ] ) FD_TEST( fd_cstr_printf_check( ctrl, sizeof(ctrl), NULL, "nvme%u", ctrl_num ) );
+    if( !strncmp( ctrl, "nvme-subsys", 11UL ) ) {
+      ctrl[ 0 ] = '\0';
+      DIR * sub = opendir( path );
+      struct dirent * e;
+      uint c;
+      char tail;
+      while( sub && (e = readdir( sub )) ) {
+        if( 1==sscanf( e->d_name, "nvme%u%c", &c, &tail ) ) {
+          FD_TEST( fd_cstr_printf_check( ctrl, sizeof(ctrl), NULL, "%s", e->d_name ) );
+          break;
+        }
+      }
+      if( sub ) closedir( sub );
+    } else if( !ctrl[ 0 ] ) {
+      FD_TEST( fd_cstr_printf_check( ctrl, sizeof(ctrl), NULL, "nvme%u", ctrl_num ) );
+    }
+    if( !ctrl[ 0 ] ) continue;
+
+    long l;
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/nvme/%s/device/numa_node", ctrl ) );
+    if( !read_long( path, &l ) && l>=0L && l<255L ) d->numa_node = (uchar)l;
 
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/dev/%s", ctrl ) );
     int fd = open( path, O_RDONLY|O_CLOEXEC );
@@ -1128,6 +1151,7 @@ collect_nvme( fd_boot_report_t * r ) {
       .cdw10    = 0x02U | ( ( 512U/4U-1U )<<16 ), /* smart / health, numdl */
     };
     if( 0==syscall( SYS_ioctl, fd, NVME_IOCTL_ADMIN_CMD_, &cmd ) ) {
+      d->has_health          = 1;
       d->critical_warning    = log[ 0 ];
       d->available_spare_pct = log[ 3 ];
       d->percentage_used     = log[ 5 ];
@@ -1642,6 +1666,7 @@ fd_boot_report_publish( fd_boot_report_t *  r,
     if( d->media_errors )        ok &= !!fd_pb_push_uint64( encoder, 6U, d->media_errors );
     if( d->numa_node )           ok &= !!fd_pb_push_uint32( encoder, 7U, d->numa_node );
     if( d->namespace_size_bytes ) ok &= !!fd_pb_push_uint64( encoder, 8U, d->namespace_size_bytes );
+    if( d->has_health )          ok &= !!fd_pb_push_bool( encoder, 9U, 1 );
     ok &= !!fd_pb_submsg_close( encoder );
   }
 

@@ -168,6 +168,14 @@ main( int     argc,
   FD_LOG_NOTICE(( "dimms %lu nics %lu blocks %lu nvme %lu md %lu fs %lu",
                   report->dmi_dimms_cnt, report->nic_devices_cnt, report->block_devices_cnt,
                   report->nvme_devices_cnt, report->mdraid_arrays_cnt, report->filesystems_cnt ));
+  /* every nvme entry resolves its controller, multipath or not, so its
+     numa node is known on a numa host; health needs root */
+  for( ulong i=0UL; i<report->nvme_devices_cnt; i++ ) {
+    fd_boot_report_nvme_t const * d = &report->nvme_devices[ i ];
+    FD_LOG_NOTICE(( "nvme %s numa %u has_health %d", report->block_devices[ d->device_idx ].name, d->numa_node, d->has_health ));
+    if( !access( "/sys/devices/system/node/node1", F_OK ) ) FD_TEST( d->numa_node!=255 );
+    if( !geteuid() ) FD_TEST( d->has_health );
+  }
   FD_LOG_NOTICE(( "hypervisor %d container %d chassis %d",
                   report->hypervisor_vendor, report->container_type, report->dmi_chassis_type ));
 
