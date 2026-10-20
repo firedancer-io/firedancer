@@ -1303,9 +1303,9 @@ write_conn_http( fd_http_server_t * http,
           conn_pool_ele_release( http->conns, conn );
 
           if( FD_UNLIKELY( !ws_conn_pool_free( http->ws_conns ) ) ) {
-            ws_conn_treap_rev_iter_t it = ws_conn_treap_rev_iter_init( http->ws_conn_treap, http->ws_conns );
-            if( FD_LIKELY( !ws_conn_treap_rev_iter_done( it ) ) ) {
-              ulong ws_conn_id = ws_conn_treap_rev_iter_idx( it );
+            ws_conn_treap_fwd_iter_t it = ws_conn_treap_fwd_iter_init( http->ws_conn_treap, http->ws_conns );
+            if( FD_LIKELY( !ws_conn_treap_fwd_iter_done( it ) ) ) {
+              ulong ws_conn_id = ws_conn_treap_fwd_iter_idx( it );
               close_conn( http, http->max_conns+ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
             } else {
               close_conn( http, http->max_conns+http->evict_ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
