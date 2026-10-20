@@ -68,7 +68,7 @@ extern fd_metrics_sample_schema_t const fd_metrics_sample_link;
 
 /* Raw snapct LoadState -> MetricsSnapctLoadState proto enum number */
 
-#define FD_METRICS_SAMPLE_SNAPCT_STATE_CNT (25UL)
+#define FD_METRICS_SAMPLE_SNAPCT_STATE_CNT (23UL)
 extern uint const fd_metrics_sample_snapct_state[ FD_METRICS_SAMPLE_SNAPCT_STATE_CNT ];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_sample_gen_h */

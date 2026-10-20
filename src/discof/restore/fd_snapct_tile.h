@@ -41,9 +41,7 @@
 
 #define FD_SNAPCT_STATE_SHUTDOWN                        (21) /* The tile is done, and has likely already exited */
 
-#define FD_SNAPCT_STATE_READING_STREAM                  (22) /* Reading a fast boot stream from HTTP */
-#define FD_SNAPCT_STATE_FLUSHING_STREAM_FINI            (23) /* The stream ended, signal downstream to finish all pending operations */
-#define FD_SNAPCT_STATE_FLUSHING_STREAM_DONE            (24) /* The stream ended, and all other tiles have finished processing it */
+#define FD_SNAPCT_STATE_READING_STREAM                  (22) /* Reading a fast boot stream from HTTP, until the snapshots behind it are in */
 
 
 
@@ -73,8 +71,6 @@ fd_snapct_state_str( int state ) {
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET: return "flushing_incremental_http_reset";
     case FD_SNAPCT_STATE_SHUTDOWN:                        return "shutdown";
     case FD_SNAPCT_STATE_READING_STREAM:                  return "reading_stream";
-    case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:            return "flushing_stream_fini";
-    case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:            return "flushing_stream_done";
     default:                                              return "unknown";
   }
 }

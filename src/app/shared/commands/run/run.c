@@ -1444,7 +1444,8 @@ initialize_fast_boot_fds( config_t const * config ) {
   int dir_fd = open( snap_dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
   if( FD_UNLIKELY( -1==dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
 
-  for( ulong i=0UL; i<FD_STRMK_POOL; i++ ) {
+  ulong stream_max = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
+  for( ulong i=0UL; i<stream_max; i++ ) {
     char name[ FD_SNAP_NAME_MAX ];
     fd_strmk_stream_name( name, i );
     int fd = openat( dir_fd, name, O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC|O_NOFOLLOW, S_IRUSR|S_IWUSR );
@@ -1461,7 +1462,7 @@ initialize_fast_boot_fds( config_t const * config ) {
   }
 
   if( FD_UNLIKELY( -1==close( dir_fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
-  return FD_STRMK_POOL;
+  return stream_max;
 }
 
 /* The boot sequence is a little bit involved...

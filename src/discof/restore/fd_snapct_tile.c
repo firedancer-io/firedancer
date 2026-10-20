@@ -59,8 +59,6 @@ FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE==FD_METRICS_ENU
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_INCREMENTAL_HTTP_RESET_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_SHUTDOWN==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_SHUTDOWN_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_READING_STREAM==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_READING_STREAM_IDX, metrics_state );
-FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_STREAM_FINI==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_STREAM_FINI_IDX, metrics_state );
-FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_STREAM_DONE==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_STREAM_DONE_IDX, metrics_state );
 
 #define NAME "snapct"
 
@@ -1704,31 +1702,8 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_STREAM:
-      if( FD_UNLIKELY( ctx->flush_ack < ctx->flush_ack_cnt ) ) break;
-      if( FD_UNLIKELY( ctx->load_complete ) ) {
-        ctx->load_complete = 0;
-        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
-        set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_FINI );
-        ctx->flush_ack = 0;
-      }
-      break;
-
-    /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:
-      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
-
-      set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_DONE );
-      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
-      ctx->flush_ack = 0;
-      break;
-
-    /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:
-      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
-
-      log_completion( ctx, 1/*full*/ );
-      set_state( ctx, FD_SNAPCT_STATE_SHUTDOWN );
-      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+      /* The stream is followed until snapin reports snapshot loading
+         is complete. */
       break;
 
     /* ============================================================== */
@@ -1954,8 +1929,7 @@ process_ctrl_ack( fd_snapct_tile_t * ctx,
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_DONE ) ) {
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
@@ -1970,8 +1944,7 @@ process_ctrl_ack( fd_snapct_tile_t * ctx,
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_FINI ) ) {
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
@@ -2091,8 +2064,6 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
       case FD_SNAPCT_STATE_READING_STREAM:
-      case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:
-      case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:
         FD_LOG_WARNING(( "received error from snapld in state %d (%s)",
                          ctx->state, fd_snapct_state_str( ctx->state ) ));
         ctx->malformed = 1;
@@ -2113,9 +2084,6 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       case FD_SNAPCT_STATE_READING_FULL_HTTP:        full = 1; break;
       case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
       case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP: full = 0; break;
-      case FD_SNAPCT_STATE_READING_STREAM:
-        if( FD_LIKELY( !ctx->malformed ) ) ctx->load_complete = 1;
-        return;
       case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
       case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
@@ -2167,12 +2135,10 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
-    case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
-    case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:
       /* Based on previously received data frags, we expected that the
          current full / incremental snapshot was finished, but then we
          received additional data frags.  Unsafe to continue so throw
@@ -2286,8 +2252,6 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
         case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
         case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
         case FD_SNAPCT_STATE_READING_STREAM:
-        case FD_SNAPCT_STATE_FLUSHING_STREAM_FINI:
-        case FD_SNAPCT_STATE_FLUSHING_STREAM_DONE:
           /* Do not publish MSG_CTRL_ERROR: the error originated
              downstream, so re-publishing would be redundant.
              MSG_CTRL_FAIL follows on the next state machine tick. */
@@ -2324,7 +2288,16 @@ returnable_frag( fd_snapct_tile_t *  ctx,
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLD ) {
     snapld_frag( ctx, sig, sz, chunk, stem );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
-    ctrl_ack_frag( ctx, sig );
+    if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_STREAM_STOP ) ) {
+      /* Signal all downstream streaming tiles to shut down as soon as
+         snapshot loading is done. */
+      FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
+      log_completion( ctx, 1 );
+      set_state( ctx, FD_SNAPCT_STATE_SHUTDOWN );
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+    } else {
+      ctrl_ack_frag( ctx, sig );
+    }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_STREAM ) {
     FD_TEST( sig==FD_SNAPSHOT_MSG_META && sz==sizeof(fd_ssctrl_meta_t) );
     fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->stream_in_mem, chunk );

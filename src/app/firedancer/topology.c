@@ -302,6 +302,8 @@ fd_topo_initialize( config_t * config ) {
                   "[snapshots.fast_boot.serve.enabled] requires [snapshots.server.enabled] and snapshot production with snapzp tiles" );
     FD_CHECK_ERR( config->firedancer.snapshots.incremental_snapshot_interval_blocks,
                   "[snapshots.fast_boot.serve.enabled] requires [snapshots.incremental_snapshot_interval_blocks] to be nonzero" );
+    FD_CHECK_ERR( config->firedancer.snapshots.max_incremental_snapshots_to_keep>=2UL,
+                  "[snapshots.fast_boot.serve.enabled] requires [snapshots.max_incremental_snapshots_to_keep] to be at least 2" );
   }
   if( FD_UNLIKELY( snapmk_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.max_full_snapshots_to_keep,
@@ -2044,7 +2046,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
                   "[snapshots.server.http_listen_port] must be in [1,65535]" );
     tile->snapsv.listen_port = (ushort)listen_port;
 
-    tile->snapsv.fast_boot_stream_max = config->firedancer.snapshots.fast_boot.serve.enabled ? FD_STRMK_POOL : 0UL;
+    tile->snapsv.fast_boot_stream_max = config->firedancer.snapshots.fast_boot.serve.enabled ? config->firedancer.snapshots.max_incremental_snapshots_to_keep : 0UL;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "strmk" ) ) ) {
 
@@ -2054,6 +2056,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->strmk.txncache_obj_id       = fd_pod_query_ulong( config->topo.props, "txncache",          ULONG_MAX ); FD_TEST( tile->strmk.txncache_obj_id!=ULONG_MAX );
     tile->strmk.max_live_slots        = config->firedancer.runtime.max_live_slots;
     tile->strmk.max_txn_per_slot      = config->limits.max_txn_per_slot;
+    tile->strmk.stream_max            = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

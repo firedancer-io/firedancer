@@ -3007,7 +3007,7 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
   } else if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_FULL) {
       ulong slot1;
-      if ( FD_LIKELY( sscanf( filename, "snapshot-%lu-", &slot1 )==1 ) )
+      if ( FD_LIKELY( sscanf( filename, "snapshot-%lu-", &slot1 )==1 || sscanf( filename, "fast-boot-stream-%lu-", &slot1 )==1 ) )
         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot1;
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
   }

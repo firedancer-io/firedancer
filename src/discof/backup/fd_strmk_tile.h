@@ -5,15 +5,16 @@
    writes them and the snapsv tile serves them over HTTP. */
 
 #include "fd_backup.h"
+#include "../restore/utils/fd_ssarchive.h"
 
-/* The fast boot stream files are a small pool like the snapshot
-   pool.  One stream is written at a time; at each incremental
-   snapshot the current file is ended and the next one is started in
-   the other file.  The file just ended stays as it is until then,
-   so the file server has long stopped serving it when it is
-   rewritten. */
+/* The fast boot stream files are a pool like the snapshot pool, with
+   as many files as incremental snapshots are kept.  One stream is
+   written at a time; at each incremental snapshot the current file is
+   ended and the next one is started in the next file.  A file is only
+   rewritten once every other file has been used, so the file server
+   has long stopped serving it by then. */
 
-#define FD_STRMK_POOL (2UL)
+#define FD_STRMK_POOL_MAX FD_SSARCHIVE_MAX_ENTRIES
 
 /* Well known fast boot stream file descriptors
 
@@ -24,7 +25,7 @@
 
 #define FD_STRMK_FD_BASE (210000)
 #define FD_STRMK_FD(    i ) (FD_STRMK_FD_BASE                   +(int)(i))
-#define FD_STRMK_RO_FD( i ) (FD_STRMK_FD_BASE+(int)FD_STRMK_POOL+(int)(i))
+#define FD_STRMK_RO_FD( i ) (FD_STRMK_FD_BASE+(int)FD_STRMK_POOL_MAX+(int)(i))
 
 /* Messages from the stream maker to the file server: a fast boot stream
    file is ready to serve, or is no longer served.  idx is the pool

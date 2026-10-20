@@ -525,7 +525,14 @@ test_ssparse_advance( fd_ssparse_t *                parser,
     return FD_SSPARSE_ADVANCE_DONE;
   }
 
-  FD_TEST( test_parser_script>=1 && test_parser_script<=4 );
+  FD_TEST( test_parser_script>=1 && test_parser_script<=5 );
+  if( test_parser_script==5 ) {
+    FD_TEST( !test_parser_call_cnt );
+    fd_memset( result, 0, sizeof(*result) );
+    result->bytes_consumed = data_sz;
+    test_parser_call_cnt++;
+    return FD_SSPARSE_ADVANCE_MANIFEST_DONE;
+  }
   if( test_parser_script==4 ) {
     FD_TEST( !test_parser_call_cnt );
     fd_memset( result, 0, sizeof(*result) );
@@ -864,7 +871,9 @@ cluster_stream( test_cluster_t * cl,
   }
 
   for( ulong t=0UL; t<n; t++ ) {
-    FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_FINISHING );
+    /* A fast boot stream goes on after the end of an archive. */
+    if( cl->ctx[ t ].fast_boot.stream ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_PROCESSING );
+    else                                FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_FINISHING  );
     FD_TEST( cl->ctx[ t ].appendvec_seq==T );
   }
   for( ulong i=0UL; i<T; i++ ) FD_TEST( owner[ i ]!=ULONG_MAX ); /* every ordinal claimed exactly once */
@@ -3027,8 +3036,9 @@ test_verify_sysvars_gates_controls( void ) {
 }
 
 /* A fast boot stream: replay starts at caught up with the root held,
-   the records go in with repeats allowed, and DONE roots the fork
-   without checking the capitalization. */
+   the records go in with repeats allowed, and the end of an archive
+   only starts the next one, whose manifest and status cache are
+   skipped. */
 static void
 test_stream_mode( void ) {
   ulong const n = 2UL;
@@ -3048,53 +3058,63 @@ test_stream_mode( void ) {
   test_write_is_incremental  = -1;
   FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
 
-  /* Caught up: tile 0 flushes, checks the sysvars and tells replay to
-     start.  The stream keeps loading. */
+  /* Caught up: tile 0 flushes and tells replay to start, without
+     reading the sysvars back.  The stream keeps loading. */
   cl->ctx[ 0 ].lead.flags.manifest_processed = 1;
-  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
   ulong pub0 = test_pub_cnt;
   cluster_barrier( cl, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_PROCESSING );
   FD_TEST( test_pub_cnt==pub0+1UL && test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) && test_pub_out_idx[ pub0 ]==0UL );
   FD_TEST( test_write_skip_duplicates==1 && test_write_is_incremental==1 );
   FD_TEST( !test_accdb_advance_root_cnt && test_feature_restore_cnt==1UL && !test_accdb_load_end_cnt ); /* the stream fork stays unrooted */
+  FD_TEST( !test_accdb_read_one_cnt );
   FD_TEST( test_pwrite_call_cnt==1UL && test_pwrite_sz[ 0 ]==FD_SNAPIN_DIRECT_ALIGN ); /* a stream is written like a snapshot */
 
+  /* The end of the archive: the records are flushed, the parser is
+     reset for the next archive and the stream goes on. */
   FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
   test_stream_init( 0UL );
   ulong av_owner[ TEST_AV_MAX ];
-  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, av_owner ); /* the end-of-archive marker */
   pub0 = test_pub_cnt;
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_FINISHING );
-  FD_TEST( test_pub_cnt==pub0+n && test_pub_sig[ pub0 ]==FD_SNAPSHOT_MSG_CTRL_FINI );
+  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, av_owner ); /* the end-of-archive marker */
+  FD_TEST( test_pub_cnt==pub0 && !test_accdb_advance_root_cnt && !test_accdb_load_end_cnt );
   FD_TEST( test_pwrite_call_cnt==2UL && test_pwrite_sz[ 1 ]==FD_SNAPIN_DIRECT_ALIGN );
 
-  /* The stream's end roots the fork and releases replay's root. */
-  pub0 = test_pub_cnt;
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( test_pub_cnt==pub0+n );
-  for( ulong i=0UL; i<n; i++ ) FD_TEST( test_pub_sig[ pub0+i ]==FD_SNAPSHOT_MSG_CTRL_DONE );
-  FD_TEST( test_accdb_advance_root_cnt==1UL && test_accdb_load_end_cnt==1UL && test_feature_restore_cnt==1UL );
+  /* The next archive repeats the manifest and the status cache, both
+     skipped.  Its accounts are loaded. */
+  test_parser_script   = 5;
+  test_parser_call_cnt = 0UL;
+  FD_TEST( !tile_send_data( &cl->ctx[ 0 ], 0UL, TEST_FRAG_SZ ) );
+  FD_TEST( test_parser_call_cnt==1UL && !cl->ctx[ 0 ].lead.flags.manifest_done );
+  test_parser_script   = 4;
+  test_parser_call_cnt = 0UL;
+  FD_TEST( !tile_send_data( &cl->ctx[ 0 ], 0UL, TEST_FRAG_SZ ) );
+  FD_TEST( test_parser_call_cnt==1UL && !cl->ctx[ 0 ].lead.flags.status_cache_done );
+  test_parser_script = 0;
+  test_stream_init( 1UL );
+  test_stream_pos[ 0 ] = 0UL;
+  FD_TEST( tile_step( &cl->ctx[ 0 ] )==0UL && test_appendvec_parse_cnt==1UL );
+  FD_TEST( cl->ctx[ 0 ].state==FD_SNAPSHOT_STATE_PROCESSING );
 
   test_cluster_delete( cl );
 }
 
 /* Behind a fast boot the full and incremental snapshots load on one
    fork under the stream fork, hidden from it.  Workers write the full,
-   then the incremental, on that fork.  Tile 0 keeps the stream's DONE
-   until they are in, then roots that fork and the stream, also when
-   the stream ends before it is caught up. */
+   then the incremental, on that fork.  Once they are in and the
+   stream's manifest is processed, tile 0 starts replay if the stream
+   is not caught up yet, roots that fork and the stream, and has the
+   stream pipeline stopped. */
 static void
 test_background_snapshot( void ) {
-  for( int order=0; order<3; order++ ) { /* 0 snapshots end first, 1 stream ends first, 2 stream ends before caught up (TODO: orders 1 and 2 go in piece 6) */
+  for( int order=0; order<2; order++ ) { /* 0 caught up before the snapshots are in, 1 after */
     ulong const n = 3UL;
     test_cluster_t * cl = test_cluster_new( n, 1UL );
     test_counters_reset();
     test_io_reset();
     uchar pubkey[ 32UL ] = {1};
     uchar owner [ 32UL ] = {2};
+    int   busy = 0;
     for( ulong t=0UL; t<n; t++ ) cl->ctx[ t ].fast_boot.enabled = 1;
     ((fd_ssctrl_init_t *)cl->ctx[ 0 ].in[ 0 ].wksp)->fast_boot_stream = 1;
     test_accdb_attach_seq = 20U;
@@ -3112,16 +3132,14 @@ test_background_snapshot( void ) {
     start_processing_attempt( &cl->ctx[ 0 ] );
     FD_TEST( cl->ctx[ 0 ].load_fork==22UL && !cl->ctx[ 0 ].shmem->next_appendvec_ticket );
 
-    cl->ctx[ 0 ].lead.flags.manifest_processed = 1;
-    test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-    if( order!=2 ) {
+    if( !order ) {
+      cl->ctx[ 0 ].lead.flags.manifest_processed = 1;
       send_control( &cl->ctx[ 0 ], 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
       FD_TEST( cl->ctx[ 0 ].lead.fast_boot.replay_started && test_feature_restore_cnt==1UL );
     }
-    /* The stream's DONE waits for the snapshots, nothing else does. */
-    cl->ctx[ 0 ].state = FD_SNAPSHOT_STATE_FINISHING;
-    if( order ) FD_TEST( -1==before_frag( &cl->ctx[ 0 ], 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE ) );
-    FD_TEST( !before_frag( &cl->ctx[ 0 ], 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FINI ) );
+    /* Nothing happens while the snapshots are loading. */
+    after_credit( &cl->ctx[ 0 ], (fd_stem_context_t *)1UL, NULL, &busy );
+    FD_TEST( !busy && !cl->ctx[ 0 ].lead.fast_boot.snapshot_finished && !test_accdb_advance_root_cnt );
 
     /* The full, then the incremental, both on the snapshot fork, each
        claimed from a fresh ticket, both written without incremental
@@ -3153,43 +3171,40 @@ test_background_snapshot( void ) {
     for( ulong t=1UL; t<n; t++ ) send_control( &cl->ctx[ t ], 0UL, FD_SNAPSHOT_MSG_CTRL_DONE );
     FD_TEST( cl->ctx[ 0 ].shmem->fast_boot.snapshots_done );
 
-    /* Now the stream's DONE goes through: replay starts if the stream
-       ended before caught up, the forks are rooted, load mode ends. */
-    FD_TEST( !before_frag( &cl->ctx[ 0 ], 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE ) );
-    send_control( &cl->ctx[ 0 ], 0UL, FD_SNAPSHOT_MSG_CTRL_DONE );
-    FD_TEST( cl->ctx[ 0 ].lead.fast_boot.replay_started && test_feature_restore_cnt==1UL && test_accdb_load_end_cnt==1UL );
-    FD_TEST( test_feature_restore_fork.val==22U && test_accdb_read_one_fork.val==22U ); /* replay starts on the stream fork */
+    /* Nor while the stream has not caught up: only the stream starts
+       replay. */
+    if( order ) {
+      after_credit( &cl->ctx[ 0 ], (fd_stem_context_t *)1UL, NULL, &busy );
+      FD_TEST( !busy && !cl->ctx[ 0 ].lead.fast_boot.snapshot_finished && !test_accdb_advance_root_cnt );
+      cl->ctx[ 0 ].lead.flags.manifest_processed = 1;
+      send_control( &cl->ctx[ 0 ], 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
+      FD_TEST( cl->ctx[ 0 ].lead.fast_boot.replay_started && test_feature_restore_cnt==1UL );
+    }
+
+    /* The snapshots are in and replay runs: the snapshot fork then the
+       stream fork are rooted, load mode ends and snapct is told to stop
+       the stream. */
+    ulong pub0 = test_pub_cnt;
+    after_credit( &cl->ctx[ 0 ], (fd_stem_context_t *)1UL, NULL, &busy );
+    FD_TEST( busy && cl->ctx[ 0 ].lead.fast_boot.snapshot_finished && cl->ctx[ 0 ].state==FD_SNAPSHOT_STATE_PROCESSING );
+    FD_TEST( test_feature_restore_cnt==1UL && test_feature_restore_fork.val==22U );
     FD_TEST( test_accdb_advance_root_cnt==2UL && test_accdb_advance_root_ids[ 0 ]==21U && test_accdb_advance_root_ids[ 1 ]==22U );
+    FD_TEST( test_accdb_load_end_cnt==1UL && !test_accdb_read_one_cnt );
+    FD_TEST( test_pub_cnt==pub0+1UL );
+    FD_TEST( test_pub_sig[ test_pub_cnt-1UL ]==FD_SNAPSHOT_MSG_STREAM_STOP && test_pub_out_idx[ test_pub_cnt-1UL ]==cl->ctx[ 0 ].ct_out.idx );
+
+    /* From here tile 0 only takes its SHUTDOWN.  A late caught up or
+       more stream data is skipped, the roots do not repeat. */
+    after_credit( &cl->ctx[ 0 ], (fd_stem_context_t *)1UL, NULL, &busy );
+    FD_TEST( test_pub_cnt==pub0+1UL && test_accdb_advance_root_cnt==2UL );
+    FD_TEST( 1==before_frag( &cl->ctx[ 0 ], 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP ) );
+    FD_TEST( 1==before_frag( &cl->ctx[ 0 ], 0UL, 0UL, fd_snapdc_data_sig( 0UL ) ) );
+    FD_TEST(   !before_frag( &cl->ctx[ 0 ], 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN ) );
+    send_control( &cl->ctx[ 0 ], 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+    FD_TEST( cl->ctx[ 0 ].state==FD_SNAPSHOT_STATE_SHUTDOWN );
 
     test_cluster_delete( cl );
   }
-}
-
-/* A stream that ends before caught up is loaded like a snapshot.
-   TODO: will remove in piece 6, streams no longer end before caught up. */
-static void
-test_stream_ends_early( void ) {
-  ulong const n = 2UL;
-  test_cluster_t * cl = test_cluster_new( n, 1UL );
-  test_counters_reset();
-  test_io_reset();
-  for( ulong t=0UL; t<n; t++ ) ((fd_ssctrl_init_t *)cl->ctx[ t ].in[ 0 ].wksp)->fast_boot_stream = 1;
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  test_stream_init( 0UL );
-  ulong owner[ TEST_AV_MAX ];
-  cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, owner );
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_FINI );
-
-  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  cl->ctx[ 0 ].lead.manifest_capitalization = 1UL; /* a snapshot would fail this */
-  ulong pub0 = test_pub_cnt;
-  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
-  for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
-  FD_TEST( test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) );
-  FD_TEST( test_pub_sig[ pub0+1UL ]==FD_SNAPSHOT_MSG_CTRL_DONE );
-  FD_TEST( test_pub_cnt==pub0+n+1UL );
-  FD_TEST( test_accdb_advance_root_cnt==1UL && test_accdb_load_end_cnt==1UL && test_feature_restore_cnt==1UL );
-  test_cluster_delete( cl );
 }
 
 /* Tile 0 loads every appendvec of a stream. */
@@ -3663,7 +3678,6 @@ main( int     argc,
   test_stream_mode();
   test_background_snapshot();
   test_stream_cut();
-  test_stream_ends_early();
   test_stream_claims();
 
   free( test_ctx );
