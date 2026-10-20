@@ -87,6 +87,11 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      deferred frees are safe. */
   ulong * my_epoch_slot;
 
+  /* If set, this join's lookups wait for the fast boot stream to
+     deliver the account record.  Blocks if the record has not been
+     streamed yet and snapshot loading is still active. */
+  int wait_on_stream;
+
   /* Read-only pointers to external epoch slots (e.g. fseqs owned by
      RO consumer tiles like the rpc tile).  Scanned in addition to
      shmem->joiner_epochs[] by compaction's deferred-free
@@ -313,9 +318,10 @@ fd_accdb_new( void *              ljoin,
   uchar * _bounce         = compaction ? FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ+PREEVICT_STAGE_SZ ) : NULL;
 
   accdb->fd = fd;
-  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
-  accdb->sleep         = sleep;
-  accdb->sleep_tile_id = sleep_tile_id;
+  accdb->acquire_state  = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->wait_on_stream = 0;
+  accdb->sleep          = sleep;
+  accdb->sleep_tile_id  = sleep_tile_id;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -748,9 +754,10 @@ fd_accdb_join_readonly( void *             ljoin,
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
-  accdb->fd    = fd_ro;
-  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
-  accdb->shmem = shmem;
+  accdb->fd             = fd_ro;
+  accdb->acquire_state  = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->wait_on_stream = 0;
+  accdb->shmem          = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
@@ -2426,6 +2433,59 @@ cold_load_acc( fd_accdb_t *     accdb,
   }
 }
 
+static int
+exists_inner( fd_accdb_t *       accdb,
+              fd_accdb_fork_id_t fork_id,
+              uchar const *      pubkey,
+              int                include_zero_lamport ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  uint acc = chain_head( &accdb->acc_map[ hash ] );
+  while( acc!=UINT_MAX ) {
+    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
+    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
+
+    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      acc = next_acc;
+      continue;
+    }
+
+    break;
+  }
+
+  int result;
+  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0;
+  else                               result = include_zero_lamport || !!FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  return result;
+}
+
+void
+fd_accdb_wait_on_stream( fd_accdb_t * accdb ) {
+  accdb->wait_on_stream = 1;
+}
+
+/* wait_on_stream_record spins while a fast boot stream is still
+   loading and pubkey has no record on fork_id at all (see
+   fd_accdb_wait_on_stream).  Once the load ends a miss is final. */
+static void
+wait_on_stream_record( fd_accdb_t *       accdb,
+                       fd_accdb_fork_id_t fork_id,
+                       uchar const *      pubkey ) {
+  if( FD_LIKELY( !fd_accdb_snapshot_loading( accdb ) || exists_inner( accdb, fork_id, pubkey, 1 ) ) ) return;
+  long t0 = fd_tickcount();
+  while( fd_accdb_snapshot_loading( accdb ) && !exists_inner( accdb, fork_id, pubkey, 1 ) ) FD_SPIN_PAUSE();
+  accdb->metrics->fast_boot_waited++;
+  accdb->metrics->fast_boot_wait_ticks += (ulong)(fd_tickcount()-t0);
+}
+
 #define RESERVATION_TYPE_SIMPLE            (0)
 #define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1)
 #define RESERVATION_TYPE_ALREADY_RESERVED  (2)
@@ -2443,6 +2503,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
   ulong max_acquire_cnt = accdb->shmem->bundle_enabled ? FD_ACCDB_MAX_ACQUIRE_CNT : FD_ACCDB_MAX_TX_ACCOUNT_LOCKS;
   FD_TEST( pubkeys_cnt<=max_acquire_cnt );
+  if( FD_UNLIKELY( accdb->wait_on_stream ) ) {
+    for( ulong i=0UL; i<pubkeys_cnt; i++ ) wait_on_stream_record( accdb, fork_id, pubkeys[ i ] );
+  }
 
   FD_TEST( FD_VOLATILE_CONST( *accdb->my_epoch_slot )==ULONG_MAX );
 
@@ -3955,33 +4018,15 @@ int
 fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
-  FD_HW_MFENCE();
+  if( FD_UNLIKELY( accdb->wait_on_stream ) ) wait_on_stream_record( accdb, fork_id, pubkey );
+  return exists_inner( accdb, fork_id, pubkey, 0 );
+}
 
-  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = chain_head( &accdb->acc_map[ hash ] );
-  while( acc!=UINT_MAX ) {
-    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
-    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
-
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
-      acc = next_acc;
-      continue;
-    }
-
-    break;
-  }
-
-  int result;
-  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0;
-  else                               result = !!FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-  return result;
+int
+fd_accdb_has_record( fd_accdb_t *       accdb,
+                     fd_accdb_fork_id_t fork_id,
+                     uchar const *      pubkey ) {
+  return exists_inner( accdb, fork_id, pubkey, 1 );
 }
 
 int

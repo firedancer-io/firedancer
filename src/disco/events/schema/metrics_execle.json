@@ -4,20 +4,20 @@
     "description": "Metrics of one execle tile instance, one row per sweep",
     "local": true,
     "fields": {
-        "sample_id":                     { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
-        "sample_reason":                 { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
-        "sample_slot":                   { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
-        "sample_snapct_state":           { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
-        "sample_caught_up":              { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
-        "sample_tile_cnt":               { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
-        "kind_id":                       { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
-        "pid":                           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
-        "tid":                           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
-        "last_cpu_index":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
-        "context_switch_involuntary":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
-        "context_switch_voluntary":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
-        "page_fault_major":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
-        "page_fault_minor":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
+        "sample_id":                           { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":                       { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":                         { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":                 { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":                    { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":                     { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":                             { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "pid":                                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
+        "tid":                                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
+        "last_cpu_index":                      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
+        "context_switch_involuntary":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
+        "context_switch_voluntary":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
+        "page_fault_major":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
+        "page_fault_minor":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
         "state": {
             "type": "LowCardinality(String)",
             "description": "Tile lifecycle state: 0=booting, 1=running, 2=shutdown",
@@ -27,9 +27,9 @@
                 "shutdown": { "description": "Shutdown" }
             }
         },
-        "heartbeat_time":                { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
-        "is_backpressured":              { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
-        "backpressure":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
+        "heartbeat_time":                      { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
+        "is_backpressured":                    { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
+        "backpressure":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
@@ -82,9 +82,9 @@
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
-        "tlb_shootdown":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
-        "timer_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "device_irq":                          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "txn_processed": {
             "type": "Tuple",
             "description": "Transactions loaded and executed, by result",
@@ -148,10 +148,10 @@
                 "v1":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Version 1 transaction format" }
             }
         },
-        "instruction_executed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Top-level instructions executed" },
-        "cpi_executed":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cross-program invocations executed" },
-        "account_lthash_skipped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" },
-        "cu_consumed":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Compute units consumed by executed transactions" },
+        "instruction_executed":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Top-level instructions executed" },
+        "cpi_executed":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cross-program invocations executed" },
+        "account_lthash_skipped":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" },
+        "cu_consumed":                         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Compute units consumed by executed transactions" },
         "txn_regime_duration_nanos": {
             "type": "Tuple",
             "description": "Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases",
@@ -179,16 +179,16 @@
                 "interpreter": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "VM interpreter execution" }
             }
         },
-        "progcache_looked_up":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache lookups; equals Hit + Miss + lookups of invalid program accounts" },
-        "progcache_miss":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache misses, each followed by an insert or a spill" },
-        "progcache_waited":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache lookups that waited on another tile's in-flight load of the same program" },
-        "progcache_insert_retried":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache inserts that found no free slot in their size class on the first try and retried after eviction" },
-        "progcache_inserted_bytes":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes inserted into the program cache" },
-        "progcache_spilled_bytes":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes loaded into program cache spill memory" },
-        "progcache_evicted_bytes":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes evicted from the program cache by insert eviction sweeps" },
-        "progcache_duration_nanos":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time in program cache lookups, including waits on peer loads and insert, eviction and ELF load on a miss; superset of ProgcacheLoadDurationNanos" },
-        "progcache_loaded":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program ELF loads and verifications for the program cache, including failed verifications and spill-backed loads" },
-        "progcache_load_duration_nanos": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time spent loading programs" },
+        "progcache_looked_up":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache lookups; equals Hit + Miss + lookups of invalid program accounts" },
+        "progcache_miss":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache misses, each followed by an insert or a spill" },
+        "progcache_waited":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache lookups that waited on another tile's in-flight load of the same program" },
+        "progcache_insert_retried":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program cache inserts that found no free slot in their size class on the first try and retried after eviction" },
+        "progcache_inserted_bytes":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes inserted into the program cache" },
+        "progcache_spilled_bytes":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes loaded into program cache spill memory" },
+        "progcache_evicted_bytes":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes evicted from the program cache by insert eviction sweeps" },
+        "progcache_duration_nanos":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time in program cache lookups, including waits on peer loads and insert, eviction and ELF load on a miss; superset of ProgcacheLoadDurationNanos" },
+        "progcache_loaded":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program ELF loads and verifications for the program cache, including failed verifications and spill-backed loads" },
+        "progcache_load_duration_nanos":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time spent loading programs" },
         "progcache_hit": {
             "type": "Tuple",
             "description": "Program cache hits, by size class",
@@ -351,13 +351,15 @@
                 "le10_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "1-10 MiB" }
             }
         },
-        "accdb_account_waited":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Accounts that had to wait for another reader to finish loading them into the cache" },
-        "accdb_batch_acquired":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Batch acquire calls made by this tile" },
-        "accdb_cache_reserve_retried":   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Spin retries while waiting to reserve cache lines for a transaction" },
-        "accdb_disk_read_bytes":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes read from the account database file" },
-        "accdb_disk_read":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Reads from the account database file" },
-        "accdb_disk_written_bytes":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
-        "accdb_disk_written":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
-        "accdb_copied_bytes":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" }
+        "accdb_account_waited":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Accounts that had to wait for another reader to finish loading them into the cache" },
+        "accdb_batch_acquired":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Batch acquire calls made by this tile" },
+        "accdb_cache_reserve_retried":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Spin retries while waiting to reserve cache lines for a transaction" },
+        "accdb_disk_read_bytes":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes read from the account database file" },
+        "accdb_disk_read":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Reads from the account database file" },
+        "accdb_disk_written_bytes":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
+        "accdb_disk_written":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
+        "accdb_copied_bytes":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" },
+        "accdb_fast_boot_waited":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account lookups that waited for the fast boot stream to deliver the account", "field_number": 531869510 },
+        "accdb_fast_boot_wait_duration_nanos": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time spent waiting for the fast boot stream to deliver accounts", "field_number": 274944463 }
     }
 }

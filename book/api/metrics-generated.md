@@ -673,6 +673,8 @@
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;cache_&#8203;missed</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le1_&#8203;mib</span>"} | counter | Accounts not found in the account database cache and read from disk, by cache size class (128 KiB-1 MiB) |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;cache_&#8203;missed</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le10_&#8203;mib</span>"} | counter | Accounts not found in the account database cache and read from disk, by cache size class (1-10 MiB) |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;waited</span> | counter | Accounts that had to wait for another reader to finish loading them into the cache |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;fast_&#8203;boot_&#8203;waited</span> | counter | Account lookups that waited for the fast boot stream to deliver the account |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;fast_&#8203;boot_&#8203;wait_&#8203;duration_&#8203;nanos</span> | counter | Time spent waiting for the fast boot stream to deliver accounts |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;batch_&#8203;acquired</span> | counter | Batch acquire calls made by this tile |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;cache_&#8203;reserve_&#8203;retried</span> | counter | Spin retries while waiting to reserve cache lines for a transaction |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Bytes read from the account database file |
@@ -1172,6 +1174,8 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;account_&#8203;cache_&#8203;missed</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le1_&#8203;mib</span>"} | counter | Accounts not found in the account database cache and read from disk, by cache size class (128 KiB-1 MiB) |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;account_&#8203;cache_&#8203;missed</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le10_&#8203;mib</span>"} | counter | Accounts not found in the account database cache and read from disk, by cache size class (1-10 MiB) |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;account_&#8203;waited</span> | counter | Accounts that had to wait for another reader to finish loading them into the cache |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;fast_&#8203;boot_&#8203;waited</span> | counter | Account lookups that waited for the fast boot stream to deliver the account |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;fast_&#8203;boot_&#8203;wait_&#8203;duration_&#8203;nanos</span> | counter | Time spent waiting for the fast boot stream to deliver accounts |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;batch_&#8203;acquired</span> | counter | Batch acquire calls made by this tile |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;reserve_&#8203;retried</span> | counter | Spin retries while waiting to reserve cache lines for a transaction |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Bytes read from the account database file |
@@ -1318,6 +1322,8 @@
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;account_&#8203;cache_&#8203;missed</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le1_&#8203;mib</span>"} | counter | Accounts not found in the account database cache and read from disk, by cache size class (128 KiB-1 MiB) |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;account_&#8203;cache_&#8203;missed</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le10_&#8203;mib</span>"} | counter | Accounts not found in the account database cache and read from disk, by cache size class (1-10 MiB) |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;account_&#8203;waited</span> | counter | Accounts that had to wait for another reader to finish loading them into the cache |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;fast_&#8203;boot_&#8203;waited</span> | counter | Account lookups that waited for the fast boot stream to deliver the account |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;fast_&#8203;boot_&#8203;wait_&#8203;duration_&#8203;nanos</span> | counter | Time spent waiting for the fast boot stream to deliver accounts |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;batch_&#8203;acquired</span> | counter | Batch acquire calls made by this tile |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;cache_&#8203;reserve_&#8203;retried</span> | counter | Spin retries while waiting to reserve cache lines for a transaction |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Bytes read from the account database file |

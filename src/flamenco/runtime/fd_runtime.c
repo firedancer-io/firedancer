@@ -1448,6 +1448,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) {
     txn_out->accounts.executable_cnt         = 0UL;
     txn_out->accounts.executable_skipped_cnt = 0;
+    txn_out->accounts.executable_missing_cnt = 0;
   }
   txn_out->accounts.nonce_rollback_data_len     = 0UL;
   txn_out->accounts.fee_payer_rollback_lamports = 0UL;
@@ -2233,6 +2234,7 @@ fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
 
   ushort exe_cnt = 0;
   txn_out->accounts.executable_skipped_cnt = 0;
+  txn_out->accounts.executable_missing_cnt = 0;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     /* The checks below mimic the ones in the non-bundle path.  The
        difference is only the source of state as of this transaction.
@@ -2253,6 +2255,7 @@ fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
     fd_acc_t * programdata = reuse_bundle_executable( runtime, programdata_key );
 
     if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
+      txn_out->accounts.executable_missing_key[ txn_out->accounts.executable_missing_cnt++ ] = *programdata_key;
       /* PD is not live as of the parent.  Length only, and no
          executable[] entry, so the loader reports "Program is not
          deployed" exactly as the non-bundle path does.  The non-bundle
