@@ -1510,6 +1510,210 @@ FD_UNIT_TEST( test_cpus_floating ) {
 
 /* ======================================================================== */
 
+/* ---- Fleet shaped hosts ------------------------------------------------ */
+
+#define SMT_ON       (0)
+#define SMT_ABSENT   (1) /* BIOS off, no siblings */
+#define SMT_RUNTIME  (2) /* smt/control=off, siblings present but offline */
+#define SMT_ADJACENT (3) /* sibling of cpu i is i^1 */
+
+/* Builds sockets x phys cores, numa_per_socket NUMA nodes per socket,
+   cores_per_l3 cores per L3 (0: unknown), siblings at i+N or i^1 the
+   way fd_topo_cpus_init reports them, then takes offline[] (ULONG_MAX
+   terminated, NULL for none) offline. */
+static void
+make_cpus_shape( fd_topo_cpus_t * cpus,
+                 ulong            sockets,
+                 ulong            numa_per_socket,
+                 ulong            phys,
+                 ulong            cores_per_l3,
+                 int              smt,
+                 ulong const *    offline ) {
+  ulong n     = sockets*phys;
+  ulong per   = phys/numa_per_socket;
+  ulong l3_ps = cores_per_l3 ? (phys+cores_per_l3-1UL)/cores_per_l3 : 0UL;
+  fd_memset( cpus, 0, sizeof(*cpus) );
+  cpus->numa_node_cnt = sockets*numa_per_socket;
+  cpus->l3_cnt        = sockets*l3_ps;
+  cpus->cpu_cnt       = smt==SMT_ABSENT ? n : 2UL*n;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    ulong core = smt==SMT_ADJACENT ? i/2UL : i%n;
+    ulong sock = core/phys;
+    ulong loc  = core%phys;
+    fd_topo_cpu_t * cpu = &cpus->cpu[ i ];
+    cpu->idx       = i;
+    cpu->online    = 1;
+    cpu->numa_node = sock*numa_per_socket + fd_ulong_min( loc/per, numa_per_socket-1UL );
+    cpu->die_idx   = sock;
+    cpu->l3_idx    = cores_per_l3 ? sock*l3_ps + loc/cores_per_l3 : ULONG_MAX;
+    cpu->sibling   = smt==SMT_ABSENT ? ULONG_MAX : smt==SMT_ADJACENT ? i^1UL : ( i<n ? i+n : i-n );
+  }
+  if( smt==SMT_RUNTIME ) {
+    for( ulong i=n; i<2UL*n; i++ ) {
+      cpus->cpu[ i-n ].sibling = ULONG_MAX;
+      cpus->cpu[ i   ].online  = 0;
+      cpus->cpu[ i   ].sibling = ULONG_MAX;
+      cpus->cpu[ i   ].l3_idx  = ULONG_MAX;
+    }
+  }
+  make_cpus_offline( cpus, offline );
+}
+
+/* Default Firedancer topology with snapshots, rpc, telemetry and
+   bundles (mainnet configuration), and its Alpenglow variant. */
+
+static tile_spec_t const MAINNET_TILES[] = {
+  { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 },
+  { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 },
+  { "genesi", 1 }, { "ipecho", 1 }, { "gossvf", 1 }, { "gossip", 1 },
+  { "shred",  1 }, { "repair", 1 }, { "rserve", 1 }, { "replay", 1 },
+  { "accdb",  1 }, { "execrp",10 }, { "tower",  1 }, { "txsend", 1 },
+  { "quic",   1 }, { "verify", 3 }, { "dedup",  1 }, { "resolv", 1 },
+  { "pack",   1 }, { "execle", 2 }, { "poh",    1 }, { "sign",   2 },
+  { "rpc",    1 }, { "admin",  1 }, { "event",  1 }, { "bundle", 1 },
+  { "gui",    1 },
+  { NULL, 0 }
+};
+
+static tile_spec_t const MAINNET_AG_TILES[] = {
+  { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 },
+  { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 },
+  { "genesi", 1 }, { "ipecho", 1 }, { "gossvf", 1 }, { "gossip", 1 },
+  { "shred",  1 }, { "rotor",  1 }, { "rserve", 1 }, { "replay", 1 },
+  { "accdb",  1 }, { "execrp",10 }, { "votor",  1 }, { "tower",  1 },
+  { "quic",   1 }, { "verify", 3 }, { "dedup",  1 }, { "resolv", 1 },
+  { "pack",   1 }, { "execle", 2 }, { "motor",  1 }, { "sign",   2 },
+  { "rpc",    1 }, { "admin",  1 }, { "event",  1 }, { "bundle", 1 },
+  { "gui",    1 },
+  { NULL, 0 }
+};
+
+/* Operator sizing still seen on small boxes */
+static tile_spec_t const MAINNET_WIDE_TILES[] = {
+  { "netlnk", 1 }, { "net",    2 }, { "metric", 1 }, { "diag",   1 },
+  { "snapct", 1 }, { "snapld", 1 }, { "snapdc", 3 }, { "snapin", 5 },
+  { "genesi", 1 }, { "ipecho", 1 }, { "gossvf", 2 }, { "gossip", 1 },
+  { "shred",  1 }, { "repair", 1 }, { "rserve", 1 }, { "replay", 1 },
+  { "accdb",  1 }, { "execrp",10 }, { "tower",  1 }, { "txsend", 1 },
+  { "quic",   1 }, { "verify", 6 }, { "dedup",  1 }, { "resolv", 1 },
+  { "pack",   1 }, { "execle", 2 }, { "poh",    1 }, { "sign",   2 },
+  { "rpc",    1 }, { "admin",  1 }, { "event",  1 }, { "bundle", 1 },
+  { "gui",    1 },
+  { NULL, 0 }
+};
+
+/* Layout invariants that hold on every host shape.  steady counts
+   ALWAYS and POST_START tiles, the deliberate STARTUP overlap aside. */
+static void
+check_layout_invariants( fd_topo_t const *      topo,
+                         fd_topo_cpus_t const * cpus ) {
+  fd_topob_validate_cpu_overlaps( topo );
+
+  uchar steady[ FD_TILE_MAX ] = {0};
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    ulong cpu = tile->cpu_idx;
+    int floating = fd_topob_tile_priority_type( tile )==FD_TOPOB_PRIORITY_FLOATING;
+    FD_TEST( floating==( cpu==ULONG_MAX ) );
+    if( floating ) continue;
+    FD_TEST( cpu<cpus->cpu_cnt );
+    FD_TEST( cpus->cpu[ cpu ].online );
+    for( ulong b=0UL; b<topo->blocklist_cores_cnt; b++ ) FD_TEST( topo->blocklist_cores_cpu_idx[ b ]!=cpu );
+    if( !( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_STARTUP ) ) steady[ cpu ]++;
+  }
+
+  /* Critical siblings empty, execrp:0..k whole and ahead of shared ones */
+  ulong execrp_whole  = 0UL;
+  ulong execrp_shared = ULONG_MAX;
+  ulong execrp_last   = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( tile->cpu_idx==ULONG_MAX || ( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_STARTUP ) ) continue;
+    ulong s     = cpus->cpu[ tile->cpu_idx ].sibling;
+    int   whole = s==ULONG_MAX || !steady[ s ];
+    if( fd_topob_tile_class( tile->name ) & FD_TOPOB_TILE_SMT_CRITICAL ) FD_TEST( whole );
+    if( strcmp( tile->name, "execrp" ) ) continue;
+    if( whole ) { execrp_whole++; execrp_last = fd_ulong_max( execrp_last, tile->kind_id ); }
+    else          execrp_shared = fd_ulong_min( execrp_shared, tile->kind_id );
+  }
+  FD_TEST( execrp_shared==ULONG_MAX || execrp_last<execrp_shared || !execrp_whole );
+
+}
+
+static void
+layout_shape( fd_topo_cpus_t const * shape,
+              tile_spec_t const *    tiles,
+              ulong const *          blocklist,
+              int                    efficient ) {
+  static fd_topo_cpus_t cpus[1];
+  *cpus = *shape;
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, tiles );
+  set_blocklist( topo, blocklist );
+  topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  check_layout_invariants( topo, cpus );
+}
+
+static int
+layout_shape_ok( fd_topo_cpus_t const * shape,
+                 tile_spec_t const *    tiles,
+                 ulong const *          blocklist,
+                 int                    efficient ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( pid==0 ) {
+    fd_log_level_logfile_set( 6 );
+    fd_log_level_stderr_set( 6 );
+    fd_log_level_core_set( 5 );
+    layout_shape( shape, tiles, blocklist, efficient );
+    _exit( 0 );
+  }
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) );
+  return !WEXITSTATUS( status );
+}
+
+FD_UNIT_TEST( test_fleet_shapes ) {
+  /* sockets, numa/socket, phys/socket, cores/L3, smt, offline, too small for mainnet */
+  static ulong const OFF_9375F[] = { 5, 37, 40, ULONG_MAX };
+  static struct { ulong s, nps, phys, ccd; int smt; ulong const * off; int small; } const SHAPE[] = {
+    { 1, 1, 128, 8, SMT_ON,       NULL,      0 }, /* 9754                  */
+    { 1, 1,  64, 8, SMT_ON,       NULL,      0 }, /* 9575F / 9554P         */
+    { 1, 1,  64, 8, SMT_ABSENT,   NULL,      0 },
+    { 1, 1,  48, 6, SMT_ON,       NULL,      0 }, /* 9474F                 */
+    { 1, 2,  48, 6, SMT_ON,       NULL,      0 }, /* 9474F NPS2            */
+    { 1, 4,  32, 4, SMT_ON,       NULL,      0 }, /* 9354 NPS4             */
+    { 1, 1,  32, 4, SMT_ON,       NULL,      0 }, /* 9354P / 7543P         */
+    { 1, 1,  32, 4, SMT_ABSENT,   NULL,      1 }, /* 7543P SMT off         */
+    { 1, 1,  32, 4, SMT_RUNTIME,  NULL,      1 },
+    { 1, 1,  32, 4, SMT_ON,       OFF_9375F, 0 }, /* 9375F, 61 online      */
+    { 1, 1,  24, 3, SMT_ON,       NULL,      0 }, /* 9275F                 */
+    { 1, 1,  24, 6, SMT_ON,       NULL,      0 }, /* 7443P                 */
+    { 1, 1,  24, 4, SMT_ON,       NULL,      0 }, /* 9254                  */
+    { 1, 1,  16, 8, SMT_ON,       NULL,      1 }, /* 9950X                 */
+    { 2, 1,  32,32, SMT_ON,       NULL,      0 }, /* Xeon 8462Y+ 2S        */
+    { 1, 1,  24, 6, SMT_ADJACENT, NULL,      0 }, /* VM, adjacent siblings */
+  };
+  tile_spec_t const * const TILES[] = { MAINNET_TILES, MAINNET_AG_TILES, MAINNET_WIDE_TILES, FIREDANCER_TILES, FD_FEWER_TILES };
+  for( ulong i=0UL; i<sizeof(SHAPE)/sizeof(SHAPE[0]); i++ ) {
+    for( ulong l3=0UL; l3<2UL; l3++ ) {
+      static fd_topo_cpus_t cpus[1];
+      make_cpus_shape( cpus, SHAPE[ i ].s, SHAPE[ i ].nps, SHAPE[ i ].phys, l3 ? 0UL : SHAPE[ i ].ccd, SHAPE[ i ].smt, SHAPE[ i ].off );
+      ulong bl[ 3 ] = { 0UL, cpus->cpu[ 0 ].sibling!=ULONG_MAX ? cpus->cpu[ 0 ].sibling : ULONG_MAX, ULONG_MAX };
+      for( ulong t=0UL; t<sizeof(TILES)/sizeof(TILES[0]); t++ ) {
+        for( int efficient=0; efficient<2; efficient++ ) {
+          int ok = layout_shape_ok( cpus, TILES[ t ], bl, efficient );
+          if( FD_UNLIKELY( !ok && ( !SHAPE[ i ].small || TILES[ t ]==FD_FEWER_TILES ) ) ) FD_LOG_ERR(( "shape %lu l3 %lu tiles %lu efficient %d failed", i, l3, t, efficient ));
+        }
+      }
+    }
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
