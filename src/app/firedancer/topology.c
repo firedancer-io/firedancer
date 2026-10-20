@@ -604,7 +604,9 @@ fd_topo_initialize( config_t * config ) {
   ulong affinity_tile_cnt = 0UL;
   if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 1, 1 );
 
-  ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
+  ulong tile_to_cpu[ FD_TILE_MAX ];
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) tile_to_cpu[ i ] = ULONG_MAX;
+
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     ushort cpu_idx = (ushort)( parsed_tile_to_cpu[ i ] & ~FD_TOPOB_CPU_SHARED );
     if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && cpu_idx>=cpus->cpu_cnt ) )
@@ -1044,37 +1046,6 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_out( topo, "snaprd", 0UL,              "snaprd_out",    0UL                                     );
   }
 
-  if( FD_LIKELY( !is_auto_affinity ) ) {
-    if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
-      FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
-                   "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
-                   "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
-                   topo->tile_cnt, affinity_tile_cnt ));
-    if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
-      FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
-                       "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
-                       "individual tile counts in the [layout] section of the configuration file.",
-                       topo->tile_cnt, affinity_tile_cnt ));
-  } else {
-    ushort blocklist_cores[ FD_TILE_MAX ];
-    topo->blocklist_cores_cnt = fd_topob_parse_affinity_cstr( config->layout.blocklist_cores, blocklist_cores, 0, 0 );
-    if( FD_UNLIKELY( topo->blocklist_cores_cnt>FD_TILE_MAX ) ) {
-      FD_LOG_ERR(( "The CPU string in the configuration file under [layout.blocklist_cores] specifies more CPUs than Firedancer can use. "
-                    "You should reduce the number of CPUs in the excluded cores string." ));
-    }
-
-    for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
-      /* Since we use fd_topob_parse_affinity_cstr() like for affinity, the user
-         may input a string containing `f`. That's parsed correctly, but it's
-         meaningless for blocklisted cores, so we reject it here.  */
-      if( FD_UNLIKELY( blocklist_cores[ i ]==USHORT_MAX ) ) {
-        FD_LOG_ERR(( "The CPU string in the configuration file under [layout.blocklist_cores] contains invalid values: `f`. "
-                      "You should fix the excluded cores string." ));
-      }
-      topo->blocklist_cores_cpu_idx[ i ] = blocklist_cores[ i ];
-    }
-  }
-
   fd_topo_obj_t * admin_ctl = fd_topob_obj_named( topo, "adminctl", "adminctl", "admin" );
   FD_TEST( fd_pod_insertf_ulong( topo->props, admin_ctl->id, "adminctl" ) );
   fd_topob_tile_uses( topo, admin_tile, admin_ctl, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1202,6 +1173,37 @@ fd_topo_initialize( config_t * config ) {
     FOR(snapsv_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "snapsv_out",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "bundle_status", 0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    }
+  }
+
+  if( FD_LIKELY( !is_auto_affinity ) ) {
+    if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
+      FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
+                   "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
+                   "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
+                   topo->tile_cnt, affinity_tile_cnt ));
+    if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
+      FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
+                       "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
+                       "individual tile counts in the [layout] section of the configuration file.",
+                       topo->tile_cnt, affinity_tile_cnt ));
+  } else {
+    ushort blocklist_cores[ FD_TILE_MAX ];
+    topo->blocklist_cores_cnt = fd_topob_parse_affinity_cstr( config->layout.blocklist_cores, blocklist_cores, 0, 0 );
+    if( FD_UNLIKELY( topo->blocklist_cores_cnt>FD_TILE_MAX ) ) {
+      FD_LOG_ERR(( "The CPU string in the configuration file under [layout.blocklist_cores] specifies more CPUs than Firedancer can use. "
+                    "You should reduce the number of CPUs in the excluded cores string." ));
+    }
+
+    for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
+      /* Since we use fd_topob_parse_affinity_cstr() like for affinity, the user
+         may input a string containing `f`. That's parsed correctly, but it's
+         meaningless for blocklisted cores, so we reject it here.  */
+      if( FD_UNLIKELY( blocklist_cores[ i ]==USHORT_MAX ) ) {
+        FD_LOG_ERR(( "The CPU string in the configuration file under [layout.blocklist_cores] contains invalid values: `f`. "
+                      "You should fix the excluded cores string." ));
+      }
+      topo->blocklist_cores_cpu_idx[ i ] = blocklist_cores[ i ];
     }
   }
 
