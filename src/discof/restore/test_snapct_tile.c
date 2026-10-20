@@ -344,8 +344,8 @@ test_stream_signals( void ) {
   FD_TEST( ctx->load_complete==1 );
 }
 
-/* The snapct behind a fast boot loads the full, then the incremental,
-   both by redirect, and checks the incremental is based on that full. */
+/* The snapct behind a fast boot loads the full by redirect, then the
+   incremental made at the stream's open by its exact name. */
 static void
 test_background_snapshot_instance( void ) {
   /* The output files sit at the fd numbers the snapshot pool uses. */
@@ -364,6 +364,7 @@ test_background_snapshot_instance( void ) {
   ctx->state                             = FD_SNAPCT_STATE_INIT;
   ctx->config.fast_boot                  = 1;
   ctx->config.incremental_snapshots      = 1;
+  ctx->fast_boot.slot                    = ULONG_MAX;
   ctx->load_incremental                  = 1;
   ctx->resolved_servers_cnt              = 1UL;
   ctx->out_ld.mem                        = (fd_wksp_t *)output;
@@ -397,29 +398,39 @@ test_background_snapshot_instance( void ) {
   meta->resolved_slot = 100UL;
   strcpy( meta->resolved_name, "snapshot-100-BSP9ztdFEjwvkBo2LhHA47g9Q3PDwja9x5fj7taFRKH5.tar.zst" );
   snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
-  FD_TEST( ctx->full_snapshot_slot==100UL );
+  FD_TEST( ctx->fast_boot.full_snapshot_slot==100UL );
 
+  /* Nothing moves until the other snapct has named the stream. */
   ctx->state     = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE;
   ctx->flush_ack = ctx->flush_ack_cnt;
   after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE );
+
+  /* The stream's snapct names the stream it follows: slot and hash
+     arrive on the snapct_ct link. */
+  ctx->in_kind[ 0 ]  = IN_KIND_STREAM;
+  ctx->stream_in_mem = input;
+  meta->resolved_slot = 150UL;
+  memset( meta->resolved_hash, 0x11, FD_HASH_FOOTPRINT );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_META, 0UL, sizeof(*meta), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->fast_boot.slot==150UL && ctx->fast_boot.hash[ 0 ]==0x11 && ctx->fast_boot.hash[ 31 ]==0x11 );
+
+  /* Then the incremental is asked for by its exact name: the loaded
+     full, the stream's slot, the stream's hash.  No redirect. */
+  after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP );
   init = fd_chunk_to_laddr_const( output, test_publish_chunk );
-  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR && !init->slot && !init->fast_boot_stream && init->is_redirect );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR && !init->slot && !init->fast_boot_stream && !init->is_redirect );
+  FD_TEST( !strcmp( ctx->http_incr_snapshot_name, "incremental-snapshot-100-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
 
-  /* An incremental based on that full is accepted. */
-  meta->resolved_slot = 150UL;
-  strcpy( meta->resolved_name, "incremental-snapshot-100-150-45eJ5C91fEenPRFc8NiqaDXMCHcPFwRUTMH3k1zY6a1B.tar.zst" );
+  /* Its META carries no resolved name; the request name is kept. */
+  meta->resolved_slot = ULONG_MAX;
+  meta->resolved_name[ 0 ] = '\0';
   snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( !strcmp( ctx->http_incr_snapshot_name, "incremental-snapshot-100-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
 
-  /* One based on another full is fatal, so is any malformed load. */
-  pid_t pid = fork(); FD_TEST( pid>=0 );
-  if( !pid ) {
-    strcpy( meta->resolved_name, "incremental-snapshot-99-150-45eJ5C91fEenPRFc8NiqaDXMCHcPFwRUTMH3k1zY6a1B.tar.zst" );
-    snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
-    _exit( 0 );
-  }
-  int status; FD_TEST( waitpid( pid, &status, 0 )==pid );
-  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+  /* Any malformed load is fatal. */
+  pid_t pid; int status;
   pid = fork(); FD_TEST( pid>=0 );
   if( !pid ) { ctx->malformed = 1; after_credit( ctx, NULL, NULL, &busy ); _exit( 0 ); }
   FD_TEST( waitpid( pid, &status, 0 )==pid );

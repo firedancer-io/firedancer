@@ -73,6 +73,7 @@ FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_STREAM_DONE==FD_METRICS_ENUM_SNAPCT_L
 #define IN_KIND_ACK    (0)
 #define IN_KIND_SNAPLD (1)
 #define IN_KIND_GOSSIP (2)
+#define IN_KIND_STREAM (3)
 
 struct fd_snapct_out_link {
   ulong       idx;
@@ -140,7 +141,12 @@ struct fd_snapct_tile {
   int                        download_enabled;
   int                        wfs_is_configured;
   int                        load_incremental;
-  ulong                      full_snapshot_slot; /* slot of the full snapshot loaded behind a fast boot */
+
+  struct {
+    ulong slot;
+    uchar hash[ FD_HASH_FOOTPRINT ];
+    ulong full_snapshot_slot;
+  } fast_boot;
 
   fd_netdb_fds_t netdb_fds[1];
 
@@ -208,6 +214,7 @@ struct fd_snapct_tile {
 
   void const * gossip_in_mem;
   void const * snapld_in_mem;
+  void const * stream_in_mem;
   uchar        in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   struct {
@@ -260,6 +267,7 @@ struct fd_snapct_tile {
   fd_snapct_out_link_t out_ld;
   fd_snapct_out_link_t out_gui;
   fd_snapct_out_link_t out_rp;
+  fd_snapct_out_link_t out_ct;
 };
 typedef struct fd_snapct_tile fd_snapct_tile_t;
 
@@ -717,7 +725,9 @@ init_load( fd_snapct_tile_t *  ctx,
     else       fd_memcpy( out->snapshot_hash, ctx->peer.incr_hash, FD_HASH_FOOTPRINT );
   }
 
-  out->is_redirect = !file; /* always use redirect for HTTP downloads */
+  /* Incrementals behind a fast boot are requested by name. */
+  int by_name = !full && background_snapshot_loading( ctx );
+  out->is_redirect = !file && !by_name;
 
   if( file ) out->file_sz = full ? ctx->local_in.full_snapshot_size : ctx->local_in.incremental_snapshot_size;
   else       out->file_sz = 0UL;
@@ -731,8 +741,13 @@ init_load( fd_snapct_tile_t *  ctx,
   if( out->fast_boot_stream ) {
     FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "fast-boot-stream.tar.zst" ) );
   } else if( !file ) {
-    FD_TEST( fd_cstr_printf_check( full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name,
-                                 PATH_MAX, NULL, full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ) );
+    if( by_name ) {
+      FD_BASE58_ENCODE_32_BYTES( ctx->fast_boot.hash, hash_b58 );
+      FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->fast_boot.full_snapshot_slot, ctx->fast_boot.slot, hash_b58 ) );
+    } else {
+      FD_TEST( fd_cstr_printf_check( full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name,
+                                   PATH_MAX, NULL, full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ) );
+    }
     snapshot_output_prepare( ctx, full );
   }
 
@@ -970,6 +985,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/fast-boot-stream.tar.zst" ) );
       } else if( full ) {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
+      } else if( background_snapshot_loading( ctx ) ) {
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_incr_snapshot_name ) );
       } else {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot.tar.bz2" ) );
       }
@@ -998,7 +1015,9 @@ after_credit( fd_snapct_tile_t *  ctx,
   }
 
   /* Fast boot errors are unrecoverable. */
-  if( FD_UNLIKELY( ctx->config.fast_boot ) ) FD_CHECK_ERR( !ctx->malformed, "the fast boot failed" );
+  if( FD_UNLIKELY( ctx->config.fast_boot && ctx->malformed ) ) {
+    FD_LOG_ERR(( "the fast boot failed loading %s", ctx->http_incr_snapshot_name[ 0 ] ? ctx->http_incr_snapshot_name : ctx->http_full_snapshot_name ));
+  }
 
   /* Note: All state transitions should occur within this switch
      statement to make it easier to reason about the state management. */
@@ -1505,6 +1524,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
+      if( FD_UNLIKELY( background_snapshot_loading( ctx ) && ctx->fast_boot.slot==ULONG_MAX ) ) break; /* the stream is not attached yet */
 
       rename_full_snapshot( ctx );
 
@@ -2016,25 +2036,20 @@ snapld_frag( fd_snapct_tile_t *  ctx,
         snapshot_path_gui_publish( ctx, stem, full ? ctx->local_in.full_snapshot_path : ctx->local_in.incremental_snapshot_path, full );
       }
     } else {
-      if( full ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->resolved_name, PATH_MAX );
-      else       fd_cstr_ncpy( ctx->http_incr_snapshot_name, meta->resolved_name, PATH_MAX );
+      if(      full                                ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->resolved_name, PATH_MAX );
+      else if( !background_snapshot_loading( ctx ) ) fd_cstr_ncpy( ctx->http_incr_snapshot_name, meta->resolved_name, PATH_MAX );
 
-      /* Behind a fast boot the snapshots are picked by redirect, so
-         check that the incremental is based on the full that was
-         loaded. */
-      if( FD_UNLIKELY( background_snapshot_loading( ctx ) ) ) {
-        if( full ) {
-          ctx->full_snapshot_slot = meta->resolved_slot;
-        } else {
-          ulong full_slot = ULONG_MAX;
-          ulong incr_slot = ULONG_MAX;
-          uchar hash[ FD_HASH_FOOTPRINT ];
-          int   zstd;
-          if( FD_UNLIKELY( -1==fd_ssarchive_parse_filename( meta->resolved_name, &full_slot, &incr_slot, hash, &zstd ) || full_slot!=ctx->full_snapshot_slot ) ) {
-            FD_LOG_ERR(( "the incremental snapshot behind the fast boot is based on full slot %lu, the loaded full is at slot %lu", full_slot, ctx->full_snapshot_slot ));
-          }
-        }
+      /* Tell the snapct behind the stream which stream this is. */
+      if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_READING_STREAM && !!ctx->out_ct.mem ) ) {
+        fd_ssctrl_meta_t * out = fd_chunk_to_laddr( ctx->out_ct.mem, ctx->out_ct.chunk );
+        *out = *meta;
+        fd_stem_publish( stem, ctx->out_ct.idx, FD_SNAPSHOT_MSG_META, ctx->out_ct.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
+        ctx->out_ct.chunk = fd_dcache_compact_next( ctx->out_ct.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_ct.chunk0, ctx->out_ct.wmark );
       }
+
+      /* Behind a fast boot the full is picked by redirect; the
+         incremental is then named after it and the stream. */
+      if( FD_UNLIKELY( full && background_snapshot_loading( ctx ) ) ) ctx->fast_boot.full_snapshot_slot = meta->resolved_slot;
 
       if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
         char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
@@ -2310,6 +2325,11 @@ returnable_frag( fd_snapct_tile_t *  ctx,
     snapld_frag( ctx, sig, sz, chunk, stem );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
     ctrl_ack_frag( ctx, sig );
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_STREAM ) {
+    FD_TEST( sig==FD_SNAPSHOT_MSG_META && sz==sizeof(fd_ssctrl_meta_t) );
+    fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->stream_in_mem, chunk );
+    ctx->fast_boot.slot = meta->resolved_slot;
+    fd_memcpy( ctx->fast_boot.hash, meta->resolved_hash, FD_HASH_FOOTPRINT );
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
   return 0;
 }
@@ -2604,6 +2624,9 @@ unprivileged_init( fd_topo_t const *      topo,
     } else if( 0==strcmp( in_link->name, "snapin_ct" ) ) {
       ctx->in_kind[ i ] = IN_KIND_ACK;
       ack_cnt++;
+    } else if( 0==strcmp( in_link->name, "snapct_ct" ) ) {
+      ctx->in_kind[ i ]  = IN_KIND_STREAM;
+      ctx->stream_in_mem = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
     }
   }
   FD_TEST( has_snapld_dc && ack_cnt>0 );
@@ -2614,6 +2637,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->predicted_incremental.slot      = FD_SSPEER_SLOT_UNKNOWN;
   ctx->predicted_incremental.pending   = 0;
   ctx->predicted_incremental.committed = 0;
+  ctx->fast_boot.slot                  = ULONG_MAX;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
@@ -2623,15 +2647,16 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->gossip.allowed_cnt          = 0UL;
   ctx->gossip.saturated            = !ctx->gossip_enabled;
 
-  if( FD_UNLIKELY( tile->out_cnt<2UL || tile->out_cnt>3UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2-3", tile->out_cnt ));
+  if( FD_UNLIKELY( tile->out_cnt<2UL || tile->out_cnt>4UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2-4", tile->out_cnt ));
   ctx->out_ld  = out1( topo, tile, "snapct_ld"   );
   ctx->out_gui = out1( topo, tile, "snapct_gui"  );
   ctx->out_rp  = out1( topo, tile, "snapct_repr" );
+  ctx->out_ct  = out1( topo, tile, "snapct_ct"   );
 }
 
 /* after_credit can result in as many as 5 stem publishes in some code
-   paths, and returnable_frag can result in 1. */
-#define STEM_BURST 6UL
+   paths, and returnable_frag can result in 2. */
+#define STEM_BURST 7UL
 
 #define STEM_LAZY  (128L*3000L)
 
