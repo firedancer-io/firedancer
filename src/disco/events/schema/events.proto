@@ -1097,6 +1097,8 @@ message BootNvmeDevices {
   uint32 numa_node = 7;
   // Size of the device namespace in bytes.
   uint64 namespace_size_bytes = 8;
+  // Whether the health log was read. When false the warning, spare, used and error fields are unknown, not healthy.
+  bool has_health = 9;
 }
 
 // One block storage device.

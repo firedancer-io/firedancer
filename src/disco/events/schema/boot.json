@@ -354,7 +354,8 @@
                     "percentage_used":      { "type": "UInt8",  "description": "Endurance used percentage; values near or past 100 mark worn media." },
                     "media_errors":         { "type": "UInt64", "description": "Media and data integrity error count; nonzero flags drives silently retrying reads." },
                     "numa_node":            { "type": "UInt8",  "description": "Memory locality domain of the drive. 255 when not applicable." },
-                    "namespace_size_bytes": { "type": "UInt64", "description": "Size of the device namespace in bytes." }
+                    "namespace_size_bytes": { "type": "UInt64", "description": "Size of the device namespace in bytes." },
+                    "has_health":           { "type": "Bool",   "description": "Whether the health log was read. When false the warning, spare, used and error fields are unknown, not healthy." }
                 }
             }
         },

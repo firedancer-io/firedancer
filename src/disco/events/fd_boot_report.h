@@ -100,6 +100,7 @@ struct fd_boot_report_nvme {
   ulong media_errors;
   uchar numa_node;
   ulong namespace_size_bytes;
+  int   has_health;
 };
 typedef struct fd_boot_report_nvme fd_boot_report_nvme_t;
 
