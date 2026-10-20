@@ -20,6 +20,11 @@ BLST_OBJS+=$(OBJDIR)/obj/third_party/blst/assembly.o
 else
 BLST_CFLAGS_NOWARN+=-D__BLST_NO_ASM__ -U__x86_64__ -U__aarch64__ -ffreestanding
 endif
+# blst relies on well-defined implicit integer conversions (e.g. `& -64`
+# on a size_t), which the opt-in implicit-conversion UBSan checks flag.
+ifdef FD_HAS_UBSAN
+BLST_CFLAGS_NOWARN+=-fno-sanitize=implicit-conversion
+endif
 
 $(OBJDIR)/obj/third_party/blst/fd_blst_%.o : src/third_party/blst/fd_blst_%.c $(OBJDIR)/.flags src/third_party/blst/Local.mk
 	@$(info CC$(TAB)$(notdir $@))
