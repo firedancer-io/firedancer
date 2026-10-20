@@ -60,7 +60,7 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
                   long            map_off,
                   ulong           elem_sz,
                   ulong           depth,
-                  struct xdp_ring_offset const * ring_offset ) {
+                  fd_xdp_ring_offset_t const * ring_offset ) {
   /* TODO what is ring_offset->desc ? */
 
   /* sanity check */
@@ -140,7 +140,7 @@ fd_xsk_fini( fd_xsk_t * xsk ) {
 
   if( FD_LIKELY( xsk->xsk_fd>=0 ) ) {
     /* Clear XSK descriptors */
-    fd_memset( &xsk->offsets, 0, sizeof(struct xdp_mmap_offsets) );
+    fd_memset( &xsk->offsets, 0, sizeof(fd_xdp_mmap_offsets_t) );
     /* Close XSK */
     close( xsk->xsk_fd );
     xsk->xsk_fd = -1;
@@ -191,7 +191,7 @@ fd_xsk_setup_umem( fd_xsk_t *              xsk,
 # undef FD_SET_XSK_RING_DEPTH
 
   /* Request ring offsets */
-  socklen_t offsets_sz = sizeof(struct xdp_mmap_offsets);
+  socklen_t offsets_sz = sizeof(fd_xdp_mmap_offsets_t);
   res = getsockopt( xsk->xsk_fd, SOL_XDP, XDP_MMAP_OFFSETS,
                     &xsk->offsets, &offsets_sz );
   if( FD_UNLIKELY( res!=0 ) ) {
