@@ -4,13 +4,16 @@ on:
   pull_request:
     paths:
       - 'src/disco/events/gen_events.py'
+      - 'src/disco/events/check_schema_subset.py'
       - 'src/disco/events/schema/**'
       - '.github/workflows/proto_check.yml'
   push:
     branches:
       - main
+      - 'v[0-9]+.[0-9]+'
     paths:
       - 'src/disco/events/gen_events.py'
+      - 'src/disco/events/check_schema_subset.py'
       - 'src/disco/events/schema/**'
       - '.github/workflows/proto_check.yml'
 
@@ -53,3 +56,23 @@ jobs:
 
       - name: Lint proto file
         run: buf lint --error-format=github-actions src/disco/events/schema
+
+      # buf breaking only compares a change with its own base, so a backport
+      # that numbers a field differently from main passes it.  Release
+      # branches must stay a subset of main, and main a superset of each
+      # active release branch.
+      - name: Check field numbers match across main and release branches
+        run: |
+          base="${{ github.base_ref || github.ref_name }}"
+          if [ "$base" = main ]; then refs="$(git ls-remote --heads origin 'v*' | sed 's|.*refs/heads/||' | grep -E '^v[0-9]+\.[0-9]+$' | sort -V | tail -3)"
+          elif echo "$base" | grep -qE '^v[0-9]+\.[0-9]+$'; then refs=main
+          else echo "base $base is neither main nor a release branch, skipping"; exit 0; fi
+          buf build -o /tmp/head.json src/disco/events/schema
+          for ref in $refs; do
+            git fetch --no-tags --depth=1 origin "+refs/heads/$ref:refs/remotes/origin/$ref"
+            git ls-tree -r "origin/$ref" --name-only | grep -q '^src/disco/events/schema/events.proto$' || continue
+            buf build -o "/tmp/$ref.json" ".git#ref=refs/remotes/origin/$ref,subdir=src/disco/events/schema"
+            echo "== $ref"
+            if [ "$base" = main ]; then python3 src/disco/events/check_schema_subset.py "/tmp/$ref.json" /tmp/head.json
+            else                        python3 src/disco/events/check_schema_subset.py /tmp/head.json "/tmp/$ref.json"; fi
+          done

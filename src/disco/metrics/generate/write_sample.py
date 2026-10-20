@@ -11,7 +11,7 @@ import json
 
 def _numbered(fields: dict) -> dict:
     """{name: (field number, subfields, variants)}: positional unless an
-    explicit provisional field_number is given."""
+    explicit (pinned or provisional) field_number is given."""
     return { k: ( v.get('field_number', i), _numbered(v['fields']) if 'fields' in v else None, list(v.get('variants', {})) )
              for i, (k, v) in enumerate(fields.items(), 1) }
 
