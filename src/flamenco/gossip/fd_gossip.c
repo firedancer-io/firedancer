@@ -91,6 +91,7 @@ struct fd_gossip_private {
     long next_active_set_refresh;
     long next_contact_info_refresh;
     long next_flush_push_state;
+    long next_pull_contact_info;
   } timers;
 
   /* Token-bucket rate limiter for outbound pull response data.
@@ -119,7 +120,7 @@ struct fd_gossip_private {
     ushort            sig_off;
     uchar             data[ FD_GOSSIP_VALUE_MAX_SZ ];
     fd_gossip_value_t value[1]; /* SIGN_PEND_VALUE, SIGN_PEND_CONTACT_INFO */
-    ulong             gen;      /* SIGN_PEND_CONTACT_INFO: my_contact_info.gen when requested */
+    ulong             gen;      /* SIGN_PEND_*CONTACT_INFO: my_contact_info.gen when requested */
   } sign_pend[ FD_GOSSIP_SIGN_PEND_MAX ];
 
 
@@ -139,6 +140,10 @@ struct fd_gossip_private {
     ulong             gen;
     int               refresh_due;
     fd_gossip_value_t ci[1];
+
+    uchar             pull_val[ FD_GOSSIP_VALUE_MAX_SZ ];
+    ulong             pull_val_sz;
+    int               pull_pending;
   } my_contact_info;
 
   fd_gossip_out_ctx_t * gossip_net_out;
@@ -199,9 +204,12 @@ ping_tracker_change( void *        _ctx,
   ctx->ping_tracker_change_fn( ctx->ping_tracker_change_fn_ctx, peer_pubkey, peer_address, now, change_type );
 }
 
-#define SIGN_PEND_SEND         (0) /* a packet for peer */
-#define SIGN_PEND_VALUE        (1) /* one of our CRDS values: insert and push */
-#define SIGN_PEND_CONTACT_INFO (2) /* our contact info: store, insert and push */
+#define SIGN_PEND_SEND              (0) /* a packet for peer */
+#define SIGN_PEND_VALUE             (1) /* one of our CRDS values: insert and push */
+#define SIGN_PEND_CONTACT_INFO      (2) /* our contact info: store, insert and push */
+#define SIGN_PEND_PULL_CONTACT_INFO (3) /* our contact info, for pull requests only */
+
+#define PULL_CONTACT_INFO_INTERVAL_NANOS (100L*1000L*1000L)
 
 static int
 sign_request( fd_gossip_t *             gossip,
@@ -272,9 +280,18 @@ fd_gossip_sign_response( fd_gossip_t *       gossip,
     fd_memcpy( value->signature, signature, 64UL );
     fd_memcpy( gossip->my_contact_info.crds_val, data, sz );
     gossip->my_contact_info.crds_val_sz = sz;
+    fd_memcpy( gossip->my_contact_info.pull_val, data, sz );
+    gossip->my_contact_info.pull_val_sz = sz;
     int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
     fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, 0, now, stem );
     fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
+    break;
+  }
+  case SIGN_PEND_PULL_CONTACT_INFO: {
+    gossip->my_contact_info.pull_pending = 0;
+    if( FD_UNLIKELY( gossip->sign_pend[ idx ].gen!=gossip->my_contact_info.gen ) ) break;
+    fd_memcpy( gossip->my_contact_info.pull_val, data, sz );
+    gossip->my_contact_info.pull_val_sz = sz;
     break;
   }
   default: FD_LOG_CRIT(( "unknown sign pend kind %u", gossip->sign_pend[ idx ].kind ));
@@ -307,6 +324,22 @@ request_contact_info( fd_gossip_t * gossip,
     return;
   }
   gossip->sign_pend[ idx ].gen = gossip->my_contact_info.gen;
+}
+
+static void
+request_pull_contact_info( fd_gossip_t * gossip,
+                           long          now ) {
+  fd_gossip_value_t ci[1] = { *gossip->my_contact_info.ci };
+  fd_memcpy( ci->origin, gossip->identity_pubkey, 32UL );
+  ci->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
+  uchar serialized[ FD_GOSSIP_VALUE_MAX_SZ ];
+  long sz = fd_gossip_value_serialize( ci, serialized, FD_GOSSIP_VALUE_MAX_SZ );
+  FD_TEST( sz!=-1L );
+
+  ulong idx = (gossip->sign_pend_head+gossip->sign_pend_cnt)%FD_GOSSIP_SIGN_PEND_MAX;
+  if( FD_UNLIKELY( !sign_request( gossip, SIGN_PEND_PULL_CONTACT_INFO, NULL, NULL, serialized, (ulong)sz, 0UL, serialized+64UL, (ulong)sz-64UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) ) return;
+  gossip->sign_pend[ idx ].gen        = gossip->my_contact_info.gen;
+  gossip->my_contact_info.pull_pending = 1;
 }
 
 void *
@@ -399,6 +432,7 @@ fd_gossip_new( void *                           shmem,
   gossip->timers.next_active_set_refresh = 0L;
   gossip->timers.next_contact_info_refresh = 0L;
   gossip->timers.next_flush_push_state = 0L;
+  gossip->timers.next_pull_contact_info = 0L;
 
   gossip->outbound_budget.remaining            = 0UL;
   gossip->outbound_budget.last_replenish_nanos = now;
@@ -408,6 +442,8 @@ fd_gossip_new( void *                           shmem,
   gossip->my_contact_info.crds_val_sz = 0UL;
   gossip->my_contact_info.gen         = 0UL;
   gossip->my_contact_info.refresh_due = 0;
+  gossip->my_contact_info.pull_val_sz  = 0UL;
+  gossip->my_contact_info.pull_pending = 0;
 
   gossip->send_fn  = send_fn;
   gossip->send_ctx = send_ctx;
@@ -1120,7 +1156,7 @@ tx_pull_request( fd_gossip_t *       gossip,
                  long                now ) {
   ulong total_crds_vals = fd_crds_len( gossip->crds ) + fd_gossip_purged_len( gossip->purged );
   ulong num_items       = fd_ulong_max( 65536UL, total_crds_vals );
-  ulong crds_val_sz     = gossip->my_contact_info.crds_val_sz;
+  ulong crds_val_sz     = gossip->my_contact_info.pull_val_sz;
 
   /* Step 1: Compute num_keys from the pessimistic KEYS=8 overhead
      (same initial estimate Agave uses in CrdsFilterSet::new). */
@@ -1179,8 +1215,8 @@ tx_pull_request( fd_gossip_t *       gossip,
                                                  num_bits,
                                                  mask,
                                                  mask_bits,
-                                                 gossip->my_contact_info.crds_val,
-                                                 gossip->my_contact_info.crds_val_sz,
+                                                 gossip->my_contact_info.pull_val,
+                                                 gossip->my_contact_info.pull_val_sz,
                                                  &keys_ptr,
                                                  &bits_ptr,
                                                  &bits_set );
@@ -1255,6 +1291,11 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   fd_crds_advance( gossip->crds, now, stem, charge_busy );
 
   tx_ping( gossip, now, charge_busy );
+  if( FD_UNLIKELY( now>=gossip->timers.next_pull_contact_info && gossip->my_contact_info.crds_val_sz ) ) {
+    if( FD_LIKELY( !gossip->my_contact_info.pull_pending ) ) request_pull_contact_info( gossip, now );
+    gossip->timers.next_pull_contact_info = now+PULL_CONTACT_INFO_INTERVAL_NANOS;
+    if( charge_busy ) *charge_busy = 1;
+  }
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request && gossip->my_contact_info.crds_val_sz ) ) {
     tx_pull_request( gossip, stem, now );
     if( charge_busy ) *charge_busy = 1;
