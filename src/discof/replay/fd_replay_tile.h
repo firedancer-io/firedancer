@@ -115,6 +115,7 @@
 #define REPLAY_SIG_FINAL_CERT     (11)
 #define REPLAY_SIG_LEADER_FOOTER  (12)
 #define REPLAY_SIG_MISSING_FEC    (13)
+#define REPLAY_SIG_NEXT_LEADER    (14)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -309,6 +310,12 @@ struct fd_replay_leader_footer {
 };
 typedef struct fd_replay_leader_footer fd_replay_leader_footer_t;
 
+struct fd_replay_next_leader {
+  ulong slot;
+  ulong next_leader_slot;
+};
+typedef struct fd_replay_next_leader fd_replay_next_leader_t;
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_slot_dead_t       slot_dead;
@@ -320,6 +327,7 @@ union fd_replay_message {
   fd_replay_fec_evicted_t     reasm_evicted;
   fd_replay_drop_bank_ref_t   drop_bank_ref;
   fd_replay_leader_footer_t   leader_footer;
+  fd_replay_next_leader_t     next_leader;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

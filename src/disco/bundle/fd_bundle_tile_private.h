@@ -185,8 +185,8 @@ struct fd_bundle_tile {
   uchar bundle_status_logged;
   long  last_bundle_status_log_nanos;
 
-  ulong next_leader_slot; /* from replay_out reset messages, or ULONG_MAX */
-  ulong reset_slot;       /* from replay_out reset messages, or ULONG_MAX */
+  ulong next_leader_slot; /* from replay reset and next leader messages, or ULONG_MAX */
+  ulong reset_slot;       /* from replay reset and next leader messages, or ULONG_MAX */
   int   sleep_mode;       /* 1 means sleeping, 0 means connecting/connected */
   long  sleep_check_ns;   /* next wallclock time to re-evaluate sleeping */
 
