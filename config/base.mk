@@ -65,6 +65,20 @@ FORTIFY_SOURCE?=2
 # linker: mold, else lld (compiler >= 9), else the toolchain default
 ifeq ($(CROSS),)
 MOLD:=$(call which,mold)
+# mold < 2.41 cannot parse the INPUT(AS_NEEDED(...)) linker scripts
+# https://github.com/rui314/mold/issues/1545
+ifneq ($(MOLD),)
+ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 16 2>/dev/null && echo yes),yes)
+CC_IS_CLANG:=$(or $(FD_USING_CLANG),$(if $(FD_USING_GCC),,$(findstring __clang__,$(shell $(CC) -E -dM -x c /dev/null 2>/dev/null))))
+ifeq ($(CC_IS_CLANG),)
+MOLD_VERSION:=$(word 2,$(shell $(MOLD) --version))
+ifneq ($(firstword $(shell printf '%s\n' $(MOLD_VERSION) 2.41.0 | sort -V)),2.41.0)
+$(warning mold $(MOLD_VERSION) is too old for gcc $(CC_MAJOR_VERSION) (needs >= 2.41.0))
+MOLD:=
+endif
+endif
+endif
+endif
 ifneq ($(CC_MAJOR_VERSION),)
 ifneq ($(MOLD),)
 ifeq ($(filter 0 1 2 3 4 5 6 7 8 9 10 11,$(CC_MAJOR_VERSION)),)
