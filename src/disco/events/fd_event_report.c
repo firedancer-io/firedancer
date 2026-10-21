@@ -1,19 +1,15 @@
 #include "fd_event_report.h"
 
-static FD_TL fd_event_reporter_t fd_event_tl_storage[1];
+static FD_TL fd_event_reporter_t fd_event_tl_storage[2];
 
-void
-fd_event_register( fd_topo_t const *      topo,
-                   fd_topo_tile_t const * tile ) {
-  fd_event_tl = NULL;
-
-  if( FD_LIKELY( tile->event_link_id==ULONG_MAX ) ) return; /* no event link */
-
-  fd_topo_link_t const * link = &topo->links[ tile->event_link_id ];
+static fd_event_reporter_t *
+reporter_join( fd_event_reporter_t *  r,
+               fd_topo_t const *      topo,
+               ulong                  link_id ) {
+  fd_topo_link_t const * link = &topo->links[ link_id ];
   FD_TEST( link->mcache );
   FD_TEST( link->dcache );
 
-  fd_event_reporter_t * r = fd_event_tl_storage;
   r->mcache = link->mcache;
   r->depth  = fd_mcache_depth( link->mcache );
   r->seq    = 0UL;
@@ -33,6 +29,19 @@ fd_event_register( fd_topo_t const *      topo,
     FD_TEST( r->sleep );
     r->wake_cnt = fd_sleep_wake_table( r->wake, topo, link->id );
   }
+  return r;
+}
 
-  fd_event_tl = r;
+void
+fd_event_register( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
+  fd_event_tl      = NULL;
+  fd_event_tl_diff = NULL;
+
+  if( FD_LIKELY( tile->event_link_id==ULONG_MAX ) ) return; /* no event link */
+
+  fd_event_tl = reporter_join( fd_event_tl_storage, topo, tile->event_link_id );
+  if( FD_UNLIKELY( tile->event_diff_link_id!=ULONG_MAX ) ) {
+    fd_event_tl_diff = reporter_join( fd_event_tl_storage+1, topo, tile->event_diff_link_id );
+  }
 }
