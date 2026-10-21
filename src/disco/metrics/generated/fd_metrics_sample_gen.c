@@ -1556,11 +1556,7 @@ static fd_metrics_sample_field_t const fields_accdb[ 132 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-<<<<<<< HEAD
-static fd_metrics_sample_field_t const fields_replay[ 239 ] = {
-=======
-static fd_metrics_sample_field_t const fields_replay[ 243 ] = {
->>>>>>> 3351cdc61f (spin lock in executor acquires)
+static fd_metrics_sample_field_t const fields_replay[ 241 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4442,11 +4438,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "execle", 31U, fields_execle, 207UL, 2189UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
-<<<<<<< HEAD
-  { "replay", 34U, fields_replay, 239UL, 2568UL },
-=======
-  { "replay", 34U, fields_replay, 243UL, 2621UL },
->>>>>>> 3351cdc61f (spin lock in executor acquires)
+  { "replay", 34U, fields_replay, 241UL, 2598UL },
   { "rotor", 35U, fields_rotor, 144UL, 1624UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
   { "gossip", 37U, fields_gossip, 184UL, 1952UL },

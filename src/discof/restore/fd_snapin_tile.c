@@ -1409,39 +1409,27 @@ writer_pwrite( fd_snapin_tile_t * ctx,
   }
 }
 
+/* writer_publish puts the records staged in the writer buffer into
+   the accounts database, in batches of 8, and updates the snooped
+   stake delegations and the counters.  The records are on disk at
+   base_off, or kept in the accounts db cache when cached is set. */
+
 static int
-writer_flush( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->writer.buf_used ) ) return 0;
-
-  /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
-     is a dead record so compaction reclaims it after snapshot loading
-     finishes. */
-  ulong used   = ctx->writer.buf_used;
-  ulong padded = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
-  FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ );
-  fd_memset( ctx->writer.buf+used, 0, padded-used );
-  fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
-  dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
-
-  /* The offset is aligned because partition sizes are multiples of
-     FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
-     writers on the loader's write head, and every reservation they
-     make is a multiple of FD_SNAPIN_DIRECT_ALIGN. */
-  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded, padded-used );
-  FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
-  writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
-
+writer_publish( fd_snapin_tile_t * ctx,
+                ulong              base_off,
+                int                cached ) {
   fd_accdb_fork_id_t          fork_id    = { .val = (ushort)ctx->load_fork };
   ushort                      stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
   fd_snapin_account_batch_t * batch      = &ctx->writer.batch;
   ulong                       tile_idx   = ctx->tile_idx;
 
-  uchar const * pubkeys[ FD_SSPARSE_ACC_BATCH_MAX ];
-  ulong slots          [ FD_SSPARSE_ACC_BATCH_MAX ];
-  ulong data_lens      [ FD_SSPARSE_ACC_BATCH_MAX ];
-  ulong file_offsets   [ FD_SSPARSE_ACC_BATCH_MAX ];
-  uchar results        [ FD_SSPARSE_ACC_BATCH_MAX ];
-  ulong replaced_slots [ FD_SSPARSE_ACC_BATCH_MAX ];
+  uchar const *                pubkeys        [ FD_SSPARSE_ACC_BATCH_MAX ];
+  ulong                        slots          [ FD_SSPARSE_ACC_BATCH_MAX ];
+  ulong                        data_lens      [ FD_SSPARSE_ACC_BATCH_MAX ];
+  ulong                        file_offsets   [ FD_SSPARSE_ACC_BATCH_MAX ];
+  fd_accdb_disk_meta_t const * cache_records  [ FD_SSPARSE_ACC_BATCH_MAX ];
+  uchar                        results        [ FD_SSPARSE_ACC_BATCH_MAX ];
+  ulong                        replaced_slots [ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong buf_off = 0UL;
 
   /* In fast boot, incrementals and full snapshots share the same fork. */
@@ -1458,10 +1446,11 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     for( ulong i=0UL; i<cnt; i++ ) {
       ulong idx = batch_off+i;
 
-      pubkeys     [ i ] = ctx->writer.buf+buf_off;
-      slots       [ i ] = (ulong)batch->slots    [ idx ];
-      data_lens   [ i ] = (ulong)batch->data_lens[ idx ];
-      file_offsets[ i ] = base_off+buf_off;
+      pubkeys      [ i ] = ctx->writer.buf+buf_off;
+      cache_records[ i ] = (fd_accdb_disk_meta_t const *)( ctx->writer.buf+buf_off );
+      slots        [ i ] = (ulong)batch->slots    [ idx ];
+      data_lens    [ i ] = (ulong)batch->data_lens[ idx ];
+      file_offsets [ i ] = base_off+buf_off;
 
       buf_off += sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
       fd_uwide_inc( &input_lamports_hi, &input_lamports, input_lamports_hi, input_lamports, batch->lamports[ idx ] );
@@ -1471,7 +1460,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     if( FD_UNLIKELY( fd_accdb_restore_write_batch( ctx->accdb, fork_id, mode, cnt, pubkeys,
                                                    slots, batch->lamports+batch_off,
                                                    data_lens, batch->executables+batch_off,
-                                                   file_offsets, &accounts_ignored, &accounts_replaced,
+                                                   file_offsets, cached ? cache_records : NULL, &accounts_ignored, &accounts_replaced,
                                                    &accounts_loaded, &replaced_lamports, &ignored_lamports, replaced_slots, results ) ) ) {
       return 1;
     }
@@ -1522,6 +1511,33 @@ writer_flush( fd_snapin_tile_t * ctx ) {
 }
 
 static int
+writer_flush( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->writer.buf_used ) ) return 0;
+
+  /* A stream's records go into the accounts db cache instead. */
+  if( FD_UNLIKELY( ctx->fast_boot.stream ) ) return writer_publish( ctx, 0UL, 1 );
+
+  /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
+     is a dead record so compaction reclaims it after snapshot loading
+     finishes. */
+  ulong used   = ctx->writer.buf_used;
+  ulong padded = fd_ulong_align_up( used+sizeof(fd_accdb_disk_meta_t), FD_SNAPIN_DIRECT_ALIGN );
+  FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ );
+  fd_memset( ctx->writer.buf+used, 0, padded-used );
+  fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
+  dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
+
+  /* The offset is aligned because partition sizes are multiples of
+     FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
+     writers on the loader's write head, and every reservation they
+     make is a multiple of FD_SNAPIN_DIRECT_ALIGN. */
+  ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded, padded-used );
+  FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
+  writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
+  return writer_publish( ctx, base_off, 0 );
+}
+
+static int
 writer_append_account( fd_snapin_tile_t * ctx,
                        uchar const *      pubkey,
                        uchar const *      owner,
@@ -1562,6 +1578,8 @@ writer_append_account( fd_snapin_tile_t * ctx,
   ctx->writer.batch.data_lens   [ idx ] = (uint)data_len;
   ctx->writer.batch.executables [ idx ] = executable;
   ctx->metrics.total_accounts_processed++;
+
+  if( FD_UNLIKELY( ctx->fast_boot.stream && ctx->writer.batch.cnt==FD_SSPARSE_ACC_BATCH_MAX ) ) return writer_flush( ctx );
   return 0;
 }
 
@@ -1844,10 +1862,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   int reprocess_frag = ctx->in[ in_idx ].pos<sz;
   if( FD_LIKELY( !reprocess_frag ) ) ctx->in[ in_idx ].pos = 0UL;
 
-  /* If we're reading a stream and replay started, flush any records
-     ASAP so replay doesn't stay waiting for accounts that have already
-     been loaded. */
-  if( FD_UNLIKELY( ctx->lead.fast_boot.replay_started && writer_flush( ctx ) ) ) {
+  /* A stream's records are published at the end of every frag, so
+     replay never waits for an account that is already parsed. */
+  if( FD_UNLIKELY( ctx->fast_boot.stream && writer_flush( ctx ) ) ) {
     transition_malformed( ctx, stem );
     return 0;
   }

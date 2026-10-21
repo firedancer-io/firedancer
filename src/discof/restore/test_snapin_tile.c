@@ -391,6 +391,7 @@ mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
                                 ulong const                          data_lens[],
                                 int const                            executables[],
                                 ulong const                          file_offsets[],
+                                fd_accdb_disk_meta_t const * const   cache_records[],
                                 ulong *                              accounts_ignored,
                                 ulong *                              accounts_replaced,
                                 ulong *                              accounts_loaded,
@@ -407,6 +408,7 @@ mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
   (void)data_lens;
   (void)executables;
   (void)file_offsets;
+  FD_TEST( !!cache_records==(mode==FD_ACCDB_RESTORE_MODE_STREAM) && ( !cache_records || (void const *)cache_records[ 0 ]==(void const *)pubkeys[ 0 ] ) );
   int replaced = test_write_result==FD_ACCDB_RESTORE_WRITE_REPLACED || test_write_result==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS;
   for( ulong i=0UL; i<cnt; i++ ) replaced_slots[ i ] = replaced ? test_write_replaced_slot : ULONG_MAX;
   *accounts_ignored      = 0UL;
@@ -3093,7 +3095,14 @@ test_stream_mode( void ) {
   FD_TEST( test_write_mode==FD_ACCDB_RESTORE_MODE_STREAM );
   FD_TEST( !test_accdb_advance_root_cnt && test_feature_restore_cnt==1UL && !test_accdb_load_end_cnt ); /* the stream fork stays unrooted */
   FD_TEST( !test_accdb_read_one_cnt );
-  FD_TEST( test_pwrite_call_cnt==1UL && test_pwrite_sz[ 0 ]==FD_SNAPIN_DIRECT_ALIGN ); /* a stream is written like a snapshot */
+  FD_TEST( !test_pwrite_call_cnt ); /* a stream's records stay in the accounts db cache */
+
+  /* Stream records are published every 8 accounts, not per buffer. */
+  test_write_mode = -1;
+  for( ulong i=0UL; i<7UL; i++ ) FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
+  FD_TEST( test_write_mode==-1 && cl->ctx[ 0 ].writer.batch.cnt==7UL );
+  FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
+  FD_TEST( test_write_mode==FD_ACCDB_RESTORE_MODE_STREAM && !cl->ctx[ 0 ].writer.batch.cnt && !test_pwrite_call_cnt );
 
   /* The end of the archive: the records are flushed, the parser is
      reset for the next archive and the stream goes on. */
@@ -3101,9 +3110,10 @@ test_stream_mode( void ) {
   test_stream_init( 0UL );
   ulong av_owner[ TEST_AV_MAX ];
   pub0 = test_pub_cnt;
+  test_write_mode = -1;
   cluster_stream( cl, TEST_ORDER_ROUND_ROBIN, av_owner ); /* the end-of-archive marker */
   FD_TEST( test_pub_cnt==pub0 && !test_accdb_advance_root_cnt && !test_accdb_load_end_cnt );
-  FD_TEST( test_pwrite_call_cnt==2UL && test_pwrite_sz[ 1 ]==FD_SNAPIN_DIRECT_ALIGN );
+  FD_TEST( test_write_mode==FD_ACCDB_RESTORE_MODE_STREAM && !cl->ctx[ 0 ].writer.batch.cnt && !test_pwrite_call_cnt );
 
   /* The next archive repeats the manifest and the status cache, both
      skipped.  Its accounts are loaded. */
