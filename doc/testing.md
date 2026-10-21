@@ -35,8 +35,9 @@ jobs by workspace size only (1 GiB per test unless listed in
 `contrib/test/run_unit_tests.sh`), so bound `-j` by the available RAM.
 
 Note: if your MEMLOCK limit is low, it can be increased with
-`sudo prlimit --pid $$ --memlock=$((3*1024*1024*1024))`.  It must cover the
-largest selected workspace at any page size: 3 GiB for the automatic suite.
+`sudo prlimit --pid $$ --memlock=$((4*1024*1024*1024))`.  It must cover all
+concurrently locked mappings in each test, not just its largest workspace.
+Allow headroom above the automatic suite's largest workspace (2 GiB).
 
 ## Test Configuration
 
