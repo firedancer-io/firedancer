@@ -784,9 +784,6 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbCopiedBytes" summary="Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" />
 </tile>
 
-<tile name="poh" telemetry="false">
-</tile>
-
 <enum name="ShredProcessResult">
     <int value="-7" name="OwnLeaderEchoed" label="Turbine shred for a slot we led, echoed back to us by a relay" />
     <int value="-6" name="LeaderUnknown" label="Shred was for a slot whose leader is unknown" />
