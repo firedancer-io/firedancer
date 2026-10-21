@@ -59,6 +59,25 @@ tile_max_event_sz( fd_topo_tile_t const * tile ) {
   return 0UL;
 }
 
+static ulong
+wire_event_link( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile,
+                 char const *     suffix,
+                 ulong            depth,
+                 ulong            mtu ) {
+  char link_name[ sizeof(((fd_topo_link_t *)0)->name) ];
+  FD_TEST( fd_cstr_printf_check( link_name, sizeof(link_name), NULL, "%s_%s", tile->name, suffix ) );
+
+  fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", depth, mtu, 1UL );
+  link->permit_no_producers = 1; /* written outside fd_stem; topo sees no producer */
+
+  fd_topob_tile_uses( topo, tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  fd_topob_tile_in( topo, "event", 0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  return link->id;
+}
+
 void
 wire_event_links( fd_topo_t * topo ) {
   fd_topob_wksp( topo, "event_in" );
@@ -71,24 +90,19 @@ wire_event_links( fd_topo_t * topo ) {
     ulong max_sz = tile_max_event_sz( tile );
     if( FD_LIKELY( !max_sz ) ) continue;
 
-    char link_name[ sizeof(((fd_topo_link_t *)0)->name) ];
-    FD_TEST( fd_cstr_printf_check( link_name, sizeof(link_name), NULL, "%s_event", tile->name ) );
-
-    /* The dcache must cover depth*MTU (a smaller region risks undetected
-       torn reads), so big-MTU links trade depth away to fit the budget. */
-    ulong const event_link_dcache_max = 64UL<<20; /* 64 MiB data region per event link */
+    /* The dcache must cover depth*MTU to avoid undetected torn reads, so
+       each link is as deep as fits in 64 MiB, between 16 and 1024.
+       Replay's ~5.5 MB block_completed MTU limits it to 16, so with
+       runtime diffs on it also gets a deep, small MTU diff link for the
+       ~8K small events per slot of epoch reward payouts. */
+    ulong const event_link_dcache_max = 64UL<<20; /* target data region per event link */
     ulong depth = 1024UL;
-    while( depth>1UL && fd_dcache_req_data_sz( max_sz, depth, 1UL, 1 )>event_link_dcache_max ) depth >>= 1;
+    while( depth>16UL && fd_dcache_req_data_sz( max_sz, depth, 1UL, 1 )>event_link_dcache_max ) depth >>= 1;
+    tile->event_link_id = wire_event_link( topo, tile, "event", depth, max_sz );
 
-    fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", depth, max_sz, 1UL );
-    link->permit_no_producers = 1; /* written outside fd_stem; topo sees no producer */
-
-    tile->event_link_id = link->id;
-
-    fd_topob_tile_uses( topo, tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-    fd_topob_tile_in( topo, "event", 0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) && tile->replay.report_runtime_diffs ) ) {
+      tile->event_diff_link_id = wire_event_link( topo, tile, "diff", 65536UL, 1024UL );
+    }
   }
 }
 
