@@ -6,8 +6,6 @@
 #include <zstd_errors.h>
 
 #include <stdlib.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 #define TEST_PUB_MAX  (512UL)
 #define TEST_DATA_MAX (32UL*FD_SNAPSHOT_DATA_MTU)

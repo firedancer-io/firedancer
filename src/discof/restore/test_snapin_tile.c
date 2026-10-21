@@ -3101,10 +3101,9 @@ test_stream_mode( void ) {
 
 /* Behind a fast boot the full and incremental snapshots load on one
    fork under the stream fork, hidden from it.  Workers write the full,
-   then the incremental, on that fork.  Once they are in and the
-   stream's manifest is processed, tile 0 starts replay if the stream
-   is not caught up yet, roots that fork and the stream, and has the
-   stream pipeline stopped. */
+   then the incremental, on that fork.  Once they are in and replay
+   runs on the stream, tile 0 roots that fork and the stream and has
+   the stream pipeline stopped. */
 static void
 test_background_snapshot( void ) {
   for( int order=0; order<2; order++ ) { /* 0 caught up before the snapshots are in, 1 after */
