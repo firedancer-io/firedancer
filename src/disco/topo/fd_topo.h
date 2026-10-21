@@ -530,6 +530,10 @@ struct fd_topo_tile {
       } bundle;
 
       int alpenglow;
+
+      int   force_mismatch;
+      ulong force_mismatch_at_slot;
+      ulong force_mismatch_after;
     } replay;
 
     struct {
@@ -614,6 +618,9 @@ struct fd_topo_tile {
       ulong end_slot;
       ulong root_distance;
       long  boot_timestamp_nanos;
+      int   force_mismatch;
+      ulong force_mismatch_at_slot;
+      ulong force_mismatch_after;
     } backtest;
 
     struct {

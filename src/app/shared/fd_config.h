@@ -115,6 +115,12 @@ struct fd_configf {
       char  affinity[ AFFINITY_SZ ];
       ulong root_distance;
     } backtest;
+
+    struct {
+      int   enabled;
+      ulong at_slot;
+      ulong after;
+    } force_mismatch;
   } development;
 
   struct {

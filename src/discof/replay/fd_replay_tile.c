@@ -1791,7 +1791,20 @@ replay_block_complete( fd_replay_tile_t *        ctx,
                        ulong                     execution_fees_pre_settle,
                        ulong                     priority_fees_pre_settle ) {
   fd_hash_t const * footer_bank_hash = &footer->bank_hash;
-  if( FD_UNLIKELY( memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
+  /* Deliberately force the footer comparison to mismatch once, to
+     exercise the dead-block path.  ctx->blocks_completed is the count
+     of blocks that completed this check before this one, so "first
+     block" is blocks_completed==0 and "after N" is blocks_completed==N. */
+  int force = ctx->force_mismatch && !ctx->force_mismatch_fired &&
+              ( ( ctx->force_mismatch_at_slot && bank->f.slot==ctx->force_mismatch_at_slot ) ||
+                ( ctx->force_mismatch_after   && ctx->blocks_completed==ctx->force_mismatch_after ) ||
+                ( !ctx->force_mismatch_at_slot && !ctx->force_mismatch_after && !ctx->blocks_completed ) );
+  ctx->blocks_completed++;
+  if( FD_UNLIKELY( force ) ) {
+    ctx->force_mismatch_fired = 1;
+    FD_LOG_WARNING(( "slot %lu: forcing a footer bank hash mismatch", bank->f.slot ));
+  }
+  if( FD_UNLIKELY( force || memcmp( footer_bank_hash->uc, bank->f.bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
     FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
     FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
@@ -4767,6 +4780,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->report_runtime_diffs = tile->replay.report_runtime_diffs;
   ctx->banks->report_runtime_diffs = tile->replay.report_runtime_diffs;
+
+  ctx->force_mismatch         = tile->replay.force_mismatch;
+  ctx->force_mismatch_at_slot = tile->replay.force_mismatch_at_slot;
+  ctx->force_mismatch_after   = tile->replay.force_mismatch_after;
+  ctx->blocks_completed       = 0UL;
+  ctx->force_mismatch_fired   = 0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

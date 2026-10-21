@@ -1615,6 +1615,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
     tile->replay.report_runtime_diffs = config->development.event.report_runtime_diffs;
 
+    tile->replay.force_mismatch         = config->firedancer.development.force_mismatch.enabled;
+    tile->replay.force_mismatch_at_slot = config->firedancer.development.force_mismatch.at_slot;
+    tile->replay.force_mismatch_after   = config->firedancer.development.force_mismatch.after;
+
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 #define PARSE_BUNDLE_PUBKEY( _tile, f ) \
       if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
@@ -1870,6 +1874,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->backtest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
     tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;
     tile->backtest.boot_timestamp_nanos = config->boot_timestamp_nanos;
+    tile->backtest.force_mismatch         = config->firedancer.development.force_mismatch.enabled;
+    tile->backtest.force_mismatch_at_slot = config->firedancer.development.force_mismatch.at_slot;
+    tile->backtest.force_mismatch_after   = config->firedancer.development.force_mismatch.after;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
     fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );

@@ -644,6 +644,15 @@ struct fd_replay_tile {
 
   /* If non-zero, emit the runtime events during replay. */
   int report_runtime_diffs;
+
+  /* Deliberately force an Alpenglow footer bank hash mismatch once, to
+     exercise the dead-block path.  force_mismatch_fired latches after
+     the single forced mismatch so it never fires again. */
+  int   force_mismatch;
+  ulong force_mismatch_at_slot; /* 0 = unset: force on a specific slot number */
+  ulong force_mismatch_after;   /* 0 = unset: force after this many blocks completed */
+  ulong blocks_completed;       /* count of completed blocks, for force_mismatch_after */
+  int   force_mismatch_fired;   /* latched after the forced mismatch */
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;

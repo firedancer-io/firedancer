@@ -450,6 +450,12 @@ backtest_topo( config_t * config ) {
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {
         fd_cstr_ncpy( tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(tile->replay.enable_features[i]) );
       }
+
+      /* In a backtest the backt tile owns [development.force_mismatch]
+         disarm replay's copy so footer check doesn't force mismatch. */
+      tile->replay.force_mismatch         = 0;
+      tile->replay.force_mismatch_at_slot = 0UL;
+      tile->replay.force_mismatch_after   = 0UL;
     }
   }
 

@@ -5,7 +5,10 @@
 static void
 fd_config_check_configf( fd_config_t *  config,
                          fd_configf_t * config_f ) {
-  (void)config_f;
+  if( FD_UNLIKELY( config_f->development.force_mismatch.at_slot &&
+                   config_f->development.force_mismatch.after ) ) {
+    FD_LOG_ERR(( "[development.force_mismatch] set both at_slot and after; they are mutually exclusive" ));
+  }
   if( FD_UNLIKELY( strlen( config->paths.snapshots )>PATH_MAX-1UL ) ) {
     FD_LOG_ERR(( "[config->paths.snapshots] is too long (max %lu)", PATH_MAX-1UL ));
   }
@@ -92,6 +95,10 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( cstr,   development.backtest.affinity                       );
   CFG_POP      ( ulong,  development.backtest.root_distance                  );
+
+  CFG_POP      ( bool,   development.force_mismatch.enabled                  );
+  CFG_POP      ( ulong,  development.force_mismatch.at_slot                  );
+  CFG_POP      ( ulong,  development.force_mismatch.after                    );
 
 
   return config;

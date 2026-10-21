@@ -90,6 +90,10 @@ struct fd_backt_tile {
   long  publish_time;
   ulong slot_cnt;
 
+  int   force_mismatch;         /* deliberately force a bank hash mismatch */
+  ulong force_mismatch_at_slot; /* 0 = unset: force on a specific slot number */
+  ulong force_mismatch_after;   /* 0 = unset: force after this many slots replayed */
+
   long boot_time;
   long snapshot_done_time;
   long replay_ready_time;
@@ -470,7 +474,16 @@ returnable_frag( fd_backt_tile_t *   ctx,
       if( FD_UNLIKELY( !fd_backtest_src_slot_info( ctx->src, &slot_info, msg->slot ) || !slot_info.bank_hash_set ) ) {
         FD_LOG_ERR(( "No bank hash available for slot %lu", msg->slot ));
       }
-      if( FD_LIKELY( !memcmp( msg->bank_hash.uc, slot_info.bank_hash.uc, 32UL ) ) ) {
+      /* Deliberately force a mismatch for the configured slot so the
+         mismatch path is exercised. ctx->slot_cnt is the number of
+         slots completed before this one, so "first slot" is
+         slot_cnt==0 and "after N" is slot_cnt==N. */
+      int force = ctx->force_mismatch &&
+                  ( ( ctx->force_mismatch_at_slot && msg->slot==ctx->force_mismatch_at_slot ) ||
+                    ( ctx->force_mismatch_after   && ctx->slot_cnt==ctx->force_mismatch_after ) ||
+                    ( !ctx->force_mismatch_at_slot && !ctx->force_mismatch_after && !ctx->slot_cnt ) );
+      if( FD_UNLIKELY( force ) ) FD_LOG_WARNING(( "forcing a bank hash mismatch at slot %lu (%s)", msg->slot, bh_got_b58 ));
+      if( FD_LIKELY( !force && !memcmp( msg->bank_hash.uc, slot_info.bank_hash.uc, 32UL ) ) ) {
         FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%-44s (switch %.2f ms, begin %.2f ms, exec %6.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
           (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
           (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
@@ -622,6 +635,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->root_distance = tile->backtest.root_distance;
   ctx->boot_time     = tile->backtest.boot_timestamp_nanos;
+
+  ctx->force_mismatch         = tile->backtest.force_mismatch;
+  ctx->force_mismatch_at_slot = tile->backtest.force_mismatch_at_slot;
+  ctx->force_mismatch_after   = tile->backtest.force_mismatch_after;
 
   ctx->src = NULL;
   if( FD_LIKELY( tile->backtest.ledger_path[ 0 ] ) ) { /* empty path: load the snapshot, then exit */

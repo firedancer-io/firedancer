@@ -2339,6 +2339,25 @@ telemetry = true
         # Delays rooting by the given number of slots.
         root_distance = 32
 
+    # Deliberately force a bank hash mismatch, for exercising the
+    # mismatch-handling paths.  In a 'firedancer-dev backtest' run the
+    # backtest tile forces its ledger comparison to mismatch (the run
+    # logs the mismatch and exits); on a live/network run the replay
+    # tile forces the Alpenglow footer comparison to mismatch once (the
+    # block is marked dead and the validator keeps running).
+    [development.force_mismatch]
+        # Master switch.  When false, nothing below has any effect.
+        enabled = false
+
+        # When non-zero, force the mismatch on this absolute slot number.
+        at_slot = 0
+
+        # When non-zero, force the mismatch after this many slots have
+        # been replayed.  With both at_slot and after left zero, the
+        # mismatch is forced on the first slot replayed.  Setting both
+        # at_slot and after is rejected as ambiguous.
+        after = 0
+
     # Tuning for the accounts database.  These options are for advanced
     # users and should not be changed in production.
     [development.accdb]
