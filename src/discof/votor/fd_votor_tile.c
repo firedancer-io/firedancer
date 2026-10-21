@@ -588,6 +588,53 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
   }
 }
 
+/* Republishes a reward cert we published for slot, as it can now
+   reward more voters. */
+
+static inline void
+reward_cert_dirty( fd_votor_tile_t * ctx,
+                   ulong             slot ) {
+  reward_cert_t * rc = &ctx->reward_certs[ slot%AG_SLOTS_PER_WINDOW ];
+  if( FD_UNLIKELY( rc->slot==slot ) ) rc->dirty = 1;
+}
+
+/* Verifies agg, the held votes outside base (bad ones left out and
+   banned), adds base, and verifies the sum: if that fails, which only a
+   bug can cause, it packs the votes alone. */
+
+static void
+reward_agg_finish( fd_votor_tile_t *        ctx,
+                   ag_slot_state_t const *  state,
+                   ag_slot_states_t const * states,
+                   ag_epoch_info_t const *  epoch_info,
+                   uint                     kind,
+                   uchar const *            hash,
+                   uchar const *            msg,
+                   ulong                    msg_sz,
+                   fd_bls_agg_t *           agg,
+                   fd_bls_agg_t const *     base,
+                   fd_bls_sig_t *           sigs,
+                   ulong                    reward_slot ) {
+  if( FD_LIKELY( !fd_bls_set_is_null( agg->set ) ) ) {
+    ag_slot_state_sigs( state, states, kind, hash, agg->set, sigs );
+    ctx->metrics.bls_verify++;
+    int err = fd_bls_agg_verify_subtract( agg, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
+    ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
+    if( FD_UNLIKELY( err ) ) fd_bls_agg_null( agg );
+  }
+  if( FD_LIKELY( fd_bls_set_is_null( base->set ) ) ) return;
+
+  fd_bls_agg_t votes = *agg;
+  blst_p1_add_or_double( &agg->pub, &agg->pub, &base->pub );
+  blst_p2_add_or_double( &agg->sig, &agg->sig, &base->sig );
+  fd_bls_set_union( agg->set, agg->set, base->set );
+  ctx->metrics.bls_verify++;
+  if( FD_UNLIKELY( !fd_bls_agg_verify( msg, msg_sz, &agg->pub, &agg->sig ) ) ) {
+    FD_LOG_WARNING(( "reward cert for slot %lu fails verification, packing votes only", reward_slot ));
+    *agg = votes;
+  }
+}
+
 static void
 publish_reward_cert( fd_votor_tile_t *   ctx,
                      fd_stem_context_t * stem,
@@ -609,34 +656,34 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
   }
   ag_slot_states_t const * states     = ag_pool_slot_states( ctx->pool );
   ag_epoch_info_t const *  epoch_info = fd_ptr_if( reward_slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( reward_slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
-  ag_slot_votes_t const *  votes      = &state->votes;
   fd_bls_sig_t             sigs[ AG_VAT_MAX ];
 
   uchar msg[ AG_VOTE_SIGNING_SER_MAX ];
   ulong msg_sz;
-  int   err;
 
-  uchar const *        hash  = votes->top_notar_hash;
-  fd_bls_agg_t const * notar = ag_slot_state_notar_reward_agg( state, states, &reward->agg_notar );
+  /* Each reward agg is the folded base, already verified piecewise,
+     plus the held votes outside it, verified here.  The combined
+     aggregate is verified once more before it is packed, falling back
+     to the votes alone if it fails. */
+
+  ag_block_hash_t      hash;
+  fd_bls_agg_t         base[1];
+  fd_bls_set_t         bad_relayer[ fd_bls_set_word_cnt ];
+  fd_bls_agg_t const * notar = ag_pool_notar_reward_agg( ctx->pool, reward_slot, &reward->agg_notar, base, hash, ctx->scratch.bad, bad_relayer );
   if( FD_LIKELY( notar ) ) {
-    ag_slot_state_sigs( state, states, AG_VOTE_KIND_NOTAR, hash, reward->agg_notar.set, sigs );
+    ban_bad_ranks( ctx, ctx->scratch.bad,  reward_slot );
+    ban_bad_ranks( ctx, bad_relayer,       reward_slot );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, reward_slot, hash, ctx->shred_version, msg );
-    ctx->metrics.bls_verify++;
-    err    = fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
-    ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
-    if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_notar );
-    else                     memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) );
+    reward_agg_finish( ctx, state, states, epoch_info, AG_VOTE_KIND_NOTAR, hash, msg, msg_sz, &reward->agg_notar, base, sigs, reward_slot );
+    if( FD_LIKELY( !fd_bls_set_is_null( reward->agg_notar.set ) ) ) memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) );
   }
 
-  fd_bls_agg_t const * skip = ag_slot_state_skip_reward_agg( state );
+  fd_bls_agg_t const * skip = ag_pool_skip_reward_agg( ctx->pool, reward_slot, &reward->agg_skip, base, ctx->scratch.bad, bad_relayer );
   if( FD_LIKELY( skip ) ) {
-    reward->agg_skip = *skip;
-    ag_slot_state_sigs( state, states, AG_VOTE_KIND_SKIP, NULL, reward->agg_skip.set, sigs );
+    ban_bad_ranks( ctx, ctx->scratch.bad,  reward_slot );
+    ban_bad_ranks( ctx, bad_relayer,       reward_slot );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, reward_slot, NULL, ctx->shred_version, msg );
-    ctx->metrics.bls_verify++;
-    err    = fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
-    ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
-    if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_skip );
+    reward_agg_finish( ctx, state, states, epoch_info, AG_VOTE_KIND_SKIP, NULL, msg, msg_sz, &reward->agg_skip, base, sigs, reward_slot );
   }
 
   fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REWARD, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -1006,8 +1053,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     }
     report_alpenglow_vote( ctx, conn, vote, kind, result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, aggregation_start_time, 0L, NULL );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
-    reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
-    if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( vote->kind==AG_VOTE_KIND_NOTAR || vote->kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
+    if( FD_UNLIKELY( err==AG_POOL_SUCCESS && ( vote->kind==AG_VOTE_KIND_NOTAR || vote->kind==AG_VOTE_KIND_SKIP ) ) ) reward_cert_dirty( ctx, vote_slot );
     return;
   }
   case AG_CERT_SERDE_TAG_FINAL:
@@ -1040,7 +1086,9 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
 
     int  final             = cert->kind==AG_CERT_KIND_FINAL || cert->kind==AG_CERT_KIND_FAST_FINAL;
     long verify_start_time = fd_clock_tile_now( ctx->clock );
-    switch( ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, 0, ctx->scratch.bad ) ) {
+    int add_err = ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, 0, rank, ctx->scratch.bad );
+    if( FD_UNLIKELY( add_err==AG_POOL_SUCCESS || add_err==AG_POOL_ERR_DUPLICATE_KEPT ) ) reward_cert_dirty( ctx, cert_slot );
+    switch( add_err ) {
     case AG_POOL_SUCCESS:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, verify_start_time, 0L );
@@ -1074,6 +1122,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
       break;
     case AG_POOL_ERR_DUPLICATE:
+    case AG_POOL_ERR_DUPLICATE_KEPT:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX ]++;
       if( FD_LIKELY( ctx->scratch.cert.kind==AG_CERT_KIND_NOTAR ) ) report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE, 0L, 0L );
       break;
@@ -1613,14 +1662,14 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_bls_set_copy( cert->fast_final.agg.set, footer->fast_final_cert.signer_set );
     blst_p2_uncompress( sig_aff, footer->fast_final_cert.sig );
     blst_p2_from_affine( &cert->fast_final.agg.sig, sig_aff );
-    ag_pool_add_cert( ctx->pool, cert, 1, ctx->scratch.bad );
+    if( FD_UNLIKELY( ag_pool_add_cert( ctx->pool, cert, 1, USHORT_MAX, ctx->scratch.bad )==AG_POOL_ERR_DUPLICATE_KEPT ) ) reward_cert_dirty( ctx, cert->fast_final.slot );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->fast_final.slot );
   } else if( footer->has_final_cert ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = { .slot = footer->final_cert.slot, .shred_version = ctx->shred_version } };
     fd_bls_set_copy( cert->final.agg.set, footer->final_cert.signer_set );
     blst_p2_uncompress( sig_aff, footer->final_cert.sig );
     blst_p2_from_affine( &cert->final.agg.sig, sig_aff );
-    ag_pool_add_cert( ctx->pool, cert, 1, ctx->scratch.bad );
+    ag_pool_add_cert( ctx->pool, cert, 1, USHORT_MAX, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->final.slot );
 
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = { .slot = footer->notar_cert.slot, .shred_version = ctx->shred_version } };
@@ -1628,7 +1677,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_bls_set_copy( cert->notar.agg.set, footer->notar_cert.signer_set );
     blst_p2_uncompress( sig_aff, footer->notar_cert.sig );
     blst_p2_from_affine( &cert->notar.agg.sig, sig_aff );
-    ag_pool_add_cert( ctx->pool, cert, 1, ctx->scratch.bad );
+    if( FD_UNLIKELY( ag_pool_add_cert( ctx->pool, cert, 1, USHORT_MAX, ctx->scratch.bad )==AG_POOL_ERR_DUPLICATE_KEPT ) ) reward_cert_dirty( ctx, cert->notar.slot );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->notar.slot );
   }
 }
@@ -2291,8 +2340,7 @@ after_credit( fd_votor_tile_t *   ctx,
       uchar quorum_reached;
       int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, 1, ctx->scratch.bad, &quorum_reached );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
-      reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
-      if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( ctx->scratch.vote.kind==AG_VOTE_KIND_NOTAR || ctx->scratch.vote.kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
+      if( FD_UNLIKELY( err==AG_POOL_SUCCESS && ( ctx->scratch.vote.kind==AG_VOTE_KIND_NOTAR || ctx->scratch.vote.kind==AG_VOTE_KIND_SKIP ) ) ) reward_cert_dirty( ctx, vote_slot );
 
       int result;
       switch( err ) {
