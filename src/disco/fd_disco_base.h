@@ -13,7 +13,6 @@
 #define DST_PROTO_SHRED    (3UL)
 #define DST_PROTO_REPAIR   (4UL)
 #define DST_PROTO_GOSSIP   (5UL)
-#define DST_PROTO_SEND     (6UL)
 #define DST_PROTO_RSERVE   (7UL)
 #define DST_PROTO_VOTOR    (8UL)
 

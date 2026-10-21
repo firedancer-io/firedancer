@@ -3,7 +3,6 @@
 #include <linux/futex.h>
 #include "generated/fd_gossip_tile_seccomp.h"
 
-#include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
 #include "../../flamenco/gossip/fd_active_set.h"
 #include "../../flamenco/features/fd_features.h"
@@ -12,16 +11,13 @@
 #include "../../flamenco/stakes/fd_stake_weight_sort.h"
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/fd_txn_m.h"
-#include "../tower/fd_tower_tile.h"
 #include "../restore/utils/fd_ssmsg.h"
 #include "../restore/utils/fd_wfs.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
 #define IN_KIND_SIGN          (2)
-#define IN_KIND_TXSEND        (3)
 #define IN_KIND_EPOCH         (4)
-#define IN_KIND_TOWER         (5)
 #define IN_KIND_SNAPIN_MANIF  (6)
 
 FD_FN_CONST static inline ulong
@@ -182,9 +178,6 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    /* TxSend votes before seq param are signed by the old identity, so
-       push them while the sign tile still has the old key. */
-    if( FD_UNLIKELY( fd_seq_lt( ctx->txsend_in_seq, ctx->keyswitch->param ) ) ) return;
     ctx->is_halting_signing = 1;
     if( FD_LIKELY( !fd_gossip_sign_pend_cnt( ctx->gossip ) ) ) fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
@@ -344,13 +337,6 @@ handle_shred_version( fd_gossip_tile_ctx_t * ctx,
 }
 
 static void
-handle_local_vote( fd_gossip_tile_ctx_t * ctx,
-                   fd_txn_m_t const *     txn_m ) {
-  long now = fd_clock_tile_now( ctx->clock );
-  fd_gossip_push_vote( ctx->gossip, fd_txn_m_payload_const( txn_m ), txn_m->payload_sz, now );
-}
-
-static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
   if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_STAKE_WEIGHTS ) )
@@ -385,16 +371,6 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
       fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t *)payload;
       fd_gossip_ping_tracker_track( ctx->gossip, pingreq->pubkey.uc, peer, now );
     }
-  }
-}
-
-static void
-handle_local_duplicate_shred( fd_gossip_tile_ctx_t *            ctx,
-                              ulong                             sig,
-                              fd_gossip_duplicate_shred_t const chunk[FD_EQVOC_CHUNK_CNT] ) {
-  if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_DUPLICATE ) ) {
-    long now = fd_clock_tile_now( ctx->clock );
-    for( ulong i=0UL; i<FD_EQVOC_CHUNK_CNT; i++ ) fd_gossip_push_duplicate_shred( ctx->gossip, &chunk[i], now );
   }
 }
 
@@ -471,7 +447,7 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 static inline int
 returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  ulong                  in_idx,
-                 ulong                  seq,
+                 ulong                  seq FD_PARAM_UNUSED,
                  ulong                  sig,
                  ulong                  chunk,
                  ulong                  sz,
@@ -488,13 +464,9 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
   if( FD_UNLIKELY( sz!=0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].kind, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  if( FD_UNLIKELY( ctx->in[ in_idx ].kind==IN_KIND_TXSEND ) ) ctx->txsend_in_seq = seq+1UL;
-
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
-    case IN_KIND_TXSEND:        handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
-    case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_SNAPIN_MANIF: {
       if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
 
@@ -661,12 +633,8 @@ unprivileged_init( fd_topo_t const *      topo,
     } else if( FD_UNLIKELY( !strcmp( link->name, "sign_gossip" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SIGN;
       sign_in_tile_idx = i;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "txsend_out" ) ) ) {
-      ctx->in[ i ].kind = IN_KIND_TXSEND;
     } else if( FD_UNLIKELY( !strcmp( link->name, "replay_epoch" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_EPOCH;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "tower_out" ) ) ) {
-      ctx->in[ i ].kind = IN_KIND_TOWER;
     } else if( FD_UNLIKELY( !strcmp( link->name, "snapin_manif" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SNAPIN_MANIF;
     } else {

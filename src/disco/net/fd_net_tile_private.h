@@ -296,7 +296,6 @@ fd_net_rx_dst_ports_init( fd_net_tile_t *        ctx,
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossvf", tile->net.gossip_listen_port,             1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->net.repair_client_listen_port,      1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_RSERVE,   "net_rserve", tile->net.repair_serve_listen_port,       0 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_SEND,     "net_txsend", tile->net.txsend_src_port,                1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_client_listen_port,  1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_server_listen_port,  1 );
 

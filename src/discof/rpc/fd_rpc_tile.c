@@ -1,5 +1,4 @@
 #include "../replay/fd_replay_tile.h"
-#include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../votor/fd_votor_tile.h"
 #include "../../choreo/votor/ag_cert.h"
@@ -56,7 +55,6 @@
 #define IN_KIND_REPLAY      (0)
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
-#define IN_KIND_TOWER       (3)
 #define IN_KIND_EPOCH       (5)
 #define IN_KIND_VOTOR       (6)
 
@@ -1046,14 +1044,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         break;
       }
       default: break;
-    }
-  } else if( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) {
-    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-      fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      if( FD_LIKELY( msg->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) ) {
-        if( FD_LIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) ctx->cluster_confirmed_slot = msg->slot;
-        else                                                      ctx->cluster_confirmed_slot = fd_ulong_max( ctx->cluster_confirmed_slot, msg->slot );
-      }
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) {
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -3263,7 +3253,6 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_ciaddr" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_vote"  ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_UNLIKELY( !strcmp( link->name, "votor_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
