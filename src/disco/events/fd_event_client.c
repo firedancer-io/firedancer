@@ -102,7 +102,7 @@ struct fd_event_client {
 
   long  tx_tokens;
   long  tx_tokens_ns;
-  long  tx_rate_bps;
+  long  tx_byte_rate;
   long  stall_since;
   ulong stall_rem;
   ulong stall_events_sent;
@@ -241,7 +241,7 @@ fd_event_client_new( void *                     shmem,
                      ulong                      buf_max,
                      int                        use_tls,
                      fd_x509_ca_store_t const * ca_store,
-                     ulong                      tx_rate_bps ) {
+                     ulong                      tx_rate_mbps ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -320,7 +320,7 @@ fd_event_client_new( void *                     shmem,
   client->now                  = 0L;
   client->last_stream_send_ns  = 0L;
   client->last_response_ns     = 0L;
-  client->tx_rate_bps          = (long)( tx_rate_bps ? tx_rate_bps : FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT );
+  client->tx_byte_rate         = (long)( ( tx_rate_mbps ? tx_rate_mbps : FD_EVENT_CLIENT_TX_RATE_MBPS_DEFAULT )*125000UL );
   client->tx_tokens            = FD_EVENT_CLIENT_TX_BURST;
   client->tx_tokens_ns         = 0L;
   client->stall_since          = 0L;
@@ -883,7 +883,7 @@ fd_event_client_grpc_ping_ack( void * app_ctx ) {
 static long
 pace_refill( fd_event_client_t * client,
              long                now ) {
-  ulong   rate  = (ulong)client->tx_rate_bps;
+  ulong   rate  = (ulong)client->tx_byte_rate;
   long    dt    = fd_long_max( now-client->tx_tokens_ns, 0L );
   uint128 avail = (uint128)(ulong)dt*rate/1000000000UL;
   ulong   room  = (ulong)( FD_EVENT_CLIENT_TX_BURST-client->tx_tokens );
@@ -1083,7 +1083,7 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
     deadline = fd_long_min( deadline, fd_long_min( client->last_response_ns   +FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS,
                                                    client->last_stream_send_ns+FD_EVENT_CLIENT_HEARTBEAT_NANOS ) );
     if( FD_UNLIKELY( client->tx_tokens<=0L && fd_circq_unsent_cnt( client->circq ) ) ) {
-      deadline = fd_long_min( deadline, client->tx_tokens_ns + (1L-client->tx_tokens)*(long)1e9/client->tx_rate_bps );
+      deadline = fd_long_min( deadline, client->tx_tokens_ns + (1L-client->tx_tokens)*(long)1e9/client->tx_byte_rate );
     }
     if( FD_UNLIKELY( client->stall_since ) ) deadline = fd_long_min( deadline, client->stall_since+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
     if( FD_UNLIKELY( client->zbatch_cnt ) ) deadline = fd_long_min( deadline, client->zbatch_ns+FD_EVENT_CLIENT_ZSTD_FLUSH_NANOS );

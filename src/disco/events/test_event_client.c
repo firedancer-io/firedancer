@@ -361,7 +361,7 @@ FD_UNIT_TEST( tx_pacing ) {
   FD_TEST( dl>now && dl<=now+(long)1e9 );
 
   /* Polls shorter than one token's worth of time keep accruing. */
-  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT;
+  long const ns_per_byte = (long)1e9/(long)( FD_EVENT_CLIENT_TX_RATE_MBPS_DEFAULT*125000UL );
   long tokens0 = client->tx_tokens, tokens_ns0 = client->tx_tokens_ns;
   for( long i=1L; i<ns_per_byte; i++ ) {
     test_poll_tx( client, now+i );
@@ -412,7 +412,7 @@ FD_UNIT_TEST( tx_pacing_large_msg ) {
   test_poll_tx( client, now );
   FD_TEST( client->metrics.events_sent==1UL && !test_drain( grpc ) );
   client->last_response_ns = now;
-  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT;
+  long const ns_per_byte = (long)1e9/(long)( FD_EVENT_CLIENT_TX_RATE_MBPS_DEFAULT*125000UL );
   long dl = fd_event_client_next_deadline( client, now );
   FD_TEST( dl==now+(1L-client->tx_tokens)*ns_per_byte );
 
@@ -467,7 +467,7 @@ FD_UNIT_TEST( credit_stall ) {
 
   /* The bucket keeps refilling while parked, so an expired pacing
      deadline does not pin the tile awake. */
-  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT;
+  long const ns_per_byte = (long)1e9/(long)( FD_EVENT_CLIENT_TX_RATE_MBPS_DEFAULT*125000UL );
   test_push( circq, rng, 16UL, 1 );
   client->tx_tokens = -1000L; client->tx_tokens_ns = now;
   long t0 = now+2000L*ns_per_byte;
