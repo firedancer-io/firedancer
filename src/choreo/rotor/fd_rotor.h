@@ -40,15 +40,19 @@ struct fd_rotor_fec {
   uint      fec_idx;
   ulong     slot;
   uint      rcvd;
-  int       complete;
-  int       data_complete;
+  uchar     complete      : 1;
+  uchar     data_complete : 1;
+  uchar     is_leader     : 1;
+  uchar     notarized     : 1;
+  ulong     next;
+  ulong     prev;
+  uint      data_rcvd;     /* shred tile masks at first completion: bit j set if the data shred with in-type index j was received (vs recovered) */
+  uint      parity_rcvd;   /* ... if the parity shred with in-type index j was received */
+  uint      repair_rcvd;   /* ... if the data shred with in-type index j arrived by repair */
+
   int       final_src;     /* FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_* of the last data shred received before it completed, 0 if none */
   long      first_ts;      /* when its first shred arrived, 0 if none yet */
   long      cmpl_ts;       /* when it first completed, 0 if not yet */
-  int       is_leader;
-  int       notarized;
-  ulong     next;
-  ulong     prev;
 };
 typedef struct fd_rotor_fec fd_rotor_fec_t;
 FD_STATIC_ASSERT( sizeof(fd_rotor_fec_t)==120UL, fd_rotor_fec );
@@ -338,7 +342,9 @@ fd_rotor_slot_catchup( fd_rotor_t * rotor,
    the eager blk's dmr once it has every FEC set, our leader FECs go to
    the head of the reasm deque.  {turbine,repair,recovered}_cnt
    are the FEC set's shred counts from the shred tile, added to the
-   telemetry of each blk holding the FEC set on its first completion. */
+   telemetry of each blk holding the FEC set on its first completion.
+   {data,parity,repair}_rcvd are its received-shred masks from the
+   shred tile, kept on the FEC set from its first completion. */
 
 fd_rotor_fec_t *
 fd_rotor_fec_complete( fd_rotor_t *       rotor,
@@ -348,6 +354,9 @@ fd_rotor_fec_complete( fd_rotor_t *       rotor,
                        uint               turbine_cnt,
                        uint               repair_cnt,
                        uint               recovered_cnt,
+                       uint               data_rcvd,
+                       uint               parity_rcvd,
+                       uint               repair_rcvd,
                        long               ts );
 
 /* shred_out     SHRED_SIG_FEC_EVICTED

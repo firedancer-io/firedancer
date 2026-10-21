@@ -106,7 +106,7 @@
         "highest_received_slot":         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot a shred was received for, 0 if none" },
         "first_turbine_slot":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "First turbine slot seen, the catchup target, 0 if none" },
         "block_pending":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Blocks in the eager, notar and final block treaps, waiting for discovery" },
-        "request_in_flight":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Pending request attempts awaiting a first response; a hedge is another attempt" },
+        "request_in_flight":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Pending request attempts awaiting a response; a hedge is another attempt" },
         "fec_delivered":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets published to replay" },
         "shred_old_ignored":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Shreds received at or below the root, ignored" },
         "shred_rx": {
@@ -116,9 +116,9 @@
                 "all": ["for_block_id", "slot_index", "unmatched"]
             },
             "fields": {
-                "for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "First response to a WindowIndexForBlockId request" },
-                "slot_index":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "First response to a WindowIndex or HighestWindowIndex request" },
-                "unmatched":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Matched no pending request, including later answers to an already matched or expired request" }
+                "for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Response to a pending WindowIndexForBlockId request" },
+                "slot_index":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Response to a pending WindowIndex or HighestWindowIndex request" },
+                "unmatched":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Matched no pending request: a duplicate, or an answer to an expired or evicted request" }
             }
         },
         "meta_rx":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Alpenglow repair metadata responses received" },
