@@ -147,51 +147,6 @@ fd_sha256_core_riscv( uint *        state,
   __riscv_vsuxei32_v_u32m1( state+2UL, idx, state1, FD_SHA256_RISCV_VL );
 }
 
-void
-fd_sha256_hash_32_repeated_riscv( uchar const * data,
-                                  uchar *       hash,
-                                  ulong         cnt ) {
-  FD_SHA256_RISCV_DECLARE_CONSTANTS();
-
-  vuint32m1_t w0 = __riscv_vle32_v_u32m1( (uint const *)data,      FD_SHA256_RISCV_VL );
-  vuint32m1_t w1 = __riscv_vle32_v_u32m1( (uint const *)(data+16), FD_SHA256_RISCV_VL );
-  w0 = __riscv_vrev8_v_u32m1( w0, FD_SHA256_RISCV_VL );
-  w1 = __riscv_vrev8_v_u32m1( w1, FD_SHA256_RISCV_VL );
-
-  vuint32m1_t const initial0 = __riscv_vle32_v_u32m1( fd_sha256_riscv_initial0, FD_SHA256_RISCV_VL );
-  vuint32m1_t const initial1 = __riscv_vle32_v_u32m1( fd_sha256_riscv_initial1, FD_SHA256_RISCV_VL );
-  vuint32m1_t const padding0 = __riscv_vle32_v_u32m1( fd_sha256_riscv_padding0, FD_SHA256_RISCV_VL );
-  vuint32m1_t const padding1 = __riscv_vle32_v_u32m1( fd_sha256_riscv_padding1, FD_SHA256_RISCV_VL );
-  vuint32m1_t const reverse_idx = __riscv_vle32_v_u32m1( fd_sha256_riscv_reverse_idx, FD_SHA256_RISCV_VL );
-  vuint32m1_t const lane_ids = __riscv_vid_v_u32m1( FD_SHA256_RISCV_VL );
-  vbool32_t const lane0 = __riscv_vmseq_vx_u32m1_b32( lane_ids, 0U, FD_SHA256_RISCV_VL );
-
-  for( ulong iter=0UL; iter<cnt; iter++ ) {
-    vuint32m1_t w2 = padding0;
-    vuint32m1_t w3 = padding1;
-    vuint32m1_t state0 = initial0;
-    vuint32m1_t state1 = initial1;
-
-    FD_SHA256_RISCV_ROUNDS();
-    state0 = __riscv_vadd_vv_u32m1( state0, initial0, FD_SHA256_RISCV_VL );
-    state1 = __riscv_vadd_vv_u32m1( state1, initial1, FD_SHA256_RISCV_VL );
-
-    /* Convert {f,e,b,a},{h,g,d,c} directly to {a,b,c,d},{e,f,g,h} for
-       the next iteration, without a scalar or memory round trip. */
-    state0 = __riscv_vrgather_vv_u32m1( state0, reverse_idx, FD_SHA256_RISCV_VL );
-    state1 = __riscv_vrgather_vv_u32m1( state1, reverse_idx, FD_SHA256_RISCV_VL );
-    w0 = __riscv_vslideup_vx_u32m1_tu( state0, state1, 2UL, FD_SHA256_RISCV_VL );
-    state0 = __riscv_vslidedown_vx_u32m1( state0, 2UL, FD_SHA256_RISCV_VL );
-    state1 = __riscv_vslidedown_vx_u32m1( state1, 2UL, FD_SHA256_RISCV_VL );
-    w1 = __riscv_vslideup_vx_u32m1_tu( state0, state1, 2UL, FD_SHA256_RISCV_VL );
-  }
-
-  w0 = __riscv_vrev8_v_u32m1( w0, FD_SHA256_RISCV_VL );
-  w1 = __riscv_vrev8_v_u32m1( w1, FD_SHA256_RISCV_VL );
-  __riscv_vse8_v_u8m1( hash,    __riscv_vreinterpret_v_u32m1_u8m1( w0 ), 16UL );
-  __riscv_vse8_v_u8m1( hash+16, __riscv_vreinterpret_v_u32m1_u8m1( w1 ), 16UL );
-}
-
 #undef FD_SHA256_RISCV_ROUNDS
 #undef FD_SHA256_RISCV_SCHEDULE
 #undef FD_SHA256_RISCV_ROUND

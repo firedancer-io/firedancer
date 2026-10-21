@@ -401,7 +401,6 @@ FD_UNIT_TEST( execrp_metrics_write ) {
   test_env_t * env = test_env_create();
 
   env->execrp->metrics.sigverify_cnt         = 2UL;
-  env->execrp->metrics.poh_hash_cnt          = 3UL;
   env->execrp->metrics.txn_load_cum_ticks    = 5UL;
   env->execrp->metrics.txn_check_cum_ticks   = 7UL;
   env->execrp->metrics.txn_exec_cum_ticks    = 11UL;
@@ -445,37 +444,6 @@ FD_UNIT_TEST( execrp_sigverify ) {
   FD_TEST( out_msg->txn_sigverify->txn_idx==91UL );
   FD_TEST( out_msg->txn_sigverify->err );
   FD_TEST( env->execrp->metrics.sigverify_cnt==TXN(txn)->signature_cnt );
-
-  test_env_destroy( env );
-}
-
-FD_UNIT_TEST( execrp_poh_hash ) {
-  test_env_t * env = test_env_create();
-
-  ulong in_chunk = env->execrp->replay_in->chunk0;
-  fd_execrp_poh_hash_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
-  fd_memset( in_msg, 0, sizeof(fd_execrp_poh_hash_msg_t) );
-  in_msg->bank_idx = env->bank_idx;
-  in_msg->cnt      = fd_ulong_min( FD_EXECRP_POH_PARA, fd_sha256_simd_lane_max() );
-  in_msg->hashcnt  = 7UL;
-  fd_hash_t expected[ FD_EXECRP_POH_PARA ];
-  for( ulong j=0UL; j<in_msg->cnt; j++ ) {
-    for( ulong i=0UL; i<sizeof(fd_hash_t); i++ ) in_msg->hash[ j ].uc[ i ] = (uchar)(i+j);
-    fd_sha256_hash_32_repeated( in_msg->hash+j, expected+j, in_msg->hashcnt );
-  }
-
-  fd_stem_context_t stem[1];
-  ulong const sig = (FD_EXECRP_TT_POH_HASH<<32) | env->execrp->tile_idx;
-  FD_TEST( !returnable_frag( env->execrp, env->execrp->replay_in->idx, 0UL, sig, in_chunk,
-                             sizeof(fd_execrp_poh_hash_msg_t), 0UL, 0UL, 0UL,
-                             test_stem( env->execrp, stem ) ) );
-
-  fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_POH_HASH );
-  FD_TEST( out_msg->poh_hash->cnt==in_msg->cnt );
-  for( ulong j=0UL; j<in_msg->cnt; j++ ) {
-    FD_TEST( !memcmp( out_msg->poh_hash->hash+j, expected+j, sizeof(fd_hash_t) ) );
-  }
-  FD_TEST( env->execrp->metrics.poh_hash_cnt==in_msg->hashcnt*in_msg->cnt );
 
   test_env_destroy( env );
 }

@@ -2754,23 +2754,6 @@ dispatch_task( fd_replay_tile_t *  ctx,
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     };
-    case FD_SCHED_TT_POH_HASH: {
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->poh_hash->bank_idx );
-      FD_TEST( bank );
-      bank->refcnt++;
-
-      FD_TEST( task->poh_hash->exec_idx<ctx->exec_cnt );
-      fd_replay_out_link_t * exec_out = &ctx->exec_out[ task->poh_hash->exec_idx ];
-      fd_execrp_poh_hash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      exec_msg->bank_idx = task->poh_hash->bank_idx;
-      exec_msg->cnt      = task->poh_hash->cnt;
-      exec_msg->hashcnt  = task->poh_hash->hashcnt;
-      FD_STATIC_ASSERT( FD_SCHED_POH_PARA==FD_EXECRP_POH_PARA, poh batch width mismatch );
-      memcpy( exec_msg->hash, task->poh_hash->hash, task->poh_hash->cnt*sizeof(fd_hash_t) );
-      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_POH_HASH<<32) | task->poh_hash->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
-      break;
-    };
     default: {
       FD_LOG_CRIT(( "unexpected task type %lu", task->task_type ));
     }
@@ -2850,8 +2833,7 @@ try_replay( fd_replay_tile_t *  ctx,
       break;
     }
     case FD_SCHED_TT_TXN_EXEC:
-    case FD_SCHED_TT_TXN_SIGVERIFY:
-    case FD_SCHED_TT_POH_HASH: {
+    case FD_SCHED_TT_TXN_SIGVERIFY: {
       /* Common case: we have a transaction we need to execute. */
       dispatch_task( ctx, stem, task );
       break;
@@ -3529,13 +3511,6 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       FD_TEST( res==0 );
       if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
         publish_txn_executed( ctx, stem, bank->idx, txn_idx );
-      }
-      break;
-    }
-    case FD_EXECRP_TT_POH_HASH: {
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
-      if( FD_UNLIKELY( res && bank->state!=FD_BANK_STATE_DEAD ) ) {
-        mark_bank_dead( ctx, stem, bank->idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
       }
       break;
     }

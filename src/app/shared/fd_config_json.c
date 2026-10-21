@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24458368UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24458360UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -469,7 +469,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool( &w, "allow_private_address", config->development.gossip.allow_private_address );
     jw_obj_close( &w );
     jw_obj_open( &w, "genesis" );
-      jw_ulong( &w, "hashes_per_tick",              config->development.genesis.hashes_per_tick );
       jw_ulong( &w, "target_tick_duration_micros",  config->development.genesis.target_tick_duration_micros );
       jw_ulong( &w, "ticks_per_slot",               config->development.genesis.ticks_per_slot );
       jw_ulong( &w, "fund_initial_accounts",        config->development.genesis.fund_initial_accounts );

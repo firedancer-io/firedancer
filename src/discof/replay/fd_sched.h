@@ -149,7 +149,6 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
 #define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
 #define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
-#define FD_SCHED_TT_POH_HASH      (6UL) /* (e) PoH hashing. */
 #define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
 #define FD_SCHED_TT_CERT_VERIFY   (8UL) /* (e) Footer cert verify. */
 
@@ -180,17 +179,6 @@ struct fd_sched_txn_sigverify {
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
-#define FD_SCHED_POH_PARA 16
-struct fd_sched_poh_hash {
-  ulong     bank_idx;
-  ulong     exec_idx;
-  ulong     cnt;     /* In [1,FD_SCHED_POH_PARA] */
-  ulong     hashcnt; /* Same for every element of the batch */
-  ulong     mblk_idx[ FD_SCHED_POH_PARA ];
-  fd_hash_t hash    [ FD_SCHED_POH_PARA ];
-};
-typedef struct fd_sched_poh_hash fd_sched_poh_hash_t;
-
 struct fd_sched_mark_dead {
   ulong     bank_idx;
 };
@@ -203,7 +191,6 @@ struct fd_sched_task {
     fd_sched_block_end_t     block_end[ 1 ];
     fd_sched_txn_exec_t      txn_exec[ 1 ];
     fd_sched_txn_sigverify_t txn_sigverify[ 1 ];
-    fd_sched_poh_hash_t      poh_hash[ 1 ];
     fd_sched_mark_dead_t     mark_dead[ 1 ];
   };
 };
@@ -227,7 +214,7 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK              (14) /* Tick advanced zero hashes; PoH params were unknown when the tick parsed. */
 #define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_INGEST       (15) /* Tick advanced zero hashes, detected at FEC ingest. */
 #define FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH          (16) /* PoH hash of a tick did not verify. */
-#define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH         (17) /* PoH hash of a transaction entry did not verify, detected when the entry's PoH hashing task completed. */
+#define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH         (17) /* PoH hash of a transaction entry did not verify, detected during inline PoH verification. */
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST  (18) /* PoH hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
 #define FD_SCHED_DEAD_REASON_DEAD_ANCESTOR               (19) /* The block went down with its lineage.  Whether the lineage was discarded or ruled invalid is distinguished by fd_sched_block_is_discarded. */
 #define FD_SCHED_DEAD_REASON_BAD_BLOCK_MARKER            (20) /* An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind. */
@@ -392,22 +379,15 @@ fd_sched_cert_dispatch( fd_sched_t * sched,
    the scheduler tries to exploit idle cycles in the exec tiles during
    times of low parallelism critical path progression.
 
-   This function may also return a PoH hashing task.  These tasks are
-   lower priority than transaction execution, but higher priority than
-   sigverify.  This is because sigverify tasks are generally bite-sized,
-   whereas PoH hashing can be longer, so we would like to get started on
-   hashing sooner rather than later. */
+   PoH verification is done inline.  If it rules the block bad, this
+   returns a MARK_DEAD task. */
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
 /* Mark a task as complete.  For transaction execution, this means that
    the effects of the execution are now visible on any core that could
    execute a subsequent transaction.  Returns FD_SCHED_DEAD_REASON_NONE
-   (0) on success.  If, given the result of the task, the block turns
-   out to be bad, returns the nonzero FD_SCHED_DEAD_REASON_* it was
-   ruled bad for.  Only PoH tasks can rule a block bad, and not only
-   for a PoH hash mismatch: eager tick verification also runs on this
-   path.
+   (0) on success.
 
    If a block has been abandoned or marked dead for any reason, it'll be
    pruned the moment in-flight task count hits 0 due to the last task
@@ -461,8 +441,7 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int cause );
    DEAD_ANCESTOR like any other lineage death;
    fd_sched_block_is_discarded disambiguates discarded from
    ruled-invalid.  The recorded reason is the first one; later failures
-   on an already-dead block (e.g. an in-flight PoH task draining after
-   the block was abandoned) do not overwrite it. */
+   on an already-dead block do not overwrite it. */
 int
 fd_sched_get_dead_reason( fd_sched_t * sched, ulong bank_idx );
 

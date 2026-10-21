@@ -1734,7 +1734,8 @@ fd_runtime_process_genesis_block( fd_bank_t *          bank,
                                   fd_accdb_t *         accdb,
                                   fd_capture_ctx_t *   capture_ctx,
                                   fd_runtime_stack_t * runtime_stack ) {
-  fd_sha256_hash_32_repeated( bank->f.poh.hash, bank->f.poh.hash, bank->f.slot_params.hashes_per_tick * bank->f.ticks_per_slot );
+  ulong hash_cnt = bank->f.slot_params.hashes_per_tick * bank->f.ticks_per_slot;
+  for( ulong i=0UL; i<hash_cnt; i++ ) fd_sha256_hash( bank->f.poh.hash, 32UL, bank->f.poh.hash );
 
   bank->f.execution_fees = 0UL;
   bank->f.priority_fees = 0UL;

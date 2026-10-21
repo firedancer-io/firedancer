@@ -419,6 +419,10 @@ process_local_genesis( fd_genesi_tile_t * ctx,
     verify_cluster_type( genesis, ctx->genesis_hash, genesis_path );
   }
 
+  if( ctx->bootstrap ) {
+    FD_CHECK_ERR( genesis->poh.hashes_per_tick<=1UL, "not an Alpenglow genesis blob" );
+  }
+
   if( FD_UNLIKELY( ctx->bootstrap && ctx->expected_shred_version ) ) {
     ushort xor = 0;
     for( ulong i=0UL; i<16UL; i++ ) xor ^= ctx->genesis_hash->us[ i ];

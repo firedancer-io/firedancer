@@ -9,7 +9,6 @@
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */
 #define FD_EXECRP_TT_TXN_SIGVERIFY (2UL) /* Transaction sigverify. */
-#define FD_EXECRP_TT_POH_HASH      (3UL) /* PoH hashing. */
 #define FD_EXECRP_TT_CERT_VERIFY   (6UL) /* Alpenglow footer cert verify. */
 
 /* Sent from the replay tile to the exec tiles.  These describe one of
@@ -41,15 +40,6 @@ struct fd_execrp_txn_sigverify_msg {
 };
 typedef struct fd_execrp_txn_sigverify_msg fd_execrp_txn_sigverify_msg_t;
 
-#define FD_EXECRP_POH_PARA 16
-struct fd_execrp_poh_hash_msg {
-  ulong     bank_idx;
-  ulong     cnt;     /* In [1,FD_EXECRP_POH_PARA] */
-  ulong     hashcnt; /* Same for every element of the batch */
-  fd_hash_t hash[ FD_EXECRP_POH_PARA ];
-};
-typedef struct fd_execrp_poh_hash_msg fd_execrp_poh_hash_msg_t;
-
 struct fd_execrp_cert_verify_msg {
   ulong                  bank_idx;
   ulong                  quorum;        /* quorum numerator, 0 for a reward cert */
@@ -64,7 +54,6 @@ typedef struct fd_execrp_cert_verify_msg fd_execrp_cert_verify_msg_t;
 union fd_execrp_task_msg {
   fd_execrp_txn_exec_msg_t      txn_exec;
   fd_execrp_txn_sigverify_msg_t txn_sigverify;
-  fd_execrp_poh_hash_msg_t      poh_hash;
   fd_execrp_cert_verify_msg_t   cert_verify;
 };
 
@@ -140,12 +129,6 @@ struct fd_execrp_txn_sigverify_done_msg {
 };
 typedef struct fd_execrp_txn_sigverify_done_msg fd_execrp_txn_sigverify_done_msg_t;
 
-struct fd_execrp_poh_hash_done_msg {
-  ulong     cnt;
-  fd_hash_t hash[ FD_EXECRP_POH_PARA ];
-};
-typedef struct fd_execrp_poh_hash_done_msg fd_execrp_poh_hash_done_msg_t;
-
 struct fd_execrp_cert_verify_done_msg {
   int            err;
   int            has_hm; /* hm is the H(m) the tile hashed, for replay's memo */
@@ -158,7 +141,6 @@ struct fd_execrp_task_done_msg {
   union {
     fd_execrp_txn_exec_done_msg_t      txn_exec[ 1 ];
     fd_execrp_txn_sigverify_done_msg_t txn_sigverify[ 1 ];
-    fd_execrp_poh_hash_done_msg_t      poh_hash[ 1 ];
     fd_execrp_cert_verify_done_msg_t   cert_verify[ 1 ];
   };
 };

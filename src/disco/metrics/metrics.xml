@@ -1680,12 +1680,12 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <tile name="execrp">
-    <bool name="IsProcessing" summary="Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing)" />
+    <bool name="IsProcessing" summary="Whether the tile is currently processing a task (executing, sigverifying, or verifying certificates)" />
 
     <counter name="TxnProcessed" enum="TxnResult" summary="Transactions loaded and executed, by result" />
     <counter name="TxnProcessedByVersion" enum="TxnVersion" summary="Transactions processed, by transaction version" />
     <counter name="SignatureChecked" summary="Ed25519 signatures checked, including failures" />
-    <counter name="PohHashComputed" summary="PoH SHA-256 iterations computed" />
+    <counter name="PohHashComputed" deprecated="true" summary="PoH SHA-256 iterations computed" />
     <counter name="InstructionExecuted" summary="Top-level instructions executed" />
     <counter name="CpiExecuted" summary="Cross-program invocations executed" />
     <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" />

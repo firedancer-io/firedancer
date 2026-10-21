@@ -7,7 +7,6 @@
 
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
-#include "fd_execrp.h"
 #include "fd_rdisp.h"
 #include "fd_sched.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
@@ -40,7 +39,6 @@
 #define TEST_FAIL_NONE 0
 #define TEST_FAIL_EXEC 1
 #define TEST_FAIL_SIG  2
-#define TEST_FAIL_POH  3
 
 /* Pick any earlier bank, including the root.  This gives the fuzzer a
    wide mix of fork shapes with very little bias. */
@@ -101,13 +99,7 @@ typedef struct {
   ulong                pred_mask[ TEST_MAX_TXNS_PER_BLOCK ];
 
   mblk_t mblk[ TEST_MAX_MBLKS_PER_BLK ];
-  ulong                mblk_cnt;
-  fd_hash_t            mblk_start_hash[ TEST_MAX_MBLKS_PER_BLK ];
-  fd_hash_t            mblk_hashed_hash[ TEST_MAX_MBLKS_PER_BLK ];
-  ulong                poh_dispatch_mblk_cnt;
-  ulong                mblk_pool_idx    [ TEST_MAX_MBLKS_PER_BLK ];
-  ulong                mblk_curr_hashcnt[ TEST_MAX_MBLKS_PER_BLK ];
-  fd_hash_t            mblk_curr_hash   [ TEST_MAX_MBLKS_PER_BLK ];
+  ulong  mblk_cnt;
 
   uchar encoded[ TEST_MAX_BLOCK_BYTES ];
   ulong encoded_sz;
@@ -145,11 +137,6 @@ typedef struct {
   ulong txn_idx;
   ulong exec_idx;
   ulong local_txn_idx;
-  ulong     poh_cnt;
-  ulong     hashcnt;
-  ulong     mblk_idx      [ FD_SCHED_POH_PARA ];
-  ulong     local_mblk_idx[ FD_SCHED_POH_PARA ];
-  fd_hash_t hash          [ FD_SCHED_POH_PARA ];
 } inflight_t;
 
 typedef struct {
@@ -327,13 +314,6 @@ verify_block_encoding( block_t const * block ) {
   FD_TEST( txn_off == block->txn_cnt );
   FD_TEST( cursor == block->encoded_sz );
   FD_TEST( !memcmp( prev_hash, block->end_poh, sizeof(fd_hash_t) ) );
-}
-
-static ulong
-mblk_task_hashcnt( block_t const * block, ulong local_mblk_idx ) {
-  FD_TEST( local_mblk_idx<block->mblk_cnt );
-  mblk_t const * mblk = block->mblk + local_mblk_idx;
-  return mblk->txn_cnt ? mblk->wire_hash_cnt-1UL : mblk->wire_hash_cnt;
 }
 
 static ulong
@@ -539,7 +519,6 @@ build_block( reader_t *        r,
     ulong pure_hash_cnt = 1UL + read_range( r, 3UL );
     ulong wire_hash_cnt = pure_hash_cnt + 1UL;
 
-    fd_memcpy( block->mblk_start_hash + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
     block->mblk[ block->mblk_cnt ].start_txn      = (uint)txn_off;
     block->mblk[ block->mblk_cnt ].txn_cnt        = (uint)group_txn_cnt;
     block->mblk[ block->mblk_cnt ].wire_hash_cnt  = wire_hash_cnt;
@@ -548,7 +527,6 @@ build_block( reader_t *        r,
 
     fd_hash_t after_hashes[ 1 ];
     repeat_hash( after_hashes, prev_hash, pure_hash_cnt );
-    fd_memcpy( block->mblk_hashed_hash + block->mblk_cnt-1UL, after_hashes, sizeof(fd_hash_t) );
 
     fd_hash_t merkle[ 1 ];
     merkle_root( merkle, block->txn + txn_off, group_txn_cnt );
@@ -584,15 +562,13 @@ build_block( reader_t *        r,
   ulong tick_wire_hash_cnt = 1UL + read_range( r, 4UL );
   block->hashes_per_tick = tick_hash_cnt + tick_wire_hash_cnt;
   FD_TEST( block->mblk_cnt<TEST_MAX_MBLKS_PER_BLK );
-  fd_memcpy( block->mblk_start_hash + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
   block->mblk[ block->mblk_cnt ].start_txn     = (uint)block->txn_cnt;
   block->mblk[ block->mblk_cnt ].txn_cnt       = 0U;
   block->mblk[ block->mblk_cnt ].wire_hash_cnt = tick_wire_hash_cnt;
   block->mblk_cnt++;
 
   fd_hash_t tick_end[ 1 ];
-  repeat_hash( tick_end, prev_hash, tick_wire_hash_cnt );
-  fd_memcpy( block->mblk_hashed_hash + block->mblk_cnt-1UL, tick_end, sizeof(fd_hash_t) );
+  repeat_hash( tick_end, prev_hash, 1UL );
   fd_memcpy( block->end_poh, tick_end, sizeof(fd_hash_t) );
 
   fd_microblock_hdr_t tick_hdr = {
@@ -631,7 +607,6 @@ build_block( reader_t *        r,
   switch( read_range( r, 6UL ) ) {
     case 0UL: block->failure_mode = TEST_FAIL_EXEC; break;
     case 1UL: block->failure_mode = TEST_FAIL_SIG;  break;
-    case 2UL: block->failure_mode = TEST_FAIL_POH;  break;
     default:  block->failure_mode = TEST_FAIL_NONE; break;
   }
 
@@ -863,17 +838,6 @@ ingest_pending_block_idx( case_t *   tc,
 }
 
 static int
-lineage_dead( case_t const * tc,
-              ulong          bank_idx ) {
-  while( bank_idx>0UL ) {
-    block_t const * block = tc->block + (bank_idx-1UL);
-    if( FD_UNLIKELY( block->dead_seen ) ) return 1;
-    bank_idx = block->parent_idx;
-  }
-  return 0;
-}
-
-static int
 descends_from( case_t const * tc,
                ulong          bank_idx,
                ulong          ancestor ) {
@@ -917,44 +881,6 @@ complete_task( case_t *     tc,
       info = fd_sched_get_txn_info( tc->sched, task->txn_idx );
       FD_TEST( info && (info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
       block->sig_done_mask |= 1UL << task->local_txn_idx;
-      break;
-    }
-    case FD_SCHED_TT_POH_HASH: {
-      int is_lineage_dead = lineage_dead( tc, task->bank_idx );
-      fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-      msg->cnt = task->poh_cnt;
-      for( ulong i=0UL; i<task->poh_cnt; i++ ) {
-        ulong local_mblk_idx = task->local_mblk_idx[ i ];
-        FD_TEST( local_mblk_idx < block->mblk_cnt );
-        FD_TEST( !memcmp( task->hash+i, block->mblk_curr_hash + local_mblk_idx, sizeof(fd_hash_t) ) );
-        repeat_hash( msg->hash+i, task->hash+i, task->hashcnt );
-        block->mblk_curr_hashcnt[ local_mblk_idx ] += task->hashcnt;
-        FD_TEST( block->mblk_curr_hashcnt[ local_mblk_idx ] <= mblk_task_hashcnt( block, local_mblk_idx ) );
-        fd_memcpy( block->mblk_curr_hash + local_mblk_idx, msg->hash+i, sizeof(fd_hash_t) );
-        if( block->mblk_curr_hashcnt[ local_mblk_idx ] == mblk_task_hashcnt( block, local_mblk_idx ) ) {
-          FD_TEST( !memcmp( msg->hash+i, block->mblk_hashed_hash + local_mblk_idx, sizeof(fd_hash_t) ) );
-        }
-      }
-      if( FD_UNLIKELY( block->failure_mode==TEST_FAIL_POH && !block->failure_injected ) ) {
-        for( ulong i=0UL; i<task->poh_cnt; i++ ) {
-          ulong local_mblk_idx = task->local_mblk_idx[ i ];
-          if( block->mblk_curr_hashcnt[ local_mblk_idx ] == mblk_task_hashcnt( block, local_mblk_idx ) ) {
-            block->failure_injected  = 1;
-            msg->hash[ i ].hash[ 0 ] ^= (uchar)0x80;
-            break;
-          }
-        }
-      }
-      int rc = fd_sched_task_done( tc->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->exec_idx, msg );
-      if( FD_UNLIKELY( block->failure_mode==TEST_FAIL_POH && block->failure_injected ) ) {
-        FD_TEST( rc>=0 );
-        if( FD_UNLIKELY( rc ) ) block->dead_seen = 1;
-      } else if( FD_UNLIKELY( is_lineage_dead ) ) {
-        FD_TEST( rc>=0 );
-        if( FD_UNLIKELY( rc ) ) block->dead_seen = 1;
-      } else {
-        FD_TEST( rc==0 );
-      }
       break;
     }
     default: FD_LOG_ERR(( "unexpected async task type %lu", task->task_type ));
@@ -1155,8 +1081,8 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
      the same protocol the production replay tile uses: blocks become
      visible via fd_sched_fec_ingest() and fd_sched_set_poh_params(),
      replay polls fd_sched_task_next_ready(), BLOCK_START/BLOCK_END and
-     MARK_DEAD are handled locally, and TXN_EXEC/TXN_SIGVERIFY/POH_HASH
-     are completed later with fd_sched_task_done() after worker
+     MARK_DEAD are handled locally, and TXN_EXEC/TXN_SIGVERIFY are completed
+     later with fd_sched_task_done() after worker
      responses arrive. */
   for( ulong steps=0UL; steps<100000UL; steps++ ) {
     drain_refs( tc );
@@ -1262,44 +1188,6 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
           .exec_idx      = exec_idx,
           .local_txn_idx = local,
         };
-        break;
-      }
-      case FD_SCHED_TT_POH_HASH: {
-        bank_idx = task->poh_hash->bank_idx;
-        FD_TEST( bank_idx>0UL && bank_idx<=tc->block_cnt );
-        block_t * block = tc->block + (bank_idx-1UL);
-        FD_TEST( block->start_seen );
-        FD_TEST( !block->end_seen );
-        FD_TEST( task->poh_hash->cnt && task->poh_hash->cnt<=FD_SCHED_POH_PARA );
-        inflight_t * entry = inflight + inflight_cnt++;
-        *entry = (inflight_t) {
-          .task_type = FD_SCHED_TT_POH_HASH,
-          .bank_idx  = bank_idx,
-          .exec_idx  = task->poh_hash->exec_idx,
-          .poh_cnt   = task->poh_hash->cnt,
-          .hashcnt   = task->poh_hash->hashcnt,
-        };
-        ulong min_todo = ULONG_MAX;
-        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
-          ulong pool_idx       = task->poh_hash->mblk_idx[ i ];
-          ulong local_mblk_idx = ULONG_MAX;
-          for( ulong l=0UL; l<block->poh_dispatch_mblk_cnt; l++ ) {
-            if( block->mblk_pool_idx[ l ]==pool_idx && block->mblk_curr_hashcnt[ l ]<mblk_task_hashcnt( block, l ) ) { local_mblk_idx = l; break; }
-          }
-          if( local_mblk_idx==ULONG_MAX ) {
-            local_mblk_idx = block->poh_dispatch_mblk_cnt++;
-            FD_TEST( local_mblk_idx<block->mblk_cnt );
-            block->mblk_pool_idx    [ local_mblk_idx ] = pool_idx;
-            block->mblk_curr_hashcnt[ local_mblk_idx ] = 0UL;
-            fd_memcpy( block->mblk_curr_hash + local_mblk_idx, block->mblk_start_hash + local_mblk_idx, sizeof(fd_hash_t) );
-          }
-          FD_TEST( !memcmp( task->poh_hash->hash+i, block->mblk_curr_hash + local_mblk_idx, sizeof(fd_hash_t) ) );
-          min_todo = fd_ulong_min( min_todo, mblk_task_hashcnt( block, local_mblk_idx )-block->mblk_curr_hashcnt[ local_mblk_idx ] );
-          entry->mblk_idx      [ i ] = pool_idx;
-          entry->local_mblk_idx[ i ] = local_mblk_idx;
-          fd_memcpy( entry->hash+i, task->poh_hash->hash+i, sizeof(fd_hash_t) );
-        }
-        FD_TEST( task->poh_hash->hashcnt && task->poh_hash->hashcnt<=min_todo );
         break;
       }
       default: FD_LOG_ERR(( "unexpected task_type %lu", task->task_type ));
