@@ -1292,12 +1292,13 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   };
   ulong ignored, replaced, loaded, ignored_lamports;
   uchar results[ 1 ];
-  int incremental = fork_id.val!=USHORT_MAX;
-  if( !incremental ) fork_id = fd_accdb_root_fork_id( accdb );
-  int result = fd_accdb_restore_write_batch( accdb, fork_id, incremental, 0, 1UL, pubkeys, slots, lamports_arr,
+  ulong replaced_slots[ 1 ];
+  int mode = fork_id.val!=USHORT_MAX ? FD_ACCDB_RESTORE_MODE_INCREMENTAL : FD_ACCDB_RESTORE_MODE_FULL;
+  if( mode==FD_ACCDB_RESTORE_MODE_FULL ) fork_id = fd_accdb_root_fork_id( accdb );
+  int result = fd_accdb_restore_write_batch( accdb, fork_id, mode, 1UL, pubkeys, slots, lamports_arr,
                                               data_lens, executables, file_offsets, &ignored,
                                               &replaced, &loaded, out_replaced_lamports,
-                                              &ignored_lamports, results );
+                                              &ignored_lamports, replaced_slots, results );
   FD_TEST( !result );
   if( ignored ) return -1;
   if( replaced ) return 2;
@@ -1646,14 +1647,14 @@ typedef struct {
   ulong loaded;
   ulong replaced_lamports;
   ulong ignored_lamports;
+  ulong replaced_slots[ 8 ];
   uchar results[ 8 ];
 } test_batch_result_t;
 
 static test_batch_result_t
 test_write_batch_on( fd_accdb_t *                         accdb,
                      fd_accdb_fork_id_t                   fork_id,
-                     int                                  is_incremental_or_fast_boot_stream,
-                     int                                  skip_duplicates,
+                     int                                  mode,
                      ulong                                cnt,
                      uchar const * const                  pubkeys[],
                      ulong const                          slots[],
@@ -1681,10 +1682,10 @@ test_write_batch_on( fd_accdb_t *                         accdb,
   }
 
   test_batch_result_t result = {0};
-  result.err = fd_accdb_restore_write_batch( accdb, fork_id, is_incremental_or_fast_boot_stream, skip_duplicates, cnt, pubkeys, slots, lamports, data_lens,
+  result.err = fd_accdb_restore_write_batch( accdb, fork_id, mode, cnt, pubkeys, slots, lamports, data_lens,
                                               executables, file_offsets, &result.ignored, &result.replaced,
                                               &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
-                                              result.results );
+                                              result.replaced_slots, result.results );
   return result;
 }
 
@@ -1699,9 +1700,9 @@ test_write_batch( fd_accdb_t *                         accdb,
                   ulong const                          data_lens[],
                   int const                            executables[],
                   test_store_ctx_t *                   store ) {
-  int incremental = fork_id.val!=USHORT_MAX;
-  if( !incremental ) fork_id = fd_accdb_root_fork_id( accdb );
-  return test_write_batch_on( accdb, fork_id, incremental, 0, cnt, pubkeys, slots, lamports, data_lens, executables, store );
+  int mode = fork_id.val!=USHORT_MAX ? FD_ACCDB_RESTORE_MODE_INCREMENTAL : FD_ACCDB_RESTORE_MODE_FULL;
+  if( mode==FD_ACCDB_RESTORE_MODE_FULL ) fork_id = fd_accdb_root_fork_id( accdb );
+  return test_write_batch_on( accdb, fork_id, mode, cnt, pubkeys, slots, lamports, data_lens, executables, store );
 }
 
 /* test_fork_hide_ancestor: a fork reads past a hidden ancestor until
@@ -1726,17 +1727,17 @@ test_fork_hide_ancestor( void ) {
   ulong snap_slot[ 1 ] = { 5UL };    ulong blind_slot[ 1 ] = { 7UL };
   ulong snap_lamp[ 1 ] = { 100UL };  ulong blind_lamp[ 1 ] = { 200UL };
   ulong len[ 1 ] = { 0UL }; int exec[ 1 ] = { 0 };
-  test_write_batch_on( accdb, snap,  0, 0, 1UL, k1, snap_slot,  snap_lamp,  len, exec, &store );
-  test_write_batch_on( accdb, snap,  0, 0, 1UL, k2, snap_slot,  snap_lamp,  len, exec, &store );
-  test_write_batch_on( accdb, blind, 1, 1, 1UL, k2, blind_slot, blind_lamp, len, exec, &store );
-  test_write_batch_on( accdb, blind, 1, 1, 1UL, k3, blind_slot, blind_lamp, len, exec, &store );
-  test_write_batch_on( accdb, snap,  0, 0, 1UL, k3, snap_slot,  snap_lamp,  len, exec, &store );
+  test_write_batch_on( accdb, snap,  FD_ACCDB_RESTORE_MODE_FULL, 1UL, k1, snap_slot,  snap_lamp,  len, exec, &store );
+  test_write_batch_on( accdb, snap,  FD_ACCDB_RESTORE_MODE_FULL, 1UL, k2, snap_slot,  snap_lamp,  len, exec, &store );
+  test_write_batch_on( accdb, blind, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, k2, blind_slot, blind_lamp, len, exec, &store );
+  test_write_batch_on( accdb, blind, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, k3, blind_slot, blind_lamp, len, exec, &store );
+  test_write_batch_on( accdb, snap,  FD_ACCDB_RESTORE_MODE_FULL, 1UL, k3, snap_slot,  snap_lamp,  len, exec, &store );
 
   /* A hidden record is not there yet to the hiding fork, an empty
      streamed one is: that is how a fast boot peer tells a key not
      streamed yet from one that does not exist. */
   uchar pk4[ 32 ] = {6}; uchar const * k4[ 1 ] = { pk4 }; ulong zero[ 1 ] = { 0UL };
-  test_write_batch_on( accdb, blind, 1, 1, 1UL, k4, blind_slot, zero, len, exec, &store );
+  test_write_batch_on( accdb, blind, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, k4, blind_slot, zero, len, exec, &store );
   FD_TEST(  fd_accdb_has_record( accdb, blind, pk4 ) && !fd_accdb_exists( accdb, blind, pk4 ) );
   FD_TEST( !fd_accdb_has_record( accdb, blind, pk1 ) &&  fd_accdb_has_record( accdb, seen, pk1 ) );
   FD_TEST(  fd_accdb_has_record( accdb, blind, pk2 ) );
@@ -1786,7 +1787,7 @@ test_late_writer_main( void * arg ) {
   test_late_writer_t * w = arg;
   usleep( 50000 );
   uchar const * k[ 1 ] = { w->pubkey }; ulong slot[ 1 ] = { 5UL }; ulong lamp[ 1 ] = { 300UL }; ulong len[ 1 ] = { 0UL }; int exec[ 1 ] = { 0 };
-  test_write_batch_on( w->accdb, w->fork, 0, 0, 1UL, k, slot, lamp, len, exec, w->store );
+  test_write_batch_on( w->accdb, w->fork, FD_ACCDB_RESTORE_MODE_FULL, 1UL, k, slot, lamp, len, exec, w->store );
   return NULL;
 }
 
@@ -1815,7 +1816,7 @@ test_wait_on_stream( void ) {
 
   /* A tombstone is a record: no wait. */
   uchar const * k2[ 1 ] = { pk2 }; ulong slot[ 1 ] = { 5UL }; ulong zero[ 1 ] = { 0UL }; ulong len[ 1 ] = { 0UL }; int exec[ 1 ] = { 0 };
-  test_write_batch_on( accdb, root, 0, 0, 1UL, k2, slot, zero, len, exec, &store );
+  test_write_batch_on( accdb, root, FD_ACCDB_RESTORE_MODE_FULL, 1UL, k2, slot, zero, len, exec, &store );
   acc = fd_accdb_read_one( accdb, root, pk2 );
   FD_TEST( !acc.lamports ); fd_accdb_unread_one( accdb, &acc );
   FD_TEST( !fd_accdb_metrics( accdb )->fast_boot_waited );
@@ -1973,15 +1974,15 @@ test_snapshot_equal_slot_rejected( void ) {
   FD_TEST( result.err==-1 );
   FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
 
-  /* With skip_duplicates the repeat is dropped instead, whether it
-     is already in the chain or earlier in the same batch, and without
+  /* In stream mode the repeat is dropped instead, whether it is
+     already in the chain or earlier in the same batch, and without
      looking at the slot. */
-  result = test_write_batch_on( accdb, root, 0, 1, 1UL, pubkeys, slots, lamports, data_lens, execs, &store );
+  result = test_write_batch_on( accdb, root, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, pubkeys, slots, lamports, data_lens, execs, &store );
   FD_TEST( !result.err && !result.loaded && result.ignored==1UL && result.ignored_lamports==3UL );
   FD_TEST( result.results[0]==FD_ACCDB_RESTORE_WRITE_IGNORED );
   FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
   slots[ 0 ] = 200UL;
-  result = test_write_batch_on( accdb, root, 0, 1, 1UL, pubkeys, slots, lamports, data_lens, execs, &store );
+  result = test_write_batch_on( accdb, root, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, pubkeys, slots, lamports, data_lens, execs, &store );
   FD_TEST( !result.err && !result.loaded && result.ignored==1UL && result.results[0]==FD_ACCDB_RESTORE_WRITE_IGNORED );
   FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
   slots[ 0 ] = 100UL;
@@ -1989,7 +1990,7 @@ test_snapshot_equal_slot_rejected( void ) {
   uchar pubkey2[ 32UL ] = {2};
   pubkeys[ 0 ] = pubkeys[ 1 ] = pubkey2;
   slots[ 1 ] = 100UL;
-  result = test_write_batch_on( accdb, root, 0, 1, 2UL, pubkeys, slots, lamports, data_lens, execs, &store );
+  result = test_write_batch_on( accdb, root, FD_ACCDB_RESTORE_MODE_STREAM, 2UL, pubkeys, slots, lamports, data_lens, execs, &store );
   FD_TEST( !result.err && result.loaded==1UL && result.ignored==1UL );
   FD_TEST( result.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && result.results[1]==FD_ACCDB_RESTORE_WRITE_IGNORED );
   FD_TEST( fd_accdb_lamports( accdb, root, pubkey2 )==3UL );
@@ -2510,10 +2511,12 @@ test_snapshot_write_results( void ) {
   r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 20UL, 5UL }, (ulong[]){ 0UL, 7UL }, (ulong[]){ 0UL, 64UL }, executables, &store );
   FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED && r.results[1]==FD_ACCDB_RESTORE_WRITE_IGNORED );
   FD_TEST( r.ignored==1UL && r.replaced==1UL && r.loaded==0UL );
+  FD_TEST( r.replaced_slots[0]==10UL && r.replaced_slots[1]==ULONG_MAX );
 
   /* Replacing an empty version reports LOADED. */
   r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 30UL, 30UL }, (ulong[]){ 9UL, 6UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
   FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && r.results[1]==FD_ACCDB_RESTORE_WRITE_REPLACED );
+  FD_TEST( r.replaced_slots[0]==ULONG_MAX && r.replaced_slots[1]==10UL );
   fd_accdb_snapshot_load_end( accdb );
 
   /* Incremental: replacing the full snapshot's version is cross fork,
@@ -2522,6 +2525,7 @@ test_snapshot_write_results( void ) {
   fd_accdb_snapshot_load_begin( accdb );
   r = test_write_batch( accdb, incr, 2UL, pubkeys, (ulong[]){ 40UL, 25UL }, (ulong[]){ 11UL, 8UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
   FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS && r.results[1]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+  FD_TEST( r.replaced_slots[0]==30UL && r.replaced_slots[1]==ULONG_MAX );
   r = test_write_batch( accdb, incr, 2UL, pubkeys, (ulong[]){ 41UL, 41UL }, (ulong[]){ 12UL, 8UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
   FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED && r.results[1]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS );
   fd_accdb_snapshot_load_end( accdb );
@@ -2635,7 +2639,7 @@ test_restore_full_on_fork( void ) {
   uchar key[ 32UL ] = { 0xF2 };
   uchar const * pks[ 1 ] = { key };
   int execs[ 1 ] = { 0 };
-  test_batch_result_t r = test_write_batch_on( accdb, snap, 0, 0, 1UL, pks, (ulong[]){ 10UL }, (ulong[]){ 100UL }, (ulong[]){ 0UL }, execs, &store );
+  test_batch_result_t r = test_write_batch_on( accdb, snap, FD_ACCDB_RESTORE_MODE_FULL, 1UL, pks, (ulong[]){ 10UL }, (ulong[]){ 100UL }, (ulong[]){ 0UL }, execs, &store );
   FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED );
 
   ulong got = 0UL;
@@ -2646,7 +2650,7 @@ test_restore_full_on_fork( void ) {
 
   /* An incremental on top of it supersedes the full copy. */
   fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, snap );
-  r = test_write_batch_on( accdb, incr, 1, 0, 1UL, pks, (ulong[]){ 20UL }, (ulong[]){ 200UL }, (ulong[]){ 0UL }, execs, &store );
+  r = test_write_batch_on( accdb, incr, FD_ACCDB_RESTORE_MODE_INCREMENTAL, 1UL, pks, (ulong[]){ 20UL }, (ulong[]){ 200UL }, (ulong[]){ 0UL }, execs, &store );
   FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS && r.replaced_lamports==100UL );
 
   fd_accdb_snapshot_load_end( accdb );

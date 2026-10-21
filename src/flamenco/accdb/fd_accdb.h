@@ -580,9 +580,7 @@ fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
    Returns 0 on success, -1 if a pubkey appears more than once at the
    same slot, either in this batch or an earlier one (a corrupt-snapshot
    signal — the caller should flag the snapshot malformed).  Output
-   counters are not meaningful when -1 is returned.  With
-   skip_duplicates set, duplicate accounts are skipped regardless of the
-   slot the old/new records come from.
+   counters are not meaningful when -1 is returned.
 
    Each slots[i] must be <= UINT_MAX.  Slots are held in a 32-bit
    scratch field during snapshot loading; the accdb format must be
@@ -594,39 +592,48 @@ fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
    results receives one FD_ACCDB_RESTORE_WRITE_* code per account.
    Not meaningful when -1 is returned.
 
-   fork_id is the fork the versions are written on.
-   is_incremental_or_fast_boot_stream is set when the load goes on top
-   of an older load that lives on the parent fork, and gets rooted after
-   it.  Two cases: the incremental on top of the full, and the fast boot
-   stream on top of the snapshots behind it.  It selects how the load
-   can be undone:
+   fork_id is the fork the versions are written on.  mode says what
+   kind of load this is:
 
-     0, full-snapshot mode (including the snapshots behind a fast boot
-        stream).  Existing entries with the same pubkey are replaced
-        in-place.  No txn entries are created, so the load can only be
-        undone by fd_accdb_reset.
+     FD_ACCDB_RESTORE_MODE_FULL
+        A full snapshot, or both snapshots behind a fast boot stream,
+        which share one fork.  A same-pubkey version on fork_id is
+        replaced in place.  No txn entries are created, so the load
+        can only be undone by fd_accdb_reset.
 
-     1, incremental-snapshot mode (including fast boot streams).
-        Cross-fork overrides insert a new acc_pool entry alongside the
-        old one and create a txn record on fork_id, so fd_accdb_purge
-        can revert the writes on failure and rooting fork_id drops the
-        older copies they shadow.  Intra-fork duplicates are replaced
-        in-place.
+     FD_ACCDB_RESTORE_MODE_INCREMENTAL
+        An incremental on top of a full that lives on the parent fork.
+        A version from another fork is shadowed by a new acc_pool entry
+        with a txn record on fork_id, so fd_accdb_purge can revert the
+        load and rooting fork_id drops the older copies.  A same-fork
+        version is replaced in place.
+
+     FD_ACCDB_RESTORE_MODE_STREAM
+        A fast boot stream.  Like INCREMENTAL, but a repeat of a version
+        already written is ignored whatever its slot, never a
+        corrupt-snapshot error.
 
    A version written while the load runs on a fork the loader's fork
    cannot see is a live write.  The snapshot copy is linked behind it,
-   so that fork keeps reading its own write. */
+   so that fork keeps reading its own write.
+
+   replaced_slots[i] receives the slot of the account version that
+   account i superseded, ULONG_MAX if there was none.  Not meaningful
+   when -1 is returned. */
 
 #define FD_ACCDB_RESTORE_WRITE_IGNORED        (0) /* a newer version existed, write dropped */
 #define FD_ACCDB_RESTORE_WRITE_LOADED         (1) /* no prior funded version */
-#define FD_ACCDB_RESTORE_WRITE_REPLACED       (2) /* superseded a funded version from this load */
-#define FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS (3) /* superseded a funded version from an earlier snapshot */
+#define FD_ACCDB_RESTORE_WRITE_REPLACED       (2) /* superseded a funded version on the same fork */
+#define FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS (3) /* superseded a funded version on another fork */
+
+#define FD_ACCDB_RESTORE_MODE_FULL        (0)
+#define FD_ACCDB_RESTORE_MODE_INCREMENTAL (1)
+#define FD_ACCDB_RESTORE_MODE_STREAM      (2)
 
 int
 fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               fd_accdb_fork_id_t  fork_id,
-                              int                 is_incremental_or_fast_boot_stream,
-                              int                 skip_duplicates,
+                              int                 mode,
                               ulong               cnt,
                               uchar const * const pubkeys[],
                               ulong  const        slots[],
@@ -639,6 +646,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               ulong *             accounts_loaded,
                               ulong *             out_replaced_lamports,
                               ulong *             out_ignored_lamports,
+                              ulong *             replaced_slots,
                               uchar *             results );
 
 /* fd_accdb_background performs one unit of background work.
