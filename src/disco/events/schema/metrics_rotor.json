@@ -167,7 +167,7 @@
         },
         "retry_delay_nanos": {
             "type": "Tuple",
-            "description": "Delay scheduled before a request's next attempt: its peer's hedge time with the per-attempt backoff",
+            "description": "Delay scheduled before a request's next attempt: its peer's hedge time, 16.8 ms to 100 ms, 16.8 ms after an escape",
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10000000) nanos" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10000000, 18615210) nanos" },
@@ -199,6 +199,30 @@
         "catchup_slot":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot past the window with a verified cert, the staked catchup target, 0 if none" },
         "request_by_id_expired":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "WindowIndexForBlockId requests that expired unanswered, at or above the root" },
         "request_stuck_escaped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set" },
-        "peer_by_id_banned":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies" }
+        "peer_by_id_banned":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies" },
+        "request_late_retried":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Request attempts sent after 3 or more earlier attempts for the same timer" },
+        "escape_peer_hedge_delay_nanos": {
+            "type": "Tuple",
+            "description": "Uncapped hedge time (srtt+4*rttvar, 100 ms if unmeasured) of each staked peer an escaped retry was sent to",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10000000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10000000, 16378937) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[16378937, 26826958) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[26826958, 43939706) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[43939706, 71968568) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[71968568, 117876865) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[117876865, 193069775) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[193069775, 316227769) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[316227769, 517947472) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[517947472, 848342904) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[848342904, 1389495502) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1389495502, 2275845935) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2275845935, 3727593730) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3727593730, 6105402305) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[6105402305, 10000000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10000000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        }
     }
 }

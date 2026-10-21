@@ -229,7 +229,7 @@ fd_rotor_strat_pick_staked( fd_rotor_strat_t * strat,
                             long               now,
                             ulong              avoid,
                             ulong              r ) {
-  ulong n = strat->staked_cnt;
+  ulong n = fd_ulong_min( strat->staked_cnt, FD_ROTOR_STRAT_ESCAPE_TOP );
   ulong m = 0UL;
   for( ulong idx=0UL; idx<n; idx++ ) {
     fd_rotor_strat_peer_t const * peer = &strat->cur.peers[ idx ];

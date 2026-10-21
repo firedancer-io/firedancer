@@ -1074,14 +1074,14 @@ test_blk_treap_order( void ) {
 }
 
 /* was_eager is the predicate the eager bit replaces: blk is its slot's
-   eager blk, the turbine version, and the slot is not invalidated,
-   finalized, or ours. */
+   eager blk, the turbine version, and the slot is not invalidated or
+   ours.  Finalizing another blk keeps it repaired by position. */
 
 static int
 was_eager( fd_rotor_t const *     rotor,
            fd_rotor_blk_t const * blk ) {
   fd_rotor_slot_meta_t const * meta = &rotor->slot_meta[ blk->slot % rotor->slot_max ];
-  return meta->slot==blk->slot && !meta->invalidated && meta->final==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !meta->leader &&
+  return meta->slot==blk->slot && !meta->invalidated && !meta->leader &&
          meta->eager==fd_rotor_blk_pool_idx( rotor->blk_pool, blk ) && role( rotor, blk )==ROLE_EAGER;
 }
 
@@ -1126,11 +1126,11 @@ test_eager_bit( void ) {
   shred0( rotor, 1UL, 0UL, &root, &m10 );
   e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   fd_rotor_blk_t * fin = fd_rotor_blk_finalized( rotor, 1UL, &h77, 0L );
-  FD_TEST( fin && fin!=e1 && !e1->eager && !e1->in_blk_treap ); check_eager( rotor, e1 ); check_eager( rotor, fin );
+  FD_TEST( fin && fin!=e1 && e1->eager && e1->in_blk_treap ); check_eager( rotor, e1 ); check_eager( rotor, fin ); /* still repaired by position */
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
   shred->slot = 1UL; shred->idx = 2U*FD_FEC_SHRED_CNT; shred->data.parent_off = 1;
   fd_rotor_shred_insert( rotor, shred, &m12, 0, 0L );                            /* turbine moves its limit */
-  FD_TEST( e1->rcvd_fec_cnt==3U && !e1->in_blk_treap ); check_eager( rotor, e1 );
+  FD_TEST( e1->rcvd_fec_cnt==3U && e1->in_blk_treap ); check_eager( rotor, e1 );
 
   rotor = setup();
   fd_rotor_blk_t * n1 = fd_rotor_blk_notarized( rotor, 1UL, &d1 );

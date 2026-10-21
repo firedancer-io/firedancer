@@ -18,9 +18,10 @@
 #define FD_ROTOR_STRAT_PEER_MAX     FD_CONTACT_INFO_TABLE_SIZE
 #define FD_ROTOR_STRAT_INFLIGHT_MAX (8U)
 #define FD_ROTOR_STRAT_EXPLORE      (16UL) /* every 16th pick tries an unmeasured peer first */
+#define FD_ROTOR_STRAT_ESCAPE_TOP   (100UL) /* an escape pick draws only from the top stake ranks, small stakers are often far or offline */
 #define FD_ROTOR_STRAT_EXPIRED_MAX  (32U)  /* requests in a row a peer leaves unanswered before it is banned */
 #define FD_ROTOR_STRAT_BYID_MAX     (4U)   /* by-id requests in a row, other replies aside */
-#define FD_ROTOR_STRAT_HEDGE_NS     (200L*1000000L) /* hedge time of an unmeasured peer */
+#define FD_ROTOR_STRAT_HEDGE_NS     (100L*1000000L) /* hedge time of an unmeasured peer, and the longest any request waits for a retry */
 #define FD_ROTOR_STRAT_EAGER_MIN_NS (20L*1000000L)
 #define FD_ROTOR_STRAT_EAGER_MAX_NS (250L*1000000L)  /* also the eager wait until turbine is measured */
 #define FD_ROTOR_STRAT_TURBINE_MIN  (8UL)            /* samples before a leader's own estimate is used */
@@ -146,8 +147,9 @@ fd_rotor_strat_pick( fd_rotor_strat_t * strat,
                      int                staked,
                      ulong              avoid );
 
-/* fd_rotor_strat_pick_staked returns a staked peer at random, higher
-   stake ranks likelier, other than slot avoid, for a request the bucket
+/* fd_rotor_strat_pick_staked returns a staked peer at random among the
+   top FD_ROTOR_STRAT_ESCAPE_TOP stake ranks, higher ranks likelier,
+   other than slot avoid, for a request the bucket
    order keeps failing, and counts it in flight.  r is a random number.
    NULL if none is available. */
 
