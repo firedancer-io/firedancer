@@ -623,6 +623,13 @@ fd_topo_initialize( config_t * config ) {
     FOR(snapct_tile_cnt) fd_topob_tile( topo, "snapld", "snapld", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,                 0,                 1 )->allow_shutdown = 1;
     FOR(snapdc_tile_cnt) fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,                 0,                 0 )->allow_shutdown = 1;
     FOR(snapin_tile_cnt) fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,                 0,                 0 )->allow_shutdown = 1;
+
+    if( FD_UNLIKELY( fast_boot ) ) {
+      FOR(topo->tile_cnt) {
+        fd_topo_tile_t * tile = &topo->tiles[ i ];
+        if( !strcmp( tile->name, "snapct" ) || !strcmp( tile->name, "snapld" ) || !strcmp( tile->name, "snapdc" ) || !strcmp( tile->name, "snapin" ) ) tile->outlives_startup = 1;
+      }
+    }
   }
   if( snapmk_enabled ) {
     /**/                 fd_topob_tile( topo, "snapmk", "snapmk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
@@ -728,7 +735,7 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_out(    topo, "snapld",  i,                         "snapld_dc",     i                                                  );
     }
     if( FD_LIKELY( config->tiles.gui.enabled ) ) {
-      /**/            fd_topob_tile_out(    topo, "snapct",  0UL,                       "snapct_gui",    0UL                                                );
+      /**/            fd_topob_tile_out(    topo, "snapct",  fast_boot,                 "snapct_gui",    0UL                                                );
     }
 
     FOR(snapin_tile_cnt) fd_topob_tile_out(    topo, "snapin",  i,                       "snapin_ct",    i                                                   );
