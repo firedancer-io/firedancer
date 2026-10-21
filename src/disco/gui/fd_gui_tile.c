@@ -69,7 +69,6 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
 #define IN_KIND_GOSSIP_OUT    ( 8UL) /* firedancer only */
 #define IN_KIND_SNAPCT        ( 9UL) /* firedancer only */
 #define IN_KIND_REPAIR_NET    (10UL) /* firedancer only */
-#define IN_KIND_TOWER_OUT     (11UL) /* firedancer only */
 #define IN_KIND_REPLAY_OUT    (12UL) /* firedancer only */
 #define IN_KIND_EPOCH         (13UL) /* firedancer only */
 #define IN_KIND_GENESI_OUT    (14UL) /* firedancer only */
@@ -357,8 +356,6 @@ during_frag( fd_gui_ctx_t * ctx,
              ulong          chunk,
              ulong          sz,
              ulong          ctl ) {
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER_OUT ) ) return; /* process in returnable_frag */
-
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
@@ -438,8 +435,6 @@ after_frag( fd_gui_ctx_t *      ctx,
   if( FD_LIKELY( ctx->in_reliable[ in_idx ] ) ) ctx->idle_cnt = 0UL;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
-
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER_OUT ) ) return; /* process in returnable_frag */
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_EXECRP_REPLAY: {
@@ -647,29 +642,14 @@ static int
 returnable_frag( fd_gui_ctx_t *      ctx,
                  ulong               in_idx,
                  ulong               seq    FD_PARAM_UNUSED,
-                 ulong               sig,
-                 ulong               chunk,
-                 ulong               sz,
+                 ulong               sig    FD_PARAM_UNUSED,
+                 ulong               chunk  FD_PARAM_UNUSED,
+                 ulong               sz     FD_PARAM_UNUSED,
                  ulong               ctl    FD_PARAM_UNUSED,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT && !ctx->gui->epoch.has_epoch_schedule ) ) return 1; /* epoch info not received yet: defer polling */
-
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_TOWER_OUT ) ) return 0; /* process in {before|during|after}_frag */
-
-  if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "in_kind %lu chunk %lu %lu corrupt, not in range [%lu,%lu] or too large (%lu)", ctx->in_kind[ in_idx ], chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark, ctx->in[ in_idx ].mtu ));
-
-  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-
-  if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
-    FD_TEST( sz>=sizeof(fd_tower_slot_done_t) );
-    fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)src;
-    if( FD_UNLIKELY( !fd_gui_slot_get( ctx->gui, tower->replay_slot, tower->replay_bank_seq ) ) ) return 1; /* block not replayed yet: defer polling */
-    fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_tile_now( ctx->clock ) );
-  }
-
   return 0;
 }
 
@@ -1014,7 +994,6 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "gossip_ciseen" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;
-    else if( FD_LIKELY( !strcmp( link->name, "tower_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT;

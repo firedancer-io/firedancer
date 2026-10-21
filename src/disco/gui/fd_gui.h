@@ -16,7 +16,6 @@
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_wfs.h"
-#include "../../discof/tower/fd_tower_tile.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h" /* fd_slot_to_epoch */
@@ -1469,11 +1468,6 @@ void
 fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           fd_epoch_info_msg_t const * epoch_info,
                           long                        now );
-
-void
-fd_gui_handle_tower_update( fd_gui_t *                   gui,
-                            fd_tower_slot_done_t const * msg,
-                            long                         now );
 
 void
 fd_gui_handle_replay_update( fd_gui_t *                         gui,

@@ -18,7 +18,6 @@
 
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/quic/fd_quic_tile.h"
-#include "../../../../discof/txsend/fd_txsend_tile.h"
 #include "../../../../waltz/quic/log/fd_quic_log_user.h"
 #include "../../../../ballet/hex/fd_hex.h"
 #include <stdlib.h>
@@ -52,7 +51,6 @@ quic_trace_cmd_args( int    * pargc,
   args->quic_trace.dump        = fd_env_strip_cmdline_contains( pargc, pargv, "--dump" );
   args->quic_trace.dump_config = fd_env_strip_cmdline_contains( pargc, pargv, "--dump-config" );
   args->quic_trace.dump_conns  = fd_env_strip_cmdline_contains( pargc, pargv, "--dump-conns" );
-  args->quic_trace.trace_send  = fd_env_strip_cmdline_contains( pargc, pargv, "--send-tile" );
 }
 
 static char const *
@@ -191,20 +189,17 @@ quic_trace_cmd_fn( args_t *   args,
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( topo );
 
-  int trace_send = args->quic_trace.trace_send;
-
-  char const     * tile_names[] = {"quic", "txsend"};
-  fd_topo_tile_t * target_tile  = NULL;
+  fd_topo_tile_t * target_tile = NULL;
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
-    if( 0==strcmp( topo->tiles[tile_idx].name, tile_names[trace_send] ) ) {
+    if( 0==strcmp( topo->tiles[tile_idx].name, "quic" ) ) {
       target_tile = &topo->tiles[tile_idx];
       break;
     }
   }
-  if( !target_tile ) FD_LOG_ERR(( "%s tile not found in topology", tile_names[trace_send] ));
+  if( !target_tile ) FD_LOG_ERR(( "quic tile not found in topology" ));
 
   ulong const target_in_cnt  = target_tile->in_cnt;
-  if( FD_UNLIKELY( !trace_send && target_in_cnt != 1UL ) ) { /* FIXME */
+  if( FD_UNLIKELY( target_in_cnt != 1UL ) ) { /* FIXME */
     FD_LOG_ERR(( "Sorry, fd_quic_trace does not support multiple net tiles yet" ));
   }
 
@@ -214,48 +209,42 @@ quic_trace_cmd_fn( args_t *   args,
      object. */
 
   fd_quic_trace_tile_ctx_remote = fd_topo_obj_laddr( topo, target_tile->tile_obj_id );
-  ulong quic_raddr              = (ulong)tile_member( fd_quic_trace_tile_ctx_remote, quic, trace_send );
-  ulong tile_align              = fd_ulong_if( trace_send, alignof(fd_txsend_tile_t), alignof(fd_quic_ctx_t) );
-  ulong tile_ctx_sz             = fd_ulong_if( trace_send, sizeof(fd_txsend_tile_t), sizeof(fd_quic_ctx_t) );
-  fd_quic_trace_tile_ctx_raddr  = quic_raddr - fd_ulong_align_up( tile_ctx_sz, fd_ulong_max( tile_align, fd_quic_align() ) );
+  ulong quic_raddr              = (ulong)((fd_quic_ctx_t *)fd_quic_trace_tile_ctx_remote)->quic;
+  fd_quic_trace_tile_ctx_raddr  = quic_raddr - fd_ulong_align_up( sizeof(fd_quic_ctx_t), fd_ulong_max( alignof(fd_quic_ctx_t), fd_quic_align() ) );
 
   FD_LOG_INFO(("quic_raddr %p", (void *)quic_raddr));
   FD_LOG_INFO((
-      "%s tile state at %p in tile address space and %p in local address space",
-      tile_names[trace_send], (void *)fd_quic_trace_tile_ctx_raddr, fd_quic_trace_tile_ctx_remote));
+      "quic tile state at %p in tile address space and %p in local address space",
+      (void *)fd_quic_trace_tile_ctx_raddr, fd_quic_trace_tile_ctx_remote));
 
   /* target_net link tracking */
-  char out_link_name[16];
-  FD_TEST( fd_cstr_printf_check( out_link_name, sizeof(out_link_name), NULL, "%s_net", tile_names[trace_send] ) );
-  ulong link_id = fd_topo_find_link( topo, out_link_name, 0 );
-  if( FD_UNLIKELY( link_id == ULONG_MAX ) ) FD_LOG_ERR(("%s not found", out_link_name));
+  ulong link_id = fd_topo_find_link( topo, "quic_net", 0 );
+  if( FD_UNLIKELY( link_id == ULONG_MAX ) ) FD_LOG_ERR(("quic_net not found"));
   fd_topo_link_t * target_net = &topo->links[link_id];
 
   /* net_target link tracking */
-  FD_TEST( fd_cstr_printf_check( out_link_name, sizeof(out_link_name), NULL, "net_%s", tile_names[trace_send] ) );
-  link_id = fd_topo_find_link( topo, out_link_name, 0 );
-  if( FD_UNLIKELY( link_id == ULONG_MAX ) ) FD_LOG_ERR(("%s not found", out_link_name));
+  link_id = fd_topo_find_link( topo, "net_quic", 0 );
+  if( FD_UNLIKELY( link_id == ULONG_MAX ) ) FD_LOG_ERR(("net_quic not found"));
 
   fd_topo_link_t * net_target = &topo->links[link_id];
   fd_net_rx_bounds_t net_in_bounds;
   fd_net_rx_bounds_init(&net_in_bounds, net_target->dcache);
-  FD_LOG_INFO(("net->%s dcache at %p", tile_names[trace_send], (void *)net_target->dcache));
+  FD_LOG_INFO(("net->quic dcache at %p", (void *)net_target->dcache));
 
   /* Join shared memory objects
      Mostly nops but verifies object magic numbers to ensure that
      derived pointers are correct. */
 
-  FD_LOG_INFO(( "Joining fd_quic in %s tile", tile_names[trace_send] ));
+  FD_LOG_INFO(( "Joining fd_quic in quic tile" ));
   fd_quic_t * quic_remote = fd_type_pun( translate_ptr( (void*)quic_raddr ) );
   fd_quic_t * quic        = fd_quic_join( quic_remote );
-  if( !quic ) FD_LOG_ERR( ("Failed to join fd_quic in %s tile", tile_names[trace_send]));
+  if( !quic ) FD_LOG_ERR( ("Failed to join fd_quic in quic tile"));
 
   /* build ctx */
   fd_quic_trace_ctx_t trace_ctx[1] = {
     {.dump          = args->quic_trace.dump,
      .dump_config   = args->quic_trace.dump_config,
      .dump_conns    = args->quic_trace.dump_conns,
-     .trace_send    = args->quic_trace.trace_send,
      .net_out_base  = (ulong)fd_wksp_containing(target_net->dcache),
      .quic          = quic,
      .net_in_bounds = {net_in_bounds} } };
@@ -343,7 +332,7 @@ quic_trace_cmd_fn( args_t *   args,
 
   void * log = (void *)((ulong)quic_remote + quic->layout.log_off);
   fd_quic_log_rx_t log_rx[1];
-  FD_LOG_DEBUG(( "Joining %s log", tile_names[trace_send] ));
+  FD_LOG_DEBUG(( "Joining quic log" ));
   if( FD_UNLIKELY( !fd_quic_log_rx_join( log_rx, log ) ) ) {
     FD_LOG_ERR(( "fd_quic_log_rx_join failed" ));
   }
@@ -368,7 +357,7 @@ quic_trace_cmd_fn( args_t *   args,
 
   trace_ctx->quic = quic;
 
-  FD_LOG_NOTICE(( "quic-trace on %s tile starting ...", tile_names[trace_send] ));
+  FD_LOG_NOTICE(( "quic-trace on quic tile starting ..." ));
   switch( args->quic_trace.event ) {
   case EVENT_STREAM:
     fd_quic_trace_rx_tile( trace_ctx, rx_mcache, tx_mcache );

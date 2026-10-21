@@ -165,7 +165,6 @@ test_rx_routes( void ) {
   topo_tile->mlx5.net.gossip_listen_port        = 8001U;
   topo_tile->mlx5.net.repair_client_listen_port = 8002U;
   topo_tile->mlx5.net.repair_serve_listen_port  = 8003U;
-  topo_tile->mlx5.net.txsend_src_port           = 8004U;
 
   fd_topo_tile_t * topo_tile1 = fd_topob_tile( topo, "mlx5", "net_umem", "net_umem", 1UL, 0, 0, 0 );
   fd_topo_obj_t *  umem_obj1  = fd_topob_obj( topo, "dcache", "net_umem" );
@@ -179,7 +178,6 @@ test_rx_routes( void ) {
   fd_topos_net_rx_link( topo, "net_gossvf", 0UL, 128UL );
   fd_topos_net_rx_link( topo, "net_repair", 0UL, 128UL );
   fd_topos_net_rx_link( topo, "net_rserve", 0UL, 128UL );
-  fd_topos_net_rx_link( topo, "net_txsend", 0UL, 128UL );
   fd_topos_net_rx_link( topo, "net_quic",   1UL, 128UL );
   fd_topos_net_rx_link( topo, "net_shred",  1UL, 128UL );
   fd_topos_net_rx_link( topo, "net_repair", 1UL, 128UL );
@@ -214,11 +212,6 @@ test_rx_routes( void ) {
   FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8003U, 64UL, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_rserve", 0UL ) );
   FD_TEST( proto==DST_PROTO_RSERVE );
-
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8004U, 64UL, &out_idx, &proto ) );
-  FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_txsend", 0UL ) );
-  FD_TEST( proto==DST_PROTO_SEND );
-  FD_TEST( !fd_net_rx_dst_port_lookup( &tile->net, 9999U, 64UL, &out_idx, &proto ) );
 
   fd_mlx5_tile_t tile1[1];
   fd_memset( tile1, 0, sizeof(tile1) );
