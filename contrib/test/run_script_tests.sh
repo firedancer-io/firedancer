@@ -29,7 +29,6 @@ $UNIT_TEST/test_cnc   --tile-cpus 0,2   2> $LOG_PATH/cnc         || test_status=
 $UNIT_TEST/test_tile  --tile-cpus 0-8/2 2> $LOG_PATH/tile_multi  || test_status=1
 $UNIT_TEST/test_tpool --tile-cpus 0-7   2> $LOG_PATH/tpool_large || test_status=1
 $UNIT_TEST/test_store --tile-cpus 0-3 --require-multitile 2> $LOG_PATH/store_multi || test_status=1
-$UNIT_TEST/test_reasm --tile-cpus 0-3 --require-multitile 2> $LOG_PATH/reasm_multi || test_status=1
 
 if $UNIT_TEST/test_ipc_init $OBJDIR && \
     $UNIT_TEST/test_ipc_meta 16     && \

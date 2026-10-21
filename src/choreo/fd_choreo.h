@@ -5,9 +5,7 @@
 #include "eqvoc/fd_eqvoc.h"
 #include "ghost/fd_ghost.h"
 #include "votes/fd_votes.h"
-#include "tower/fd_tower.h"
 #include "tower/fd_tower_serdes.h"
-#include "tower/fd_tower_stakes.h"
 
 #include "votor/ag_votor_base.h"
 

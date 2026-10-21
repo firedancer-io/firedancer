@@ -1,6 +1,5 @@
 #include "fd_tower_serdes.h"
 #include "fd_tower.h"
-#include "fd_tower_file.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 
 #include <string.h>
@@ -301,126 +300,6 @@ test_de_attacker( void ) {
   FD_LOG_NOTICE(( "pass: test_de_attacker" ));
 }
 
-static void
-test_compact_to_votes( void ) {
-  fd_compact_tower_sync_serde_t in;
-  fd_memset( &in, 0, sizeof(in) );
-  in.root         = 100UL;
-  in.lockouts_cnt = 3;
-  in.lockouts[ 0 ] = ( __typeof__(in.lockouts[0]) ){ .offset=5UL, .confirmation_count=3 };
-  in.lockouts[ 1 ] = ( __typeof__(in.lockouts[0]) ){ .offset=2UL, .confirmation_count=2 };
-  in.lockouts[ 2 ] = ( __typeof__(in.lockouts[0]) ){ .offset=4UL, .confirmation_count=1 };
-  in.timestamp_option = 1;
-
-  uchar buf[ 512 ];
-  ulong sz = 0UL;
-  FD_TEST( !fd_compact_tower_sync_ser( &in, buf, sizeof(buf), &sz ) );
-
-  fd_compact_tower_sync_serde_t out;
-  FD_TEST( !fd_compact_tower_sync_de( &out, buf, sz ) );
-
-  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
-  ulong cnt;
-  ulong root;
-  FD_TEST( !fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root ) );
-  FD_TEST( root==100UL && cnt==3UL );
-  FD_TEST( votes[ 0 ].slot==105UL && votes[ 0 ].conf==3UL );
-  FD_TEST( votes[ 1 ].slot==107UL && votes[ 1 ].conf==2UL );
-  FD_TEST( votes[ 2 ].slot==111UL && votes[ 2 ].conf==1UL );
-
-  fd_memset( votes, 0xA5, sizeof(votes) );
-  fd_tower_vote_t first = votes[ 0 ];
-  cnt  = 99UL;
-  root = 99UL;
-  out.lockouts[ 1 ].offset = 0UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  FD_TEST( cnt==99UL && root==99UL && fd_memeq( &votes[ 0 ], &first, sizeof(first) ) );
-  out.lockouts[ 1 ].offset = 2UL;
-  out.lockouts[ 0 ].confirmation_count = FD_TOWER_VOTE_MAX+1U;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  out.lockouts[ 0 ].confirmation_count = 3U;
-  out.lockouts[ 1 ].confirmation_count = 3U;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  out.lockouts[ 1 ].confirmation_count = 2U;
-  out.lockouts[ 2 ].confirmation_count = 0U;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  out.lockouts[ 2 ].confirmation_count = 1U;
-  out.lockouts[ 2 ].offset = 5UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  /* The oldest vote expired by the newest slot, still a valid tower,
-     Agave pops expired votes from the top only. */
-  out.lockouts[ 1 ].offset = 7UL;
-  out.lockouts[ 2 ].offset = 2UL;
-  FD_TEST( !fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root ) );
-  FD_TEST( votes[ 0 ].slot==105UL && votes[ 1 ].slot==112UL && votes[ 2 ].slot==114UL );
-  out.lockouts[ 1 ].offset = 9UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  out.lockouts[ 1 ].offset = 2UL;
-  out.lockouts[ 2 ].offset = 4UL;
-  out.root = ULONG_MAX-4UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-
-  out.root = ULONG_MAX;
-  out.lockouts[ 0 ].offset = 0UL;
-  FD_TEST( !fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root ) );
-  FD_TEST( root==ULONG_MAX && cnt==3UL );
-  FD_TEST( votes[ 0 ].slot==0UL && votes[ 1 ].slot==2UL && votes[ 2 ].slot==6UL );
-
-  out.root = 1UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-
-  out.root = 0UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-
-  FD_LOG_NOTICE(( "pass: test_compact_to_votes" ));
-}
-
-/* Helper: write an Agave tower file into buf whose tower matches sync,
-   signed by keypair (private key then public key).  Returns the file
-   size. */
-
-static ulong
-make_tower_file( uchar *                               buf,
-                 uchar const *                         keypair,
-                 fd_compact_tower_sync_serde_t const * sync,
-                 fd_sha512_t *                         sha ) {
-  ulong sz = fd_tower_file_ser( sync, (fd_pubkey_t const *)fd_type_pun_const( keypair+32UL ), buf );
-  fd_ed25519_sign( buf+FD_TOWER_FILE_SIG_OFF, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, keypair+32UL, keypair, sha );
-  return sz;
-}
-
-static void
-test_tower_file_root( void ) {
-  fd_sha512_t   _sha[1];
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
-
-  uchar keypair[ 64 ];
-  for( ulong i=0UL; i<32UL; i++ ) keypair[ i ] = (uchar)i;
-  fd_ed25519_public_from_private( keypair+32UL, keypair, sha );
-  fd_pubkey_t identity;
-  memcpy( identity.uc, keypair+32UL, 32UL );
-
-  fd_compact_tower_sync_serde_t sync;
-  fd_memset( &sync, 0, sizeof(sync) );
-  sync.root         = 100UL;
-  sync.lockouts_cnt = 3;
-  sync.lockouts[ 0 ] = ( __typeof__(sync.lockouts[0]) ){ .offset=5UL, .confirmation_count=3 };
-  sync.lockouts[ 1 ] = ( __typeof__(sync.lockouts[0]) ){ .offset=2UL, .confirmation_count=2 };
-  sync.lockouts[ 2 ] = ( __typeof__(sync.lockouts[0]) ){ .offset=4UL, .confirmation_count=1 };
-
-  uchar           buf[ FD_TOWER_FILE_MAX ];
-  fd_tower_file_t out;
-  FD_TEST( fd_tower_file_de( buf, make_tower_file( buf, keypair, &sync, sha ), &identity, &out )==FD_TOWER_FILE_SUCCESS );
-  FD_TEST( out.root==100UL && out.votes_cnt==3UL && out.votes[ 2 ].slot==111UL && out.timestamp_slot==111UL );
-
-  sync.root                 = ULONG_MAX;
-  sync.lockouts[ 0 ].offset = 105UL;
-  FD_TEST( fd_tower_file_de( buf, make_tower_file( buf, keypair, &sync, sha ), &identity, &out )==FD_TOWER_FILE_ERR_TOWER );
-
-  fd_sha512_delete( fd_sha512_leave( sha ) );
-  FD_LOG_NOTICE(( "pass: test_tower_file_root" ));
-}
-
 int
 main( int     argc,
       char ** argv ) {
@@ -430,8 +309,6 @@ main( int     argc,
   test_voter_v3();
   test_voter_v4();
   test_de_attacker();
-  test_compact_to_votes();
-  test_tower_file_root();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

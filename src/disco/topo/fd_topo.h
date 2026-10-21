@@ -618,24 +618,6 @@ struct fd_topo_tile {
     } backtest;
 
     struct {
-      ulong accdb_obj_id;
-
-      ulong  authorized_voter_paths_cnt;
-      char   authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
-      int    hard_fork_fatal;
-      ulong  wait_for_supermajority_at_slot;
-      int    wait_for_supermajority_hash_is_zero;
-      ushort expected_shred_version;
-      ulong  max_live_slots;
-      char   identity_key[ PATH_MAX ];
-      char   vote_account[ PATH_MAX ];
-      char   tower_path[ PATH_MAX ];
-      uint   target_gid;
-      uint   target_uid;
-      ulong  max_shreds_per_block;
-    } tower;
-
-    struct {
       char   identity_key_path[ PATH_MAX ];
       char   vote_history_path[ PATH_MAX ];
       uint   target_gid;

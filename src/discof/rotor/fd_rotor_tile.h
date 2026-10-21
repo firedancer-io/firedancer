@@ -101,10 +101,6 @@
    filters and validates aggressively.  The responses are matches by
    nonce and verified before being ingested by the rotor. */
 
-/* keep in line with repair tile sigs */
-#define REPAIR_SIG_FEC         (0UL)
-#define REPAIR_SIG_FEC_LEADER  (1UL)
-#define REPAIR_SIG_FEC_INVALID (2UL)
 /* alpenglow type - replayable fec */
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
 /* alpenglow type - completed block metadata, on rotor_rserve */

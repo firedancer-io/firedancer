@@ -371,7 +371,6 @@
 #include "../fd_choreo_base.h"
 #include "fd_tower_serdes.h"
 
-#include "fd_tower_stakes.h"
 #include "../ghost/fd_ghost.h"
 #include "../votes/fd_votes.h"
 #include "../../disco/pack/fd_microblock.h"
@@ -487,11 +486,6 @@ struct fd_tower {
   void * lck_slot_map;    /* lockout end headers map */
   void * lck_pubkey_pool; /* refcounted vote-account pubkey pool for lockouts */
   void * lck_pubkey_map;  /* map of vote-account pubkeys for lockouts */
-
-  fd_tower_stakes_vtr_map_t * stk_vtr_map;
-  fd_tower_stakes_vtr_t *     stk_vtr_pool;
-  fd_tower_stakes_slot_t *    stk_slot_map;
-  fd_used_acc_scratch_t *     stk_used_acc;
 };
 typedef struct fd_tower fd_tower_t;
 
