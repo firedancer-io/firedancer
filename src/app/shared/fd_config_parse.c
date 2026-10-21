@@ -255,7 +255,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   development.gossip.allow_private_address         );
 
-  CFG_POP      ( ulong,  development.genesis.hashes_per_tick              );
   CFG_POP      ( ulong,  development.genesis.target_tick_duration_micros  );
   CFG_POP      ( ulong,  development.genesis.ticks_per_slot               );
   CFG_POP      ( ulong,  development.genesis.fund_initial_accounts        );
@@ -338,6 +337,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_DEPRECATED( tiles.tower.write_vote_history_file );
   CFG_DEPRECATED( tiles.txsend.txsend_src_port );
   CFG_DEPRECATED( consensus.alpenglow );
+  CFG_DEPRECATED( development.genesis.hashes_per_tick );
 
 # undef CFG_DEPRECATED
 

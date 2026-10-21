@@ -1191,7 +1191,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">execrp_&#8203;is_&#8203;processing</span> | gauge | Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing) |
+| <span class="metrics-name">execrp_&#8203;is_&#8203;processing</span> | gauge | Whether the tile is currently processing a task (executing, sigverifying, or verifying certificates) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;processed</span><br/>{txn_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Transactions loaded and executed, by result (Transaction executed successfully) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;processed</span><br/>{txn_&#8203;result="<span class="metrics-enum">instruction_&#8203;error</span>"} | counter | Transactions loaded and executed, by result (An error occurred while processing an instruction) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;processed</span><br/>{txn_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Transactions loaded and executed, by result (The transaction fee payer address was not found) |
@@ -1224,7 +1224,6 @@
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;processed_&#8203;by_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v0</span>"} | counter | Transactions processed, by transaction version (Version 0 transaction format) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;processed_&#8203;by_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v1</span>"} | counter | Transactions processed, by transaction version (Version 1 transaction format) |
 | <span class="metrics-name">execrp_&#8203;signature_&#8203;checked</span> | counter | Ed25519 signatures checked, including failures |
-| <span class="metrics-name">execrp_&#8203;poh_&#8203;hash_&#8203;computed</span> | counter | PoH SHA-256 iterations computed |
 | <span class="metrics-name">execrp_&#8203;instruction_&#8203;executed</span> | counter | Top-level instructions executed |
 | <span class="metrics-name">execrp_&#8203;cpi_&#8203;executed</span> | counter | Cross-program invocations executed |
 | <span class="metrics-name">execrp_&#8203;account_&#8203;lthash_&#8203;skipped</span> | counter | Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped |

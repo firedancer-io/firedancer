@@ -2099,31 +2099,6 @@ telemetry = true
         # Must be in [1, 4055].
         max_file_size_mib = 16
 
-        # When creating a new chain from genesis during development,
-        # this option can be used to specify the number of hashes in
-        # each tick of the proof history component.
-        #
-        # A value of one is the default, and will be used to mean that
-        # the proof of history component will run in low power mode,
-        # and use one hash per tick.  This is equivalent to a value of
-        # "sleep" when providing hashes-per-tick to the Agave
-        # genesis.
-        #
-        # A value of zero means the genesis will automatically determine
-        # the number of hashes in each tick based on how many hashes
-        # the generating computer can do in the target tick duration
-        # specified below.
-        #
-        # This value specifies the initial value for the chain in the
-        # genesis, but it might be overridden at runtime if the related
-        # features which increase this value are enabled. The features
-        # are named like `update_hashes_per_tick2`.
-        #
-        # A value of 62,500 is the same as mainnet-beta, devnet, and
-        # testnet, following activation of the `update_hashes_per_tick6`
-        # feature.
-        hashes_per_tick = 62_500
-
         # How long each tick of the proof of history component should
         # take, in microseconds.  This value specifies the initial value
         # of the chain and it will not change at runtime.  The default

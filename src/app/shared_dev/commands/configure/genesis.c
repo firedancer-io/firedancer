@@ -3,7 +3,6 @@
 #include "../bench/bench.h"
 
 #include "../../../platform/fd_file_util.h"
-#include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/keyguard/fd_keyguard_bls.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../discof/genesis/genesis_hash.h"
@@ -82,35 +81,6 @@ default_enable_features( fd_features_t * features ) {
   features->disable_fees_sysvar = 0UL;
 }
 
-/* estimate_hashes_per_tick approximates the PoH hashrate of the current
-   tile.  Spins PoH hashing for estimate_dur_ns nanoseconds.  Returns
-   the hashes per tick achieved, where tick_dur_us is the target tick
-   duration in microseconds.  Assumes that the estimate duration
-   is larger than the tick duration. */
-
-static ulong
-estimate_hashes_per_tick( ulong tick_dur_us,
-                          ulong estimate_dur_ns ) {
-  ulong const batch    = 1UL<<20;
-  long const  deadline = fd_log_wallclock() + (long)estimate_dur_ns;
-
-  uchar poh_hash[ 32 ] = {0};
-  ulong          hash_cnt = 0UL;
-  do {
-    fd_poh_append( poh_hash, batch );
-    hash_cnt += batch;
-  } while( fd_log_wallclock() < deadline );
-
-  double hash_cnt_dbl = (double)hash_cnt;
-  double tick_cnt_dbl = (double)estimate_dur_ns / ( (double)tick_dur_us * 1000.0 );
-  if( tick_cnt_dbl < 1.0 ) return 0UL;
-
-  /* Apply 50% factor to the maximum machine hash rate. */
-  double hashes_per_tick = hash_cnt_dbl / tick_cnt_dbl / 2.0;
-  return (ulong)hashes_per_tick;
-}
-
-
 /* Create a new genesis.bin file contents into the provided blob buffer
    and return the size of the buffer.  Will abort on error if the
    provided buffer is not large enough. */
@@ -165,37 +135,7 @@ create_genesis( config_t const * config,
   options->faucet_balance     = 500000000000000000UL;
   options->vote_account_stake = config->development.genesis.vote_account_stake_lamports;
 
-  /* Set up PoH config */
-
-  if( 0UL==config->development.genesis.hashes_per_tick ) {
-
-    /* set hashes_per_tick to whatever machine is capable of */
-    ulong hashes_per_tick =
-      estimate_hashes_per_tick( config->development.genesis.target_tick_duration_micros,
-                                (ulong)3e9 /* 3 seconds */ );
-
-    if( hashes_per_tick == 0UL ) {
-      FD_LOG_WARNING(( "PoH rate estimation failed.  Defaulting to %lu",
-                        FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK ));
-      hashes_per_tick = FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK;
-    }
-
-    options->hashes_per_tick = hashes_per_tick;
-
-  } else if( 1UL==config->development.genesis.hashes_per_tick ) {
-
-    /* set hashes_per_tick field to 0, which means sleep mode */
-    options->hashes_per_tick = 0UL;
-
-  } else {
-
-    /* set hashes_per_tick to the specified value */
-    options->hashes_per_tick = config->development.genesis.hashes_per_tick;
-
-  }
-
-  options->hashes_per_tick = 0UL; /* PoH is in low power mode */
-
+  options->hashes_per_tick              = 0UL;
   options->ticks_per_slot               = config->development.genesis.ticks_per_slot;
   options->target_tick_duration_micros  = config->development.genesis.target_tick_duration_micros;
 

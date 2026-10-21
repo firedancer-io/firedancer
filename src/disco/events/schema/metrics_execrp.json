@@ -85,7 +85,7 @@
         "device_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "tlb_shootdown":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "timer_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
-        "is_processing":                 { "type": "Bool",                                                           "description": "Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing)" },
+        "is_processing":                 { "type": "Bool",                                                           "description": "Whether the tile is currently processing a task (executing, sigverifying, or verifying certificates)" },
         "txn_processed": {
             "type": "Tuple",
             "description": "Transactions loaded and executed, by result",
@@ -137,7 +137,7 @@
             }
         },
         "signature_checked":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Ed25519 signatures checked, including failures" },
-        "poh_hash_computed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "PoH SHA-256 iterations computed" },
+        "poh_hash_computed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "PoH SHA-256 iterations computed", "deprecated": true },
         "instruction_executed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Top-level instructions executed" },
         "cpi_executed":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cross-program invocations executed" },
         "account_lthash_skipped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" },

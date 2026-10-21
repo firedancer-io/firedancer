@@ -296,7 +296,6 @@ struct fd_config {
     } gossip;
 
     struct {
-      ulong hashes_per_tick;
       ulong target_tick_duration_micros;
       ulong ticks_per_slot;
       ulong fund_initial_accounts;

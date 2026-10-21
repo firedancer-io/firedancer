@@ -3,7 +3,6 @@
 
 #include "fd_sched.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
-#include "fd_execrp.h" /* for poh hash value */
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT_SHRED */
 #include "../../disco/fd_txn_p.h"
@@ -16,8 +15,6 @@
 
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
 #define FD_SCHED_POISON_MAX_ACCT_PER_SLOT  (64UL)
-
-#define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
 
 /* 64 ticks per slot, and a single gigantic microblock containing min
    size transactions. */
@@ -51,7 +48,6 @@ struct fd_sched_mblk {
   ulong end_txn_idx;   /* non-inclusive parse idx */
   ulong curr_txn_idx;  /* next txn to mixin, parse idx in block */
   ulong hashcnt;       /* number of pure hashes, excluding final mixin */
-  ulong curr_hashcnt;
   fd_hash_t end_hash[ 1 ];
   fd_hash_t curr_hash[ 1 ];
   uint curr_sig_cnt;
@@ -85,8 +81,6 @@ struct fd_sched_block {
   uint                txn_exec_done_cnt;
   uint                txn_sigverify_in_flight_cnt;
   uint                txn_sigverify_done_cnt;
-  uint                poh_hashing_in_flight_cnt; /* number of in-flight PoH batch tasks */
-  uint                poh_mblk_in_flight_cnt;    /* number of individual in-flight PoH jobs across batches */
   uint                poh_hashing_done_cnt;
   uint                poh_hash_cmp_done_cnt; /* poh_hashing_done_cnt==poh_hash_cmp_done_cnt+len(mixin_in_progress) */
   uint                cert_in_flight_cnt;    /* in-flight footer cert verify tasks, see fd_sched_cert_dispatch */
@@ -95,7 +89,7 @@ struct fd_sched_block {
   uint                shred_scan_idx; /* First shred boundary not before shred_scan_off. */
   uint                shred_scan_off; /* Block byte offset at the start of shred_scan_idx. */
   uint                mblk_cnt;          /* Total number of microblocks, including ticks and non ticks.
-                                            mblk_cnt==len(unhashed)+len(hashing_in_progress)+poh_mblk_in_flight_cnt+len(mixin_in_progress)+hash_cmp_done_cnt */
+                                            mblk_cnt==len(unhashed)+len(mixin_in_progress)+hash_cmp_done_cnt */
   uint                mblk_tick_cnt;     /* Total number of tick microblocks. */
   uint                mblk_freed_cnt;    /* This is ==hash_cmp_done_cnt in most cases, except for aborted
                                             blocks, where the freed cnt will catch up to mblk_cnt and surpass
@@ -113,11 +107,8 @@ struct fd_sched_block {
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
   int          last_mblk_is_tick;
   mblk_slist_t mblks_unhashed[ 1 ]; /* A microblock, once parsed out, is in one of these queues.  It
-                                       generally progresses from unhashed to hashing to mixin.  When a
-                                       microblock is being hashed/in-flight, it'll be transiently out of
-                                       any of the queues.  Once a microblock progresses through all stages
-                                       of work, it'll be immediately freed. */
-  mblk_slist_t mblks_hashing_in_progress[ 1 ];
+                                       progresses from unhashed to mixin.  Once a microblock progresses
+                                       through all stages of work, it'll be immediately freed. */
   mblk_slist_t mblks_mixin_in_progress[ 1 ];
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_commit_t * bmtree;
@@ -232,9 +223,9 @@ struct fd_sched_block {
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
-FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
+FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==112UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75808UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -303,8 +294,6 @@ struct fd_sched {
   ulong                 depth;         /* Immutable. */
   ulong                 block_cnt_max; /* Immutable. */
   ulong                 exec_cnt;      /* Immutable. */
-  ulong                 poh_simd_min;  /* Immutable. */
-  ulong                 poh_simd_max;  /* Immutable. */
   int                   bypass_poh_verify; /* Test/fuzz: skip the PoH end_hash compare in maybe_mixin. */
   int                   bypass_alut_resolution; /* Test/fuzz: skip ALUT resolution (no accdb). */
   long                  txn_in_flight_last_tick;
@@ -314,7 +303,6 @@ struct fd_sched {
   fd_rdisp_t *          rdisp;
   ulong                 txn_exec_ready_bitset[ 1 ];
   ulong                 sigverify_ready_bitset[ 1 ];
-  ulong                 poh_ready_bitset[ 1 ];
   ulong                 cert_ready_bitset[ 1 ];
   ulong                 active_bank_idx; /* Index of the actively replayed block, or ULONG_MAX if no block is
                                             actively replayed; has to have a transaction to dispatch; staged
@@ -332,7 +320,6 @@ struct fd_sched {
   ulong                 mblk_pool_free_cnt;
   uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
-  fd_sched_poh_hash_t   poh_inflight[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* PoH dispatch metadata, indexed by exec tile. */
   txn_bitset_t          exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
   txn_bitset_t          sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
   txn_bitset_t          poh_mixin_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
@@ -373,22 +360,11 @@ shred_split( fd_sched_t *       sched,
              fd_sched_block_t * block,
              uint               query );
 
-static void
-dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, ulong max_cnt, fd_sched_task_t * out );
-
 static int
 poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx );
 
 static int
-poh_retire_ready_mblks( fd_sched_t * sched, fd_sched_block_t * block );
-
-static inline ulong
-poh_batch_max_cnt( fd_sched_t const * sched, ulong queued_cnt, ulong free_cnt, ulong threshold ) {
-  ulong tile_cnt = free_cnt-threshold;
-  ulong per_tile = (queued_cnt+tile_cnt-1UL)/tile_cnt;
-  ulong max_cnt  = fd_ulong_min( fd_ulong_max( per_tile, 1UL ), sched->poh_simd_max );
-  return fd_ulong_if( max_cnt<sched->poh_simd_min, 1UL, max_cnt );
-}
+poh_hash_unhashed( fd_sched_t * sched, fd_sched_block_t * block );
 
 FD_WARN_UNUSED static int
 maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block );
@@ -475,17 +451,16 @@ static inline int
 block_is_dispatchable( fd_sched_block_t * block ) {
   ulong exec_queued_cnt      = block->txn_parsed_cnt-block->txn_exec_in_flight_cnt-block->txn_exec_done_cnt;
   ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
-  ulong poh_queued_cnt       = block->mblk_cnt-block->poh_mblk_in_flight_cnt-block->poh_hashing_done_cnt;
   return exec_queued_cnt>0UL ||
          sigverify_queued_cnt>0UL ||
-         poh_queued_cnt>0UL ||
+         block->mblk_unhashed_cnt>0U ||
          !block->block_start_signaled ||
          block_will_signal_end( block );
 }
 
 static inline int
 block_is_in_flight( fd_sched_block_t * block ) {
-  return block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->poh_hashing_in_flight_cnt || block->cert_in_flight_cnt || (block->block_end_signaled && !block->block_end_done);
+  return block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->cert_in_flight_cnt || (block->block_end_signaled && !block->block_end_done);
 }
 
 static inline int
@@ -616,8 +591,8 @@ print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, cert_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->cert_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, cert_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->cert_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -635,8 +610,8 @@ print_metrics( fd_sched_t * sched ) {
 
 FD_FN_UNUSED static void
 print_sched( fd_sched_t * sched ) {
-  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, cert_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, staged_popcnt_wmk %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
-                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->cert_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->staged_popcnt_wmk, sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
+  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, cert_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, staged_popcnt_wmk %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
+                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->cert_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->staged_popcnt_wmk, sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
   fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
   if( active_block ) print_block_debug( sched, active_block );
   for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
@@ -819,7 +794,6 @@ fd_sched_new( void *     mem,
   for( ulong i=0; i<block_cnt_max; i++ ) {
     bpool[ i ].in_sched = 0;
     mblk_slist_new( bpool[ i ].mblks_unhashed );
-    mblk_slist_new( bpool[ i ].mblks_hashing_in_progress );
     mblk_slist_new( bpool[ i ].mblks_mixin_in_progress );
   }
 
@@ -837,8 +811,6 @@ fd_sched_new( void *     mem,
   sched->max_txn_per_slot       = max_txn_per_slot;
   sched->max_mblk_per_slot      = fd_ulong_min( FD_SCHED_MAX_MBLK_PER_SLOT*max_shreds_per_block/FD_SHRED_BLK_MAX, UINT_MAX ); /* mblk_cnt is uint */
   sched->exec_cnt               = exec_cnt;
-  sched->poh_simd_max           = fd_sha256_simd_lane_max(); FD_CHECK_ERR( sched->poh_simd_max<=FD_SCHED_POH_PARA, "overly wide PoH SHA batch" );
-  sched->poh_simd_min           = fd_sha256_simd_lane_min();
   sched->bypass_poh_verify      = 0;
   sched->bypass_alut_resolution = 0;
   sched->root_idx               = ULONG_MAX;
@@ -849,7 +821,6 @@ fd_sched_new( void *     mem,
 
   sched->txn_exec_ready_bitset[ 0 ]  = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_mask_lsb( (int)exec_cnt );
-  sched->poh_ready_bitset[ 0 ]       = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->cert_ready_bitset[ 0 ]      = fd_ulong_mask_lsb( (int)exec_cnt );
 
   sched->txn_pool_free_cnt = depth-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
@@ -902,7 +873,6 @@ fd_sched_join( void * mem ) {
 
   for( ulong i=0; i<block_cnt_max; i++ ) {
     mblk_slist_join( sched->block_pool[ i ].mblks_unhashed );
-    mblk_slist_join( sched->block_pool[ i ].mblks_hashing_in_progress );
     mblk_slist_join( sched->block_pool[ i ].mblks_mixin_in_progress );
   }
 
@@ -954,7 +924,7 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
 
 int
 fd_sched_is_drained( fd_sched_t * sched ) {
-  int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ]&sched->cert_ready_bitset[ 0 ] );
+  int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->cert_ready_bitset[ 0 ] );
   int nothing_queued = sched->active_bank_idx==ULONG_MAX;
   return nothing_inflight && nothing_queued;
 }
@@ -967,7 +937,7 @@ fd_sched_cert_dispatch( fd_sched_t * sched,
   FD_TEST( bank_idx==sched->active_bank_idx );
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   FD_TEST( block->block_end_signaled && !block->block_end_done );
-  ulong idle    = sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ]&sched->cert_ready_bitset[ 0 ];
+  ulong idle    = sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->cert_ready_bitset[ 0 ];
   ulong claimed = 0UL;
   for( ; idle && cnt; cnt--, idle=fd_ulong_pop_lsb( idle ) ) {
     int t = fd_ulong_find_lsb( idle );
@@ -1268,8 +1238,8 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   /* We just received a FEC set, which may have made all transactions in
      a partially parsed microblock available.  If this were a malformed
-     block that ends in a non-tick microblock, there's not going to be a
-     hashing task from the missing ending tick to drain the mixin queue.
+     block that ends in a non-tick microblock, there's not going to be an
+     ending tick to drain the mixin queue.
      So we try to drain the mixin queue right here.  Another option is
      to drain it at dispatch time, when we are about to dispatch the end
      of block signal, right before the check for whether block should
@@ -1295,7 +1265,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   FD_TEST( ref_q_empty( sched->ref_q ) );
 
   ulong exec_ready_bitset0 = sched->txn_exec_ready_bitset[ 0 ];
-  ulong exec_fully_ready_bitset = sched->sigverify_ready_bitset[ 0 ] & sched->poh_ready_bitset[ 0 ] & sched->cert_ready_bitset[ 0 ] & exec_ready_bitset0;
+  ulong exec_fully_ready_bitset = sched->sigverify_ready_bitset[ 0 ] & sched->cert_ready_bitset[ 0 ] & exec_ready_bitset0;
   if( FD_UNLIKELY( !exec_fully_ready_bitset ) ) {
     /* Early exit if no exec tiles available. */
     return 0UL;
@@ -1338,6 +1308,22 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     return 1UL;
   }
 
+  /* PoH params are set once block start is done.  Each microblock is at
+     most one hash plus a mixin, cheap enough to do inline. */
+  if( FD_LIKELY( block->block_start_done && block->mblk_unhashed_cnt ) ) {
+    int dead_reason = poh_hash_unhashed( sched, block );
+    if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
+      handle_bad_block( sched, block, dead_reason );
+      out->task_type = FD_SCHED_TT_MARK_DEAD;
+      out->mark_dead->bank_idx = bank_idx;
+      sched->next_ready_last_tick     = fd_tickcount();
+      sched->next_ready_last_bank_idx = bank_idx;
+      return 1UL;
+    }
+    maybe_switch_block( sched, bank_idx );
+    if( FD_UNLIKELY( sched->active_bank_idx!=bank_idx ) ) return fd_sched_task_next_ready( sched, out );
+  }
+
   ulong exec_tile_idx0 = fd_ulong_if( !!exec_fully_ready_bitset, (ulong)fd_ulong_find_lsb( exec_fully_ready_bitset ), ULONG_MAX );
   ulong exec_queued_cnt = block->txn_parsed_cnt-block->txn_exec_in_flight_cnt-block->txn_exec_done_cnt;
   if( FD_LIKELY( exec_queued_cnt>0UL && fd_ulong_popcnt( exec_fully_ready_bitset ) ) ) { /* Optimize for no fork switching. */
@@ -1365,19 +1351,6 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
         print_all( sched, block );
         FD_LOG_NOTICE(( "%s", sched->print_buf ));
         FD_LOG_CRIT(( "invariant violation: no ready transaction found but block->txn_exec_in_flight_cnt==0" ));
-      }
-
-      /* Next up are PoH tasks.  Same dispatching policy as sigverify
-         tasks. */
-      ulong poh_ready_bitset = exec_fully_ready_bitset;
-      ulong poh_hashing_queued_cnt = block->mblk_cnt-block->poh_mblk_in_flight_cnt-block->poh_hashing_done_cnt;
-      int   poh_threshold = fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 );
-      if( FD_LIKELY( poh_hashing_queued_cnt>0UL && fd_ulong_popcnt( poh_ready_bitset )>poh_threshold ) ) {
-        ulong max_cnt = poh_batch_max_cnt( sched, poh_hashing_queued_cnt, (ulong)fd_ulong_popcnt( poh_ready_bitset ), (ulong)poh_threshold );
-        dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), max_cnt, out );
-        sched->next_ready_last_tick     = fd_tickcount();
-        sched->next_ready_last_bank_idx = bank_idx;
-        return 1UL;
       }
 
       /* Dispatch more sigverify tasks only if at least one exec tile is
@@ -1417,9 +1390,9 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     block->txn_exec_in_flight_cnt++;
     sched->metrics->txn_max_in_flight_cnt = fd_uint_max( sched->metrics->txn_max_in_flight_cnt, block->txn_exec_in_flight_cnt );
 
-    if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
-    ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
-    if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->txn_sigverify_in_flight_cnt+block->poh_hashing_in_flight_cnt!=total_exec_busy_cnt ) ) {
+    if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ] ));
+    ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ] );
+    if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->txn_sigverify_in_flight_cnt!=total_exec_busy_cnt ) ) {
       /* Ideally we'd simply assert that the two sides of the equation
          are equal.  But abandoned blocks throw a wrench into this.  We
          allow abandoned blocks to have in-flight transactions that are
@@ -1443,7 +1416,6 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
           }
           total_in_flight += staged_block->txn_exec_in_flight_cnt;
           total_in_flight += staged_block->txn_sigverify_in_flight_cnt;
-          total_in_flight += staged_block->poh_hashing_in_flight_cnt;
         }
       }
       if( FD_UNLIKELY( total_in_flight!=total_exec_busy_cnt ) ) {
@@ -1460,18 +1432,6 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   }
 
   /* At this point txn_queued_cnt==0 */
-
-  /* Next up are PoH tasks.  Same dispatching policy as sigverify. */
-  ulong poh_ready_bitset = exec_fully_ready_bitset;
-  ulong poh_hashing_queued_cnt = block->mblk_cnt-block->poh_mblk_in_flight_cnt-block->poh_hashing_done_cnt;
-  int   poh_threshold = fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 );
-  if( FD_LIKELY( poh_hashing_queued_cnt>0UL && fd_ulong_popcnt( poh_ready_bitset )>poh_threshold ) ) {
-    ulong max_cnt = poh_batch_max_cnt( sched, poh_hashing_queued_cnt, (ulong)fd_ulong_popcnt( poh_ready_bitset ), (ulong)poh_threshold );
-    dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), max_cnt, out );
-    sched->next_ready_last_tick     = fd_tickcount();
-    sched->next_ready_last_bank_idx = bank_idx;
-    return 1UL;
-  }
 
   /* Try to dispatch a sigverify task, but leave one exec tile idle for
      critical path execution, unless there's not going to be any more
@@ -1562,7 +1522,6 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       bank_idx = sched->tile_to_bank_idx[ exec_idx ];
       break;
     }
-    case FD_SCHED_TT_POH_HASH:
     case FD_SCHED_TT_CERT_VERIFY: {
       (void)txn_idx;
       bank_idx = sched->tile_to_bank_idx[ exec_idx ];
@@ -1659,38 +1618,6 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         sched->txn_pool_free_cnt++;
         block->txn_done_cnt++;
         sched->metrics->txn_done_cnt++;
-      }
-      break;
-    }
-    case FD_SCHED_TT_POH_HASH: {
-      block->poh_hashing_in_flight_cnt--;
-      FD_TEST( !fd_ulong_extract_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx ) );
-      sched->poh_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx );
-      fd_execrp_poh_hash_done_msg_t * msg = fd_type_pun( data );
-      FD_TEST( msg->cnt && msg->cnt<=FD_EXECRP_POH_PARA );
-      fd_sched_poh_hash_t const * task = sched->poh_inflight+exec_tile_idx;
-      FD_TEST( msg->cnt==task->cnt );
-
-      /* Once the block is found to be bad, the remaining elements are
-         put back on a list so that they get freed along with the
-         block. */
-      int dead_reason = FD_SCHED_DEAD_REASON_NONE;
-      for( ulong i=0UL; i<msg->cnt; i++ ) {
-        block->poh_mblk_in_flight_cnt--;
-        uint mblk_idx = (uint)task->mblk_idx[ i ];
-        fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-        mblk->curr_hashcnt += task->hashcnt;
-        memcpy( mblk->curr_hash, msg->hash+i, sizeof(fd_hash_t) );
-        if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) || mblk->curr_hashcnt<mblk->hashcnt ) {
-          mblk_slist_idx_push_tail( block->mblks_hashing_in_progress, mblk_idx, sched->mblk_pool );
-          continue;
-        }
-        dead_reason = poh_retire_mblk( sched, block, mblk_idx );
-      }
-      if( FD_LIKELY( dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) dead_reason = poh_retire_ready_mblks( sched, block );
-      if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
-        handle_bad_block( sched, block, dead_reason );
-        return dead_reason;
       }
       break;
     }
@@ -2124,8 +2051,6 @@ add_block( fd_sched_t * sched,
   block->txn_exec_done_cnt           = 0U;
   block->txn_sigverify_in_flight_cnt = 0U;
   block->txn_sigverify_done_cnt      = 0U;
-  block->poh_hashing_in_flight_cnt   = 0U;
-  block->poh_mblk_in_flight_cnt      = 0U;
   block->poh_hashing_done_cnt        = 0U;
   block->poh_hash_cmp_done_cnt       = 0U;
   block->cert_in_flight_cnt          = 0U;
@@ -2147,7 +2072,6 @@ add_block( fd_sched_t * sched,
   block->parse_mblk_idx              = UINT_MAX;
 
   mblk_slist_remove_all( block->mblks_unhashed, sched->mblk_pool );
-  mblk_slist_remove_all( block->mblks_hashing_in_progress, sched->mblk_pool );
   mblk_slist_remove_all( block->mblks_mixin_in_progress, sched->mblk_pool );
   block->last_mblk_is_tick            = 0;
   block->tick_hashcnt_wmk             = 0UL;
@@ -2547,7 +2471,6 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       mblk->end_txn_idx   = mblk->start_txn_idx+hdr->txn_cnt;
       mblk->curr_txn_idx  = mblk->start_txn_idx;
       mblk->hashcnt       = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement saturating sub for non-tick microblocks. */
-      mblk->curr_hashcnt  = 0UL;
       mblk->curr_sig_cnt  = 0U;
       mblk->mixin_txn_idx = 0U;
       mblk->is_tick       = !hdr->txn_cnt;
@@ -2947,7 +2870,7 @@ dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
   block->txn_sigverify_in_flight_cnt++;
   block->txn_sigverify_next_idx = sched->txn_info_pool[ txn_idx ].next_idx;
-  if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
+  if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ] ));
 }
 
 /* Retires a microblock whose PoH hashing has completed, and eagerly
@@ -2956,7 +2879,6 @@ dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx
 static int
 poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx ) {
   fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-  FD_TEST( mblk->curr_hashcnt==mblk->hashcnt );
   block->poh_hashing_done_cnt++;
   sched->metrics->mblk_poh_hashed_cnt++;
   if( FD_LIKELY( !mblk->is_tick ) ) {
@@ -2980,81 +2902,19 @@ poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx ) {
   return FD_SCHED_DEAD_REASON_NONE;
 }
 
-/* Retires microblocks at the head of the unhashed queue that have
-   nothing left for PoH to hash.  Returns FD_SCHED_DEAD_REASON_NONE on
-   success, else the dead reason. */
+/* Hashes and retires all unhashed microblocks in parse order.  Returns
+   FD_SCHED_DEAD_REASON_NONE on success, else the dead reason. */
 static int
-poh_retire_ready_mblks( fd_sched_t * sched, fd_sched_block_t * block ) {
+poh_hash_unhashed( fd_sched_t * sched, fd_sched_block_t * block ) {
   while( block->mblk_unhashed_cnt ) {
-    uint mblk_idx = (uint)mblk_slist_idx_peek_head( block->mblks_unhashed, sched->mblk_pool );
-    fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-    if( FD_LIKELY( mblk->curr_hashcnt!=mblk->hashcnt ) ) break;
-    mblk_slist_idx_pop_head( block->mblks_unhashed, sched->mblk_pool );
+    uint mblk_idx = (uint)mblk_slist_idx_pop_head( block->mblks_unhashed, sched->mblk_pool );
     block->mblk_unhashed_cnt--;
+    fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
+    for( ulong i=0UL; i<mblk->hashcnt; i++ ) fd_sha256_hash( mblk->curr_hash, sizeof(fd_hash_t), mblk->curr_hash );
     int dead_reason = poh_retire_mblk( sched, block, mblk_idx );
     if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
   }
   return verify_ticks_eager( block );
-}
-
-/* Assembles a PoH task for the given exec tile.  Assumes there is a
-   PoH task available for dispatching.  A microblock with nothing left
-   to hash is dispatched as a degenerate zero-hashcnt task, so that it
-   retires through fd_sched_task_done like any other PoH task. */
-static void
-dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, ulong max_cnt, fd_sched_task_t * out ) {
-  FD_TEST( max_cnt>=1UL && max_cnt<=FD_SCHED_POH_PARA );
-  /* Every element of a batch advances by the same hashcnt, so the
-     batch hashcnt is the smallest remaining hashcnt of its elements.
-     Elements with more work left are re-queued on completion. */
-  fd_sched_poh_hash_t * poh = out->poh_hash;
-  ulong cnt     = 0UL;
-  ulong hashcnt = ULONG_MAX;
-  while( cnt<max_cnt ) {
-    mblk_slist_t * list;
-    if( FD_LIKELY( !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ) ) ) {
-      /* There's a PoH task in progress, just continue working on that. */
-      list = block->mblks_hashing_in_progress;
-    } else if( FD_LIKELY( block->mblk_unhashed_cnt ) ) {
-      list = block->mblks_unhashed;
-    } else {
-      break; /* Nothing more to batch. */
-    }
-    uint mblk_idx = (uint)mblk_slist_idx_pop_head( list, sched->mblk_pool );
-    fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-    ulong hashcnt_todo = mblk->hashcnt-mblk->curr_hashcnt;
-    /* A microblock with nothing left to hash can't share a batch with
-       one that has work left.  The batch hashcnt would be zero, and the
-       latter would never make progress. */
-    if( FD_UNLIKELY( cnt && (!hashcnt_todo)!=(!hashcnt) ) ) {
-      mblk_slist_idx_push_head( list, mblk_idx, sched->mblk_pool );
-      break;
-    }
-    if( list==block->mblks_unhashed ) block->mblk_unhashed_cnt--;
-    hashcnt = fd_ulong_min( hashcnt, hashcnt_todo );
-    poh->mblk_idx[ cnt ] = mblk_idx;
-    memcpy( poh->hash+cnt, mblk->curr_hash, sizeof(fd_hash_t) );
-    cnt++;
-    block->poh_mblk_in_flight_cnt++;
-  }
-  FD_TEST( cnt ); /* poh_hashing_queued_cnt>0 implies at least one queued microblock. */
-
-  /* See FD_SCHED_MAX_POH_HASHES_PER_TASK.  A batch's per iteration
-     cost depends on its width. */
-  ulong iters_max = FD_SCHED_MAX_POH_HASHES_PER_TASK;
-  if( cnt>=sched->poh_simd_min ) iters_max = fd_ulong_max( (FD_SCHED_MAX_POH_HASHES_PER_TASK<<8)/fd_sha256_simd_iter_cost_q8( cnt ), 1UL );
-  hashcnt = fd_ulong_min( hashcnt, iters_max );
-  out->task_type = FD_SCHED_TT_POH_HASH;
-  poh->bank_idx  = bank_idx;
-  poh->exec_idx  = (ulong)exec_tile_idx;
-  poh->cnt       = cnt;
-  poh->hashcnt   = hashcnt;
-  sched->poh_inflight[ exec_tile_idx ] = *poh;
-
-  sched->poh_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx );
-  sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
-  block->poh_hashing_in_flight_cnt++;
-  if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
 }
 
 /* Does up to one transaction mixin.  Returns 1 if one mixin was done, 2
@@ -3087,7 +2947,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
     /* If we've decided to start mixin on a partially parsed microblock,
        there better be nothing else in-progress.  Otherwise, they might
        clobber the per-block bmtree for mixin. */
-    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx && (block->poh_mblk_in_flight_cnt||!mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool )||!mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool )) ) ) {
+    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx && !mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool ) ) ) {
       sched->print_buf_sz = 0UL;
       print_all( sched, block );
       FD_LOG_CRIT(( "invariant violation end_txn_idx %lu start_txn_idx %lu curr_txn_idx %lu: %s", mblk->end_txn_idx, mblk->start_txn_idx, mblk->curr_txn_idx, sched->print_buf ));
@@ -3108,9 +2968,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   if( FD_UNLIKELY( mblk->curr_txn_idx>=block->txn_parsed_cnt || /* Nothing more to mixin for this microblock. */
                    (mblk->end_txn_idx>block->txn_parsed_cnt &&  /* There is something to mixin, but the microblock isn't fully parsed yet ... */
                     mblk->curr_txn_idx==mblk->start_txn_idx &&  /* ... and we haven't started mixin on it yet ... */
-                    (block->poh_mblk_in_flight_cnt ||           /* ... and another microblock is in-progress and might preempt this microblock and clobber the bmtree, so we shouldn't start the partial microblock just yet.  Counting microblocks rather than tasks matters: a batched PoH task is retired one microblock at a time, and the ones not yet retired are off every list. */
-                     !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ) ||
-                     !mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool ))) ) ) {
+                    !mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool )) ) ) { /* ... and another microblock is in-progress and might preempt this microblock and clobber the bmtree, so we shouldn't start the partial microblock just yet. */
     mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, mblk_idx, sched->mblk_pool );
 
     /* No other microblock in the mixin queue. */
@@ -3577,8 +3435,8 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
        we're pruning implies that the bank thinks there's nothing more
        in-flight. */
     if( FD_UNLIKELY( block_is_in_flight( head ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: block has tasks in flight (%u exec %u sigverify %u poh %u cert), slot %lu, parent slot %lu",
-                    head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->poh_hashing_in_flight_cnt, head->cert_in_flight_cnt, head->slot, head->parent_slot ));
+      FD_LOG_CRIT(( "invariant violation: block has tasks in flight (%u exec %u sigverify %u cert), slot %lu, parent slot %lu",
+                    head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->cert_in_flight_cnt, head->slot, head->parent_slot ));
     }
     if( FD_UNLIKELY( head->in_rdisp ) ) {
       /* We should have removed it from the dispatcher when we were
@@ -3589,7 +3447,6 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
 
     /* Return remaining mblk descriptors to the shared pool. */
     free_mblk_slist( sched, head, head->mblks_unhashed );
-    free_mblk_slist( sched, head, head->mblks_hashing_in_progress );
     free_mblk_slist( sched, head, head->mblks_mixin_in_progress );
 
     if( FD_UNLIKELY( !head->block_end_done ) ) {

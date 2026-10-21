@@ -2,7 +2,6 @@
 #include <string.h>
 
 #include "../../util/fd_util.h"
-#include "fd_execrp.h"
 #include "fd_sched.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
@@ -17,10 +16,10 @@ static void
 test_sched_footprint( void ) {
   /* Retain the savings from compact shred lengths and 4992-byte
      transactions under the default scheduler sizing. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1694540032UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1693907200UL );
   /* Only the shred length array scales with the shred limit. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1694540032UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1694540032UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1693907200UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1693907200UL );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
@@ -294,15 +293,6 @@ run_interleaved_fec_residual_case( void ) {
       case FD_SCHED_TT_TXN_SIGVERIFY:
         FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
         break;
-      case FD_SCHED_TT_POH_HASH: {
-        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->cnt = task->poh_hash->cnt;
-        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
-          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
-        }
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
-        break;
-      }
       default:
         FD_LOG_ERR(( "unexpected task type %lu in interleaved FEC test", task->task_type ));
     }
@@ -395,13 +385,6 @@ run_ag_structure_case( fd_hash_t const * start_poh,
         case FD_SCHED_TT_MARK_DEAD:
           FD_TEST( task->mark_dead->bank_idx==2UL );
           break;
-        case FD_SCHED_TT_POH_HASH: {
-          fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-          msg->cnt = task->poh_hash->cnt;
-          for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
-          fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg );
-          break;
-        }
         default:
           FD_LOG_ERR(( "unexpected task_type %lu in alpenglow structure case", task->task_type ));
       }
@@ -751,11 +734,7 @@ run_cert_verify_case( int abandon ) {
       FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
       continue;
     }
-    FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH );
-    fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-    msg->cnt = task->poh_hash->cnt;
-    for( ulong i=0UL; i<msg->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
-    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+    FD_LOG_ERR(( "unexpected task type %lu", task->task_type ));
   }
   FD_TEST( fd_sched_pruned_block_next( sched )==2UL );
 
@@ -994,7 +973,6 @@ run_zero_hashcnt_mblk_case( void ) {
 
   /* Drain everything the first FEC made available. */
   ulong exec_cnt = 0UL;
-  ulong poh_task_cnt = 0UL;
   for( ulong step=0UL; step<100UL; step++ ) {
     fd_sched_task_t task[ 1 ];
     if( !fd_sched_task_next_ready( sched, task ) ) break;
@@ -1009,21 +987,11 @@ run_zero_hashcnt_mblk_case( void ) {
       case FD_SCHED_TT_TXN_SIGVERIFY:
         FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
         break;
-      case FD_SCHED_TT_POH_HASH: {
-        poh_task_cnt++;
-        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->cnt = task->poh_hash->cnt;
-        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
-        break;
-      }
       default:
         FD_LOG_ERR(( "unexpected task type %lu draining first FEC", task->task_type ));
     }
   }
   FD_TEST( exec_cnt==1UL );
-  /* The microblock had nothing to hash, but still went out as a task. */
-  FD_TEST( poh_task_cnt==1UL );
 
   /* Second FEC: a microblock header declaring two transactions, but
      only a fragment of the first.  No transaction gets parsed out, so
@@ -1046,21 +1014,10 @@ run_zero_hashcnt_mblk_case( void ) {
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
   FD_TEST( fd_sched_fec_ingest( sched, fec ) );
 
-  /* The microblock dispatches with nothing to hash, and retiring it
-     exhausts the block.  Deactivation happens in fd_sched_task_done, so
-     the scheduler simply parks and idles until more of the block shows
+  /* The microblock has nothing to hash, and retiring it exhausts the
+     block.  The scheduler parks and idles until more of the block shows
      up. */
   fd_sched_task_t task[ 1 ];
-  FD_TEST( fd_sched_task_next_ready( sched, task ) );
-  FD_TEST( task->task_type==FD_SCHED_TT_POH_HASH );
-  FD_TEST( task->poh_hash->cnt==1UL );
-  FD_TEST( !task->poh_hash->hashcnt );
-  {
-    fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-    msg->cnt = task->poh_hash->cnt;
-    for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
-    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
-  }
   FD_TEST( !fd_sched_task_next_ready( sched, task ) );
   FD_TEST( fd_sched_is_drained( sched ) );
 
