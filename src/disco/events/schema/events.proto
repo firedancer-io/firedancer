@@ -3841,7 +3841,7 @@ message MetricsReplayFecPollSkipped {
   // The scheduler was full
   uint64 sched_full = 1;
   // The reassembly queue was empty
-  uint64 reassembly_empty = 2;
+  uint64 reassembly_empty = 2 [deprecated = true];
   // Waiting for PoH to end our leader block
   uint64 leader_freeze_wait = 3;
   // The bank pool was full
@@ -9877,7 +9877,7 @@ message MetricsReplay {
   // Banks we currently have alive
   uint64 bank_used = 48;
   // Free FEC sets in the reassembly queue, 0 under Alpenglow (no reassembly queue)
-  uint64 reassembly_free = 49;
+  uint64 reassembly_free = 49 [deprecated = true];
   // Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none
   uint64 last_reassembly_dequeued_slot = 50;
   // FEC set index of the FEC set most recently dequeued from reassembly for replay; read with LastReassemblyDequeuedSlot

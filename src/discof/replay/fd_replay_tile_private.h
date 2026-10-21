@@ -9,8 +9,6 @@
 #include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/wait_info/fd_wait_info.h"
 #include "../../discof/poh/fd_poh.h"
-#include "../../discof/reasm/fd_reasm.h"
-#include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/rotor/fd_rotor_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
@@ -46,43 +44,28 @@ struct fd_replay_out_link {
 
 typedef struct fd_replay_out_link fd_replay_out_link_t;
 
-/* fd_block_id_map is a simple map of block-ids to bank indices.  The
-   map sits on top of an array of fd_block_id_ele_t.  This serves as a
-   translation layer between block ids to bank indices.  The data
-   array is indexed by bank index and the latest observed merkle root
-   for the bank index is stored in the array.  Once the block id has
-   been observed, the entry is keyed by the latest merkle root (aka the
-   block id). */
-
 struct fd_block_id_ele {
-  fd_hash_t     latest_mr;  /* merkle root of the latest observed FEC set.  Under tower this is
-                               the block id once the block is complete.  Under alpenglow this is
-                               NEVER the block id: on completion it holds the last FEC set's
-                               merkle root, which the next block's shreds chain off (the cmr). */
-  fd_hash_t     dmr;        /* ALPENGLOW-ONLY block id (double merkle root).  Only valid once
-                               block_id_seen is set. */
-  ag_block_id_t block_info; /* unpopulated for non alpenglow, but key for the compound map under alpenglow */
+  fd_hash_t     latest_mr;  /* merkle root of the latest observed FEC set.  This is NEVER the
+                               block id: on completion it holds the last FEC set's merkle root,
+                               which the next block's shreds chain off (the cmr). */
+  fd_hash_t     dmr;        /* block id (double merkle root).  Only valid once block_id_seen is
+                               set. */
+  ag_block_id_t block_info; /* key for the compound map */
   uint          latest_fec_idx;
   int           block_id_seen;
   ulong         slot;
   ulong         bank_seq;
-  ulong         next_;
   ulong         ag_next_;
   uint          fec_cnt;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
-/* Tower keys by slot (slot % reception_stats_cnt).  Alpenglow keys by
-   bank idx.  There is no reasm; rotor stamps the snapshot onto every
-   FEC it delivers and replay records it in process_rotor_fec. */
 struct fd_reception_stats {
   ulong                     bank_seq; /* alpenglow guard: valid iff ==bank->bank_seq */
-  ulong                     slot;     /* tower guard */
   uint                      fec_set_idx;
 
   union {
-    fd_fec_complete_metrics_t repair; /* tower/repair */
-    fd_rotor_fec_metrics_t    rotor;  /* ag */
+    fd_rotor_fec_metrics_t rotor;
   } metrics;
 };
 typedef struct fd_reception_stats fd_reception_stats_t;
@@ -115,15 +98,6 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 #define POOL_T    fd_replay_txn_timing_slot_t
 #define POOL_NEXT pool.next
 #include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME               fd_block_id_map
-#define MAP_ELE_T              fd_block_id_ele_t
-#define MAP_KEY_T              fd_hash_t
-#define MAP_KEY                latest_mr
-#define MAP_NEXT               next_
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
-#define MAP_KEY_HASH(key,seed) (fd_hash32( (key)->uc, (seed) ))
-#include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_ag_block_id_map indexes the same fd_block_id_ele_t array by the
    compound {slot, block_id} key.  A block that is still being received
@@ -178,8 +152,6 @@ struct fd_replay_tile {
   int vote_account_staked;
   int vote_account_inadmissible;
 
-  int alpenglow;
-
   /* wfs_enabled is 1 if the validator is booted in
      wait_for_supermajority mode. In this mode replay (and, by extension,
      downstream consumers) is not allowed to make progress until 80% of
@@ -194,9 +166,6 @@ struct fd_replay_tile {
   int       wfs_hash_is_zero;
 
   ulong            blockhash_seed;
-  ulong            reasm_seed;
-  fd_reasm_t     * reasm;
-  fd_reasm_fec_t * reasm_evicted; /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
   fd_reception_stats_t * reception_stats;
   ulong                  reception_stats_cnt;
 
@@ -244,8 +213,8 @@ struct fd_replay_tile {
      resources occupied by rooted or dead blocks.  In general,
      publishing has the effect of pruning forks in those structures,
      indicating that it is ok to release the memory being occupied by
-     the blocks on said forks.  Tower is responsible for informing us of
-     the latest block on the consensus rooted fork.  As soon as we can,
+     the blocks on said forks.  Finalization determines the latest
+     block on the consensus rooted fork.  As soon as we can,
      we should move the published root as close as possible to the
      latest consensus root, publishing/pruning everything on the fork
      tree along the way.  That is, all the blocks that directly descend
@@ -274,7 +243,7 @@ struct fd_replay_tile {
      fork has refcnt 0, and all minority forks branching off of B also
      have refcnt 0, then B is safe to be pruned.  We advance the
      published root to the farthest consecutively prunable block on the
-     rooted fork.  Note that reasm presents the replay tile with a clean
+     rooted fork.  Note that rotor presents the replay tile with a clean
      view of the world where every block is chained off of a parent
      block.  So there are no orpahned/dangling tree nodes to worry
      about.  The world is a nice single tree as far as replay is
@@ -371,7 +340,7 @@ struct fd_replay_tile {
      node, that is chaining off of the rooted fork, because the
      consensus root is always an ancestor of the actively replaying tip.
      */
-  fd_hash_t consensus_root;          /* The most recent block to have reached max lockout in the tower, or been finalized and replayed under Alpenglow. */
+  fd_hash_t consensus_root;          /* finalized and replayed */
   ulong     consensus_root_slot;     /* slot number of the above. */
   fd_hash_t notified_root;           /* The most recent consensus root sent to sched, RPC, and resolv. */
   ulong     notified_root_slot;      /* slot number of the above. */
@@ -401,19 +370,17 @@ struct fd_replay_tile {
 
   /* We need to maintain a tile-local mapping of block-ids to bank index
      and vice versa.  This translation layer is needed for conversion
-     since tower operates on block-ids and downstream consumers of FEC
+     since votor operates on block-ids and downstream consumers of FEC
      sets operate on bank indices.  This mapping must happen both ways:
-     1. tower sends us block ids and we must map them to bank indices.
+     1. votor sends us block ids and we must map them to bank indices.
      2. when a block is completed, we must map the bank index to a block
-        id to send a slot complete message to tower. */
+        id to send a slot complete message. */
   ulong               block_id_len;
   ulong               max_live_slots;
   fd_block_id_ele_t * block_id_arr;
   ulong *             dead_idxs; /* max_live_slots scratch for mark_bank_dead */
 
   fd_hash_t *         fec_chain;
-  ulong               block_id_map_seed;
-  fd_block_id_map_t * block_id_map;
 
   ulong                  ag_block_id_map_seed;
   fd_ag_block_id_map_t * ag_block_id_map;
@@ -441,14 +408,9 @@ struct fd_replay_tile {
   fd_replay_txn_timing_t *      timing_rec;          /* [FD_REPLAY_TXN_TIMING_SLOTS*max_txn_per_slot], slot i at i*max_txn_per_slot */
   ulong *                       timing_slot_of_bank; /* [max_live_slots] bank_idx -> pool idx or idx_null */
 
-  fd_reasm_fec_t **             backfill_path;       /* [max_shreds_per_block/FD_FEC_SHRED_CNT] scratch for backfill_fec_sets */
-
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */
   int is_booted;
-
-  /* Buffer to store vote towers that need to be published to the Tower
-     tile. */
 
   fd_multi_epoch_leaders_t * mleaders;
 
@@ -491,17 +453,15 @@ struct fd_replay_tile {
   ulong       ns_per_slot;
 
   /* Caught up to the cluster: replay has completed a slot within a few
-     slots of the cluster tip.  Under tower the tip is the highest FEC
-     set slot repair forwarded; under alpenglow rotor tracks it and
-     ships it on each delivered FEC, because rotor delivers only
+     slots of the cluster tip.  Rotor tracks the tip and ships it on
+     each delivered FEC, because rotor delivers only
      replayable FECs in order and their slots track replay itself. */
   int         caught_up;
   ulong       catch_up_max_fec_slot;
   ulong       catch_up_tip_advance_cnt;
   long        boot_timestamp_nanos;
 
-  fd_hash_t   reset_cmr; /* chained merkle root of the reset block */
-  fd_hash_t   reset_dmr; /* ALPENGLOW-ONLY double merkle root of the reset block */
+  fd_hash_t   reset_dmr; /* double merkle root of the reset block */
   long        reset_timestamp_nanos;
   fd_bank_t * leader_bank;
 
@@ -560,9 +520,8 @@ struct fd_replay_tile {
   fd_replay_out_link_t exec_out[ FD_SCHED_MAX_EXEC_TILE_CNT ];
 
   fd_replay_out_link_t replay_out[1];
-  ulong const *        replay_out_seq;
   fd_replay_out_link_t slot_out[1];
-  fd_replay_out_link_t rotor_out[1]; /* REPLAY_SIG_MISSING_FEC, alpenglow only */
+  fd_replay_out_link_t rotor_out[1]; /* REPLAY_SIG_MISSING_FEC */
   ulong const *        slot_out_seq;
   fd_replay_out_link_t snapmk_out[1];
   ulong admin_out_idx;
@@ -615,7 +574,6 @@ struct fd_replay_tile {
     ulong reasm_latest_fec_idx;
 
     ulong sched_full;
-    ulong reasm_empty;
     ulong leader_bid_wait;
     ulong banks_full;
     ulong parent_unavailable;

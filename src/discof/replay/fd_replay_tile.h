@@ -22,12 +22,12 @@
 
    PUBLISHING (ROOT ADVANCEMENT)
 
-   When tower sends a new consensus root, replay advances the
+   When a new consensus root is finalized, replay advances the
    published root along the rooted fork as far as possible.  A block
    on the rooted fork is safe to prune when it and all minority fork
    subtrees branching from it have refcnt 0.  Publishing calls
-   fd_reasm_publish to prune the reasm tree (and the store) of any
-   FEC sets that do not descend from the new root.
+   fd_store_publish to prune the store of any FEC sets below the new
+   root.
 
    REASM EVICTION (POOL-PRESSURE EVICTION)
 
@@ -168,7 +168,7 @@ struct fd_replay_slot_completed {
   long preparation_begin_nanos;           /* timestamp when replay began preparing the state to begin execution of the slot */
   long first_transaction_scheduled_nanos; /* timestamp when replay first sent a transaction to be executed */
   long last_transaction_finished_nanos;   /* timestamp when replay received the last execution completion */
-  long completion_time_nanos;             /* timestamp when replay completed finalizing the slot and notified tower */
+  long completion_time_nanos;             /* timestamp when replay completed finalizing the slot */
 
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
@@ -273,10 +273,9 @@ struct fd_replay_fec_evicted {
 };
 typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 
-/* Only rpc needs to consume this message since tower holds refcnts
-   transiently and will drop them without a further trigger from the
-   replay tile and the resolv tile holds onto a bank reference based on
-   the root, which will never be forced to drop its bank reference. */
+/* Only rpc needs to consume this message since the resolv tile holds
+   onto a bank reference based on the root, which will never be forced
+   to drop its bank reference. */
 struct fd_replay_drop_bank_ref {
   ulong bank_idx;
 };
