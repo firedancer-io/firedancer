@@ -417,6 +417,10 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
     ulong replay_idx_ag = ctx->tiles.replay_idx;
     if( FD_UNLIKELY( ctx->metrics[ votor_idx ][ FD_METRICS_GAUGE_TILE_STATE_OFF ]!=1UL || replay_idx_ag==ULONG_MAX ) ) {
       vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
+    } else if( FD_UNLIKELY( ctx->metrics[ votor_idx ][ FD_METRICS_GAUGE_VOTOR_RANK_OFF ]==ULONG_MAX ) ) {
+      /* Not in the rank map, so
+         we cannot be delinquent: report non-voting. */
+      vote_status = FD_DIAG_VOTE_STATUS_DISABLED;
     } else {
       volatile ulong * m = ctx->metrics[ replay_idx_ag ];
       ulong vote_slot    = m[ FD_METRICS_GAUGE_REPLAY_LAST_REWARDED_VOTE_SLOT_OFF ];
