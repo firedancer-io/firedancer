@@ -391,7 +391,7 @@ static void
 strmk_appendvec_flush( fd_strmk_t *     ctx,
                        strmk_stream_t * stream ) {
   char name[ FD_TAR_NAME_SZ ];
-  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "accounts/%lu.0", stream->start_slot ) );
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "accounts/%lu.0", ctx->current_slot ) );
   fd_tar_meta_t meta;
   zip_push( ctx, stream, fd_backup_tar_named_hdr( &meta, name, ctx->raw_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
   zip_push( ctx, stream, ctx->raw, ctx->raw_sz, ZSTD_e_continue );
