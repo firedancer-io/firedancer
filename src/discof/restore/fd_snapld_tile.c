@@ -306,9 +306,9 @@ transition_malformed( fd_snapld_tile_t *  ctx,
 /* handle_connection_failure asks a fast boot stream for its bytes
    again from the current offset.  A stream never fails on its own:
    replay runs on it and it ends once the snapshots behind it are in.
-   A snapshot request that failed before any of its response arrived
-   is sent again a few times, nothing went downstream yet.  Returns 0
-   otherwise, the caller fails the load then. */
+   A snapshot request that failed before any of its response went
+   downstream is sent again a few times.  Returns 0 otherwise, the
+   caller fails the load then. */
 static int
 handle_connection_failure( fd_snapld_tile_t * ctx,
                            long               now ) {
@@ -339,7 +339,7 @@ check_download_progress( fd_snapld_tile_t *  ctx,
   ulong min_bytes = ctx->fast_boot_stream.active ? 1UL : ctx->min_bytes_in_window;
   if( FD_UNLIKELY( now>ctx->window_deadline ) ) {
     if( FD_UNLIKELY( ctx->bytes_in_window<min_bytes ) ) {
-      if( FD_UNLIKELY( handle_connection_failure( ctx, now ) ) ) return -1;
+      if( FD_UNLIKELY( ctx->fast_boot_stream.active && handle_connection_failure( ctx, now ) ) ) return -1;
       /* cancel the download if the download progress speed in the last
          window is less than the minimum download speed. */
       double download_speed_mibs = (double)ctx->bytes_in_window / (double)(FD_SNAPLD_DOWNLOAD_WINDOW_NS / 1e9) / (double)(1<<20UL);
