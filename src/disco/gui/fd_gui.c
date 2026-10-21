@@ -235,6 +235,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.estimated_slot_duration_nanos = 0UL;
 
   gui->summary.vote_distance = 0UL;
+  gui->summary.is_voting  = !!is_voting;
   gui->summary.vote_state = is_voting ? FD_GUI_VOTE_STATE_VOTING : FD_GUI_VOTE_STATE_NON_VOTING;
 
   gui->summary.sock_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "sock"   );
@@ -440,7 +441,7 @@ fd_gui_set_identity( fd_gui_t *    gui,
   gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
   gui->summary.vote_distance = 0UL;
-  if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
+  if( FD_LIKELY( gui->summary.is_voting ) ) gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
   gui->landed_vote_cnt = 0UL;
 
   if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) gui->summary.slot_voted = ULONG_MAX;
@@ -2694,6 +2695,7 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
         if( FD_UNLIKELY( gui->summary.is_alpenglow && epoch->is_voter[ cidx ]!=FD_GUI_IS_VOTER_UNKNOWN ) )
           fd_gui_slot_set_voter_state( c, epoch->is_voter[ cidx ] );
         epoch->is_voter[ cidx ] = c->is_voter;
+        epoch->vote_count[ cidx ] = c->vote_count;
 
         /* This slot is on the rooted fork, so it was not skipped. */
         epoch->skipped[ cidx ] = 0;
@@ -2898,8 +2900,7 @@ static void
 fd_gui_handle_ag_reward( fd_gui_t * gui,
                          ulong      slot,
                          int        voted,
-                         ushort     voted_rank,
-                         ushort     vote_count ) {
+                         ushort     voted_rank ) {
   if( FD_UNLIKELY( !gui->summary.is_alpenglow ) ) return;
 
   uchar vote_rewarded = fd_uchar_if( !!voted, FD_GUI_VOTE_REWARDED_YES, FD_GUI_VOTE_REWARDED_NO );
@@ -2909,12 +2910,11 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
   fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot );
   if( FD_LIKELY( epoch ) ) {
     ulong idx = slot - epoch->start_slot;
-    if( FD_LIKELY( idx<epoch->slot_cnt && ( epoch->vote_rewarded[ idx ]!=vote_rewarded || epoch->is_voter[ idx ]!=is_voter || epoch->vote_count[ idx ]!=vote_count ) ) ) {
+    if( FD_LIKELY( idx<epoch->slot_cnt && ( epoch->vote_rewarded[ idx ]!=vote_rewarded || epoch->is_voter[ idx ]!=is_voter ) ) ) {
       int was_missed = epoch->vote_rewarded[ idx ]==FD_GUI_VOTE_REWARDED_NO && epoch->is_voter[ idx ]==FD_GUI_IS_VOTER_YES;
       epoch_changed = 1;
       epoch->vote_rewarded[ idx ] = vote_rewarded;
       epoch->is_voter[ idx ]      = is_voter;
-      epoch->vote_count[ idx ]    = vote_count;
       int is_missed = vote_rewarded==FD_GUI_VOTE_REWARDED_NO && is_voter==FD_GUI_IS_VOTER_YES;
 
       if( FD_UNLIKELY( was_missed!=is_missed ) ) gui->epoch.missed_vote_history_dirty = epoch->epoch; /* coalesced into one broadcast per poll */
@@ -2933,9 +2933,8 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
     return;
   }
 
-  int changed = rec->vote_rewarded!=vote_rewarded || rec->is_voter!=is_voter || rec->vote_count!=vote_count || epoch_changed;
+  int changed = rec->vote_rewarded!=vote_rewarded || rec->is_voter!=is_voter || epoch_changed;
   rec->vote_rewarded = vote_rewarded;
-  rec->vote_count    = vote_count;
   fd_gui_slot_set_voter_state( rec, is_voter );
   if( FD_UNLIKELY( !changed ) ) return;
   fd_gui_printf_slot( gui, slot, rec );
@@ -3295,7 +3294,14 @@ handle_tower_slot( fd_gui_t * gui, ulong reset_slot, ulong reset_bank_seq, long 
   if( FD_UNLIKELY( prev_reset_slot==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return 1;
 
   /* Switch forks. */
+  fd_gui_slot_t const * oc = fd_gui_slot_get( gui, prev_reset_slot, prev_reset_bank_seq );
+  fd_gui_slot_t const * nc = fd_gui_slot_get( gui, reset_slot,      reset_bank_seq      );
   for( ulong slot=fd_ulong_max( gui->summary.slot_tower, prev_reset_slot ); slot>gui->summary.slot_rooted; slot-- ) {
+    while( oc && oc->slot>slot ) oc = fd_gui_slot_parent_get( gui, oc );
+    while( nc && nc->slot>slot ) nc = fd_gui_slot_parent_get( gui, nc );
+    ulong obank = oc && oc->slot==slot ? oc->bank_seq : ULONG_MAX;
+    ulong nbank = nc && nc->slot==slot ? nc->bank_seq : ULONG_MAX;
+
     int skipped_old = slot<=prev_reset_slot && fd_gui_slot_is_skipped( gui, gui->summary.slot_rooted, prev_reset_slot, prev_reset_bank_seq, slot );
     int skipped_new = slot<=gui->summary.slot_tower && fd_gui_slot_is_skipped( gui, gui->summary.slot_rooted, gui->summary.slot_tower, reset_bank_seq, slot );
     if( FD_LIKELY( skipped_old!=skipped_new ) ) {
@@ -3307,7 +3313,7 @@ handle_tower_slot( fd_gui_t * gui, ulong reset_slot, ulong reset_bank_seq, long 
     }
 
     /* Publish new/changed slots */
-    if( FD_LIKELY( skipped_old!=skipped_new || slot>prev_reset_slot ) ) {
+    if( FD_LIKELY( skipped_old!=skipped_new || slot>prev_reset_slot || obank!=nbank ) ) {
       fd_gui_printf_slot( gui, slot, fd_gui_slot_get_canon_safe( gui, slot ) );
       fd_http_server_ws_broadcast( gui->http );
     }
@@ -3637,6 +3643,10 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   fd_gui_slot_t * canon = fd_gui_slot_get_canon( gui, slot_completed->slot );
   slot->skip = fd_uchar_if( canon && canon->bank_seq==slot_completed->bank_seq, FD_GUI_SKIP_STATUS_NOT_SKIPPED, FD_GUI_SKIP_STATUS_UNKNOWN );
 
+  /* vote_count is keyed by the cert slot.  The epoch copy is written
+     only on rooting, so it never holds a non-canonical bank's count. */
+  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) slot->vote_count = slot_completed->vote_count;
+
   /* fixes race if we just sample right after replay's SLOT_COMPLETE */
   if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) fd_gui_sample_repair_slot( gui, now );
 
@@ -3675,16 +3685,20 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
     }
 
     if( FD_LIKELY( slot_completed->slot>=FD_NUM_SLOTS_FOR_REWARD ) ) {
-      fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank, slot_completed->vote_count );
+      fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank );
     }
 
     int frontier_updated = handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );
 
-    if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
-      ulong s         = gui->summary.slot_tower;
-      ulong voted     = gui->summary.slot_voted;
-      int   current   = voted!=ULONG_MAX && fd_int_if( s>=128UL, voted+128UL>s, voted>0UL );
-      set_vote_state( gui, fd_int_if( current, FD_GUI_VOTE_STATE_VOTING, FD_GUI_VOTE_STATE_DELINQUENT ) );
+    if( FD_LIKELY( gui->summary.is_voting && slot_completed->slot>=FD_NUM_SLOTS_FOR_REWARD ) ) {
+      if( FD_UNLIKELY( slot_completed->voted_rank==USHORT_MAX ) ) {
+        set_vote_state( gui, FD_GUI_VOTE_STATE_NON_VOTING );
+      } else {
+        ulong s         = gui->summary.slot_tower;
+        ulong voted     = gui->summary.slot_voted;
+        int   current   = voted!=ULONG_MAX && fd_int_if( s>=128UL, voted+128UL>s, voted>0UL );
+        set_vote_state( gui, fd_int_if( current, FD_GUI_VOTE_STATE_VOTING, FD_GUI_VOTE_STATE_DELINQUENT ) );
+      }
     }
 
     if( FD_UNLIKELY( frontier_updated && gui->summary.slot_estimated!=slot_completed->slot ) ) {

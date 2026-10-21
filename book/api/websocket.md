@@ -273,7 +273,9 @@ validator's vote was included in a reward certificate.  See
 `summary.vote_slot` for more
 details. Given the current processed slot `s`, a voting validator is
 current when `vote_slot > s - 128` for `s >= 128`, or when
-`vote_slot > 0` for `s < 128`, otherwise they are `delinquent`.
+`vote_slot > 0` for `s < 128`, otherwise they are `delinquent`. A validator whose vote account is not in the
+epoch's voter rank map (for example, it has no admitted stake because
+the vote account ticket was not paid) is `non-voting`.
 
 #### `summary.vote_distance`
 | frequency       | type     | example |
@@ -1581,7 +1583,7 @@ are subsystem-specific and described below.
 **`vote`** states:
 | State          | Description |
 |----------------|-------------|
-| `disabled`     | The validator is non-voting, or the active consensus tile (`tower` for Tower or `votor` for Alpenglow) is not present in the topology |
+| `disabled`     | The validator is non-voting, or the active consensus tile (`tower` for Tower or `votor` for Alpenglow) is not present in the topology. Also reported when the validator is not in the current epoch's voter rank map. |
 | `not_started`  | The active consensus tile exists but is not yet running, or the validator has not yet recorded a vote |
 | `delinquent`   | Under Tower, the vote distance exceeds 150 slots or the vote slot has not advanced for over 60 seconds. Under Alpenglow, the validator is delinquent according to the exact 128-slot on-chain vote-account lookback in `summary.vote_state`. Also reported when votes land but the vote account fails the validator admission ticket filter (not V4 with a BLS pubkey, or below the V4 rent-exempt minimum), so its stake is not admitted: no leader slots, no rewards |
 | `voting`       | The validator is voting and is not `delinquent` |
@@ -3206,7 +3208,7 @@ and the validator changes which block it associates with the slot.
 | finalization_kind       | `string\|null`  | Strongest finality proof known for this slot: `fast`, `slow`, `implicit`, or `null`. `fast` supersedes `slow`, and either direct proof supersedes `implicit`. A terminal `rooted` or `skipped` level always has a non-null value; `skipped` uses `implicit` |
 | vote_slot               | `number\|null`  | Latest slot for which this validator's vote was included in a reward certificate, as of this slot's replay. It is the slot voted on, not the slot which carried the certificate. It is `null` when this validator has no recorded reward-certificate participation yet |
 | vote_rewarded           | `boolean\|null` | Whether this validator's ordinary notarize or skip vote for this slot was included in the reward certificate carried by `slot + 8`. It is `null` until the reward outcome is known, or when `is_voter` for this slot is false. Once resolved, the server republishes this slot with `true` or `false`. |
-| vote_count              | `number\|null`  | Number of distinct validators that voted for this slot, counting each signer once across the notarize and skip reward certificates carried by `slot + 8`. It is `null` before those certificates are replayed |
+| vote_count              | `number\|null`  | Number of distinct validators whose votes were included in the reward certificates carried by this slot's block, counting each signer once across the notarize and skip reward certificates. These certificates reward votes for `slot - 8`. It is `null` before this slot is replayed and for skipped slots |
 
 #### `slot.skipped_history`
 | frequency | type       | example |
