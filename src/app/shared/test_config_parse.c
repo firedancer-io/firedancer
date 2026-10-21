@@ -30,9 +30,7 @@ static char const cfg_str_5[] =
   "  max_file_size_mib = 33";
 static char const cfg_str_vote_history[] =
   "[paths]\n"
-  "  vote_history = \"/data/{name}/vote_history\"\n"
-  "[tiles.tower]\n"
-  "  write_vote_history_file = false";
+  "  vote_history = \"/data/{name}/vote_history\"\n";
 
 extern uchar const firedancer_default_config[];
 extern ulong const firedancer_default_config_sz;
@@ -243,12 +241,10 @@ main( int     argc,
   /* Parse the vote history file options */
 
   memset( config, 0, sizeof(config_t) );
-  config->tiles.tower.write_vote_history_file = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_vote_history, sizeof(cfg_str_vote_history)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   FD_TEST( !strcmp( config->paths.vote_history, "/data/{name}/vote_history" ) );
-  FD_TEST( !config->tiles.tower.write_vote_history_file );
 
   FD_TEST(  vote_history_path_is_valid( ""                   ) ); /* default */
   FD_TEST(  vote_history_path_is_valid( "/data/vote_history" ) );

@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26553488UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26553472UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -347,7 +347,6 @@ fd_config_to_json( fd_config_t const * config,
     jw_boolau( &w, "wait_for_vote_to_start_leader",         config->consensus.wait_for_vote_to_start_leader );
     jw_ulong ( &w, "wait_for_supermajority_at_slot",        f->consensus.wait_for_supermajority_at_slot );
     jw_str   ( &w, "wait_for_supermajority_with_bank_hash", f->consensus.wait_for_supermajority_with_bank_hash );
-    jw_bool  ( &w, "alpenglow",                             f->consensus.alpenglow );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "gossip" );
@@ -549,9 +548,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool ( &w, "retry",                           config->tiles.quic.retry );
       jw_path ( &w, "ssl_key_log_file",                config->tiles.quic.ssl_key_log_file );
     jw_obj_close( &w );
-    jw_obj_open( &w, "txsend" );
-      jw_ulong( &w, "txsend_src_port", config->tiles.txsend.txsend_src_port );
-    jw_obj_close( &w );
     jw_obj_open( &w, "verify" );
       jw_ulong( &w, "signature_cache_size", config->tiles.verify.signature_cache_size );
       jw_ulong( &w, "receive_buffer_size",  config->tiles.verify.receive_buffer_size );
@@ -617,9 +613,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool ( &w, "enabled",                   config->tiles.rserve.enabled );
       jw_ulong( &w, "repair_serve_listen_port",  config->tiles.rserve.repair_serve_listen_port );
       jw_ulong( &w, "shred_storage_limit_gib",   config->tiles.rserve.shred_storage_limit_gib );
-    jw_obj_close( &w );
-    jw_obj_open( &w, "tower" );
-      jw_bool ( &w, "write_vote_history_file",   config->tiles.tower.write_vote_history_file );
     jw_obj_close( &w );
     jw_obj_open( &w, "replay" );
       jw_ulong( &w, "max_transaction_lookahead_buffer_size", config->tiles.replay.max_transaction_lookahead_buffer_size );

@@ -195,8 +195,6 @@ create_genesis( config_t const * config,
   }
 
   /* Firedancer only bootstraps Alpenglow clusters */
-  if( FD_UNLIKELY( !config->firedancer.consensus.alpenglow ) )
-    FD_LOG_ERR(( "creating a genesis requires [consensus.alpenglow]" ));
   options->alpenglow = 1;
   options->hashes_per_tick = 0UL; /* PoH is in low power mode */
 
@@ -346,9 +344,6 @@ check( config_t const * config,
   FD_TEST( _genesis );
   if( FD_UNLIKELY( !fd_genesis_parse( _genesis, disk_bin, (ulong)st.st_size ) ) )
     FD_LOG_ERR(( "malformed genesis file at `%s`", genesis_path ));
-
-  if( FD_UNLIKELY( !config->firedancer.consensus.alpenglow ) )
-    PARTIALLY_CONFIGURED( "`%s` exists but [consensus.alpenglow] is disabled", genesis_path );
 
   static uchar fresh_bin[ GENESIS_BUF_MAX ];
   ulong fresh_bin_sz = create_genesis( config, fresh_bin, sizeof(fresh_bin) );
