@@ -376,6 +376,7 @@ test_background_snapshot_instance( void ) {
   ctx->config.fast_boot                  = 1;
   ctx->config.incremental_snapshots      = 1;
   ctx->fast_boot.slot                    = ULONG_MAX;
+  ctx->fast_boot.server_full_slot        = ULONG_MAX;
   ctx->load_incremental                  = 1;
   ctx->resolved_servers_cnt              = 1UL;
   ctx->out_ld.mem                        = (fd_wksp_t *)output;
@@ -455,6 +456,96 @@ test_background_snapshot_instance( void ) {
   rmdir( dir );
   free( sel );
   free( scratch );
+}
+
+
+/* The full behind a stream that is already on disk is read from
+   there: the resolver names the server's full before INIT, and the
+   file load starts with the file's slot. */
+static void
+test_background_snapshot_full_on_disk( void ) {
+  struct rlimit nofile; FD_TEST( !getrlimit( RLIMIT_NOFILE, &nofile ) );
+  if( FD_UNLIKELY( nofile.rlim_max<(rlim_t)FD_SNAP_FD( 2U ) ) ) { FD_LOG_WARNING(( "RLIMIT_NOFILE hard limit %lu below %d, skipping", (ulong)nofile.rlim_max, FD_SNAP_FD( 2U ) )); return; }
+  if( nofile.rlim_cur<(rlim_t)FD_SNAP_FD( 2U ) ) { nofile.rlim_cur = (rlim_t)FD_SNAP_FD( 2U ); FD_TEST( !setrlimit( RLIMIT_NOFILE, &nofile ) ); }
+
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx = scratch;
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar input [ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->selector                     = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->state                        = FD_SNAPCT_STATE_INIT;
+  ctx->config.fast_boot             = 1;
+  ctx->config.incremental_snapshots = 1;
+  ctx->fast_boot.slot               = ULONG_MAX;
+  ctx->fast_boot.server_full_slot   = ULONG_MAX;
+  ctx->load_incremental             = 1;
+  ctx->resolved_servers_cnt         = 1UL;
+  ctx->out_ld.mem                   = (fd_wksp_t *)output;
+  ctx->out_ld.wmark                 = 128UL;
+  ctx->snapld_in_mem                = input;
+  test_output                       = output;
+  ctx->local_in.full_snapshot_slot  = 100UL;
+  ctx->local_in.full_snapshot_size  = 1000UL;
+  ctx->local_in.full_snapshot_zstd  = 1;
+  memset( ctx->local_in.full_snapshot_hash, 0x22, FD_HASH_FOOTPRINT );
+  strcpy( ctx->local_in.full_snapshot_path, "/tmp/snapshot-100-x.tar.zst" );
+
+  /* A download's partial file sits at the pool's fd number. */
+  char dir[] = "/tmp/test_snapct_XXXXXX"; FD_TEST( mkdtemp( dir ) );
+  ctx->local_out.dir_fd = open( dir, O_RDONLY|O_DIRECTORY ); FD_TEST( ctx->local_out.dir_fd!=-1 );
+  fd_snap_pool_partial_name( ctx->local_out.full_snapshot_name,        0U );
+  fd_snap_pool_partial_name( ctx->local_out.incremental_snapshot_name, 1U );
+  int full_fd = openat( ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name,        O_CREAT|O_RDWR, 0600 ); FD_TEST( full_fd!=-1 );
+  int incr_fd = openat( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name, O_CREAT|O_RDWR, 0600 ); FD_TEST( incr_fd!=-1 );
+  FD_TEST( dup2( full_fd, FD_SNAP_FD( 0U ) )==FD_SNAP_FD( 0U ) ); close( full_fd );
+  FD_TEST( dup2( incr_fd, FD_SNAP_FD( 1U ) )==FD_SNAP_FD( 1U ) ); close( incr_fd );
+  ctx->local_out.full_snapshot_fd        = FD_SNAP_FD( 0U );
+  ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( 1U );
+
+  /* The server has not answered yet: wait. */
+  int busy = 0;
+  ctx->deadline_nanos = LONG_MAX;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT );
+
+  /* Still no answer at the deadline: download. */
+  ctx->deadline_nanos = 0L;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+
+  /* A different full on the server: download. */
+  ctx->state = FD_SNAPCT_STATE_INIT;
+  ctx->fast_boot.server_full_slot = 90UL;
+  memset( ctx->fast_boot.server_full_hash, 0x22, FD_HASH_FOOTPRINT );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP );
+
+  /* The same full: read it from disk, with its slot. */
+  ctx->state = FD_SNAPCT_STATE_INIT;
+  ctx->fast_boot.server_full_slot = 100UL;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE && ctx->fast_boot.full_snapshot_slot==100UL );
+  fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->file && init->slot==100UL && init->file_sz==1000UL && init->zstd );
+
+  /* Done with the file: wait for the stream, then the incremental by name. */
+  ctx->state     = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE;
+  ctx->flush_ack = ctx->flush_ack_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE );
+  ctx->fast_boot.slot = 150UL;
+  memset( ctx->fast_boot.hash, 0x11, FD_HASH_FOOTPRINT );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP );
+  FD_TEST( !strcmp( ctx->http_incr_snapshot_name, "incremental-snapshot-100-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
+
+  close( FD_SNAP_FD( 0U ) ); close( FD_SNAP_FD( 1U ) );
+  unlinkat( ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name, 0 ); unlinkat( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name, 0 );
+  close( ctx->local_out.dir_fd ); rmdir( dir );
+  free( sel ); free( scratch );
 }
 
 static void
@@ -1530,6 +1621,7 @@ main( int     argc,
   test_load_complete_signal();
   test_stream_signals();
   test_background_snapshot_instance();
+  test_background_snapshot_full_on_disk();
   test_start_after_init_acks();
   test_snapct_needs_incr();
   test_incr_use_local();

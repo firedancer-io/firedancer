@@ -144,6 +144,8 @@ struct fd_snapct_tile {
     ulong slot;
     uchar hash[ FD_HASH_FOOTPRINT ];
     ulong full_snapshot_slot;
+    ulong server_full_slot;                      /* the configured server's full, from the resolver */
+    uchar server_full_hash[ FD_HASH_FOOTPRINT ];
   } fast_boot;
 
   fd_netdb_fds_t netdb_fds[1];
@@ -443,6 +445,16 @@ on_resolve( void *                  _ctx,
   /* Do not re-add peers whose addr is temporarily banned by ssping. */
   if( FD_UNLIKELY( fd_ssping_is_invalidated( ctx->ssping, addr ) ) ) return;
 
+  /* Behind a fast boot the configured server's full is compared with
+     the one on disk at INIT. */
+  if( FD_UNLIKELY( ctx->config.fast_boot && full_slot!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+    for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
+      if( addr.l!=ctx->resolved_servers[ i ].addr.l || strcmp( ctx->resolved_servers[ i ].hostname, ctx->dns_servers[ 0 ].hostname ) ) continue;
+      ctx->fast_boot.server_full_slot = full_slot;
+      fd_memcpy( ctx->fast_boot.server_full_hash, full_hash, FD_HASH_FOOTPRINT );
+    }
+  }
+
   /* add() handles both new and existing peers, so peers removed from
      the selector during a previous blacklist, timeout, or failed
      re-resolve are re-added with the freshly resolved data. */
@@ -710,13 +722,13 @@ init_load( fd_snapct_tile_t *  ctx,
   out->file             = file;
   out->fast_boot_stream = ctx->state==FD_SNAPCT_STATE_READING_STREAM;
   out->zstd             = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
-  if( ctx->config.fast_boot ) {
-    out->slot = 0UL;
-    fd_memset( out->snapshot_hash, 0, FD_HASH_FOOTPRINT );
-  } else if( file ) {
+  if( file ) {
     out->slot = full ? ctx->local_in.full_snapshot_slot : ctx->local_in.incremental_snapshot_slot;
     if( full ) fd_memcpy( out->snapshot_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT );
     else       fd_memcpy( out->snapshot_hash, ctx->local_in.incremental_snapshot_hash, FD_HASH_FOOTPRINT );
+  } else if( ctx->config.fast_boot ) {
+    out->slot = 0UL;
+    fd_memset( out->snapshot_hash, 0, FD_HASH_FOOTPRINT );
   } else {
     out->slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
     if( full ) fd_memcpy( out->snapshot_hash, ctx->peer.full_hash, FD_HASH_FOOTPRINT );
@@ -1048,6 +1060,23 @@ after_credit( fd_snapct_tile_t *  ctx,
           break;
         }
         ctx->peer.addr = ctx->resolved_servers[ i ].addr;
+
+        /* The full behind the stream is read from disk when it is the
+           one the server has.  Wait for the server's answer until the
+           deadline. */
+        if( FD_LIKELY( !ctx->config.fast_boot_stream ) ) {
+          if( FD_UNLIKELY( ctx->fast_boot.server_full_slot==ULONG_MAX && now<=ctx->deadline_nanos ) ) break;
+          if( FD_UNLIKELY( ctx->fast_boot.server_full_slot!=ULONG_MAX &&
+                           ctx->fast_boot.server_full_slot==ctx->local_in.full_snapshot_slot &&
+                           !memcmp( ctx->fast_boot.server_full_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT ) ) ) {
+            ctx->fast_boot.full_snapshot_slot = ctx->local_in.full_snapshot_slot;
+            FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
+            set_state( ctx, FD_SNAPCT_STATE_READING_FULL_FILE );
+            init_load( ctx, stem, 1, 1 );
+            break;
+          }
+        }
+
         set_state( ctx, ctx->config.fast_boot_stream ? FD_SNAPCT_STATE_READING_STREAM : FD_SNAPCT_STATE_READING_FULL_HTTP );
         init_load( ctx, stem, 1, 0 );
         break;
@@ -1466,10 +1495,18 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
+      if( FD_UNLIKELY( background_snapshot_loading( ctx ) && ctx->fast_boot.slot==ULONG_MAX ) ) break;
+
       log_completion( ctx, 1/*full*/ );
       if( FD_LIKELY( !ctx->load_incremental ) ) {
         set_state( ctx, FD_SNAPCT_STATE_SHUTDOWN );
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+        break;
+      }
+
+      if( FD_UNLIKELY( background_snapshot_loading( ctx ) ) ) {
+        set_state( ctx, FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP );
+        init_load( ctx, stem, 0, 0 );
         break;
       }
 
@@ -2626,6 +2663,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->predicted_incremental.pending   = 0;
   ctx->predicted_incremental.committed = 0;
   ctx->fast_boot.slot                  = ULONG_MAX;
+  ctx->fast_boot.server_full_slot      = ULONG_MAX;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
