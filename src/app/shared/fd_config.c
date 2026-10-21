@@ -549,6 +549,8 @@ fd_config_validate( fd_config_t const * config ) {
     FD_LOG_ERR(( "invalid [development.bench.max_cost_per_block]: must be 0 or in [%lu,%u)", FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND, UINT_MAX ));
   if( FD_UNLIKELY( bench_shreds && (bench_shreds%FD_SHRED_BLK_MAX || bench_shreds>FD_SHRED_BLK_MAX_RAISED) ) )
     FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: must be 0 or a multiple of %lu up to %lu", (ulong)FD_SHRED_BLK_MAX, FD_SHRED_BLK_MAX_RAISED ));
+  if( FD_UNLIKELY( config->development.event.max_upload_rate_mbps>(ulong)LONG_MAX/125000UL ) )
+    FD_LOG_ERR(( "invalid [development.event.max_upload_rate_mbps]: must be at most %lu", (ulong)LONG_MAX/125000UL ));
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
