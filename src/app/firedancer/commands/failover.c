@@ -18,13 +18,13 @@ static char const * const ACTION_NAMES[] = {
   "idle", "handing off, switching to the junk key", "handing off, waiting for the peer's answer",
   "promote, waiting for replay", "promote, waiting for vote history adoption", "promote, switching to the staked key",
   "handoff, requesting the active's final vote state", "handoff, waiting for completion",
-  "handing off, waiting for the tower to drain"
+  "handing off, waiting for the vote history stream to drain"
 };
 static char const * const SESSION_NAMES[] = {
   "listening", "dialing", "hello", "paired", "backoff"
 };
 static char const * const SOURCE_NAMES[] = {
-  "the stored peer tower", "the vote account (automatic fallback)"
+  "the stored peer vote history", "an empty history (requires --force)"
 };
 static char const * const HANDOFF_NAMES[] = {
   "nothing handed over", "pending", "taken", "declined", "restarted", "cancelled by `failover promote --force`",
@@ -71,7 +71,7 @@ failover_cmd_args( int *    pargc,
   /* `failover promote --force` bypasses checks and takes the identity immediately
      without a clean handoff. */
   args->failover.cmd = (int)( status ? FD_ADMINCTL_FAILOVER_CMD_STATUS :
-                             args->failover.force ? FD_ADMINCTL_FAILOVER_CMD_PROMOTE : FD_ADMINCTL_FAILOVER_CMD_HANDOFF );
+                              args->failover.force ? FD_ADMINCTL_FAILOVER_CMD_PROMOTE : FD_ADMINCTL_FAILOVER_CMD_HANDOFF );
 
   if( FD_UNLIKELY( args->failover.yes && args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_STATUS ) ) {
     FD_LOG_ERR(( "--yes is only meaningful for `failover promote`" ));
@@ -150,8 +150,8 @@ control_result_name( ulong result ) {
                                                               "finish it, if it shows `role: standby` nothing votes and `failover promote --force` on one machine takes the identity";
     case FD_FAILOVER_CONTROL_RESULT_TAKEN:             return "the peer took our last handoff and may still be voting";
     case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:       return "gossip showed the staked identity at another host within the last 15 seconds, an active is publishing";
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:    return "the active has no eligible final vote state to hand over and keeps the identity, check its voting progress and vote-history logs before retrying";
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this standby is too far behind the active's last vote and the active keeps the identity, run `failover promote` again once this machine has caught up";
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the active has no eligible final vote state to hand over and keeps the identity, check its voting progress and vote-history logs before retrying";
+    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this standby is too far behind the active's vote history and the active keeps the identity, run `failover promote` again once this machine has caught up";
     case FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED:      return "provide the active's keypair with `failover promote <keypair>` to prepare this client's target identity";
     case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "the keypair must match the prepared target and must differ from this machine's boot identity";
     case FD_FAILOVER_CONTROL_RESULT_NOT_BOOT_IDENTITY: return "the client must still be using its boot identity when preparing a target";
@@ -176,16 +176,16 @@ failover_confirm( args_t const * args ) {
                     "this machine is not aware of are not accounted for.\n"
                     "WARNING: --force skips every check on the other machine.  Use it only when that\n"
                     "machine cannot sign, or both machines may vote with the staked identity.\n"
-                    "It also permits incomplete or empty vote history, which may lose earlier lockouts.\n"
-                    "Promotion tries eligible saved vote state first, then the vote account, and if the\n"
-                    "vote account cannot be adopted it starts from an EMPTY vote history.\n" ));
+                    "Promotion tries eligible saved vote history first, then starts from an EMPTY\n"
+                    "history with a bound covering replay and known votes.  Missing votes and leader\n"
+                    "windows above that bound remain unprotected.\n" ));
   }
   if( FD_UNLIKELY( !args->failover.yes && isatty( STDIN_FILENO ) ) ) {
     if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) {
       FD_LOG_STDOUT(( "This asks the active to hand off the staked identity to this standby.  The active\n"
-                      "keeps it if this standby is more than 64 slots behind its last vote.  Otherwise\n"
-                      "it gives up the identity first, so if replay here stalls before it catches up\n"
-                      "the handoff fails and neither machine votes until `failover promote --force`.\n"
+                      "keeps it if this standby is more than 64 slots behind its finality anchor.\n"
+                      "Otherwise, it gives up the identity before this validator adopts its history.\n"
+                      "If replay stalls, the handoff can fail with neither machine voting.\n"
                       "Check that this machine is caught up.  Type yes to continue: " ));
     } else {
       FD_LOG_STDOUT(( "Type yes to continue: " ));
@@ -229,7 +229,8 @@ failover_status_print( fd_adminctl_failover_status_resp_t const * resp ) {
   FD_LOG_STDOUT(( "%-22s %s\n", "failover:", resp->enabled==2 ? "client only, listener disabled" : "enabled" ));
   FD_LOG_STDOUT(( "%-22s %s\n", "role:",   role_name  ( resp->role   ) ));
   if( FD_UNLIKELY( resp->request_paused ) ) {
-    FD_LOG_STDOUT(( "%-22s %s, paused at its deadline and not dialing, `failover promote` resumes it\n", "action:", action_name( resp->action ) ));
+    FD_LOG_STDOUT(( "%-22s %s, paused at its deadline and not dialing, `failover promote` resumes it\n", "action:",
+                    action_name( resp->action ) ));
   } else {
     FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp->action ) ));
   }
@@ -306,7 +307,7 @@ failover_request( fd_adminctl_t *                    adminctl,
 static void __attribute__((noreturn))
 fail_disabled( int status ) {
   if( status ) FD_LOG_ERR(( "`failover status` is unavailable because this validator has no failover command bus" ));
-  FD_LOG_ERR(( "the running validator has no failover client, use a supported Firedancer build with [paths.vote_account] configured" ));
+  FD_LOG_ERR(( "the running validator has no failover client, run Alpenglow consensus with [paths.vote_account] configured" ));
 }
 
 static void __attribute__((noreturn))
@@ -370,7 +371,7 @@ failover_cmd_fn( args_t *   args,
     case FD_ADMINCTL_RESULT_SUCCESS:
       if( FD_UNLIKELY( resp_sz!=(status ? sizeof(resp.status) : sizeof(resp.control)) ||
                        (status ? resp.status.version : resp.control.version)!=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION ||
-                       (status && resp.status.mode>=FD_FAILOVER_MODE_CNT) ) ) {
+                       (status && resp.status.mode!=FD_FAILOVER_MODE_ALPENGLOW) ) ) {
         fail_incompatible();
       }
       if( status ) {

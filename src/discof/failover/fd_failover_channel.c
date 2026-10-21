@@ -57,7 +57,6 @@ struct candidate {
   uint                              address;
   long                              deadline;
   long                              admission_until;
-  long                              accepted_at;
   int                               tls_started; /* tls is initialized, close_candidate must fini it */
   fd_failover_hello_t               local_hello;
   fd_failover_admission_start_t     start;
@@ -111,7 +110,6 @@ struct fd_failover_channel {
   struct candidate               candidates[ FD_FAILOVER_CHANNEL_CANDIDATE_MAX ]; /* connections that are handshaking or paired */
   struct source                  sources[ SOURCE_CNT ]; /* accept rate limit per source address */
   struct known_source            known_sources[ KNOWN_SOURCE_CNT ]; /* authenticated addresses, expiring */
-  fd_failover_channel_metrics_t  metrics;
   long                           rate_updated;       /* when rate_credit was last refilled */
   ulong                          rate_credit;        /* accept syscall limit across all addresses */
   long                           admit_updated;      /* when admit_credit was last refilled */
@@ -268,9 +266,6 @@ fd_failover_channel_fini( fd_failover_channel_t * ch ) {
   fd_failover_tls_ctx_fini( &ch->tls_ctx );
 }
 
-fd_failover_channel_metrics_t const *
-fd_failover_channel_metrics( fd_failover_channel_t const * ch ) { return &ch->metrics; }
-
 void
 fd_failover_channel_set_role( fd_failover_channel_t * ch,
                               ulong                   role ) {
@@ -399,7 +394,6 @@ fd_failover_channel_hangup( fd_failover_channel_t * ch,
 void
 fd_failover_channel_protocol_error( fd_failover_channel_t * ch,
                                     long                    now ) {
-  ch->metrics.wire_fatal_cnt++;
   if( FD_LIKELY( ch->paired_idx>=0 ) ) {
     lose( ch, (ulong)ch->paired_idx, now, FD_FAILOVER_EV_LINK_LOST, LOSS_PROTOCOL, "it sent a message that breaks the protocol, check that both machines run the same Firedancer version" );
   }
@@ -514,7 +508,6 @@ start( fd_failover_channel_t * ch,
   c->priority = c->dialed || idx==RECONNECT_IDX;
   c->deadline        = fd_long_sat_add( now, ch->hello_timeout );
   c->admission_until = c->dialed ? c->deadline : fd_long_min( c->deadline, fd_long_sat_add( now, FD_FAILOVER_ADMISSION_START_NANOS ) );
-  c->accepted_at     = now;
   c->local_hello = ch->self_hello;
   c->rx_used = c->tx_used = c->tx_sent = 0UL;
   c->tls_started = 0;
@@ -528,13 +521,12 @@ accept_candidates( fd_failover_channel_t * ch,
                    int *                   busy ) {
   for( ulong n=0; n<FD_FAILOVER_ACCEPT_PER_POLL; n++ ) {
     ch->rate_credit = refill( ch->rate_credit, &ch->rate_updated, now, FD_FAILOVER_ACCEPT_RATE, FD_FAILOVER_ACCEPT_BURST );
-    if( ch->rate_credit<FD_FAILOVER_NANOS_PER_SECOND ) { ch->metrics.accept_limited_cnt++; return; }
+    if( ch->rate_credit<FD_FAILOVER_NANOS_PER_SECOND ) return;
     ch->rate_credit -= FD_FAILOVER_NANOS_PER_SECOND;
     struct sockaddr_in addr;
     socklen_t          len = sizeof(addr);
     int                fd  = accept4( ch->listen_fd, fd_type_pun( &addr ), &len, SOCK_NONBLOCK|SOCK_CLOEXEC );
     if( fd==-1 ) return;
-    ch->metrics.accept_cnt++;
     *busy = 1;
     ch->admit_credit = refill( ch->admit_credit, &ch->admit_updated, now, FD_FAILOVER_ADMIT_RATE, FD_FAILOVER_ADMIT_BURST );
     ch->reconnect_credit = refill( ch->reconnect_credit, &ch->reconnect_updated, now, FD_FAILOVER_RECONNECT_RATE, FD_FAILOVER_RECONNECT_BURST );
@@ -545,26 +537,22 @@ accept_candidates( fd_failover_channel_t * ch,
     int priority = known_source( ch, addr.sin_addr.s_addr, now );
     ulong * credit = priority ? &ch->reconnect_credit : &ch->admit_credit;
     if( *credit<FD_FAILOVER_NANOS_PER_SECOND ) {
-      ch->metrics.budget_reject_cnt++;
       close( fd );
       continue;
     }
     ulong idx = priority ? RECONNECT_IDX : listen_slot( ch, now );
     if( priority && ch->candidates[idx].fd!=-1 ) idx = FD_FAILOVER_CHANNEL_CANDIDATE_MAX;
     if( FD_UNLIKELY( idx==FD_FAILOVER_CHANNEL_CANDIDATE_MAX ) ) {
-      ch->metrics.capacity_reject_cnt++;
       close( fd );
       continue;
     }
     if( !admit( ch, addr.sin_addr.s_addr, now ) ) {
-      ch->metrics.source_reject_cnt++;
       close( fd );
       continue;
     }
     /* An accepted candidate leaves the session unpaired until authentication. */
     if( !start( ch, idx, fd, addr.sin_addr.s_addr, now, PHASE_START_RECV ) ) {
       *credit -= FD_FAILOVER_NANOS_PER_SECOND;
-      ch->metrics.reconnect_cnt += (ulong)priority;
       source_admitted( ch, addr.sin_addr.s_addr, now );
       ch->state = fd_failover_session_step( ch->state, ch->dial_peer, FD_FAILOVER_EV_PEER_CONNECTED );
     }
@@ -628,14 +616,12 @@ hello_err_name( int err ) {
   case FD_FAILOVER_HELLO_ERR_BOOT_ID:    return "the boot id is zero, run the same Firedancer version on both machines";
   case FD_FAILOVER_HELLO_ERR_MODE:       return "the consensus mode differs, run both machines in the same consensus mode";
   case FD_FAILOVER_HELLO_ERR_PROOF:      return "its admission proof is not signed by the failover identity, check that both machines hold the same keypair for it";
-  default:                              return "unknown";
+  default:                               return "unknown";
   }
 }
 
 static void
 hello_refused( fd_failover_channel_t * ch, uint address, int err, long now ) {
-  ch->metrics.hello_reject_cnt++;
-  ch->metrics.proof_reject_cnt += (ulong)( err==FD_FAILOVER_HELLO_ERR_PROOF );
   ulong bucket = err==HELLO_ERR_TLS_KEY ? 12UL : ( err>0 && err<=FD_FAILOVER_HELLO_ERR_PROOF ? (ulong)err : 13UL );
   if( now<ch->hello_log_at[bucket] ) return;
   ch->hello_log_at[bucket] = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
@@ -735,7 +721,6 @@ handshake_candidate( fd_failover_channel_t * ch,
   struct candidate * c = &ch->candidates[idx];
   int rc = fd_failover_tls_handshake( &c->tls );
   if( rc<0 ) {
-    ch->metrics.tls_fail_cnt++;
     uint  reason = c->tls.conn.hs.base.reason;
     ulong kind   = tls_log_kind( reason );
     if( now>=ch->tls_log_at[kind] ) {
@@ -818,9 +803,6 @@ pair_candidate( fd_failover_channel_t * ch,
   ch->state      = fd_failover_session_step( ch->state, ch->dial_peer, FD_FAILOVER_EV_HELLO_OK );
   ch->generation++;
   remember_source( ch, c->address, now );
-  ch->metrics.paired_cnt++;
-  ch->metrics.handshake_latest_nanos = (ulong)fd_long_max( now-c->accepted_at, 0L );
-  ch->metrics.handshake_duration_nanos += ch->metrics.handshake_latest_nanos;
   ch->keepalive_at   = fd_long_sat_add( now, FD_FAILOVER_CHANNEL_KEEPALIVE_NANOS );
   ch->last_rx        = now;
   ch->paired_at      = now;
@@ -1134,7 +1116,6 @@ fd_failover_channel_poll( fd_failover_channel_t * ch,
         FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not finish the handshake in time, check that it runs and that the machines can reach each other on [failover.listen_port]",
                          FD_IP4_ADDR_FMT_ARGS( c->address ) ));
       }
-      ch->metrics.handshake_timeout_cnt++;
       /* An expired candidate closes, an outbound dial returns to backoff. */
       drop( ch, i, now, FD_FAILOVER_EV_TIMEOUT ); *busy = 1;
     }

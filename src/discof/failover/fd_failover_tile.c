@@ -6,15 +6,12 @@
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/hex/fd_hex.h"
-#include "../../ballet/txn/fd_txn.h"
-#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../util/fd_version.h"
 #include "../../util/net/fd_ip4.h"
-#include "../tower/fd_tower_tile.h"
+#include "../votor/fd_votor_tile.h"
 
 #include "fd_failover_bus.h"
 #include "fd_failover_channel.h"
-#include "../../disco/metrics/fd_metrics.h"
 
 #include <string.h>
 #include <sys/socket.h>
@@ -33,10 +30,6 @@
 /* A transition gives up once replay passes this many slots past its
    start. */
 #define FD_FAILOVER_DEADLINE_SLOTS (64UL)
-
-/* A vote account tower short of the coverage floor is taken once replay
-   passes the floor by this much. */
-#define FD_FAILOVER_FLOOR_SLACK_SLOTS (512UL)
 
 /* The promotion's replay and adopt waits also end on our clock, one
    second per deadline slot, so a standby whose replay froze stops. */
@@ -64,15 +57,15 @@
 #define FD_FAILOVER_REPLY_KEPT    (1UL) /* Kept, the same DEMOTED again gets it again. */
 #define FD_FAILOVER_REPLY_PENDING (2UL) /* Kept, not queued yet because the control slot was busy. */
 
-/* A compact tower and the slot of its last vote. */
-struct fd_failover_tower {
-  int   valid;                                /* holds a tower */
-  ulong tip;                                  /* slot of its last vote */
-  ulong sz;                                   /* bytes used in state */
-  uchar state[ FD_FAILOVER_TOWER_STATE_MAX ]; /* the serialized tower */
+/* A serialized vote history and its tip. */
+struct fd_failover_history {
+  int   valid;                          /* holds a history */
+  ulong tip;                            /* slot of its last vote */
+  ulong sz;                             /* bytes used in state */
+  uchar state[ FD_FAILOVER_STATE_MAX ]; /* the serialized history */
 };
 
-typedef struct fd_failover_tower fd_failover_tower_t;
+typedef struct fd_failover_history fd_failover_history_t;
 
 /* The member and boot a message or request is bound to. */
 struct fd_failover_peer {
@@ -134,22 +127,21 @@ typedef struct fd_failover_handoff fd_failover_handoff_t;
 
 /* The promotion in progress. */
 struct fd_failover_promotion {
-  char                label[ 48 ];  /* handoff ID or operator promotion, fixed for every step */
-  ulong               source;       /* FD_FAILOVER_SOURCE_* we adopt from */
-  int                 empty;        /* forced recovery after the vote account could not be adopted */
-  int                 from_peer;    /* the peer's DEMOTED requested it, we send the response */
-  fd_failover_peer_t  peer;         /* that DEMOTED's member boot, it gets our response */
-  ulong               handoff_id;   /* and its handoff id */
-  ulong               floor;        /* coverage floor when it started */
-  int                 force;        /* `failover promote --force`, we skip the peer checks and accept incomplete or empty history */
-  int                 active_seen;  /* an ACTIVE peer authenticated after promotion started */
-  long                until;        /* our clock when the replay and adopt waits give up, 0 until set */
-  fd_failover_tower_t adopt;        /* what goes to the tower tile, empty for the vote account */
-  ulong               adopt_id;     /* id of the adoption we asked the tower tile for */
-  int                 retry;        /* ask the tower tile again once replay passes retry_slot */
-  ulong               retry_slot;   /* replay slot that retry waits for */
-  int                 floor_logged; /* we said once that we wait for the floor */
-  int                 retry_logged; /* and that we ask the tower tile again as replay moves */
+  char                  label[ 48 ];  /* handoff ID or operator promotion, fixed for every step */
+  ulong                 source;       /* FD_FAILOVER_SOURCE_* we adopt from */
+  int                   from_peer;    /* the peer's DEMOTED requested it, we send the response */
+  fd_failover_peer_t    peer;         /* that DEMOTED's member boot, it gets our response */
+  ulong                 handoff_id;   /* and its handoff id */
+  ulong                 floor;        /* coverage floor when it started */
+  int                   force;        /* `failover promote --force`, we skip the peer checks and accept incomplete or empty history */
+  int                   active_seen;  /* an ACTIVE peer authenticated after promotion started */
+  long                  until;        /* our clock when the replay and adopt waits give up, 0 until set */
+  fd_failover_history_t adopt;        /* history or the bound sent to votor */
+  ulong                 adopt_id;     /* id of the adoption we asked the votor for */
+  int                   retry;        /* ask the votor again once replay passes retry_slot */
+  ulong                 retry_slot;   /* replay slot that retry waits for */
+  int                   floor_logged; /* we said once that we wait for the floor */
+  int                   retry_logged; /* and that we ask the votor again as replay moves */
 };
 
 typedef struct fd_failover_promotion fd_failover_promotion_t;
@@ -199,6 +191,7 @@ struct fd_failover_tile_ctx {
   fd_keyguard_client_t  keyguard_client[ 1 ]; /* signs admission proofs and TLS */
   int                  client_only;           /* no listener and no incoming handoffs */
   int                  input_lost;            /* input overrun disables failover until restart */
+  int                  read_pending;          /* cleared only after STEM validates the fragment */
   int                  target_pending;        /* waiting for Admin to prepare the client's target */
 
   fd_failover_hello_t     hello;       /* the HELLO we send */
@@ -243,7 +236,7 @@ struct fd_failover_tile_ctx {
   fd_failover_handoff_t handoff;      /* our demotion */
   int                   taken;        /* the peer took the identity, our next tenure or a set-identity clears this */
 
-  fd_failover_tower_t peer_tower; /* stored peer tower, from a DEMOTED */
+  fd_failover_history_t peer_history; /* stored peer history, from a DEMOTED */
 
   fd_failover_promotion_t promotion; /* the promotion in progress */
   fd_failover_reply_t     reply;     /* our last response to a DEMOTED */
@@ -266,7 +259,7 @@ struct fd_failover_tile_ctx {
 
   fd_failover_id_switch_t id_switch; /* the identity switch we asked the admin tile for */
 
-  /* Adoption request to the tower tile and its response. */
+  /* Adoption request to the votor and its response. */
   ulong                   adopt_out_idx;      /* adoption request out link */
   fd_wksp_t *             adopt_out_mem;      /* its workspace */
   ulong                   adopt_out_chunk0;   /* its first chunk */
@@ -277,26 +270,31 @@ struct fd_failover_tile_ctx {
   fd_wksp_t *             adopt_in_mem;       /* its workspace */
   ulong                   adopt_in_chunk0;    /* its first chunk */
   ulong                   adopt_in_wmark;     /* its last chunk */
-  fd_tower_adopt_result_t adopt_result;       /* the adoption response copied in during_frag */
+  fd_votor_adopt_result_t adopt_result;       /* the adoption response copied in during_frag */
   ulong                   adopt_result_id;    /* the request it answers */
   int                     adopt_result_fresh; /* adopt_result arrived and is not handled yet */
 
-  /* tower_out, reliable vote history updates */
-  ulong       tower_in_idx;    /* tower_out in link */
-  fd_wksp_t * tower_in_mem;    /* its workspace */
-  ulong       tower_in_chunk0; /* its first chunk */
-  ulong       tower_in_wmark;  /* its last chunk */
+  /* Unreliable vote history input.  Any overrun disables failover. */
+  ulong       hist_in_idx;    /* votor_hist in link */
+  fd_wksp_t * hist_in_mem;    /* its workspace */
+  ulong       hist_in_chunk0; /* its first chunk */
+  ulong       hist_in_wmark;  /* its last chunk */
 
-  fd_tower_slot_done_t slot_done;       /* the tower_out frame copied in during_frag */
-  int                  slot_done_fresh; /* slot_done arrived and is not handled yet */
-  ulong                tower_seen_seq;  /* seq of the last tower_out frag taken in, ULONG_MAX before any */
-  int                  tower_gap;       /* a tower_out frag was skipped since the cached tower was built */
+  int         hist_fresh;     /* a history frame arrived and is not handled yet */
+  ulong       hist_seen_seq;  /* seq of the last votor_hist frag taken in, ULONG_MAX before any */
+  int         hist_gap;       /* a votor_hist frag was skipped since the cached history was built */
+
+  /* Votor history and adoption bounds. */
+  fd_votor_hist_msg_t hist;             /* the votor_hist frame copied in during_frag */
+  ulong               adopt_anchor;     /* finality anchor of the history being adopted, SLOT_NULL when none */
+  ulong               empty_vote_after; /* an empty history votes only past this slot, SLOT_NULL until known */
+  int                 hist_warned;      /* we warned of a bad frame and no good one came since */
 
   ulong replay_slot;    /* latest replayed slot */
   ulong root_slot;      /* latest root */
   ulong last_vote_slot; /* our latest vote */
 
-  fd_failover_tower_t current_tower; /* tower of our latest vote */
+  fd_failover_history_t current_history; /* history of our latest vote */
 
   uchar rx[ FD_FAILOVER_PAYLOAD_MAX ]; /* the control message being decoded */
 };
@@ -350,7 +348,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->replay_slot           = FD_FAILOVER_SLOT_NULL;
   ctx->root_slot             = FD_FAILOVER_SLOT_NULL;
   ctx->last_vote_slot        = FD_FAILOVER_SLOT_NULL;
-  ctx->tower_seen_seq        = ULONG_MAX;
+  ctx->hist_seen_seq         = ULONG_MAX;
   FD_TEST( fd_rng_secure( &ctx->handoff_base, sizeof(ulong) ) );
 
   /* The boot identity goes into HELLO and TLS.  With failover enabled
@@ -371,7 +369,7 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   /* The vote key is a base58 pubkey or a keypair file, same as in the
-     tower tile. */
+     votor. */
   if( FD_UNLIKELY( !fd_base58_decode_32( tile->failov.vote_account_path, ctx->hello.vote_account ) ) ) {
     if( FD_UNLIKELY( !strcmp( tile->failov.vote_account_path, "" ) ) ) FD_LOG_ERR(( "missing [paths.vote_account]" ));
     uchar const * vote_account = fd_keyload_load( tile->failov.vote_account_path, 1 );
@@ -379,11 +377,14 @@ privileged_init( fd_topo_t const *      topo,
     fd_keyload_unload( vote_account, 1 );
   }
 
+  ctx->adopt_anchor     = FD_FAILOVER_SLOT_NULL;
+  ctx->empty_vote_after = FD_FAILOVER_SLOT_NULL;
+
   /* Every boot starts passively, as a standby on the junk key. */
   ctx->role          = FD_FAILOVER_ROLE_STANDBY;
   ctx->hello.version = (ushort)FD_FAILOVER_VERSION;
   ctx->hello.role    = (uchar)ctx->role;
-  ctx->hello.mode    = (uchar)FD_FAILOVER_MODE_TOWER;
+  ctx->hello.mode    = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
   while( FD_UNLIKELY( !ctx->hello.boot_id ) ) FD_TEST( fd_rng_secure( &ctx->hello.boot_id, sizeof(ulong) ) );
   /* The commit field has the hash bytes, a build without one leaves it
      zero. */
@@ -428,10 +429,10 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_failover_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ctx->gossip_in_idx = ULONG_MAX;
-  ctx->tower_in_idx  = ULONG_MAX;
+  ctx->hist_in_idx   = ULONG_MAX;
   ctx->admin_in_idx  = ULONG_MAX;
   ctx->adopt_in_idx  = ULONG_MAX;
-  ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "adopt_tower", 0UL );
+  ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_votor", 0UL );
   if( FD_LIKELY( ctx->adopt_out_idx!=ULONG_MAX ) ) {
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->adopt_out_idx ] ];
     ctx->adopt_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -457,7 +458,7 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->gossip_in_mtu    = link->mtu;
       continue;
     }
-    if( FD_LIKELY( !strcmp( link->name, "tower_adopt" ) ) ) {
+    if( FD_LIKELY( !strcmp( link->name, "votor_failov" ) ) ) {
       ctx->adopt_in_idx    = i;
       ctx->adopt_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
       ctx->adopt_in_chunk0 = fd_dcache_compact_chunk0( ctx->adopt_in_mem, link->dcache );
@@ -471,11 +472,11 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->admin_in_wmark  = fd_dcache_compact_wmark ( ctx->admin_in_mem, link->dcache, link->mtu );
       continue;
     }
-    if( FD_LIKELY( !strcmp( link->name, "tower_out" ) ) ) {
-      ctx->tower_in_idx    = i;
-      ctx->tower_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->tower_in_chunk0 = fd_dcache_compact_chunk0( ctx->tower_in_mem, link->dcache );
-      ctx->tower_in_wmark  = fd_dcache_compact_wmark ( ctx->tower_in_mem, link->dcache, link->mtu );
+    if( FD_LIKELY( !strcmp( link->name, "votor_hist" ) ) ) {
+      ctx->hist_in_idx    = i;
+      ctx->hist_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->hist_in_chunk0 = fd_dcache_compact_chunk0( ctx->hist_in_mem, link->dcache );
+      ctx->hist_in_wmark  = fd_dcache_compact_wmark ( ctx->hist_in_mem, link->dcache, link->mtu );
       continue;
     }
     /* The keyguard client reads sign_failov itself. */
@@ -528,10 +529,10 @@ sync_session( fd_failover_tile_ctx_t * ctx ) {
     if( FD_UNLIKELY( ( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY ||
                        ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT ) &&
                      peer->role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) ctx->promotion.active_seen = 1;
-    if( FD_UNLIKELY( peer->role==(uchar)FD_FAILOVER_ROLE_ACTIVE && ( ctx->peer_tower.valid ) ) )
+    if( FD_UNLIKELY( peer->role==(uchar)FD_FAILOVER_ROLE_ACTIVE && ( ctx->peer_history.valid ) ) )
       FD_LOG_NOTICE(( "peer boot %016lx authenticated ACTIVE, discarding saved final state from before its voting tenure, keeping coverage floors", peer->boot_id ));
     if( FD_UNLIKELY( peer->role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) {
-      ctx->peer_tower.valid = 0;
+      ctx->peer_history.valid = 0;
     }
   }
 }
@@ -578,24 +579,13 @@ deadline_expired( fd_failover_tile_ctx_t const * ctx ) {
          ctx->replay_slot>ctx->deadline_slot;
 }
 
-/* Sets the promotion deadline, in slots and on our clock, with room for
-   the floor slack when adopting the vote account. */
+/* Sets the promotion deadline in slots and on the monotonic clock. */
 static void
 promote_deadline_arm( fd_failover_tile_ctx_t * ctx,
                       long                     now ) {
   deadline_arm( ctx, FD_FAILOVER_DEADLINE_SLOTS );
-  if( FD_UNLIKELY( ctx->promotion.source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT &&
-                   ctx->promotion.floor!=FD_FAILOVER_SLOT_NULL &&
-                   ctx->deadline_slot!=FD_FAILOVER_SLOT_NULL ) ) {
-    ctx->deadline_slot = fd_ulong_max( ctx->deadline_slot,
-                                       fd_ulong_sat_add( ctx->promotion.floor, FD_FAILOVER_FLOOR_SLACK_SLOTS+FD_FAILOVER_DEADLINE_SLOTS ) );
-  }
-  if( FD_UNLIKELY( !ctx->promotion.until ) ) {
-    ulong slots = FD_FAILOVER_DEADLINE_SLOTS;
-    if( FD_UNLIKELY( ctx->promotion.source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT &&
-                     ctx->promotion.floor!=FD_FAILOVER_SLOT_NULL ) ) slots += FD_FAILOVER_FLOOR_SLACK_SLOTS;
-    ctx->promotion.until = fd_long_sat_add( now, (long)slots*FD_FAILOVER_DEADLINE_SLOT_NANOS );
-  }
+  if( FD_UNLIKELY( !ctx->promotion.until ) )
+    ctx->promotion.until = fd_long_sat_add( now, (long)FD_FAILOVER_DEADLINE_SLOTS*FD_FAILOVER_DEADLINE_SLOT_NANOS );
 }
 
 /* Returns whether the promotion passed its slot deadline or its clock
@@ -711,9 +701,9 @@ relayed_refusal( ulong         result,
   case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:
     *hint = "the machine we dialed is not the active any more, check `failover status` on both machines";
     return "BAD_ROLE";
-  case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:
+  case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
     *hint = "the active has no eligible final vote state to hand over and keeps the identity, its log says why";
-    return "NO_FINAL_TOWER";
+    return "NO_FINAL_HISTORY";
   case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:
     *hint = "this machine's replay is too far behind the active's last vote and the active keeps the identity, run `failover promote` here again once this machine has caught up";
     return "REPLAY_BEHIND";
@@ -776,86 +766,63 @@ pending_flush( fd_failover_tile_ctx_t * ctx,
   ctx->tx.valid = 0;
 }
 
-/* Keep the tower of our latest vote for the failover identity.
-   It is the final tower we hand over at a demotion.  A malformed
-   transaction is logged and skipped, the previous tower stays. */
 static void
-prepare_consensus( fd_failover_tile_ctx_t *     ctx,
-                   fd_tower_slot_done_t const * done ) {
-  if( FD_UNLIKELY( ctx->target_pending ) ) return;
-
-  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-  int   parsed = done->vote_txn_sz && done->vote_txn_sz<=sizeof(done->vote_txn) &&
-                 fd_txn_parse( done->vote_txn, done->vote_txn_sz, txn_mem, NULL );
-  /* The fee payer is the node identity, even with a separate vote authority.
-     A client can vote under its boot key until it adopts the target history.
-     Check the transaction identity because queued votes can outlive a switch. */
-  if( FD_LIKELY( parsed ) ) {
-    fd_acct_addr_t const * accounts = fd_txn_get_acct_addrs( (fd_txn_t const *)txn_mem, done->vote_txn );
-    if( FD_UNLIKELY( !fd_memeq( accounts[ 0 ].b, ctx->hello.staked_pubkey, 32UL ) ) ) return;
-  }
-  /* An unreadable transaction still raises the floor conservatively. */
-  ctx->last_vote_slot = done->vote_slot;
-  if( FD_LIKELY( ctx->own_floor==FD_FAILOVER_SLOT_NULL || done->vote_slot>ctx->own_floor ) ) ctx->own_floor = done->vote_slot;
-
-  fd_compact_tower_sync_serde_t serde;
-  if( FD_UNLIKELY( !parsed ||
-                   !fd_txn_parse_simple_vote( (fd_txn_t const *)txn_mem, done->vote_txn, &serde ) ) ) {
-    FD_LOG_WARNING(( "tower produced an invalid vote transaction" ));
-    return;
-  }
-
-  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
-  ulong           vote_cnt;
-  ulong           root;
-  if( FD_UNLIKELY( fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ||
-                   !vote_cnt || votes[ vote_cnt-1UL ].slot!=done->vote_slot ) ) {
-    FD_LOG_WARNING(( "tower vote transaction does not match its slot metadata" ));
-    return;
-  }
-
-  uchar state[ FD_FAILOVER_TOWER_STATE_MAX ];
+prepare_history( fd_failover_tile_ctx_t *     ctx,
+                 fd_votor_hist_msg_t const * hist ) {
+  uchar state[ FD_FAILOVER_ALPENGLOW_STATE_MAX ];
   ulong state_sz = 0UL;
-  if( FD_UNLIKELY( fd_compact_tower_sync_ser( &serde, state, sizeof(state), &state_sz ) ) ) {
-    FD_LOG_WARNING(( "tower vote transaction exceeds the failover state limit" ));
+  if( FD_UNLIKELY( ag_hist_ser( &hist->hist, state, FD_FAILOVER_ALPENGLOW_STATE_MAX, &state_sz ) ||
+                   ag_hist_tip( &hist->hist )!=hist->vote_slot ) ) {
+    /* Warn once until a good frame arrives. */
+    if( FD_UNLIKELY( !ctx->hist_warned ) ) FD_LOG_WARNING(( "votor produced a vote history that does not match its slot metadata, until a good one arrives a handoff hands over nothing" ));
+    ctx->hist_warned = 1;
     return;
   }
-
-  fd_memcpy( ctx->current_tower.state, state, state_sz );
-  ctx->current_tower.valid = 1;
-  ctx->current_tower.tip   = done->vote_slot;
-  ctx->current_tower.sz    = state_sz;
-  ctx->tower_gap           = 0; /* anything skipped before this vote is superseded by it */
+  ctx->hist_warned = 0;
+  fd_memcpy( ctx->current_history.state, state, state_sz );
+  ctx->current_history.valid = 1;
+  ctx->current_history.tip   = hist->vote_slot;
+  ctx->current_history.sz    = state_sz;
+  ctx->hist_gap              = 0; /* a complete snapshot supersedes whatever was skipped */
 }
 
-/* Fold one tower slot_done into the local slot view.  The tower can
-   report slots out of order across forks, so the replay slot is a
-   running maximum. */
+/* consume_slot_done for Alpenglow, it takes in a votor_hist frame. */
 static void
-consume_slot_done( fd_failover_tile_ctx_t *     ctx,
-                   fd_tower_slot_done_t const * done ) {
-  if( FD_LIKELY( ctx->replay_slot==FD_FAILOVER_SLOT_NULL || done->replay_slot>ctx->replay_slot ) )
-    ctx->replay_slot = done->replay_slot;
-  if( FD_LIKELY( done->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->root_slot = done->root_slot;
-  if( FD_LIKELY( done->has_vote_txn && done->vote_slot!=FD_FAILOVER_SLOT_NULL ) ) {
-    prepare_consensus( ctx, done );
+consume_hist( fd_failover_tile_ctx_t *    ctx,
+              fd_votor_hist_msg_t const * hist ) {
+  if( FD_LIKELY( hist->replay_slot!=FD_FAILOVER_SLOT_NULL &&
+                 ( ctx->replay_slot==FD_FAILOVER_SLOT_NULL || hist->replay_slot>ctx->replay_slot ) ) )
+    ctx->replay_slot = hist->replay_slot;
+  if( FD_LIKELY( hist->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->root_slot = hist->root_slot;
+  /* Boot-key histories can arrive during preparation or after the switch. */
+  if( FD_UNLIKELY( ctx->target_pending || !fd_memeq( hist->identity.uc, ctx->hello.staked_pubkey, 32UL ) ) ) return;
+  int producing = ctx->role==FD_FAILOVER_ROLE_ACTIVE || ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH;
+  if( FD_LIKELY( hist->has_vote && hist->vote_slot!=FD_FAILOVER_SLOT_NULL ) ) {
+    /* Every vote here is one we signed, so a later promotion has to cover it. */
+    ctx->last_vote_slot = hist->vote_slot;
+    if( FD_LIKELY( ctx->own_floor==FD_FAILOVER_SLOT_NULL || hist->vote_slot>ctx->own_floor ) ) ctx->own_floor = hist->vote_slot;
+    prepare_history( ctx, hist );
+  } else if( FD_UNLIKELY( producing && ctx->current_history.valid && hist->vote_slot!=FD_FAILOVER_SLOT_NULL && hist->vote_slot>=ctx->last_vote_slot ) ) {
+    /* A frame with no new vote can still change the history, after a LEADER or
+       a vote marked unsent. */
+    ctx->last_vote_slot = hist->vote_slot;
+    prepare_history( ctx, hist );
   }
 }
 
-/* Sends the tower we adopt to the tower tile, empty for the vote
-   account.  The response comes back with the request id so we can tell a
-   late one apart.  Returns the id, or ULONG_MAX if there was no request to send. */
+/* Sends history or a forced empty-history bound to votor.  The response
+   carries the request ID to distinguish late replies.  Returns that ID,
+   or ULONG_MAX if there was no request to send. */
 static ulong
 publish_adopt_state( fd_failover_tile_ctx_t * ctx,
                      fd_stem_context_t *      stem ) {
   if( FD_UNLIKELY( ctx->adopt_out_idx==ULONG_MAX ||
-                   ( !ctx->promotion.adopt.sz && ctx->promotion.source!=FD_FAILOVER_SOURCE_VOTE_ACCOUNT ) ) ) return ULONG_MAX;
+                   !ctx->promotion.adopt.sz ) ) return ULONG_MAX;
 
   if( FD_UNLIKELY( !++ctx->adopt_request_id ) ) ctx->adopt_request_id++;
   fd_memcpy( fd_chunk_to_laddr( ctx->adopt_out_mem, ctx->adopt_out_chunk ), ctx->promotion.adopt.state, ctx->promotion.adopt.sz );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong ctl   = ctx->promotion.empty && ctx->promotion.force && !ctx->promotion.from_peer ? FD_TOWER_ADOPT_CTL_EMPTY : 0UL;
-  fd_stem_publish( stem, ctx->adopt_out_idx, ctx->adopt_request_id, ctx->adopt_out_chunk, ctx->promotion.adopt.sz, ctl, tspub, tspub );
+  fd_stem_publish( stem, ctx->adopt_out_idx, ctx->adopt_request_id, ctx->adopt_out_chunk, ctx->promotion.adopt.sz, 0UL, tspub, tspub );
   ctx->adopt_out_chunk    = fd_dcache_compact_next( ctx->adopt_out_chunk, ctx->promotion.adopt.sz, ctx->adopt_out_chunk0, ctx->adopt_out_wmark );
   ctx->adopt_result_fresh = 0;
   return ctx->adopt_request_id;
@@ -933,10 +900,10 @@ operator_switched( fd_failover_tile_ctx_t *       ctx,
   fd_memset( &ctx->promotion, 0, sizeof(ctx->promotion) );
   fd_memset( &ctx->reply,     0, sizeof(ctx->reply)     );
   fd_memset( &ctx->tx,        0, sizeof(ctx->tx)        );
-  ctx->peer_tower.valid         = 0;
-  ctx->current_tower.valid      = 0;
+  ctx->peer_history.valid       = 0;
+  ctx->current_history.valid    = 0;
   ctx->last_vote_slot           = FD_FAILOVER_SLOT_NULL;
-  ctx->tower_gap                = 0;
+  ctx->hist_gap                 = 0;
   ctx->taken                    = 0;
   ctx->last_requested           = 0;
   ctx->cmd_addr                 = 0U;
@@ -1023,34 +990,42 @@ start_demotion( fd_failover_tile_ctx_t * ctx,
   ctx->action = FD_FAILOVER_ACTION_DEMOTE_SWITCH;
 }
 
-/* The final tower has to be the tower of our last vote, with no tower
-   frag skipped since it was built. */
-static int
-final_tower_ok( fd_failover_tile_ctx_t const * ctx ) {
-  return ctx->current_tower.valid && ctx->current_tower.sz &&
-         ctx->last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
-         ctx->current_tower.tip==ctx->last_vote_slot && !ctx->tower_gap;
+/* Returns the slot a standby's replay has to reach before it adopts what
+   we hand over. */
+static ulong
+ready_slot( fd_failover_tile_ctx_t const * ctx ) {
+  ag_hist_t hist[1];
+  if( FD_UNLIKELY( ag_hist_de( ctx->current_history.state, ctx->current_history.sz, hist ) ) ) return ctx->last_vote_slot;
+  return hist->anchor;
 }
 
-/* Called once the junk key is installed everywhere. Our latest tower is
+/* The final history has to be the history of our last vote, with no history
+   frag skipped since it was built. */
+static int
+final_history_ok( fd_failover_tile_ctx_t const * ctx ) {
+  return ctx->current_history.valid && ctx->current_history.sz &&
+         ctx->last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
+         ctx->current_history.tip==ctx->last_vote_slot && !ctx->hist_gap;
+}
+
+/* Called once the junk key is installed everywhere. Our latest history is
    the final one, we hand it to the peer. */
 static void
 demotion_switched( fd_failover_tile_ctx_t * ctx ) {
-  /* The junk key is installed and the Tower has drained. */
+  /* The junk key is installed and votor has drained. */
   set_role( ctx, FD_FAILOVER_ROLE_STANDBY );
-  FD_LOG_NOTICE(( "handoff %lu: the tower drained, we are a standby now", ctx->handoff.id ));
+  FD_LOG_NOTICE(( "handoff %lu: the vote history stream drained, we are a standby now", ctx->handoff.id ));
 
-  int final_ok = final_tower_ok( ctx );
+  int final_ok = final_history_ok( ctx );
 
-  ctx->handoff.payload_sz = final_ok
-                  ? fd_failover_demoted_encode( ctx->handoff.payload, ctx->handoff.id, ctx->handoff.target.boot_id, ctx->last_vote_slot,
-                                                ctx->current_tower.state, ctx->current_tower.sz )
-                  : 0UL;
+  ctx->handoff.payload_sz = !final_ok ? 0UL :
+    fd_failover_demoted_encode( ctx->handoff.payload, ctx->handoff.id, ctx->handoff.target.boot_id, ctx->last_vote_slot,
+                               ctx->current_history.state, ctx->current_history.sz );
   if( FD_UNLIKELY( !ctx->handoff.payload_sz ) ) {
-    /* We have no final tower to hand over, or the one we have is not the
-       tower of our last vote.  The peer gets no final state and cannot
+    /* We have no final history to hand over, or the one we have is not the
+       history of our last vote.  The peer gets no final state and cannot
        promote. */
-    FD_LOG_WARNING(( "handoff %lu has no final tower for its last vote %lu, sending nothing, nobody votes until `failover promote --force` runs on one machine", ctx->handoff.id, ctx->last_vote_slot ));
+    FD_LOG_WARNING(( "handoff %lu has no final vote history for its last vote %lu, sending nothing, nobody votes until `failover promote --force` runs on one machine", ctx->handoff.id, ctx->last_vote_slot ));
     /* End demotion without sending final state. */
     demotion_abort( ctx );
     return;
@@ -1078,11 +1053,12 @@ reject_name( uint reason ) {
 static char const *
 adopt_err_name( ulong result ) {
   switch( result ) {
-  case FD_TOWER_ADOPT_ERR_DECODE:          return "decode error";
-  case FD_TOWER_ADOPT_ERR_INVALID:         return "invalid";
-  case FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT: return "root not replayed";
-  case FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH:  return "block mismatch";
-  case FD_TOWER_ADOPT_ERR_UNREPLAYED:      return "votes not replayed";
+  case FD_VOTOR_ADOPT_ERR_DECODE:          return "decode error";
+  case FD_VOTOR_ADOPT_ERR_INVALID:         return "invalid";
+  case FD_VOTOR_ADOPT_ERR_UNREPLAYED_ROOT: return "finality anchor not replayed";
+  case FD_VOTOR_ADOPT_ERR_UNREPLAYED:      return "consensus not initialized";
+  case FD_VOTOR_ADOPT_ERR_STALE:           return "older than the votes this machine sent as this identity";
+  case FD_VOTOR_ADOPT_ERR_CAPACITY:        return "insufficient slot state capacity";
   default:                                 return "unknown";
   }
 }
@@ -1090,9 +1066,9 @@ adopt_err_name( ulong result ) {
 static char const *
 source_name( ulong source ) {
   switch( source ) {
-  case FD_FAILOVER_SOURCE_PEER:         return "the tower the peer gave us";
-  case FD_FAILOVER_SOURCE_VOTE_ACCOUNT: return "the vote account";
-  default:                              return "unknown";
+  case FD_FAILOVER_SOURCE_PEER:  return "the vote history the peer gave us";
+  case FD_FAILOVER_SOURCE_EMPTY: return "an empty history";
+  default:                       return "unknown";
   }
 }
 
@@ -1141,9 +1117,9 @@ control_refusal( ulong         result,
   case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:
     *hint = "gossip showed the staked identity at another host within 15 seconds, stop it or wait, or `failover promote --force` if it cannot sign";
     return "STAKED_SEEN";
-  case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:
+  case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:
     *hint = "the active has no eligible final vote state to hand over and keeps the identity, its log explains whether no vote is known or history is missing, check its voting progress before retrying";
-    return "NO_FINAL_TOWER";
+    return "NO_FINAL_HISTORY";
   default:
     *hint = "the failover tile does not know this command";
     return "UNSUPPORTED";
@@ -1162,14 +1138,14 @@ request_wait_result( fd_failover_tile_ctx_t * ctx ) {
 }
 
 /* Stand back down.  If the peer's DEMOTED asked for the promotion, we
-   tell it why and drop the tower it handed us, because after a refusal
+   tell it why and drop the history it handed us, because after a refusal
    either machine may recover on its own without reporting its later
    votes. */
 static void
 reject_promotion( fd_failover_tile_ctx_t * ctx,
                   uchar                    reason,
-                  int                      bad_tower ) {
-  if( FD_UNLIKELY( bad_tower && ctx->promotion.source==FD_FAILOVER_SOURCE_PEER ) ) ctx->peer_tower.valid = 0;
+                  int                      bad_history ) {
+  if( FD_UNLIKELY( bad_history && ctx->promotion.source==FD_FAILOVER_SOURCE_PEER ) ) ctx->peer_history.valid = 0;
   ctx->stuck  = 1;
   /* Failed local promotion returns to idle on the standby. */
   ctx->action = FD_FAILOVER_ACTION_IDLE;
@@ -1178,7 +1154,7 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
                      "run `failover promote --force` again once this machine has caught up and the other cannot sign", ctx->promotion.label, reject_name( reason ) ));
     return;
   }
-  ctx->peer_tower.valid    = 0;
+  ctx->peer_history.valid  = 0;
   ctx->promotion.from_peer = 0;
   /* A failed handoff waits for the old active to confirm our refusal. */
   request_wait_result( ctx );
@@ -1201,7 +1177,53 @@ coverage_floor( fd_failover_tile_ctx_t const * ctx ) {
   return fd_ulong_max( ctx->peer_floor, ctx->own_floor );
 }
 
-/* Take the staked identity with the tower from source.  A peer is given
+/* Records the finality anchor of the saved history we adopt, which replay
+   has to reach first. */
+static void
+promote_start( fd_failover_tile_ctx_t * ctx ) {
+  ctx->adopt_anchor     = FD_FAILOVER_SLOT_NULL;
+  ctx->empty_vote_after = FD_FAILOVER_SLOT_NULL;
+  if( FD_LIKELY( ctx->promotion.source!=FD_FAILOVER_SOURCE_EMPTY ) ) {
+    ag_hist_t hist[1];
+    if( FD_LIKELY( !ag_hist_de( ctx->promotion.adopt.state, ctx->promotion.adopt.sz, hist ) ) ) ctx->adopt_anchor = hist->anchor;
+  }
+}
+
+static int
+replay_ready( fd_failover_tile_ctx_t * ctx ) {
+  if( FD_LIKELY( ctx->promotion.source!=FD_FAILOVER_SOURCE_EMPTY ) )
+    return ctx->adopt_anchor==FD_FAILOVER_SLOT_NULL || ctx->replay_slot>=ctx->adopt_anchor;
+  ulong floor = ctx->promotion.floor;
+  ctx->empty_vote_after = floor==FD_FAILOVER_SLOT_NULL ? ctx->replay_slot : fd_ulong_max( ctx->replay_slot, floor );
+  if( FD_UNLIKELY( floor==FD_FAILOVER_SLOT_NULL ) ) {
+    FD_LOG_WARNING(( "%s: --force accepts empty Alpenglow history, no vote or leader window at or below replay slot %lu, no earlier vote as the staked identity "
+                     "is known, so a vote the peer cast above that slot is not covered, local vote marks and stronger local bounds remain",
+                     ctx->promotion.label, ctx->empty_vote_after ));
+  } else {
+    FD_LOG_WARNING(( "%s: --force accepts empty Alpenglow history, no vote or leader window at or below slot %lu, which covers replay at slot %lu and the "
+                     "last vote known as the staked identity at slot %lu, local vote marks and stronger local bounds remain",
+                     ctx->promotion.label, ctx->empty_vote_after, ctx->replay_slot, floor ));
+  }
+  FD_STORE( ulong, ctx->promotion.adopt.state, ctx->empty_vote_after );
+  ctx->promotion.adopt.sz = FD_VOTOR_ADOPT_EMPTY_SZ;
+  return 1;
+}
+
+/* Logs what the votor adopted. */
+static void
+log_adopted( fd_failover_tile_ctx_t const * ctx ) {
+  ulong bound = ctx->adopt_result.vote_bound;
+  if( FD_UNLIKELY( ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY ) ) {
+    FD_LOG_NOTICE(( "%s: the votor started an empty vote history, no vote at or below slot %lu", ctx->promotion.label, bound ));
+  } else if( FD_LIKELY( bound==FD_FAILOVER_SLOT_NULL ) ) {
+    FD_LOG_NOTICE(( "%s: the votor adopted the vote history ending at slot %lu, finality anchor at slot %lu", ctx->promotion.label, ctx->adopt_result.vote_slot, ctx->adopt_anchor ));
+  } else {
+    FD_LOG_NOTICE(( "%s: the votor adopted the vote history ending at slot %lu, finality anchor at slot %lu, no vote at or below slot %lu", ctx->promotion.label,
+                    ctx->adopt_result.vote_slot, ctx->adopt_anchor, bound ));
+  }
+}
+
+/* Take the staked identity with the history from source.  A peer is given
    when that member's DEMOTED with handoff_id asked for it, it gets our
    response.  An operator promotion passes NULL and 0.  force is promote
    --force. */
@@ -1215,7 +1237,7 @@ start_promotion( fd_failover_tile_ctx_t *   ctx,
   fd_failover_peer_t bound     = {0};
   if( from_peer ) bound = *peer;
   fd_memset( &ctx->promotion, 0, sizeof(ctx->promotion) );
-  if( source==FD_FAILOVER_SOURCE_PEER ) ctx->promotion.adopt = ctx->peer_tower;
+  if( source==FD_FAILOVER_SOURCE_PEER ) ctx->promotion.adopt = ctx->peer_history;
   else                                  ctx->promotion.adopt.tip = FD_FAILOVER_SLOT_NULL;
   if( from_peer ) {
     ctx->promotion.peer       = bound;
@@ -1228,65 +1250,60 @@ start_promotion( fd_failover_tile_ctx_t *   ctx,
   ctx->promotion.from_peer  = from_peer;
   ctx->promotion.force      = force;
   ctx->promotion.floor      = coverage_floor( ctx );
-  /* Until this tenure votes, its final tower is exactly the adopted one,
-     not a tower cached from an earlier tenure. */
-  ctx->current_tower  = ctx->promotion.adopt;
-  ctx->tower_gap      = 0;
-  ctx->last_vote_slot = ctx->promotion.adopt.tip;
-  ctx->stuck          = 0;
+  /* Until this tenure votes, its final history is exactly the adopted one,
+     not a history cached from an earlier tenure. */
+  ctx->current_history = ctx->promotion.adopt;
+  ctx->hist_gap        = 0;
+  ctx->last_vote_slot  = ctx->promotion.adopt.tip;
+  ctx->stuck           = 0;
+  promote_start( ctx );
   deadline_start( ctx, FD_FAILOVER_DEADLINE_SLOTS );
   /* Replay must reach the selected history before adoption. */
   ctx->action = FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY;
-  if( FD_UNLIKELY( from_peer && ctx->promotion.adopt.tip!=FD_FAILOVER_SLOT_NULL &&
-                   ( ctx->replay_slot==FD_FAILOVER_SLOT_NULL || ctx->replay_slot<ctx->promotion.adopt.tip ) ) ) {
-    FD_LOG_NOTICE(( "%s: the promotion waits for replay to reach slot %lu before it adopts %s", ctx->promotion.label, ctx->promotion.adopt.tip, source_name( source ) ));
+  /* A vote history waits for replay to reach its finality anchor. */
+  if( FD_UNLIKELY( from_peer && ctx->adopt_anchor!=FD_FAILOVER_SLOT_NULL &&
+                   ( ctx->replay_slot==FD_FAILOVER_SLOT_NULL || ctx->replay_slot<ctx->adopt_anchor ) ) ) {
+    FD_LOG_NOTICE(( "%s: the promotion waits for replay to reach the finality anchor at slot %lu before it adopts %s", ctx->promotion.label, ctx->adopt_anchor, source_name( source ) ));
   }
 }
 
-/* An operator promotion tries the stored peer tower, then the vote
-   account, then with --force an empty tower.  We enter only before the
-   adoption request goes out or after its response, so we do not overlap
-   an adoption.  A handoff adopts its bound final state or refuses. */
+/* Forced promotion tries saved peer history, then bounded empty history.
+   Enter only before adoption is sent or after its response.  A planned
+   handoff adopts its bound final state or refuses. */
 static int
 promote_fallback( fd_failover_tile_ctx_t * ctx,
                   char const *             reason ) {
-  if( FD_UNLIKELY( ctx->promotion.from_peer || ctx->promotion.empty ) ) return 0;
-  if( ctx->promotion.source!=FD_FAILOVER_SOURCE_VOTE_ACCOUNT ) {
-    FD_LOG_NOTICE(( "%s: %s is not eligible (%s), trying the vote account", ctx->promotion.label,
-                    source_name( ctx->promotion.source ), reason ));
-    if( ctx->promotion.source==FD_FAILOVER_SOURCE_PEER ) ctx->peer_tower.valid = 0;
-    /* Ineligible saved state falls back to the vote account. */
-    ctx->promotion.source = FD_FAILOVER_SOURCE_VOTE_ACCOUNT;
+  if( FD_UNLIKELY( ctx->promotion.from_peer || !ctx->promotion.force ) ) return 0;
+  if( ctx->promotion.source!=FD_FAILOVER_SOURCE_EMPTY ) {
+    FD_LOG_NOTICE(( "%s: %s is not eligible (%s), trying %s", ctx->promotion.label,
+                    source_name( ctx->promotion.source ), reason, source_name( FD_FAILOVER_SOURCE_EMPTY ) ));
+    if( ctx->promotion.source==FD_FAILOVER_SOURCE_PEER ) ctx->peer_history.valid = 0;
+    /* Forced recovery falls back to a bound covering known votes. */
+    ctx->promotion.source = FD_FAILOVER_SOURCE_EMPTY;
   } else {
-    FD_LOG_WARNING(( "%s: the vote account cannot be adopted (%s), --force proceeds with an empty tower", ctx->promotion.label, reason ));
-    /* Only a forced operator promotion may fall back to empty history. */
-    ctx->promotion.empty = 1;
+    return 0;
   }
   ctx->promotion.adopt.valid = 0;
   ctx->promotion.adopt.tip   = FD_FAILOVER_SLOT_NULL;
   ctx->promotion.adopt.sz    = 0UL;
-  ctx->current_tower         = ctx->promotion.adopt;
+  ctx->current_history       = ctx->promotion.adopt;
   ctx->last_vote_slot        = FD_FAILOVER_SLOT_NULL;
   ctx->promotion.retry       = 0;
   ctx->adopt_result_fresh    = 0;
+  promote_start( ctx );
   /* Retry adoption from the fallback source after the prior attempt has ended. */
   ctx->action             = FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY;
   return 1;
 }
 
-/* Returns whether the adopted tower reaches the coverage floor, the
-   highest vote the peer reported or we signed.  The vote account also
-   passes once replay is past the floor by the slack. */
+/* Returns whether adoption covers the highest vote the peer reported or
+   we signed.  Forced empty history covers it through its vote bound. */
 static int
 floor_covered( fd_failover_tile_ctx_t const * ctx ) {
   ulong floor = ctx->promotion.floor;
-  ulong tip   = ctx->promotion.source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT ? ctx->adopt_result.acct_vote_slot
-                                                                     : ctx->adopt_result.vote_slot;
-  if( FD_LIKELY( floor==FD_FAILOVER_SLOT_NULL ) ) return 1;
-  if( FD_LIKELY( tip!=FD_FAILOVER_SLOT_NULL && tip>=floor ) ) return 1;
-  return ctx->promotion.source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT &&
-         ctx->replay_slot!=FD_FAILOVER_SLOT_NULL &&
-         ctx->replay_slot>fd_ulong_sat_add( floor, FD_FAILOVER_FLOOR_SLACK_SLOTS );
+  ulong tip   = ctx->promotion.source==FD_FAILOVER_SOURCE_EMPTY ? ctx->adopt_result.vote_bound
+                                                             : ctx->adopt_result.vote_slot;
+  return floor==FD_FAILOVER_SLOT_NULL || ( tip!=FD_FAILOVER_SLOT_NULL && tip>=floor );
 }
 
 /* Whether an active peer authenticated after this promotion started,
@@ -1302,11 +1319,11 @@ static void
 step_demote_drain( fd_failover_tile_ctx_t * ctx ) {
   deadline_arm( ctx, FD_FAILOVER_DEADLINE_SLOTS );
   int expired = deadline_expired( ctx ) || ( ctx->handoff.until && fd_failover_clock()>=ctx->handoff.until );
-  /* The watermark is the tower tile's output sequence when it stopped
+  /* The watermark is the votor's output sequence when it stopped
      signing. */
-  if( FD_UNLIKELY( !fd_seq_ge( fd_seq_inc( ctx->tower_seen_seq, 1UL ), ctx->id_switch.result.tower_watermark ) ) ) {
+  if( FD_UNLIKELY( !fd_seq_ge( fd_seq_inc( ctx->hist_seen_seq, 1UL ), ctx->id_switch.result.history_watermark ) ) ) {
     if( FD_UNLIKELY( expired ) ) {
-      FD_LOG_WARNING(( "handoff %lu: the tower did not report its last votes in time, up to seq %lu, sending nothing, nobody votes until `failover promote --force` runs on one machine", ctx->handoff.id, ctx->id_switch.result.tower_watermark ));
+      FD_LOG_WARNING(( "handoff %lu: the vote history stream did not report its last votes in time, up to seq %lu, sending nothing, nobody votes until `failover promote --force` runs on one machine", ctx->handoff.id, ctx->id_switch.result.history_watermark ));
       ctx->id_switch.fresh   = 0;
       ctx->id_switch.overdue = 0;
       set_role( ctx, FD_FAILOVER_ROLE_STANDBY );
@@ -1353,7 +1370,7 @@ step_demote_switch( fd_failover_tile_ctx_t * ctx,
     return;
   }
   /* The junk key is installed everywhere. */
-  FD_LOG_NOTICE(( "handoff %lu: the junk identity is installed, waiting for the tower to drain up to seq %lu", ctx->handoff.id, ctx->id_switch.result.tower_watermark ));
+  FD_LOG_NOTICE(( "handoff %lu: the junk identity is installed, waiting for the vote history stream to drain up to seq %lu", ctx->handoff.id, ctx->id_switch.result.history_watermark ));
   ctx->action = FD_FAILOVER_ACTION_DEMOTE_DRAIN;
   demotion_deadline_start( ctx );
   step_demote_drain( ctx );
@@ -1371,7 +1388,7 @@ step_demote_wait_ack( fd_failover_tile_ctx_t * ctx ) {
                    ctx->session.peer_boot_id!=ctx->handoff.target.boot_id ) ) {
     FD_LOG_WARNING(( "the peer restarted before it answered handoff %lu and may have voted before it restarted, neither machine holds the staked identity now, "
                      "nothing votes until `failover promote --force` runs on one of them", ctx->handoff.id ));
-    ctx->peer_tower.valid = 0;
+    ctx->peer_history.valid = 0;
     /* A new peer boot ends this ACK wait without proving whether it voted. */
     handoff_resolved( ctx, FD_FAILOVER_HANDOFF_RESTARTED );
     return;
@@ -1400,11 +1417,10 @@ step_promote_wait_replay( fd_failover_tile_ctx_t * ctx,
     reject_promotion( ctx, FD_FAILOVER_REJECT_REPLAY_BEHIND, 0 );
     return;
   }
-  /* Wait for replay to reach the tower's tip before adopting, otherwise
-     the tower refers to blocks we have not seen yet. */
+  /* Replay must start and reach the history's finality anchor. */
   if( FD_UNLIKELY( ctx->replay_slot==FD_FAILOVER_SLOT_NULL ) ) return;
-  if( FD_UNLIKELY( ctx->promotion.adopt.tip!=FD_FAILOVER_SLOT_NULL && ctx->replay_slot<ctx->promotion.adopt.tip ) ) {
-    (void)promote_fallback( ctx, "replay has not reached its tip" );
+  if( FD_UNLIKELY( !replay_ready( ctx ) ) ) {
+    if( ctx->promotion.source!=FD_FAILOVER_SOURCE_EMPTY ) (void)promote_fallback( ctx, "replay has not reached its finality anchor" );
     return;
   }
   ulong id = publish_adopt_state( ctx, stem );
@@ -1413,8 +1429,7 @@ step_promote_wait_replay( fd_failover_tile_ctx_t * ctx,
     reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 );
     return;
   }
-  FD_LOG_NOTICE(( "%s: asking the tower tile to adopt %s", ctx->promotion.label,
-                  ctx->promotion.empty ? "an empty tower authorized by --force" : source_name( ctx->promotion.source ) ));
+  FD_LOG_NOTICE(( "%s: asking the votor to adopt %s", ctx->promotion.label, source_name( ctx->promotion.source ) ));
   ctx->promotion.adopt_id = id;
   ctx->promotion.retry    = 0;
   /* The adoption request is published, wait for its response. */
@@ -1433,8 +1448,7 @@ step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
     return;
   }
   if( FD_UNLIKELY( ctx->promotion.retry ) ) {
-    /* The tower tile has not replayed every block the tower votes on, or
-       the adopted tip is short of the floor. */
+    /* Wait for replay before retrying a recoverable adoption error. */
     if( FD_LIKELY( ctx->replay_slot<=ctx->promotion.retry_slot ) ) return;
     ulong id = publish_adopt_state( ctx, stem );
     if( FD_UNLIKELY( id==ULONG_MAX ) ) {
@@ -1450,16 +1464,17 @@ step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
   if( FD_LIKELY( !ctx->adopt_result_fresh ) ) return; /* Wait for an adoption response. */
   ctx->adopt_result_fresh = 0;
   if( FD_UNLIKELY( ctx->adopt_result_id!=ctx->promotion.adopt_id ) ) return; /* Ignore responses to earlier attempts. */
-  if( FD_UNLIKELY( ctx->adopt_result.result==FD_TOWER_ADOPT_ERR_UNREPLAYED ) ) {
+  if( FD_UNLIKELY( ctx->adopt_result.result==FD_VOTOR_ADOPT_ERR_UNREPLAYED ||
+                   ctx->adopt_result.result==FD_VOTOR_ADOPT_ERR_CAPACITY ) ) {
     /* Operator promotion tries a fallback before waiting for more replay. */
-    if( promote_fallback( ctx, "its blocks have not been replayed" ) ) return;
+    if( promote_fallback( ctx, adopt_err_name( ctx->adopt_result.result ) ) ) return;
     if( FD_UNLIKELY( !ctx->promotion.from_peer ) ) {
       /* End the failed adoption attempt while remaining standby. */
       reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 );
       return;
     }
     if( FD_UNLIKELY( !ctx->promotion.retry_logged ) ) {
-      FD_LOG_NOTICE(( "%s: the tower tile has not replayed every block the tower votes on, asking again as replay moves", ctx->promotion.label ));
+      FD_LOG_NOTICE(( "%s: the votor is not ready to adopt the vote history (%s), asking again as replay moves", ctx->promotion.label, adopt_err_name( ctx->adopt_result.result ) ));
       ctx->promotion.retry_logged = 1;
     }
     /* Keep the bound final state and wait for replay before retrying. */
@@ -1467,40 +1482,31 @@ step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
     ctx->promotion.retry_slot = ctx->replay_slot;
     return;
   }
-  if( FD_UNLIKELY( ctx->adopt_result.result!=FD_TOWER_ADOPT_SUCCESS ) ) {
+  if( FD_UNLIKELY( ctx->adopt_result.result!=FD_VOTOR_ADOPT_SUCCESS ) ) {
     /* Try the next permitted source before failing promotion. */
     if( promote_fallback( ctx, adopt_err_name( ctx->adopt_result.result ) ) ) return;
-    FD_LOG_WARNING(( "%s: the tower tile refused %s (%s)", ctx->promotion.label, source_name( ctx->promotion.source ), adopt_err_name( ctx->adopt_result.result ) ));
+    FD_LOG_WARNING(( "%s: the votor refused %s (%s)", ctx->promotion.label, source_name( ctx->promotion.source ), adopt_err_name( ctx->adopt_result.result ) ));
     ulong result = ctx->adopt_result.result;
-    /* Tower rejected the history, stop promotion and report any handoff refusal. */
-    reject_promotion( ctx, result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH ? FD_FAILOVER_REJECT_ADOPTION_MISMATCH
-                                                                     : FD_FAILOVER_REJECT_ADOPTION_FAILED,
-                      result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH || result==FD_TOWER_ADOPT_ERR_DECODE ||
-                      result==FD_TOWER_ADOPT_ERR_INVALID );
+    /* Votor rejected the history, stop promotion and report any handoff refusal. */
+    reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED,
+                      result==FD_VOTOR_ADOPT_ERR_DECODE || result==FD_VOTOR_ADOPT_ERR_INVALID || result==FD_VOTOR_ADOPT_ERR_STALE );
     return;
   }
   if( FD_UNLIKELY( ctx->promotion.adopt.tip!=FD_FAILOVER_SLOT_NULL && ctx->adopt_result.vote_slot!=ctx->promotion.adopt.tip ) ) {
     /* Operator promotion may retry a different source after a tip mismatch. */
     if( promote_fallback( ctx, "adoption did not retain its final vote" ) ) return;
-    FD_LOG_WARNING(( "%s: the adopted tower ends at slot %lu, the tower says %lu, our root has passed its last vote, so it is a mismatch", ctx->promotion.label, ctx->adopt_result.vote_slot, ctx->promotion.adopt.tip ));
+    FD_LOG_WARNING(( "%s: the adopted vote history ends at slot %lu, the history says %lu, so it is a mismatch", ctx->promotion.label, ctx->adopt_result.vote_slot, ctx->promotion.adopt.tip ));
     /* The adopted tip differs, fail promotion without installing the staked key. */
     reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_MISMATCH, 1 );
     return;
   }
-  int covered       = floor_covered( ctx );
-  int empty_account = ctx->promotion.source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && ctx->adopt_result.acct_vote_slot==FD_FAILOVER_SLOT_NULL;
-  if( FD_UNLIKELY( !ctx->promotion.from_peer && ( !covered || empty_account ) ) ) {
-    /* Insufficient saved history falls back to the vote account. */
-    if( ctx->promotion.source!=FD_FAILOVER_SOURCE_VOTE_ACCOUNT &&
-        promote_fallback( ctx, "its votes do not cover the known signing history" ) ) return;
-    if( !ctx->promotion.empty ) {
-      char tip[ 32 ], floor[ 32 ];
-      FD_LOG_WARNING(( "%s: --force accepts %s vote-account history (last account vote %s, required coverage floor %s), earlier votes and lockouts may be lost", ctx->promotion.label,
-                       empty_account ? "empty" : "incomplete", slot_text( ctx->adopt_result.acct_vote_slot, tip ), slot_text( ctx->promotion.floor, floor ) ));
-    }
+  log_adopted( ctx );
+  int covered = floor_covered( ctx );
+  if( FD_UNLIKELY( !covered && !ctx->promotion.from_peer && ctx->promotion.source!=FD_FAILOVER_SOURCE_EMPTY ) ) {
+    if( promote_fallback( ctx, "its votes do not cover the known signing history" ) ) return;
   }
   if( FD_UNLIKELY( !covered && !ctx->promotion.force ) ) {
-    /* Only a handoff gets here.  The tip of the peer's tower does not
+    /* Only a handoff gets here.  The tip of the peer's history does not
        change, so we do not ask again and the deadline ends that wait. */
     if( FD_UNLIKELY( !ctx->promotion.floor_logged ) ) {
       FD_LOG_WARNING(( "%s: %s ends at slot %lu, short of the coverage floor at slot %lu, the promotion stops at its deadline", ctx->promotion.label,
@@ -1527,8 +1533,7 @@ step_promote_wait_adopt( fd_failover_tile_ctx_t * ctx,
     reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 );
     return;
   }
-  FD_LOG_NOTICE(( "%s: the tower tile adopted %s, asking the admin tile to install the staked identity", ctx->promotion.label,
-                  ctx->promotion.empty ? "an empty tower authorized by --force" : source_name( ctx->promotion.source ) ));
+  FD_LOG_NOTICE(( "%s: asking the admin tile to install the staked identity", ctx->promotion.label ));
   /* Adoption passed, wait for admin to install the staked identity. */
   ctx->action = FD_FAILOVER_ACTION_PROMOTE_SWITCH;
   return;
@@ -1561,17 +1566,16 @@ step_promote_switch( fd_failover_tile_ctx_t * ctx ) {
   }
   /* Admin confirmed the staked identity is installed, become active. */
   set_role( ctx, FD_FAILOVER_ROLE_ACTIVE );
-  /* A new tenure starts, the peer tower we kept is older than its votes. */
-  ctx->peer_tower.valid = 0;
-  ctx->taken            = 0;
+  /* A new tenure starts, the peer history we kept is older than its votes. */
+  ctx->peer_history.valid = 0;
+  ctx->taken              = 0;
   /* Local promotion is complete. */
   ctx->action           = FD_FAILOVER_ACTION_IDLE;
   ctx->stuck            = 0;
-  if( FD_UNLIKELY( ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL ) ) {
-    FD_LOG_NOTICE(( "%s: we are the active now, the staked identity is installed with %s", ctx->promotion.label,
-                    ctx->promotion.empty ? "an empty tower authorized by --force" : "the vote account's tower" ));
+  if( FD_LIKELY( ctx->promotion.source!=FD_FAILOVER_SOURCE_EMPTY ) ) {
+    FD_LOG_NOTICE(( "%s: we are the active now, the staked identity is installed and the adopted vote history ends at slot %lu", ctx->promotion.label, ctx->last_vote_slot ));
   } else {
-    FD_LOG_NOTICE(( "%s: we are the active now, the staked identity is installed and the adopted tower ends at slot %lu", ctx->promotion.label, ctx->last_vote_slot ));
+    FD_LOG_NOTICE(( "%s: we are the active now, the staked identity is installed with an empty history, no vote at or below slot %lu", ctx->promotion.label, ctx->empty_vote_after ));
   }
   if( FD_UNLIKELY( ctx->promotion.from_peer ) ) {
     /* The ACK tells the old active its handoff is done.  We keep it as
@@ -1734,29 +1738,30 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     ulong result = FD_ADMINCTL_RESULT_SUCCESS;
     if( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->id_switch.pending_key!=FD_FAILOVER_SWITCH_KEY_CNT || ctx->tx.valid || ctx->session.close_after_send ) result = FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
     else if( ctx->role!=FD_FAILOVER_ROLE_ACTIVE || peer->role!=FD_FAILOVER_ROLE_STANDBY ) result = FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
-    else if( !final_tower_ok( ctx ) ) result = FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER;
-    /* A standby this far behind could not reach our last vote before its
-       promotion deadline. */
+    else if( !final_history_ok( ctx ) ) result = FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY;
+    /* A standby this far behind could not reach the slot its promotion
+       waits for before the deadline. */
     else if( request.replay_slot==FD_FAILOVER_SLOT_NULL ||
-             fd_ulong_sat_add( request.replay_slot, FD_FAILOVER_DEADLINE_SLOTS )<ctx->last_vote_slot ) result = FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND;
+             fd_ulong_sat_add( request.replay_slot, FD_FAILOVER_DEADLINE_SLOTS )<ready_slot( ctx ) ) result = FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND;
     /* Decline the request without changing the current role or action. */
     if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
-      if( result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER && now>=ctx->handoff_refuse_log_at ) {
+      if( result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY && now>=ctx->handoff_refuse_log_at ) {
         ctx->handoff_refuse_log_at = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
         char tip[ 32 ], last[ 32 ];
-        char const * why = ctx->tower_gap ? "a vote-history update was skipped, the final state cannot be verified" :
+        char const * why = ctx->hist_gap ? "a vote-history update was skipped, the final state cannot be verified" :
                            ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL ? "no vote is known to the failover controller, it cannot determine whether this machine has not voted or is unable to vote" :
-                           !ctx->current_tower.valid || !ctx->current_tower.sz ? "a vote is known but its final state is unavailable" :
+                           !ctx->current_history.valid || !ctx->current_history.sz ? "a vote is known but its final state is unavailable" :
                            "the saved final state does not match the latest known vote";
         FD_LOG_WARNING(( "handoff %lu refused: %s (latest known vote %s, saved history tip %s), this machine keeps the staked identity, check local voting progress and vote-history logs before retrying",
                          request.handoff_id, why, slot_text( ctx->last_vote_slot, last ),
-                         slot_text( ctx->current_tower.valid ? ctx->current_tower.tip : FD_FAILOVER_SLOT_NULL, tip ) ));
+                         slot_text( ctx->current_history.valid ? ctx->current_history.tip : FD_FAILOVER_SLOT_NULL, tip ) ));
       } else if( result==FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND && now>=ctx->handoff_refuse_log_at ) {
         ctx->handoff_refuse_log_at = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
         char replay[ 32 ];
-        FD_LOG_WARNING(( "handoff %lu refused: the standby's replay is at slot %s, more than %lu slots behind our last vote at slot %lu, this machine keeps the staked identity, "
+        FD_LOG_WARNING(( "handoff %lu refused: the standby's replay is at slot %s, more than %lu slots behind %s at slot %lu, this machine keeps the staked identity, "
                          "run `failover promote` there again once it has caught up",
-                         request.handoff_id, slot_text( request.replay_slot, replay ), FD_FAILOVER_DEADLINE_SLOTS, ctx->last_vote_slot ));
+                         request.handoff_id, slot_text( request.replay_slot, replay ), FD_FAILOVER_DEADLINE_SLOTS,
+                         "our finality anchor", ready_slot( ctx ) ));
       }
       handoff_result( ctx, request.handoff_id, result );
       return;
@@ -1802,9 +1807,12 @@ handle_control( fd_failover_tile_ctx_t * ctx,
   }
 
   case (ushort)FD_FAILOVER_MSG_DEMOTED: {
-    /* The peer says it can no longer sign and hands us its tower. */
+    /* The peer says it can no longer sign and hands us its history. */
     fd_failover_demoted_t demoted;
     if( FD_UNLIKELY( !fd_failover_demoted_decode( &demoted, ctx->rx, payload_sz ) ) ) break;
+    /* HELLO pairs only members in the same mode, so a DEMOTED in the
+       other mode is malformed. */
+    if( FD_UNLIKELY( demoted.mode!=(uchar)FD_FAILOVER_MODE_ALPENGLOW ) ) break;
     ulong                       boot_id = ctx->session.peer_boot_id;
     fd_failover_hello_t const * peer    = fd_failover_channel_peer_hello( ctx->channel );
     /* Bind before deduplication.  An unsolicited DEMOTED cannot change
@@ -1819,8 +1827,8 @@ handle_control( fd_failover_tile_ctx_t * ctx,
       queue_reply( ctx );
       return;
     }
-    fd_failover_tower_t tower = { .valid=1, .tip=demoted.last_vote_slot, .sz=(ulong)demoted.state_len };
-    fd_memcpy( tower.state, ctx->rx+sizeof(fd_failover_demoted_t), tower.sz );
+    fd_failover_history_t history = { .valid=1, .tip=demoted.last_vote_slot, .sz=(ulong)demoted.state_len };
+    fd_memcpy( history.state, ctx->rx+sizeof(fd_failover_demoted_t), history.sz );
     uchar        reason = FD_FAILOVER_REJECT_NONE;
     char const * why    = NULL;
     if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_STANDBY ) ) {
@@ -1836,9 +1844,9 @@ handle_control( fd_failover_tile_ctx_t * ctx,
       finish_reply( ctx, &ctx->request.peer, demoted.handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, reason );
       return;
     }
-    FD_LOG_NOTICE(( "handoff %lu: accepted the peer's final tower ending at slot %lu, waiting for local adoption before taking the identity", demoted.handoff_id, tower.tip ));
-    if( ctx->peer_floor==FD_FAILOVER_SLOT_NULL || tower.tip>ctx->peer_floor ) ctx->peer_floor = tower.tip;
-    ctx->peer_tower        = tower;
+    FD_LOG_NOTICE(( "handoff %lu: accepted the peer's final vote history ending at slot %lu, waiting for local adoption before taking the identity", demoted.handoff_id, history.tip ));
+    if( ctx->peer_floor==FD_FAILOVER_SLOT_NULL || history.tip>ctx->peer_floor ) ctx->peer_floor = history.tip;
+    ctx->peer_history      = history;
     ctx->session.peer_role = FD_FAILOVER_ROLE_STANDBY;
     /* The bound final state moves the standby from peer wait to replay wait. */
     start_promotion( ctx, FD_FAILOVER_SOURCE_PEER, &ctx->request.peer, demoted.handoff_id, 0 );
@@ -1858,15 +1866,15 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     ctx->taken             = 1;
     ctx->session.peer_role = FD_FAILOVER_ROLE_ACTIVE;
     ctx->stuck             = 0;
-    /* The peer votes past the final tower we handed it from here on. */
-    ctx->peer_tower.valid = 0;
+    /* The peer votes past the final history we handed it from here on. */
+    ctx->peer_history.valid = 0;
     handoff_result( ctx, ack.handoff_id, FD_ADMINCTL_RESULT_SUCCESS );
     return;
   }
 
   case (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED: {
     /* The peer did not take the identity.  Either machine may now recover
-       without telling the other, so we drop any tower the peer handed us
+       without telling the other, so we drop any history the peer handed us
        earlier. */
     fd_failover_promote_rejected_t rej;
     if( FD_UNLIKELY( !fd_failover_promote_rejected_decode( &rej, ctx->rx, payload_sz ) ) ) break;
@@ -1878,7 +1886,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
       FD_LOG_WARNING(( "the peer declined handoff %lu (%s), neither machine holds the staked identity now, nothing votes until `failover promote --force` runs on one of them, "
                        "see the peer's log first", rej.handoff_id, reject_name( rej.reason ) ));
     }
-    ctx->peer_tower.valid = 0;
+    ctx->peer_history.valid = 0;
     /* The peer refusal ends the demotion wait, this machine stays standby. */
     handoff_resolved( ctx, FD_FAILOVER_HANDOFF_DECLINED );
     ctx->stuck = 1;
@@ -2056,16 +2064,16 @@ promote_guard( fd_failover_tile_ctx_t const * ctx,
   return FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED;
 }
 
-/* The tower source a promotion would adopt now. */
+/* The history source a promotion would adopt now. */
 static ulong
 promote_source( fd_failover_tile_ctx_t const * ctx ) {
   /* The peer may already vote past our unanswered DEMOTED. */
-  if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) return FD_FAILOVER_SOURCE_VOTE_ACCOUNT;
+  if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) return FD_FAILOVER_SOURCE_EMPTY;
   ulong floor = coverage_floor( ctx );
   ulong root  = ctx->root_slot;
-  int   peer_ok = ctx->peer_tower.valid && ( floor==FD_FAILOVER_SLOT_NULL || ctx->peer_tower.tip>=floor ) &&
-                                           ( root ==FD_FAILOVER_SLOT_NULL || ctx->peer_tower.tip> root  );
-  return peer_ok ? FD_FAILOVER_SOURCE_PEER : FD_FAILOVER_SOURCE_VOTE_ACCOUNT;
+  int   peer_ok = ctx->peer_history.valid && ( floor==FD_FAILOVER_SLOT_NULL || ctx->peer_history.tip>=floor ) &&
+                                           ( root ==FD_FAILOVER_SLOT_NULL || ctx->peer_history.tip> root  );
+  return peer_ok ? FD_FAILOVER_SOURCE_PEER : FD_FAILOVER_SOURCE_EMPTY;
 }
 
 /* Whether our handoff request is paused at its deadline. */
@@ -2161,24 +2169,26 @@ apply_control( fd_failover_tile_ctx_t *           ctx,
     }
     if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) {
       FD_LOG_WARNING(( "`failover promote --force` stops waiting for the peer's answer to handoff %lu, discarding saved final state because the peer may have voted, coverage floors retained", ctx->handoff.id ));
-      ctx->peer_tower.valid = 0;
+      ctx->peer_history.valid = 0;
       /* Forced recovery ends the ACK wait before starting local promotion. */
       handoff_resolved( ctx, FD_FAILOVER_HANDOFF_CANCELLED );
     }
     if( force ) FD_LOG_WARNING(( "operator promotion: --force asserts the peer cannot sign, peer checks are bypassed and incomplete or empty vote history is permitted if needed" ));
-    if( source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT ) {
-      fd_failover_tower_t const * saved = &ctx->peer_tower;
+    if( source==FD_FAILOVER_SOURCE_EMPTY ) {
+      fd_failover_history_t const * saved  = &ctx->peer_history;
+      char const *                stored = "the stored peer vote history";
       if( saved->valid ) {
         ulong floor = coverage_floor( ctx );
         if( floor!=FD_FAILOVER_SLOT_NULL && saved->tip<floor )
-          FD_LOG_NOTICE(( "operator promotion: the stored peer tower ends at slot %lu below the known signing floor %lu, skipping it", saved->tip, floor ));
+          FD_LOG_NOTICE(( "operator promotion: %s ends at slot %lu below the known signing floor %lu, skipping it", stored, saved->tip, floor ));
         else if( ctx->root_slot!=FD_FAILOVER_SLOT_NULL && saved->tip<=ctx->root_slot )
-          FD_LOG_NOTICE(( "operator promotion: the stored peer tower ends at slot %lu at or below the local root %lu, skipping it", saved->tip, ctx->root_slot ));
+          FD_LOG_NOTICE(( "operator promotion: %s ends at slot %lu at or below the local root %lu, skipping it", stored, saved->tip, ctx->root_slot ));
       }
-      FD_LOG_NOTICE(( "operator promotion: no eligible saved final tower is available, selecting the vote account" ));
+      FD_LOG_NOTICE(( "operator promotion: no eligible saved final state is available, selecting an empty history" ));
     } else {
-      fd_failover_tower_t const * saved = &ctx->peer_tower;
-      FD_LOG_NOTICE(( "operator promotion: selecting %s through slot %lu, the tower tile must validate and adopt it before the staked identity is installed", source_name( source ), saved->tip ));
+      fd_failover_history_t const * saved = &ctx->peer_history;
+      FD_LOG_NOTICE(( "operator promotion: selecting %s through slot %lu, the %s must validate and adopt it before the staked identity is installed",
+                      source_name( source ), saved->tip, "votor" ));
     }
     /* The accepted operator command starts the replay and adoption sequence. */
     start_promotion( ctx, source, NULL, 0UL, force );
@@ -2277,10 +2287,10 @@ gossip_commit( fd_failover_tile_ctx_t * ctx,
   if( FD_UNLIKELY( addr==ctx->own_gossip.addr && ctx->gossip_socket.port==ctx->own_gossip.port ) ) return;
   ctx->staked_seen_at = now;
   /* Gossip may be the only sign of a peer tenure, so we drop the peer's
-     tower for good, not only while the contact info is fresh. */
-  if( FD_UNLIKELY( ctx->peer_tower.valid ) )
+     history for good, not only while the contact info is fresh. */
+  if( FD_UNLIKELY( ctx->peer_history.valid ) )
     FD_LOG_NOTICE(( "gossip shows the staked identity at another host, discarding saved final state from before its voting tenure, keeping coverage floors" ));
-  ctx->peer_tower.valid = 0;
+  ctx->peer_history.valid = 0;
 
   if( FD_LIKELY( addr==ctx->staked_addr ) ) return;
   uint old_addr = ctx->staked_addr;
@@ -2298,10 +2308,10 @@ gossip_commit( fd_failover_tile_ctx_t * ctx,
 static void
 input_overrun( fd_failover_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->input_lost ) ) return;
-  ctx->input_lost      = 1;
-  ctx->stuck           = 1;
-  ctx->slot_done_fresh = 0;
-  ctx->bus_req_fresh   = 0;
+  ctx->input_lost    = 1;
+  ctx->stuck         = 1;
+  ctx->hist_fresh    = 0;
+  ctx->bus_req_fresh = 0;
   fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
   fd_failover_channel_hangup( ctx->channel, fd_failover_clock() );
   FD_LOG_WARNING(( "failover input overrun, failover is disabled until restart, validator processing continues" ));
@@ -2316,15 +2326,10 @@ before_frag( fd_failover_tile_ctx_t * ctx,
   if( FD_LIKELY( in_idx==ctx->gossip_in_idx ) ) {
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
-  if( FD_LIKELY( in_idx==ctx->tower_in_idx ) ) {
-    /* A skipped frag may have been a vote.  A slot done counts toward the
-       watermark in after_frag, once its vote is in the cache.  Other
-       frags hold no vote and count here. */
-    if( FD_UNLIKELY( ctx->tower_seen_seq!=ULONG_MAX && seq!=fd_seq_inc( ctx->tower_seen_seq, 1UL ) ) ) ctx->tower_gap = 1;
-    if( FD_UNLIKELY( sig!=FD_TOWER_SIG_SLOT_DONE ) ) {
-      ctx->tower_seen_seq = seq;
-      return 1;
-    }
+  if( FD_LIKELY( in_idx==ctx->hist_in_idx ) ) {
+    /* Every history frame counts toward the drain watermark after the
+       stem validates it.  A skipped frame may have contained a vote. */
+    if( FD_UNLIKELY( ctx->hist_seen_seq!=ULONG_MAX && seq!=fd_seq_inc( ctx->hist_seen_seq, 1UL ) ) ) ctx->hist_gap = 1;
     return 0;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
@@ -2343,11 +2348,12 @@ during_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    chunk,
              ulong                    sz,
              ulong                    ctl FD_PARAM_UNUSED ) {
+  ctx->read_pending = 1;
   if( FD_UNLIKELY( in_idx==ctx->adopt_in_idx ) ) {
-    if( FD_UNLIKELY( chunk<ctx->adopt_in_chunk0 || chunk>ctx->adopt_in_wmark || sz!=sizeof(fd_tower_adopt_result_t) ) ) {
+    if( FD_UNLIKELY( chunk<ctx->adopt_in_chunk0 || chunk>ctx->adopt_in_wmark || sz!=sizeof(fd_votor_adopt_result_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->adopt_in_chunk0, ctx->adopt_in_wmark ));
     }
-    fd_memcpy( &ctx->adopt_result, fd_chunk_to_laddr_const( ctx->adopt_in_mem, chunk ), sizeof(fd_tower_adopt_result_t) );
+    fd_memcpy( &ctx->adopt_result, fd_chunk_to_laddr_const( ctx->adopt_in_mem, chunk ), sizeof(fd_votor_adopt_result_t) );
     return;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
@@ -2367,11 +2373,12 @@ during_frag( fd_failover_tile_ctx_t * ctx,
     fd_memcpy( &ctx->bus_req, msg, sizeof(fd_failover_bus_msg_t) );
     return;
   }
-  if( FD_UNLIKELY( in_idx==ctx->tower_in_idx ) ) {
-    if( FD_UNLIKELY( chunk<ctx->tower_in_chunk0 || chunk>ctx->tower_in_wmark || sz!=sizeof(fd_tower_msg_t) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->tower_in_chunk0, ctx->tower_in_wmark ));
+  if( FD_UNLIKELY( in_idx==ctx->hist_in_idx ) ) {
+    ulong frame_sz = sizeof(fd_votor_hist_msg_t);
+    if( FD_UNLIKELY( chunk<ctx->hist_in_chunk0 || chunk>ctx->hist_in_wmark || sz!=frame_sz ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->hist_in_chunk0, ctx->hist_in_wmark ));
     }
-    fd_memcpy( &ctx->slot_done, fd_chunk_to_laddr_const( ctx->tower_in_mem, chunk ), sizeof(fd_tower_slot_done_t) );
+    fd_memcpy( &ctx->hist, fd_chunk_to_laddr_const( ctx->hist_in_mem, chunk ), sizeof(fd_votor_hist_msg_t) );
     return;
   }
   if( FD_UNLIKELY( in_idx!=ctx->gossip_in_idx ) ) return;
@@ -2391,6 +2398,12 @@ during_frag( fd_failover_tile_ctx_t * ctx,
   }
 }
 
+/* Unknown adoption results are invalid. */
+static ulong
+votor_adopt_code( ulong result ) {
+  return result<FD_VOTOR_ADOPT_RESULT_CNT ? result : FD_VOTOR_ADOPT_ERR_INVALID;
+}
+
 static void
 after_frag( fd_failover_tile_ctx_t * ctx,
             ulong                    in_idx,
@@ -2400,9 +2413,11 @@ after_frag( fd_failover_tile_ctx_t * ctx,
             ulong                    tsorig FD_PARAM_UNUSED,
             ulong                    tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *      stem   FD_PARAM_UNUSED ) {
+  ctx->read_pending = 0;
   if( FD_UNLIKELY( in_idx==ctx->adopt_in_idx ) ) {
-    ctx->adopt_result_id    = sig;
-    ctx->adopt_result_fresh = 1;
+    ctx->adopt_result.result = votor_adopt_code( ctx->adopt_result.result );
+    ctx->adopt_result_id     = sig;
+    ctx->adopt_result_fresh  = 1;
     return;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
@@ -2421,9 +2436,9 @@ after_frag( fd_failover_tile_ctx_t * ctx,
     ctx->bus_req_fresh = 1;
     return;
   }
-  if( FD_UNLIKELY( in_idx==ctx->tower_in_idx ) ) {
-    ctx->slot_done_fresh = 1;
-    ctx->tower_seen_seq  = seq;
+  if( FD_UNLIKELY( in_idx==ctx->hist_in_idx ) ) {
+    ctx->hist_fresh    = 1;
+    ctx->hist_seen_seq = seq;
     return;
   }
   if( FD_UNLIKELY( in_idx!=ctx->gossip_in_idx ) ) return;
@@ -2435,6 +2450,8 @@ after_credit( fd_failover_tile_ctx_t * ctx,
               fd_stem_context_t *      stem,
               int *                    opt_poll_in FD_PARAM_UNUSED,
               int *                    charge_busy ) {
+  /* STEM skips after_frag if the fragment was overwritten during the read. */
+  if( FD_UNLIKELY( ctx->read_pending ) ) input_overrun( ctx );
   if( FD_UNLIKELY( ctx->input_lost ) ) {
     if( FD_UNLIKELY( ctx->bus_req_fresh ) ) {
       ctx->bus_req_fresh = 0;
@@ -2443,9 +2460,9 @@ after_credit( fd_failover_tile_ctx_t * ctx,
     }
     return;
   }
-  if( FD_UNLIKELY( ctx->slot_done_fresh ) ) {
-    ctx->slot_done_fresh = 0;
-    consume_slot_done( ctx, &ctx->slot_done );
+  if( FD_UNLIKELY( ctx->hist_fresh ) ) {
+    ctx->hist_fresh = 0;
+    consume_hist( ctx, &ctx->hist );
   }
   step_controller( ctx, stem );
 
@@ -2504,26 +2521,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-static void
-metrics_write( fd_failover_tile_ctx_t * ctx ) {
-  fd_failover_channel_metrics_t const * m = fd_failover_channel_metrics( ctx->channel );
-  FD_MCNT_SET( FAILOV, CONN_ACCEPTED,                                m->accept_cnt                                 );
-  FD_MCNT_SET( FAILOV, ACCEPT_BUDGET_EXHAUSTED,                      m->accept_limited_cnt                         );
-  FD_MCNT_SET( FAILOV, CONN_REJECTED_SOURCE,                         m->source_reject_cnt                          );
-  FD_MCNT_SET( FAILOV, CONN_REJECTED_BUDGET,                         m->budget_reject_cnt                          );
-  FD_MCNT_SET( FAILOV, CONN_REJECTED_CAPACITY,                       m->capacity_reject_cnt                        );
-  FD_MCNT_SET( FAILOV, CONN_RECONNECT_ADMITTED,                      m->reconnect_cnt                              );
-  FD_MCNT_SET( FAILOV, HANDSHAKE_TIMED_OUT,                          m->handshake_timeout_cnt                      );
-  FD_MCNT_SET( FAILOV, PROOF_REJECTED,                               m->proof_reject_cnt                           );
-  FD_MCNT_SET( FAILOV, HELLO_REJECTED,                               m->hello_reject_cnt                           );
-  FD_MCNT_SET( FAILOV, TLS_HANDSHAKE_FAILED,                         m->tls_fail_cnt                               );
-  FD_MCNT_SET( FAILOV, FRAME_PROTOCOL_REJECTED,                      m->wire_fatal_cnt                             );
-  FD_MCNT_SET( FAILOV, CONN_AUTHENTICATED,                           m->paired_cnt                                 );
-  FD_MCNT_SET( FAILOV, HANDSHAKE_DURATION_NANOS,                     m->handshake_duration_nanos                   );
-  FD_MGAUGE_SET( FAILOV, HANDSHAKE_LATEST_DURATION_NANOS,            m->handshake_latest_nanos                     );
-  FD_MGAUGE_SET( FAILOV, CONN_PENDING,                               fd_failover_channel_pending( ctx->channel )   );
-}
-
 /* An iteration publishes at most an adopt or switch request and a bus
    response, within the burst of 3. */
 #define STEM_BURST (3UL)
@@ -2535,9 +2532,7 @@ metrics_write( fd_failover_tile_ctx_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_TYPE       fd_failover_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN      alignof(fd_failover_tile_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE      metrics_write
 #define STEM_CALLBACK_AFTER_POLL_OVERRUN input_overrun
-#define STEM_CALLBACK_AFTER_READ_OVERRUN input_overrun
 #define STEM_CALLBACK_AFTER_CREDIT       after_credit
 #define STEM_CALLBACK_BEFORE_FRAG        before_frag
 #define STEM_CALLBACK_DURING_FRAG        during_frag

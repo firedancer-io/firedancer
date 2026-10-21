@@ -51,24 +51,6 @@ fd_failover_clock( void ) {
 #define FD_FAILOVER_CHANNEL_HELLO_TIMEOUT_NANOS (  4000000000L)
 #define FD_FAILOVER_CHANNEL_KEEPALIVE_NANOS     (FD_FAILOVER_CHANNEL_IDLE_NANOS/4L)
 
-struct fd_failover_channel_metrics {
-  ulong accept_cnt;
-  ulong accept_limited_cnt;
-  ulong source_reject_cnt;
-  ulong budget_reject_cnt;
-  ulong capacity_reject_cnt;
-  ulong reconnect_cnt;
-  ulong handshake_timeout_cnt;
-  ulong proof_reject_cnt;
-  ulong hello_reject_cnt;
-  ulong tls_fail_cnt;
-  ulong wire_fatal_cnt;
-  ulong paired_cnt;
-  ulong handshake_duration_nanos;
-  ulong handshake_latest_nanos;
-};
-typedef struct fd_failover_channel_metrics fd_failover_channel_metrics_t;
-
 struct fd_failover_channel;
 typedef struct fd_failover_channel fd_failover_channel_t;
 
@@ -151,9 +133,6 @@ FD_FN_PURE ulong                       fd_failover_channel_state     ( fd_failov
 FD_FN_PURE int                         fd_failover_channel_listen_fd ( fd_failover_channel_t const * channel );
 FD_FN_PURE int                         fd_failover_channel_tx_pending( fd_failover_channel_t const * channel );
 FD_FN_PURE fd_failover_hello_t const * fd_failover_channel_peer_hello( fd_failover_channel_t const * channel );
-
-FD_FN_PURE fd_failover_channel_metrics_t const *
-fd_failover_channel_metrics( fd_failover_channel_t const * channel );
 
 /* Changes whenever a new authenticated session replaces the previous one. */
 FD_FN_PURE ulong fd_failover_channel_generation( fd_failover_channel_t const * channel );

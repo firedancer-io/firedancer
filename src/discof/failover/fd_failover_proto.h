@@ -24,8 +24,7 @@
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
 
 /* Consensus payload formats */
-#define FD_FAILOVER_MODE_TOWER (0U)
-#define FD_FAILOVER_MODE_CNT   (1U)
+#define FD_FAILOVER_MODE_ALPENGLOW (1U)
 
 /* Roles for each endpoint */
 #define FD_FAILOVER_ROLE_STANDBY (0UL) /* Run under the junk identity. */
@@ -65,9 +64,10 @@
 #define FD_FAILOVER_HELLO_ERR_MODE       (9)
 #define FD_FAILOVER_HELLO_ERR_PROOF      (10)
 
-/* Upper bound on the consensus state payload in tower mode.  A
-   CompactTowerSync with block id and bank hash is under 512 bytes. */
-#define FD_FAILOVER_TOWER_STATE_MAX (512UL)
+/* Upper bound on the vote history payload in alpenglow mode,
+   AG_HIST_SER_MAX is 5274 bytes. */
+#define FD_FAILOVER_ALPENGLOW_STATE_MAX (6144UL)
+#define FD_FAILOVER_STATE_MAX           (FD_FAILOVER_ALPENGLOW_STATE_MAX)
 
 /* Wire protocol message bodies. Little endian, packed, fixed layout. */
 struct __attribute__((packed)) fd_failover_hello {
@@ -118,19 +118,19 @@ FD_STATIC_ASSERT( sizeof(fd_failover_admission_response_t)==66UL, admission_resp
 
 #define FD_FAILOVER_SERVER_FLIGHT_MAX (FD_FAILOVER_ADMISSION_MAX-sizeof(fd_failover_admission_response_t))
 
-/* Sent by the demoter once it runs the junk key, the final tower
+/* Sent by the demoter once it runs the junk key, the final history
    follows it. */
 struct __attribute__((packed)) fd_failover_demoted {
   ulong  handoff_id;     /* the handoff id from the standby's HANDOFF_REQUEST */
   ulong  target_boot_id; /* peer boot_id the handoff is for */
-  ulong  last_vote_slot; /* tip of the final tower */
+  ulong  last_vote_slot; /* tip of the final history */
   uchar  mode;           /* FD_FAILOVER_MODE_* encoding */
-  ushort state_len;      /* size of the final tower that follows this struct */
+  ushort state_len;      /* size of the final history that follows this struct */
 };
 typedef struct fd_failover_demoted fd_failover_demoted_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_demoted_t)==27UL, wire_layout );
 
-#define FD_FAILOVER_DEMOTED_PAYLOAD_MAX (sizeof(fd_failover_demoted_t)+FD_FAILOVER_TOWER_STATE_MAX)
+#define FD_FAILOVER_DEMOTED_PAYLOAD_MAX (sizeof(fd_failover_demoted_t)+FD_FAILOVER_STATE_MAX)
 
 struct __attribute__((packed)) fd_failover_promote_ack {
   ulong handoff_id;
@@ -235,9 +235,9 @@ fd_failover_handoff_result_decode( fd_failover_handoff_result_t * out,
                                    uchar const *                  payload,
                                    ulong                          payload_sz );
 
-/* Writes a DEMOTED payload, the header and then the tower, into out,
+/* Writes a DEMOTED payload, the header and then the history, into out,
    which holds FD_FAILOVER_DEMOTED_PAYLOAD_MAX bytes.  Returns the payload
-   size, 0 for an empty or oversized tower. */
+   size, 0 for an empty or oversized history. */
 ulong
 fd_failover_demoted_encode( uchar *       out,
                             ulong         handoff_id,
@@ -246,10 +246,10 @@ fd_failover_demoted_encode( uchar *       out,
                             uchar const * state,
                             ulong         state_sz );
 
-/* Validates a DEMOTED payload.  The tower has to decode exactly and end
-   at last_vote_slot.  Returns 1 on success, the tower is then at
-   payload+sizeof(fd_failover_demoted_t).  Returns 0 on failure with out
-   left unchanged. */
+/* Validates a DEMOTED payload.  The Alpenglow history must decode
+   exactly and end at last_vote_slot.  Returns 1 on success, with the
+   history at payload+sizeof(fd_failover_demoted_t).  Otherwise returns 0
+   and leaves out unchanged. */
 int
 fd_failover_demoted_decode( fd_failover_demoted_t * out,
                             uchar const *           payload,

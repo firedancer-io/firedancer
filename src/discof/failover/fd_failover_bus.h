@@ -48,9 +48,9 @@ typedef struct fd_failover_operator fd_failover_operator_t;
 
 /* Sent once every tile has switched, or right away when refused. */
 struct fd_failover_switch_resp {
-  ulong                  result;          /* FD_FAILOVER_SWITCH_* */
-  ulong                  tower_watermark; /* the tower keyswitch result, its output sequence at the halt */
-  fd_failover_operator_t operator;        /* with STALE */
+  ulong                  result;            /* FD_FAILOVER_SWITCH_* */
+  ulong                  history_watermark; /* the votor keyswitch result, its history output sequence at the halt */
+  fd_failover_operator_t operator;          /* with STALE */
 };
 
 typedef struct fd_failover_switch_resp fd_failover_switch_resp_t;

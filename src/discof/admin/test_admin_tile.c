@@ -318,12 +318,12 @@ test_failover_identity( void ) {
   /* A key other than junk and staked becomes the failover identity, and
      nothing goes to the failover tile until every tile switched. */
   failover_operator_begin( &ctx, third );
-  FD_TEST( ctx.operator_epoch==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) && ctx.operator_pending && !bus_seq );
+  FD_TEST( ctx.failover_epoch==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) && ctx.failover_pending && !bus_seq );
   FD_TEST( sign_ks->param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR && tower_ks->operator==1UL );
   fd_memcpy( ctx.identity_pubkey, third, 32UL );
   failover_operator_notify( &ctx, bus_stem );
   fd_failover_operator_t operator = bus_operator();
-  FD_TEST( !ctx.operator_pending && operator.epoch==1UL );
+  FD_TEST( !ctx.failover_pending && operator.epoch==1UL );
   FD_TEST( fd_memeq( operator.identity, third, 32UL ) && fd_memeq( operator.failover_identity, third, 32UL ) );
 
   /* The junk key keeps the failover identity.  With three credits left
@@ -332,7 +332,7 @@ test_failover_identity( void ) {
   failover_operator_begin( &ctx, ctx.junk_pubkey );
   fd_memcpy( ctx.identity_pubkey, ctx.junk_pubkey, 32UL );
   failover_operator_notify( &ctx, bus_stem );
-  FD_TEST( ctx.operator_pending && bus_seq==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) );
+  FD_TEST( ctx.failover_pending && bus_seq==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx.sha512 ) ) );
   ctx.adminctl = fd_adminctl_join( fd_adminctl_new( adminctl_mem ) );
   FD_TEST( ctx.adminctl );
@@ -353,7 +353,7 @@ test_failover_identity( void ) {
   bus_cr_avail = 8UL;
   failover_operator_notify( &ctx, bus_stem );
   operator = bus_operator();
-  FD_TEST( !ctx.operator_pending && operator.epoch==2UL );
+  FD_TEST( !ctx.failover_pending && operator.epoch==2UL );
   FD_TEST( fd_memeq( operator.identity, ctx.junk_pubkey, 32UL ) && fd_memeq( operator.failover_identity, third, 32UL ) );
 
   /* A switch request from before set-identity gets STALE with what it

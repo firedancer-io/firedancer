@@ -12,7 +12,7 @@ static ulong             pub_cr_avail;
 static ulong             pub_min_cr_avail;
 static int               pub_reliable;
 static fd_stem_context_t stem[ 1 ];
-static uchar             bus_mem[ 4096 ] __attribute__((aligned(128)));
+static uchar             bus_mem[ 8192 ] __attribute__((aligned(128)));
 
 static void
 stem_init( void ) {
@@ -44,6 +44,7 @@ controller_init( ulong role ) {
   fd_memset( ctx, 0, sizeof(fd_failover_tile_ctx_t) );
   ctx->role          = role;
   ctx->hello.role    = (uchar)role;
+  ctx->hello.mode    = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
   ctx->hello.boot_id = OUR_BOOT_ID;
   fd_memset( ctx->hello.junk_pubkey,   0x11, 32UL );
   fd_memset( ctx->hello.staked_pubkey, 0x5A, 32UL );
@@ -54,10 +55,12 @@ controller_init( ulong role ) {
   ctx->deadline_slot         = FD_FAILOVER_SLOT_NULL;
   ctx->peer_floor            = FD_FAILOVER_SLOT_NULL;
   ctx->own_floor             = FD_FAILOVER_SLOT_NULL;
-  ctx->tower_seen_seq        = ULONG_MAX;
+  ctx->adopt_anchor          = FD_FAILOVER_SLOT_NULL;
+  ctx->empty_vote_after      = FD_FAILOVER_SLOT_NULL;
+  ctx->hist_seen_seq         = ULONG_MAX;
   ctx->handoff_base          = 5000UL;
   ctx->gossip_in_idx         = ULONG_MAX;
-  ctx->tower_in_idx          = ULONG_MAX;
+  ctx->hist_in_idx           = ULONG_MAX;
   ctx->admin_in_idx          = ULONG_MAX;
   ctx->adopt_in_idx          = ULONG_MAX;
   ctx->admin_out_idx         = 0UL;
@@ -92,17 +95,36 @@ pair( fd_failover_tile_ctx_t * ctx,
 }
 
 static void
-make_tower( fd_failover_tower_t * tower,
+make_history( fd_failover_history_t * history,
             ulong                 tip ) {
-  fd_compact_tower_sync_serde_t serde;
-  fd_memset( &serde, 0, sizeof(serde) );
-  serde.root                             = tip-2UL;
-  serde.lockouts_cnt                     = 1;
-  serde.lockouts[ 0 ].offset             = 2UL;
-  serde.lockouts[ 0 ].confirmation_count = 1;
-  FD_TEST( !fd_compact_tower_sync_ser( &serde, tower->state, FD_FAILOVER_TOWER_STATE_MAX, &tower->sz ) );
-  tower->valid = 1;
-  tower->tip   = tip;
+  ag_hist_t hist = { .anchor=tip, .last_leader_slot=FD_FAILOVER_SLOT_NULL, .vote_bound=FD_FAILOVER_SLOT_NULL, .rec_cnt=1UL };
+  hist.rec[ 0 ].slot  = tip;
+  hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
+  FD_TEST( !ag_hist_ser( &hist, history->state, sizeof(history->state), &history->sz ) );
+  history->valid = 1;
+  history->tip   = tip;
+}
+
+/* A serialized history of rec_cnt notar votes ending at tip, as the
+   machine running the identity hands it over. */
+static void
+make_peer_history( fd_failover_history_t * history,
+                   ulong                   anchor,
+                   ulong                   tip,
+                   ulong                   rec_cnt ) {
+  static ag_hist_t hist;
+  fd_memset( &hist, 0, sizeof(hist) );
+  hist.anchor           = anchor;
+  hist.last_leader_slot = tip-3UL;
+  hist.rec_cnt          = rec_cnt;
+  for( ulong i=0UL; i<rec_cnt; i++ ) {
+    hist.rec[ i ].slot  = tip-rec_cnt+1UL+i;
+    hist.rec[ i ].flags = AG_HIST_FLAG_VOTED|AG_HIST_FLAG_VOTED_NOTAR;
+    fd_memset( hist.rec[ i ].notar_hash, (int)(0x10UL+i), sizeof(ag_block_hash_t) );
+  }
+  FD_TEST( !ag_hist_ser( &hist, history->state, sizeof(history->state), &history->sz ) );
+  history->valid = 1;
+  history->tip   = tip;
 }
 
 static void
@@ -124,8 +146,8 @@ deliver_ack( fd_failover_tile_ctx_t * ctx,
 static void
 switch_ok( fd_failover_tile_ctx_t * ctx,
            ulong                    watermark ) {
-  ctx->id_switch.result.result          = FD_FAILOVER_SWITCH_OK;
-  ctx->id_switch.result.tower_watermark = watermark;
+  ctx->id_switch.result.result            = FD_FAILOVER_SWITCH_OK;
+  ctx->id_switch.result.history_watermark = watermark;
   FD_TEST( switch_answer( ctx, ctx->id_switch.request_id ) );
 }
 
@@ -141,7 +163,7 @@ static void
 test_handoff( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=42UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
@@ -150,7 +172,8 @@ test_handoff( void ) {
   switch_ok( ctx, 0UL );
   step_controller( ctx, stem );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY );
-  FD_TEST( pending_demoted( ctx ).handoff_id==42UL );
+  fd_failover_demoted_t demoted = pending_demoted( ctx );
+  FD_TEST( demoted.handoff_id==42UL && demoted.mode==FD_FAILOVER_MODE_ALPENGLOW && demoted.last_vote_slot==99UL );
   ctx->tx.valid         = 0;
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_SENT;
   deliver_ack( ctx, 42UL );
@@ -168,9 +191,14 @@ test_no_final_state( void ) {
   fd_failover_handoff_result_t result;
   FD_TEST( ctx->tx.valid && ctx->tx.type==FD_FAILOVER_MSG_HANDOFF_RESULT );
   FD_TEST( fd_failover_handoff_result_decode( &result, ctx->tx.payload, ctx->tx.sz ) );
-  FD_TEST( result.handoff_id==43UL && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER );
+  FD_TEST( result.handoff_id==43UL && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.request_id && !ctx->promotion.adopt_id );
+  char const * hint;
+  FD_TEST( !strcmp( control_refusal( result.result, &hint ), "NO_FINAL_HISTORY" ) );
+  FD_TEST( strstr( hint, "the active" ) );
+  /* The requester logs the relayed rejection under the same name. */
+  FD_TEST( !strcmp( relayed_refusal( result.result, &hint ), "NO_FINAL_HISTORY" ) );
   controller_fini( ctx );
 }
 
@@ -182,7 +210,7 @@ test_request_replay_behind( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
   ctx->last_vote_slot = 200UL;
-  make_tower( &ctx->current_tower, 200UL );
+  make_history( &ctx->current_history, 200UL );
   ulong behind[ 2 ] = { 200UL-FD_FAILOVER_DEADLINE_SLOTS-1UL, FD_FAILOVER_SLOT_NULL };
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_failover_handoff_request_t req = { .handoff_id=49UL+i, .target_boot_id=OUR_BOOT_ID, .replay_slot=behind[ i ] };
@@ -208,11 +236,11 @@ static void
 test_demote_drain( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=44UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   step_controller( ctx, stem );
-  ctx->tower_seen_seq = 796UL;
+  ctx->hist_seen_seq = 796UL;
   switch_ok( ctx, 800UL );
   step_controller( ctx, stem );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN );
@@ -222,7 +250,7 @@ test_demote_drain( void ) {
   deliver_ack( ctx, 44UL );
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN && !ctx->taken && !ctx->tx.valid );
-  ctx->tower_seen_seq = 799UL;
+  ctx->hist_seen_seq = 799UL;
   step_controller( ctx, stem );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && pending_demoted( ctx ).handoff_id==44UL );
   controller_fini( ctx );
@@ -259,7 +287,7 @@ static void
 test_operator_switch( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   ctx->own_floor = 99UL;
   fd_failover_handoff_request_t req = { .handoff_id=47UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
@@ -272,7 +300,7 @@ test_operator_switch( void ) {
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->hello.role==FD_FAILOVER_ROLE_STANDBY );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck && !ctx->tx.valid && !ctx->handoff.id && !ctx->request.id );
   FD_TEST( ctx->hello.boot_id!=OUR_BOOT_ID && ctx->channel->self_hello.boot_id==ctx->hello.boot_id );
-  FD_TEST( !ctx->current_tower.valid && ctx->own_floor==99UL );
+  FD_TEST( !ctx->current_history.valid && ctx->own_floor==99UL );
   FD_TEST( ctx->id_switch.epoch==1UL && ctx->id_switch.discard && ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_JUNK );
   FD_TEST( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED );
 
@@ -305,14 +333,14 @@ test_operator_switch( void ) {
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.fresh && ctx->action==FD_FAILOVER_ACTION_IDLE );
 
   /* A request bound to our first boot is refused, one to this boot is
-     served once we have a final tower. */
+     served once we have a final history. */
   pair( ctx, 78UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
   ctx->tx.valid = 0;
   ctx->session.close_after_send = 0;
   ctx->last_vote_slot = 120UL;
-  make_tower( &ctx->current_tower, 120UL );
+  make_history( &ctx->current_history, 120UL );
   fd_failover_handoff_request_t fresh = { .handoff_id=48UL, .target_boot_id=ctx->hello.boot_id, .replay_slot=120UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &fresh, sizeof(fresh) );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH && ctx->handoff.id==48UL );
@@ -354,19 +382,20 @@ test_operator_failover_identity( void ) {
   controller_fini( ctx );
 }
 
-/* test_standby_vote_counts: a vote our tower published counts toward
+/* test_standby_vote_counts: a vote our history published counts toward
    the floor whatever our role, set-identity can install the staked key
    before we hear of it. */
 static void
 test_standby_vote_counts( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
-  fd_tower_slot_done_t done;
-  fd_memset( &done, 0, sizeof(done) );
-  done.replay_slot  = 130UL;
-  done.root_slot    = FD_FAILOVER_SLOT_NULL;
-  done.has_vote_txn = 1;
-  done.vote_slot    = 129UL;
-  consume_slot_done( ctx, &done );
+  fd_votor_hist_msg_t hist;
+  fd_memset( &hist, 0, sizeof(hist) );
+  fd_memcpy( hist.identity.uc, ctx->hello.staked_pubkey, 32UL );
+  hist.replay_slot = 130UL;
+  hist.root_slot   = FD_FAILOVER_SLOT_NULL;
+  hist.has_vote    = 1;
+  hist.vote_slot   = 129UL;
+  consume_hist( ctx, &hist );
   FD_TEST( ctx->own_floor==129UL && ctx->last_vote_slot==129UL );
   controller_fini( ctx );
 }
@@ -433,7 +462,7 @@ test_session_change_drops_result( void ) {
 
   ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   req.target_boot_id = OUR_BOOT_ID;
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   step_controller( ctx, stem );
@@ -476,7 +505,7 @@ test_request_address( void ) {
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,4) && dial_port( ctx )==9001 );
   request_pause( ctx, 1000L, "test" );
   status_snapshot( ctx, 1000L, &status );
-  FD_TEST( status.request_paused && status.mode==(uchar)FD_FAILOVER_MODE_TOWER );
+  FD_TEST( status.request_paused && status.mode==(uchar)FD_FAILOVER_MODE_ALPENGLOW );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,5), 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && dial_port( ctx )==9001 );
   status_snapshot( ctx, 1000L, &status );
@@ -506,7 +535,7 @@ static void
 test_abort_answers_requester( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=47UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   step_controller( ctx, stem );
@@ -594,6 +623,58 @@ test_restarted_peer_new_request( void ) {
   controller_fini( ctx );
 }
 
+/* test_force_empty_bound: a forced promotion with no saved history sets
+   its vote bound at the replay slot or the coverage floor, whichever is
+   higher. */
+static void
+test_force_empty_bound( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_cstr_ncpy( ctx->promotion.label, "promotion 1", sizeof(ctx->promotion.label) );
+  ctx->promotion.source = FD_FAILOVER_SOURCE_EMPTY;
+  ctx->promotion.force  = 1;
+  ulong const floors[ 3 ] = { FD_FAILOVER_SLOT_NULL, 120UL, 80UL };
+  ulong const fences[ 3 ] = { 100UL,                 120UL, 100UL };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ctx->promotion.floor = floors[ i ];
+    promote_start( ctx );
+    FD_TEST( replay_ready( ctx ) );
+    FD_TEST( ctx->empty_vote_after==fences[ i ] );
+    FD_TEST( ctx->promotion.adopt.sz==FD_VOTOR_ADOPT_EMPTY_SZ && FD_LOAD( ulong, ctx->promotion.adopt.state )==fences[ i ] );
+  }
+  controller_fini( ctx );
+}
+
+static void
+test_adopt_capacity_retry( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  make_peer_history( &ctx->peer_history, 90UL, 99UL, 6UL );
+  fd_failover_peer_t peer = { .boot_id = 77UL };
+  start_promotion( ctx, FD_FAILOVER_SOURCE_PEER, &peer, 42UL, 0 );
+  step_promote_wait_replay( ctx, stem );
+  ulong id = ctx->promotion.adopt_id;
+  fd_failover_history_t saved = ctx->promotion.adopt;
+  ctx->adopt_in_idx        = 0UL;
+  ctx->adopt_result.result = FD_VOTOR_ADOPT_ERR_CAPACITY;
+  after_frag( ctx, 0UL, 0UL, id, sizeof(ctx->adopt_result), 0UL, 0UL, stem );
+  step_promote_wait_adopt( ctx, stem );
+  FD_TEST( ctx->promotion.retry && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && !ctx->stuck && !ctx->tx.valid );
+  FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
+  FD_TEST( ctx->peer_history.valid && fd_memeq( &saved, &ctx->promotion.adopt, sizeof(saved) ) );
+  step_promote_wait_adopt( ctx, stem );
+  FD_TEST( ctx->promotion.adopt_id==id );
+
+  ctx->replay_slot++;
+  step_promote_wait_adopt( ctx, stem );
+  FD_TEST( !ctx->promotion.retry && ctx->promotion.adopt_id!=id );
+  FD_TEST( fd_memeq( bus_mem, saved.state, saved.sz ) );
+  ctx->adopt_result = (fd_votor_adopt_result_t){ .result=FD_VOTOR_ADOPT_SUCCESS, .root=90UL, .vote_slot=99UL, .vote_bound=ULONG_MAX };
+  after_frag( ctx, 0UL, 1UL, ctx->promotion.adopt_id, sizeof(ctx->adopt_result), 0UL, 0UL, stem );
+  step_promote_wait_adopt( ctx, stem );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH );
+  controller_fini( ctx );
+}
+
 /* A full table evicts the oldest eligible candidate from the busiest
    address.  Reserved slots and candidates within their grace stay. */
 static void
@@ -651,6 +732,8 @@ main( int argc, char ** argv ) {
   test_refused_command_keeps_stuck();
   test_dialed_standby();
   test_restarted_peer_new_request();
+  test_force_empty_bound();
+  test_adopt_capacity_retry();
   test_listen_slot();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
