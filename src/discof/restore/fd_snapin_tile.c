@@ -2286,11 +2286,6 @@ after_credit( fd_snapin_tile_t *  ctx,
   if( FD_LIKELY( !ctx->fast_boot.stream || ctx->lead.fast_boot.snapshot_finished || ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) return;
   if( FD_LIKELY( !ctx->lead.fast_boot.replay_started || !FD_VOLATILE_CONST( ctx->shmem->fast_boot.snapshots_done ) ) ) return;
 
-  if( FD_UNLIKELY( writer_flush( ctx ) ) ) {
-    transition_malformed( ctx, stem );
-    return;
-  }
-
   FD_COMPILER_MFENCE();
   fold_account_counts( ctx );
   root_fork( ctx, &ctx->lead.fast_boot.snapshot_fork_id );

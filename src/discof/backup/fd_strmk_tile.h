@@ -5,7 +5,6 @@
    writes them and the snapsv tile serves them over HTTP. */
 
 #include "fd_backup.h"
-#include "../restore/utils/fd_ssarchive.h"
 
 /* The fast boot stream files are a pool like the snapshot pool, with
    as many files as incremental snapshots are kept.  One stream is

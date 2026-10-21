@@ -396,7 +396,7 @@ after_credit( fd_snapld_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->fast_boot_stream.wait!=LONG_MAX ) ) {
       if( FD_LIKELY( now<ctx->fast_boot_stream.wait ) ) return;
       if( FD_UNLIKELY( fd_sshttp_resume( ctx->sshttp, now, ctx->fast_boot_stream.off ) ) ) {
-        if( FD_LIKELY( !handle_connection_failure( ctx, now ) ) ) transition_malformed( ctx, stem );
+        handle_connection_failure( ctx, now );
         return;
       }
       ctx->fast_boot_stream.wait = LONG_MAX;

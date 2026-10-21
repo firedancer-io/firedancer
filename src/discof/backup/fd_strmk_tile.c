@@ -557,7 +557,7 @@ strmk_store_keys( fd_strmk_t *                ctx,
 
 /* strmk_stream_start starts the next stream.  It runs on replay's
    snapshot start message: an incremental snapshot starts a stream in
-   the other pool file, with the version entry, the manifest and the
+   the next pool file, with the version entry, the manifest and the
    keys of the blocks above the snapshot slot.  Replay keeps the
    published root at that slot until the stream ends.  A full snapshot
    starts no stream. */
@@ -570,8 +570,8 @@ strmk_stream_start( fd_strmk_t *                   ctx,
 
   strmk_stream_close( ctx, stem );
 
-  /* the next file: the file server stopped serving it long ago, when
-     it saw that stream close */
+  /* the next file: the file server drops the closed stream in it when
+     it sees the CLOSE just sent */
   uint idx = ctx->next;
   ctx->next = ( idx+1U )%ctx->stream_max;
 
