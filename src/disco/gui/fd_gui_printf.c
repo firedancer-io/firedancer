@@ -2881,8 +2881,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
     if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP ) ) jsonp_double( gui->http, "catching_up_elapsed_seconds",     (double)(gui->summary.boot_progress.catching_up_time_nanos - gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos) / 1e9 );
     else                                                                                       jsonp_null  ( gui->http, "catching_up_elapsed_seconds" );
 
-    if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP
-                && gui->summary.boot_progress.catching_up_first_replay_slot!=ULONG_MAX ) ) {
+    if( FD_LIKELY( gui->summary.boot_progress.catching_up_first_replay_slot!=ULONG_MAX ) ) {
       jsonp_ulong( gui->http, "catching_up_first_replay_slot", gui->summary.boot_progress.catching_up_first_replay_slot );
     } else {
       jsonp_null( gui->http, "catching_up_first_replay_slot" );
