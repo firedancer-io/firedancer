@@ -28,8 +28,13 @@
 #define FD_SNAPLD_DOWNLOAD_WINDOW_NS (10L*1000L*1000L*1000L) /* 10 seconds */
 
 /* How long to wait before asking the fast boot stream server again
-   for more data. */
+   for more data, or before sending a failed snapshot request again. */
 #define FD_SNAPLD_STREAM_RETRY_NS (50L*1000L*1000L) /* 50 milliseconds */
+
+/* How many times a snapshot request is sent again when it fails
+   before any of its response arrived.  Each try waits up to a second
+   for the server, so this covers about five seconds of no answer. */
+#define FD_SNAPLD_REQUEST_RETRY_MAX (5U)
 
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
@@ -48,6 +53,7 @@ typedef struct fd_snapld_tile {
   int   load_file;
   int   sent_meta;
   int   is_redirect;
+  uint  request_retries; /* tries left before the load fails */
   ulong gossip_slot;
   ulong file_sz;
 
@@ -300,11 +306,18 @@ transition_malformed( fd_snapld_tile_t *  ctx,
 /* handle_connection_failure asks a fast boot stream for its bytes
    again from the current offset.  A stream never fails on its own:
    replay runs on it and it ends once the snapshots behind it are in.
-   Returns 0 for anything but a stream, the caller fails the load then. */
+   A snapshot request that failed before any of its response arrived
+   is sent again a few times, nothing went downstream yet.  Returns 0
+   otherwise, the caller fails the load then. */
 static int
 handle_connection_failure( fd_snapld_tile_t * ctx,
                            long               now ) {
-  if( FD_LIKELY( !ctx->fast_boot_stream.active ) ) return 0;
+  if( FD_LIKELY( !ctx->fast_boot_stream.active ) ) {
+    if( FD_LIKELY( ctx->sent_meta || !ctx->request_retries ) ) return 0;
+    ctx->request_retries--;
+    FD_LOG_NOTICE(( "sending the %s snapshot request again, %u tries left",
+                    ctx->load_full ? "full" : "incremental", ctx->request_retries ));
+  }
   fd_sshttp_cancel( ctx->sshttp );
   ctx->window_deadline       = LONG_MAX;
   ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
@@ -396,7 +409,7 @@ after_credit( fd_snapld_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->fast_boot_stream.wait!=LONG_MAX ) ) {
       if( FD_LIKELY( now<ctx->fast_boot_stream.wait ) ) return;
       if( FD_UNLIKELY( fd_sshttp_resume( ctx->sshttp, now, ctx->fast_boot_stream.off ) ) ) {
-        handle_connection_failure( ctx, now );
+        if( FD_UNLIKELY( !handle_connection_failure( ctx, now ) ) ) transition_malformed( ctx, stem );
         return;
       }
       ctx->fast_boot_stream.wait = LONG_MAX;
@@ -637,6 +650,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
       ctx->bytes_in_batch  = 0UL;
+      ctx->request_retries = FD_SNAPLD_REQUEST_RETRY_MAX;
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
           FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
