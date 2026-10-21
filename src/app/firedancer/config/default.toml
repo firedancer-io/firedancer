@@ -723,6 +723,8 @@ telemetry = true
     # Whether to run Alpenglow consensus.  Firedancer runs exactly one
     # consensus algorithm, so when this is enabled any Tower-related
     # components will be replaced with Alpenglow.
+    #
+    # You can also enable Alpenglow with the `--alpenglow` argument.
     alpenglow = true
 
 # The primary state a validator is required to maintain is the accounts
