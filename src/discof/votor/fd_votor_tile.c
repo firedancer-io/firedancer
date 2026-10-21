@@ -99,6 +99,7 @@ struct contact_info {
   uint        hash;
   uint        ip4;
   ushort      port;
+  uchar       removed; /* gossip removed it, kept until its peer is evicted */
 };
 typedef struct contact_info contact_info_t;
 
@@ -1461,6 +1462,8 @@ handle_epoch( fd_votor_tile_t *           ctx,
         }
       }
     }
+    contact_info_t * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
+    if( FD_UNLIKELY( ci && ci->removed ) ) contact_infos_remove( ctx->contact_infos, ci );
     peers_remove( ctx->peers, peer ); /* relocates, so reconsider the freed slot */
   }
 
@@ -1513,13 +1516,14 @@ handle_gossip( fd_votor_tile_t *                  ctx,
 
     /* short-circuit ci, if it didn't change (common case) */
 
-    if( FD_LIKELY( ci && ci->ip4==ip4 && ci->port==port ) ) return;
+    if( FD_LIKELY( ci && ci->ip4==ip4 && ci->port==port ) ) { ci->removed = 0; return; }
 
     /* upsert the ci */
 
     if( FD_UNLIKELY( !ci ) ) ci = contact_infos_insert( ctx->contact_infos, id_key );
-    ci->ip4  = ip4;
-    ci->port = port;
+    ci->ip4     = ip4;
+    ci->port    = port;
+    ci->removed = 0;
     if( FD_LIKELY( !peer ) ) return;
     if( FD_UNLIKELY( peer->tx_conn ) ) {
       fd_quic_conn_set_context( peer->tx_conn, NULL );
@@ -1531,7 +1535,8 @@ handle_gossip( fd_votor_tile_t *                  ctx,
     break;
   }
   case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE:
-    if( FD_LIKELY( ci ) ) contact_infos_remove( ctx->contact_infos, ci );
+    if( FD_LIKELY  ( ci && !peer ) ) contact_infos_remove( ctx->contact_infos, ci );
+    if( FD_UNLIKELY( ci &&  peer ) ) ci->removed = 1; /* a peer's is kept, to redial its last address */
     break;
   default:
     FD_LOG_ERR(( "unexpected gossip sig %lu", sig ));
