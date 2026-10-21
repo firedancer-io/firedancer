@@ -10134,7 +10134,7 @@ message MetricsRotor {
   uint64 catchup_slot = 55;
   // WindowIndexForBlockId requests that expired unanswered, at or above the root
   uint64 request_by_id_expired = 56;
-  // Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set
+  // Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set; every other retry after that
   uint64 request_stuck_escaped = 57;
   // Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies
   uint64 peer_by_id_banned = 58;

@@ -2230,7 +2230,7 @@
 | <span class="metrics-name">rotor_&#8203;request_&#8203;hedged</span> | counter | Request attempts after the first for the same timer |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;expired</span> | counter | Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;by_&#8203;id_&#8203;expired</span> | counter | WindowIndexForBlockId requests that expired unanswered, at or above the root |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;stuck_&#8203;escaped</span> | counter | Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;stuck_&#8203;escaped</span> | counter | Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set; every other retry after that |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;fanout_&#8203;sent</span> | counter | Extra staked peers an escaped WindowIndexForBlockId retry was also sent to, up to 2 per retry |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;late_&#8203;retried</span> | counter | Request attempts sent after 3 or more earlier attempts for the same timer |
 | <span class="metrics-name">rotor_&#8203;escape_&#8203;peer_&#8203;hedge_&#8203;delay_&#8203;nanos</span> | histogram | Uncapped hedge time (srtt+4*rttvar, 200 ms if unmeasured) of each staked peer an escaped retry was sent to |

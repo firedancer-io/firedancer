@@ -1172,7 +1172,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="RequestHedged" summary="Request attempts after the first for the same timer" />
     <counter name="RequestExpired" summary="Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted" />
     <counter name="RequestByIdExpired" summary="WindowIndexForBlockId requests that expired unanswered, at or above the root" />
-    <counter name="RequestStuckEscaped" summary="Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set" />
+    <counter name="RequestStuckEscaped" summary="Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set; every other retry after that" />
     <counter name="RequestFanoutSent" summary="Extra staked peers an escaped WindowIndexForBlockId retry was also sent to, up to 2 per retry" />
     <counter name="RequestLateRetried" summary="Request attempts sent after 3 or more earlier attempts for the same timer" />
     <histogram name="EscapePeerHedgeDelayNanos" min="10000000" max="10000000000">

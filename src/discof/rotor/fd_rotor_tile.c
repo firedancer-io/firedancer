@@ -1125,12 +1125,14 @@ after_credit( fd_rotor_tile_t *   ctx,
     }
 
     /* A retry asks someone else.  After STUCK_MAX attempts that brought
-       no new shred, the fastest peers are not answering: ask staked
-       peers at random instead, a shred request several at once. */
+       no new shred, the fastest peers are not answering: every other
+       retry asks staked peers at random instead, a shred request
+       several at once.  The rest stay in bucket order, as the fast peers
+       may have completed the block since. */
     uint rcvd   = fec ? fec->rcvd : 0U;
     int  prog   = !!( rcvd & ~req.rcvd ) || ( fec && !req.fec_known ); /* a new shred or the FEC set root, not an eviction */
     uint stuck  = fd_uint_if( req.attempt && !prog, fd_uint_min( req.stuck+1U, USHORT_MAX ), 0U ); /* kept only once sent */
-    int  escape = stuck>=STUCK_MAX && !blk->eager;
+    int  escape = stuck>=STUCK_MAX && !( (stuck-STUCK_MAX)&1U ) && !blk->eager;
     ulong fan_max = fd_ulong_if( escape && tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID,
                                  fd_ulong_min( ESCAPE_FANOUT, ( sign_pool_free( ctx->sign_pool )-SIGN_RESERVE )/(ulong)fd_uint_popcnt( mask ) ), 1UL );
     fd_rotor_strat_peer_t * peers[ ESCAPE_FANOUT ];

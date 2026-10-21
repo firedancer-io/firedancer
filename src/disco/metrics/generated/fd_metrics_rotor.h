@@ -216,7 +216,7 @@ enum {
 
 #define FD_METRICS_COUNTER_ROTOR_REQUEST_STUCK_ESCAPED_NAME "rotor_request_stuck_escaped"
 #define FD_METRICS_COUNTER_ROTOR_REQUEST_STUCK_ESCAPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_ROTOR_REQUEST_STUCK_ESCAPED_DESC "Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set"
+#define FD_METRICS_COUNTER_ROTOR_REQUEST_STUCK_ESCAPED_DESC "Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set; every other retry after that"
 #define FD_METRICS_COUNTER_ROTOR_REQUEST_STUCK_ESCAPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_ROTOR_REQUEST_FANOUT_SENT_NAME "rotor_request_fanout_sent"
