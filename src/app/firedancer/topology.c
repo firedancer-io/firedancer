@@ -1552,7 +1552,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.expected_shred_version = config->consensus.expected_shred_version;
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.max_txn_per_slot = config->limits.max_txn_per_slot;
-    tile->snapin.alpenglow        = 1;
     tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
     tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );
@@ -1599,7 +1598,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
-    tile->replay.alpenglow = 1;
 
     tile->replay.sched_depth = config->tiles.replay.max_transaction_lookahead_buffer_size;
     wfs_decode_bank_hash( config, &tile->replay.wait_for_supermajority_with_bank_hash );
@@ -1774,7 +1772,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
     tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;
-    tile->shred.alpenglow                     = 1;
     tile->shred.bench_max_shreds_per_block    = config->development.bench.max_shreds_per_block;
     tile->shred.adtl_dests_retransmit_cnt     = config->tiles.shred.additional_shred_destinations_retransmit_cnt;
     tile->shred.adtl_dests_leader_cnt         = config->tiles.shred.additional_shred_destinations_leader_cnt;
@@ -1821,7 +1818,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.listen_port = config->tiles.gui.gui_listen_port;
     tile->gui.max_txn_per_slot = config->limits.max_txn_per_slot;
     tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
-    tile->gui.is_alpenglow = 1;
     fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
     fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
     fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
@@ -1846,7 +1842,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     parse_listen_addr( config->tiles.rpc.rpc_listen_address, "tiles.rpc.rpc_listen_address", &tile->rpc.listen_addr );
     tile->rpc.listen_port = config->tiles.rpc.rpc_listen_port;
     tile->rpc.delay_startup = config->tiles.rpc.delay_startup;
-    tile->rpc.alpenglow     = 1;
     tile->rpc.max_http_connections      = config->tiles.rpc.max_http_connections;
     tile->rpc.max_websocket_connections = config->tiles.rpc.max_websocket_connections;
     tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;

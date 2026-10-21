@@ -395,7 +395,6 @@ struct fd_topo_tile {
       char  adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
       ulong adtl_dests_leader_cnt;
       char  adtl_dests_leader[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
-      int   alpenglow;
     } shred;
 
     struct {
@@ -417,7 +416,6 @@ struct fd_topo_tile {
       ushort listen_port;
 
       int    is_voting;
-      int    is_alpenglow;
 
       char   cluster[ 32 ];
       char   identity_key_path[ PATH_MAX ];
@@ -459,7 +457,6 @@ struct fd_topo_tile {
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
-      int  alpenglow;
 
       int    snapshot_server_enabled;
       char   snapshot_server_host[ FD_FQDN_BUF_MAX ];
@@ -529,8 +526,6 @@ struct fd_topo_tile {
         uchar tip_distribution_program_addr[ 32 ];
         char  vote_account_path[ PATH_MAX ];
       } bundle;
-
-      int alpenglow;
     } replay;
 
     struct {
@@ -707,7 +702,6 @@ struct fd_topo_tile {
       ulong     banks_obj_id;
       ulong     shmem_obj_id; /* shared parallel snapin state */
       ulong     max_txn_per_slot;
-      int       alpenglow;
     } snapin;
 
     struct {

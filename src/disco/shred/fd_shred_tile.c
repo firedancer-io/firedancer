@@ -243,7 +243,6 @@ typedef struct {
   fd_store_t    * store;
   fd_store_map_t  map_join[1];
   int             disk_fd;
-  int             alpenglow;
 
   fd_gossip_update_message_t gossip_upd_buf[1];
 
@@ -903,8 +902,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
 
   /* Compute merkle root and chained merkle root. */
 
-  int replay_fwd = 1;
-  int again      = 0;
+  int again = 0;
   if( FD_LIKELY( ctx->store ) ) {
     fd_hash_t const * mr = fd_type_pun_const( merkle_root );
 
@@ -939,10 +937,9 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
       fd_store_fec_t * fec;
       again = fd_store_insert( ctx->store, ctx->map_join, mr, last->slot, ctx->round_robin_id, data_idx, data_sz, shred_sz, &fec )==FD_MAP_ERR_KEY;
     }
-    replay_fwd = !again || ctx->alpenglow;
   }
 
-  if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) {
+  if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) {
 
     /* Send all of the data shreds we recovered (weren't received).
        The chunks are all written before any is published, so the
@@ -1174,8 +1171,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     /* Send rotor future slots past max_live_slots so that unstaked
        nodes can catch up. */
 
-    if( FD_UNLIKELY( ctx->alpenglow &&
-                     rv==FD_FEC_RESOLVER_SHRED_IGNORED &&
+    if( FD_UNLIKELY( rv==FD_FEC_RESOLVER_SHRED_IGNORED &&
                      shred_source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE &&
                      shred->version==ctx->shredder->shred_version &&
                      shred->slot>ctx->future_slot &&
@@ -1323,8 +1319,6 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( ctx->store->magic==FD_STORE_MAGIC );
     FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   }
-  ctx->alpenglow = tile->shred.alpenglow;
-
   /* If the default partial_depth is ever changed, correspondingly
      change the size of the fd_fec_intra_pool in fd_fec_repair. */
   ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, fec_exposure+1UL,
@@ -1412,7 +1406,7 @@ unprivileged_init( fd_topo_t const *      topo,
                                                                         tile->shred.fec_resolver_depth, 1UL,
                                                                         fec_exposure+1UL,
                                                                         128UL * tile->shred.fec_resolver_depth,
-                                                                        tile->shred.alpenglow ? tile->shred.slot_max : 0UL,
+                                                                        tile->shred.slot_max,
                                                                         resolver_sets,
                                                                         ctx->resolver_seed ) ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );

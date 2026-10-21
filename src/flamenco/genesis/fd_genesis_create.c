@@ -444,7 +444,7 @@ genesis_create( void *                       buf,
 
   /* Genesis certificate and epoch inflation account */
   ulong alpenglow_idx = genesis->accounts_len;
-  if( options->alpenglow ) genesis->accounts_len += 2UL;
+  genesis->accounts_len += 2UL;
 
   ulong accounts_sz;
   REQUIRE( !__builtin_mul_overflow( genesis->accounts_len, sizeof(fd_genesis_account_pair_t), &accounts_sz ) );
@@ -517,37 +517,35 @@ genesis_create( void *                       buf,
 
   uchar genesis_cert_data   [ FD_GENESIS_CERT_SZ              ] = {0};
   uchar epoch_inflation_data[ FD_EPOCH_INFLATION_ACCOUNT_SOME ];
-  if( options->alpenglow ) {
-    /* WireBlockCertMessage { block: { slot: 0, block_id: 0 },
-       signature: { signature: 0, bitmap: encode_base2( [] ) } }
-       bincode encoded.  The bitmap is a Vec<u8> holding the base2
-       version byte (0) and a u16 bit count (0). */
-    FD_STORE( ulong, genesis_cert_data+232UL, 3UL );
+  /* WireBlockCertMessage { block: { slot: 0, block_id: 0 },
+     signature: { signature: 0, bitmap: encode_base2( [] ) } }
+     bincode encoded.  The bitmap is a Vec<u8> holding the base2
+     version byte (0) and a u16 bit count (0). */
+  FD_STORE( ulong, genesis_cert_data+232UL, 3UL );
 
-    fd_pubkey_t genesis_cert_addr;
-    fd_alpenglow_pda( "carlgration", &genesis_cert_addr );
-    genesis->accounts[ alpenglow_idx ] = (fd_genesis_account_pair_t) {
-      .key     = genesis_cert_addr,
-      .account = (fd_genesis_account_t) {
-        .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, FD_GENESIS_CERT_SZ ),
-        .data_len   = FD_GENESIS_CERT_SZ,
-        .data       = genesis_cert_data,
-        .owner      = fd_solana_system_program_id
-      }
-    };
+  fd_pubkey_t genesis_cert_addr;
+  fd_alpenglow_pda( "carlgration", &genesis_cert_addr );
+  genesis->accounts[ alpenglow_idx ] = (fd_genesis_account_pair_t) {
+    .key     = genesis_cert_addr,
+    .account = (fd_genesis_account_t) {
+      .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, FD_GENESIS_CERT_SZ ),
+      .data_len   = FD_GENESIS_CERT_SZ,
+      .data       = genesis_cert_data,
+      .owner      = fd_solana_system_program_id
+    }
+  };
 
-    fd_epoch_inflation_account_state_t epoch_inflation = { .current = { .slots_per_epoch = genesis->epoch_schedule.slots_per_epoch } };
-    ulong epoch_inflation_sz = fd_epoch_inflation_account_encode( epoch_inflation_data, &epoch_inflation );
-    genesis->accounts[ alpenglow_idx+1UL ] = (fd_genesis_account_pair_t) {
-      .key     = fd_epoch_inflation_account_address(),
-      .account = (fd_genesis_account_t) {
-        .lamports   = fd_ulong_max( fd_rent_exempt_minimum_balance( &genesis->rent, epoch_inflation_sz ), 1UL ),
-        .data_len   = epoch_inflation_sz,
-        .data       = epoch_inflation_data,
-        .owner      = fd_solana_system_program_id
-      }
-    };
-  }
+  fd_epoch_inflation_account_state_t epoch_inflation = { .current = { .slots_per_epoch = genesis->epoch_schedule.slots_per_epoch } };
+  ulong epoch_inflation_sz = fd_epoch_inflation_account_encode( epoch_inflation_data, &epoch_inflation );
+  genesis->accounts[ alpenglow_idx+1UL ] = (fd_genesis_account_pair_t) {
+    .key     = fd_epoch_inflation_account_address(),
+    .account = (fd_genesis_account_t) {
+      .lamports   = fd_ulong_max( fd_rent_exempt_minimum_balance( &genesis->rent, epoch_inflation_sz ), 1UL ),
+      .data_len   = epoch_inflation_sz,
+      .data       = epoch_inflation_data,
+      .owner      = fd_solana_system_program_id
+    }
+  };
 
   /* Deploy an SPL Token compatible program and set up the token
      accounts */

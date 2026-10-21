@@ -4534,7 +4534,7 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( ctx->reception_stats, 0, sizeof(fd_reception_stats_t)*ctx->reception_stats_cnt );
 
   ctx->leader_stats.slot = ULONG_MAX;
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ), 1 ) );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
   FD_TEST( ctx->sched );
 
   ctx->in_cnt          = tile->in_cnt;

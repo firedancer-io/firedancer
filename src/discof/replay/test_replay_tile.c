@@ -1229,9 +1229,9 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->block_id_len   = bank_cnt;
   ctx->max_live_slots = bank_cnt;
 
-  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1, 1UL ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL ) );
   FD_TEST( ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   ctx->store_disk_fd = -1;
@@ -1385,9 +1385,9 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
   setup_stem( ctx, wksp );
   setup_votor_input( ctx, wksp );
 
-  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1, 1UL ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL ) );
   FD_TEST( ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
 
@@ -3325,9 +3325,9 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
 
   ctx->block_id_len = bank_cnt;
 
-  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1, 1UL ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL ) );
   FD_TEST( ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
 
