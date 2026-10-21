@@ -190,6 +190,7 @@ struct fd_rotor_tile {
   /* Requests */
 
   fd_clock_tile_t   clock[1];
+  long              rx_wrap_ns; /* an rx tickcount decodes right only this long after the packet arrived */
   fd_rng_t          rng[1];
   fd_rnonce_ss_t    rnonce_ss[1];
   timeout_t *       eager_prq;
@@ -535,6 +536,7 @@ handle_shred( fd_rotor_tile_t * ctx,
     pending_t * pending = reply ? pending_map_ele_query( ctx->pending_map, &key, NULL, ctx->pending_pool ) : NULL;
     for( ; pending; pending = (pending_t *)pending_map_ele_next_const( pending, NULL, ctx->pending_pool ) ) {
       if( FD_LIKELY( fd_rnonce_ss_compute( ctx->rnonce_ss, normal, slot, shred->idx, pending->ts )!=msg->rnonce ) ) continue;
+      long rtt = fd_long_if( now-pending->ts<ctx->rx_wrap_ns, rx_ts, now )-pending->ts; /* rx_ts may have wrapped once the request is older */
       if( FD_UNLIKELY( pending->fanout ) ) {
         /* Siblings share the nonce, so the reply cannot say which peer
            sent it: the first one ends them all, without an rtt sample. */
@@ -551,9 +553,9 @@ handle_shred( fd_rotor_tile_t * ctx,
         }
         fd_rotor_strat_request_failed( ctx->strat, &pending->peer, 0L );
       } else {
-        fd_rotor_strat_request_done( ctx->strat, &pending->peer, now-pending->ts, pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
+        fd_rotor_strat_request_done( ctx->strat, &pending->peer, fd_long_max( rtt, 1L ), pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
       }
-      fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-pending->ts ) );
+      fd_histf_sample( ctx->metrics->response_latency, (ulong)fd_long_max( rtt, 0L ) );
       ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
       fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
       while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
@@ -761,7 +763,8 @@ handle_parent_and_fec_set_count_res( fd_rotor_tile_t *    ctx,
                                      ulong                data_sz,
                                      fd_ip4_hdr_t const * ip4,
                                      fd_udp_hdr_t const * udp,
-                                     long                 now ) {
+                                     long                 now,
+                                     long                 rx_ts ) {
   uint      fec_set_cnt;
   ulong     parent_slot;
   fd_mr32_t parent_blk_mr;
@@ -788,8 +791,9 @@ handle_parent_and_fec_set_count_res( fd_rotor_tile_t *    ctx,
     fd_rotor_strat_request_failed( ctx->strat, &sent.peer, now+BAN_TTL );
     return;
   }
-  fd_rotor_strat_request_done( ctx->strat, &sent.peer, now-sent.ts, 0 );
-  fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
+  long rtt = fd_long_if( now-sent.ts<ctx->rx_wrap_ns, rx_ts, now )-sent.ts; /* rx_ts may have wrapped once the request is older */
+  fd_rotor_strat_request_done( ctx->strat, &sent.peer, fd_long_max( rtt, 1L ), 0 );
+  fd_histf_sample( ctx->metrics->response_latency, (ulong)fd_long_max( rtt, 0L ) );
   ctx->metrics->parent_fec_count_ok++;
 
   if( FD_UNLIKELY( sent.slot<=ctx->rotor->root  ) ) return; /* rooted while in flight */
@@ -805,7 +809,8 @@ handle_fec_set_root_res( fd_rotor_tile_t *    ctx,
                          ulong                data_sz,
                          fd_ip4_hdr_t const * ip4,
                          fd_udp_hdr_t const * udp,
-                         long                 now ) {
+                         long                 now,
+                         long                 rx_ts ) {
   fd_mr20_t fec_mr;
   uchar     proof[ FD_ROTOR_PROOF_MAX ];
   ulong     proof_sz;
@@ -830,8 +835,9 @@ handle_fec_set_root_res( fd_rotor_tile_t *    ctx,
     fd_rotor_strat_request_failed( ctx->strat, &sent.peer, now+BAN_TTL );
     return;
   }
-  fd_rotor_strat_request_done( ctx->strat, &sent.peer, now-sent.ts, 0 );
-  fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
+  long rtt = fd_long_if( now-sent.ts<ctx->rx_wrap_ns, rx_ts, now )-sent.ts; /* rx_ts may have wrapped once the request is older */
+  fd_rotor_strat_request_done( ctx->strat, &sent.peer, fd_long_max( rtt, 1L ), 0 );
+  fd_histf_sample( ctx->metrics->response_latency, (ulong)fd_long_max( rtt, 0L ) );
   ctx->metrics->fec_root_ok++;
 
   if( FD_UNLIKELY( sent.slot<=ctx->rotor->root ) ) return; /* rooted while in flight */
@@ -841,7 +847,8 @@ handle_fec_set_root_res( fd_rotor_tile_t *    ctx,
 static void
 handle_net( fd_rotor_tile_t *   ctx,
             fd_stem_context_t * stem,
-            ulong               sz ) {
+            ulong               sz,
+            long                rx_ts ) {
   uchar *        data;
   ulong          data_sz;
   fd_ip4_hdr_t * ip4;
@@ -855,8 +862,8 @@ handle_net( fd_rotor_tile_t *   ctx,
     return;
   }
   switch( FD_LOAD( uint, data ) ) {
-  case FD_ROTOR_SERDE_TAG_PARENT_FEC_SET_COUNT_RES: handle_parent_and_fec_set_count_res( ctx, data, data_sz, ip4, udp, now ); break;
-  case FD_ROTOR_SERDE_TAG_FEC_SET_ROOT_RES:         handle_fec_set_root_res            ( ctx, data, data_sz, ip4, udp, now ); break;
+  case FD_ROTOR_SERDE_TAG_PARENT_FEC_SET_COUNT_RES: handle_parent_and_fec_set_count_res( ctx, data, data_sz, ip4, udp, now, rx_ts ); break;
+  case FD_ROTOR_SERDE_TAG_FEC_SET_ROOT_RES:         handle_fec_set_root_res            ( ctx, data, data_sz, ip4, udp, now, rx_ts ); break;
   default: break;
   }
 }
@@ -1309,14 +1316,18 @@ after_frag( fd_rotor_tile_t *   ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
-            ulong               tspub  FD_PARAM_UNUSED,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_NET:
-    handle_net( ctx, stem, sz );
+  case IN_KIND_NET: { /* tspub is the net tile's rx of the packet */
+    long now_tick = fd_tickcount();
+    long rx_tick  = fd_frag_meta_ts_decomp( tspub, now_tick );
+    if( FD_UNLIKELY( rx_tick>now_tick ) ) rx_tick -= 1L<<32;
+    handle_net( ctx, stem, sz, fd_clock_tile_tickcount_to_wallclock( ctx->clock, rx_tick ) );
     break;
+  }
   case IN_KIND_SIGN:
     handle_sign( ctx, stem, in_idx, sig );
     break;
@@ -1477,6 +1488,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->strat && ctx->ping_deque && ctx->eager_prq && ctx->notar_prq && ctx->final_prq && ctx->pending_pool && ctx->pending_map && ctx->pending_dlist && ctx->sign_pool );
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, (uint)ctx->seed, ctx->seed>>32 ) ) );
   fd_clock_tile_init( ctx->clock );
+  ctx->rx_wrap_ns = (long)( (double)(1UL<<32)/fd_tempo_tick_per_ns( NULL ) );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( ROTOR, RESPONSE_LATENCY_NANOS ), FD_MHIST_MAX( ROTOR, RESPONSE_LATENCY_NANOS ) ) ) );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->retry_delay,      FD_MHIST_MIN( ROTOR, RETRY_DELAY_NANOS      ), FD_MHIST_MAX( ROTOR, RETRY_DELAY_NANOS      ) ) ) );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->escape_hedge,     FD_MHIST_MIN( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS ), FD_MHIST_MAX( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS ) ) ) );
