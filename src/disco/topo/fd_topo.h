@@ -134,6 +134,7 @@ struct fd_topo_tile {
 
   int   is_waker_client;        /* Tile has file descriptors which must be serviced by the external waker tile. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
+  int   outlives_startup;       /* A startup tile that keeps running once the post-start tiles are up, so the layout must not place it on their CPUs. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
   int   floats;                 /* Scheduled by the kernel over the CPUs of the floating tiles on its NUMA node, never a pinned tile's CPU, instead of pinned to cpu_idx (efficient mode).  cpu_idx still places memory and isolation, and is the fallback when no such CPU remains. */
