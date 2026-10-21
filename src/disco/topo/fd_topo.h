@@ -606,15 +606,6 @@ struct fd_topo_tile {
     } rserve;
 
     struct {
-      ushort txsend_src_port;
-
-      /* non-config */
-
-      uint  ip_addr;
-      char  identity_key_path[ PATH_MAX ];
-    } txsend;
-
-    struct {
       uint fake_dst_ip;
     } pktgen;
 
