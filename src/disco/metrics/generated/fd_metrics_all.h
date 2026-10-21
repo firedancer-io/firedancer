@@ -74,7 +74,6 @@ enum {
 #include "fd_metrics_shred.h"
 #include "fd_metrics_accdb.h"
 #include "fd_metrics_replay.h"
-#include "fd_metrics_repair.h"
 #include "fd_metrics_rotor.h"
 #include "fd_metrics_rserve.h"
 #include "fd_metrics_gossip.h"
@@ -253,7 +252,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 
 #define FD_METRICS_TOTAL_SZ (8UL*301UL)
 
-#define FD_METRICS_TILE_KIND_CNT 46
+#define FD_METRICS_TILE_KIND_CNT 45
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

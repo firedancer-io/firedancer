@@ -1,17 +1,8 @@
 ifdef FD_HAS_HOSTED
-$(call add-objs,fd_repair_tile,fd_discof)
 $(call add-objs,fd_rserve_tile,fd_discof)
 endif
-$(call add-objs,fd_reqlim,fd_discof)
-$(call add-hdrs,fd_reqlim.h)
-$(call add-objs,fd_policy,fd_discof)
-$(call add-hdrs,fd_policy.h)
-$(call add-objs,fd_inflight,fd_discof)
-$(call add-hdrs,fd_inflight.h)
 $(call add-objs,fd_repair,fd_discof)
 $(call add-hdrs,fd_repair.h)
-$(call add-objs,fd_repair_metrics,fd_discof)
-$(call add-hdrs,fd_repair_metrics.h)
 
 $(call add-objs,fd_rserve,fd_discof)
 $(call add-hdrs,fd_rserve.h)
@@ -19,8 +10,6 @@ $(call add-objs,fd_blockdb,fd_discof)
 $(call add-hdrs,fd_blockdb.h)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_blockdb,test_blockdb,fd_discof fd_disco fd_flamenco fd_tango fd_ballet fd_util)
-$(call make-unit-test,test_policy,test_policy,fd_discof fd_disco fd_waltz fd_tango fd_ballet fd_util)
-$(call make-unit-test,test_repair_tile,test_repair_tile,fd_discof fd_disco fd_waltz fd_tango fd_ballet fd_util)
 $(call make-unit-test,test_rserve_tile,test_rserve_tile,fd_discof fd_disco fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_repair_serde,fuzz_repair_serde,fd_discof fd_disco fd_waltz fd_tango fd_ballet fd_util)
 endif
