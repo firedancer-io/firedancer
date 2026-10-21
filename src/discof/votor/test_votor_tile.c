@@ -1412,6 +1412,7 @@ test_ci( fd_votor_tile_t * ctx,
          peer_t const *    peer,
          ushort            port ) {
   contact_info_t * ci = contact_infos_insert( ctx->contact_infos, peer->id_key );
+  ci->removed = 0;
   ci->ip4  = FD_IP4_ADDR( 10, 0, 0, 1 );
   ci->port = port;
   return ci;
@@ -1645,9 +1646,9 @@ test_gossip_connects_new_address( void ) {
   handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
   FD_TEST( other->tx_conn && other->conn_backoff==0L );
 
-  /* A removal forgets the address but leaves the conn up. */
+  /* A removal keeps a peer's address and leaves the conn up. */
   handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE, &msg );
-  FD_TEST( !contact_infos_query( ctx.contact_infos, other->id_key, NULL ) && other->tx_conn );
+  FD_TEST( contact_infos_query( ctx.contact_infos, other->id_key, NULL )->removed && other->tx_conn );
   other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
   sock->ip4 = FD_IP4_ADDR( 10, 0, 0, 2 );
   handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
