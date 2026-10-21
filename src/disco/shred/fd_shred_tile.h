@@ -113,6 +113,13 @@ struct fd_fec_complete {
   ulong turbine_shred_cnt;
   ulong repair_shred_cnt;
   ulong reconstructed_shred_cnt; /* data plus coding */
+
+  /* Bit j set if the shred with in-type index j was received rather
+     than recovered, repair_data_rcvd restricted to data shreds that
+     arrived by repair.  All 0 for LEADER and AGAIN completions. */
+  uint data_shred_rcvd;
+  uint parity_shred_rcvd;
+  uint repair_data_rcvd;
 };
 typedef struct fd_fec_complete fd_fec_complete_t;
 

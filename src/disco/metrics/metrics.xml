@@ -1159,9 +1159,9 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <enum name="ShredResponseMatchResult">
-    <int value="0" name="ForBlockId" label="First response to a WindowIndexForBlockId request" />
-    <int value="1" name="SlotIndex" label="First response to a WindowIndex or HighestWindowIndex request" />
-    <int value="2" name="Unmatched" label="Matched no pending request, including later answers to an already matched or expired request" />
+    <int value="0" name="ForBlockId" label="Response to a pending WindowIndexForBlockId request" />
+    <int value="1" name="SlotIndex" label="Response to a pending WindowIndex or HighestWindowIndex request" />
+    <int value="2" name="Unmatched" label="Matched no pending request: a duplicate, or an answer to an expired or evicted request" />
 </enum>
 
 <enum name="RepairResponseType">
@@ -1217,7 +1217,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="FirstTurbineSlot" summary="First turbine slot seen, the catchup target, 0 if none" />
     <gauge name="CatchupSlot" summary="Highest slot past the window with a verified cert, the staked catchup target, 0 if none" />
     <gauge name="BlockPending" summary="Blocks in the eager, notar and final block treaps, waiting for discovery" />
-    <gauge name="RequestInFlight" summary="Pending request attempts awaiting a first response; a hedge is another attempt" />
+    <gauge name="RequestInFlight" summary="Pending request attempts awaiting a response; a hedge is another attempt" />
     <counter name="FecDelivered" summary="FEC sets published to replay" />
     <counter name="ShredOldIgnored" summary="Shreds received at or below the root, ignored" />
     <counter name="ShredRx" enum="ShredResponseMatchResult" summary="Data shreds received as repair responses, by the pending request they matched" />
