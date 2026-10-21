@@ -99,7 +99,7 @@ enum {
 
 #define FD_METRICS_GAUGE_ROTOR_REQUEST_IN_FLIGHT_NAME "rotor_request_in_flight"
 #define FD_METRICS_GAUGE_ROTOR_REQUEST_IN_FLIGHT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_ROTOR_REQUEST_IN_FLIGHT_DESC "Pending request attempts awaiting a first response; a hedge is another attempt"
+#define FD_METRICS_GAUGE_ROTOR_REQUEST_IN_FLIGHT_DESC "Pending request attempts awaiting a response; a hedge is another attempt"
 #define FD_METRICS_GAUGE_ROTOR_REQUEST_IN_FLIGHT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_ROTOR_FEC_DELIVERED_NAME "rotor_fec_delivered"

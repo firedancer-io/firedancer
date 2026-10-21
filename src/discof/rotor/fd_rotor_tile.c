@@ -76,6 +76,8 @@ struct pending {
   uint        fec_idx;     /* FEC index */
   uint        fec_set_cnt; /* the blk's when sent */
   uint        tag;         /* FD_ROTOR_SERDE_TAG_* of the request */
+  uint        mask;        /* bit i set while shred i of the FEC set is unanswered, bit 0 for a HIGHEST or ORPHAN; the pending outlives its last answer */
+  uint        answered;    /* shreds matched so far */
 };
 typedef struct pending pending_t;
 
@@ -454,6 +456,9 @@ report_block_received( void *                 ctx_,
     if( FD_UNLIKELY( !fec ) ) continue; /* an incomplete blk can miss FEC sets */
     memcpy( f->merkle_root, fec->mr32.uc, sizeof(fd_mr32_t) );
     f->index                      = (uint)k*FD_FEC_SHRED_CNT;
+    f->data_shreds_received_mask   = fec->data_rcvd;
+    f->parity_shreds_received_mask = fec->parity_rcvd;
+    f->repair_shreds_received_mask = fec->repair_rcvd;
     f->first_shred_received_time  = (ulong)fec->first_ts;
     f->completed_time             = (ulong)fec->cmpl_ts;
     f->final_shred_source         = fd_int_if( fec->is_leader, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER, fec->final_src );
@@ -497,7 +502,7 @@ handle_shred( fd_rotor_tile_t * ctx,
     if( FD_UNLIKELY( shred->idx>=FD_SHRED_BLK_MAX                                                   ) ) return;
     if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->rotor->root ) ) return; /* parent is the slot itself, or below the root */
 
-    fd_rotor_fec_t const * fec = fd_rotor_fec_complete( ctx->rotor, shred, &complete->merkle_root, sig==SHRED_SIG_FEC_COMPLETE_LEADER, (uint)complete->turbine_shred_cnt, (uint)complete->repair_shred_cnt, (uint)complete->reconstructed_shred_cnt, rx_ts );
+    fd_rotor_fec_t const * fec = fd_rotor_fec_complete( ctx->rotor, shred, &complete->merkle_root, sig==SHRED_SIG_FEC_COMPLETE_LEADER, (uint)complete->turbine_shred_cnt, (uint)complete->repair_shred_cnt, (uint)complete->reconstructed_shred_cnt, complete->data_shred_rcvd, complete->parity_shred_rcvd, complete->repair_data_rcvd, rx_ts );
     if( FD_UNLIKELY( sig!=SHRED_SIG_FEC_COMPLETE || !fec || !fec->first_ts ) ) break; /* a first completion from the network */
 
     fd_rotor_strat_turbine_done( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, shred->slot ), rx_ts-fec->first_ts );
@@ -521,17 +526,25 @@ handle_shred( fd_rotor_tile_t * ctx,
     if( FD_UNLIKELY( shred->idx>=FD_SHRED_BLK_MAX ) ) return;
 
     /* A repair shred answers the request whose nonce it carries: the
-       first one ends that request's pick.  A HighestWindowIndex answer
-       that does not complete the slot arrives as BAD_REPAIR. */
+       first one ends that request's pick, the last one ends the
+       request.  A HighestWindowIndex answer that does not complete the
+       slot arrives as BAD_REPAIR. */
 
     int         normal  = fd_rnonce_ss_normal_repair( msg->rnonce );
     int         reply   = fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR || fd_shred_sig_src( sig )==SHRED_SIG_SRC_BAD_REPAIR;
     ulong       key     = (ulong)(uint)slot<<32 | fd_uint_if( normal, shred->idx/FD_FEC_SHRED_CNT, (uint)FD_FEC_BLK_MAX );
+    uint        bit     = fd_uint_if( normal, 1U<<( shred->idx%FD_FEC_SHRED_CNT ), 1U );
     pending_t * pending = reply ? pending_map_ele_query( ctx->pending_map, &key, NULL, ctx->pending_pool ) : NULL;
     for( ; pending; pending = (pending_t *)pending_map_ele_next_const( pending, NULL, ctx->pending_pool ) ) {
+      if( FD_UNLIKELY( !( pending->mask & bit ) ) ) continue; /* already answered, or not asked of this request */
       if( FD_LIKELY( fd_rnonce_ss_compute( ctx->rnonce_ss, normal, slot, shred->idx, pending->ts )!=msg->rnonce ) ) continue;
-      fd_rotor_strat_request_done( ctx->strat, &pending->peer, now-pending->ts, pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
-      fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-pending->ts ) );
+      if( FD_LIKELY( !pending->answered ) ) { /* rtt to the shred tile's network rx, not to this tile's turn at the frag */
+        long rtt = fd_long_max( rx_ts-pending->ts, 1L );
+        fd_rotor_strat_request_done( ctx->strat, &pending->peer, rtt, pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
+        fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
+      }
+      pending->mask &= ~bit;
+      pending->answered++;
       ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
       fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
       while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
@@ -539,9 +552,11 @@ handle_shred( fd_rotor_tile_t * ctx,
         blk->telemetry.shred_res_cnt++;
         blk->telemetry.last_shred_res_ts = rx_ts;
       }
-      pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
-      pending_dlist_ele_remove   ( ctx->pending_dlist, pending, ctx->pending_pool );
-      pending_pool_ele_release   ( ctx->pending_pool,  pending );
+      if( FD_LIKELY( !pending->mask ) ) { /* every shred answered */
+        pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
+        pending_dlist_ele_remove   ( ctx->pending_dlist, pending, ctx->pending_pool );
+        pending_pool_ele_release   ( ctx->pending_pool,  pending );
+      }
       break;
     }
     ctx->metrics->shred_rx[ FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_UNMATCHED_IDX ] += (ulong)( reply && !pending );
@@ -1019,14 +1034,16 @@ after_credit( fd_rotor_tile_t *   ctx,
 
     /* No rtt sample: silence also means a deduped reply, or a highest
        or orphan request no peer can answer yet.  Only a run of shred
-       and meta requests left unanswered bans the peer. */
+       and meta requests left unanswered bans the peer.  A request
+       answered in part settled its pick on the first shred. */
 
     int answerable = pending->slot>ctx->rotor->root && pending->tag!=FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX && pending->tag!=FD_ROTOR_SERDE_TAG_ORPHAN;
     int byid = pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID;
-    ctx->metrics->byid_expired += (ulong)( answerable && byid );
-    if( FD_LIKELY( answerable ) ) ctx->metrics->peer_byid_banned += (ulong)( fd_rotor_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid )==1 );
-    else                          fd_rotor_strat_request_failed ( ctx->strat, &pending->peer, 0           );
-    ctx->metrics->req_expired++;
+    ctx->metrics->byid_expired += (ulong)( answerable && byid && !pending->answered );
+    if(      FD_UNLIKELY( pending->answered ) ) {}
+    else if( FD_LIKELY  ( answerable        ) ) ctx->metrics->peer_byid_banned += (ulong)( fd_rotor_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid )==1 );
+    else                                        fd_rotor_strat_request_failed ( ctx->strat, &pending->peer, 0           );
+    ctx->metrics->req_expired+= (ulong)!pending->answered;
     pending_dlist_ele_pop_head ( ctx->pending_dlist, ctx->pending_pool );
     pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
     pending_pool_ele_release   ( ctx->pending_pool,  pending );
@@ -1118,7 +1135,7 @@ after_credit( fd_rotor_tile_t *   ctx,
 
     if( FD_UNLIKELY( !pending_pool_free( ctx->pending_pool ) ) ) { /* evict the oldest, a reply to it no longer matches */
       pending_t * oldest = pending_dlist_ele_pop_head( ctx->pending_dlist, ctx->pending_pool );
-      fd_rotor_strat_request_failed( ctx->strat, &oldest->peer, 0 );
+      if( FD_LIKELY( !oldest->answered ) ) fd_rotor_strat_request_failed( ctx->strat, &oldest->peer, 0 );
       pending_map_ele_remove_fast( ctx->pending_map, oldest, ctx->pending_pool );
       pending_pool_ele_release   ( ctx->pending_pool, oldest );
     }
@@ -1132,6 +1149,8 @@ after_credit( fd_rotor_tile_t *   ctx,
     pending->fec_idx     = req.fec_idx;
     pending->fec_set_cnt = blk->cmpl_fec_cnt;
     pending->tag         = tag;
+    pending->mask        = mask;
+    pending->answered    = 0U;
     pending_map_ele_insert     ( ctx->pending_map,   pending, ctx->pending_pool );
     pending_dlist_ele_push_tail( ctx->pending_dlist, pending, ctx->pending_pool );
 
