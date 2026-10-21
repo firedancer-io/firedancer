@@ -4401,24 +4401,82 @@ fork_is_ancestor( fd_accdb_t const * accdb,
   return 0;
 }
 
+/* evict_writeback writes to disk the account whose dirty cache line
+   was just taken for reuse, so its readers find it there.  The caller
+   holds the join's epoch from the eviction through this write. */
+
+static void
+evict_writeback( fd_accdb_t *            accdb,
+                 fd_accdb_cache_line_t * line,
+                 uint                    acc_idx ) {
+  fd_accdb_accmeta_t * accmeta  = &accdb->acc_pool[ acc_idx ];
+  uint                 data_sz  = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+  ulong                entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
+
+  fd_accdb_disk_meta_t meta;
+  fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
+  meta.size       = data_sz;
+  meta.generation = accmeta->key.generation;
+  fd_memcpy( meta.owner, line->owner, 32UL );
+
+  ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
+  if( FD_UNLIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
+    fd_accdb_shmem_bytes_freed( accdb->shmem, old_offset, entry_sz );
+    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
+  }
+
+  ulong file_off = allocate_next_write( accdb, 0UL, entry_sz );
+  struct iovec iov[ 2 ] = {
+    { .iov_base = meta.b,               .iov_len = sizeof(meta) },
+    { .iov_base = (void *)( line+1UL ), .iov_len = data_sz      },
+  };
+  struct iovec * wp      = iov;
+  int            wp_cnt  = 2;
+  ulong          written = 0UL;
+  while( written<entry_sz ) {
+    long result = pwritev2( accdb->fd, wp, wp_cnt, (long)(file_off+written), 0 );
+    if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
+    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    written += (ulong)result;
+    accdb->metrics->bytes_written += (ulong)result;
+    accdb->metrics->write_ops++;
+    while( wp_cnt && (ulong)result>=wp[ 0 ].iov_len ) {
+      result -= (long)wp[ 0 ].iov_len;
+      wp++;
+      wp_cnt--;
+    }
+    if( FD_LIKELY( wp_cnt ) ) {
+      wp[ 0 ].iov_base = (uchar *)wp[ 0 ].iov_base+result;
+      wp[ 0 ].iov_len -= (ulong)result;
+    }
+  }
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
+  accdb->metrics->accounts_evicted++;
+  accdb->metrics->accounts_evicted_per_class[ fd_accdb_cache_class( data_sz ) ]++;
+
+  FD_COMPILER_MFENCE();
+  accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id( accmeta ) );
+}
+
 int
-fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
-                              fd_accdb_fork_id_t  fork_id,
-                              int                 mode,
-                              ulong               cnt,
-                              uchar const * const pubkeys[],
-                              ulong  const        slots[],
-                              ulong  const        lamports[],
-                              ulong  const        data_lens[],
-                              int    const        executables[],
-                              ulong  const        file_offsets[],
-                              ulong *             accounts_ignored,
-                              ulong *             accounts_replaced,
-                              ulong *             accounts_loaded,
-                              ulong *             out_replaced_lamports,
-                              ulong *             out_ignored_lamports,
-                              ulong *             replaced_slots,
-                              uchar *             results ) {
+fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
+                              fd_accdb_fork_id_t                 fork_id,
+                              int                                mode,
+                              ulong                              cnt,
+                              uchar const * const                pubkeys[],
+                              ulong const                        slots[],
+                              ulong const                        lamports[],
+                              ulong const                        data_lens[],
+                              int const                          executables[],
+                              ulong const                        file_offsets[],
+                              fd_accdb_disk_meta_t const * const cache_records[],
+                              ulong *                            accounts_ignored,
+                              ulong *                            accounts_replaced,
+                              ulong *                            accounts_loaded,
+                              ulong *                            out_replaced_lamports,
+                              ulong *                            out_ignored_lamports,
+                              ulong *                            replaced_slots,
+                              uchar *                            results ) {
   FD_TEST( cnt>0UL && cnt<=8UL );
 
   FD_TEST( fork_id.val!=USHORT_MAX );
@@ -4464,6 +4522,28 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
         }
       }
     }
+  }
+
+  /* Phase 1c: records kept in the cache take their lines now, before
+     any chain is locked.  A dirty line the cache gives up is written
+     to disk first. */
+
+  fd_accdb_cache_line_t * lines[ 8 ] = {0};
+  if( FD_UNLIKELY( cache_records ) ) {
+    FD_TEST( mode==FD_ACCDB_RESTORE_MODE_STREAM );
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+    FD_HW_MFENCE();
+    for( ulong i=0UL; i<cnt; i++ ) {
+      fd_accdb_disk_meta_t const * record = cache_records[ i ];
+      uint evicted;
+      lines[ i ] = acquire_cache_line( accdb, fd_accdb_cache_class( data_lens[ i ] ), &evicted );
+      if( FD_UNLIKELY( evicted!=UINT_MAX ) ) evict_writeback( accdb, lines[ i ], evicted );
+      fd_memcpy( lines[ i ]->owner, record->owner, 32UL );
+      fd_memcpy( lines[ i ]+1UL, record+1UL, data_lens[ i ] );
+    }
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
   }
 
   fd_accdb_accmeta_t * acquired[ 8 ];
@@ -4545,7 +4625,13 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
       replaced_slots[ i ] = ULONG_MAX;
       FD_COMPILER_MFENCE();
       FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
-      fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
+      if( FD_LIKELY( !lines[ i ] ) ) {
+        fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
+      } else {
+        while( FD_UNLIKELY( FD_ATOMIC_CAS( &lines[ i ]->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )!=1U ) ) FD_SPIN_PAUSE();
+        cache_line_free( accdb, fd_accdb_cache_class( data_lens[ i ] ), lines[ i ] );
+      }
+
       ignored_lamports  += lamports[ i ];
       ignored++;
       continue;
@@ -4606,11 +4692,26 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
       }
     }
 
-    accmeta->cache_idx       = (uint)slots[ i ];
     accmeta->lamports        = lamports[ i ];
     accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
-    ulong file_off           = file_offsets[ i ];
-    accmeta->offset_fork     = fd_accdb_acc_pack_offset_fork( file_off, fork_id.val );
+    if( FD_LIKELY( !lines[ i ] ) ) {
+      accmeta->cache_idx   = (uint)slots[ i ];
+      accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_offsets[ i ], fork_id.val );
+      used_bytes_added    += entry_sz;
+    } else {
+      /* Kept in its cache line until the cache evicts it, like a
+         committed write.  A stream record's slot is never read. */
+      fd_accdb_cache_line_t * line       = lines[ i ];
+      ulong                   size_class = fd_accdb_cache_class( data_lens[ i ] );
+      fd_memcpy( line->key.pubkey, pubkeys[ i ], 32UL );
+      line->key.generation      = fork_gen;
+      line->acc_idx             = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
+      line->persisted           = 0;
+      line->referenced          = 0;
+      accmeta->cache_idx        = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, line ) );
+      accmeta->executable_size |= FD_ACCDB_SIZE_CACHE_VALID_BIT;
+      accmeta->offset_fork      = fd_accdb_acc_pack_offset_fork( FD_ACCDB_OFF_INVAL, fork_id.val );
+    }
 
     FD_COMPILER_MFENCE();
     if( FD_UNLIKELY( last_live!=UINT_MAX && !existing ) ) {
@@ -4618,7 +4719,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
     }
     FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = new_head;
 
-    used_bytes_added += entry_sz;
+    if( FD_UNLIKELY( lines[ i ] ) ) FD_ATOMIC_FETCH_AND_SUB( &lines[ i ]->refcnt, 1U );
   }
 
 fini:

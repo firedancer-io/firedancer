@@ -1304,7 +1304,7 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   int mode = fork_id.val!=USHORT_MAX ? FD_ACCDB_RESTORE_MODE_INCREMENTAL : FD_ACCDB_RESTORE_MODE_FULL;
   if( mode==FD_ACCDB_RESTORE_MODE_FULL ) fork_id = fd_accdb_root_fork_id( accdb );
   int result = fd_accdb_restore_write_batch( accdb, fork_id, mode, 1UL, pubkeys, slots, lamports_arr,
-                                              data_lens, executables, file_offsets, &ignored,
+                                              data_lens, executables, file_offsets, NULL, &ignored,
                                               &replaced, &loaded, out_replaced_lamports,
                                               &ignored_lamports, replaced_slots, results );
   FD_TEST( !result );
@@ -1691,7 +1691,7 @@ test_write_batch_on( fd_accdb_t *                         accdb,
 
   test_batch_result_t result = {0};
   result.err = fd_accdb_restore_write_batch( accdb, fork_id, mode, cnt, pubkeys, slots, lamports, data_lens,
-                                              executables, file_offsets, &result.ignored, &result.replaced,
+                                              executables, file_offsets, NULL, &result.ignored, &result.replaced,
                                               &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
                                               result.replaced_slots, result.results );
   return result;
@@ -1777,6 +1777,179 @@ test_fork_hide_ancestor( void ) {
   FD_TEST(  fd_accdb_has_record( accdb, child, pk1 ) );
   FD_TEST( !fd_accdb_has_record( accdb, child, pk4 ) ); /* rooting drops empty records */
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL ); /* and the shadowed copies */
+  test_teardown( accdb, fd );
+}
+
+/* test_write_cached writes one stream record that is kept in the
+   cache: the record bytes are passed instead of a file offset. */
+static test_batch_result_t
+test_write_cached( fd_accdb_t *       accdb,
+                   fd_accdb_fork_id_t fork_id,
+                   uchar const *      pubkey,
+                   uchar const *      owner,
+                   ulong              lamports,
+                   uchar const *      data,
+                   ulong              data_len ) {
+  static uchar rec[ sizeof(fd_accdb_disk_meta_t)+4096UL ];
+  FD_TEST( data_len<=4096UL );
+  fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)rec;
+  fd_memcpy( meta->pubkey, pubkey, 32UL );
+  meta->size       = (uint)data_len;
+  meta->generation = 0U;
+  fd_memcpy( meta->owner, owner, 32UL );
+  if( data_len ) fd_memcpy( rec+sizeof(fd_accdb_disk_meta_t), data, data_len );
+
+  uchar const * pubkeys[ 1 ] = { pubkey }; ulong slots[ 1 ] = { 7UL }; ulong lamp[ 1 ] = { lamports };
+  ulong lens[ 1 ] = { data_len }; int execs[ 1 ] = { 0 }; ulong offs[ 1 ] = { 0UL };
+  fd_accdb_disk_meta_t const * records[ 1 ] = { meta };
+  test_batch_result_t result = {0};
+  result.err = fd_accdb_restore_write_batch( accdb, fork_id, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, pubkeys, slots, lamp, lens, execs,
+                                              offs, records, &result.ignored, &result.replaced, &result.loaded,
+                                              &result.replaced_lamports, &result.ignored_lamports, result.replaced_slots, result.results );
+  FD_TEST( !result.err );
+  return result;
+}
+
+static void
+test_check_account( fd_accdb_t *       accdb,
+                    fd_accdb_fork_id_t fork_id,
+                    uchar const *      pubkey,
+                    uchar const *      owner,
+                    ulong              lamports,
+                    uchar const *      data,
+                    ulong              data_len ) {
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, pubkey );
+  FD_TEST( acc.lamports==lamports && acc.data_len==data_len );
+  FD_TEST( !memcmp( acc.owner, owner, 32UL ) );
+  FD_TEST( !data_len || !memcmp( acc.data, data, data_len ) );
+  fd_accdb_unread_one( accdb, &acc );
+}
+
+/* test_restore_cached: a stream record kept in the cache is read
+   from its line, a repeat gives the line back, a full class evicts
+   earlier records to disk on the way in, the background pre-evict
+   writes more back, and every record reads right throughout.  The
+   counters move like a committed write's. */
+static void
+test_restore_cached( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1UL<<18, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t snap  = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t blind = fd_accdb_attach_child( accdb, snap );
+  fd_accdb_restore_hide_ancestor( accdb, blind, snap );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, blind );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  ulong used0[ FD_ACCDB_CACHE_CLASS_CNT ], used1[ FD_ACCDB_CACHE_CLASS_CNT ], cmax[ FD_ACCDB_CACHE_CLASS_CNT ], resv[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used0, cmax, resv );
+  ulong disk0 = fd_accdb_shmetrics( accdb )->disk_used_bytes;
+
+  uchar pk1[ 32 ] = {9}; uchar owner[ 32 ] = {4}; uchar data[ 100 ];
+  for( ulong i=0UL; i<sizeof(data); i++ ) data[ i ] = (uchar)(i*7UL);
+  ulong cls = fd_accdb_cache_class( sizeof(data) );
+  FD_TEST( fd_accdb_cache_class( 0UL )==cls );
+
+  /* In the cache, read from there by the stream fork and its child,
+     not on disk. */
+  test_batch_result_t r = test_write_cached( accdb, blind, pk1, owner, 500UL, data, sizeof(data) );
+  FD_TEST( r.loaded==1UL && r.results[ 0 ]==FD_ACCDB_RESTORE_WRITE_LOADED );
+  ulong misses0 = fd_accdb_metrics( accdb )->accounts_not_found_per_class[ cls ];
+  test_check_account( accdb, blind, pk1, owner, 500UL, data, sizeof(data) );
+  test_check_account( accdb, child, pk1, owner, 500UL, data, sizeof(data) );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_not_found_per_class[ cls ]==misses0 );
+  fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+  FD_TEST( used1[ cls ]==used0[ cls ]+1UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->disk_used_bytes==disk0 );
+
+  /* A repeat is ignored and its line goes back. */
+  r = test_write_cached( accdb, blind, pk1, owner, 501UL, data, sizeof(data) );
+  FD_TEST( r.ignored==1UL && r.results[ 0 ]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+  fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+  FD_TEST( used1[ cls ]==used0[ cls ]+1UL );
+  test_check_account( accdb, child, pk1, owner, 500UL, data, sizeof(data) );
+
+  /* One batch of eight, as the tile sends them: two classes, the
+     repeat gives its line back, an empty record marks a key as
+     streamed. */
+  {
+    static uchar recs[ 8 ][ sizeof(fd_accdb_disk_meta_t)+300UL ];
+    uchar const * pks8[ 8 ]; fd_accdb_disk_meta_t const * recs8[ 8 ];
+    ulong slots8[ 8 ], lamp8[ 8 ], lens8[ 8 ], offs8[ 8 ]; int execs8[ 8 ];
+    for( ulong i=0UL; i<8UL; i++ ) {
+      fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)recs[ i ];
+      fd_memset( recs[ i ], 0, sizeof(recs[ i ]) );
+      if( i==6UL ) fd_memcpy( meta->pubkey, pk1, 32UL );
+      else         FD_STORE( ulong, meta->pubkey, 500UL+i );
+      fd_memcpy( meta->owner, owner, 32UL );
+      lens8[ i ] = (i&1UL) ? 300UL : 0UL;
+      meta->size = (uint)lens8[ i ];
+      for( ulong b=0UL; b<lens8[ i ]; b++ ) recs[ i ][ sizeof(fd_accdb_disk_meta_t)+b ] = (uchar)(i+b);
+      pks8  [ i ] = meta->pubkey;
+      recs8 [ i ] = meta;
+      slots8[ i ] = 7UL;
+      lamp8 [ i ] = i==7UL ? 0UL : 600UL+i;
+      execs8[ i ] = 0;
+      offs8 [ i ] = 0UL;
+    }
+    ulong before[ FD_ACCDB_CACHE_CLASS_CNT ];
+    fd_accdb_cache_class_occupancy( accdb, before, cmax, resv );
+    ulong ign, rep, ld, rl, il, rs[ 8 ]; uchar res[ 8 ];
+    FD_TEST( !fd_accdb_restore_write_batch( accdb, blind, FD_ACCDB_RESTORE_MODE_STREAM, 8UL, pks8, slots8, lamp8, lens8, execs8,
+                                            offs8, recs8, &ign, &rep, &ld, &rl, &il, rs, res ) );
+    FD_TEST( ign==1UL && ld==7UL && res[ 6 ]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+    for( ulong i=0UL; i<6UL; i++ ) test_check_account( accdb, child, pks8[ i ], owner, lamp8[ i ], recs[ i ]+sizeof(fd_accdb_disk_meta_t), lens8[ i ] );
+    FD_TEST( fd_accdb_has_record( accdb, blind, pks8[ 7 ] ) && !fd_accdb_exists( accdb, blind, pks8[ 7 ] ) );
+    ulong cls300 = fd_accdb_cache_class( 300UL );
+    fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+    FD_TEST( cls300!=cls && used1[ cls ]==before[ cls ]+3UL && used1[ cls300 ]==before[ cls300 ]+4UL );
+  }
+
+  /* More empty records than the class has lines: the cache evicts
+     earlier ones to disk while taking them in. */
+  ulong extra = 16UL;
+  ulong n     = cmax[ cls ]+extra;
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32 ]; fd_memset( pk, 0, 32UL ); FD_STORE( ulong, pk, i+1000UL );
+    r = test_write_cached( accdb, blind, pk, owner, i+1UL, NULL, 0UL );
+    FD_TEST( r.loaded==1UL );
+  }
+  FD_TEST( fd_accdb_shmetrics( accdb )->disk_used_bytes>=disk0+extra*sizeof(fd_accdb_disk_meta_t) );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_evicted>=extra );
+  fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+  FD_TEST( used1[ cls ]==cmax[ cls ] );
+
+  /* The class is full of dirty lines, so the background pre-evict
+     writes some back to disk and frees their lines, given enough
+     ticks for its sweep. */
+  ulong preevicted0 = fd_accdb_metrics( accdb )->accounts_preevicted;
+  disk0 = fd_accdb_shmetrics( accdb )->disk_used_bytes;
+  for( ulong i=0UL; i<100000UL && fd_accdb_metrics( accdb )->accounts_preevicted==preevicted0; i++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_preevicted>preevicted0 );
+  FD_TEST( fd_accdb_shmetrics( accdb )->disk_used_bytes>disk0 );
+  fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+  FD_TEST( used1[ cls ]<cmax[ cls ] );
+
+  /* Every record reads right, from its line or from disk. */
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32 ]; fd_memset( pk, 0, 32UL ); FD_STORE( ulong, pk, i+1000UL );
+    test_check_account( accdb, child, pk, owner, i+1UL, NULL, 0UL );
+  }
+  test_check_account( accdb, child, pk1, owner, 500UL, data, sizeof(data) );
+
+  /* Rooting keeps them. */
+  fd_accdb_advance_root( accdb, snap );
+  drain_background( accdb );
+  fd_accdb_advance_root( accdb, blind );
+  drain_background( accdb );
+  test_check_account( accdb, child, pk1, owner, 500UL, data, sizeof(data) );
+  for( ulong i=0UL; i<n; i+=97UL ) {
+    uchar pk[ 32 ]; fd_memset( pk, 0, 32UL ); FD_STORE( ulong, pk, i+1000UL );
+    test_check_account( accdb, child, pk, owner, i+1UL, NULL, 0UL );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+  fd_accdb_flush_metrics( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==7UL+n ); /* rooting dropped the empty record */
   test_teardown( accdb, fd );
 }
 
@@ -2874,6 +3047,8 @@ main( int     argc,
   test_snapshot_write_head();
   FD_LOG_NOTICE(( "test_fork_hide_ancestor ..." ));
   test_fork_hide_ancestor();
+  FD_LOG_NOTICE(( "test_restore_cached ..." ));
+  test_restore_cached();
   FD_LOG_NOTICE(( "test_wait_on_stream ..." ));
   test_wait_on_stream();
 

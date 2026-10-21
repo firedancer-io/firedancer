@@ -54,6 +54,15 @@ pread64: (eq (arg 0) stake_spill_fd)
 pwrite64: (or (eq (arg 0) accounts_direct_fd)
               (eq (arg 0) stake_spill_fd))
 
+# accounts database: write back a dirty cache line the stream evicts
+#
+# The fast boot stream tile keeps its records in the accounts database
+# cache.  When the cache gives up a dirty line to make room for one,
+# the tile writes that line's account to the file first.
+#
+# arg 0 is the file descriptor to write to.
+pwritev2: (eq (arg 0) accounts_fd)
+
 # power saving: sleep when there is no work to do
 #
 # In the efficient scheduler mode, an idle tile parks on its sleep word

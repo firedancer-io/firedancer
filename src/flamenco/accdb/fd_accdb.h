@@ -626,6 +626,11 @@ fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
    cannot see is a live write.  The snapshot copy is linked behind it,
    so that fork keeps reading its own write.
 
+   cache_records, NULL unless a stream keeps its records in the cache,
+   points at each account's record: the disk header, then the data.
+   The records are kept in the cache instead of being read from
+   file_offsets, and reach the disk only when the cache evicts them.
+
    replaced_slots[i] receives the slot of the account version that
    account i superseded, ULONG_MAX if there was none.  Not meaningful
    when -1 is returned. */
@@ -640,23 +645,24 @@ fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
 #define FD_ACCDB_RESTORE_MODE_STREAM      (2)
 
 int
-fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
-                              fd_accdb_fork_id_t  fork_id,
-                              int                 mode,
-                              ulong               cnt,
-                              uchar const * const pubkeys[],
-                              ulong  const        slots[],
-                              ulong  const        lamports[],
-                              ulong  const        data_lens[],
-                              int    const        executables[],
-                              ulong const         file_offsets[],
-                              ulong *             accounts_ignored,
-                              ulong *             accounts_replaced,
-                              ulong *             accounts_loaded,
-                              ulong *             out_replaced_lamports,
-                              ulong *             out_ignored_lamports,
-                              ulong *             replaced_slots,
-                              uchar *             results );
+fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
+                              fd_accdb_fork_id_t                 fork_id,
+                              int                                mode,
+                              ulong                              cnt,
+                              uchar const * const                pubkeys[],
+                              ulong const                        slots[],
+                              ulong const                        lamports[],
+                              ulong const                        data_lens[],
+                              int const                          executables[],
+                              ulong const                        file_offsets[],
+                              fd_accdb_disk_meta_t const * const cache_records[],
+                              ulong *                            accounts_ignored,
+                              ulong *                            accounts_replaced,
+                              ulong *                            accounts_loaded,
+                              ulong *                            out_replaced_lamports,
+                              ulong *                            out_ignored_lamports,
+                              ulong *                            replaced_slots,
+                              uchar *                            results );
 
 /* fd_accdb_background performs one unit of background work.
 
