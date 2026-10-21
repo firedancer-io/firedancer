@@ -52,11 +52,8 @@ get_ports( fd_config_t const * config,
     ADD_PORT( config->gossip.port                              );
     ADD_PORT( config->tiles.repair.repair_client_listen_port   );
     ADD_PORT( config->tiles.rserve.repair_serve_listen_port    );
-    ADD_PORT( config->tiles.txsend.txsend_src_port             );
-    if( config->firedancer.consensus.alpenglow ) {
-      ADD_PORT( config->firedancer.development.votor.quic_client_listen_port );
-      ADD_PORT( config->firedancer.development.votor.quic_server_listen_port );
-    }
+    ADD_PORT( config->firedancer.development.votor.quic_client_listen_port );
+    ADD_PORT( config->firedancer.development.votor.quic_server_listen_port );
 #undef ADD_PORT
 
   return port_cnt;

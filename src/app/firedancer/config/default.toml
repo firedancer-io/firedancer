@@ -282,18 +282,13 @@ telemetry = true
     # base directory above.  The directory must exist, be writable by
     # the Firedancer user.
 
-    # In Tower, the tower file is only created if
-    # `[tiles.tower.write_vote_history_file]` is set to true.  The
-    # validator saves its last vote to `tower-1_9-<identity>.bin` in
-    # this directory after each vote, which is the file name Agave uses.
-
-    # In Alpenglow, the validator writes `vote_history-<identity>.bin`
-    # before each vote and each block it produces.  This is an
-    # Agave-compatible vote history file and it protects against
-    # equivocation (both double-voting and double-producing blocks) on
-    # set-identity or restart.  See the book for a sample runbook on how
-    # to safely set-identity.
-
+    # The validator writes `vote_history-<identity>.bin` before each
+    # vote and each block it produces.  This is an Agave-compatible vote
+    # history file and it protects against equivocation (both
+    # double-voting and double-producing blocks) on set-identity or
+    # restart.  See the book for a sample runbook on how to safely
+    # use set-identity.
+    #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
     # as above, and "{name}" will be replaced with the name of the
@@ -719,13 +714,6 @@ telemetry = true
     # restrict downloads to trusted sources.
     wait_for_supermajority_at_slot = 0
     wait_for_supermajority_with_bank_hash = ""
-
-    # Whether to run Alpenglow consensus.  Firedancer runs exactly one
-    # consensus algorithm, so when this is enabled any Tower-related
-    # components will be replaced with Alpenglow.
-    #
-    # You can also enable Alpenglow with the `--alpenglow` argument.
-    alpenglow = false
 
 # The primary state a validator is required to maintain is the accounts
 # database, a current listing of all "public key" identifiers on the
@@ -1864,22 +1852,6 @@ telemetry = true
         # spill pages are written. This value is not a total disk limit;
         # FEC payload spills can consume additional space.
         shred_storage_limit_gib = 50
-
-    # The tower tile runs pre-Alpenglow consensus and decides what
-    # blocks to vote for. The tower file is optional, but used for safer
-    # identity switches that avoid consensus violations like double
-    # voting and vote lockout violations. If Alpenglow is enabled, this
-    # option will be ignored.
-    [tiles.tower]
-        write_vote_history_file = true
-
-    # The txsend tile is responsible for sending transactions out to
-    # the network over QUIC.  In the default configuration, this is just
-    # used to send votes that our validator produces.
-    [tiles.txsend]
-        # The port the send tile uses to make outgoing QUIC connections,
-        # and also set as the src port on non-QUIC UDP packets.
-        txsend_src_port = 9006
 
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP

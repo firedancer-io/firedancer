@@ -48,7 +48,7 @@ check( config_t const * config,
   fd_topo_t const * topo = &config->topo;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
-    if( FD_LIKELY( tile->kind_id || !( !strcmp( tile->name, "pack" ) || !strcmp( tile->name, "poh" ) ) ) ) continue;
+    if( FD_LIKELY( tile->kind_id || strcmp( tile->name, "pack" ) ) ) continue;
 
     /* A floating tile (efficient layout mode) shares its cores with
        the other floaters, so an idle sibling buys it nothing */

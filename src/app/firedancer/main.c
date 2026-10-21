@@ -92,7 +92,6 @@ extern fd_topo_run_tile_t fd_tile_dedup;
 extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_execle;
-extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_motor;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
@@ -110,13 +109,10 @@ extern fd_topo_run_tile_t fd_tile_admin;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
-extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_rotor;
 extern fd_topo_run_tile_t fd_tile_rserve;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execrp;
-extern fd_topo_run_tile_t fd_tile_txsend;
-extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_votor;
 extern fd_topo_run_tile_t fd_tile_accdb;
 extern fd_topo_run_tile_t fd_tile_solcap;
@@ -153,15 +149,11 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bundle,
   &fd_tile_gossvf,
   &fd_tile_gossip,
-  &fd_tile_repair,
   &fd_tile_rotor,
   &fd_tile_rserve,
   &fd_tile_replay,
   &fd_tile_execrp,
-  &fd_tile_poh,
   &fd_tile_motor,
-  &fd_tile_txsend,
-  &fd_tile_tower,
   &fd_tile_votor,
   &fd_tile_accdb,
   &fd_tile_snapct,

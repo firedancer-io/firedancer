@@ -772,13 +772,6 @@ accdb_per_tile_offsets( char const * name,
     offs[6] =MIDX(COUNTER,REPLAY,ACCDB_COPIED_BYTES              ); offs[7]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_EVICTED         );
     offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_NEW_COMMITTED   );
     offs[10]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_OVERWRITE_COMMITTED);
-  } else if( !strcmp( name, "tower" ) ) {
-    offs[0] =MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_READONLY_ACQUIRED ); offs[1]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_WRITABLE_ACQUIRED );
-    offs[2] =MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_CACHE_MISSED      ); offs[3]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_WAITED            );
-    offs[4] =MIDX(COUNTER,TOWER,ACCDB_DISK_READ_BYTES            ); offs[5]=MIDX(COUNTER,TOWER,ACCDB_DISK_WRITTEN_BYTES              );
-    offs[6] =MIDX(COUNTER,TOWER,ACCDB_COPIED_BYTES               ); offs[7]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_EVICTED           );
-    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_NEW_COMMITTED     );
-    offs[10]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_OVERWRITE_COMMITTED);
   } else if( !strcmp( name, "accdb" ) ) {
     /* The accdb tile only runs background work (compact, preevict,
        advance_root, purge); it never acquires/releases.  Sentinel
@@ -1143,20 +1136,14 @@ write_repair( config_t const * config,
               ulong const *    cur_tile,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
-  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
-  char const * repair_label = "repair      ";
-  int          is_rotor     = 0;
-  if( repair_tile_idx==ULONG_MAX ) {
-    repair_tile_idx = fd_topo_find_tile( &config->topo, "rotor", 0UL );
-    repair_label    = "rotor       ";
-    is_rotor        = 1;
-  }
+  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "rotor", 0UL );
+  char const * repair_label = "rotor       ";
   if( repair_tile_idx==ULONG_MAX ) return 0U;
-  ulong highest_off  = is_rotor ? MIDX( GAUGE, ROTOR, HIGHEST_DELIVERED_SLOT ) : MIDX( GAUGE, REPAIR, HIGHEST_REPAIRED_SLOT );
-  ulong current_off  = is_rotor ? MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT  ) : MIDX( GAUGE, REPAIR, HIGHEST_TURBINE_SLOT  );
+  ulong highest_off  = MIDX( GAUGE, ROTOR, HIGHEST_DELIVERED_SLOT );
+  ulong current_off  = MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT  );
   ulong repair_slot  = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+highest_off ];
   ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+current_off ];
-  if( FD_LIKELY( is_rotor ) ) turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
+  turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
   long repair_lag = (long)repair_slot-(long)turbine_slot;
   PRINT( ROWH( "▲", RED, "%s" )
          K( "rx" ) "%s"
@@ -1256,12 +1243,7 @@ write_rserve( config_t const * config,
 static uint
 write_replay( config_t const * config,
               ulong const *    cur_tile ) {
-  int   repair_is_rotor = 0;
-  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
-  if( repair_tile_idx==ULONG_MAX ) { // alpenglow
-    repair_tile_idx  = fd_topo_find_tile( &config->topo, "rotor", 0UL );
-    repair_is_rotor  = 1;
-  }
+  ulong repair_tile_idx  = fd_topo_find_tile( &config->topo, "rotor", 0UL );
   ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
   if( replay_tile_idx==ULONG_MAX ) return 0U;
 
@@ -1272,8 +1254,8 @@ write_replay( config_t const * config,
 
   ulong turbine_slot;
   if( repair_tile_idx!=ULONG_MAX ) {
-    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+( repair_is_rotor ? MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT ) : MIDX( GAUGE, REPAIR, HIGHEST_TURBINE_SLOT ) ) ];
-    if( FD_LIKELY( repair_is_rotor ) ) turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
+    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, HIGHEST_RECEIVED_SLOT ) ];
+    turbine_slot = fd_ulong_max( turbine_slot, cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ROTOR, CATCHUP_SLOT ) ] );
   } else {
     turbine_slot = reset_slot;
   }
@@ -1378,21 +1360,18 @@ write_gui( config_t const * config,
            ulong const *    prev_tile ) {
   char const * gui_name = "gui";
   ulong gui_tile_idx = fd_topo_find_tile( &config->topo, gui_name, 0UL );
+  if( FD_UNLIKELY( gui_tile_idx==ULONG_MAX ) ) return 0U;
 
   ulong off_conn_active, off_websocket_conn_active, off_websocket_frame_tx, off_websocket_frame_rx;
   char * bytes_read_s;
   char * bytes_written_s;
-  if( FD_LIKELY( gui_tile_idx!=ULONG_MAX ) ) {
-    off_conn_active           = MIDX( GAUGE,   GUI, CONN_OPEN             );
-    off_websocket_conn_active = MIDX( GAUGE,   GUI, WEBSOCKET_CONN_OPEN   );
-    off_websocket_frame_tx    = MIDX( COUNTER, GUI, WEBSOCKET_FRAME_TX    );
-    off_websocket_frame_rx    = MIDX( COUNTER, GUI, WEBSOCKET_FRAME_RX    );
+  off_conn_active           = MIDX( GAUGE,   GUI, CONN_OPEN             );
+  off_websocket_conn_active = MIDX( GAUGE,   GUI, WEBSOCKET_CONN_OPEN   );
+  off_websocket_frame_tx    = MIDX( COUNTER, GUI, WEBSOCKET_FRAME_TX    );
+  off_websocket_frame_rx    = MIDX( COUNTER, GUI, WEBSOCKET_FRAME_RX    );
 
-    bytes_read_s              = DIFF_BYTES( gui_name, COUNTER, GUI, CONN_RX_BYTES );
-    bytes_written_s           = DIFF_BYTES( gui_name, COUNTER, GUI, CONN_TX_BYTES );
-  } else {
-    return 0U;
-  }
+  bytes_read_s              = DIFF_BYTES( gui_name, COUNTER, GUI, CONN_RX_BYTES );
+  bytes_written_s           = DIFF_BYTES( gui_name, COUNTER, GUI, CONN_TX_BYTES );
 
   ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+off_conn_active ]+cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+off_websocket_conn_active ];
   ulong gui_total_ticks = total_regime( &cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] );
@@ -1940,7 +1919,10 @@ run( config_t const * config,
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, RESPONSE_TX_PING ) ) +
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, RESPONSE_TX_WINDOW_INDEX ) ) +
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, RESPONSE_TX_HIGHEST_WINDOW_INDEX ) ) +
-          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, RESPONSE_TX_ORPHAN ) );
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, RESPONSE_TX_ORPHAN ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, RESPONSE_TX_PARENT_FEC_SET_COUNT ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, RESPONSE_TX_FEC_SET_ROOT ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, RESPONSE_TX_WINDOW_INDEX_FOR_BLOCK_ID ) );
       rserve_rps_valid_samples_idx++;
 
       rserve_rps_invalid_samples[ rserve_rps_invalid_samples_idx%(sizeof(rserve_rps_invalid_samples)/sizeof(rserve_rps_invalid_samples[0])) ] = 0UL;

@@ -50,7 +50,6 @@ struct fd_configf {
   struct {
     ulong wait_for_supermajority_at_slot;
     char  wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
-    int   alpenglow;
   } consensus;
 
   struct {
@@ -380,10 +379,6 @@ struct fd_config {
     } quic;
 
     struct {
-      ushort txsend_src_port;
-    } txsend;
-
-    struct {
       uint signature_cache_size;
       uint receive_buffer_size;
       uint mtu;
@@ -463,10 +458,6 @@ struct fd_config {
       ushort repair_serve_listen_port;
       ulong  shred_storage_limit_gib;
     } rserve;
-
-    struct {
-      int write_vote_history_file;
-    } tower;
 
     struct {
       ulong max_transaction_lookahead_buffer_size;

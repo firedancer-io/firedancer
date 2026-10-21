@@ -105,7 +105,7 @@ metrics_src_init( metrics_src_t * src,
   fd_topo_workspace_fill( topo, &topo->workspaces[ wksp_id ] );
 
   ulong rotor_id = fd_topo_find_tile( topo, "rotor", 0UL );
-  if( FD_UNLIKELY( rotor_id==ULONG_MAX ) ) FD_LOG_ERR(( "rotor tile not found (is the validator running with --alpenglow?)" ));
+  if( FD_UNLIKELY( rotor_id==ULONG_MAX ) ) FD_LOG_ERR(( "rotor tile not found" ));
   fd_topo_tile_t * rotor_tile = &topo->tiles[ rotor_id ];
   src->rotor = fd_metrics_tile( rotor_tile->metrics );
 

@@ -5,10 +5,10 @@
 #include "../../choreo/tower/fd_tower_file.h"
 
 /* FD_APP_NAME and FD_BINARY_NAME identify the control binary at run time
-   (e.g. "Firedancer"/"firedancer").  They are
-   defined once per binary in its main translation unit.  Commands
-   shared across binaries should reference these instead of hard-coding
-   a binary name in help text or usage messages. */
+   (e.g. "Firedancer"/"firedancer").  They are defined once per binary
+   in its main translation unit.  Commands shared across binaries should
+   reference these instead of hard-coding a binary name in help text or
+   usage messages. */
 
 extern char const * FD_APP_NAME;
 extern char const * FD_BINARY_NAME;
@@ -110,18 +110,6 @@ union fdctl_args {
   } flame;
 
   struct {
-    char const * pos_arg;
-    int          help;
-
-    /* options */
-
-    char         manifest_path[256UL];
-    char         iptable_path[256UL];
-    ulong        slot;
-    int          sort_by_slot;
-  } repair;
-
-  struct {
     char    affinity[ AFFINITY_SZ ];
     uint    tpu_ip;
     uint    rpc_ip;
@@ -195,11 +183,6 @@ union fdctl_args {
     char topo[ 64 ];
     int  compact_mode;
   } monitor_gossip;
-
-  struct {
-    char const * pos_arg;
-    int          help;
-  } tower;
 
   struct {
     int once;
