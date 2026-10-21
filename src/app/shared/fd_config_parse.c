@@ -51,7 +51,6 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  consensus.wait_for_supermajority_at_slot            );
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
-  CFG_POP      ( bool,   consensus.alpenglow                                 );
 
   CFG_POP      ( uint,   snapshots.sources.max_local_full_effective_age      );
   CFG_POP      ( uint,   snapshots.sources.max_local_incremental_age         );
@@ -236,8 +235,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.rserve.repair_serve_listen_port            );
   CFG_POP      ( ulong,  tiles.rserve.shred_storage_limit_gib             );
 
-  CFG_POP      ( bool,   tiles.tower.write_vote_history_file              );
-
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
   CFG_POP      ( bool,   capture.recent_only                              );
@@ -250,8 +247,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
   CFG_POP      ( bool,   capture.dump_txn_as_fixture                      );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
-
-  CFG_POP      ( ushort, tiles.txsend.txsend_src_port                     );
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
@@ -340,6 +335,9 @@ fd_config_extract_pod( uchar *       pod,
   } while(0)
 
   CFG_DEPRECATED( development.bundle.ssl_heap_size_mib );
+  CFG_DEPRECATED( tiles.tower.write_vote_history_file );
+  CFG_DEPRECATED( tiles.txsend.txsend_src_port );
+  CFG_DEPRECATED( consensus.alpenglow );
 
 # undef CFG_DEPRECATED
 

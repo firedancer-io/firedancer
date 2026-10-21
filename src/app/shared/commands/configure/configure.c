@@ -236,7 +236,6 @@ configure_stage_help( char const * name ) {
   if( !strcmp( name, "kill"             ) ) return "kill any running validator";
   if( !strcmp( name, "keys"             ) ) return "generate dev identity/vote keypairs";
   if( !strcmp( name, "genesis"          ) ) return "generate a local cluster genesis";
-  if( !strcmp( name, "blockstore"       ) ) return "create the genesis block in the ledger blockstore";
   return NULL;
 }
 

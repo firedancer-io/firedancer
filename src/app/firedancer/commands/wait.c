@@ -657,22 +657,17 @@ wait_cmd_fn( args_t *   args,
   ulong min_idle_ns              = args->wait.min_idle_ns;
   ulong max_delinquent_stake_pct = args->wait.max_delinquent_stake_pct;
 
-  /* Consensus mode decides where delinquent stake comes from. */
-  char const * consensus = fd_topo_find_tile( &config->topo, "votor", 0UL )!=ULONG_MAX ? "alpenglow" : "tower";
-
   if( FD_UNLIKELY( min_idle_ns ) ) {
     ulong min_idle_s = min_idle_ns / 1000000000UL;
     FD_LOG_NOTICE(( "waiting for a safe window "
-                    "(consensus=%s, min-idle-seconds=%lus, max-delinquent-stake=%lu%%, skip-health=%s, skip-snapshot=%s)",
-                    consensus,
+                    "(min-idle-seconds=%lus, max-delinquent-stake=%lu%%, skip-health=%s, skip-snapshot=%s)",
                     min_idle_s,
                     max_delinquent_stake_pct,
                     skip_health ? "yes" : "no",
                     skip_snapshot ? "yes" : "no" ));
   } else {
     FD_LOG_NOTICE(( "waiting for a safe window "
-                    "(consensus=%s, min-idle-slots=%lu, max-delinquent-stake=%lu%%, skip-health=%s, skip-snapshot=%s)",
-                    consensus,
+                    "(min-idle-slots=%lu, max-delinquent-stake=%lu%%, skip-health=%s, skip-snapshot=%s)",
                     min_idle_slots,
                     max_delinquent_stake_pct,
                     skip_health ? "yes" : "no",

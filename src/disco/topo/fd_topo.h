@@ -624,7 +624,6 @@ struct fd_topo_tile {
       char  ledger_path[ PATH_MAX ];
       ulong end_slot;
       ulong root_distance;
-      int   alpenglow;
       long  boot_timestamp_nanos;
     } backtest;
 
