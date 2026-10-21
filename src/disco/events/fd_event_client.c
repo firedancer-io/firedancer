@@ -1080,11 +1080,11 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
   if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING ) ) deadline = fd_long_min( deadline, client->auth_deadline );
   if( FD_UNLIKELY( client->auth_send_pending && !fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) deadline = now;
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->event_stream ) ) {
-    deadline = fd_long_min( deadline, fd_long_min( client->last_response_ns   +FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS,
-                                                   client->last_stream_send_ns+FD_EVENT_CLIENT_HEARTBEAT_NANOS ) );
-    if( FD_UNLIKELY( client->tx_tokens<=0L && fd_circq_unsent_cnt( client->circq ) ) ) {
-      deadline = fd_long_min( deadline, client->tx_tokens_ns + (1L-client->tx_tokens)*(long)1e9/client->tx_byte_rate );
+    long send_deadline = client->last_stream_send_ns+FD_EVENT_CLIENT_HEARTBEAT_NANOS;
+    if( FD_UNLIKELY( client->tx_tokens<=0L && fd_circq_unsent_cnt( client->circq ) ) ) { /* paced: no heartbeat until tokens return */
+      send_deadline = client->tx_tokens_ns + ( (1L-client->tx_tokens)*(long)1e9+client->tx_byte_rate-1L )/client->tx_byte_rate;
     }
+    deadline = fd_long_min( deadline, fd_long_min( client->last_response_ns+FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS, send_deadline ) );
     if( FD_UNLIKELY( client->stall_since ) ) deadline = fd_long_min( deadline, client->stall_since+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
     if( FD_UNLIKELY( client->zbatch_cnt ) ) deadline = fd_long_min( deadline, client->zbatch_ns+FD_EVENT_CLIENT_ZSTD_FLUSH_NANOS );
   }
@@ -1193,7 +1193,10 @@ fd_event_client_poll( fd_event_client_t * client,
     }
     if( FD_LIKELY( !fd_circq_unsent_cnt( client->circq ) ) ) break;
     if( FD_UNLIKELY( client->tx_tokens<=0L ) ) break;
-    tx( client, now, charge_busy );
+    int progress = 0;
+    tx( client, now, &progress );
+    if( FD_UNLIKELY( !progress ) ) break;
+    *charge_busy = 1;
   }
 
   if( FD_UNLIKELY( tx_flush( client, now ) ) ) return;
