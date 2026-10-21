@@ -594,9 +594,6 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
-#ifdef STEM_CALLBACK_AFTER_READ_OVERRUN
-      STEM_CALLBACK_AFTER_READ_OVERRUN( ctx );
-#endif
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_LINK_READING_OVERRUN_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_FRAG_READING_OVERRUN_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */

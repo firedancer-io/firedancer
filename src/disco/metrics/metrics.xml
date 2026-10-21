@@ -1673,28 +1673,6 @@ deliberate exception with lint-allow="<rule id>")
     <int value="5" name="Evicted" label="Port check connections evicted because there were too many in flight connections" />
 </enum>
 
-<enum name="FailoverConnRejectReason">
-    <int value="0" name="Source" label="A candidate from this address is open or its admission quota has not expired" />
-    <int value="1" name="Budget" label="The ordinary or reconnect admission budget is empty" />
-    <int value="2" name="Capacity" label="The corresponding handshake pool is full" />
-</enum>
-
-<tile name="failov" telemetry="false">
-    <counter name="ConnAccepted" summary="TCP connections accepted before admission checks" />
-    <counter name="AcceptBudgetExhausted" summary="Polls that stopped accepting because the syscall budget was empty" />
-    <counter name="ConnRejected" enum="FailoverConnRejectReason" summary="Accepted TCP connections refused before candidate allocation, by reason" />
-    <counter name="ConnReconnectAdmitted" summary="Candidates admitted to the reserved lane for recently authenticated addresses" />
-    <counter name="HandshakeTimedOut" summary="Candidates closed at a phase or absolute handshake deadline" />
-    <counter name="ProofRejected" summary="Admission proofs that failed target identity authentication" />
-    <counter name="HelloRejected" summary="Admission or TLS HELLO checks that failed" />
-    <counter name="TlsHandshakeFailed" summary="TLS handshakes that failed after admission" />
-    <counter name="FrameProtocolRejected" summary="Authenticated frames rejected by the controller" />
-    <counter name="ConnAuthenticated" summary="Completed mutual admission, TLS and HELLO authentications" />
-    <counter name="HandshakeDurationNanos" summary="Cumulative time from candidate allocation to completed authentication" />
-    <gauge name="HandshakeLatestDurationNanos" summary="Duration of the most recently completed authentication" />
-    <gauge name="ConnPending" summary="Candidates waiting for admission, TLS or HELLO authentication" />
-</tile>
-
 <tile name="ipecho">
     <gauge name="ShredVersion" telemetry="false" summary="Shred version used by the validator" />
     <gauge name="ConnOpen" summary="Open connections to the ipecho service" />

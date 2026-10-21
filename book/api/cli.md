@@ -222,7 +222,7 @@ running as is refused.
 Between two Firedancer validators running failover, only use
 `firedancer failover promote`, which hands over the vote history
 directly. Do not use `--vote-history-file` for this, it is only for a
-tower file from a validator that does not run failover, such as Agave.
+vote history file from a validator that does not run failover, such as Agave.
 
 With failover on, `set-identity` also makes the new key the identity
 `failover promote` hands off, unless it is the machine's junk identity.
@@ -230,10 +230,7 @@ Only a machine running the same key can take it over, so set that
 key as `[paths.identity_key]` on the other machine and restart it.
 After a restart, the machine boots as standby under its junk identity
 and uses `[paths.identity_key]` as the handoff target again.
-The new key cannot also be one of the authorized voters. With
-`--vote-history-file`, a failover machine does not vote until the
-file's root has been replayed, and ignores a file whose root is not on
-the fork of its own root, waiting out the lockouts of its votes.
+The new key cannot also be one of the authorized voters.
 
 The validator writes `vote_history-<identity>.bin` in the
 `[paths.vote_history]` directory before each vote and each block it
@@ -356,7 +353,8 @@ standby. The remote validator must have `[failover.enabled]` set to
 `true` to accept the request. Both validators must use the same vote
 account.
 
-The failover commands are only supported by the full Firedancer client.
+The failover commands require the full Firedancer client with
+Alpenglow consensus enabled through `[consensus.alpenglow]` or `--alpenglow`.
 
 ```sh
 firedancer failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
@@ -400,9 +398,8 @@ cannot be authenticated, the local request cannot complete the handoff.
 Set `[failover.enabled]` to `true` on both validators. Configure the same
 staked identity in `[paths.identity_key]` and the same vote account in
 `[paths.vote_account]`. Firedancer generates a fresh junk identity in memory
-on each startup. This junk identity's key is not written to a file. Both
-validators boot under their junk identities without voting and listen for
-handoff requests.
+on each startup. The private key is never written to a file. Both validators
+boot under their junk identities without voting and listen for handoff requests.
 
 Once one validator is active, run the following on the standby to request
 a handoff. The staked identity keypair is already loaded from the
@@ -445,7 +442,7 @@ firedancer keys new /path/to/standby-identity.json
 firedancer run --config /path/to/standby.toml
 ```
 
-Validators with a vote account include a failover tile for outgoing
+Alpenglow validators with a vote account include a failover tile for outgoing
 requests, so allow for it when assigning CPU affinity. Pass the active's
 identity keypair on first use. This prepares the target without installing
 it. The requester must still be using the identity it started with. The
@@ -472,11 +469,11 @@ The following applies to both configurations.
 
 The remote validator refuses the handoff if it has no final vote history
 to hand over, the local standby has not started replaying, or the standby
-is more than 64 slots behind its last vote. It keeps its identity in
-these cases. It also refuses a new request while another transition is
-running. Once it agrees to hand off, it gives up the identity before the
-local validator adopts its vote history. If adoption fails or stalls,
-the handoff can fail with neither machine voting.
+is more than 64 slots behind its finality anchor. It keeps its identity in
+these cases. It also refuses a new request while another transition is running. Once it agrees to hand
+off, it gives up the identity before the local validator adopts its
+vote history. If adoption fails or stalls, the handoff can fail with
+neither machine voting.
 
 Exit code 0 means the local validator accepted the request. It does not
 mean the remote validator has agreed to hand off or that the handoff has
@@ -509,9 +506,9 @@ or `--port` when resuming it.
 With `--force`, the local standby takes the identity without contacting
 the remote validator. This is also needed for first use when both
 machines are standbys. Promotion first tries eligible saved peer vote
-history, then the vote account, and starts with empty vote history if
-neither can be adopted. Check for `role: active` and `action: idle` to
-confirm completion.
+history. If that history cannot be adopted, it falls back to empty vote
+history with a slot bound that prevents voting at or below it. Check for
+`role: active` and `action: idle` to confirm completion.
 
 Forced promotion can cancel a handoff that is waiting for the remote
 validator's response. It cannot interrupt a local vote history adoption
@@ -521,8 +518,8 @@ identity can be installed.
 ::: warning WARNING
 
 Only use `--force` after ensuring every other machine with the identity
-cannot sign. It skips the checks on the other machine and can discard
-earlier vote lockouts by accepting incomplete or empty vote history.
+cannot sign. It skips the checks on the other machine and can leave votes
+and leader windows unaccounted for by accepting incomplete or empty history.
 Never force promotion on both machines at once. `--yes` only skips the
 confirmation prompt. It does not imply `--force` or suppress its warning.
 
@@ -555,9 +552,9 @@ It exits with code 0 if status was retrieved, including when failover
 is disabled. Otherwise it exits with a non-zero code and prints the
 reason to `stderr`.
 
-With `[failover.enabled]` set to `false` and a vote account configured,
-status reports `client only, listener disabled` and shows outgoing
-handoff progress.
+With Alpenglow enabled, `[failover.enabled]` set to `false`, and a vote
+account configured, status reports `client only, listener disabled` and
+shows outgoing handoff progress.
 
 The following example shows a completed handoff. The last handoff ID
 matches the ID printed by `failover promote` above. The connection closes
@@ -580,10 +577,10 @@ the highest slot known to have been signed locally or reported by the
 remote validator. Forced promotion can proceed without history covering
 that slot, as described above.
 
-| Arguments         | Description |
-|-------------------|-------------|
-| `--name <name>`   | Select the validator instance to attach to if more than one is running on this host. |
-| `--config <path>` | Optionally use the configuration TOML file the validator was started with. |
+| Arguments             | Description |
+|-----------------------|-------------|
+| `--name <name>`       | Select the validator instance to attach to if more than one is running on this host. |
+| `--config <path>`     | Optionally use the configuration TOML file the validator was started with. |
 
 ## `remove-all-authorized-voters`
 Removes all authorized voters from the running validator, including any
