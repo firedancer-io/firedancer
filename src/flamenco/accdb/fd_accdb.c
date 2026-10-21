@@ -4404,8 +4404,7 @@ fork_is_ancestor( fd_accdb_t const * accdb,
 int
 fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               fd_accdb_fork_id_t  fork_id,
-                              int                 is_incremental_or_fast_boot_stream,
-                              int                 skip_duplicates,
+                              int                 mode,
                               ulong               cnt,
                               uchar const * const pubkeys[],
                               ulong  const        slots[],
@@ -4418,6 +4417,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
                               ulong *             accounts_loaded,
                               ulong *             out_replaced_lamports,
                               ulong *             out_ignored_lamports,
+                              ulong *             replaced_slots,
                               uchar *             results ) {
   FD_TEST( cnt>0UL && cnt<=8UL );
 
@@ -4454,7 +4454,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
 
   /* Phase 1b: reject same-slot duplicate pubkeys. */
 
-  if( !skip_duplicates ) {
+  if( mode!=FD_ACCDB_RESTORE_MODE_STREAM ) {
     for( ulong i=1UL; i<cnt; i++ ) {
       for( ulong j=0UL; j<i; j++ ) {
         if( FD_UNLIKELY( hashes[ j ]==hashes[ i ] && slots[ j ]==slots[ i ] &&
@@ -4522,7 +4522,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
           continue;
         }
 
-        if( FD_LIKELY( skip_duplicates || (ulong)candidate->cache_idx>slots[ i ] ) ) {
+        if( FD_LIKELY( mode==FD_ACCDB_RESTORE_MODE_STREAM || (ulong)candidate->cache_idx>slots[ i ] ) ) {
           skip = 1;
         } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: duplicate account at slot %lu", slots[ i ] ));
@@ -4530,7 +4530,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
           FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
           result = -1;
           goto fini;
-        } else if( FD_UNLIKELY( is_incremental_or_fast_boot_stream ) && candidate->key.generation!=fork_gen ) {
+        } else if( mode!=FD_ACCDB_RESTORE_MODE_FULL && candidate->key.generation!=fork_gen ) {
           cross_existing = candidate;
         } else {
           existing = candidate;
@@ -4541,7 +4541,8 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
     }
 
     if( FD_UNLIKELY( skip ) ) {
-      results[ i ] = FD_ACCDB_RESTORE_WRITE_IGNORED;
+      results       [ i ] = FD_ACCDB_RESTORE_WRITE_IGNORED;
+      replaced_slots[ i ] = ULONG_MAX;
       FD_COMPILER_MFENCE();
       FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
       fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
@@ -4554,9 +4555,13 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
     uint new_head = chain_head;
 
     fd_accdb_accmeta_t const * prev = existing ? existing : cross_existing;
-    if( !prev || !prev->lamports ) results[ i ] = FD_ACCDB_RESTORE_WRITE_LOADED;
-    else if( cross_existing )      results[ i ] = FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS;
-    else                           results[ i ] = FD_ACCDB_RESTORE_WRITE_REPLACED;
+    if( !prev || !prev->lamports ) {
+      results       [ i ] = FD_ACCDB_RESTORE_WRITE_LOADED;
+      replaced_slots[ i ] = ULONG_MAX;
+    } else {
+      results       [ i ] = cross_existing ? FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS : FD_ACCDB_RESTORE_WRITE_REPLACED;
+      replaced_slots[ i ] = (ulong)prev->cache_idx;
+    }
 
     if( FD_UNLIKELY( existing ) ) {
       accmeta = existing;
@@ -4579,7 +4584,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *        accdb,
         new_head = acc_idx;
       }
 
-      if( FD_UNLIKELY( is_incremental_or_fast_boot_stream ) ) {
+      if( mode!=FD_ACCDB_RESTORE_MODE_FULL ) {
         fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
         if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "txn pool exhausted during incremental snapshot loading" ));
         txn->acc_pool_idx = acc_idx;

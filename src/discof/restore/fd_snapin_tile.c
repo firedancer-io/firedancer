@@ -294,8 +294,9 @@ struct fd_snapin_shmem {
 typedef struct fd_snapin_shmem fd_snapin_shmem_t;
 
 struct fd_snapin_tile {
-  int  state;
-  uint full : 1;  /* loading a full snapshot? */
+  int   state;
+  uint  full : 1;  /* loading a full snapshot? */
+  ulong full_slot; /* slot of the full snapshot */
 
   /* Fast boot: tile 0 loads the stream, the other tiles load the full
      and incremental snapshots behind it. */
@@ -1438,7 +1439,13 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   ulong data_lens      [ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong file_offsets   [ FD_SSPARSE_ACC_BATCH_MAX ];
   uchar results        [ FD_SSPARSE_ACC_BATCH_MAX ];
+  ulong replaced_slots [ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong buf_off = 0UL;
+
+  /* In fast boot, incrementals and full snapshots share the same fork. */
+  int mode =   ctx->fast_boot.stream                 ? FD_ACCDB_RESTORE_MODE_STREAM :
+             ( ctx->full || ctx->fast_boot.enabled ) ? FD_ACCDB_RESTORE_MODE_FULL :
+                                                       FD_ACCDB_RESTORE_MODE_INCREMENTAL;
 
   /* Flush accounts in batches of 8 */
   for( ulong batch_off=0UL; batch_off<batch->cnt; batch_off+=FD_SSPARSE_ACC_BATCH_MAX ) {
@@ -1459,11 +1466,11 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     }
 
     ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
-    if( FD_UNLIKELY( fd_accdb_restore_write_batch( ctx->accdb, fork_id, ctx->fast_boot.stream || (!ctx->full && !ctx->fast_boot.enabled), ctx->fast_boot.stream, cnt, pubkeys,
+    if( FD_UNLIKELY( fd_accdb_restore_write_batch( ctx->accdb, fork_id, mode, cnt, pubkeys,
                                                    slots, batch->lamports+batch_off,
                                                    data_lens, batch->executables+batch_off,
                                                    file_offsets, &accounts_ignored, &accounts_replaced,
-                                                   &accounts_loaded, &replaced_lamports, &ignored_lamports, results ) ) ) {
+                                                   &accounts_loaded, &replaced_lamports, &ignored_lamports, replaced_slots, results ) ) ) {
       return 1;
     }
 
@@ -1486,9 +1493,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
         }
       }
 
-      int replacing_full_entry = results[ i ]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS;
-      if( FD_UNLIKELY( replacing_full_entry || results[ i ]==FD_ACCDB_RESTORE_WRITE_REPLACED ) ) {
-        fd_stake_delegations_fork_remove( ctx->stake_delegations, stake_fork, slots[ i ], pubkey, replacing_full_entry );
+      if( FD_UNLIKELY( replaced_slots[ i ]!=ULONG_MAX ) ) {
+        fd_stake_delegations_fork_remove( ctx->stake_delegations, stake_fork, slots[ i ], pubkey,
+                                          results[ i ]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS ||
+                                          ( !ctx->full && replaced_slots[ i ]<=ctx->full_slot ) );
       }
     }
 
@@ -1952,6 +1960,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
       ctx->fast_boot.stream = !!msg->fast_boot_stream;
 
+      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) ctx->full_slot = msg->slot;
+
       reset_attempt_state( ctx );
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
@@ -2057,14 +2067,17 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_META: {
       forward_msg = 0; /* snapct already receives META directly from snapld */
+      FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
+      fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
+
+      if( ctx->full && meta->resolved_slot!=ULONG_MAX ) ctx->full_slot = meta->resolved_slot;
+
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
       /* For redirect-based HTTP downloads, the META message carries
          the resolved slot and hash from the actual snapshot filename
          the server redirected to.  Update the advertised values so
          that process_manifest can verify the manifest against them. */
-      FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
-      fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
       if( meta->resolved_slot!=ULONG_MAX ) {
         ctx->lead.advertised_slot = meta->resolved_slot;
         fd_memcpy( ctx->lead.advertised_hash, meta->resolved_hash, FD_HASH_FOOTPRINT );

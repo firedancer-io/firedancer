@@ -246,8 +246,8 @@ static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 
 /* Outcome mock_accdb_restore_write_batch reports for every account. */
 static uchar test_write_result = FD_ACCDB_RESTORE_WRITE_LOADED;
-static int   test_write_skip_duplicates;
-static int   test_write_is_incremental;
+static ulong test_write_replaced_slot = 1UL; /* reported for a REPLACED or REPLACED_CROSS result */
+static int   test_write_mode;
 
 /* The mocks above hide these prototypes; tests reach the real ones. */
 ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
@@ -383,8 +383,7 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
 int
 mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
                                 fd_accdb_fork_id_t                   fork_id,
-                                int                                  is_incremental_or_fast_boot_stream,
-                                int                                  skip_duplicates,
+                                int                                  mode,
                                 ulong                                cnt,
                                 uchar const * const                  pubkeys[],
                                 ulong const                          slots[],
@@ -397,17 +396,19 @@ mock_accdb_restore_write_batch( fd_accdb_t *                         accdb,
                                 ulong *                              accounts_loaded,
                                 ulong *                              out_replaced_lamports,
                                 ulong *                              out_ignored_lamports,
+                                ulong *                              replaced_slots,
                                 uchar *                              results ) {
   (void)accdb;
   (void)fork_id;
-  test_write_is_incremental = is_incremental_or_fast_boot_stream;
+  test_write_mode = mode;
   (void)pubkeys;
   (void)slots;
   (void)lamports;
   (void)data_lens;
   (void)executables;
   (void)file_offsets;
-  test_write_skip_duplicates = skip_duplicates;
+  int replaced = test_write_result==FD_ACCDB_RESTORE_WRITE_REPLACED || test_write_result==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS;
+  for( ulong i=0UL; i<cnt; i++ ) replaced_slots[ i ] = replaced ? test_write_replaced_slot : ULONG_MAX;
   *accounts_ignored      = 0UL;
   *accounts_replaced     = 0UL;
   *accounts_loaded       = cnt;
@@ -1731,6 +1732,31 @@ test_snoop_outcomes( fd_wksp_t * wksp ) {
   /* loaded non-delegation: nothing. */
   write_one( ctx, &acc_b, &fd_solana_system_program_id, 0UL, NULL, 0UL, 30UL, FD_ACCDB_RESTORE_WRITE_LOADED );
   FD_TEST( !test_stake_delegations_contains( stake_delegations, &acc_b ) );
+
+  /* A slot 0 version replaced during the full is still a same-load
+     replacement: tombstoned. */
+  fd_pubkey_t acc_e = { .ul = { 105UL } };
+  test_write_replaced_slot = 0UL;
+  write_one( ctx, &acc_e, &fd_solana_system_program_id, 0UL, NULL, 0UL, 31UL, FD_ACCDB_RESTORE_WRITE_REPLACED );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_e, d ) && !d->lamports && d->slot==31U );
+  test_write_replaced_slot = 1UL;
+
+  /* Behind a fast boot stream the incremental shares the full's fork,
+     so a replaced version at or below the full's slot came from the
+     full: tombstoned only if present.  Above it: tombstoned. */
+  ctx->fast_boot.enabled = 1;
+  ctx->full              = 0;
+  ctx->full_slot         = 20UL;
+  test_write_replaced_slot = 20UL;
+  write_one( ctx, &acc_b, &fd_solana_system_program_id, 0UL, NULL, 0UL, 40UL, FD_ACCDB_RESTORE_WRITE_REPLACED );
+  FD_TEST( !test_stake_delegations_contains( stake_delegations, &acc_b ) );
+  test_write_replaced_slot = 21UL;
+  write_one( ctx, &acc_b, &fd_solana_system_program_id, 0UL, NULL, 0UL, 41UL, FD_ACCDB_RESTORE_WRITE_REPLACED );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_b, d ) && !d->lamports && d->slot==41U );
+  ctx->fast_boot.enabled = 0;
+  ctx->full              = 1;
+  ctx->full_slot         = 0UL;
+  test_write_replaced_slot = 1UL;
 }
 
 /* Incremental writes go to the fork in shmem, not the root. */
@@ -3054,8 +3080,7 @@ test_stream_mode( void ) {
   uchar pubkey[ 32UL ] = {1};
   uchar owner [ 32UL ] = {2};
   cl->ctx[ 0 ].load_fork = 7UL;
-  test_write_skip_duplicates = -1;
-  test_write_is_incremental  = -1;
+  test_write_mode = -1;
   FD_TEST( !writer_append_account( &cl->ctx[ 0 ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
 
   /* Caught up: tile 0 flushes and tells replay to start, without
@@ -3065,7 +3090,7 @@ test_stream_mode( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_PROCESSING );
   FD_TEST( test_pub_cnt==pub0+1UL && test_pub_sig[ pub0 ]==fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) && test_pub_out_idx[ pub0 ]==0UL );
-  FD_TEST( test_write_skip_duplicates==1 && test_write_is_incremental==1 );
+  FD_TEST( test_write_mode==FD_ACCDB_RESTORE_MODE_STREAM );
   FD_TEST( !test_accdb_advance_root_cnt && test_feature_restore_cnt==1UL && !test_accdb_load_end_cnt ); /* the stream fork stays unrooted */
   FD_TEST( !test_accdb_read_one_cnt );
   FD_TEST( test_pwrite_call_cnt==1UL && test_pwrite_sz[ 0 ]==FD_SNAPIN_DIRECT_ALIGN ); /* a stream is written like a snapshot */
@@ -3148,10 +3173,10 @@ test_background_snapshot( void ) {
       start_processing_attempt( &cl->ctx[ t ] );
       FD_TEST( cl->ctx[ t ].full && cl->ctx[ t ].load_fork==21UL && cl->ctx[ t ].claimed_appendvec==t-1UL );
       ulong pw = test_pwrite_call_cnt;
-      test_write_is_incremental = test_write_skip_duplicates = -1;
+      test_write_mode = -1;
       FD_TEST( !writer_append_account( &cl->ctx[ t ], pubkey, owner, NULL, 100UL, 5UL, 0UL, 0 ) );
       FD_TEST( !writer_flush( &cl->ctx[ t ] ) );
-      FD_TEST( !test_write_is_incremental && !test_write_skip_duplicates && test_pwrite_call_cnt==pw+1UL );
+      FD_TEST( test_write_mode==FD_ACCDB_RESTORE_MODE_FULL && test_pwrite_call_cnt==pw+1UL );
       cl->ctx[ t ].state = FD_SNAPSHOT_STATE_FINISHING;
       send_control( &cl->ctx[ t ], 0UL, FD_SNAPSHOT_MSG_CTRL_NEXT );
     }
@@ -3160,10 +3185,10 @@ test_background_snapshot( void ) {
       start_processing_attempt( &cl->ctx[ t ] );
       FD_TEST( !cl->ctx[ t ].full && cl->ctx[ t ].load_fork==21UL && cl->ctx[ t ].claimed_appendvec==t-1UL );
       ulong pw = test_pwrite_call_cnt;
-      test_write_is_incremental = test_write_skip_duplicates = -1;
+      test_write_mode = -1;
       FD_TEST( !writer_append_account( &cl->ctx[ t ], pubkey, owner, NULL, 101UL, 5UL, 0UL, 0 ) );
       FD_TEST( !writer_flush( &cl->ctx[ t ] ) );
-      FD_TEST( !test_write_is_incremental && !test_write_skip_duplicates && test_pwrite_call_cnt==pw+1UL );
+      FD_TEST( test_write_mode==FD_ACCDB_RESTORE_MODE_FULL && test_pwrite_call_cnt==pw+1UL );
       cl->ctx[ t ].state = FD_SNAPSHOT_STATE_FINISHING;
     }
     FD_TEST( !cl->ctx[ 0 ].shmem->fast_boot.snapshots_done && !test_accdb_advance_root_cnt );

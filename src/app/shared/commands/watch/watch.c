@@ -193,9 +193,32 @@ diff_link( config_t const * config,
   return result;
 }
 
-/* diff_tile returns the positive increase between the last and current
-   value of an increasing counter.  Clamps wraparound to zero (this
+/* diff_tile_range returns the positive increase between the last and
+   current value of an increasing counter, summed over the tiles named
+   tile_name with lo<=kind_id<hi.  Clamps wraparound to zero (this
    happens to gauge-based counters, e.g. "number of events in an epoch") */
+
+static ulong
+diff_tile_range( config_t const * config,
+                 char const *     tile_name,
+                 ulong            lo,
+                 ulong            hi,
+                 ulong const *    prev_tile,
+                 ulong const *    cur_tile,
+                 ulong            idx ) {
+  ulong result = 0UL;
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( FD_UNLIKELY( strcmp( tile->name, tile_name ) ) ) continue;
+    if( FD_UNLIKELY( tile->kind_id<lo || tile->kind_id>=hi ) ) continue;
+    ulong prev = prev_tile[ i*FD_METRICS_TOTAL_SZ+idx ];
+    ulong cur  =  cur_tile[ i*FD_METRICS_TOTAL_SZ+idx ];
+    result += cur>=prev ? cur-prev : 0UL;
+  }
+  return result;
+}
+
+/* diff_tile is diff_tile_range over every tile named tile_name */
 
 static ulong
 diff_tile( config_t const * config,
@@ -203,15 +226,7 @@ diff_tile( config_t const * config,
            ulong const *    prev_tile,
            ulong const *    cur_tile,
            ulong            idx ) {
-  ulong result = 0UL;
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( strcmp( tile->name, tile_name ) ) ) continue;
-    ulong prev = prev_tile[ i*FD_METRICS_TOTAL_SZ+idx ];
-    ulong cur  =  cur_tile[ i*FD_METRICS_TOTAL_SZ+idx ];
-    result += cur>=prev ? cur-prev : 0UL;
-  }
-  return result;
+  return diff_tile_range( config, tile_name, 0UL, ULONG_MAX, prev_tile, cur_tile, idx );
 }
 
 static ulong
