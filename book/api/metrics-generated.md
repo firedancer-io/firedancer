@@ -1097,7 +1097,6 @@
 | <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | Slot replay last reset to (Tower reset slot; under Alpenglow the newest replayed slot or parent-ready parent); can decrease |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;capacity</span> | gauge | Maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;used</span> | gauge | Banks we currently have alive |
-| <span class="metrics-name">replay_&#8203;reassembly_&#8203;free</span> | gauge | Free FEC sets in the reassembly queue, 0 under Alpenglow (no reassembly queue) |
 | <span class="metrics-name">replay_&#8203;last_&#8203;reassembly_&#8203;dequeued_&#8203;slot</span> | gauge | Slot of the FEC set most recently dequeued from reassembly for replay, 0 if none |
 | <span class="metrics-name">replay_&#8203;last_&#8203;reassembly_&#8203;dequeued_&#8203;fec_&#8203;index</span> | gauge | FEC set index of the FEC set most recently dequeued from reassembly for replay; read with LastReassemblyDequeuedSlot |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;active_&#8203;bank_&#8203;index</span> | gauge | Bank pool index the replay scheduler is dispatching work for, ULONG_MAX if none |
@@ -1154,7 +1153,6 @@
 | <span class="metrics-name">replay_&#8203;bank_&#8203;frozen</span> | counter | Banks frozen, including our own leader blocks |
 | <span class="metrics-name">replay_&#8203;chain_&#8203;txn_&#8203;height</span> | gauge | Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">sched_&#8203;full</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (The scheduler was full) |
-| <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">reassembly_&#8203;empty</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (The reassembly queue was empty) |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">leader_&#8203;freeze_&#8203;wait</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (Waiting for PoH to end our leader block) |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">bank_&#8203;full</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (The bank pool was full) |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;parent_&#8203;missing_&#8203;dropped</span> | counter | FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past |
