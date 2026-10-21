@@ -275,11 +275,16 @@ busy_pct( config_t const * config,
           double *         busy,
           double *         backp ) {
   ulong total = 0UL, idle = 0UL, backp_ticks = 0UL;
-  for( ulong i=0UL; i<FD_METRICS_ENUM_TILE_REGIME_CNT; i++ ) {
-    ulong ticks = diff_tile_range( config, tile_name, lo, hi, prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS )+i );
-    total += ticks;
-    if( FD_METRICS_ENUM_TILE_REGIME_G_IDLE_MASK         & (1UL<<i) ) idle        += ticks;
-    if( FD_METRICS_ENUM_TILE_REGIME_G_BACKPRESSURE_MASK & (1UL<<i) ) backp_ticks += ticks;
+  for( ulong t=0UL; t<config->topo.tile_cnt; t++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ t ];
+    if( FD_UNLIKELY( strcmp( tile->name, tile_name ) || tile->kind_id<lo || tile->kind_id>=hi ) ) continue;
+    for( ulong i=0UL; i<FD_METRICS_ENUM_TILE_REGIME_CNT; i++ ) {
+      ulong idx   = t*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS )+i;
+      ulong ticks = cur_tile[ idx ]>=prev_tile[ idx ] ? cur_tile[ idx ]-prev_tile[ idx ] : 0UL;
+      total += ticks;
+      if( FD_METRICS_ENUM_TILE_REGIME_G_IDLE_MASK         & (1UL<<i) ) idle        += ticks;
+      if( FD_METRICS_ENUM_TILE_REGIME_G_BACKPRESSURE_MASK & (1UL<<i) ) backp_ticks += ticks;
+    }
   }
   total  = fd_ulong_max( total, 1UL );
   *busy  = 100.0*(double)(total-idle-backp_ticks)/(double)total;
