@@ -209,6 +209,18 @@ struct fd_sbpf_elf_info {
 
   /* SBPF version, SIMD-0161 */
   ulong sbpf_version;
+
+  /* Detail of the most recent FD_SBPF_ELF_ERR_* failure, consumed by
+     fd_sbpf_elf_err_cstr.  Only meaningful right after a failed peek or
+     load.  err_parser is the FD_SBPF_ELF_PARSER_* code behind a
+     FAILED_TO_PARSE (or STRING_TOO_LONG's arguments live in err_arg*).
+     err_arg0/err_arg1 and err_name hold the per-error arguments, see
+     fd_sbpf_elf_err_cstr. */
+  int   err_parser;
+  ulong err_arg0;
+  ulong err_arg1;
+  ulong err_name_len;
+  uchar err_name[ 64 ];
 };
 typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
 
@@ -369,6 +381,21 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
 
 void *
 fd_sbpf_program_delete( fd_sbpf_program_t * program );
+
+/* fd_sbpf_elf_err_cstr renders the FD_SBPF_ELF_ERR_* code err, together
+   with the detail recorded in info by the failed fd_sbpf_elf_peek or
+   fd_sbpf_program_load call, as the Display text of the corresponding
+   sbpf ElfError (elf.rs, elf_parser/mod.rs).  Writes a cstr to buf of
+   capacity buf_sz and returns the number of bytes written (excluding
+   the NUL).  Names that are not valid UTF-8 are rendered as the
+   replacement character sequence, matching String::from_utf8_lossy for
+   the common case of a single run of invalid bytes. */
+
+ulong
+fd_sbpf_elf_err_cstr( fd_sbpf_elf_info_t const * info,
+                      int                        err,
+                      char *                     buf,
+                      ulong                      buf_sz );
 
 /* SBPF versions and features. This should stay in sync with the macro
    definitions in fd_vm_private.h until they are removed (once Agave

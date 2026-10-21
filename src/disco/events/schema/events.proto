@@ -999,6 +999,14 @@ enum MetricsMotorState {
   METRICS_MOTOR_STATE_SHUTDOWN = 3;  // Shutdown
 }
 
+// Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+enum MetricsDragonState {
+  METRICS_DRAGON_STATE_UNSPECIFIED = 0;
+  METRICS_DRAGON_STATE_BOOTING = 1;  // Booting
+  METRICS_DRAGON_STATE_RUNNING = 2;  // Running
+  METRICS_DRAGON_STATE_SHUTDOWN = 3;  // Shutdown
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -7153,6 +7161,346 @@ message MetricsMotorRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Most pending output segments a call held at once, sampled when the call ends
+message MetricsDragonPendingRefPeakPerCall {
+  // [0, 1)
+  uint64 b0 = 1;
+  // [1, 2)
+  uint64 b1 = 2;
+  // [2, 4)
+  uint64 b2 = 3;
+  // [4, 9)
+  uint64 b3 = 4;
+  // [9, 20)
+  uint64 b4 = 5;
+  // [20, 45)
+  uint64 b5 = 6;
+  // [45, 101)
+  uint64 b6 = 7;
+  // [101, 227)
+  uint64 b7 = 8;
+  // [227, 510)
+  uint64 b8 = 9;
+  // [510, 1146)
+  uint64 b9 = 10;
+  // [1146, 2574)
+  uint64 b10 = 11;
+  // [2574, 5782)
+  uint64 b11 = 12;
+  // [5782, 12988)
+  uint64 b12 = 13;
+  // [12988, 29175)
+  uint64 b13 = 14;
+  // [29175, 65536)
+  uint64 b14 = 15;
+  // [65536, inf)
+  uint64 b15 = 16;
+  // Sum of samples
+  uint64 sum = 17;
+}
+
+// Time to read one account at a bank's fork of the accounts database
+message MetricsDragonAccountReadDurationNanos {
+  // [0, 100) nanos
+  uint64 b0 = 1;
+  // [100, 228) nanos
+  uint64 b1 = 2;
+  // [228, 519) nanos
+  uint64 b2 = 3;
+  // [519, 1181) nanos
+  uint64 b3 = 4;
+  // [1181, 2687) nanos
+  uint64 b4 = 5;
+  // [2687, 6114) nanos
+  uint64 b5 = 6;
+  // [6114, 13912) nanos
+  uint64 b6 = 7;
+  // [13912, 31657) nanos
+  uint64 b7 = 8;
+  // [31657, 72035) nanos
+  uint64 b8 = 9;
+  // [72035, 163915) nanos
+  uint64 b9 = 10;
+  // [163915, 372988) nanos
+  uint64 b10 = 11;
+  // [372988, 848733) nanos
+  uint64 b11 = 12;
+  // [848733, 1931290) nanos
+  uint64 b12 = 13;
+  // [1931290, 4394644) nanos
+  uint64 b13 = 14;
+  // [4394644, 10000000) nanos
+  uint64 b14 = 15;
+  // [10000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Entries written to the buffer, by type
+message MetricsDragonBufferEntryStored {
+  // Transaction
+  uint64 txn = 1;
+  // Account write
+  uint64 account = 2;
+  // Encoded epoch rewards of a block
+  uint64 reward = 3;
+}
+
+// Size of the commit records reassembled from the record links
+message MetricsDragonRecordSizeBytes {
+  // [0, 128) bytes
+  uint64 b0 = 1;
+  // [128, 269) bytes
+  uint64 b1 = 2;
+  // [269, 565) bytes
+  uint64 b2 = 3;
+  // [565, 1187) bytes
+  uint64 b3 = 4;
+  // [1187, 2495) bytes
+  uint64 b4 = 5;
+  // [2495, 5244) bytes
+  uint64 b5 = 6;
+  // [5244, 11021) bytes
+  uint64 b6 = 7;
+  // [11021, 23162) bytes
+  uint64 b7 = 8;
+  // [23162, 48678) bytes
+  uint64 b8 = 9;
+  // [48678, 102303) bytes
+  uint64 b9 = 10;
+  // [102303, 215002) bytes
+  uint64 b10 = 11;
+  // [215002, 451853) bytes
+  uint64 b11 = 12;
+  // [451853, 949623) bytes
+  uint64 b12 = 13;
+  // [949623, 1995747) bytes
+  uint64 b13 = 14;
+  // [1995747, 4194304) bytes
+  uint64 b14 = 15;
+  // [4194304, inf) bytes
+  uint64 b15 = 16;
+  // Sum of samples (bytes)
+  uint64 sum = 17;
+}
+
+// Times a bank was found not sealed, by reason
+message MetricsDragonBankIncompleteSeen {
+  // The bank is sealed
+  uint64 none = 1;
+  // The bank has not frozen yet
+  uint64 pending = 2;
+  // The bank reference was taken back
+  uint64 dropped = 3;
+  // Fewer transaction records than the bank executed
+  uint64 record_missing = 4;
+  // A sysvar write of the slot was not seen
+  uint64 sysvar_missing = 5;
+  // An input link overran, so records may be missing
+  uint64 gap = 6;
+}
+
+// Banks dropped from the fork graph, by reason
+message MetricsDragonBankDiscarded {
+  // The slot was marked dead
+  uint64 dead = 1;
+  // Another bank of the slot was confirmed or rooted
+  uint64 loser = 2;
+  // Replay asked for the bank reference back
+  uint64 dropped = 3;
+  // The bank does not descend from the root
+  uint64 pruned = 4;
+  // The bank never resolved and fell behind
+  uint64 stale = 5;
+  // Replay restarted its bank sequence, or an input gap
+  uint64 flushed = 6;
+  // The bank owed a commitment status its records never let it seal for
+  uint64 pending = 7;
+}
+
+// Slot statuses reported by the fork graph, by status
+message MetricsDragonSlotStatusReported {
+  // Processed
+  uint64 processed = 1;
+  // Confirmed
+  uint64 confirmed = 2;
+  // Finalized
+  uint64 finalized = 3;
+  // FirstShredReceived
+  uint64 first_shred_received = 4;
+  // Completed
+  uint64 completed = 5;
+  // CreatedBank
+  uint64 created_bank = 6;
+  // Dead
+  uint64 dead = 7;
+}
+
+// Calls the transport closed, by reason
+message MetricsDragonCallEvicted {
+  // The send ring needed back bytes the call had not sent
+  uint64 send_ring = 1;
+  // The call held as many pending segments as it may
+  uint64 ref_queue = 2;
+  // The shared pool of pending segments ran out and the call held the most of it
+  uint64 ref_pool = 3;
+  // The grpc-timeout of the call ran out
+  uint64 deadline = 4;
+}
+
+// Update message bytes sent to subscribers, by type
+message MetricsDragonUpdateTxBytes {
+  // Slot status
+  uint64 slot = 1;
+  // Transaction
+  uint64 txn = 2;
+  // Transaction status
+  uint64 txn_status = 3;
+  // Block meta
+  uint64 block_meta = 4;
+  // Account
+  uint64 account = 5;
+  // Block
+  uint64 block = 6;
+}
+
+// Update messages sent to subscribers, by type
+message MetricsDragonUpdateTx {
+  // Slot status
+  uint64 slot = 1;
+  // Transaction
+  uint64 txn = 2;
+  // Transaction status
+  uint64 txn_status = 3;
+  // Block meta
+  uint64 block_meta = 4;
+  // Account
+  uint64 account = 5;
+  // Block
+  uint64 block = 6;
+}
+
+// Requests rejected, by reason
+message MetricsDragonRequestRejected {
+  // The x-token metadata was missing or wrong
+  uint64 auth = 1;
+  // The method is not served
+  uint64 unimplemented = 2;
+  // The request message could not be decoded
+  uint64 decode = 3;
+  // The subscribe request violates a filter limit
+  uint64 filter = 4;
+  // The subscribe request asks to replay from a past slot
+  uint64 from_slot = 5;
+  // The subscribe request asks for a commitment level this server does not serve
+  uint64 commitment = 6;
+  // No call slot was free
+  uint64 call_full = 7;
+  // Every subscription class was taken
+  uint64 class_full = 8;
+  // The transport found the request malformed or unsupported
+  uint64 malformed = 9;
+  // Every request buffer was in use and this request had been arriving the longest
+  uint64 buffer_evicted = 10;
+  // The request message did not finish arriving within the reassembly deadline
+  uint64 buffer_timeout = 11;
+  // The peer address already held its share of the request buffers
+  uint64 buffer_address = 12;
+}
+
+// Connections the server closed on its own, by reason
+message MetricsDragonConnEvicted {
+  // No traffic for the idle timeout
+  uint64 idle = 1;
+  // The HTTP/2 handshake did not complete in time
+  uint64 handshake = 2;
+  // The connection held a burst send buffer while the kernel took none of its bytes
+  uint64 burst_stall = 3;
+  // The peer reset streams faster than the limit
+  uint64 reset_flood = 4;
+  // A client that did not keep up never took the status that ended its subscription
+  uint64 slow_client = 5;
+}
+
+// Calls received, by method, before authentication
+message MetricsDragonCallHandled {
+  // Unknown or unsupported method
+  uint64 unknown = 1;
+  // Subscribe
+  uint64 subscribe = 2;
+  // SubscribeDeshred
+  uint64 subscribe_deshred = 3;
+  // SubscribeGossip
+  uint64 subscribe_gossip = 4;
+  // SubscribeReplayInfo
+  uint64 subscribe_replay_info = 5;
+  // Ping
+  uint64 ping = 6;
+  // GetLatestBlockhash
+  uint64 get_latest_blockhash = 7;
+  // GetBlockHeight
+  uint64 get_block_height = 8;
+  // GetSlot
+  uint64 get_slot = 9;
+  // IsBlockhashValid
+  uint64 is_blockhash_valid = 10;
+  // GetVersion
+  uint64 get_version = 11;
+  // Health/Check
+  uint64 health_check = 12;
+  // Health/Watch
+  uint64 health_watch = 13;
+}
+
+// Times the tile tried to park while idle (efficient mode), by result
+message MetricsDragonParkAttempted {
+  // Woken by a doorbell ring
+  uint64 ring = 1;
+  // Deadline or park cap lapsed
+  uint64 deadline = 2;
+  // Pre-park recheck found work, did not park
+  uint64 pending = 3;
+}
+
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+message MetricsDragonThreadDurationNanos {
+  // Wait (task was runnable but not scheduled)
+  uint64 wait = 1;
+  // Idle (task was not runnable)
+  uint64 idle = 2;
+  // User (task was scheduled and executing in user mode)
+  uint64 user = 3;
+  // System (task was scheduled and executing in kernel mode)
+  uint64 system = 4;
+  // Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)
+  uint64 interrupt = 5;
+}
+
+// Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+message MetricsDragonRegimeDurationNanos {
+  // Caught up + Housekeeping
+  uint64 caught_up_housekeeping = 1;
+  // Processing + Housekeeping
+  uint64 processing_housekeeping = 2;
+  // Backpressure + Housekeeping
+  uint64 backpressure_housekeeping = 3;
+  // Caught up + Prefrag
+  uint64 caught_up_prefrag = 4;
+  // Processing + Prefrag
+  uint64 processing_prefrag = 5;
+  // Backpressure + Prefrag
+  uint64 backpressure_prefrag = 6;
+  // Caught up + Postfrag
+  uint64 caught_up_postfrag = 7;
+  // Processing + Postfrag
+  uint64 processing_postfrag = 8;
+  // Caught up + Sleeping
+  uint64 caught_up_sleeping = 9;
+  // Backpressure + Sleeping
+  uint64 backpressure_sleeping = 10;
+}
+
 // The validator received a verified, deduplicated transaction
 message Txn {
   // The source IP address of the transaction sender
@@ -11503,6 +11851,276 @@ message MetricsMotor {
   uint64 timer_irq = 24;
 }
 
+// Metrics of one dragon tile instance, one row per sweep
+message MetricsDragon {
+  // Identifier shared by every row of one sweep
+  uint64 sample_id = 1;
+  // Why a metrics sweep was taken
+  MetricsSampleReason sample_reason = 2;
+  // Slot that triggered the sweep, 0 for periodic sweeps
+  uint64 sample_slot = 3;
+  // Snapshot load state
+  MetricsSnapctLoadState sample_snapct_state = 4;
+  // Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared
+  bool sample_caught_up = 5;
+  // Tile instances in the sweep, to detect partial sweeps
+  uint64 sample_tile_cnt = 6;
+  // Index of this tile instance among tiles of its kind
+  uint64 kind_id = 7;
+  // Process ID of the tile
+  uint64 pid = 8;
+  // Thread ID of the tile. Same as Pid in production, but might differ in development
+  uint64 tid = 9;
+  // CPU the tile last ran on
+  uint64 last_cpu_index = 10;
+  // counter: cumulative since tile start, query deltas. Involuntary context switches
+  uint64 context_switch_involuntary = 11;
+  // counter: cumulative since tile start, query deltas. Voluntary context switches
+  uint64 context_switch_voluntary = 12;
+  // counter: cumulative since tile start, query deltas. Major page faults
+  uint64 page_fault_major = 13;
+  // counter: cumulative since tile start, query deltas. Minor page faults
+  uint64 page_fault_minor = 14;
+  // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+  MetricsDragonState state = 15;
+  // Last wall-clock time the tile heartbeated
+  uint64 heartbeat_time = 16;
+  // Whether the tile is currently backpressured
+  bool is_backpressured = 17;
+  // counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing
+  uint64 backpressure = 18;
+  // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+  MetricsDragonRegimeDurationNanos regime_duration_nanos = 19;
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned
+  MetricsDragonThreadDurationNanos thread_duration_nanos = 20;
+  // Times the tile tried to park while idle (efficient mode), by result
+  MetricsDragonParkAttempted park_attempted = 21;
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned
+  uint64 device_irq = 22;
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned
+  uint64 tlb_shootdown = 23;
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned
+  uint64 timer_irq = 24;
+  // Calls received, by method, before authentication
+  MetricsDragonCallHandled call_handled = 25;
+  // Open HTTP/2 connections
+  uint64 conn_open = 26;
+  // Connections the server can hold at once
+  uint64 conn_capacity = 27;
+  // Open gRPC calls
+  uint64 call_open = 28;
+  // Calls the server can hold at once
+  uint64 call_capacity = 29;
+  // Open subscription streams
+  uint64 subscription_open = 30;
+  // Subscription classes in use, one per distinct filter set
+  uint64 subscription_class_used = 31;
+  // Subscription classes the server can hold at once
+  uint64 subscription_class_capacity = 32;
+  // Last slot reported processed, 0 if none
+  uint64 last_processed_slot = 33;
+  // Last slot reported confirmed, 0 if none
+  uint64 last_confirmed_slot = 34;
+  // Last slot reported finalized, 0 if none
+  uint64 last_finalized_slot = 35;
+  // Connections accepted
+  uint64 conn_accepted = 36;
+  // Connections closed, by the peer or the server
+  uint64 conn_closed = 37;
+  // Connections the server closed on its own, by reason
+  MetricsDragonConnEvicted conn_evicted = 38;
+  // Connections refused with a GOAWAY because every connection slot was taken
+  uint64 conn_full_rejected = 39;
+  // Connections refused with a GOAWAY because their address already held max_clients_per_address connections
+  uint64 conn_address_full_rejected = 40;
+  // Failed attempts to accept a connection
+  uint64 accept_failed = 41;
+  // Failed epoll operations on the server's sockets
+  uint64 poll_failed = 42;
+  // Request messages received from clients
+  uint64 request_rx = 43;
+  // Request message bytes received from clients
+  uint64 request_rx_bytes = 44;
+  // Requests rejected, by reason
+  MetricsDragonRequestRejected request_rejected = 45;
+  // Request buffers not on loan to any call
+  uint64 request_buffer_free = 46;
+  // Request buffers the server has
+  uint64 request_buffer_capacity = 47;
+  // Update messages sent to subscribers, by type
+  MetricsDragonUpdateTx update_tx = 48;
+  // Update message bytes sent to subscribers, by type
+  MetricsDragonUpdateTxBytes update_tx_bytes = 49;
+  // Server side pings sent on subscription streams
+  uint64 ping_tx = 50;
+  // Pongs sent in reply to a client ping
+  uint64 pong_tx = 51;
+  // Response messages handed to the transport
+  uint64 msg_tx = 52;
+  // Response message bytes handed to the transport, before compression
+  uint64 msg_tx_bytes = 53;
+  // Response message bytes sent on the wire, after compression
+  uint64 msg_wire_tx_bytes = 54;
+  // Response messages sent compressed
+  uint64 msg_compressed_tx = 55;
+  // Response messages a subscriber took from bytes staged once for several subscribers
+  uint64 msg_shared_tx = 56;
+  // Sends refused because the message is larger than [tiles.dragon.max_message_bytes]
+  uint64 msg_oversize_rejected = 57;
+  // Messages that did not fit the encoder's buffer
+  uint64 encode_failed = 58;
+  // Commit records whose transaction could not be parsed, so nothing was sent for them
+  uint64 txn_meta_build_failed = 59;
+  // Cuckoo account filters installed by subscriptions
+  uint64 cuckoo_filter_installed = 60;
+  // Calls the transport closed, by reason
+  MetricsDragonCallEvicted call_evicted = 61;
+  // Subscription streams ended because the client did not keep up
+  uint64 subscription_lagged_closed = 62;
+  // Subscription streams ended with an error because a bank whose content they wanted was lost
+  uint64 subscription_content_lost_closed = 63;
+  // Chunks of the shared update queue not on loan to any call
+  uint64 update_queue_chunk_free = 64;
+  // Chunks of the shared update queue, one per call plus the pool
+  uint64 update_queue_chunk_capacity = 65;
+  // Burst send buffers not on loan to any connection
+  uint64 burst_buffer_free = 66;
+  // Burst send buffers the server has
+  uint64 burst_buffer_capacity = 67;
+  // Times a connection whose send ring ran short took a burst send buffer
+  uint64 burst_buffer_acquired = 68;
+  // Times a connection whose send ring ran short found no burst send buffer free, or its address holding its share
+  uint64 burst_buffer_denied = 69;
+  // Fragments received on the replay link
+  uint64 replay_frag_rx = 70;
+  // Completed slot messages received from the replay tile
+  uint64 slot_complete_rx = 71;
+  // Times the tile fell behind the replay link and had to resynchronize
+  uint64 replay_overrun = 72;
+  // Slot statuses reported by the fork graph, by status
+  MetricsDragonSlotStatusReported slot_status_reported = 73;
+  // Blockhash statuses retained for the blockhash validity call
+  uint64 blockhash_count = 74;
+  // Block metas retained for the unary calls
+  uint64 block_meta_count = 75;
+  // Banks in the fork graph
+  uint64 bank_count = 76;
+  // Banks the fork graph can hold
+  uint64 bank_capacity = 77;
+  // Replay bank references the fork graph has not given back yet
+  uint64 bank_ref_count = 78;
+  // Bank reference releases waiting to be published to replay
+  uint64 bank_ref_release_pending = 79;
+  // Banks that owe a confirmed or finalized status, waiting for the records of their block
+  uint64 bank_pending = 80;
+  // Banks added to the fork graph
+  uint64 bank_created = 81;
+  // Banks dropped from the fork graph, by reason
+  MetricsDragonBankDiscarded bank_discarded = 82;
+  // Times a bank was found not sealed, by reason
+  MetricsDragonBankIncompleteSeen bank_incomplete_seen = 83;
+  // Banks dropped to make room in the fork graph
+  uint64 bank_evicted = 84;
+  // Banks reported sealed, which is when their block can be served
+  uint64 bank_sealed = 85;
+  // Times the whole fork graph was dropped
+  uint64 fork_graph_flushed = 86;
+  // Bank references granted by replay
+  uint64 bank_ref_acquired = 87;
+  // Bank references given back to replay
+  uint64 bank_ref_released = 88;
+  // Bank references that could not be queued for release, recovered on the next input gap
+  uint64 bank_ref_queue_full_lost = 89;
+  // Bank references given up without a release because the bank had no pool index, recovered on the next input gap
+  uint64 bank_ref_unnamed_lost = 90;
+  // Notifications naming a bank the fork graph never saw
+  uint64 bank_unknown_dropped = 91;
+  // Root advances whose chain of ancestors did not reach the previous root, so some banks were pruned without a finalized status
+  uint64 root_chain_gap_seen = 92;
+  // Times a bank's confirmed or finalized status had to wait for the records of its block
+  uint64 bank_pending_entered = 93;
+  // Banks whose owed status went out without their content because the records it waited for never arrived
+  uint64 bank_pending_timed_out = 94;
+  // Banks whose owed status went out without their content because the records it waited for are gone
+  uint64 bank_pending_dropped = 95;
+  // Banks given up on at the confirmed and finalized levels because the buffer could not hold one of their entries
+  uint64 bank_degraded = 96;
+  // Banks that reached confirmed or finalized without the buffer being able to serve their content, whose slot status went out regardless
+  uint64 content_lost = 97;
+  // Complete records reassembled from the record links
+  uint64 record_rx = 98;
+  // Transaction events received from the event links
+  uint64 txn_event_rx = 99;
+  // Records that did not fit one fragment
+  uint64 record_multi_frag_rx = 100;
+  // Records dropped because their framing or their fields did not hold up
+  uint64 record_malformed_dropped = 101;
+  // Partial records dropped because the tile fell behind a record link
+  uint64 record_gap_dropped = 102;
+  // Record fragments skipped because they named a chunk outside the link's dcache
+  uint64 record_bad_chunk_dropped = 103;
+  // Records dropped because the bank they name is gone or has no room
+  uint64 record_bank_gone_dropped = 104;
+  // Times the tile fell behind a record link
+  uint64 record_overrun = 105;
+  // Times the banks in flight were given up on because a record link lost fragments
+  uint64 record_gap_flushed = 106;
+  // Commit records accounted for against a bank
+  uint64 txn_record_processed = 107;
+  // Runtime write records accounted for against a bank
+  uint64 write_record_processed = 108;
+  // Account writes taken from the records
+  uint64 account_write_processed = 109;
+  // Account data bytes carried by the account writes taken from the records
+  uint64 account_write_processed_bytes = 110;
+  // Most fragments a record link was ever seen to be ahead of the tile, which the link depth bounds
+  uint64 record_link_lag_peak = 111;
+  // Size of the commit records reassembled from the record links
+  MetricsDragonRecordSizeBytes record_size_bytes = 112;
+  // Banks the buffer holds entries or a block summary for
+  uint64 buffer_bank_count = 113;
+  // Banks the buffer's bank table can hold
+  uint64 buffer_bank_capacity = 114;
+  // Transactions and account writes the buffer holds for banks not yet served
+  uint64 buffer_entry_count = 115;
+  // Entries the buffer's index can hold
+  uint64 buffer_entry_capacity = 116;
+  // Most entries the buffer ever held for banks not yet served at once
+  uint64 buffer_entry_peak = 117;
+  // Bytes of the buffer's ring from the oldest entry of a bank not yet served to the write position
+  uint64 buffer_used_bytes = 118;
+  // Bytes of the buffer's ring
+  uint64 buffer_capacity_bytes = 119;
+  // Most bytes of the buffer's ring that banks not yet served ever spanned at once
+  uint64 buffer_peak_bytes = 120;
+  // Entries written to the buffer, by type
+  MetricsDragonBufferEntryStored buffer_entry_stored = 121;
+  // Bytes written to the buffer
+  uint64 buffer_stored_bytes = 122;
+  // Entries larger than the whole ring, whose bank was given up on
+  uint64 buffer_entry_oversize_dropped = 123;
+  // Banks the buffer's bank table had no room for
+  uint64 buffer_bank_full_dropped = 124;
+  // Banks whose entries the ring overwrote before they were served, which is a buffer too small for the finalization lag
+  uint64 buffer_overrun = 125;
+  // Accounts read at a bank's fork of the accounts database
+  uint64 account_read = 126;
+  // Account reads that found no account, which is an account the block closed
+  uint64 account_closed_read = 127;
+  // Account writes not served because the record carried the account's identity but not its data
+  uint64 account_data_missing_skipped = 128;
+  // Account updates not sent because the buffer holds less of the account's data than the subscription asked for
+  uint64 account_partial_skipped = 129;
+  // Account updates dropped because they are larger than one message may be, which is [tiles.dragon.max_message_bytes]
+  uint64 account_oversize_dropped = 130;
+  // Blocks dropped because they are larger than one message may be, which is [tiles.dragon.max_message_bytes]
+  uint64 block_oversize_dropped = 131;
+  // Time to read one account at a bank's fork of the accounts database
+  MetricsDragonAccountReadDurationNanos account_read_duration_nanos = 132;
+  // Most pending output segments a call held at once, sampled when the call ends
+  MetricsDragonPendingRefPeakPerCall pending_ref_peak_per_call = 133;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -11568,5 +12186,6 @@ message Event {
     MetricsSnapsv metrics_snapsv = 60;
     MetricsLink metrics_link = 61;
     MetricsMotor metrics_motor = 62;
+    MetricsDragon metrics_dragon = 508779553;
   }
 }

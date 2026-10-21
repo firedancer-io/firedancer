@@ -1023,15 +1023,19 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
     /* https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L335-L339 */
     if( FD_UNLIKELY( current_caller_lamport_sum_h!=original_caller_lamport_sum_h ||
                      current_caller_lamport_sum_l!=original_caller_lamport_sum_l ) ) {
+      runtime->instr.trace_length--;
       return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
     }
   }
 
-  /* Note that we don't update the trace length here - since the caller
-     allocates out of the trace array, they are also responsible for
-     incrementing the trace length variable.
-     https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L347-L351 */
+  /* The caller took this instruction's trace entry when it allocated
+     the instr out of the trace array.  An instruction refused here or
+     above never joins the trace, which is where agave's push refuses
+     it, before it records the entry; one refused for call depth below
+     stays, as it does there.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/transaction.rs#L407-L444 */
   if( FD_UNLIKELY( runtime->instr.trace_length>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+    runtime->instr.trace_length--;
     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
   }
 
@@ -1583,7 +1587,13 @@ fd_executor_txn_check( fd_bank_t *    bank,
 
     /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_account_state_info.rs#L105-L125 */
     err = fd_executor_check_rent_state_with_account( &txn_out->accounts.keys[ i ], &pre_state, &post_state );
-    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+      /* Agave names the rejected account in the error, by its index in
+         the transaction, which is this loop's index
+         (svm/src/transaction_account_state_info.rs:105-125). */
+      txn_out->err.rent_err_account_idx = (uint)i;
+      return err;
+    }
 
     if     ( !memcmp( acc->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) txn_out->accounts.stake_update[ i ] = 1;
     else if( !memcmp( acc->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[ i ] = 1;

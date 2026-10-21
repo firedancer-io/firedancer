@@ -501,6 +501,37 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            uchar *            out_data,
                            ulong *            out_data_len );
 
+/* fd_accdb_read_one_nocache_max is fd_accdb_read_one_nocache with a
+   bound on the bytes copied into out_data: at most out_data_max bytes
+   of the account data land there, while out_data_len still reports the
+   account's full data length.
+
+   With nowait set the call never spins on another joiner.  An account
+   that is not in the cache and whose disk offset is momentarily
+   invalid, because another joiner is committing it in place or
+   evicting it, is reported as FD_ACCDB_READ_ONE_NOCACHE_BUSY with
+   nothing filled.  That state ends with the other joiner's step, after
+   which a retry finds the account in the cache or on disk.  An
+   in-place commit leaves the account cache-resident with an invalid
+   offset until it is evicted, so a reader that may overlap a same-fork
+   commit of the account, such as an executor looking at an account
+   outside its own transaction, must use nowait and retry: the waiting
+   read would spin until the eviction. */
+
+#define FD_ACCDB_READ_ONE_NOCACHE_BUSY  (3)
+
+int
+fd_accdb_read_one_nocache_max( fd_accdb_t *       accdb,
+                               fd_accdb_fork_id_t fork_id,
+                               uchar const *      pubkey,
+                               ulong *            out_lamports,
+                               int *              out_executable,
+                               uchar *            out_owner,
+                               uchar *            out_data,
+                               ulong              out_data_max,
+                               int                nowait,
+                               ulong *            out_data_len );
+
 /* fd_accdb_lamports returns the lamports of the account at fork_id, or
    zero if the account does not exist. */
 

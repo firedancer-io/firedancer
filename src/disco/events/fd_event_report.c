@@ -1,19 +1,15 @@
 #include "fd_event_report.h"
 
 static FD_TL fd_event_reporter_t fd_event_tl_storage[1];
+static FD_TL fd_event_reporter_t fd_event_internal_tl_storage[1];
 
-void
-fd_event_register( fd_topo_t const *      topo,
-                   fd_topo_tile_t const * tile ) {
-  fd_event_tl = NULL;
-
-  if( FD_LIKELY( tile->event_link_id==ULONG_MAX ) ) return; /* no event link */
-
-  fd_topo_link_t const * link = &topo->links[ tile->event_link_id ];
+static void
+event_reporter_init( fd_event_reporter_t *  r,
+                     fd_topo_t const *      topo,
+                     fd_topo_link_t const * link ) {
   FD_TEST( link->mcache );
   FD_TEST( link->dcache );
 
-  fd_event_reporter_t * r = fd_event_tl_storage;
   r->mcache = link->mcache;
   r->depth  = fd_mcache_depth( link->mcache );
   r->seq    = 0UL;
@@ -33,6 +29,26 @@ fd_event_register( fd_topo_t const *      topo,
     FD_TEST( r->sleep );
     r->wake_cnt = fd_sleep_wake_table( r->wake, topo, link->id );
   }
+}
 
-  fd_event_tl = r;
+void
+fd_event_register( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
+  fd_event_tl = NULL;
+
+  if( FD_LIKELY( tile->event_link_id==ULONG_MAX ) ) return; /* no event link */
+
+  event_reporter_init( fd_event_tl_storage, topo, &topo->links[ tile->event_link_id ] );
+  fd_event_tl = fd_event_tl_storage;
+}
+
+void
+fd_event_register_internal( fd_topo_t const *      topo,
+                            fd_topo_tile_t const * tile ) {
+  fd_event_internal_tl = NULL;
+
+  if( FD_LIKELY( tile->event_internal_link_id==ULONG_MAX ) ) return; /* no internal link */
+
+  event_reporter_init( fd_event_internal_tl_storage, topo, &topo->links[ tile->event_internal_link_id ] );
+  fd_event_internal_tl = fd_event_internal_tl_storage;
 }

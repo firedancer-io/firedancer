@@ -279,6 +279,7 @@ struct fiber {
       uchar              expect_owner0;     /* expected owner[0] tag */
       ulong              expect_data_len;
       uchar              expect_data_fill;  /* expected data byte value */
+      int                res;               /* what the read returned (nowait reader) */
     } nocache;
 
     struct {
@@ -609,6 +610,47 @@ fiber_nocache( fiber_t *          fiber,
   fiber->nocache.expect_data_fill = expect_data_fill;
   memcpy( fiber->nocache.pubkey, pubkey, 32UL );
   fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_nocache_exec, fiber );
+  return fiber->async;
+}
+
+/* nowait nocache reader fiber: fd_accdb_read_one_nocache_max with nowait
+   set, the read an executor makes of an account outside its own
+   transaction while another joiner may be committing that account in
+   place on the same fork.  Oracle: the read returns BUSY, or lamports
+   and owner0 the writer committed, and never spins: the fiber exits
+   within the weave.  The two fields are checked one by one: the cache
+   fast path snapshots the account's lamports apart from the line's
+   owner, and an in-place commit writes the line before the lamports,
+   so the pair may straddle the commit.  A reader of a mint is immune,
+   because the owner and the bytes it decodes are fixed at
+   initialization. */
+
+static void
+fiber_nocache_nowait_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  ulong lamports = 0UL; int executable = 0; ulong data_len = 0UL;
+  uchar owner[ 32UL ];
+  memset( owner, 0xAB, 32UL );
+  int res = fd_accdb_read_one_nocache_max( f->accdb, f->nocache.fork_id, f->nocache.pubkey,
+                                           &lamports, &executable, owner, g_nocache_data, sizeof(g_nocache_data),
+                                           1, &data_len );
+  f->nocache.res = res;
+  if( res==FD_ACCDB_READ_ONE_NOCACHE_BUSY ) return;
+  FD_TEST( res==FD_ACCDB_READ_ONE_NOCACHE_CACHE || res==FD_ACCDB_READ_ONE_NOCACHE_DISK );
+  if( FD_UNLIKELY( !( lamports==LAMP_A || lamports==LAMP_B ) || !( owner[0]==TAG_A || owner[0]==TAG_B ) ) )
+    FD_LOG_ERR(( "nowait read: (lamports=%lu owner0=0x%02x) was never committed", lamports, (uint)owner[0] ));
+}
+
+static fd_racesan_async_t *
+fiber_nocache_nowait( fiber_t *          fiber,
+                      fd_accdb_t *       accdb,
+                      fd_accdb_fork_id_t fork_id,
+                      uchar const *      pubkey ) {
+  fiber->accdb           = accdb;
+  fiber->nocache.fork_id = fork_id;
+  fiber->nocache.res     = -1;
+  memcpy( fiber->nocache.pubkey, pubkey, 32UL );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_nocache_nowait_exec, fiber );
   return fiber->async;
 }
 
@@ -1958,6 +2000,84 @@ test_commit_owner_vs_reader( void ) {
   join_delete( ctl );
   join_delete( jw );
   join_delete( jr );
+  test_shmem_delete();
+}
+
+/* test_nocache_nowait_vs_overwrite: a nowait nocache reader of K races a
+   same-fork, same-size-class in-place overwrite of K.  The overwrite
+   xchg's K's offset to INVAL and leaves it there past the commit (the
+   offset is published again by the eviction of the dirty line), and
+   takes the line's key.generation through UINT_MAX while it reuses it;
+   a reader that drops out of the cache fast path in that window sees an
+   invalid offset.  With nowait the read reports BUSY there and the
+   reader exits; the waiting read would spin until the eviction.
+
+   First the window is pinned: the writer is parked at
+   accdb_overwrite:mid_inplace and the read must report BUSY; after the
+   commit finishes the read must find the committed state in the cache.
+   Then the read is run at every hook position of the commit in turn:
+   the read has no hook before its offset check, so it runs whole
+   against a parked writer, and the sweep covers every point of the
+   commit the read can observe. */
+static void
+test_nocache_nowait_vs_overwrite( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new(); /* nowait reader */
+  fd_accdb_t * jw  = join_new(); /* in-place overwriter */
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  uchar K[ 32UL ]; mk_key( 4242UL, K );
+  { uchar owner[ 32UL ]; memset( owner, 0, 32UL ); owner[0] = TAG_A; seq_write( ctl, root, K, LAMP_A, owner ); }
+
+  {
+    fd_racesan_async_t * w = fiber_overwrite( &g_fiber[0], jw, root, K, 1 );
+    FD_TEST( fd_racesan_async_step_until( w, "accdb_overwrite:mid_inplace", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+    ulong lamports = 0UL; int executable = 0; ulong data_len = 0UL; uchar owner[ 32UL ];
+    int res = fd_accdb_read_one_nocache_max( jr, root, K, &lamports, &executable, owner, g_nocache_data, sizeof(g_nocache_data), 1, &data_len );
+    FD_TEST( res==FD_ACCDB_READ_ONE_NOCACHE_BUSY );
+
+    async_finish( w );
+    fiber_done( &g_fiber[0] );
+
+    res = fd_accdb_read_one_nocache_max( jr, root, K, &lamports, &executable, owner, g_nocache_data, sizeof(g_nocache_data), 1, &data_len );
+    FD_TEST( res==FD_ACCDB_READ_ONE_NOCACHE_CACHE );
+    FD_TEST( lamports==LAMP_B && owner[0]==TAG_B && data_len==0UL );
+  }
+
+  ulong busy_cnt = 0UL;
+  ulong read_cnt = 0UL;
+  for( ulong round=0UL; round<4UL; round++ ) {
+    int state = (int)( round & 1UL );
+    for( ulong k=0UL;; k++ ) {
+      fd_racesan_async_t * w = fiber_overwrite( &g_fiber[1], jw, root, K, state );
+      int exited = 0;
+      for( ulong step=0UL; step<k; step++ ) {
+        if( fd_racesan_async_step( w )==FD_RACESAN_ASYNC_RET_EXIT ) { exited = 1; break; }
+      }
+
+      async_finish( fiber_nocache_nowait( &g_fiber[0], jr, root, K ) );
+      read_cnt++;
+      busy_cnt += (ulong)( g_fiber[0].nocache.res==FD_ACCDB_READ_ONE_NOCACHE_BUSY );
+      fiber_done( &g_fiber[0] );
+
+      if( !exited ) async_finish( w );
+      fiber_done( &g_fiber[1] );
+
+      ulong lam; uchar o0;
+      seq_read_check( ctl, root, K, &lam, &o0 );
+      FD_TEST( state ? ( lam==LAMP_B && o0==TAG_B ) : ( lam==LAMP_A && o0==TAG_A ) );
+      if( exited ) break;
+      FD_TEST( k<STEP_MAX );
+    }
+  }
+  FD_TEST( busy_cnt ); /* the sweep did reach the invalid-offset window */
+  FD_LOG_NOTICE(( "  nowait reads: %lu of %lu busy", busy_cnt, read_cnt ));
+
+  join_delete( ctl );
+  join_delete( jr );
+  join_delete( jw );
   test_shmem_delete();
 }
 
@@ -3436,6 +3556,7 @@ main( int     argc,
     TEST( test_compact_vs_coldread ),
     TEST( test_coldload_vs_overwrite ),
     TEST( test_commit_owner_vs_reader ),
+    TEST( test_nocache_nowait_vs_overwrite ),
     TEST( test_tombstone_orphan_ebr_poison ),
     TEST( test_tombstone_recreate_vs_evict ),
     TEST( test_sentinel_unlink_no_poison ),
