@@ -1062,7 +1062,7 @@ test_id_keyswitch( void ) {
     peer->curr_rank = (ushort)i;
     peer->next_rank = USHORT_MAX;
     peer->tx_conn   = NULL;
-    peer->rx_conn   = NULL;
+    memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
     peer->ban_ts    = 0L;
   }
   contact_info_t * ci = contact_infos_insert( ctx.contact_infos, peer_id );
@@ -1097,7 +1097,7 @@ test_id_keyswitch( void ) {
   FD_TEST( rx_conn && hs_conn && hc_conn );
   rx_conn->state = FD_QUIC_CONN_STATE_ACTIVE;
   hc_conn->state = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
-  peer->rx_conn  = rx_conn;
+  peer->rx_conn[ 0 ] = rx_conn;
 
   ctx.in_kind[ 0 ] = IN_KIND_NET;
   ulong net_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR, FD_NETMUX_SIG_MIN_HDR_SZ );
@@ -1218,7 +1218,7 @@ test_id_keyswitch( void ) {
   FD_TEST( ctx.next_leader_slot==8UL );
   FD_TEST( !memcmp( ctx.quic_client->config.identity_public_key, new_id.uc, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( ctx.quic_server->config.identity_public_key, new_id.uc, sizeof(fd_pubkey_t) ) );
-  FD_TEST( !peer->tx_conn && peer->rx_conn==rx_conn && ctx.reward_votes[ 1UL ].slot==ULONG_MAX );
+  FD_TEST( !peer->tx_conn && peer->rx_conn[ 0 ]==rx_conn && ctx.reward_votes[ 1UL ].slot==ULONG_MAX );
   FD_TEST( rx_conn->state==FD_QUIC_CONN_STATE_ACTIVE );
   FD_TEST( hs_conn->state==FD_QUIC_CONN_STATE_CLOSE_PENDING && hc_conn->state==FD_QUIC_CONN_STATE_CLOSE_PENDING );
   FD_TEST( before_frag( &ctx, 0UL, 0UL, net_sig ) );
@@ -1399,7 +1399,7 @@ test_peer( fd_votor_tile_t * ctx,
   peer->curr_rank      = curr_rank;
   peer->next_rank      = USHORT_MAX;
   peer->tx_conn        = NULL;
-  peer->rx_conn        = NULL;
+  memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
   peer->ban_ts         = 0L;
   peer->conn_ts        = 0L;
   peer->conn_backoff   = 0L;
@@ -1486,7 +1486,7 @@ test_connect_peer( void ) {
   contact_info_t * ci    = test_ci( &ctx, other, 8000 );
 
   /* Unstaked in the current epoch: connect only ahead of the next
-     epoch, within QUIC_CONN_AHEAD_NS of it (50 slots at 200 ms), and never
+     epoch, within QUIC_CLIENT_CONN_AHEAD_NS of it (50 slots at 200 ms), and never
      before anything is finalized; otherwise peers would refuse us with
      NOT_ADMITTED. */
   ctx.next_epoch_slot = 200000UL;
@@ -1521,14 +1521,63 @@ test_connect_peer( void ) {
   other->ban_ts = now-QUIC_BAN_TIMEOUT_NS+1L;
   quic_client_connect( &ctx, other, ci, now ); FD_TEST( !other->tx_conn );
   other->ban_ts = now-QUIC_BAN_TIMEOUT_NS;
-  other->conn_ts = now-1L; other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  other->conn_ts = now-1L; other->conn_backoff = QUIC_CLIENT_CONN_BACKOFF_MAX_NS;
   quic_client_connect( &ctx, other, ci, now );
   FD_TEST( other->tx_conn && other->conn_ts==now );
+
+  /* The handshake fails at a server certificate that is not the peer's,
+     before we authenticate to it. */
+  fd_tls_estate_cli_t const * hs = &other->tx_conn->tls_hs->hs.cli;
+  FD_TEST( hs->server_pubkey_pin && hs->server_pubkey_len==32UL && fd_memeq( hs->server_pubkey, other->id_key.uc, 32UL ) );
 
   /* An existing conn holds off a second connect. */
   fd_quic_conn_t * conn = other->tx_conn;
   quic_client_connect( &ctx, other, ci, now+1L ); FD_TEST( other->tx_conn==conn && other->conn_ts==now );
 
+  test_ctx_delete( &ctx );
+}
+
+/* A new inbound conn from a peer takes a free slot.  With both taken it
+   is refused, and the incumbents, which may carry the peer's votes, stay
+   open.  A closed incumbent frees its slot. */
+
+static void
+test_server_conn_slots( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_aio_t        aio;
+  test_ctx_new( &ctx, 4UL );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, fd_aio_join( fd_aio_new( &aio, NULL, drop_aio_send ) ) );
+  fd_quic_get_state( ctx.quic_server )->now = fd_clock_tile_now( ctx.clock );
+  peer_t * peer = test_peer( &ctx, 2, 0 );
+
+  static fd_quic_tls_hs_t hs;
+  memcpy( hs.hs.srv.client_pubkey, peer->id_key.uc, 32UL );
+  fd_quic_conn_t * conn[ 3 ];
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ulong             conn_id  = i+1UL;
+    fd_quic_conn_id_t peer_cid = fd_quic_conn_id_new( &conn_id, 8UL );
+    conn[ i ] = fd_quic_conn_create( ctx.quic_server, conn_id, &peer_cid, FD_IP4_ADDR( 10, 0, 0, 2 ), (ushort)( 9000+i ), FD_IP4_ADDR( 127, 0, 0, 1 ), (ushort)8000, 1 );
+    FD_TEST( conn[ i ] );
+    conn[ i ]->state  = FD_QUIC_CONN_STATE_ACTIVE;
+    conn[ i ]->tls_hs = &hs;
+  }
+
+  quic_server_conn_new( conn[ 0 ], &ctx );
+  quic_server_conn_new( conn[ 1 ], &ctx );
+  FD_TEST( peer->rx_conn[ 0 ]==conn[ 0 ] && peer->rx_conn[ 1 ]==conn[ 1 ] );
+  quic_server_conn_new( conn[ 2 ], &ctx );
+  FD_TEST( peer->rx_conn[ 0 ]==conn[ 0 ] && peer->rx_conn[ 1 ]==conn[ 1 ] );
+  FD_TEST( conn[ 0 ]->state==FD_QUIC_CONN_STATE_ACTIVE && conn[ 1 ]->state==FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( conn[ 2 ]->state==FD_QUIC_CONN_STATE_CLOSE_PENDING && !fd_quic_conn_get_context( conn[ 2 ] ) );
+
+  quic_server_conn_final( conn[ 0 ], &ctx );
+  FD_TEST( !peer->rx_conn[ 0 ] && peer->rx_conn[ 1 ]==conn[ 1 ] );
+  conn[ 2 ]->state = FD_QUIC_CONN_STATE_ACTIVE; /* the peer's retry */
+  quic_server_conn_new( conn[ 2 ], &ctx );
+  FD_TEST( peer->rx_conn[ 0 ]==conn[ 2 ] && peer->rx_conn[ 1 ]==conn[ 1 ] );
+
+  for( ulong i=0UL; i<3UL; i++ ) conn[ i ]->tls_hs = NULL;
+  fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx.quic_server ) ) );
   test_ctx_delete( &ctx );
 }
 
@@ -1558,16 +1607,16 @@ test_conn_final_backoff( void ) {
     FD_TEST( other->reconn_pending && reconn_prq_cnt( ctx.reconn_prq )==1UL );
     FD_TEST( ctx.reconn_prq[ 0 ].timeout==other->conn_ts+expect );
     reconn_prq_remove_min( ctx.reconn_prq ); other->reconn_pending = 0;
-    expect = fd_long_min( 2L*expect, QUIC_CONN_BACKOFF_MAX_NS );
+    expect = fd_long_min( 2L*expect, QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
   }
-  FD_TEST( other->conn_backoff==QUIC_CONN_BACKOFF_MAX_NS );
+  FD_TEST( other->conn_backoff==QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
 
   /* However long it lived, a conn that never completed its handshake
      keeps the (capped) backoff; a completed handshake clears it, so the
      next close backs off from one PTO again. */
-  other->tx_conn = conn; other->conn_ts = fd_clock_tile_now( ctx.clock )-QUIC_CONN_BACKOFF_MAX_NS;
+  other->tx_conn = conn; other->conn_ts = fd_clock_tile_now( ctx.clock )-QUIC_CLIENT_CONN_BACKOFF_MAX_NS;
   quic_client_conn_final( conn, &ctx );
-  FD_TEST( other->conn_backoff==QUIC_CONN_BACKOFF_MAX_NS );
+  FD_TEST( other->conn_backoff==QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
   reconn_prq_remove_min( ctx.reconn_prq ); other->reconn_pending = 0;
   static fd_quic_tls_hs_t hs;
   memcpy( hs.hs.cli.server_pubkey, other->id_key.uc, sizeof(fd_pubkey_t) );
@@ -1608,10 +1657,10 @@ test_connect_fail_keeps_backoff( void ) {
   quic_client_connect( &ctx, a, ci, now ); /* takes the only conn */
   FD_TEST( a->tx_conn && a->conn_ts==now );
 
-  b->conn_ts = now-QUIC_CONN_BACKOFF_MAX_NS; b->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  b->conn_ts = now-QUIC_CLIENT_CONN_BACKOFF_MAX_NS; b->conn_backoff = QUIC_CLIENT_CONN_BACKOFF_MAX_NS;
   quic_client_connect( &ctx, b, ci, now );
-  FD_TEST( !b->tx_conn && b->conn_ts==now-QUIC_CONN_BACKOFF_MAX_NS && b->conn_backoff==QUIC_CONN_BACKOFF_MAX_NS );
-  FD_TEST( b->reconn_pending && reconn_prq_cnt( ctx.reconn_prq )==1UL && ctx.reconn_prq[ 0 ].timeout==now+QUIC_CONN_BACKOFF_MIN_NS );
+  FD_TEST( !b->tx_conn && b->conn_ts==now-QUIC_CLIENT_CONN_BACKOFF_MAX_NS && b->conn_backoff==QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
+  FD_TEST( b->reconn_pending && reconn_prq_cnt( ctx.reconn_prq )==1UL && ctx.reconn_prq[ 0 ].timeout==now+QUIC_CLIENT_CONN_BACKOFF_MIN_NS );
 
   test_ctx_delete( &ctx );
 }
@@ -1628,7 +1677,7 @@ test_gossip_connects_new_address( void ) {
   sock->port = fd_ushort_bswap( 8000 );
 
   /* A new address connects at once with a fresh backoff. */
-  other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  other->conn_backoff = QUIC_CLIENT_CONN_BACKOFF_MAX_NS;
   handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
   FD_TEST( contact_infos_query( ctx.contact_infos, other->id_key, NULL ) );
   FD_TEST( other->tx_conn && other->conn_backoff==0L );
@@ -1636,9 +1685,9 @@ test_gossip_connects_new_address( void ) {
   /* A refresh of the same address connects nothing, even without a conn,
      and keeps the backoff. */
   test_drop_conn( other );
-  other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  other->conn_backoff = QUIC_CLIENT_CONN_BACKOFF_MAX_NS;
   handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
-  FD_TEST( !other->tx_conn && other->conn_backoff==QUIC_CONN_BACKOFF_MAX_NS );
+  FD_TEST( !other->tx_conn && other->conn_backoff==QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
 
   /* A changed address, in place or after a removal, connects at once with
      a fresh backoff. */
@@ -1649,7 +1698,7 @@ test_gossip_connects_new_address( void ) {
   /* A removal keeps a peer's address and leaves the conn up. */
   handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE, &msg );
   FD_TEST( contact_infos_query( ctx.contact_infos, other->id_key, NULL )->removed && other->tx_conn );
-  other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  other->conn_backoff = QUIC_CLIENT_CONN_BACKOFF_MAX_NS;
   sock->ip4 = FD_IP4_ADDR( 10, 0, 0, 2 );
   handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
   FD_TEST( other->tx_conn && other->conn_backoff==0L );
@@ -1714,13 +1763,13 @@ test_reconnect( void ) {
   long     t    = fd_clock_tile_now( ctx.clock );
   long     wait = 60L*1000L*1000L*1000L;
   reconn_t e;
-  a->conn_ts = t-QUIC_CONN_BACKOFF_MIN_NS; a->conn_backoff = QUIC_CONN_BACKOFF_MIN_NS;
+  a->conn_ts = t-QUIC_CLIENT_CONN_BACKOFF_MIN_NS; a->conn_backoff = QUIC_CLIENT_CONN_BACKOFF_MIN_NS;
   e = (reconn_t){ .timeout = t,      .id_key = a->id_key     }; reconn_prq_insert( ctx.reconn_prq, &e ); a->reconn_pending     = 1;
   e = (reconn_t){ .timeout = t,      .id_key = noci->id_key  }; reconn_prq_insert( ctx.reconn_prq, &e ); noci->reconn_pending  = 1;
   e = (reconn_t){ .timeout = t+wait, .id_key = later->id_key }; reconn_prq_insert( ctx.reconn_prq, &e ); later->reconn_pending = 1;
 
   /* b's entry predates a larger backoff: it goes back in. */
-  b->conn_ts = t; b->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  b->conn_ts = t; b->conn_backoff = QUIC_CLIENT_CONN_BACKOFF_MAX_NS;
   e = (reconn_t){ .timeout = t,      .id_key = b->id_key     }; reconn_prq_insert( ctx.reconn_prq, &e ); b->reconn_pending     = 1;
 
   int busy = 0;
@@ -1730,7 +1779,7 @@ test_reconnect( void ) {
   FD_TEST( !noci->tx_conn && !noci->reconn_pending );
   FD_TEST( !later->tx_conn && later->reconn_pending );
   FD_TEST( !b->tx_conn && b->reconn_pending && reconn_prq_cnt( ctx.reconn_prq )==2UL );
-  FD_TEST( ctx.reconn_prq[ 0 ].timeout==t+wait || ctx.reconn_prq[ 0 ].timeout==t+QUIC_CONN_BACKOFF_MAX_NS );
+  FD_TEST( ctx.reconn_prq[ 0 ].timeout==t+wait || ctx.reconn_prq[ 0 ].timeout==t+QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
 
   /* Unstaked, a due entry is dropped without a connect. */
   peers_query( ctx.peers, ctx.id_key, NULL )->curr_rank = USHORT_MAX;
@@ -1743,7 +1792,7 @@ test_reconnect( void ) {
 }
 
 /* Ranked only in the next epoch, housekeeping queues one connect per
-   peer once the epoch is within QUIC_CONN_AHEAD_NS, spread over the first
+   peer once the epoch is within QUIC_CLIENT_CONN_AHEAD_NS, spread over the first
    half of it, and only once per epoch. */
 
 static void
@@ -1774,7 +1823,7 @@ test_conn_ahead( void ) {
   FD_TEST( ctx.conn_ahead_slot==ctx.next_epoch_slot );
   long lo = fd_long_min( ctx.reconn_prq[ 0 ].timeout, ctx.reconn_prq[ 1 ].timeout );
   long hi = fd_long_max( ctx.reconn_prq[ 0 ].timeout, ctx.reconn_prq[ 1 ].timeout );
-  FD_TEST( lo>=t && hi-lo>=QUIC_CONN_AHEAD_NS/4L-1000000L && hi<=t+QUIC_CONN_AHEAD_NS/2L );
+  FD_TEST( lo>=t && hi-lo>=QUIC_CLIENT_CONN_AHEAD_NS/4L-1000000L && hi<=t+QUIC_CLIENT_CONN_AHEAD_NS/2L );
 
   /* Not again for the same epoch. */
   reconn_prq_remove_all( ctx.reconn_prq ); a->reconn_pending = 0; b->reconn_pending = 0;
@@ -2547,7 +2596,7 @@ test_reward_certs( void ) {
   peer_t * bad_peer = peers_insert( ctx.peers, bad_id );
   bad_peer->ban_ts         = LONG_MIN;
   bad_peer->tx_conn        = NULL;
-  bad_peer->rx_conn        = NULL;
+  memset( bad_peer->rx_conn, 0, sizeof(bad_peer->rx_conn) );
   bad_peer->reconn_pending = 0;
   publish_reward_cert( &ctx, stem, slot );
   FD_TEST( seqs[0]==2UL && bad_peer->ban_ts!=LONG_MIN );
@@ -2600,6 +2649,7 @@ main( int     argc,
   test_votor_wfs_standstill_from_resume( 0 );
   test_sign_bls_request();
   test_connect_peer();
+  test_server_conn_slots();
   test_conn_final_backoff();
   test_connect_fail_keeps_backoff();
   test_gossip_connects_new_address();
