@@ -4364,6 +4364,8 @@ privileged_init( fd_topo_t const *      topo,
   }
 }
 
+static FD_TL fd_event_reporter_t replay_diff_reporter[1];
+
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
@@ -4760,6 +4762,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->report_runtime_diffs = tile->replay.report_runtime_diffs;
   ctx->banks->report_runtime_diffs = tile->replay.report_runtime_diffs;
+
+  ulong diff_link_id = fd_topo_find_link( topo, "replay_diff", 0UL );
+  if( FD_UNLIKELY( diff_link_id!=ULONG_MAX ) ) fd_event_runtime_diff_tl = fd_event_reporter_join( replay_diff_reporter, topo, diff_link_id );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

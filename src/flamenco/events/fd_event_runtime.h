@@ -11,6 +11,15 @@
 #include "../runtime/fd_bank.h"
 #include "../stakes/fd_stakes.h"
 #include "../../disco/events/generated/fd_event_gen.h"
+#include "../../disco/events/fd_event_report.h"
+
+/* Replay's dedicated link for its small, bursty runtime events (epoch
+   reward payouts publish thousands per slot), or NULL.  Those events
+   are reported on it instead of fd_event_tl. */
+
+#define FD_EVENT_RUNTIME_DIFF_MTU (1024UL)
+
+extern FD_TL fd_event_reporter_t * fd_event_runtime_diff_tl;
 
 FD_PROTOTYPES_BEGIN
 
