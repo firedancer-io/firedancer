@@ -40,7 +40,8 @@ struct timeout {
   uchar  attempt;
   ushort last_peer; /* 1+strat slot of the peer last asked, 0 if none */
   uint   rcvd;      /* the FEC set's rcvd at the last attempt */
-  uint   stuck;     /* attempts in a row that brought no new shred */
+  ushort stuck;     /* attempts in a row that brought no new shred or FEC set root */
+  uchar  fec_known; /* the FEC set's root was known at the last attempt */
 };
 typedef struct timeout timeout_t;
 FD_STATIC_ASSERT( FD_ROTOR_STRAT_PEER_MAX<USHORT_MAX, last_peer );
@@ -1119,7 +1120,8 @@ after_credit( fd_rotor_tile_t *   ctx,
        no new shred, the fastest peers are not answering: ask staked
        peers at random instead, a shred request several at once. */
     uint rcvd   = fec ? fec->rcvd : 0U;
-    uint stuck  = fd_uint_if( req.attempt && !( rcvd & ~req.rcvd ), req.stuck+1U, 0U ); /* only new shreds are progress, not an eviction; kept only once sent */
+    int  prog   = !!( rcvd & ~req.rcvd ) || ( fec && !req.fec_known ); /* a new shred or the FEC set root, not an eviction */
+    uint stuck  = fd_uint_if( req.attempt && !prog, fd_uint_min( req.stuck+1U, USHORT_MAX ), 0U ); /* kept only once sent */
     int  escape = stuck>=STUCK_MAX && !blk->eager;
     ulong fan_max = fd_ulong_if( escape && tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID,
                                  fd_ulong_min( ESCAPE_FANOUT, ( sign_pool_free( ctx->sign_pool )-SIGN_RESERVE )/(ulong)fd_uint_popcnt( mask ) ), 1UL );
@@ -1146,8 +1148,9 @@ after_credit( fd_rotor_tile_t *   ctx,
       push_timeout( ctx, blk, &req );
       break;
     }
-    req.stuck     = stuck;
+    req.stuck     = (ushort)stuck;
     req.rcvd      = rcvd;
+    req.fec_known = !!fec;
 
     uint nonce = fd_rng_uint( ctx->rng );
     while( meta && pending_map_ele_query_const( ctx->pending_map, &(ulong){ nonce }, NULL, ctx->pending_pool ) ) nonce = fd_rng_uint( ctx->rng );
