@@ -1482,6 +1482,41 @@ test_finalize_other( void ) {
   orphan_cnt( rotor );
 }
 
+/* The final cert arrives before any turbine shred of the slot, eg. on
+   a node whose shred tile lags.  Turbine still builds the eager blk,
+   never repaired by position, and its FEC sets serve the finalized blk
+   without repair.  It completes as the finalized blk and takes its
+   place. */
+
+static void
+test_final_before_turbine( void ) {
+  fd_mr32_t root = hash( 0xEE ), m10 = hash( 0x11 ), m11 = hash( 0x12 );
+  fd_mr32_t d1   = slot1_dmr( &m10, &m11 );
+  fd_mr20_t k0; memcpy( k0.uc, m10.uc, sizeof(fd_mr20_t) );
+  ulong     one  = 1UL;
+
+  fd_rotor_t *     rotor = setup();
+  fd_rotor_blk_t * fin   = fd_rotor_blk_finalized( rotor, 1UL, &d1, 0L );
+  FD_TEST( fin && rotor->slot_meta[ one % rotor->slot_max ].eager==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
+  fd_rotor_blk_parented( rotor, 1UL, &d1, 0UL, &root, 2U, 0L );
+
+  shred0( rotor, 1UL, 0UL, &root, &m10 );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  FD_TEST( e1 && e1!=fin && !e1->eager && !e1->in_blk_treap );
+  complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
+  FD_TEST( fd_rotor_fec_notarized( rotor, 1UL, &d1, 0U, &k0, 0L )->complete ); /* the FecRoot reply finds it complete */
+  FD_TEST( fin->buff_fec_cnt==1U );
+  expect( rotor, e1, 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+
+  complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
+  FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].final==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the finalized blk was merged */
+  expect( rotor, e1, 1U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+  orphan_cnt( rotor );
+}
+
 /* A child that named a block before rotor had it waits unlinked.
    Finalizing that block links the child under the finalized blk and
    keeps the unfinished turbine version, which then completes as the
@@ -2630,6 +2665,7 @@ main( int     argc,
   test_eager_invalidated();
   test_finalize_other();
   test_finalize_moves_child();
+  test_final_before_turbine();
   test_eqvoc_links_waiting();
   test_invalidated_unlinked();
   test_parented();

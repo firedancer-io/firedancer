@@ -872,7 +872,9 @@ fd_rotor_shred_insert( fd_rotor_t *       rotor,
   fd_rotor_blk_t *       pool        = rotor->blk_pool;
   ulong                  null        = fd_rotor_blk_pool_idx_null( pool );
   fd_rotor_slot_meta_t * meta        = fd_rotor_slot_meta( rotor, shred->slot );
-  if( FD_UNLIKELY( meta->skipped || meta->invalidated || ( meta->final!=null && meta->eager==null ) ) ) return;
+  fd_rotor_blk_t const * fin         = fd_rotor_blk_pool_ele_const( pool, meta->final );
+  int                    fin_done    = fin && fin->cmpl_fec_cnt && fin->buff_fec_cnt==fin->cmpl_fec_cnt;
+  if( FD_UNLIKELY( meta->skipped || meta->invalidated || ( fin_done && meta->eager==null ) ) ) return; /* a final cert ahead of turbine still lets turbine build the blk, dedup merges it */
   if( FD_UNLIKELY( meta->eager==null ) ) meta->eager = fd_rotor_blk_pool_idx( pool, blk_insert( rotor, shred->slot, &hash_null ) );
   fd_rotor_blk_t * blk = fd_rotor_blk_pool_ele( pool, meta->eager );
   if( FD_UNLIKELY( blk->parent_slot==ULONG_MAX ) ) blk->parent_slot = parent_slot; /* created empty by a child or catchup */
