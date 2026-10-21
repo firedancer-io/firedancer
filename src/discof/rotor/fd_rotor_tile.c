@@ -268,10 +268,12 @@ struct fd_rotor_tile {
     ulong      req_hedged;
     ulong      req_expired;
     ulong      req_stuck_escaped;
+    ulong      req_late_attempt;
     ulong      peer_byid_banned;
     ulong      byid_expired;
     fd_histf_t response_latency[ 1 ];
     fd_histf_t retry_delay[ 1 ];
+    fd_histf_t escape_hedge[ 1 ];
   } metrics[ 1 ];
 };
 typedef struct fd_rotor_tile fd_rotor_tile_t;
@@ -899,6 +901,7 @@ metrics_write( fd_rotor_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, REQUEST_EXPIRED,          ctx->metrics->req_expired   );
   FD_MCNT_SET( ROTOR, REQUEST_BY_ID_EXPIRED,    ctx->metrics->byid_expired      );
   FD_MCNT_SET( ROTOR, REQUEST_STUCK_ESCAPED,    ctx->metrics->req_stuck_escaped );
+  FD_MCNT_SET( ROTOR, REQUEST_LATE_RETRIED,     ctx->metrics->req_late_attempt  );
   FD_MCNT_SET( ROTOR, PEER_BY_ID_BANNED,        ctx->metrics->peer_byid_banned  );
 
   FD_MCNT_SET      ( ROTOR, SHRED_OLD_IGNORED, ctx->metrics->shred_old );
@@ -921,6 +924,7 @@ metrics_write( fd_rotor_tile_t * ctx ) {
 
   FD_MHIST_COPY( ROTOR, RESPONSE_LATENCY_NANOS, ctx->metrics->response_latency );
   FD_MHIST_COPY( ROTOR, RETRY_DELAY_NANOS,      ctx->metrics->retry_delay      );
+  FD_MHIST_COPY( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS, ctx->metrics->escape_hedge );
 }
 
 FD_FN_CONST static inline ulong
@@ -1097,6 +1101,7 @@ after_credit( fd_rotor_tile_t *   ctx,
     int  escape = stuck>=STUCK_MAX && !blk->eager;
     fd_rotor_strat_peer_t * peer = escape ? fd_rotor_strat_pick_staked( ctx->strat, now, (ulong)req.last_peer-1UL, fd_rng_ulong( ctx->rng ) ) : NULL;
     ctx->metrics->req_stuck_escaped += (ulong)!!peer;
+    if( FD_UNLIKELY( peer ) ) fd_histf_sample( ctx->metrics->escape_hedge, (ulong)fd_long_if( !!peer->srtt, peer->srtt+4L*peer->rttvar, FD_ROTOR_STRAT_HEDGE_NS ) ); /* uncapped */
     if( FD_LIKELY( !peer ) ) peer = fd_rotor_strat_pick( ctx->strat, now, !blk->eager && req.attempt, (ulong)req.last_peer-1UL );
     if( FD_UNLIKELY( !peer ) ) {
       ctx->metrics->req_no_peer++;
@@ -1153,6 +1158,7 @@ after_credit( fd_rotor_tile_t *   ctx,
     }
     ctx->metrics->request_tx[ tag ] += (ulong)fd_uint_popcnt( mask );
     ctx->metrics->req_hedged        += (ulong)!!req.attempt;
+    ctx->metrics->req_late_attempt  += (ulong)( req.attempt>=3U );
 
     blk->telemetry.first_req_ts      = fd_long_if( !blk->telemetry.first_req_ts, now, blk->telemetry.first_req_ts );
     uint * req_cnt = NULL;
@@ -1166,7 +1172,8 @@ after_credit( fd_rotor_tile_t *   ctx,
     }
     if( FD_LIKELY( req_cnt ) ) *req_cnt += (uint)fd_uint_popcnt( mask );
 
-    req.timeout = now+( fd_long_max( fd_rotor_strat_hedge_ns( peer ), 1L<<24 )<<fd_uint_min( req.attempt, 3U ) ); /* a re-pick gets a new shred nonce */
+    long hedge  = fd_long_if( escape, 1L<<24, fd_long_min( fd_long_max( fd_rotor_strat_hedge_ns( peer ), 1L<<24 ), FD_ROTOR_STRAT_HEDGE_NS ) );
+    req.timeout = now+hedge; /* no backoff: a re-pick gets a new shred nonce, and a random escape pick does not slow the next one */
     req.attempt   = (uchar)fd_uint_min( req.attempt+1U, UCHAR_MAX );
     req.last_peer = (ushort)( 1UL+(ulong)( peer-ctx->strat->cur.peers ) );
     fd_histf_sample( ctx->metrics->retry_delay, (ulong)( req.timeout-now ) );
@@ -1408,6 +1415,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_clock_tile_init( ctx->clock );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( ROTOR, RESPONSE_LATENCY_NANOS ), FD_MHIST_MAX( ROTOR, RESPONSE_LATENCY_NANOS ) ) ) );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->retry_delay,      FD_MHIST_MIN( ROTOR, RETRY_DELAY_NANOS      ), FD_MHIST_MAX( ROTOR, RETRY_DELAY_NANOS      ) ) ) );
+  FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->escape_hedge,     FD_MHIST_MIN( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS ), FD_MHIST_MAX( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS ) ) ) );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

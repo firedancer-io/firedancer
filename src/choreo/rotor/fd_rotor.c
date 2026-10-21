@@ -572,9 +572,8 @@ fd_rotor_blk_finalized( fd_rotor_t *      rotor,
 
   fd_rotor_blk_t * pool = rotor->blk_pool;
   promote( rotor, fin, &meta->final );
-  fd_rotor_blk_t * eager = fd_rotor_blk_pool_ele( pool, meta->eager );
-  if( FD_LIKELY( eager ) ) eager->eager = 0;
-  if( FD_LIKELY( eager && meta->final!=meta->eager && meta->notar!=meta->eager ) ) blk_treap_remove( rotor, eager ); /* still the eager blk, never repaired */
+  /* The eager blk keeps its positional repair: peers without the whole
+     block still serve its shreds, which by-id repair cannot ask them for. */
 
   /* Remove all equivocating blocks except the finalized one.  Their
      children name them, not the finalized blk, and are unlinked. */
