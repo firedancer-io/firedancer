@@ -525,39 +525,51 @@ handle_shred( fd_rotor_tile_t * ctx,
 
     /* A repair shred answers the request whose nonce it carries: the
        first one ends that request's pick, the last one ends the
-       request.  A HighestWindowIndex answer that does not complete the
+       request.  Requests for the same set sent within a nonce tick
+       (2^24 ns) carry the same nonce: the shred answers each of them,
+       and is credited to the first; whether the others' peers replied
+       is unknowable, so their picks end with no rtt sample and no
+       strike.  A HighestWindowIndex answer that does not complete the
        slot arrives as BAD_REPAIR. */
 
     int         normal  = fd_rnonce_ss_normal_repair( msg->rnonce );
     int         reply   = fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR || fd_shred_sig_src( sig )==SHRED_SIG_SRC_BAD_REPAIR;
     ulong       key     = (ulong)(uint)slot<<32 | fd_uint_if( normal, shred->idx/FD_FEC_SHRED_CNT, (uint)ctx->rotor->fec_blk_max );
     uint        bit     = fd_uint_if( normal, 1U<<( shred->idx%FD_FEC_SHRED_CNT ), 1U );
+    int         matched = 0;
     pending_t * pending = reply ? pending_map_ele_query( ctx->pending_map, &key, NULL, ctx->pending_pool ) : NULL;
-    for( ; pending; pending = (pending_t *)pending_map_ele_next_const( pending, NULL, ctx->pending_pool ) ) {
+    for( pending_t * next; pending; pending = next ) {
+      next = (pending_t *)pending_map_ele_next_const( pending, NULL, ctx->pending_pool ); /* before the pending is released */
       if( FD_UNLIKELY( !( pending->mask & bit ) ) ) continue; /* already answered, or not asked of this request */
       if( FD_LIKELY( fd_rnonce_ss_compute( ctx->rnonce_ss, normal, slot, shred->idx, pending->ts )!=msg->rnonce ) ) continue;
       if( FD_LIKELY( !pending->answered ) ) { /* rtt to the shred tile's network rx, not to this tile's turn at the frag */
         long rtt = fd_long_max( rx_ts-pending->ts, 1L );
-        fd_rotor_strat_request_done( ctx->strat, &pending->peer, rtt, pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
-        fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
+        if( FD_LIKELY( !matched ) ) {
+          fd_rotor_strat_request_done( ctx->strat, &pending->peer, rtt, pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
+          fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
+        } else {
+          fd_rotor_strat_request_failed( ctx->strat, &pending->peer, 0L );
+        }
       }
       pending->mask &= ~bit;
       pending->answered++;
-      ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
-      fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
-      while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
-      if( FD_LIKELY( blk && ( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX || pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID ) ) ) {
-        blk->telemetry.shred_res_cnt++;
-        blk->telemetry.last_shred_res_ts = rx_ts;
+      if( FD_LIKELY( !matched ) ) {
+        ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
+        fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
+        while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
+        if( FD_LIKELY( blk && ( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX || pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID ) ) ) {
+          blk->telemetry.shred_res_cnt++;
+          blk->telemetry.last_shred_res_ts = rx_ts;
+        }
       }
+      matched = 1;
       if( FD_LIKELY( !pending->mask ) ) { /* every shred answered */
         pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
         pending_dlist_ele_remove   ( ctx->pending_dlist, pending, ctx->pending_pool );
         pending_pool_ele_release   ( ctx->pending_pool,  pending );
       }
-      break;
     }
-    ctx->metrics->shred_rx[ FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_UNMATCHED_IDX ] += (ulong)( reply && !pending );
+    ctx->metrics->shred_rx[ FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_UNMATCHED_IDX ] += (ulong)( reply && !matched );
 
     if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->rotor->root ) ) return; /* parent is the slot itself, or below the root */
 
