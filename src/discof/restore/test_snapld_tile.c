@@ -149,14 +149,15 @@ test_start( int file,
   if( file      ) FD_TEST( !close( ctx->local_full_fd ) );
 }
 
-/* serve_one accepts the tile's next connection, drives the tile until
-   its request has arrived, checks the request holds expect, answers
-   with resp and closes. */
-static void
-serve_one( fd_snapld_tile_t * ctx,
-           int                server,
-           char const *       expect,
-           char const *       resp ) {
+/* serve_one_open accepts the tile's next connection, drives the tile
+   until its request has arrived, checks the request holds expect,
+   answers with resp and returns the open connection.  serve_one also
+   closes it. */
+static int
+serve_one_open( fd_snapld_tile_t * ctx,
+                int                server,
+                char const *       expect,
+                char const *       resp ) {
   int   busy    = 0;
   int   conn    = -1;
   char  req[ 4096 ];
@@ -178,7 +179,15 @@ serve_one( fd_snapld_tile_t * ctx,
   FD_TEST( conn!=-1 && strstr( req, "\r\n\r\n" ) );
   FD_TEST( strstr( req, expect ) );
   FD_TEST( (long)strlen( resp )==send( conn, resp, strlen( resp ), 0 ) );
-  FD_TEST( !close( conn ) );
+  return conn;
+}
+
+static void
+serve_one( fd_snapld_tile_t * ctx,
+           int                server,
+           char const *       expect,
+           char const *       resp ) {
+  FD_TEST( !close( serve_one_open( ctx, server, expect, resp ) ) );
 }
 
 /* drive_until runs the tile until *var equals val. */
@@ -420,8 +429,23 @@ test_request_retry( void ) {
   FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U );
   ctx->fast_boot_stream.wait = 0L;
 
+  /* The headers arrive but no body: the speed window fails the load
+     as before, a stall is not a failed request. */
+  int conn = serve_one_open( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->window_deadline!=LONG_MAX );
+  ctx->min_bytes_in_window = 1UL;
+  ctx->window_deadline     = 1L;
+  drive_until( ctx, &publish_cnt, 1UL );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U && http->state==FD_SSHTTP_STATE_INIT );
+  FD_TEST( !close( conn ) );
+
   /* Part of the response arrives, then the connection drops: the
      load fails, bytes went downstream already. */
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  init_full_download( ctx, input, &sa );
+  publish_cnt = 0UL;
   serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnap" );
   drive_until( ctx, &publish_cnt, 3UL );
   FD_TEST( ctx->sent_meta && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR );
