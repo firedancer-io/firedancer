@@ -415,7 +415,7 @@ struct fd_topo_tile {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
-      int   identity_key_fd;
+      int   identity_key_fd; /* private startup pipe when the boot identity is generated */
       int   failover_enabled;
       char  failover_staked_key_path[ PATH_MAX ];
       ulong authorized_voter_paths_cnt;
@@ -633,6 +633,7 @@ struct fd_topo_tile {
     struct {
       char   identity_key_path[ PATH_MAX ];
       char   vote_history_path[ PATH_MAX ];
+      int    failover_standby;
       uint   target_gid;
       uint   target_uid;
       ulong  authorized_voter_paths_cnt;

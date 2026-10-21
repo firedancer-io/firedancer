@@ -1826,30 +1826,6 @@
 
 </div>
 
-## Failov Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">failov_&#8203;conn_&#8203;accepted</span> | counter | TCP connections accepted before admission checks |
-| <span class="metrics-name">failov_&#8203;accept_&#8203;budget_&#8203;exhausted</span> | counter | Polls that stopped accepting because the syscall budget was empty |
-| <span class="metrics-name">failov_&#8203;conn_&#8203;rejected</span><br/>{failover_&#8203;conn_&#8203;reject_&#8203;reason="<span class="metrics-enum">source</span>"} | counter | Accepted TCP connections refused before candidate allocation, by reason (A candidate from this address is open or its admission quota has not expired) |
-| <span class="metrics-name">failov_&#8203;conn_&#8203;rejected</span><br/>{failover_&#8203;conn_&#8203;reject_&#8203;reason="<span class="metrics-enum">budget</span>"} | counter | Accepted TCP connections refused before candidate allocation, by reason (The ordinary or reconnect admission budget is empty) |
-| <span class="metrics-name">failov_&#8203;conn_&#8203;rejected</span><br/>{failover_&#8203;conn_&#8203;reject_&#8203;reason="<span class="metrics-enum">capacity</span>"} | counter | Accepted TCP connections refused before candidate allocation, by reason (The corresponding handshake pool is full) |
-| <span class="metrics-name">failov_&#8203;conn_&#8203;reconnect_&#8203;admitted</span> | counter | Candidates admitted to the reserved lane for recently authenticated addresses |
-| <span class="metrics-name">failov_&#8203;handshake_&#8203;timed_&#8203;out</span> | counter | Candidates closed at a phase or absolute handshake deadline |
-| <span class="metrics-name">failov_&#8203;proof_&#8203;rejected</span> | counter | Admission proofs that failed target identity authentication |
-| <span class="metrics-name">failov_&#8203;hello_&#8203;rejected</span> | counter | Admission or TLS HELLO checks that failed |
-| <span class="metrics-name">failov_&#8203;tls_&#8203;handshake_&#8203;failed</span> | counter | TLS handshakes that failed after admission |
-| <span class="metrics-name">failov_&#8203;frame_&#8203;protocol_&#8203;rejected</span> | counter | Authenticated frames rejected by the controller |
-| <span class="metrics-name">failov_&#8203;conn_&#8203;authenticated</span> | counter | Completed mutual admission, TLS and HELLO authentications |
-| <span class="metrics-name">failov_&#8203;handshake_&#8203;duration_&#8203;nanos</span> | counter | Cumulative time from candidate allocation to completed authentication |
-| <span class="metrics-name">failov_&#8203;handshake_&#8203;latest_&#8203;duration_&#8203;nanos</span> | gauge | Duration of the most recently completed authentication |
-| <span class="metrics-name">failov_&#8203;conn_&#8203;pending</span> | gauge | Candidates waiting for admission, TLS or HELLO authentication |
-
-</div>
-
 ## Snapmk Tile
 
 <div class="metrics">

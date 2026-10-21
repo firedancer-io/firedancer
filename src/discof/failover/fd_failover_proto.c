@@ -1,13 +1,13 @@
 #include "fd_failover_proto.h"
 
-#include "../../choreo/tower/fd_tower.h"
-#include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../choreo/votor/ag_hist.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 
 FD_STATIC_ASSERT( sizeof(FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN)-1UL==FD_KEYGUARD_FAILOVER_DOMAIN_SZ, client_proof_domain );
 FD_STATIC_ASSERT( sizeof(FD_KEYGUARD_FAILOVER_SERVER_DOMAIN)-1UL==FD_KEYGUARD_FAILOVER_DOMAIN_SZ, server_proof_domain );
+FD_STATIC_ASSERT( AG_HIST_SER_MAX<=FD_FAILOVER_ALPENGLOW_STATE_MAX, alpenglow_state_max );
 
 int
 fd_failover_hello_check( fd_failover_hello_t const * self,
@@ -15,7 +15,7 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
   if( FD_UNLIKELY( self->version!=peer->version ) )                                return FD_FAILOVER_HELLO_ERR_VERSION;
   if( FD_UNLIKELY( self->role>FD_FAILOVER_ROLE_ACTIVE ||
                    peer->role>FD_FAILOVER_ROLE_ACTIVE ) )                          return FD_FAILOVER_HELLO_ERR_ROLE;
-  if( FD_UNLIKELY( self->mode>=FD_FAILOVER_MODE_CNT ||
+  if( FD_UNLIKELY( self->mode!=FD_FAILOVER_MODE_ALPENGLOW ||
                    self->mode!=peer->mode ) )                                      return FD_FAILOVER_HELLO_ERR_MODE;
   if( FD_UNLIKELY( !self->boot_id || !peer->boot_id ) )                            return FD_FAILOVER_HELLO_ERR_BOOT_ID;
   if( FD_UNLIKELY( !fd_memeq( self->staked_pubkey, peer->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_STAKED;
@@ -155,18 +155,29 @@ fd_failover_demoted_encode( uchar *       out,
                             ulong         last_vote_slot,
                             uchar const * state,
                             ulong         state_sz ) {
-  if( FD_UNLIKELY( !state_sz || state_sz>FD_FAILOVER_TOWER_STATE_MAX ) ) return 0UL;
+  if( FD_UNLIKELY( !state_sz || state_sz>FD_FAILOVER_ALPENGLOW_STATE_MAX ) ) return 0UL;
 
   fd_failover_demoted_t demoted = {
     .handoff_id     = handoff_id,
     .target_boot_id = target_boot_id,
     .last_vote_slot = last_vote_slot,
-    .mode           = (uchar)FD_FAILOVER_MODE_TOWER,
+    .mode           = (uchar)FD_FAILOVER_MODE_ALPENGLOW,
     .state_len      = (ushort)state_sz,
   };
   fd_memcpy( out, &demoted, sizeof(demoted) );
   fd_memcpy( out+sizeof(demoted), state, state_sz );
   return sizeof(demoted)+state_sz;
+}
+
+/* Checks that the vote history decodes exactly and ends at the slot the
+   DEMOTED claims. */
+static int
+alpenglow_state_check( uchar const * state,
+                       ulong         state_sz,
+                       ulong         vote_slot ) {
+  if( FD_UNLIKELY( state_sz>FD_FAILOVER_ALPENGLOW_STATE_MAX ) ) return 0;
+  ag_hist_t hist[1];
+  return !ag_hist_de( state, state_sz, hist ) && ag_hist_tip( hist )==vote_slot;
 }
 
 int
@@ -182,16 +193,10 @@ fd_failover_demoted_decode( fd_failover_demoted_t * out,
   ulong state_sz = payload_sz-sizeof(fd_failover_demoted_t);
   if( FD_UNLIKELY( (ulong)demoted.state_len!=state_sz ||
                    !state_sz ||
-                   demoted.mode!=(uchar)FD_FAILOVER_MODE_TOWER ||
+                   demoted.mode!=(uchar)FD_FAILOVER_MODE_ALPENGLOW ||
                    demoted.last_vote_slot==FD_FAILOVER_SLOT_NULL ) ) return 0;
 
-  fd_compact_tower_sync_serde_t serde;
-  fd_tower_vote_t               votes[ FD_TOWER_VOTE_MAX ];
-  ulong                         vote_cnt;
-  ulong                         root;
-  if( FD_UNLIKELY( fd_compact_tower_sync_de_exact( &serde, payload+sizeof(fd_failover_demoted_t), state_sz ) ||
-                   fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ||
-                   !vote_cnt || votes[ vote_cnt-1UL ].slot!=demoted.last_vote_slot ) ) return 0;
+  if( FD_UNLIKELY( !alpenglow_state_check( payload+sizeof(fd_failover_demoted_t), state_sz, demoted.last_vote_slot ) ) ) return 0;
 
   *out = demoted;
   return 1;

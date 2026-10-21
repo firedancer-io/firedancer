@@ -76,7 +76,7 @@
 #define FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING   (0x4008UL) /* the peer has not responded to our handoff */
 #define FD_FAILOVER_CONTROL_RESULT_TAKEN             (0x4009UL) /* the peer took our handoff, cleared once we hold the identity again or set-identity restarts failover */
 #define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN       (0x400AUL) /* gossip has a fresh contact info for the staked identity from another host */
-#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER    (0x400CUL) /* active has no eligible final vote state, see its local voting diagnostics */
+#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x400CUL) /* active has no eligible final vote state, see its local voting diagnostics */
 #define FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS (0x400EUL) /* gossip has no address for the active */
 #define FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED   (0x400FUL) /* no check found another holder, which does not prove the peer cannot sign */
 #define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x4010UL) /* this standby's replay is too far behind the active's last vote */
@@ -183,18 +183,18 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 #define FD_FAILOVER_ACTION_IDLE                (0UL) /* no local transition is running */
 #define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
 #define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* DEMOTED sent, waiting for the peer */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the tower tip */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for the tower tile to adopt */
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the finality anchor */
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for votor to adopt */
 #define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
-#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the active's final tower */
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the active's final history */
 #define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the old active to record our response */
-#define FD_FAILOVER_ACTION_DEMOTE_DRAIN        (8UL) /* junk key installed, waiting for the tower to drain */
+#define FD_FAILOVER_ACTION_DEMOTE_DRAIN        (8UL) /* junk key installed, waiting for votor history to drain */
 #define FD_FAILOVER_ACTION_CNT                 (9UL)
 
-/* The tower sources a promotion can adopt, in order of preference. */
-#define FD_FAILOVER_SOURCE_PEER         (0UL) /* the tower the peer's DEMOTED gave us */
-#define FD_FAILOVER_SOURCE_VOTE_ACCOUNT (1UL) /* automatic fallback to the vote account, or forced empty history */
-#define FD_FAILOVER_SOURCE_CNT          (2UL)
+/* The history sources a promotion can adopt, in order of preference. */
+#define FD_FAILOVER_SOURCE_PEER  (0UL) /* the history the peer's DEMOTED gave us */
+#define FD_FAILOVER_SOURCE_EMPTY (1UL) /* forced empty history with a vote bound */
+#define FD_FAILOVER_SOURCE_CNT   (2UL)
 
 /* The outcome of the last handoff this machine requested or gave. */
 #define FD_FAILOVER_HANDOFF_NONE       (0UL) /* nothing requested or sent */

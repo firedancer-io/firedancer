@@ -44,6 +44,7 @@ controller_init( ulong role ) {
   fd_memset( ctx, 0, sizeof(fd_failover_tile_ctx_t) );
   ctx->role          = role;
   ctx->hello.role    = (uchar)role;
+  ctx->hello.mode    = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
   ctx->hello.boot_id = OUR_BOOT_ID;
   fd_memset( ctx->hello.junk_pubkey,   0x11, 32UL );
   fd_memset( ctx->hello.staked_pubkey, 0x5A, 32UL );
@@ -54,10 +55,12 @@ controller_init( ulong role ) {
   ctx->deadline_slot         = FD_FAILOVER_SLOT_NULL;
   ctx->peer_floor            = FD_FAILOVER_SLOT_NULL;
   ctx->own_floor             = FD_FAILOVER_SLOT_NULL;
-  ctx->tower_seen_seq        = ULONG_MAX;
+  ctx->adopt_anchor          = FD_FAILOVER_SLOT_NULL;
+  ctx->empty_vote_after      = FD_FAILOVER_SLOT_NULL;
+  ctx->hist_seen_seq         = ULONG_MAX;
   ctx->handoff_base          = 5000UL;
   ctx->gossip_in_idx         = ULONG_MAX;
-  ctx->tower_in_idx          = ULONG_MAX;
+  ctx->hist_in_idx           = ULONG_MAX;
   ctx->admin_in_idx          = ULONG_MAX;
   ctx->adopt_in_idx          = ULONG_MAX;
   ctx->admin_out_idx         = 0UL;
@@ -92,17 +95,14 @@ pair( fd_failover_tile_ctx_t * ctx,
 }
 
 static void
-make_tower( fd_failover_tower_t * tower,
+make_history( fd_failover_history_t * history,
             ulong                 tip ) {
-  fd_compact_tower_sync_serde_t serde;
-  fd_memset( &serde, 0, sizeof(serde) );
-  serde.root                             = tip-2UL;
-  serde.lockouts_cnt                     = 1;
-  serde.lockouts[ 0 ].offset             = 2UL;
-  serde.lockouts[ 0 ].confirmation_count = 1;
-  FD_TEST( !fd_compact_tower_sync_ser( &serde, tower->state, FD_FAILOVER_TOWER_STATE_MAX, &tower->sz ) );
-  tower->valid = 1;
-  tower->tip   = tip;
+  ag_hist_t hist = { .anchor=tip, .last_leader_slot=FD_FAILOVER_SLOT_NULL, .vote_bound=FD_FAILOVER_SLOT_NULL, .rec_cnt=1UL };
+  hist.rec[ 0 ].slot  = tip;
+  hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
+  FD_TEST( !ag_hist_ser( &hist, history->state, sizeof(history->state), &history->sz ) );
+  history->valid = 1;
+  history->tip   = tip;
 }
 
 static void
@@ -124,8 +124,8 @@ deliver_ack( fd_failover_tile_ctx_t * ctx,
 static void
 switch_ok( fd_failover_tile_ctx_t * ctx,
            ulong                    watermark ) {
-  ctx->id_switch.result.result          = FD_FAILOVER_SWITCH_OK;
-  ctx->id_switch.result.tower_watermark = watermark;
+  ctx->id_switch.result.result            = FD_FAILOVER_SWITCH_OK;
+  ctx->id_switch.result.history_watermark = watermark;
   FD_TEST( switch_answer( ctx, ctx->id_switch.request_id ) );
 }
 
@@ -141,7 +141,7 @@ static void
 test_handoff( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=42UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
@@ -168,7 +168,7 @@ test_no_final_state( void ) {
   fd_failover_handoff_result_t result;
   FD_TEST( ctx->tx.valid && ctx->tx.type==FD_FAILOVER_MSG_HANDOFF_RESULT );
   FD_TEST( fd_failover_handoff_result_decode( &result, ctx->tx.payload, ctx->tx.sz ) );
-  FD_TEST( result.handoff_id==43UL && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER );
+  FD_TEST( result.handoff_id==43UL && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.request_id && !ctx->promotion.adopt_id );
   controller_fini( ctx );
@@ -182,7 +182,7 @@ test_request_replay_behind( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
   ctx->last_vote_slot = 200UL;
-  make_tower( &ctx->current_tower, 200UL );
+  make_history( &ctx->current_history, 200UL );
   ulong behind[ 2 ] = { 200UL-FD_FAILOVER_DEADLINE_SLOTS-1UL, FD_FAILOVER_SLOT_NULL };
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_failover_handoff_request_t req = { .handoff_id=49UL+i, .target_boot_id=OUR_BOOT_ID, .replay_slot=behind[ i ] };
@@ -208,11 +208,11 @@ static void
 test_demote_drain( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=44UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   step_controller( ctx, stem );
-  ctx->tower_seen_seq = 796UL;
+  ctx->hist_seen_seq = 796UL;
   switch_ok( ctx, 800UL );
   step_controller( ctx, stem );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN );
@@ -222,7 +222,7 @@ test_demote_drain( void ) {
   deliver_ack( ctx, 44UL );
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN && !ctx->taken && !ctx->tx.valid );
-  ctx->tower_seen_seq = 799UL;
+  ctx->hist_seen_seq = 799UL;
   step_controller( ctx, stem );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && pending_demoted( ctx ).handoff_id==44UL );
   controller_fini( ctx );
@@ -259,7 +259,7 @@ static void
 test_operator_switch( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   ctx->own_floor = 99UL;
   fd_failover_handoff_request_t req = { .handoff_id=47UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
@@ -272,7 +272,7 @@ test_operator_switch( void ) {
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->hello.role==FD_FAILOVER_ROLE_STANDBY );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck && !ctx->tx.valid && !ctx->handoff.id && !ctx->request.id );
   FD_TEST( ctx->hello.boot_id!=OUR_BOOT_ID && ctx->channel->self_hello.boot_id==ctx->hello.boot_id );
-  FD_TEST( !ctx->current_tower.valid && ctx->own_floor==99UL );
+  FD_TEST( !ctx->current_history.valid && ctx->own_floor==99UL );
   FD_TEST( ctx->id_switch.epoch==1UL && ctx->id_switch.discard && ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_JUNK );
   FD_TEST( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED );
 
@@ -305,14 +305,14 @@ test_operator_switch( void ) {
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.fresh && ctx->action==FD_FAILOVER_ACTION_IDLE );
 
   /* A request bound to our first boot is refused, one to this boot is
-     served once we have a final tower. */
+     served once we have a final history. */
   pair( ctx, 78UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
   ctx->tx.valid = 0;
   ctx->session.close_after_send = 0;
   ctx->last_vote_slot = 120UL;
-  make_tower( &ctx->current_tower, 120UL );
+  make_history( &ctx->current_history, 120UL );
   fd_failover_handoff_request_t fresh = { .handoff_id=48UL, .target_boot_id=ctx->hello.boot_id, .replay_slot=120UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &fresh, sizeof(fresh) );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH && ctx->handoff.id==48UL );
@@ -354,19 +354,20 @@ test_operator_failover_identity( void ) {
   controller_fini( ctx );
 }
 
-/* test_standby_vote_counts: a vote our tower published counts toward
+/* test_standby_vote_counts: a vote our history published counts toward
    the floor whatever our role, set-identity can install the staked key
    before we hear of it. */
 static void
 test_standby_vote_counts( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
-  fd_tower_slot_done_t done;
-  fd_memset( &done, 0, sizeof(done) );
-  done.replay_slot  = 130UL;
-  done.root_slot    = FD_FAILOVER_SLOT_NULL;
-  done.has_vote_txn = 1;
-  done.vote_slot    = 129UL;
-  consume_slot_done( ctx, &done );
+  fd_votor_hist_msg_t hist;
+  fd_memset( &hist, 0, sizeof(hist) );
+  fd_memcpy( hist.identity.uc, ctx->hello.staked_pubkey, 32UL );
+  hist.replay_slot = 130UL;
+  hist.root_slot   = FD_FAILOVER_SLOT_NULL;
+  hist.has_vote    = 1;
+  hist.vote_slot   = 129UL;
+  consume_hist( ctx, &hist );
   FD_TEST( ctx->own_floor==129UL && ctx->last_vote_slot==129UL );
   controller_fini( ctx );
 }
@@ -433,7 +434,7 @@ test_session_change_drops_result( void ) {
 
   ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   req.target_boot_id = OUR_BOOT_ID;
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   step_controller( ctx, stem );
@@ -476,7 +477,7 @@ test_request_address( void ) {
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,4) && dial_port( ctx )==9001 );
   request_pause( ctx, 1000L, "test" );
   status_snapshot( ctx, 1000L, &status );
-  FD_TEST( status.request_paused && status.mode==(uchar)FD_FAILOVER_MODE_TOWER );
+  FD_TEST( status.request_paused && status.mode==(uchar)FD_FAILOVER_MODE_ALPENGLOW );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,5), 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && dial_port( ctx )==9001 );
   status_snapshot( ctx, 1000L, &status );
@@ -506,7 +507,7 @@ static void
 test_abort_answers_requester( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->current_tower, 99UL );
+  make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=47UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   step_controller( ctx, stem );

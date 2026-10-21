@@ -39,7 +39,7 @@ struct __attribute__((aligned(FD_KEYSWITCH_ALIGN))) fd_keyswitch_private {
   ulong result;
   ulong param;
   uchar bytes[ 32768UL ];
-  ulong operator; /* 1 when set-identity made this switch under failover, so the tower or votor votes without waiting for an adoption */
+  ulong operator; /* 1 when set-identity made this switch under failover, so votor can participate without failover adoption */
   /* Padding to FD_KEYSWITCH_ALIGN here */
 };
 

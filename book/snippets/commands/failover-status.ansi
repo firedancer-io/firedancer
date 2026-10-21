@@ -9,5 +9,5 @@ peer boot id:          0000000000000001
 peer address:          192.0.2.10:8010, from gossip
 last handoff:          123456789, taken
 other holder:          n/a, this machine holds the identity
-takeover adopts:       the vote account (automatic fallback)
+takeover adopts:       an empty history (requires --force)
 coverage floor:        slot 300
