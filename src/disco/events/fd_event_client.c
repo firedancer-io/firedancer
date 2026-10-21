@@ -1082,7 +1082,8 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED && client->event_stream ) ) {
     long send_deadline = client->last_stream_send_ns+FD_EVENT_CLIENT_HEARTBEAT_NANOS;
     if( FD_UNLIKELY( client->tx_tokens<=0L && fd_circq_unsent_cnt( client->circq ) ) ) { /* paced: no heartbeat until tokens return */
-      send_deadline = client->tx_tokens_ns + ( (1L-client->tx_tokens)*(long)1e9+client->tx_byte_rate-1L )/client->tx_byte_rate;
+      ulong rate = (ulong)client->tx_byte_rate;
+      send_deadline = client->tx_tokens_ns + (long)( ( (uint128)(ulong)(1L-client->tx_tokens)*1000000000UL+rate-1UL )/rate );
     }
     deadline = fd_long_min( deadline, fd_long_min( client->last_response_ns+FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS, send_deadline ) );
     if( FD_UNLIKELY( client->stall_since ) ) deadline = fd_long_min( deadline, client->stall_since+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
