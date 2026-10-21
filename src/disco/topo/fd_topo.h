@@ -347,6 +347,7 @@ struct fd_topo_tile {
       long   boot_timestamp_nanos;
       ulong  launch_cpus[ 1024UL/64UL ];
       char   launch_cgroup[ PATH_MAX ];
+      ulong  tx_rate_mbps;
     } event;
 
     struct {
