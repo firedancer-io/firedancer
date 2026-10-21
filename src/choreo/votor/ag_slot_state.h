@@ -21,6 +21,7 @@
 #define AG_SLOT_STATE_OUT_REPAIR_MAX (3UL)
 
 #define AG_NOTAR_FALLBACK_HASH_MAX (AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX)
+#define AG_REWARD_CAND_MAX         (8UL) /* duplicate notar certs kept per slot for reward certs */
 
 struct ag_vote_stake_ele {
   ag_block_id_t block_id;
@@ -94,6 +95,19 @@ struct ag_slot_votes {
 };
 typedef struct ag_slot_votes ag_slot_votes_t;
 
+/* A notar or fast finalize cert that arrived after the slot had one,
+   kept unverified because it names signers the others do not: reward
+   certs can include them. */
+
+struct ag_reward_cand {
+  uint            kind; /* AG_CERT_KIND_{NOTAR,FAST_FINAL,SKIP} */
+  ag_block_hash_t block_hash;
+  fd_bls_agg_t    agg;
+  int             bad;  /* failed verification, skip */
+  int             ok;   /* verified, do not again */
+};
+typedef struct ag_reward_cand ag_reward_cand_t;
+
 struct ag_slot_certs {
   ag_cert_notar_t          notar;
   ag_cert_notar_fallback_t notar_fallback[ AG_NOTAR_FALLBACK_CERT_MAX ];
@@ -101,6 +115,8 @@ struct ag_slot_certs {
   ag_cert_skip_t           skip;
   ag_cert_fast_final_t     fast_finalize;
   ag_cert_final_t          finalize;
+  ag_reward_cand_t         reward_cand[ AG_REWARD_CAND_MAX ];
+  ulong                    reward_cand_cnt;
 };
 typedef struct ag_slot_certs ag_slot_certs_t;
 
@@ -220,13 +236,21 @@ ag_slot_state_is_notar_fallback_or_stronger( ag_slot_state_t const * self,
 
 /* Accessors for reward certs */
 
-fd_bls_agg_t *
-ag_slot_state_notar_reward_agg( ag_slot_state_t const *  self,
-                                ag_slot_states_t const * states,
-                                fd_bls_agg_t *           out );
+void
+ag_slot_state_add_reward_cand( ag_slot_state_t * self,
+                               ag_cert_t const * cert );
 
-FD_FN_PURE fd_bls_agg_t const *
-ag_slot_state_skip_reward_agg( ag_slot_state_t const * self );
+fd_bls_agg_t *
+ag_slot_state_notar_reward_agg( ag_slot_state_t *        self,
+                                ag_slot_states_t *       states,
+                                fd_bls_agg_t *           out,
+                                fd_bls_agg_t *           out_base );
+
+fd_bls_agg_t *
+ag_slot_state_skip_reward_agg( ag_slot_state_t *  self,
+                               ag_slot_states_t * states,
+                               fd_bls_agg_t *     out,
+                               fd_bls_agg_t *     out_base );
 
 /* Copies the kind vote sigs of the ranks in set into out[ rank ].
    block_hash selects the sig for notar fallback; for notar the caller
