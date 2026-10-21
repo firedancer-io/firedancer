@@ -59,11 +59,10 @@ case $what in
     cp contrib/ci/bench/bench.toml "$BENCH_DIR/$side/"  # each side runs the config its checkout knows
     size -A -d "$bin/firedancer" > "$out.size"
     "$bin/firedancer-dev" mem --mainnet --json > "$out.mem.mainnet.json"
-    "$bin/firedancer-dev" mem --mainnet --alpenglow --json > "$out.mem.ag.mainnet.json"
     "$bin/firedancer-dev" mem --testnet --json > "$out.mem.testnet.json"
     ;;
-  replay)   backtest "${BENCH_LEDGER:-mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat}" \
-                     -e "${BENCH_END_SLOT:-424669200}" -m 4000000 --cache-size-gib 12 --partition-size-gib 4 ;;
+  replay)   backtest "${BENCH_LEDGER:-mainnet-459662777-perf-ledger-v4.5.0-alpha.2-alpenglow}" \
+            -e "${BENCH_END_SLOT:-459662997}" -m 4000000 --cache-size-gib 12 --partition-size-gib 4 ;;
   snapshot) # load-only ledger: no shreds
     if ! mountpoint -q $RAMDB; then  # brd allocates on first write: one untimed load touches the pages both sides reuse
       { findmnt -rn -o TARGET -S /dev/ram0 || true; } | xargs -r sudo umount  # findmnt exits 1 when nothing is mounted
@@ -82,7 +81,7 @@ case $what in
     quiesce
     inplace
     rm -f "$out.log"
-    sudo $BINDIR/bin/firedancer-dev bench --alpenglow --no-watch --duration 10 --config "$out.toml" \
+    sudo $BINDIR/bin/firedancer-dev bench --no-watch --duration 10 --config "$out.toml" \
          --log-path "$out.log" > /dev/null 2>&1
     ;;
   *) echo "bench.sh: unknown measurement $what" >&2; exit 1 ;;

@@ -1,58 +1,20 @@
 #!/bin/bash
 set -e
 
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-308392063-v4.2.0-beta.1-vat -m 2000000 -e 308392063
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-350814254-v4.2.0-beta.1-vat -m 2000000 -e 350814284
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-281546597-v4.2.0-beta.1-vat -m 2000000 -e 281546597
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-324823213-v4.2.0-beta.1-vat -m 2000000 -e 324823214
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-325467935-v4.2.0-beta.1-vat -m 2000000 -e 325467935
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-283927487-v4.2.0-beta.1-vat -m 2000000 -e 283927497
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-281688085-v4.2.0-beta.1-vat -m 2000000 -e 281688086
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-321168308-v4.2.0-beta.1-vat -m 2000000 -e 321168308
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-327324660-v4.2.0-beta.1-vat -m 2000000 -e 327324660
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-370199634-v4.2.0-beta.1-vat -m 200000 -e 370199634
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-378683870-v4.2.0-beta.1-vat -m 2000000 -e 378683872
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-330219081-v4.3.0-beta.0 -m 2000000 -e 330219082
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-372721907-v4.3.0-beta.0 -m 2000000 -e 372721910
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-331691646-v4.2.0-beta.1-vat -m 2000000 -e 331691647
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-336218682-v4.2.0-beta.1-vat -m 2000000 -e 336218683
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340269866-v4.2.0-beta.1-vat -m 2000000 -e 340269872
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-v4.2.0-beta.1-vat -m 10000000 -e 254462598
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.2.0-beta.1-vat -m 2000000 -e 346556337
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v4.2.0-beta.1-vat -m 2000000 -e 380592006
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-vat-alpenglow-agave-v4.4-968b24ce --alpenglow -g -m 3000 -e 1360
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.2.0-beta.1-vat -m 2000000 -e 385786452
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.2.0-beta.1-vat -m 3000 -e 1000
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347-v4.2.0-beta.1-vat -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258-v4.2.0-beta.1-vat -m 2000000 -e 387596373
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-sha512-2-v4.2.0-beta.1-vat -m 1000 -e 75
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary-v4.2.0-beta.1-vat -m 2000000 -e 391824016
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.2.0-beta.1-vat -m 10000
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation-v4.2.0-beta.1-vat -m 20000 -e 540
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry-v4.2.0-beta.1-vat -m 10000 -e 135
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_boundary-v4.2.0-beta.1-vat -m 10000 -e 950
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot-v4.2.0-beta.1-vat -m 10000 -e 950
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_relax_only-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6333-v4.2.0-beta.1-vat_rekey -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696-v4.3.0-rc.1_rekey -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960-v4.3.0-rc.1_rekey -m 2000000 -e 325
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-closeslot -m 10000 -e 330
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000 -e 562
-
-# Alpenglow
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow -m 2000000 -e 126
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-deactivated-stake --alpenglow -m 2000000 -e 810
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-leader-credits --alpenglow -m 2000000 -e 3915
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-alpenclock-lamports --alpenglow -m 2000000 -e 280
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-epoch-end --alpenglow -m 2000000 -e 1087 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-no-ag-credits --alpenglow -m 2000000 -e 1087 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-epoch-start --alpenglow -m 2000000 -e 1599 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-ag-only-voter --alpenglow -m 2000000 -e 1087 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-no-tower-points --alpenglow -m 2000000 -e 1125 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-vote-recreate --alpenglow -m 2000000 -e 1637 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators --alpenglow -m 2000000 -e 2112 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators-boundary-snap --alpenglow -m 2000000 -e 1600 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators-mid-payout --alpenglow -m 2000000 -e 1600 --zst
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-remove-inactive-stakes-agave-v4.4-6afe9919 --alpenglow -m 2000000 -e 1100
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-remove-inactive-stakes-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-vat-alpenglow-agave-v4.4-968b24ce -g -m 3000 -e 1360
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs -m 2000000 -e 126
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-deactivated-stake -m 2000000 -e 810
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-leader-credits -m 2000000 -e 3915
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-alpenclock-lamports -m 2000000 -e 280
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-epoch-end -m 2000000 -e 1087 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-no-ag-credits -m 2000000 -e 1087 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-epoch-start -m 2000000 -e 1599 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-ag-only-voter -m 2000000 -e 1087 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-no-tower-points -m 2000000 -e 1125 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-vote-recreate -m 2000000 -e 1637 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators -m 2000000 -e 2112 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators-boundary-snap -m 2000000 -e 1600 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators-mid-payout -m 2000000 -e 1600 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-agave-v4.4-57a35916-pr15795 -m 2000000 -e 1400
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-remove-inactive-stakes-agave-v4.4-6afe9919 -m 2000000 -e 1100
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-remove-inactive-stakes-agave-v4.4-57a35916-pr15795 -m 2000000 -e 1400

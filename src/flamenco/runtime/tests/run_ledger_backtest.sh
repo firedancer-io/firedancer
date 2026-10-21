@@ -22,7 +22,6 @@ EXECRP_TILE_COUNT="10"
 SNAPDC_TILE_COUNT=""
 ROOT_DISTANCE="2"
 MAX_LIVE_SLOTS="32"
-ALPENGLOW="false"
 CACHE_SIZE_GIB="3"
 PARTITION_SIZE_GIB=""
 GENESIS_MAX_FILE_SIZE_MIB=""
@@ -109,10 +108,6 @@ while [[ $# -gt 0 ]]; do
     --max-live-slots)
         MAX_LIVE_SLOTS="$2"
         shift
-        shift
-        ;;
-    --alpenglow)
-        ALPENGLOW="true"
         shift
         ;;
     --cache-size-gib)
@@ -244,8 +239,6 @@ ${SNAPDC_TILE_COUNT:+    snapdc_tile_count = $SNAPDC_TILE_COUNT}
     snapshots = "$DUMP/$LEDGER"
     accounts = "${ACCOUNTS_DB:-$DUMP/accounts.db}"
     genesis = "$DUMP/$LEDGER/genesis.bin"
-[consensus]
-    alpenglow = $ALPENGLOW
 [development]
     fixed_fec_sets = false
     [development.genesis]

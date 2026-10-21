@@ -11,13 +11,13 @@ on:
         description: 'GitHub token for posting comments'
       snapshot-ledger:
         type: string
-        default: testnet-438272759-snapload
+        default: testnet-455087014-snapload
         description: 'load-only testnet ledger (genesis.bin + full snapshot) for the snapshot row'
   workflow_dispatch:
     inputs:
       snapshot-ledger:
         type: string
-        default: testnet-438272759-snapload
+        default: testnet-455087014-snapload
 
 permissions:
   contents: read
