@@ -827,6 +827,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->status_cache             = txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;
+  /* The dragon tile is the only consumer of transaction logs, so they
+     are collected only when it is enabled. */
+  ctx->runtime->log.enable_log_collector  = tile->execle.dragon_enabled;
   ctx->runtime->fuzz.enabled             = 0;
   ctx->runtime->fuzz.reclaim_accounts    = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;

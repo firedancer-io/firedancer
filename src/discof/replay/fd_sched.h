@@ -546,6 +546,12 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 
+/* fd_sched_get_mblk_cnt returns the number of microblocks parsed for
+   the block so far, ticks included; at block end, the block's entry
+   count. */
+uint
+fd_sched_get_mblk_cnt( fd_sched_t * sched, ulong bank_idx );
+
 /* fd_sched_get_footer returns the block footer, or NULL if no footer
    marker has been parsed for the block.  The shapes were validated at
    parse time; the signatures are not verified.  The footer stays valid

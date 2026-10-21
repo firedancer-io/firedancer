@@ -160,7 +160,15 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   config.sbpf_min_version = versions.min_sbpf_version;
   config.sbpf_max_version = versions.max_sbpf_version;
 
-  if( FD_UNLIKELY( fd_sbpf_elf_peek( elf_info, programdata, programdata_size, &config )<0 ) ) {
+  /* Agave logs the ELF or verifier error text and maps the failure to
+     InvalidAccountData (program-runtime/src/deploy.rs). */
+  char err_msg[ 512UL ];
+  ulong err_msg_sz;
+
+  int peek_err = fd_sbpf_elf_peek( elf_info, programdata, programdata_size, &config );
+  if( FD_UNLIKELY( peek_err<0 ) ) {
+    err_msg_sz = fd_sbpf_elf_err_cstr( elf_info, peek_err, err_msg, sizeof(err_msg) );
+    fd_log_collector_msg( instr_ctx, err_msg, err_msg_sz );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -180,6 +188,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   void * scratch = instr_ctx->runtime->bpf_loader_program.programdata;
   int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch, programdata_size );
   if( FD_UNLIKELY( err ) ) {
+    err_msg_sz = fd_sbpf_elf_err_cstr( &prog->info, err, err_msg, sizeof(err_msg) );
+    fd_log_collector_msg( instr_ctx, err_msg, err_msg_sz );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -218,8 +228,11 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
-  int validate_result = fd_vm_validate( vm );
+  fd_vm_validate_err_t validate_err[ 1UL ];
+  int validate_result = fd_vm_validate_detail( vm, validate_err );
   if( FD_UNLIKELY( validate_result!=FD_VM_SUCCESS ) ) {
+    err_msg_sz = fd_vm_validate_err_cstr( validate_result, validate_err, err_msg, sizeof(err_msg) );
+    fd_log_collector_msg( instr_ctx, err_msg, err_msg_sz );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -480,6 +493,11 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong heap_cost = calculate_heap_cost( heap_size, FD_VM_HEAP_COST );
   int heap_cost_result = fd_executor_consume_cus( instr_ctx->txn_out, heap_cost );
   if( FD_UNLIKELY( heap_cost_result ) ) {
+    /* Charging the heap cost can only fail with a compute budget
+       error, which is the error Agave formats into this message.
+       https://github.com/anza-xyz/agave/blob/v4.3.0-rc.0/program-runtime/src/vm.rs#L114-L121
+       https://github.com/anza-xyz/agave/blob/v4.3.0-rc.0/program-runtime/src/vm.rs#L296 */
+    fd_log_collector_msg_literal( instr_ctx, "Failed to create SBF VM: Computational budget exceeded" );
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
@@ -678,6 +696,17 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     if( exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_EBPF( vm, exec_err );
+    }
+
+    /* The failure message of an access violation names the fault. */
+    fd_log_collector_t * log = instr_ctx->runtime->log.log_collector;
+    if( FD_LIKELY( log && instr_ctx->txn_out->err.exec_err_kind==FD_EXECUTOR_ERR_KIND_EBPF && vm->segv_vaddr!=ULONG_MAX ) ) {
+      int code = (int)instr_ctx->txn_out->err.exec_err;
+      if( code==FD_VM_ERR_EBPF_ACCESS_VIOLATION || code==FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION ) {
+        char  msg[ FD_LOG_COLLECTOR_VM_ERR_MSG_MAX ];
+        ulong msg_sz = fd_vm_access_violation_cstr( vm, code, msg, sizeof(msg) );
+        fd_log_collector_vm_err( log, msg, msg_sz );
+      }
     }
 
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
@@ -2245,7 +2274,15 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
      the slot comparison, parent-fork copies gate on the accdb pd_write probe
      result instead.
 
-     Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
+     Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave.
+
+     The message tells the two agave stages apart: a program whose
+     program or programdata state does not yield a deployment slot is
+     never loaded into the transaction's program cache, and the loader
+     reports "Program is not cached" (svm/src/program_loader.rs:198-238,
+     programs/bpf_loader/src/lib.rs:126-130); one that loads but is
+     delay visible or failed verification is a cached tombstone, and
+     the loader reports "Program is not deployed" (lib.rs:135-140). */
 
   uchar is_deprecated = !memcmp( program_account.acc->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
@@ -2254,7 +2291,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_bpf_state_t program_account_state[1];
     err = fd_bpf_loader_program_get_state( program_account.acc, program_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -2268,7 +2305,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
          cases, Agave does not log this message. Meanwhile, non-migrating
          built-in programs do not use the BPF loader, by definition. */
       if( !fd_is_non_migrating_builtin_program( program_id ) ) {
-        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+        fd_log_collector_msg_literal( ctx, "Program is not cached" );
       }
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
@@ -2278,19 +2315,25 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     int pd_write_this_slot = 0;
     progdata_ro = fd_runtime_get_executable_account( ctx->txn_out, programdata_pubkey, &from_parent_copy, &pd_write_this_slot );
     if( FD_UNLIKELY( !progdata_ro ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/program_loader.rs#L219-L221 */
+    if( FD_UNLIKELY( memcmp( progdata_ro->owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) ) {
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     if( FD_UNLIKELY( progdata_ro->data_len<PROGRAMDATA_METADATA_SIZE ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     fd_bpf_state_t program_data_account_state[1];
     err = fd_bpf_loader_program_get_state( progdata_ro, program_data_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -2298,7 +2341,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
        Same as above comment. Program data discriminant must be set correctly. */
     if( FD_UNLIKELY( program_data_account_state->discriminant!=FD_BPF_STATE_PROGRAM_DATA ) ) {
       /* The account is closed. */
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+      fd_log_collector_msg_literal( ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -2316,6 +2359,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
     }
+  }
+
+  /* A loader v1 or v2 program with no data has no deployment slot and
+     is never loaded.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/program_loader.rs#L204-L210 */
+  if( FD_UNLIKELY( progdata_ro==program_account.acc && !progdata_ro->data_len ) ) {
+    fd_log_collector_msg_literal( ctx, "Program is not cached" );
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );

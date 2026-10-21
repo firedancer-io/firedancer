@@ -23,6 +23,8 @@
 #include "../../../disco/gui/fd_gui_config_parse.h"
 #include "../../../disco/diag/fd_diag_tile.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
+#include "../../../discof/genesis/genesis_hash.h"
+#include "../../../discof/dragon/fd_dragon_tile.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/fd_snapct_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
@@ -379,6 +381,32 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
+  /* Add the dragon tile to topo                                        */
+  /**********************************************************************/
+
+  /* A Dragon's Mouth client can be pointed at a backtest run, which
+     replays real blocks through the real exec tiles.  The wiring is
+     the validator's: one unreliable input from replay, a waker client,
+     and free to exit on its own. */
+  ulong dragon_tile_cnt = config->tiles.dragon.enabled ? config->tiles.dragon.tile_count : 0UL;
+  if( FD_UNLIKELY( dragon_tile_cnt ) ) {
+    fd_topob_wksp( topo, "dragon" );
+    fd_topob_wksp( topo, "dragon_repl" );
+    for( ulong d=0UL; d<dragon_tile_cnt; d++ ) {
+      fd_topo_tile_t * dragon = fd_topob_tile( topo, "dragon", "dragon", "metric_in", NEXT_CPU, 0, 0, 0, 1 );
+      dragon->allow_shutdown = 1;
+      dragon->restartable    = 1;
+      if( FD_LIKELY( config->tiles.dragon.finalized ) ) wire_dragon_buffer( topo, dragon, config->tiles.dragon.buffer_size_mib );
+
+      fd_topob_link( topo, "dragon_replay", "dragon_repl", FD_DRAGON_RELEASE_LINK_DEPTH, sizeof(fd_dragon_release_t), FD_DRAGON_RELEASE_BURST );
+      fd_topob_tile_out( topo, "dragon", d, "dragon_replay", d );
+
+      fd_topob_tile_in( topo, "dragon", d,   "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "dragon_replay", d,   FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    }
+  }
+
+  /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
@@ -445,6 +473,22 @@ backtest_topo( config_t * config ) {
     FOR(snapdc_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ], dc_ticket_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
+  /* The dragon tile reads the end of a block's account state at the
+     bank's fork when it serves the commitment levels above processed,
+     with an epoch fseq of its own so that the accdb tile defers
+     reclaiming a partition it is reading. */
+  if( FD_UNLIKELY( config->tiles.dragon.enabled && config->tiles.dragon.finalized ) ) {
+    for( ulong d=0UL; d<dragon_tile_cnt; d++ ) {
+      fd_topo_tile_t * dragon_tile = &topo->tiles[ fd_topo_find_tile( topo, "dragon", d ) ];
+      fd_topob_tile_uses( topo, dragon_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+
+      fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "metric" );
+      fd_topob_tile_uses( topo, dragon_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, accdb_tile,  fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+      FD_TEST( fd_pod_insertf_ulong( topo->props, fseq_obj->id, "accdb_epoch.dragon.%lu", d ) );
+    }
+  }
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
@@ -462,7 +506,8 @@ backtest_topo( config_t * config ) {
     }
   }
 
-  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
+  if( FD_LIKELY( telemetry_enabled || config->tiles.dragon.enabled ) ) wire_event_links( topo, telemetry_enabled, dragon_tile_cnt );
+  if( FD_UNLIKELY( config->tiles.dragon.enabled ) ) wire_event_internal_links( topo, config->tiles.dragon.internal_link_dcache_mb, dragon_tile_cnt );
 
   // fd_topob_auto_layout( topo, 0 );
   if( FD_UNLIKELY( !is_auto_affinity ) ) {

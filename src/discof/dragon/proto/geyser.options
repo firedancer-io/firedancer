@@ -1,0 +1,102 @@
+# Requests are decoded from the network, so every field that a client
+# controls the length of is either a callback (maps, repeated fields)
+# or bounded to the largest value the Dragon's Mouth API can carry.  A
+# request with thousands of filter entries is counted and rejected by
+# the callback without ever being materialized.
+#
+# Updates are encoded from FD's own buffers: large bytes fields
+# (account data, transaction payloads, log lines) are callbacks, and
+# the fixed-width identities (32 byte pubkeys, 64 byte signatures,
+# base58 hashes) are bounded so that encoding is a memcpy.
+#
+# Oneof members cannot be callbacks in nanopb, so the memcmp filter
+# data is bounded instead: 128 bytes is the longest memcmp pattern the
+# Solana RPC filter API accepts, and base58/base64 of 128 bytes fits in
+# 176/172 characters.
+
+# SubscribeRequest: filter maps and data slices are counted, not stored
+
+geyser.SubscribeRequest.accounts                  type:FT_CALLBACK
+geyser.SubscribeRequest.slots                     type:FT_CALLBACK
+geyser.SubscribeRequest.transactions              type:FT_CALLBACK
+geyser.SubscribeRequest.transactions_status       type:FT_CALLBACK
+geyser.SubscribeRequest.blocks                    type:FT_CALLBACK
+geyser.SubscribeRequest.blocks_meta               type:FT_CALLBACK
+geyser.SubscribeRequest.entry                     type:FT_CALLBACK
+geyser.SubscribeRequest.accounts_data_slice        type:FT_CALLBACK
+
+geyser.SubscribeDeshredRequest.deshred_transactions type:FT_CALLBACK
+geyser.SubscribeDeshredRequest.slots                type:FT_CALLBACK
+
+geyser.CuckooFilter.data                          type:FT_CALLBACK
+
+geyser.SubscribeRequestFilterAccounts.account     type:FT_CALLBACK
+geyser.SubscribeRequestFilterAccounts.owner       type:FT_CALLBACK
+geyser.SubscribeRequestFilterAccounts.filters     type:FT_CALLBACK
+
+geyser.SubscribeRequestFilterAccountsFilterMemcmp.bytes  max_size:128
+geyser.SubscribeRequestFilterAccountsFilterMemcmp.base58 max_size:177
+geyser.SubscribeRequestFilterAccountsFilterMemcmp.base64 max_size:173
+
+geyser.SubscribeRequestFilterTransactions.signature        max_size:89
+geyser.SubscribeRequestFilterTransactions.account_include  type:FT_CALLBACK
+geyser.SubscribeRequestFilterTransactions.account_exclude  type:FT_CALLBACK
+geyser.SubscribeRequestFilterTransactions.account_required type:FT_CALLBACK
+
+geyser.SubscribeRequestFilterBlocks.account_include        type:FT_CALLBACK
+
+geyser.SubscribeRequestFilterDeshredTransactions.account_include  type:FT_CALLBACK
+geyser.SubscribeRequestFilterDeshredTransactions.account_exclude  type:FT_CALLBACK
+geyser.SubscribeRequestFilterDeshredTransactions.account_required type:FT_CALLBACK
+
+# Updates
+
+geyser.SubscribeUpdate.filters                    type:FT_CALLBACK
+geyser.SubscribeUpdateDeshred.filters             type:FT_CALLBACK
+
+geyser.SubscribeUpdateAccountInfo.pubkey          max_size:32
+geyser.SubscribeUpdateAccountInfo.owner           max_size:32
+geyser.SubscribeUpdateAccountInfo.data            type:FT_CALLBACK
+geyser.SubscribeUpdateAccountInfo.txn_signature   max_size:64
+
+geyser.SubscribeUpdateSlot.dead_error             max_size:256
+
+geyser.SubscribeUpdateTransactionInfo.signature   max_size:64
+geyser.SubscribeUpdateTransactionStatus.signature max_size:64
+
+geyser.SubscribeUpdateBlock.blockhash             max_size:45
+geyser.SubscribeUpdateBlock.parent_blockhash      max_size:45
+geyser.SubscribeUpdateBlock.transactions          type:FT_CALLBACK
+geyser.SubscribeUpdateBlock.accounts              type:FT_CALLBACK
+geyser.SubscribeUpdateBlock.entries               type:FT_CALLBACK
+
+geyser.SubscribeUpdateBlockMeta.blockhash         max_size:45
+geyser.SubscribeUpdateBlockMeta.parent_blockhash  max_size:45
+
+geyser.SubscribeUpdateEntry.hash                  max_size:32
+
+geyser.SubscribeUpdateDeshredTransactionInfo.signature                 max_size:64
+geyser.SubscribeUpdateDeshredTransactionInfo.loaded_writable_addresses type:FT_CALLBACK
+geyser.SubscribeUpdateDeshredTransactionInfo.loaded_readonly_addresses type:FT_CALLBACK
+
+geyser.GossipTopology.nodes                       type:FT_CALLBACK
+geyser.SubscribeUpdateContactInfoNode.pubkey      max_size:32
+geyser.SubscribeUpdateContactInfoNode.gossip            max_size:64
+geyser.SubscribeUpdateContactInfoNode.tpu_quic          max_size:64
+geyser.SubscribeUpdateContactInfoNode.tpu_forwards_quic max_size:64
+geyser.SubscribeUpdateContactInfoNode.tpu_vote_udp      max_size:64
+geyser.SubscribeUpdateContactInfoNode.tpu_vote_quic     max_size:64
+geyser.SubscribeUpdateContactInfoNode.tvu_udp           max_size:64
+geyser.SubscribeUpdateContactInfoNode.tvu_quic          max_size:64
+geyser.SubscribeUpdateContactInfoNode.serve_repair_udp  max_size:64
+geyser.SubscribeUpdateContactInfoNode.serve_repair_quic max_size:64
+geyser.SubscribeUpdateContactInfoNode.rpc               max_size:64
+geyser.SubscribeUpdateContactInfoNode.rpc_pubsub        max_size:64
+geyser.SubscribeUpdateContactInfoNode.alpenglow         max_size:64
+geyser.SubscribeUpdateContactInfoRemoved.pubkey   max_size:32
+
+# Unary responses
+
+geyser.GetLatestBlockhashResponse.blockhash       max_size:45
+geyser.IsBlockhashValidRequest.blockhash          max_size:45
+geyser.GetVersionResponse.version                 max_size:640

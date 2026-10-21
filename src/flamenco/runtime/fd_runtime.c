@@ -1,5 +1,6 @@
 #include "fd_runtime.h"
 #include "fd_bank.h"
+#include "../events/fd_event_internal.h"
 #include "../events/fd_event_runtime.h"
 
 #include "../types/fd_cast.h"
@@ -210,7 +211,8 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
                          fd_capture_ctx_t *  capture_ctx,
                          fd_pubkey_t const * collector_id,
                          fd_pubkey_t const * leader_vote,
-                         ulong               fees ) {
+                         ulong               fees,
+                         ulong *             post_balance ) {
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
   int burn;
@@ -231,6 +233,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
     }
   }
   if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, NULL );
+  *post_balance = acc.lamports;
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   return burn;
 }
@@ -245,7 +248,8 @@ fd_runtime_deposit_delegator_fees( fd_bank_t *         bank,
                                    fd_accdb_t *        accdb,
                                    fd_capture_ctx_t *  capture_ctx,
                                    fd_pubkey_t const * vote_address,
-                                   ulong               fees ) {
+                                   ulong               fees,
+                                   ulong *             post_balance ) {
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, vote_address, 0 );
   if( FD_UNLIKELY( !acc.lamports ) ) return 1; /* open_rw released the handle */
@@ -267,8 +271,26 @@ fd_runtime_deposit_delegator_fees( fd_bank_t *         bank,
   if( !burn && fd_vote_account_add_pending_delegator_rewards( acc.data, acc.data_len, fees ) ) burn = 1;
 
   if( burn ) acc.lamports = pre_lamports;
+  *post_balance = acc.lamports;
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   return burn;
+}
+
+/* fd_runtime_fee_reward_add lists a fee share the block paid out, as
+   agave's report_reward records it among the block's rewards.
+   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L235 */
+
+static void
+fd_runtime_fee_reward_add( fd_bank_t *         bank,
+                           fd_pubkey_t const * pubkey,
+                           ulong               lamports,
+                           ulong               post_balance ) {
+  ulong i = bank->f.fee_reward_cnt;
+  if( FD_UNLIKELY( i>=sizeof(bank->f.fee_reward)/sizeof(bank->f.fee_reward[0]) ) ) return;
+  bank->f.fee_reward[ i ].pubkey       = *pubkey;
+  bank->f.fee_reward[ i ].lamports     = lamports;
+  bank->f.fee_reward[ i ].post_balance = post_balance;
+  bank->f.fee_reward_cnt               = i+1UL;
 }
 
 /* Deposits the fee reward with the leader's collector and, under
@@ -327,14 +349,23 @@ fd_runtime_deposit_or_burn_fee( fd_bank_t *        bank,
 
   /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L201-L212 */
   ulong validator_fee_to_burn = 0UL;
-  if( validator_fee && fd_runtime_deposit_fees( bank, accdb, capture_ctx, collector_id, leader_vote, validator_fee ) ) {
-    FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, validator_fee ));
-    validator_fee_to_burn = validator_fee;
+  ulong post_balance          = 0UL;
+  if( validator_fee ) {
+    if( fd_runtime_deposit_fees( bank, accdb, capture_ctx, collector_id, leader_vote, validator_fee, &post_balance ) ) {
+      FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, validator_fee ));
+      validator_fee_to_burn = validator_fee;
+    } else {
+      fd_runtime_fee_reward_add( bank, collector_id, validator_fee, post_balance );
+    }
   }
   ulong delegator_fee_to_burn = 0UL;
-  if( delegator_fee && fd_runtime_deposit_delegator_fees( bank, accdb, capture_ctx, leader_vote, delegator_fee ) ) {
-    FD_LOG_INFO(( "slot %lu has an invalid leader vote account, burning delegator fee reward (%lu lamports)", bank->f.slot, delegator_fee ));
-    delegator_fee_to_burn = delegator_fee;
+  if( delegator_fee ) {
+    if( fd_runtime_deposit_delegator_fees( bank, accdb, capture_ctx, leader_vote, delegator_fee, &post_balance ) ) {
+      FD_LOG_INFO(( "slot %lu has an invalid leader vote account, burning delegator fee reward (%lu lamports)", bank->f.slot, delegator_fee ));
+      delegator_fee_to_burn = delegator_fee;
+    } else {
+      fd_runtime_fee_reward_add( bank, leader_vote, delegator_fee, post_balance );
+    }
   }
   return validator_fee_to_burn + delegator_fee_to_burn;
 }
@@ -385,6 +416,9 @@ static void
 fd_runtime_freeze( fd_bank_t *        bank,
                    fd_accdb_t *       accdb,
                    fd_capture_ctx_t * capture_ctx ) {
+  /* Everything this writes happens after the block's transactions. */
+  fd_event_internal_write_phase( 2 );
+
   if( FD_LIKELY( bank->f.slot ) ) fd_sysvar_recent_hashes_update( bank, accdb, capture_ctx );
   fd_sysvar_slot_history_update( bank, accdb, capture_ctx );
   fd_runtime_settle_fees( bank, accdb, capture_ctx );
@@ -935,6 +969,9 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_runtime_stack_t * runtime_stack,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
+  /* Everything this writes happens before the block's transactions. */
+  fd_event_internal_write_phase( 0 );
+
   /* Cache the Alpenglow migration slot inside the bank so that we can
      read it inside transaction execution. */
   bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( bank, accdb );
@@ -1197,28 +1234,46 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
                            fd_pubkey_t const * pubkey,
                            fd_acc_t *          acc,
                            fd_capture_ctx_t *  capture_ctx ) {
-  if( FD_UNLIKELY( !acc->lamports ) ) {
-    acc->data_len   = 0UL;
-    acc->executable = 0;
-    memset( acc->owner, 0, sizeof(acc->owner) );
-  }
+  /* A closed account hashes as empty and unowned.  The account itself
+     keeps what the transaction left in it until the commit record has
+     been emitted (fd_runtime_dead_accounts_normalize). */
+  static uchar const no_owner[ 32UL ] = {0};
+  ulong         data_len   = acc->lamports ? acc->data_len      : 0UL;
+  int           executable = acc->lamports ? !!acc->executable : 0;
+  uchar const * owner      = acc->lamports ? acc->owner         : no_owner;
 
   if( FD_UNLIKELY( acc->prior_data &&
                    acc->lamports==acc->prior_lamports &&
-                   acc->data_len==acc->prior_data_len &&
-                   (!!acc->executable)==(!!acc->prior_executable) &&
-                   !memcmp( acc->owner, acc->prior_owner, sizeof(acc->owner) ) &&
-                   !memcmp( acc->data,  acc->prior_data,  acc->data_len ) ) ) {
+                   data_len==acc->prior_data_len &&
+                   (!!executable)==(!!acc->prior_executable) &&
+                   !memcmp( owner, acc->prior_owner, sizeof(acc->owner) ) &&
+                   !memcmp( acc->data, acc->prior_data, data_len ) ) ) {
     runtime->metrics.lthash_unchanged_cnt++;
-    if( FD_LIKELY( acc->lamports ) ) fd_hashes_capture_account( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    if( FD_LIKELY( acc->lamports ) ) fd_hashes_capture_account( pubkey->uc, owner, acc->lamports, executable, acc->data, data_len, bank, capture_ctx );
     return;
   }
 
   if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) {
     ulong prior_lamports = acc->prior_data ? acc->prior_lamports : 0UL;
     fd_hashes_update_pair( pubkey->uc, acc->prior_owner, prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len,
-                                       acc->owner,       acc->lamports,  acc->executable,       acc->data,       acc->data_len,
+                                       owner,            acc->lamports,  executable,            acc->data,       data_len,
                            bank, capture_ctx );
+  }
+}
+
+/* fd_runtime_dead_accounts_normalize empties every closed account the
+   transaction commits, which is how the accounts database stores a
+   closed account.  It runs once the commit record has been emitted, so
+   that the record carries the account as the transaction left it. */
+
+static void
+fd_runtime_dead_accounts_normalize( fd_txn_out_t * txn_out ) {
+  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
+    fd_acc_t * acc = txn_out->accounts.account[ i ];
+    if( FD_LIKELY( !acc || !acc->commit || acc->lamports ) ) continue;
+    acc->data_len   = 0UL;
+    acc->executable = 0;
+    memset( acc->owner, 0, sizeof(acc->owner) );
   }
 }
 
@@ -1360,6 +1415,15 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
+  /* The account writes of this transaction are final here, and the
+     instruction trace and log buffer still hold what it produced.  A
+     transaction the cost tracker rejected above is not in the block, so
+     it gets no record; the block it would have overflowed is dead. */
+  if( FD_UNLIKELY( fd_bank_dragon_enabled( bank ) && txn_out->err.is_committable ) )
+    fd_event_internal_commit_emit( runtime, bank, txn_in, txn_out, fd_bank_dragon_accounts( bank ) );
+
+  fd_runtime_dead_accounts_normalize( txn_out );
+
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
                          txn_out->accounts.cnt, runtime->accounts.account,
@@ -1463,6 +1527,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   txn_out->err.exec_err_idx   = UINT_MAX;
   txn_out->err.custom_err     = 0;
+  txn_out->err.rent_err_account_idx = UINT_MAX;
 }
 
 void

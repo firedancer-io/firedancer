@@ -2,6 +2,7 @@
 #include "fd_sbpf_instr.h"
 #include "fd_sbpf_opcodes.h"
 #include "../../util/bits/fd_sat.h"
+#include "../../util/cstr/fd_cstr.h"
 #include "../murmur3/fd_murmur3.h"
 
 #include <stdio.h>
@@ -104,6 +105,37 @@ fd_sbpf_elf_parser_err_to_elf_err( int err ) {
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L11-L13 */
 #define FD_SBPF_SECTION_NAME_SZ_MAX (16UL)
 #define FD_SBPF_SYMBOL_NAME_SZ_MAX  (64UL)
+
+/* Error detail recording.  Every FD_SBPF_ELF_ERR_* return site whose
+   ElfError Display text carries arguments records them in info before
+   returning, so fd_sbpf_elf_err_cstr can reproduce the text. */
+
+static inline void
+fd_sbpf_elf_err_args( fd_sbpf_elf_info_t * info,
+                      ulong                arg0,
+                      ulong                arg1 ) {
+  info->err_arg0 = arg0;
+  info->err_arg1 = arg1;
+}
+
+static inline void
+fd_sbpf_elf_err_name( fd_sbpf_elf_info_t * info,
+                      uchar const *        name,
+                      ulong                name_len ) {
+  name_len = fd_ulong_min( name_len, sizeof(info->err_name) );
+  fd_memcpy( info->err_name, name, name_len );
+  info->err_name_len = name_len;
+}
+
+/* Records the parser error behind a FAILED_TO_PARSE and returns the
+   mapped ElfError code. */
+
+static inline int
+fd_sbpf_elf_parser_err_record( fd_sbpf_elf_info_t * info,
+                               int                  err ) {
+  info->err_parser = err;
+  return fd_sbpf_elf_parser_err_to_elf_err( err );
+}
 
 /* ELF loader, part 2 **************************************************
 
@@ -245,7 +277,9 @@ fd_sbpf_slice_cstr_start_with( uchar const * slice,
 /* fd_sbpf_lenient_get_string_in_section queries a single string from a
    section which is marked as SHT_STRTAB.  Returns an ElfParserError on
    failure, and leaves *out_slice and *out_slice_len in an undefined
-   state.  On success, returns 0 and sets *out_slice to a pointer into
+   state, except for STRING_TOO_LONG which sets them to the unterminated
+   slice (the StringTooLong argument).  On success, returns 0 and sets
+   *out_slice to a pointer into
    elf_bytes corresponding to the beginning of the string within the
    section.  *out_slice_len is set to the length of the resulting slice.
    Note that *out_slice_len does not include the null-terminator of the
@@ -285,6 +319,8 @@ fd_sbpf_lenient_get_string_in_section( uchar const *         elf_bytes,
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L486-L495 */
   uchar * null_terminator_ptr = memchr( (uchar const *)elf_bytes+string_range_start, 0, string_range_end-string_range_start );
   if( FD_UNLIKELY( null_terminator_ptr==NULL ) ) {
+    *out_slice     = elf_bytes+string_range_start;
+    *out_slice_len = string_range_end-string_range_start;
     return FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG;
   }
 
@@ -336,6 +372,7 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
     if( FD_UNLIKELY( prog->entry_pc!=ULONG_MAX && prog->entry_pc!=target_pc  ) ) {
       /* We already registered the entrypoint to a different target PC,
          so we cannot register it again. */
+      fd_sbpf_elf_err_args( &prog->info, FD_SBPF_ENTRYPOINT_HASH, 0UL );
       return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
     }
     prog->entry_pc = target_pc;
@@ -351,6 +388,7 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
 
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L161-L163 */
   if( FD_UNLIKELY( fd_sbpf_syscalls_query( loader->syscalls, pc_hash, NULL ) ) ) {
+    fd_sbpf_elf_err_args( &prog->info, pc_hash, 0UL );
     return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
   }
 
@@ -433,12 +471,12 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1069-L1141 */
 
 static int
-fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
-                     ulong                      elf_sz,
-                     uchar                    * rodata,
-                     fd_sbpf_elf_info_t const * info,
-                     fd_elf64_rel       const * dt_rel,
-                     ulong                      r_offset ) {
+fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const * elf,
+                     ulong                 elf_sz,
+                     uchar               * rodata,
+                     fd_sbpf_elf_info_t  * info,
+                     fd_elf64_rel  const * dt_rel,
+                     ulong                 r_offset ) {
 
   fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
 
@@ -457,8 +495,12 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1089-L1092 */
   fd_elf64_sym const * symbol = NULL;
   {
+    /* The symbol table index is stored in the lower 4 bytes of r_info. */
+    ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
+
     /* Ensure the dynamic symbol table exists. */
     if( FD_UNLIKELY( info->shndx_dynsymtab<0 ) ) {
+      fd_sbpf_elf_err_args( info, r_sym, 0UL );
       return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
     }
 
@@ -469,10 +511,9 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
     fd_elf64_sym const *  dynsym_table = (fd_elf64_sym const *)( elf->bin + sh_dynsym->sh_offset );
     ulong                 dynsym_cnt   = (ulong)(sh_dynsym->sh_size / sizeof(fd_elf64_sym));
 
-    /* The symbol table index is stored in the lower 4 bytes of r_info.
-       Check the bounds of the symbol table index. */
-    ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
+    /* Check the bounds of the symbol table index. */
     if( FD_UNLIKELY( r_sym>=dynsym_cnt ) ) {
+      fd_sbpf_elf_err_args( info, r_sym, 0UL );
       return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
     }
     symbol = &dynsym_table[ r_sym ];
@@ -532,11 +573,11 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1142-L1247 */
 
 static int
-fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t const *      elf,
-                           ulong                      elf_sz,
-                           uchar                    * rodata,
-                           fd_sbpf_elf_info_t const * info,
-                           ulong                      r_offset ) {
+fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t const * elf,
+                           ulong                 elf_sz,
+                           uchar               * rodata,
+                           fd_sbpf_elf_info_t  * info,
+                           ulong                 r_offset ) {
 
   fd_elf64_shdr const * shdrs   = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
   fd_elf64_shdr const * sh_text = &shdrs[ info->shndx_text ];
@@ -576,6 +617,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t const *      elf,
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1182-L1187 */
     ulong refd_addr = ( (ulong)va_high<<32UL ) | va_low;
     if( FD_UNLIKELY( refd_addr==0UL ) ) {
+      fd_sbpf_elf_err_args( info, refd_addr, 0UL );
       return FD_SBPF_ELF_ERR_INVALID_VIRTUAL_ADDRESS;
     }
 
@@ -646,8 +688,12 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1256-L1259 */
   fd_elf64_sym const * symbol = NULL;
 
+  /* The symbol table index is stored in the lower 4 bytes of r_info. */
+  ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
+
   /* Ensure the dynamic symbol table exists. */
   if( FD_UNLIKELY( info->shndx_dynsymtab<0 ) ) {
+    fd_sbpf_elf_err_args( &prog->info, r_sym, 0UL );
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
 
@@ -658,10 +704,9 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   fd_elf64_sym const *  dynsym_table = (fd_elf64_sym const *)( elf->bin + sh_dynsym->sh_offset );
   ulong                 dynsym_cnt   = (ulong)(sh_dynsym->sh_size / sizeof(fd_elf64_sym));
 
-  /* The symbol table index is stored in the lower 4 bytes of r_info.
-     Check the bounds of the symbol table index. */
-  ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
+  /* Check the bounds of the symbol table index. */
   if( FD_UNLIKELY( r_sym>=dynsym_cnt ) ) {
+    fd_sbpf_elf_err_args( &prog->info, r_sym, 0UL );
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
   symbol = &dynsym_table[ r_sym ];
@@ -679,6 +724,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
      will throw an error which, will be mapped to UnknownSymbol
      https://github.com/anza-xyz/sbpf/blob/main/src/elf_parser/mod.rs#L528-L536 */
   if( FD_UNLIKELY( info->shndx_dynstr<0 ) ) {
+    fd_sbpf_elf_err_args( &prog->info, symbol->st_name, 0UL );
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
 
@@ -686,6 +732,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   ulong                 name_len;
   fd_elf64_shdr const * dyn_section_names_shdr = &shdrs[ info->shndx_dynstr ];
   if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( elf->bin, elf_sz, dyn_section_names_shdr, symbol->st_name, FD_SBPF_SYMBOL_NAME_SZ_MAX, &name, &name_len ) ) ) {
+    fd_sbpf_elf_err_args( &prog->info, symbol->st_name, 0UL );
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
 
@@ -715,6 +762,8 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
       key = fd_murmur3_32(name, name_len, 0UL );
       if( FD_UNLIKELY( config->reject_broken_elfs &&
                        fd_sbpf_syscalls_query( loader->syscalls, key, NULL )==NULL ) ) {
+        fd_sbpf_elf_err_name( &prog->info, name, name_len );
+        fd_sbpf_elf_err_args( &prog->info, r_offset/8UL, r_offset );
         return FD_SBPF_ELF_ERR_UNRESOLVED_SYMBOL;
       }
     }
@@ -1110,6 +1159,10 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       ulong         name_len;
       int res = fd_sbpf_lenient_get_string_in_section( bin, bin_sz, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, &name, &name_len );
       if( FD_UNLIKELY( res < 0 ) ) {
+        if( res==FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG ) {
+          fd_sbpf_elf_err_name( info, name, name_len );
+          fd_sbpf_elf_err_args( info, FD_SBPF_SECTION_NAME_SZ_MAX, 0UL );
+        }
         return res;
       }
 
@@ -1393,7 +1446,11 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
     int res = fd_sbpf_lenient_get_string_in_section( bin, bin_sz, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, &name, &name_len );
     if( FD_UNLIKELY( res ) ) {
       /* this can never fail because it was checked above, but safer to keep it */
-      return fd_sbpf_elf_parser_err_to_elf_err( res );
+      if( res==FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG ) {
+        fd_sbpf_elf_err_name( info, name, name_len );
+        fd_sbpf_elf_err_args( info, FD_SBPF_SECTION_NAME_SZ_MAX, 0UL );
+      }
+      return fd_sbpf_elf_parser_err_record( info, res );
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L765-L775 */
@@ -1411,7 +1468,9 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
                      ( ( ( shdr.sh_flags & (FD_ELF_SHF_ALLOC | FD_ELF_SHF_WRITE) ) == (FD_ELF_SHF_ALLOC | FD_ELF_SHF_WRITE) ) &&
                            fd_sbpf_slice_cstr_start_with( name, name_len, ".data" ) &&
                            !fd_sbpf_slice_cstr_start_with( name, name_len, ".data.rel" ) ) ) ) {
-      /* to match Agave return error we can't fail here */
+      /* to match Agave return error we can't fail here; the first
+         offending section is the one named in the error */
+      if( !writeable_err ) fd_sbpf_elf_err_name( info, name, name_len );
       writeable_err = 1;
     }
 
@@ -1617,7 +1676,7 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L607 */
   int res = fd_sbpf_lenient_elf_parse( info, bin, bin_sz );
   if( FD_UNLIKELY( res<0 ) ) {
-    return fd_sbpf_elf_parser_err_to_elf_err( res );
+    return fd_sbpf_elf_parser_err_record( info, res );
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L617 */
@@ -1717,6 +1776,11 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
     .dt_rel_off      = 0UL,
     .dt_rel_sz       = 0UL,
     .sbpf_version    = (uint)maybe_sbpf_version,
+    .err_parser      = 0,
+    .err_arg0        = 0UL,
+    .err_arg1        = 0UL,
+    .err_name_len    = 0UL,
+    .err_name        = {0},
     /* !!! Keep this in sync with -Werror=missing-field-initializers */
   };
 
@@ -1726,7 +1790,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
      the strict parser's error code.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L407 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( info->sbpf_version ) ) ) {
-    return fd_sbpf_elf_parser_err_to_elf_err( fd_sbpf_elf_peek_strict( info, bin, bin_sz ) );
+    return fd_sbpf_elf_parser_err_record( info, fd_sbpf_elf_peek_strict( info, bin, bin_sz ) );
   }
   return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
 }
@@ -1848,11 +1912,11 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
                           fd_sbpf_loader_config_t const * config,
                           fd_sbpf_loader_t *              loader,
                           int                             is_fast ) {
-  fd_sbpf_elf_info_t const * elf_info = &prog->info;
-  fd_sbpf_elf_t const *      elf      = (fd_sbpf_elf_t const *)bin;
-  uchar *                    rodata   = prog->rodata;
-  fd_elf64_shdr const *      shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_elf64_shdr const *      shtext   = &shdrs[ elf_info->shndx_text ];
+  fd_sbpf_elf_info_t *  elf_info = &prog->info;
+  fd_sbpf_elf_t const * elf      = (fd_sbpf_elf_t const *)bin;
+  uchar *               rodata   = prog->rodata;
+  fd_elf64_shdr const * shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * shtext   = &shdrs[ elf_info->shndx_text ];
 
   /* rodata_bound is the size of the destination rodata buffer.  On the fast
      (no-scratch) path it is the final rodata_sz (the ELF tail is neither
@@ -1896,6 +1960,7 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
          https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1016-L1021 */
       long target_pc = fd_long_sat_add( fd_long_sat_add( (long)i, 1L ), imm);
       if( FD_UNLIKELY( target_pc<0L || target_pc>=(long)insn_cnt ) ) {
+        fd_sbpf_elf_err_args( elf_info, i, 0UL );
         return FD_SBPF_ELF_ERR_RELATIVE_JUMP_OUT_OF_BOUNDS;
       }
 
@@ -1947,6 +2012,7 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
           err = fd_sbpf_r_bpf_64_32( loader, prog, elf, bin_sz, rodata_bound, rodata, elf_info, dt_rel, r_offset, config );
           break;
         default:
+          fd_sbpf_elf_err_args( elf_info, r_type, 0UL );
           return FD_SBPF_ELF_ERR_UNKNOWN_RELOCATION;
       }
 
@@ -2112,6 +2178,117 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
     return fd_sbpf_program_load_strict( prog, bin );
   }
   return fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config, scratch, scratch_sz );
+}
+
+/* Error rendering *****************************************************/
+
+/* fd_sbpf_utf8_lossy writes the String::from_utf8_lossy rendering of
+   the byte slice [s,s+n) into out (capacity out_sz, NUL terminated):
+   each maximal invalid subsequence (a bad lead byte, a lead byte with
+   its valid continuation prefix up to the first bad byte, or a sequence
+   truncated by the end of the slice) becomes one U+FFFD.  Returns the
+   number of bytes written excluding the NUL. */
+
+static ulong
+fd_sbpf_utf8_lossy( char *        out,
+                    ulong         out_sz,
+                    uchar const * s,
+                    ulong         n ) {
+  ulong o = 0UL;
+  ulong i = 0UL;
+  while( i<n && o+4UL<=out_sz ) {
+    uchar b  = s[ i ];
+    ulong w;
+    uchar lo = 0x80;
+    uchar hi = 0xBF;
+    if     ( b<0x80U )               w = 1UL;
+    else if( b>=0xC2U && b<=0xDFU )  w = 2UL;
+    else if( b>=0xE0U && b<=0xEFU ) { w = 3UL; if( b==0xE0U ) lo = 0xA0; else if( b==0xEDU ) hi = 0x9F; }
+    else if( b>=0xF0U && b<=0xF4U ) { w = 4UL; if( b==0xF0U ) lo = 0x90; else if( b==0xF4U ) hi = 0x8F; }
+    else                             w = 0UL;
+
+    ulong k = 1UL;
+    for( ; w && k<w && i+k<n; k++ ) {
+      uchar c = s[ i+k ];
+      if( c<lo || c>hi ) break;
+      lo = 0x80; hi = 0xBF;
+    }
+
+    if( w && k==w ) {
+      fd_memcpy( out+o, s+i, w );
+      o += w;
+      i += w;
+    } else {
+      i = ( w && i+k==n ) ? n : i+k;
+      out[ o++ ] = (char)0xEF;
+      out[ o++ ] = (char)0xBF;
+      out[ o++ ] = (char)0xBD;
+    }
+  }
+  out[ o ] = '\0';
+  return o;
+}
+
+ulong
+fd_sbpf_elf_err_cstr( fd_sbpf_elf_info_t const * info,
+                      int                        err,
+                      char *                     buf,
+                      ulong                      buf_sz ) {
+  ulong len = 0UL;
+  char  name[ 4UL*sizeof(info->err_name)+1UL ];
+  fd_sbpf_utf8_lossy( name, sizeof(name), info->err_name, fd_ulong_min( info->err_name_len, sizeof(info->err_name) ) );
+
+# define PRINT(...) do { fd_cstr_printf( buf, buf_sz, &len, __VA_ARGS__ ); return len; } while(0)
+
+  switch( err ) {
+
+  /* ElfError, elf.rs */
+  case FD_SBPF_ELF_ERR_FAILED_TO_PARSE:
+    /* ElfParserError, elf_parser/mod.rs */
+    switch( info->err_parser ) {
+    case FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER:           PRINT( "Failed to parse ELF file: invalid file header" );
+    case FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER:        PRINT( "Failed to parse ELF file: invalid program header" );
+    case FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER:        PRINT( "Failed to parse ELF file: invalid section header" );
+    case FD_SBPF_ELF_PARSER_ERR_INVALID_STRING:                PRINT( "Failed to parse ELF file: invalid string" );
+    case FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG:               PRINT( "Failed to parse ELF file: Section or symbol name `%s` is longer than `%lu` bytes", name, info->err_arg0 );
+    case FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS:                 PRINT( "Failed to parse ELF file: value out of bounds" );
+    case FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE:                  PRINT( "Failed to parse ELF file: invalid size" );
+    case FD_SBPF_ELF_PARSER_ERR_OVERLAP:                       PRINT( "Failed to parse ELF file: values overlap" );
+    case FD_SBPF_ELF_PARSER_ERR_SECTION_NOT_IN_ORDER:          PRINT( "Failed to parse ELF file: sections not in ascending order" );
+    case FD_SBPF_ELF_PARSER_ERR_NO_SECTION_NAME_STRING_TABLE:  PRINT( "Failed to parse ELF file: no section name string table found" );
+    case FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE: PRINT( "Failed to parse ELF file: invalid dynamic section table" );
+    case FD_SBPF_ELF_PARSER_ERR_INVALID_RELOCATION_TABLE:      PRINT( "Failed to parse ELF file: invalid relocation table" );
+    case FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT:             PRINT( "Failed to parse ELF file: invalid alignment" );
+    case FD_SBPF_ELF_PARSER_ERR_NO_STRING_TABLE:               PRINT( "Failed to parse ELF file: no string table" );
+    case FD_SBPF_ELF_PARSER_ERR_NO_DYNAMIC_STRING_TABLE:       PRINT( "Failed to parse ELF file: no dynamic string table" );
+    default:                                                   PRINT( "Failed to parse ELF file" );
+    }
+  case FD_SBPF_ELF_ERR_ENTRYPOINT_OUT_OF_BOUNDS:          PRINT( "Entrypoint out of bounds" );
+  case FD_SBPF_ELF_ERR_INVALID_ENTRYPOINT:                PRINT( "Invalid entrypoint" );
+  case FD_SBPF_ELF_ERR_FAILED_TO_GET_SECTION:             PRINT( "Failed to get section %s", name );
+  case FD_SBPF_ELF_ERR_UNRESOLVED_SYMBOL:                 PRINT( "Unresolved symbol (%s) at instruction #%lu (ELF file offset 0x%lx)", name, info->err_arg0, info->err_arg1 );
+  case FD_SBPF_ELF_ERR_SECTION_NOT_FOUND:                 PRINT( "Section not found: %s", name );
+  case FD_SBPF_ELF_ERR_RELATIVE_JUMP_OUT_OF_BOUNDS:       PRINT( "Relative jump out of bounds at instruction #%lu", info->err_arg0 );
+  case FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION:             PRINT( "Symbol hash collision 0x%lx", info->err_arg0 );
+  case FD_SBPF_ELF_ERR_WRONG_ENDIANNESS:                  PRINT( "Incompatible ELF: wrong endianess" );
+  case FD_SBPF_ELF_ERR_WRONG_ABI:                         PRINT( "Incompatible ELF: wrong ABI" );
+  case FD_SBPF_ELF_ERR_WRONG_MACHINE:                     PRINT( "Incompatible ELF: wrong machine" );
+  case FD_SBPF_ELF_ERR_WRONG_CLASS:                       PRINT( "Incompatible ELF: wrong class" );
+  case FD_SBPF_ELF_ERR_NOT_ONE_TEXT_SECTION:              PRINT( "Multiple or no text sections, consider removing llc option: -function-sections" );
+  case FD_SBPF_ELF_ERR_WRITABLE_SECTION_NOT_SUPPORTED:    PRINT( "Found writable section (%s) in ELF, read-write data not supported", name );
+  case FD_SBPF_ELF_ERR_ADDRESS_OUTSIDE_LOADABLE_SECTION:  PRINT( "Relocation failed, no loadable section contains virtual address 0x%lx", info->err_arg0 );
+  case FD_SBPF_ELF_ERR_INVALID_VIRTUAL_ADDRESS:           PRINT( "Relocation failed, invalid referenced virtual address 0x%lx", info->err_arg0 );
+  case FD_SBPF_ELF_ERR_UNKNOWN_RELOCATION:                PRINT( "Relocation failed, unknown type %lu", info->err_arg0 );
+  case FD_SBPF_ELF_ERR_FAILED_TO_READ_RELOCATION_INFO:    PRINT( "Failed to read relocation info" );
+  case FD_SBPF_ELF_ERR_WRONG_TYPE:                        PRINT( "Incompatible ELF: wrong type" );
+  case FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL:                    PRINT( "Unknown symbol with index %lu", info->err_arg0 );
+  case FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS:               PRINT( "Offset or value is out of bounds" );
+  case FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION:          PRINT( "Detected sbpf_version required by the executable which are not enabled" );
+  case FD_SBPF_ELF_ERR_INVALID_PROGRAM_HEADER:            PRINT( "Invalid ELF program header" );
+  default:                                                PRINT( "ELF error" );
+  }
+
+# undef PRINT
 }
 
 #undef ERR

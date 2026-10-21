@@ -2396,3 +2396,180 @@
 |--------|------|-------------|
 
 </div>
+
+## Dragon Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">unknown</span>"} | counter | Calls received, by method, before authentication (Unknown or unsupported method) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">subscribe</span>"} | counter | Calls received, by method, before authentication (Subscribe) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">subscribe_&#8203;deshred</span>"} | counter | Calls received, by method, before authentication (SubscribeDeshred) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">subscribe_&#8203;gossip</span>"} | counter | Calls received, by method, before authentication (SubscribeGossip) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">subscribe_&#8203;replay_&#8203;info</span>"} | counter | Calls received, by method, before authentication (SubscribeReplayInfo) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">ping</span>"} | counter | Calls received, by method, before authentication (Ping) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">get_&#8203;latest_&#8203;blockhash</span>"} | counter | Calls received, by method, before authentication (GetLatestBlockhash) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">get_&#8203;block_&#8203;height</span>"} | counter | Calls received, by method, before authentication (GetBlockHeight) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">get_&#8203;slot</span>"} | counter | Calls received, by method, before authentication (GetSlot) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">is_&#8203;blockhash_&#8203;valid</span>"} | counter | Calls received, by method, before authentication (IsBlockhashValid) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">get_&#8203;version</span>"} | counter | Calls received, by method, before authentication (GetVersion) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">health_&#8203;check</span>"} | counter | Calls received, by method, before authentication (Health/Check) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;handled</span><br/>{dragon_&#8203;method="<span class="metrics-enum">health_&#8203;watch</span>"} | counter | Calls received, by method, before authentication (Health/Watch) |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;open</span> | gauge | Open HTTP/2 connections |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;capacity</span> | gauge | Connections the server can hold at once |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;open</span> | gauge | Open gRPC calls |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;capacity</span> | gauge | Calls the server can hold at once |
+| <span class="metrics-name">dragon_&#8203;subscription_&#8203;open</span> | gauge | Open subscription streams |
+| <span class="metrics-name">dragon_&#8203;subscription_&#8203;class_&#8203;used</span> | gauge | Subscription classes in use, one per distinct filter set |
+| <span class="metrics-name">dragon_&#8203;subscription_&#8203;class_&#8203;capacity</span> | gauge | Subscription classes the server can hold at once |
+| <span class="metrics-name">dragon_&#8203;last_&#8203;processed_&#8203;slot</span> | gauge | Last slot reported processed, 0 if none |
+| <span class="metrics-name">dragon_&#8203;last_&#8203;confirmed_&#8203;slot</span> | gauge | Last slot reported confirmed, 0 if none |
+| <span class="metrics-name">dragon_&#8203;last_&#8203;finalized_&#8203;slot</span> | gauge | Last slot reported finalized, 0 if none |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;accepted</span> | counter | Connections accepted |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;closed</span> | counter | Connections closed, by the peer or the server |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;evicted</span><br/>{dragon_&#8203;conn_&#8203;evict_&#8203;reason="<span class="metrics-enum">idle</span>"} | counter | Connections the server closed on its own, by reason (No traffic for the idle timeout) |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;evicted</span><br/>{dragon_&#8203;conn_&#8203;evict_&#8203;reason="<span class="metrics-enum">handshake</span>"} | counter | Connections the server closed on its own, by reason (The HTTP/2 handshake did not complete in time) |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;evicted</span><br/>{dragon_&#8203;conn_&#8203;evict_&#8203;reason="<span class="metrics-enum">burst_&#8203;stall</span>"} | counter | Connections the server closed on its own, by reason (The connection held a burst send buffer while the kernel took none of its bytes) |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;evicted</span><br/>{dragon_&#8203;conn_&#8203;evict_&#8203;reason="<span class="metrics-enum">reset_&#8203;flood</span>"} | counter | Connections the server closed on its own, by reason (The peer reset streams faster than the limit) |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;evicted</span><br/>{dragon_&#8203;conn_&#8203;evict_&#8203;reason="<span class="metrics-enum">slow_&#8203;client</span>"} | counter | Connections the server closed on its own, by reason (A client that did not keep up never took the status that ended its subscription) |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;full_&#8203;rejected</span> | counter | Connections refused with a GOAWAY because every connection slot was taken |
+| <span class="metrics-name">dragon_&#8203;conn_&#8203;address_&#8203;full_&#8203;rejected</span> | counter | Connections refused with a GOAWAY because their address already held max_clients_per_address connections |
+| <span class="metrics-name">dragon_&#8203;accept_&#8203;failed</span> | counter | Failed attempts to accept a connection |
+| <span class="metrics-name">dragon_&#8203;poll_&#8203;failed</span> | counter | Failed epoll operations on the server's sockets |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rx</span> | counter | Request messages received from clients |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rx_&#8203;bytes</span> | counter | Request message bytes received from clients |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">auth</span>"} | counter | Requests rejected, by reason (The x-token metadata was missing or wrong) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">unimplemented</span>"} | counter | Requests rejected, by reason (The method is not served) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">decode</span>"} | counter | Requests rejected, by reason (The request message could not be decoded) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">filter</span>"} | counter | Requests rejected, by reason (The subscribe request violates a filter limit) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">from_&#8203;slot</span>"} | counter | Requests rejected, by reason (The subscribe request asks to replay from a past slot) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">commitment</span>"} | counter | Requests rejected, by reason (The subscribe request asks for a commitment level this server does not serve) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">call_&#8203;full</span>"} | counter | Requests rejected, by reason (No call slot was free) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">class_&#8203;full</span>"} | counter | Requests rejected, by reason (Every subscription class was taken) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Requests rejected, by reason (The transport found the request malformed or unsupported) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">buffer_&#8203;evicted</span>"} | counter | Requests rejected, by reason (Every request buffer was in use and this request had been arriving the longest) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">buffer_&#8203;timeout</span>"} | counter | Requests rejected, by reason (The request message did not finish arriving within the reassembly deadline) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;rejected</span><br/>{dragon_&#8203;request_&#8203;reject_&#8203;reason="<span class="metrics-enum">buffer_&#8203;address</span>"} | counter | Requests rejected, by reason (The peer address already held its share of the request buffers) |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;buffer_&#8203;free</span> | gauge | Request buffers not on loan to any call |
+| <span class="metrics-name">dragon_&#8203;request_&#8203;buffer_&#8203;capacity</span> | gauge | Request buffers the server has |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">slot</span>"} | counter | Update messages sent to subscribers, by type (Slot status) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">txn</span>"} | counter | Update messages sent to subscribers, by type (Transaction) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">txn_&#8203;status</span>"} | counter | Update messages sent to subscribers, by type (Transaction status) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">block_&#8203;meta</span>"} | counter | Update messages sent to subscribers, by type (Block meta) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">account</span>"} | counter | Update messages sent to subscribers, by type (Account) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">block</span>"} | counter | Update messages sent to subscribers, by type (Block) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx_&#8203;bytes</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">slot</span>"} | counter | Update message bytes sent to subscribers, by type (Slot status) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx_&#8203;bytes</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">txn</span>"} | counter | Update message bytes sent to subscribers, by type (Transaction) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx_&#8203;bytes</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">txn_&#8203;status</span>"} | counter | Update message bytes sent to subscribers, by type (Transaction status) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx_&#8203;bytes</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">block_&#8203;meta</span>"} | counter | Update message bytes sent to subscribers, by type (Block meta) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx_&#8203;bytes</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">account</span>"} | counter | Update message bytes sent to subscribers, by type (Account) |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;tx_&#8203;bytes</span><br/>{dragon_&#8203;update_&#8203;type="<span class="metrics-enum">block</span>"} | counter | Update message bytes sent to subscribers, by type (Block) |
+| <span class="metrics-name">dragon_&#8203;ping_&#8203;tx</span> | counter | Server side pings sent on subscription streams |
+| <span class="metrics-name">dragon_&#8203;pong_&#8203;tx</span> | counter | Pongs sent in reply to a client ping |
+| <span class="metrics-name">dragon_&#8203;msg_&#8203;tx</span> | counter | Response messages handed to the transport |
+| <span class="metrics-name">dragon_&#8203;msg_&#8203;tx_&#8203;bytes</span> | counter | Response message bytes handed to the transport, before compression |
+| <span class="metrics-name">dragon_&#8203;msg_&#8203;wire_&#8203;tx_&#8203;bytes</span> | counter | Response message bytes sent on the wire, after compression |
+| <span class="metrics-name">dragon_&#8203;msg_&#8203;compressed_&#8203;tx</span> | counter | Response messages sent compressed |
+| <span class="metrics-name">dragon_&#8203;msg_&#8203;shared_&#8203;tx</span> | counter | Response messages a subscriber took from bytes staged once for several subscribers |
+| <span class="metrics-name">dragon_&#8203;msg_&#8203;oversize_&#8203;rejected</span> | counter | Sends refused because the message is larger than [tiles.dragon.max_message_bytes] |
+| <span class="metrics-name">dragon_&#8203;encode_&#8203;failed</span> | counter | Messages that did not fit the encoder's buffer |
+| <span class="metrics-name">dragon_&#8203;txn_&#8203;meta_&#8203;build_&#8203;failed</span> | counter | Commit records whose transaction could not be parsed, so nothing was sent for them |
+| <span class="metrics-name">dragon_&#8203;cuckoo_&#8203;filter_&#8203;installed</span> | counter | Cuckoo account filters installed by subscriptions |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;evicted</span><br/>{dragon_&#8203;call_&#8203;evict_&#8203;reason="<span class="metrics-enum">send_&#8203;ring</span>"} | counter | Calls the transport closed, by reason (The send ring needed back bytes the call had not sent) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;evicted</span><br/>{dragon_&#8203;call_&#8203;evict_&#8203;reason="<span class="metrics-enum">ref_&#8203;queue</span>"} | counter | Calls the transport closed, by reason (The call held as many pending segments as it may) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;evicted</span><br/>{dragon_&#8203;call_&#8203;evict_&#8203;reason="<span class="metrics-enum">ref_&#8203;pool</span>"} | counter | Calls the transport closed, by reason (The shared pool of pending segments ran out and the call held the most of it) |
+| <span class="metrics-name">dragon_&#8203;call_&#8203;evicted</span><br/>{dragon_&#8203;call_&#8203;evict_&#8203;reason="<span class="metrics-enum">deadline</span>"} | counter | Calls the transport closed, by reason (The grpc-timeout of the call ran out) |
+| <span class="metrics-name">dragon_&#8203;subscription_&#8203;lagged_&#8203;closed</span> | counter | Subscription streams ended because the client did not keep up |
+| <span class="metrics-name">dragon_&#8203;subscription_&#8203;content_&#8203;lost_&#8203;closed</span> | counter | Subscription streams ended with an error because a bank whose content they wanted was lost |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;queue_&#8203;chunk_&#8203;free</span> | gauge | Chunks of the shared update queue not on loan to any call |
+| <span class="metrics-name">dragon_&#8203;update_&#8203;queue_&#8203;chunk_&#8203;capacity</span> | gauge | Chunks of the shared update queue, one per call plus the pool |
+| <span class="metrics-name">dragon_&#8203;burst_&#8203;buffer_&#8203;free</span> | gauge | Burst send buffers not on loan to any connection |
+| <span class="metrics-name">dragon_&#8203;burst_&#8203;buffer_&#8203;capacity</span> | gauge | Burst send buffers the server has |
+| <span class="metrics-name">dragon_&#8203;burst_&#8203;buffer_&#8203;acquired</span> | counter | Times a connection whose send ring ran short took a burst send buffer |
+| <span class="metrics-name">dragon_&#8203;burst_&#8203;buffer_&#8203;denied</span> | counter | Times a connection whose send ring ran short found no burst send buffer free, or its address holding its share |
+| <span class="metrics-name">dragon_&#8203;replay_&#8203;frag_&#8203;rx</span> | counter | Fragments received on the replay link |
+| <span class="metrics-name">dragon_&#8203;slot_&#8203;complete_&#8203;rx</span> | counter | Completed slot messages received from the replay tile |
+| <span class="metrics-name">dragon_&#8203;replay_&#8203;overrun</span> | counter | Times the tile fell behind the replay link and had to resynchronize |
+| <span class="metrics-name">dragon_&#8203;slot_&#8203;status_&#8203;reported</span><br/>{dragon_&#8203;slot_&#8203;state="<span class="metrics-enum">processed</span>"} | counter | Slot statuses reported by the fork graph, by status (Processed) |
+| <span class="metrics-name">dragon_&#8203;slot_&#8203;status_&#8203;reported</span><br/>{dragon_&#8203;slot_&#8203;state="<span class="metrics-enum">confirmed</span>"} | counter | Slot statuses reported by the fork graph, by status (Confirmed) |
+| <span class="metrics-name">dragon_&#8203;slot_&#8203;status_&#8203;reported</span><br/>{dragon_&#8203;slot_&#8203;state="<span class="metrics-enum">finalized</span>"} | counter | Slot statuses reported by the fork graph, by status (Finalized) |
+| <span class="metrics-name">dragon_&#8203;slot_&#8203;status_&#8203;reported</span><br/>{dragon_&#8203;slot_&#8203;state="<span class="metrics-enum">first_&#8203;shred_&#8203;received</span>"} | counter | Slot statuses reported by the fork graph, by status (FirstShredReceived) |
+| <span class="metrics-name">dragon_&#8203;slot_&#8203;status_&#8203;reported</span><br/>{dragon_&#8203;slot_&#8203;state="<span class="metrics-enum">completed</span>"} | counter | Slot statuses reported by the fork graph, by status (Completed) |
+| <span class="metrics-name">dragon_&#8203;slot_&#8203;status_&#8203;reported</span><br/>{dragon_&#8203;slot_&#8203;state="<span class="metrics-enum">created_&#8203;bank</span>"} | counter | Slot statuses reported by the fork graph, by status (CreatedBank) |
+| <span class="metrics-name">dragon_&#8203;slot_&#8203;status_&#8203;reported</span><br/>{dragon_&#8203;slot_&#8203;state="<span class="metrics-enum">dead</span>"} | counter | Slot statuses reported by the fork graph, by status (Dead) |
+| <span class="metrics-name">dragon_&#8203;blockhash_&#8203;count</span> | gauge | Blockhash statuses retained for the blockhash validity call |
+| <span class="metrics-name">dragon_&#8203;block_&#8203;meta_&#8203;count</span> | gauge | Block metas retained for the unary calls |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;count</span> | gauge | Banks in the fork graph |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;capacity</span> | gauge | Banks the fork graph can hold |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;ref_&#8203;count</span> | gauge | Replay bank references the fork graph has not given back yet |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;ref_&#8203;release_&#8203;pending</span> | gauge | Bank reference releases waiting to be published to replay |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;pending</span> | gauge | Banks that owe a confirmed or finalized status, waiting for the records of their block |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;created</span> | counter | Banks added to the fork graph |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;discarded</span><br/>{dragon_&#8203;discard_&#8203;reason="<span class="metrics-enum">dead</span>"} | counter | Banks dropped from the fork graph, by reason (The slot was marked dead) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;discarded</span><br/>{dragon_&#8203;discard_&#8203;reason="<span class="metrics-enum">loser</span>"} | counter | Banks dropped from the fork graph, by reason (Another bank of the slot was confirmed or rooted) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;discarded</span><br/>{dragon_&#8203;discard_&#8203;reason="<span class="metrics-enum">dropped</span>"} | counter | Banks dropped from the fork graph, by reason (Replay asked for the bank reference back) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;discarded</span><br/>{dragon_&#8203;discard_&#8203;reason="<span class="metrics-enum">pruned</span>"} | counter | Banks dropped from the fork graph, by reason (The bank does not descend from the root) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;discarded</span><br/>{dragon_&#8203;discard_&#8203;reason="<span class="metrics-enum">stale</span>"} | counter | Banks dropped from the fork graph, by reason (The bank never resolved and fell behind) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;discarded</span><br/>{dragon_&#8203;discard_&#8203;reason="<span class="metrics-enum">flushed</span>"} | counter | Banks dropped from the fork graph, by reason (Replay restarted its bank sequence, or an input gap) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;discarded</span><br/>{dragon_&#8203;discard_&#8203;reason="<span class="metrics-enum">pending</span>"} | counter | Banks dropped from the fork graph, by reason (The bank owed a commitment status its records never let it seal for) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;incomplete_&#8203;seen</span><br/>{dragon_&#8203;incomplete_&#8203;reason="<span class="metrics-enum">none</span>"} | counter | Times a bank was found not sealed, by reason (The bank is sealed) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;incomplete_&#8203;seen</span><br/>{dragon_&#8203;incomplete_&#8203;reason="<span class="metrics-enum">pending</span>"} | counter | Times a bank was found not sealed, by reason (The bank has not frozen yet) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;incomplete_&#8203;seen</span><br/>{dragon_&#8203;incomplete_&#8203;reason="<span class="metrics-enum">dropped</span>"} | counter | Times a bank was found not sealed, by reason (The bank reference was taken back) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;incomplete_&#8203;seen</span><br/>{dragon_&#8203;incomplete_&#8203;reason="<span class="metrics-enum">record_&#8203;missing</span>"} | counter | Times a bank was found not sealed, by reason (Fewer transaction records than the bank executed) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;incomplete_&#8203;seen</span><br/>{dragon_&#8203;incomplete_&#8203;reason="<span class="metrics-enum">sysvar_&#8203;missing</span>"} | counter | Times a bank was found not sealed, by reason (A sysvar write of the slot was not seen) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;incomplete_&#8203;seen</span><br/>{dragon_&#8203;incomplete_&#8203;reason="<span class="metrics-enum">gap</span>"} | counter | Times a bank was found not sealed, by reason (An input link overran, so records may be missing) |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;evicted</span> | counter | Banks dropped to make room in the fork graph |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;sealed</span> | counter | Banks reported sealed, which is when their block can be served |
+| <span class="metrics-name">dragon_&#8203;fork_&#8203;graph_&#8203;flushed</span> | counter | Times the whole fork graph was dropped |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;ref_&#8203;acquired</span> | counter | Bank references granted by replay |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;ref_&#8203;released</span> | counter | Bank references given back to replay |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;ref_&#8203;queue_&#8203;full_&#8203;lost</span> | counter | Bank references that could not be queued for release, recovered on the next input gap |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;ref_&#8203;unnamed_&#8203;lost</span> | counter | Bank references given up without a release because the bank had no pool index, recovered on the next input gap |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;unknown_&#8203;dropped</span> | counter | Notifications naming a bank the fork graph never saw |
+| <span class="metrics-name">dragon_&#8203;root_&#8203;chain_&#8203;gap_&#8203;seen</span> | counter | Root advances whose chain of ancestors did not reach the previous root, so some banks were pruned without a finalized status |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;pending_&#8203;entered</span> | counter | Times a bank's confirmed or finalized status had to wait for the records of its block |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;pending_&#8203;timed_&#8203;out</span> | counter | Banks whose owed status went out without their content because the records it waited for never arrived |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;pending_&#8203;dropped</span> | counter | Banks whose owed status went out without their content because the records it waited for are gone |
+| <span class="metrics-name">dragon_&#8203;bank_&#8203;degraded</span> | counter | Banks given up on at the confirmed and finalized levels because the buffer could not hold one of their entries |
+| <span class="metrics-name">dragon_&#8203;content_&#8203;lost</span> | counter | Banks that reached confirmed or finalized without the buffer being able to serve their content, whose slot status went out regardless |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;rx</span> | counter | Complete records reassembled from the record links |
+| <span class="metrics-name">dragon_&#8203;txn_&#8203;event_&#8203;rx</span> | counter | Transaction events received from the event links |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;multi_&#8203;frag_&#8203;rx</span> | counter | Records that did not fit one fragment |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;malformed_&#8203;dropped</span> | counter | Records dropped because their framing or their fields did not hold up |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;gap_&#8203;dropped</span> | counter | Partial records dropped because the tile fell behind a record link |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;bad_&#8203;chunk_&#8203;dropped</span> | counter | Record fragments skipped because they named a chunk outside the link's dcache |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;bank_&#8203;gone_&#8203;dropped</span> | counter | Records dropped because the bank they name is gone or has no room |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;overrun</span> | counter | Times the tile fell behind a record link |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;gap_&#8203;flushed</span> | counter | Times the banks in flight were given up on because a record link lost fragments |
+| <span class="metrics-name">dragon_&#8203;txn_&#8203;record_&#8203;processed</span> | counter | Commit records accounted for against a bank |
+| <span class="metrics-name">dragon_&#8203;write_&#8203;record_&#8203;processed</span> | counter | Runtime write records accounted for against a bank |
+| <span class="metrics-name">dragon_&#8203;account_&#8203;write_&#8203;processed</span> | counter | Account writes taken from the records |
+| <span class="metrics-name">dragon_&#8203;account_&#8203;write_&#8203;processed_&#8203;bytes</span> | counter | Account data bytes carried by the account writes taken from the records |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;link_&#8203;lag_&#8203;peak</span> | gauge | Most fragments a record link was ever seen to be ahead of the tile, which the link depth bounds |
+| <span class="metrics-name">dragon_&#8203;record_&#8203;size_&#8203;bytes</span> | histogram | Size of the commit records reassembled from the record links |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;bank_&#8203;count</span> | gauge | Banks the buffer holds entries or a block summary for |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;bank_&#8203;capacity</span> | gauge | Banks the buffer's bank table can hold |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;entry_&#8203;count</span> | gauge | Transactions and account writes the buffer holds for banks not yet served |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;entry_&#8203;capacity</span> | gauge | Entries the buffer's index can hold |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;entry_&#8203;peak</span> | gauge | Most entries the buffer ever held for banks not yet served at once |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;used_&#8203;bytes</span> | gauge | Bytes of the buffer's ring from the oldest entry of a bank not yet served to the write position |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;capacity_&#8203;bytes</span> | gauge | Bytes of the buffer's ring |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;peak_&#8203;bytes</span> | gauge | Most bytes of the buffer's ring that banks not yet served ever spanned at once |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;entry_&#8203;stored</span><br/>{dragon_&#8203;buffer_&#8203;entry_&#8203;type="<span class="metrics-enum">txn</span>"} | counter | Entries written to the buffer, by type (Transaction) |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;entry_&#8203;stored</span><br/>{dragon_&#8203;buffer_&#8203;entry_&#8203;type="<span class="metrics-enum">account</span>"} | counter | Entries written to the buffer, by type (Account write) |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;entry_&#8203;stored</span><br/>{dragon_&#8203;buffer_&#8203;entry_&#8203;type="<span class="metrics-enum">reward</span>"} | counter | Entries written to the buffer, by type (Encoded epoch rewards of a block) |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;stored_&#8203;bytes</span> | counter | Bytes written to the buffer |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;entry_&#8203;oversize_&#8203;dropped</span> | counter | Entries larger than the whole ring, whose bank was given up on |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;bank_&#8203;full_&#8203;dropped</span> | counter | Banks the buffer's bank table had no room for |
+| <span class="metrics-name">dragon_&#8203;buffer_&#8203;overrun</span> | counter | Banks whose entries the ring overwrote before they were served, which is a buffer too small for the finalization lag |
+| <span class="metrics-name">dragon_&#8203;account_&#8203;read</span> | counter | Accounts read at a bank's fork of the accounts database |
+| <span class="metrics-name">dragon_&#8203;account_&#8203;closed_&#8203;read</span> | counter | Account reads that found no account, which is an account the block closed |
+| <span class="metrics-name">dragon_&#8203;account_&#8203;data_&#8203;missing_&#8203;skipped</span> | counter | Account writes not served because the record carried the account's identity but not its data |
+| <span class="metrics-name">dragon_&#8203;account_&#8203;partial_&#8203;skipped</span> | counter | Account updates not sent because the buffer holds less of the account's data than the subscription asked for |
+| <span class="metrics-name">dragon_&#8203;account_&#8203;oversize_&#8203;dropped</span> | counter | Account updates dropped because they are larger than one message may be, which is [tiles.dragon.max_message_bytes] |
+| <span class="metrics-name">dragon_&#8203;block_&#8203;oversize_&#8203;dropped</span> | counter | Blocks dropped because they are larger than one message may be, which is [tiles.dragon.max_message_bytes] |
+| <span class="metrics-name">dragon_&#8203;account_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Time to read one account at a bank's fork of the accounts database |
+| <span class="metrics-name">dragon_&#8203;pending_&#8203;ref_&#8203;peak_&#8203;per_&#8203;call</span> | histogram | Most pending output segments a call held at once, sampled when the call ends |
+
+</div>

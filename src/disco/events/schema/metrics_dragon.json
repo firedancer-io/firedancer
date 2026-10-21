@@ -1,0 +1,367 @@
+{
+    "name": "metrics_dragon",
+    "id": 508779553,
+    "description": "Metrics of one dragon tile instance, one row per sweep",
+    "local": true,
+    "fields": {
+        "sample_id":                        { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":                    { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":                      { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":              { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":                 { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":                  { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":                          { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "pid":                              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
+        "tid":                              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
+        "last_cpu_index":                   { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
+        "context_switch_involuntary":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
+        "context_switch_voluntary":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
+        "page_fault_major":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
+        "page_fault_minor":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
+        "state": {
+            "type": "LowCardinality(String)",
+            "description": "Tile lifecycle state: 0=booting, 1=running, 2=shutdown",
+            "variants": {
+                "booting":  { "description": "Booting" },
+                "running":  { "description": "Running" },
+                "shutdown": { "description": "Shutdown" }
+            }
+        },
+        "heartbeat_time":                   { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
+        "is_backpressured":                 { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
+        "backpressure":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
+        "regime_duration_nanos": {
+            "type": "Tuple",
+            "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
+            "fields": {
+                "caught_up_housekeeping":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Housekeeping" },
+                "processing_housekeeping":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Housekeeping" },
+                "backpressure_housekeeping": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Housekeeping" },
+                "caught_up_prefrag":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Prefrag" },
+                "processing_prefrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Prefrag" },
+                "backpressure_prefrag":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Prefrag" },
+                "caught_up_postfrag":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Postfrag" },
+                "processing_postfrag":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processing + Postfrag" },
+                "caught_up_sleeping":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Caught up + Sleeping" },
+                "backpressure_sleeping":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Backpressure + Sleeping" }
+            }
+        },
+        "thread_duration_nanos": {
+            "type": "Tuple",
+            "description": "Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless the tile is pinned",
+            "fields": {
+                "wait":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Wait (task was runnable but not scheduled)" },
+                "idle":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Idle (task was not runnable)" },
+                "user":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "User (task was scheduled and executing in user mode)" },
+                "system":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "System (task was scheduled and executing in kernel mode)" },
+                "interrupt": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" }
+            }
+        },
+        "park_attempted": {
+            "type": "Tuple",
+            "description": "Times the tile tried to park while idle (efficient mode), by result",
+            "fields": {
+                "ring":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Woken by a doorbell ring" },
+                "deadline": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Deadline or park cap lapsed" },
+                "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
+            }
+        },
+        "device_irq":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "tlb_shootdown":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "timer_irq":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 for tiles not pinned" },
+        "call_handled": {
+            "type": "Tuple",
+            "description": "Calls received, by method, before authentication",
+            "fields": {
+                "unknown":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Unknown or unsupported method" },
+                "subscribe":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Subscribe" },
+                "subscribe_deshred":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "SubscribeDeshred" },
+                "subscribe_gossip":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "SubscribeGossip" },
+                "subscribe_replay_info": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "SubscribeReplayInfo" },
+                "ping":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Ping" },
+                "get_latest_blockhash":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GetLatestBlockhash" },
+                "get_block_height":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GetBlockHeight" },
+                "get_slot":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GetSlot" },
+                "is_blockhash_valid":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "IsBlockhashValid" },
+                "get_version":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GetVersion" },
+                "health_check":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Health/Check" },
+                "health_watch":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Health/Watch" }
+            }
+        },
+        "conn_open":                        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Open HTTP/2 connections" },
+        "conn_capacity":                    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Connections the server can hold at once" },
+        "call_open":                        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Open gRPC calls" },
+        "call_capacity":                    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Calls the server can hold at once" },
+        "subscription_open":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Open subscription streams" },
+        "subscription_class_used":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Subscription classes in use, one per distinct filter set" },
+        "subscription_class_capacity":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Subscription classes the server can hold at once" },
+        "last_processed_slot":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Last slot reported processed, 0 if none" },
+        "last_confirmed_slot":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Last slot reported confirmed, 0 if none" },
+        "last_finalized_slot":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Last slot reported finalized, 0 if none" },
+        "conn_accepted":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connections accepted" },
+        "conn_closed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connections closed, by the peer or the server" },
+        "conn_evicted": {
+            "type": "Tuple",
+            "description": "Connections the server closed on its own, by reason",
+            "fields": {
+                "idle":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No traffic for the idle timeout" },
+                "handshake":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The HTTP/2 handshake did not complete in time" },
+                "burst_stall": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The connection held a burst send buffer while the kernel took none of its bytes" },
+                "reset_flood": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The peer reset streams faster than the limit" },
+                "slow_client": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A client that did not keep up never took the status that ended its subscription" }
+            }
+        },
+        "conn_full_rejected":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connections refused with a GOAWAY because every connection slot was taken" },
+        "conn_address_full_rejected":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connections refused with a GOAWAY because their address already held max_clients_per_address connections" },
+        "accept_failed":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Failed attempts to accept a connection" },
+        "poll_failed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Failed epoll operations on the server's sockets" },
+        "request_rx":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Request messages received from clients" },
+        "request_rx_bytes":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Request message bytes received from clients" },
+        "request_rejected": {
+            "type": "Tuple",
+            "description": "Requests rejected, by reason",
+            "fields": {
+                "auth":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The x-token metadata was missing or wrong" },
+                "unimplemented":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The method is not served" },
+                "decode":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The request message could not be decoded" },
+                "filter":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The subscribe request violates a filter limit" },
+                "from_slot":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The subscribe request asks to replay from a past slot" },
+                "commitment":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The subscribe request asks for a commitment level this server does not serve" },
+                "call_full":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No call slot was free" },
+                "class_full":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Every subscription class was taken" },
+                "malformed":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The transport found the request malformed or unsupported" },
+                "buffer_evicted": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Every request buffer was in use and this request had been arriving the longest" },
+                "buffer_timeout": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The request message did not finish arriving within the reassembly deadline" },
+                "buffer_address": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The peer address already held its share of the request buffers" }
+            }
+        },
+        "request_buffer_free":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Request buffers not on loan to any call" },
+        "request_buffer_capacity":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Request buffers the server has" },
+        "update_tx": {
+            "type": "Tuple",
+            "description": "Update messages sent to subscribers, by type",
+            "fields": {
+                "slot":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Slot status" },
+                "txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction" },
+                "txn_status": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction status" },
+                "block_meta": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Block meta" },
+                "account":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Account" },
+                "block":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Block" }
+            }
+        },
+        "update_tx_bytes": {
+            "type": "Tuple",
+            "description": "Update message bytes sent to subscribers, by type",
+            "fields": {
+                "slot":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Slot status" },
+                "txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction" },
+                "txn_status": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction status" },
+                "block_meta": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Block meta" },
+                "account":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Account" },
+                "block":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Block" }
+            }
+        },
+        "ping_tx":                          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Server side pings sent on subscription streams" },
+        "pong_tx":                          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Pongs sent in reply to a client ping" },
+        "msg_tx":                           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Response messages handed to the transport" },
+        "msg_tx_bytes":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Response message bytes handed to the transport, before compression" },
+        "msg_wire_tx_bytes":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Response message bytes sent on the wire, after compression" },
+        "msg_compressed_tx":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Response messages sent compressed" },
+        "msg_shared_tx":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Response messages a subscriber took from bytes staged once for several subscribers" },
+        "msg_oversize_rejected":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Sends refused because the message is larger than [tiles.dragon.max_message_bytes]" },
+        "encode_failed":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Messages that did not fit the encoder's buffer" },
+        "txn_meta_build_failed":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Commit records whose transaction could not be parsed, so nothing was sent for them" },
+        "cuckoo_filter_installed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cuckoo account filters installed by subscriptions" },
+        "call_evicted": {
+            "type": "Tuple",
+            "description": "Calls the transport closed, by reason",
+            "fields": {
+                "send_ring": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The send ring needed back bytes the call had not sent" },
+                "ref_queue": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The call held as many pending segments as it may" },
+                "ref_pool":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The shared pool of pending segments ran out and the call held the most of it" },
+                "deadline":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The grpc-timeout of the call ran out" }
+            }
+        },
+        "subscription_lagged_closed":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Subscription streams ended because the client did not keep up" },
+        "subscription_content_lost_closed": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Subscription streams ended with an error because a bank whose content they wanted was lost" },
+        "update_queue_chunk_free":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Chunks of the shared update queue not on loan to any call" },
+        "update_queue_chunk_capacity":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Chunks of the shared update queue, one per call plus the pool" },
+        "burst_buffer_free":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Burst send buffers not on loan to any connection" },
+        "burst_buffer_capacity":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Burst send buffers the server has" },
+        "burst_buffer_acquired":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times a connection whose send ring ran short took a burst send buffer" },
+        "burst_buffer_denied":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times a connection whose send ring ran short found no burst send buffer free, or its address holding its share" },
+        "replay_frag_rx":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Fragments received on the replay link" },
+        "slot_complete_rx":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Completed slot messages received from the replay tile" },
+        "replay_overrun":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the tile fell behind the replay link and had to resynchronize" },
+        "slot_status_reported": {
+            "type": "Tuple",
+            "description": "Slot statuses reported by the fork graph, by status",
+            "fields": {
+                "processed":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Processed" },
+                "confirmed":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Confirmed" },
+                "finalized":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Finalized" },
+                "first_shred_received": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "FirstShredReceived" },
+                "completed":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Completed" },
+                "created_bank":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "CreatedBank" },
+                "dead":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Dead" }
+            }
+        },
+        "blockhash_count":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Blockhash statuses retained for the blockhash validity call" },
+        "block_meta_count":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Block metas retained for the unary calls" },
+        "bank_count":                       { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Banks in the fork graph" },
+        "bank_capacity":                    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Banks the fork graph can hold" },
+        "bank_ref_count":                   { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Replay bank references the fork graph has not given back yet" },
+        "bank_ref_release_pending":         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bank reference releases waiting to be published to replay" },
+        "bank_pending":                     { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Banks that owe a confirmed or finalized status, waiting for the records of their block" },
+        "bank_created":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks added to the fork graph" },
+        "bank_discarded": {
+            "type": "Tuple",
+            "description": "Banks dropped from the fork graph, by reason",
+            "fields": {
+                "dead":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The slot was marked dead" },
+                "loser":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Another bank of the slot was confirmed or rooted" },
+                "dropped": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Replay asked for the bank reference back" },
+                "pruned":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank does not descend from the root" },
+                "stale":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank never resolved and fell behind" },
+                "flushed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Replay restarted its bank sequence, or an input gap" },
+                "pending": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank owed a commitment status its records never let it seal for" }
+            }
+        },
+        "bank_incomplete_seen": {
+            "type": "Tuple",
+            "description": "Times a bank was found not sealed, by reason",
+            "fields": {
+                "none":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank is sealed" },
+                "pending":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank has not frozen yet" },
+                "dropped":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bank reference was taken back" },
+                "record_missing": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Fewer transaction records than the bank executed" },
+                "sysvar_missing": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A sysvar write of the slot was not seen" },
+                "gap":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An input link overran, so records may be missing" }
+            }
+        },
+        "bank_evicted":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks dropped to make room in the fork graph" },
+        "bank_sealed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks reported sealed, which is when their block can be served" },
+        "fork_graph_flushed":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the whole fork graph was dropped" },
+        "bank_ref_acquired":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bank references granted by replay" },
+        "bank_ref_released":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bank references given back to replay" },
+        "bank_ref_queue_full_lost":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bank references that could not be queued for release, recovered on the next input gap" },
+        "bank_ref_unnamed_lost":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bank references given up without a release because the bank had no pool index, recovered on the next input gap" },
+        "bank_unknown_dropped":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Notifications naming a bank the fork graph never saw" },
+        "root_chain_gap_seen":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Root advances whose chain of ancestors did not reach the previous root, so some banks were pruned without a finalized status" },
+        "bank_pending_entered":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times a bank's confirmed or finalized status had to wait for the records of its block" },
+        "bank_pending_timed_out":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks whose owed status went out without their content because the records it waited for never arrived" },
+        "bank_pending_dropped":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks whose owed status went out without their content because the records it waited for are gone" },
+        "bank_degraded":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks given up on at the confirmed and finalized levels because the buffer could not hold one of their entries" },
+        "content_lost":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks that reached confirmed or finalized without the buffer being able to serve their content, whose slot status went out regardless" },
+        "record_rx":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Complete records reassembled from the record links" },
+        "txn_event_rx":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transaction events received from the event links" },
+        "record_multi_frag_rx":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Records that did not fit one fragment" },
+        "record_malformed_dropped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Records dropped because their framing or their fields did not hold up" },
+        "record_gap_dropped":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Partial records dropped because the tile fell behind a record link" },
+        "record_bad_chunk_dropped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Record fragments skipped because they named a chunk outside the link's dcache" },
+        "record_bank_gone_dropped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Records dropped because the bank they name is gone or has no room" },
+        "record_overrun":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the tile fell behind a record link" },
+        "record_gap_flushed":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the banks in flight were given up on because a record link lost fragments" },
+        "txn_record_processed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Commit records accounted for against a bank" },
+        "write_record_processed":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Runtime write records accounted for against a bank" },
+        "account_write_processed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account writes taken from the records" },
+        "account_write_processed_bytes":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes carried by the account writes taken from the records" },
+        "record_link_lag_peak":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Most fragments a record link was ever seen to be ahead of the tile, which the link depth bounds" },
+        "record_size_bytes": {
+            "type": "Tuple",
+            "description": "Size of the commit records reassembled from the record links",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 128) bytes" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[128, 269) bytes" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[269, 565) bytes" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[565, 1187) bytes" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1187, 2495) bytes" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2495, 5244) bytes" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5244, 11021) bytes" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[11021, 23162) bytes" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[23162, 48678) bytes" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[48678, 102303) bytes" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[102303, 215002) bytes" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[215002, 451853) bytes" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[451853, 949623) bytes" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[949623, 1995747) bytes" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1995747, 4194304) bytes" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4194304, inf) bytes" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (bytes)" }
+            }
+        },
+        "buffer_bank_count":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Banks the buffer holds entries or a block summary for" },
+        "buffer_bank_capacity":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Banks the buffer's bank table can hold" },
+        "buffer_entry_count":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Transactions and account writes the buffer holds for banks not yet served" },
+        "buffer_entry_capacity":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Entries the buffer's index can hold" },
+        "buffer_entry_peak":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Most entries the buffer ever held for banks not yet served at once" },
+        "buffer_used_bytes":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bytes of the buffer's ring from the oldest entry of a bank not yet served to the write position" },
+        "buffer_capacity_bytes":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bytes of the buffer's ring" },
+        "buffer_peak_bytes":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Most bytes of the buffer's ring that banks not yet served ever spanned at once" },
+        "buffer_entry_stored": {
+            "type": "Tuple",
+            "description": "Entries written to the buffer, by type",
+            "fields": {
+                "txn":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction" },
+                "account": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Account write" },
+                "reward":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Encoded epoch rewards of a block" }
+            }
+        },
+        "buffer_stored_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the buffer" },
+        "buffer_entry_oversize_dropped":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Entries larger than the whole ring, whose bank was given up on" },
+        "buffer_bank_full_dropped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks the buffer's bank table had no room for" },
+        "buffer_overrun":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Banks whose entries the ring overwrote before they were served, which is a buffer too small for the finalization lag" },
+        "account_read":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Accounts read at a bank's fork of the accounts database" },
+        "account_closed_read":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account reads that found no account, which is an account the block closed" },
+        "account_data_missing_skipped":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account writes not served because the record carried the account's identity but not its data" },
+        "account_partial_skipped":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account updates not sent because the buffer holds less of the account's data than the subscription asked for" },
+        "account_oversize_dropped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account updates dropped because they are larger than one message may be, which is [tiles.dragon.max_message_bytes]" },
+        "block_oversize_dropped":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks dropped because they are larger than one message may be, which is [tiles.dragon.max_message_bytes]" },
+        "account_read_duration_nanos": {
+            "type": "Tuple",
+            "description": "Time to read one account at a bank's fork of the accounts database",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, 228) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[228, 519) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[519, 1181) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1181, 2687) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2687, 6114) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[6114, 13912) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13912, 31657) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31657, 72035) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[72035, 163915) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[163915, 372988) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[372988, 848733) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[848733, 1931290) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1931290, 4394644) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4394644, 10000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "pending_ref_peak_per_call": {
+            "type": "Tuple",
+            "description": "Most pending output segments a call held at once, sampled when the call ends",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 4)" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4, 9)" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[9, 20)" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[20, 45)" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[45, 101)" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[101, 227)" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[227, 510)" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[510, 1146)" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1146, 2574)" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2574, 5782)" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5782, 12988)" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[12988, 29175)" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[29175, 65536)" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[65536, inf)" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
+            }
+        }
+    }
+}

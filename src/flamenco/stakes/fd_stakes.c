@@ -1,6 +1,7 @@
 #include "fd_stakes.h"
 #include "fd_stake_weight_sort.h"
 #include "../events/fd_event_runtime.h"
+#include "../events/fd_event_internal.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -761,6 +762,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
     vote_ele->pubkey             = pubkey;
     vote_ele->vote_rewards       = 0UL;
+    vote_ele->rewarded           = 0;
     if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
       vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : commission_t_1);
     } else {
@@ -819,7 +821,11 @@ fd_stakes_burn_vat( fd_bank_t *         bank,
     acc.lamports -= burn_per_epoch;
     update->skip_event_diff = 1;
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+    /* agave lists each debit in the block's rewards as a VATDebit. */
+    fd_event_internal_reward_add( bank, FD_EVENT_INTERNAL_REWARD_VAT_DEBIT, FD_EVENT_INTERNAL_REWARD_COMMISSION_NONE,
+                                  vote_pubkey.uc, -(long)burn_per_epoch, acc.lamports );
   }
+  fd_event_internal_reward_flush( bank );
 
   fd_accdb_svm_credit( bank, accdb, capture_ctx, &fd_sysvar_incinerator_id, total_vat, 0 );
 

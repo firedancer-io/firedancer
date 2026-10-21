@@ -348,12 +348,41 @@ fd_vm_leave( fd_vm_t * vm );
 void *
 fd_vm_delete( void * shmem );
 
-/* fd_vm_validate validates the sBPF program in the given vm.  Returns
-   success or an error code.  Called before executing a sBPF program.
-   FIXME: DOCUMENT BETTER */
+/* fd_vm_validate_err_t carries the detail of a failed fd_vm_validate,
+   enough to render the text of sbpf's VerifierError for the failure.
+   insn is the index of the failing instruction.  arg0 is the jump
+   destination (JMP_OUT_OF_BOUNDS / JMP_TO_ADDL_IMM, negative
+   destinations wrap), the shift amount as a sign-extended immediate
+   (SH_OVERFLOW) or the opcode (INVALID_OPCODE); arg1 is the operand
+   width of a SH_OVERFLOW.  dst_reg is the destination register of an
+   INVALID_DST_REG and r10_unaligned is set when that failure is an
+   ADD64_IMM to r10 whose immediate is not a multiple of the stack frame
+   alignment. */
 
-FD_FN_PURE int
-fd_vm_validate( fd_vm_t const * vm );
+struct fd_vm_validate_err {
+  ulong insn;
+  ulong arg0;
+  ulong arg1;
+  uchar dst_reg;
+  uchar r10_unaligned;
+};
+
+typedef struct fd_vm_validate_err fd_vm_validate_err_t;
+
+/* fd_vm_validate_detail validates the sBPF program in the given vm.
+   Returns FD_VM_SUCCESS or an FD_VM_ERR_* validate error code, in which
+   case *err holds the failure detail.  Called before executing a sBPF
+   program.  fd_vm_validate is the same without the detail. */
+
+int
+fd_vm_validate_detail( fd_vm_t const *        vm,
+                       fd_vm_validate_err_t * err );
+
+static inline int
+fd_vm_validate( fd_vm_t const * vm ) {
+  fd_vm_validate_err_t err[1];
+  return fd_vm_validate_detail( vm, err );
+}
 
 /* fd_vm_is_check_align_enabled returns 1 if the vm should check alignment
    when doing memory translation. */
@@ -478,6 +507,28 @@ fd_vm_exec( fd_vm_t * vm ) {
   if( FD_UNLIKELY( vm->trace ) ) return fd_vm_exec_trace  ( vm );
   else                           return fd_vm_exec_notrace( vm );
 }
+
+/* fd_vm_access_violation_cstr renders the access violation err the vm
+   halted on, from the fault the vm recorded, the way agave's EbpfError
+   does.  Returns the length written to buf (without the NUL). */
+
+ulong
+fd_vm_access_violation_cstr( fd_vm_t * vm,
+                             int       err,
+                             char *    buf,
+                             ulong     buf_sz );
+
+/* fd_vm_validate_err_cstr renders a failed fd_vm_validate_detail the
+   way agave logs it on deploy: "Verifier error: " followed by the
+   Display text of sbpf's VerifierError.  code is the return value of
+   fd_vm_validate_detail and err its detail.  Returns the length written
+   to buf (without the NUL). */
+
+ulong
+fd_vm_validate_err_cstr( int                          code,
+                         fd_vm_validate_err_t const * err,
+                         char *                       buf,
+                         ulong                        buf_sz );
 
 FD_PROTOTYPES_END
 
