@@ -358,6 +358,94 @@ test_stream( void ) {
   FD_TEST( !close( server ) );
 }
 
+/* init_full_download sends INIT_FULL and START for a plain full
+   snapshot download from the test server. */
+static void
+init_full_download( fd_snapld_tile_t *   ctx,
+                    uchar *              input,
+                    struct sockaddr_in * sa ) {
+  fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)input;
+  fd_memset( init, 0, sizeof(*init) );
+  init->slot = 123UL;
+  init_slot  = init->slot;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX );
+  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
+  fd_memset( start, 0, sizeof(*start) );
+  start->addr = (fd_ip4_port_t){ .addr = sa->sin_addr.s_addr, .port = sa->sin_port };
+  fd_cstr_ncpy( start->hostname, "localhost", sizeof(start->hostname) );
+  fd_cstr_ncpy( start->path, "/snapshot.tar.bz2", sizeof(start->path) );
+  start->path_len = strlen( start->path );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->pipeline_ready && ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+}
+
+/* A snapshot request that fails before any of its response arrived
+   is sent again, FD_SNAPLD_REQUEST_RETRY_MAX times at most.  Once
+   part of the response went downstream a failure ends the load. */
+static void
+test_request_retry( void ) {
+  static fd_sshttp_t http[1];
+  static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  fd_snapld_tile_t ctx[1] = {0};
+  int busy = 0;
+  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
+  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  fd_clock_tile_init( ctx->clock );
+  ctx->in_rd.base    = input;
+  ctx->out_dc.mem    = (fd_wksp_t *)output;
+  ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
+  ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
+  ctx->local_full_fd = -1;
+
+  int server = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  FD_TEST( server>=0 );
+  struct sockaddr_in sa = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
+  };
+  FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
+  socklen_t sa_sz = sizeof(sa);
+  FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
+  FD_TEST( !listen( server, 1 ) );
+
+  init_full_download( ctx, input, &sa );
+  publish_cnt = 0UL;
+
+  /* The server drops the request: sent again after a pause. */
+  serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->fast_boot_stream.wait!=LONG_MAX );
+  FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U );
+  ctx->fast_boot_stream.wait = 0L;
+
+  /* Part of the response arrives, then the connection drops: the
+     load fails, bytes went downstream already. */
+  serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnap" );
+  drive_until( ctx, &publish_cnt, 3UL );
+  FD_TEST( ctx->sent_meta && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR );
+
+  /* After FAIL a new load has a fresh budget.  A request dropped
+     every time is given up after FD_SNAPLD_REQUEST_RETRY_MAX more
+     tries. */
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  init_full_download( ctx, input, &sa );
+  publish_cnt = 0UL;
+  for( uint i=0U; i<=FD_SNAPLD_REQUEST_RETRY_MAX; i++ ) {
+    serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "" );
+    for( int j=0; j<100; j++ ) after_credit( ctx, test_stem, NULL, &busy );
+    if( i<FD_SNAPLD_REQUEST_RETRY_MAX ) {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U-i );
+      ctx->fast_boot_stream.wait = 0L;
+    }
+  }
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR && publish_cnt==1UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && http->state==FD_SSHTTP_STATE_INIT );
+
+  fd_sshttp_cancel( http );
+  FD_TEST( !close( server ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -368,6 +456,7 @@ main( int     argc,
   test_start( 0, 1 );
   test_start( 1, 0 );
   test_stream();
+  test_request_retry();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
