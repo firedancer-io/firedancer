@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26553488UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26553504UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -506,7 +506,8 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "event" );
       jw_bool( &w, "report_shreds",            config->development.event.report_shreds );
       jw_bool( &w, "report_transactions",      config->development.event.report_transactions );
-      jw_bool( &w, "report_runtime_diffs",      config->development.event.report_runtime_diffs );
+      jw_bool ( &w, "report_runtime_diffs",      config->development.event.report_runtime_diffs );
+      jw_ulong( &w, "max_upload_rate_mbps",      config->development.event.max_upload_rate_mbps );
     jw_obj_close( &w );
     jw_obj_open( &w, "pktgen" );
       jw_str( &w, "affinity",    config->development.pktgen.affinity );
