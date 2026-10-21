@@ -152,6 +152,7 @@ fd_rotor_strat_contact_info_updated( fd_rotor_strat_t *  strat,
   peer->srtt    = 0L;
   peer->rttvar  = 0L;
   peer->ping_ts = 0L;
+  peer->pong_ts = 0L;
   place( strat, (ulong)( peer-strat->cur.peers ) );
 }
 
@@ -224,8 +225,9 @@ fd_rotor_strat_pick( fd_rotor_strat_t * strat,
   return NULL;
 }
 
-/* staked_avail returns 0 if staked slot idx cannot be drawn, 1 if it
-   can but its hedge is over FD_ROTOR_STRAT_HEDGE_MAX_NS, 2 if it can. */
+/* staked_avail returns 0 if staked slot idx cannot be drawn, else its
+   tier: 1 if its hedge is over FD_ROTOR_STRAT_HEDGE_MAX_NS, 2 if not
+   ponged recently, 3 if ponged. */
 
 static int
 staked_avail( fd_rotor_strat_t const * strat,
@@ -236,7 +238,8 @@ staked_avail( fd_rotor_strat_t const * strat,
   fd_rotor_strat_peer_t const * peer = &strat->cur.peers[ idx ];
   for( ulong i=0UL; i<avoid_cnt; i++ ) if( idx==avoid[ i ] ) return 0;
   if( !peer->ip4 || peer->inflight>=FD_ROTOR_STRAT_INFLIGHT_MAX || peer->ban_ts>now ) return 0;
-  return 2-( peer->srtt && peer->srtt+4L*peer->rttvar>FD_ROTOR_STRAT_HEDGE_MAX_NS );
+  if( peer->srtt && peer->srtt+4L*peer->rttvar>FD_ROTOR_STRAT_HEDGE_MAX_NS ) return 1;
+  return 2+( peer->pong_ts && now-peer->pong_ts<FD_ROTOR_STRAT_PONG_TTL_NS );
 }
 
 fd_rotor_strat_peer_t *
@@ -246,16 +249,17 @@ fd_rotor_strat_pick_staked( fd_rotor_strat_t * strat,
                             ulong              avoid_cnt,
                             ulong              r ) {
   ulong n = strat->staked_cnt;
-  ulong m[ 3 ] = {0};
+  ulong m[ 4 ] = {0};
   for( ulong idx=0UL; idx<n; idx++ ) m[ staked_avail( strat, idx, now, avoid, avoid_cnt ) ]++;
-  int   min = 2-!m[ 2 ]; /* slow peers only if no other */
-  ulong cnt = m[ 2 ]+fd_ulong_if( min==1, m[ 1 ], 0UL );
+  int min = 3;
+  while( min>1 && !m[ min ] ) min--; /* the best tier with a peer */
+  ulong cnt = m[ min ];
   if( FD_UNLIKELY( !cnt ) ) return NULL;
 
   ulong k = fd_ulong_min( (r&UINT_MAX)%cnt, (r>>32)%cnt ); /* among the available peers, in stake order */
   for( ulong idx=0UL; idx<n; idx++ ) {
     fd_rotor_strat_peer_t * peer = &strat->cur.peers[ idx ];
-    if( staked_avail( strat, idx, now, avoid, avoid_cnt )<min ) continue;
+    if( staked_avail( strat, idx, now, avoid, avoid_cnt )!=min ) continue;
     if( k-- ) continue;
     peer->inflight++;
     place( strat, idx );

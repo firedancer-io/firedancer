@@ -23,6 +23,7 @@
 #define FD_ROTOR_STRAT_BYID_MAX     (4U)   /* by-id requests in a row, other replies aside */
 #define FD_ROTOR_STRAT_HEDGE_NS     (200L*1000000L) /* hedge time of an unmeasured peer */
 #define FD_ROTOR_STRAT_HEDGE_MAX_NS (500L*1000000L) /* a later reply is as good as lost */
+#define FD_ROTOR_STRAT_PONG_TTL_NS  (640L*1000000000L) /* a peer we ponged serves us without a ping for this long, half of Agave's REPAIR_PING_CACHE_TTL */
 #define FD_ROTOR_STRAT_EAGER_MIN_NS (20L*1000000L)
 #define FD_ROTOR_STRAT_EAGER_MAX_NS (250L*1000000L)  /* also the eager wait until turbine is measured */
 #define FD_ROTOR_STRAT_TURBINE_MIN  (8UL)            /* samples before a leader's own estimate is used */
@@ -48,6 +49,7 @@ struct fd_rotor_strat_peer {
   long        srtt;           /* smoothed round trip in ns, 0 if never measured */
   long        rttvar;         /* its mean deviation */
   long        ping_ts;        /* last ping, 0 if none */
+  long        pong_ts;        /* last pong we sent it, 0 if none */
   long        ban_ts;         /* skipped until this time */
   uint        expired_cnt;    /* requests in a row it left unanswered */
   uint        byid_expired_cnt; /* by-id requests in a row it left unanswered */
@@ -151,9 +153,10 @@ fd_rotor_strat_pick( fd_rotor_strat_t * strat,
 /* fd_rotor_strat_pick_staked returns a staked peer at random, higher
    stake ranks likelier, other than the avoid_cnt slots in avoid, for a
    request the bucket order keeps failing, and counts it in flight.
-   Peers whose hedge exceeds FD_ROTOR_STRAT_HEDGE_MAX_NS are drawn only
-   if no other is available.  r is a random number.  NULL if none is
-   available. */
+   Peers ponged within FD_ROTOR_STRAT_PONG_TTL_NS are drawn first, as a
+   peer that has not pinged us drops the request; peers whose hedge
+   exceeds FD_ROTOR_STRAT_HEDGE_MAX_NS last.  r is a random number.
+   NULL if none is available. */
 
 fd_rotor_strat_peer_t *
 fd_rotor_strat_pick_staked( fd_rotor_strat_t * strat,

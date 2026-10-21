@@ -226,7 +226,7 @@ test_retry_spread( void ) {
 /* By-id expiries ban a peer after FD_ROTOR_STRAT_BYID_MAX in a row
    even while it answers positional requests; a by-id reply resets the
    run.  The stuck pick draws only available staked peers, never avoid,
-   and slow ones last. */
+   ponged ones first and slow ones last. */
 
 static void
 test_byid_and_stuck( void ) {
@@ -307,6 +307,27 @@ test_byid_and_stuck( void ) {
   fd_rotor_strat_request_failed( strat, &ids[ 2 ].key, 1000L );
   FD_TEST( fd_rotor_strat_pick_staked( strat, 200L, avoid, 1UL, 7UL )==&strat->cur.peers[ 1 ] );
   fd_rotor_strat_request_failed( strat, &ids[ 1 ].key, 0L );
+
+  /* A recently ponged peer is drawn before one that is not, and an old
+     pong does not count. */
+
+  strat->cur.peers[ 1 ].srtt = 0L;
+  strat->cur.peers[ 2 ].ban_ts = 0L;
+  strat->cur.peers[ 2 ].pong_ts = 100L;
+  for( ulong i=0UL; i<64UL; i++ ) {
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, NULL, 0UL, fd_ulong_hash( i ) );
+    FD_TEST( peer==&strat->cur.peers[ 2 ] );
+    fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
+  }
+  ulong seen = 0UL;
+  for( ulong i=0UL; i<64UL; i++ ) {
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 100L+FD_ROTOR_STRAT_PONG_TTL_NS, NULL, 0UL, fd_ulong_hash( i ) );
+    seen |= 1UL<<( peer-strat->cur.peers );
+    fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
+  }
+  FD_TEST( seen==0xfUL ); /* the ban on slot 3 has also run out */
+  strat->cur.peers[ 2 ].pong_ts = 0L;
+  fd_rotor_strat_request_failed( strat, &ids[ 3 ].key, 1000L );
 
   for( ulong i=0UL; i<3UL; i++ ) fd_rotor_strat_request_failed( strat, &ids[ i ].key, 1000L );
   FD_TEST( !fd_rotor_strat_pick_staked( strat, 200L, NULL, 0UL, 7UL ) ); /* the unstaked peer is never drawn */

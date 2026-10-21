@@ -736,6 +736,7 @@ handle_ping( fd_rotor_tile_t *    ctx,
   peer->ping_ts = now-PING_TTL; /* one verify per request we sent */
   fd_sha512_t sha[1];
   if( FD_UNLIKELY( fd_ed25519_verify( token.uc, sizeof(fd_hash_t), sig, from.uc, sha )!=FD_ED25519_SUCCESS ) ) { ctx->metrics->ping_signature_failed++; return; }
+  peer->pong_ts = now;
 
   ulong s = 0UL;
   for( ulong i=1UL; i<ctx->sign_cnt; i++ ) s = fd_ulong_if( ctx->sign[ i ].free>ctx->sign[ s ].free, i, s );
@@ -1394,6 +1395,7 @@ during_housekeeping( fd_rotor_tile_t * ctx ) {
       fd_rotor_strat_peer_t * peer = &ctx->strat->cur.peers[ i ];
       if( FD_LIKELY( !peer->ip4 ) ) continue; /* free slot, or no address */
       peer->ping_ts = 0L;
+      peer->pong_ts = 0L;
       ping_deque_push_tail( ctx->ping_deque, peer->id_key );
     }
 
