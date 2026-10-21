@@ -221,7 +221,6 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_gui_set_identity( ctx->gui, ctx->keyswitch->bytes );
-    if( FD_LIKELY( !ctx->gui->summary.is_alpenglow ) ) fd_gui_peers_handle_identity_change( ctx->peers );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
@@ -377,7 +376,6 @@ during_frag( fd_gui_ctx_t * ctx,
     if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
                    sig!=REPLAY_SIG_BECAME_LEADER  &&
                    sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_OC_ADVANCED &&
                    sig!=REPLAY_SIG_TXN_EXECUTED ) ) return;
   }
 
@@ -444,21 +442,6 @@ after_frag( fd_gui_ctx_t *      ctx,
         long tsorig_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
         long tspub_ns  = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub  );
         fd_gui_handle_exec_txn_done( ctx->gui, msg->txn_exec->slot, msg->txn_exec->start_shred_idx, msg->txn_exec->end_shred_idx, tsorig_ns, tspub_ns, fd_clock_tile_now( ctx->clock ) );
-
-        int txn_succeeded = msg->txn_exec->is_committable && !msg->txn_exec->is_fees_only && !msg->txn_exec->txn_err;
-        if( FD_UNLIKELY( msg->txn_exec->vote.slot!=ULONG_MAX && txn_succeeded ) ) {
-          int vote_acct_is_us = !ctx->gui->summary.has_vote_key || !memcmp( ctx->gui->summary.vote_key->uc, msg->txn_exec->vote.vote_acct->uc, sizeof(fd_pubkey_t) );
-          int is_us = !ctx->gui->summary.is_alpenglow && vote_acct_is_us && !memcmp( ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) );
-          fd_gui_peers_handle_vote( ctx->peers,
-                                    msg->txn_exec->vote.vote_acct,
-                                    msg->txn_exec->vote.slot,
-                                    is_us );
-          if( FD_UNLIKELY( is_us ) ) {
-            for( ulong i=0UL; i<msg->txn_exec->vote.vote_slot_cnt; i++ ) {
-              fd_gui_stage_landed_vote( ctx->gui, msg->txn_exec->slot, msg->txn_exec->bank_seq, msg->txn_exec->vote.vote_slots[ i ] );
-            }
-          }
-        }
       }
 
       break;
@@ -490,18 +473,13 @@ after_frag( fd_gui_ctx_t *      ctx,
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         fd_replay_slot_completed_t const * slot_completed =  (fd_replay_slot_completed_t const *)src;
 
-        if( FD_LIKELY( !ctx->gui->summary.is_alpenglow ) ) fd_gui_peers_update_delinquency( ctx->peers, fd_clock_tile_now( ctx->clock ) );
-
-        fd_gui_handle_replay_update( ctx->gui, slot_completed, ctx->peers->slot_voted, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_handle_replay_update( ctx->gui, slot_completed, fd_clock_tile_now( ctx->clock ) );
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t * became_leader = (fd_became_leader_t *)src;
         fd_gui_became_leader( ctx->gui, became_leader->slot, became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot, became_leader->bank_seq );
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
         fd_replay_root_advanced_t const * ra = (fd_replay_root_advanced_t const *)src;
         fd_gui_handle_root_advanced( ctx->gui, ra->slot, ra->bank_seq, fd_clock_tile_now( ctx->clock ) );
-      } else if( FD_UNLIKELY( sig==REPLAY_SIG_OC_ADVANCED ) ) {
-        fd_replay_oc_advanced_t const * oc = (fd_replay_oc_advanced_t const *)src;
-        fd_gui_handle_oc_advanced( ctx->gui, oc->slot, oc->bank_seq, fd_clock_tile_now( ctx->clock ) );
       } else if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
         if( FD_UNLIKELY( sz!=sizeof(fd_replay_txn_executed_t) ) ) FD_LOG_ERR(( "invalid replay transaction message size %lu", sz ));
         fd_gui_handle_replay_txn( ctx->gui, (fd_replay_txn_executed_t const *)src, fd_clock_tile_now( ctx->clock ) );
@@ -965,7 +943,7 @@ unprivileged_init( fd_topo_t const *      topo,
     accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
     FD_TEST( accdb_shmem );
   }
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, 1, tile->gui.max_live_slots, tile->gui.max_txn_per_slot, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.wfs_slot, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, tile->gui.max_live_slots, tile->gui.max_txn_per_slot, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.wfs_slot, tile->gui.accounts_database_path, tile->gui.gui_database_path, ctx->db, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
   FD_TEST( ctx->db );
 
