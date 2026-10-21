@@ -54,7 +54,7 @@
 #define QUIC_K_GRANULARITY_NS    (1000000L) /* RFC 9002 kGranularity (1ms), same as FD_QUIC_K_GRANULARITY_NS */
 #define QUIC_BAN_TIMEOUT_NS      (10L*1000L*1000L*1000L) /* 10 seconds */
 #define QUIC_CONN_BACKOFF_MIN_NS (1L*1000L*1000L*1000L) /* reconnect delay when fd_quic had no free conn to connect with */
-#define QUIC_CONN_BACKOFF_MAX_NS (64L*1000L*1000L*1000L) /* reconnect delay doubles up to this */
+#define QUIC_CONN_BACKOFF_MAX_NS (1L*1000L*1000L*1000L) /* reconnect delay doubles up to this */
 #define QUIC_CONN_AHEAD_NS       (10L*1000L*1000L*1000L) /* connect to peers this long before our first ranked epoch, spreading the handshakes out (Agave admits next-epoch voters from 30000 slots out) */
 #define QUIC_CLOSE_CODE_UNKNOWN  (2U)
 #define QUIC_CLOSE_CODE_EVICTED  (3U)
