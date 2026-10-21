@@ -2267,6 +2267,15 @@ telemetry = true
         # development purposes.
         report_runtime_diffs = false
 
+        # Maximum upload speed for telemetry data in megabits per second (Mbps).
+        # The steady state of collection sits well under the default here, and
+        # it is set higher to allow draining a backlog of data in the event of
+        # server outage.
+        #
+        # It is not recommended to change this value except in test or
+        # development environments.
+        max_upload_rate_mbps = 32
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev
