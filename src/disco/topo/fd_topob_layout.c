@@ -250,6 +250,7 @@ fd_topob_parse_affinity_cstr( char const * cstr,
 static int
 fd_topob_tile_live_phase( fd_topo_tile_t const * tile ) {
   uint cls = fd_topob_tile_class( tile->name );
+  if( tile->outlives_startup ) return FD_TOPOB_LIVE_ALWAYS;
   if( ( cls & FD_TOPOB_TILE_STARTUP ) || tile->allow_shutdown ) return FD_TOPOB_LIVE_STARTUP;
   if( cls & FD_TOPOB_TILE_POSTSTART ) return FD_TOPOB_LIVE_POSTSTART;
   return FD_TOPOB_LIVE_ALWAYS;
@@ -777,7 +778,7 @@ auto_startup_cpus( fd_topo_t *            topo,
     char const * name = r<4UL ? ORDER[ r ] : TILE_CLASS[ r-4UL ].name;
     if( r>=4UL && ( !( TILE_CLASS[ r-4UL ].flags & FD_TOPOB_TILE_STARTUP ) || name_idx( name, ORDER )!=ULONG_MAX ) ) continue;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
-      if( tile_is_floating( &topo->tiles[ j ] ) || strcmp( topo->tiles[ j ].name, name ) ) continue;
+      if( tile_is_floating( &topo->tiles[ j ] ) || topo->tiles[ j ].outlives_startup || strcmp( topo->tiles[ j ].name, name ) ) continue;
       idx[ cnt++ ] = j;
     }
   }
@@ -900,7 +901,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     fd_topo_tile_t const * tile = &topo->tiles[ j ];
     uint cls = fd_topob_tile_class( tile->name );
     if( !cls || tile_is_floating( tile ) ) continue;
-    ulong phase = ( cls & FD_TOPOB_TILE_STARTUP ) ? 1UL : ( cls & FD_TOPOB_TILE_POSTSTART ) ? 2UL : 0UL;
+    ulong phase = tile->outlives_startup ? 0UL : ( cls & FD_TOPOB_TILE_STARTUP ) ? 1UL : ( cls & FD_TOPOB_TILE_POSTSTART ) ? 2UL : 0UL;
     ulong kind  = ( cls & FD_TOPOB_TILE_SMT_CRITICAL ) ? 0UL : ( cls & FD_TOPOB_TILE_EFFICIENT_PINNED ) ? 1UL : 2UL;
     dem[ phase*3UL+kind ]++;
   }
@@ -979,6 +980,10 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
           if( tile_is_floating( &topo->tiles[ j ] ) || topo->tiles[ j ].cpu_idx!=ULONG_MAX || strcmp( topo->tiles[ j ].name, TILE_CLASS[ r ].name ) ) continue;
           steady_idx[ steady_cnt++ ] = j;
         }
+      }
+      for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+        if( tile_is_floating( &topo->tiles[ j ] ) || topo->tiles[ j ].cpu_idx!=ULONG_MAX || !topo->tiles[ j ].outlives_startup ) continue;
+        steady_idx[ steady_cnt++ ] = j;
       }
       always_cnt = steady_cnt;
       for( ulong r=0UL; r<TILE_CLASS_CNT; r++ ) {
@@ -1098,6 +1103,11 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
       auto_tile_cpu( tile, cpus, &cpu_idx, cpu_assigned, cpu_ordering, skip_ht_pairs, &spare_siblings, efficient, dem, 0UL );
     }
   }
+  for( ulong j=0UL; j<topo->tile_cnt && !graded; j++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ j ];
+    if( tile_is_floating( tile ) || tile->cpu_idx!=ULONG_MAX || !tile->outlives_startup ) continue;
+    auto_tile_cpu( tile, cpus, &cpu_idx, cpu_assigned, cpu_ordering, skip_ht_pairs, &spare_siblings, efficient, dem, 0UL );
+  }
   ulong cpu_idx_startup = cpu_bv_is_null( group_post ) ? cpu_idx : 0UL; /* may reuse group post-start cores */
   cpu_bv_t cpu_assigned_startup[ cpu_bv_word_cnt ];
   cpu_bv_subtract( cpu_assigned_startup, cpu_assigned, numa_fence );
@@ -1110,7 +1120,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     if( !( TILE_CLASS[ r ].flags & FD_TOPOB_TILE_STARTUP ) ) continue;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
-      if( tile_is_floating( tile ) || strcmp( tile->name, TILE_CLASS[ r ].name ) ) continue;
+      if( tile_is_floating( tile ) || tile->outlives_startup || strcmp( tile->name, TILE_CLASS[ r ].name ) ) continue;
       auto_tile_cpu( tile, cpus, &cpu_idx_startup, cpu_assigned_startup, cpu_ordering, skip_ht_pairs, &spare_siblings, efficient, dem_startup, 1UL );
     }
   }
