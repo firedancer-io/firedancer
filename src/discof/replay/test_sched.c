@@ -19,7 +19,7 @@
    scale with FD_SCHED_LTHASH_BATCH_MAX, so it is pinned at the default
    width only. */
 #define TEST_SCHED_FOOTPRINT      (1761780352UL)
-#define TEST_LTHASH_OOB_FOOTPRINT (2185170304UL)
+#define TEST_LTHASH_OOB_FOOTPRINT (2238052224UL)
 
 static void
 test_sched_footprint( void ) {
@@ -1967,7 +1967,7 @@ lthash_check_acct( test_lthash_ctx_t * ctx,
 struct test_lthash_metrics {
   ulong parsed_writable, first_write, coalesced, extra_reg, add_created, spec, add_extra, entry, sub_dispatched, sub_task, sub_applied, add_surfaced,
         add_surfaced_stale, add_dispatched, add_task, add_dispatched_stale, add_batch_held, add_batch_wait_idle, drain_wait, add_applied, add_undone, spec_applied, spec_stale, frozen;
-  uint  start_reg, late_reg, demote_reg, drain_sync, spec_given_up, pool_full, spec_yield,
+  uint  start_reg, late_reg, demote_reg, drain_sync, lane_swap, lane_convert, spec_given_up, pool_full, spec_yield,
         discarded_add_owed, discarded_add_pending, discarded_add_held, discarded_sub_queued, discarded_sub_applied, discarded_add_applied;
 };
 typedef struct test_lthash_metrics test_lthash_metrics_t;
@@ -1977,9 +1977,9 @@ lthash_check_metrics( fd_sched_t *                  sched,
                       test_lthash_metrics_t const * m ) {
   char expected[ 1536 ];
   fd_cstr_printf( expected, sizeof(expected), NULL,
-                  "lthash_parsed_writable_cnt %lu, lthash_start_reg_cnt %u, lthash_late_reg_cnt %u, lthash_demote_reg_cnt %u, lthash_first_write_cnt %lu, lthash_coalesced_cnt %lu, lthash_extra_reg_cnt %lu, lthash_add_created_cnt %lu, lthash_spec_cnt %lu, lthash_add_extra_cnt %lu, lthash_entry_cnt %lu, lthash_sub_dispatched_cnt %lu, lthash_sub_task_cnt %lu, lthash_sub_applied_cnt %lu, lthash_add_surfaced_cnt %lu, lthash_add_surfaced_stale_cnt %lu, lthash_add_dispatched_cnt %lu, lthash_add_task_cnt %lu, lthash_add_dispatched_stale_cnt %lu, lthash_add_batch_held_cnt %lu, lthash_add_batch_wait_idle_cnt %lu, lthash_drain_wait_cnt %lu, lthash_drain_sync_cnt %u, lthash_add_applied_cnt %lu, lthash_add_undone_cnt %lu, lthash_spec_applied_cnt %lu, lthash_spec_stale_cnt %lu, lthash_spec_given_up_cnt %u, lthash_pool_full_cnt %u, lthash_spec_yield_cnt %u, lthash_frozen_cnt %lu, lthash_discarded_add_owed_cnt %u, lthash_discarded_add_pending_cnt %u, lthash_discarded_add_held_cnt %u, lthash_discarded_sub_queued_cnt %u, lthash_discarded_sub_applied_cnt %u, lthash_discarded_add_applied_cnt %u\n",
+                  "lthash_parsed_writable_cnt %lu, lthash_start_reg_cnt %u, lthash_late_reg_cnt %u, lthash_demote_reg_cnt %u, lthash_first_write_cnt %lu, lthash_coalesced_cnt %lu, lthash_extra_reg_cnt %lu, lthash_add_created_cnt %lu, lthash_spec_cnt %lu, lthash_add_extra_cnt %lu, lthash_entry_cnt %lu, lthash_sub_dispatched_cnt %lu, lthash_sub_task_cnt %lu, lthash_sub_applied_cnt %lu, lthash_add_surfaced_cnt %lu, lthash_add_surfaced_stale_cnt %lu, lthash_add_dispatched_cnt %lu, lthash_add_task_cnt %lu, lthash_add_dispatched_stale_cnt %lu, lthash_add_batch_held_cnt %lu, lthash_add_batch_wait_idle_cnt %lu, lthash_drain_wait_cnt %lu, lthash_drain_sync_cnt %u, lthash_lane_swap_cnt %u, lthash_lane_convert_cnt %u, lthash_add_applied_cnt %lu, lthash_add_undone_cnt %lu, lthash_spec_applied_cnt %lu, lthash_spec_stale_cnt %lu, lthash_spec_given_up_cnt %u, lthash_pool_full_cnt %u, lthash_spec_yield_cnt %u, lthash_frozen_cnt %lu, lthash_discarded_add_owed_cnt %u, lthash_discarded_add_pending_cnt %u, lthash_discarded_add_held_cnt %u, lthash_discarded_sub_queued_cnt %u, lthash_discarded_sub_applied_cnt %u, lthash_discarded_add_applied_cnt %u\n",
                   m->parsed_writable, m->start_reg, m->late_reg, m->demote_reg, m->first_write, m->coalesced, m->extra_reg, m->add_created, m->spec, m->add_extra, m->entry,
-                  m->sub_dispatched, m->sub_task, m->sub_applied, m->add_surfaced, m->add_surfaced_stale, m->add_dispatched, m->add_task, m->add_dispatched_stale, m->add_batch_held, m->add_batch_wait_idle, m->drain_wait, m->drain_sync, m->add_applied, m->add_undone,
+                  m->sub_dispatched, m->sub_task, m->sub_applied, m->add_surfaced, m->add_surfaced_stale, m->add_dispatched, m->add_task, m->add_dispatched_stale, m->add_batch_held, m->add_batch_wait_idle, m->drain_wait, m->drain_sync, m->lane_swap, m->lane_convert, m->add_applied, m->add_undone,
                   m->spec_applied, m->spec_stale, m->spec_given_up, m->pool_full, m->spec_yield, m->frozen, m->discarded_add_owed, m->discarded_add_pending, m->discarded_add_held, m->discarded_sub_queued, m->discarded_sub_applied, m->discarded_add_applied );
   char const * state = fd_sched_get_state_cstr( sched );
   if( FD_UNLIKELY( !strstr( state, expected ) ) ) FD_LOG_ERR(( "LtHash metrics mismatch, expected\n  %s in\n  %s", expected, state ));
@@ -2202,7 +2202,7 @@ run_lthash_demote_promote_case( void ) {
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
   /* Demotion discarded A's subtraction and guessed addition and put A
      back into the set, where T2's write then found it. */
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .demote_reg=1UL, .first_write=3UL, .coalesced=1UL, .add_created=3UL, .spec=1UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=3UL, .add_dispatched=3UL, .add_task=2UL, .add_applied=3UL, .spec_applied=1UL, .frozen=2UL, .discarded_sub_applied=1UL, .discarded_add_applied=1UL } );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .demote_reg=1UL, .first_write=3UL, .coalesced=1UL, .add_created=3UL, .spec=1UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=3UL, .add_dispatched=3UL, .add_task=2UL, .add_applied=3UL, .spec_applied=1UL, .frozen=2UL, .discarded_sub_applied=1UL, .discarded_add_applied=1UL, .lane_convert=2U } );
 
   fd_sched_delete( fd_sched_leave( sched ) );
   free( mem );
@@ -2319,8 +2319,8 @@ run_lthash_block_start_writes_case( int mode ) {
   test_lthash_metrics_t const expected_metrics[ 5 ] = {
     { .parsed_writable=1UL, .start_reg=2UL, .first_write=2UL, .coalesced=1UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL, .frozen=2UL },
     { .parsed_writable=1UL, .start_reg=2UL, .first_write=3UL, .add_created=3UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=3UL, .add_surfaced_stale=1UL, .add_dispatched=2UL, .add_task=1UL, .add_applied=2UL, .frozen=2UL },
-    { .parsed_writable=2UL, .start_reg=2UL, .first_write=2UL, .extra_reg=2UL, .add_created=4UL, .spec=1UL, .add_extra=2UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=4UL, .add_surfaced_stale=1UL, .add_dispatched=3UL, .add_task=2UL, .add_applied=3UL, .spec_applied=1UL, .frozen=2UL },
-    { .parsed_writable=2UL, .start_reg=2UL, .first_write=2UL, .extra_reg=2UL, .add_created=3UL, .spec=1UL, .add_extra=1UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=3UL, .add_dispatched=3UL, .add_task=2UL, .add_applied=3UL, .spec_applied=1UL, .frozen=2UL },
+    { .parsed_writable=2UL, .start_reg=2UL, .first_write=2UL, .extra_reg=2UL, .add_created=4UL, .spec=1UL, .add_extra=2UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=4UL, .add_surfaced_stale=1UL, .add_dispatched=3UL, .add_task=2UL, .add_applied=3UL, .spec_applied=1UL, .frozen=2UL, .lane_swap=1U },
+    { .parsed_writable=2UL, .start_reg=2UL, .first_write=2UL, .extra_reg=2UL, .add_created=3UL, .spec=1UL, .add_extra=1UL, .entry=3UL, .sub_dispatched=3UL, .sub_task=2UL, .sub_applied=3UL, .add_surfaced=3UL, .add_dispatched=3UL, .add_task=2UL, .add_applied=3UL, .spec_applied=1UL, .frozen=2UL, .lane_swap=1U },
     { .parsed_writable=2UL, .start_reg=2UL, .first_write=2UL, .coalesced=2UL, .add_created=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=1UL, .add_applied=2UL, .frozen=2UL },
   };
   lthash_check_metrics( sched, expected_metrics+mode );
@@ -2850,7 +2850,7 @@ run_lthash_spec_given_up_complete_case( int child ) {
   FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
   if( !child ) FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* nothing speculative was hashed */
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
-  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL+c, .first_write=3UL, .extra_reg=c, .add_created=3UL+c, .spec=1UL, .add_extra=c, .entry=2UL+c, .sub_dispatched=2UL+c, .sub_task=2UL+c, .sub_applied=2UL+c, .add_surfaced=3UL+c, .add_dispatched=2UL+c, .add_task=2UL+c, .add_applied=2UL+c, .frozen=2UL+c, .spec_given_up=1U } );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL+c, .first_write=3UL, .extra_reg=c, .add_created=3UL+c, .spec=1UL, .add_extra=c, .entry=2UL+c, .sub_dispatched=2UL+c, .sub_task=2UL+c, .sub_applied=2UL+c, .add_surfaced=3UL+c, .add_dispatched=2UL+c, .add_task=2UL+c, .add_applied=2UL+c, .frozen=2UL+c, .spec_given_up=1U, .lane_swap=(uint)c } );
   char * state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
 

@@ -73,6 +73,12 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
    next poll could pop an addition with no room to batch it. */
 #define FD_SCHED_LTHASH_BATCH_BUSY_MAX (8UL)
 #define FD_SCHED_LTHASH_DRAIN_CHUNK (64UL)
+/* The block behind a lane head builds its lane map entries ahead in
+   the lane's spare map.  The pseudo transactions it parked while it had
+   no map are converted this many at a time, and a released map is
+   cleared this many entries at a time, from the polls that hand out
+   nothing, see lthash_map_chunk. */
+#define FD_SCHED_LTHASH_MAP_CHUNK (64UL)
 FD_STATIC_ASSERT( FD_SCHED_LTHASH_LANE_CNT==FD_SCHED_MAX_STAGING_LANES, lanes );
 FD_STATIC_ASSERT( FD_SCHED_LTHASH_BATCH_MAX>=1UL && FD_SCHED_LTHASH_BATCH_MAX<=FD_EXECRP_LTHASH_BATCH_MAX, lthash_batch );
 FD_STATIC_ASSERT( FD_SCHED_LTHASH_BATCH_BUSY_MAX>=1UL && FD_SCHED_LTHASH_BATCH_BUSY_MAX<=FD_SCHED_LTHASH_BATCH_MAX, lthash_batch_busy_max );
@@ -444,6 +450,8 @@ struct fd_sched_metrics {
   ulong lthash_add_batch_wait_idle_cnt;   /* Polls that left an addition batch held because of insufficient idle tile. */
   ulong lthash_drain_wait_cnt;            /* FEC sets told to wait because the block they would add goes behind a block still draining its rdisp writable account set. */
   uint  lthash_drain_sync_cnt;            /* Blocks added behind a still draining parent by a caller that did not ask first. */
+  uint  lthash_lane_swap_cnt;             /* Lane head switches that swapped in the lane map the block built ahead. */
+  uint  lthash_lane_convert_cnt;          /* Pseudo transactions converted into entries at a lane head switch instead of ahead of it. */
   ulong lthash_add_applied_cnt;           /* Addition results rolled into a block's delta. */
   ulong lthash_add_undone_cnt;            /* Applied additions rolled back because the account was rewritten. */
   ulong lthash_spec_applied_cnt;          /* Of lthash_add_applied_cnt, speculative. */
@@ -895,8 +903,8 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu, lthash_parsed_writable_cnt %lu, lthash_start_reg_cnt %u, lthash_late_reg_cnt %u, lthash_demote_reg_cnt %u, lthash_first_write_cnt %lu, lthash_coalesced_cnt %lu, lthash_extra_reg_cnt %lu, lthash_add_created_cnt %lu, lthash_spec_cnt %lu, lthash_add_extra_cnt %lu, lthash_entry_cnt %lu, lthash_sub_dispatched_cnt %lu, lthash_sub_task_cnt %lu, lthash_sub_applied_cnt %lu, lthash_add_surfaced_cnt %lu, lthash_add_surfaced_stale_cnt %lu, lthash_add_dispatched_cnt %lu, lthash_add_task_cnt %lu, lthash_add_dispatched_stale_cnt %lu, lthash_add_batch_held_cnt %lu, lthash_add_batch_wait_idle_cnt %lu, lthash_drain_wait_cnt %lu, lthash_drain_sync_cnt %u, lthash_add_applied_cnt %lu, lthash_add_undone_cnt %lu, lthash_spec_applied_cnt %lu, lthash_spec_stale_cnt %lu, lthash_spec_given_up_cnt %u, lthash_pool_full_cnt %u, lthash_spec_yield_cnt %u, lthash_frozen_cnt %lu, lthash_discarded_add_owed_cnt %u, lthash_discarded_add_pending_cnt %u, lthash_discarded_add_held_cnt %u, lthash_discarded_sub_queued_cnt %u, lthash_discarded_sub_applied_cnt %u, lthash_discarded_add_applied_cnt %u\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt, sched->metrics->lthash_parsed_writable_cnt, sched->metrics->lthash_start_reg_cnt, sched->metrics->lthash_late_reg_cnt, sched->metrics->lthash_demote_reg_cnt, sched->metrics->lthash_first_write_cnt, sched->metrics->lthash_coalesced_cnt, sched->metrics->lthash_extra_reg_cnt, sched->metrics->lthash_add_created_cnt, sched->metrics->lthash_spec_cnt, sched->metrics->lthash_add_extra_cnt, sched->metrics->lthash_entry_cnt, sched->metrics->lthash_sub_dispatched_cnt, sched->metrics->lthash_sub_task_cnt, sched->metrics->lthash_sub_applied_cnt, sched->metrics->lthash_add_surfaced_cnt, sched->metrics->lthash_add_surfaced_stale_cnt, sched->metrics->lthash_add_dispatched_cnt, sched->metrics->lthash_add_task_cnt, sched->metrics->lthash_add_dispatched_stale_cnt, sched->metrics->lthash_add_batch_held_cnt, sched->metrics->lthash_add_batch_wait_idle_cnt, sched->metrics->lthash_drain_wait_cnt, sched->metrics->lthash_drain_sync_cnt, sched->metrics->lthash_add_applied_cnt, sched->metrics->lthash_add_undone_cnt, sched->metrics->lthash_spec_applied_cnt, sched->metrics->lthash_spec_stale_cnt, sched->metrics->lthash_spec_given_up_cnt, sched->metrics->lthash_pool_full_cnt, sched->metrics->lthash_spec_yield_cnt, sched->metrics->lthash_frozen_cnt, sched->metrics->lthash_discarded_add_owed_cnt, sched->metrics->lthash_discarded_add_pending_cnt, sched->metrics->lthash_discarded_add_held_cnt, sched->metrics->lthash_discarded_sub_queued_cnt, sched->metrics->lthash_discarded_sub_applied_cnt, sched->metrics->lthash_discarded_add_applied_cnt );
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu, lthash_parsed_writable_cnt %lu, lthash_start_reg_cnt %u, lthash_late_reg_cnt %u, lthash_demote_reg_cnt %u, lthash_first_write_cnt %lu, lthash_coalesced_cnt %lu, lthash_extra_reg_cnt %lu, lthash_add_created_cnt %lu, lthash_spec_cnt %lu, lthash_add_extra_cnt %lu, lthash_entry_cnt %lu, lthash_sub_dispatched_cnt %lu, lthash_sub_task_cnt %lu, lthash_sub_applied_cnt %lu, lthash_add_surfaced_cnt %lu, lthash_add_surfaced_stale_cnt %lu, lthash_add_dispatched_cnt %lu, lthash_add_task_cnt %lu, lthash_add_dispatched_stale_cnt %lu, lthash_add_batch_held_cnt %lu, lthash_add_batch_wait_idle_cnt %lu, lthash_drain_wait_cnt %lu, lthash_drain_sync_cnt %u, lthash_lane_swap_cnt %u, lthash_lane_convert_cnt %u, lthash_add_applied_cnt %lu, lthash_add_undone_cnt %lu, lthash_spec_applied_cnt %lu, lthash_spec_stale_cnt %lu, lthash_spec_given_up_cnt %u, lthash_pool_full_cnt %u, lthash_spec_yield_cnt %u, lthash_frozen_cnt %lu, lthash_discarded_add_owed_cnt %u, lthash_discarded_add_pending_cnt %u, lthash_discarded_add_held_cnt %u, lthash_discarded_sub_queued_cnt %u, lthash_discarded_sub_applied_cnt %u, lthash_discarded_add_applied_cnt %u\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt, sched->metrics->lthash_parsed_writable_cnt, sched->metrics->lthash_start_reg_cnt, sched->metrics->lthash_late_reg_cnt, sched->metrics->lthash_demote_reg_cnt, sched->metrics->lthash_first_write_cnt, sched->metrics->lthash_coalesced_cnt, sched->metrics->lthash_extra_reg_cnt, sched->metrics->lthash_add_created_cnt, sched->metrics->lthash_spec_cnt, sched->metrics->lthash_add_extra_cnt, sched->metrics->lthash_entry_cnt, sched->metrics->lthash_sub_dispatched_cnt, sched->metrics->lthash_sub_task_cnt, sched->metrics->lthash_sub_applied_cnt, sched->metrics->lthash_add_surfaced_cnt, sched->metrics->lthash_add_surfaced_stale_cnt, sched->metrics->lthash_add_dispatched_cnt, sched->metrics->lthash_add_task_cnt, sched->metrics->lthash_add_dispatched_stale_cnt, sched->metrics->lthash_add_batch_held_cnt, sched->metrics->lthash_add_batch_wait_idle_cnt, sched->metrics->lthash_drain_wait_cnt, sched->metrics->lthash_drain_sync_cnt, sched->metrics->lthash_lane_swap_cnt, sched->metrics->lthash_lane_convert_cnt, sched->metrics->lthash_add_applied_cnt, sched->metrics->lthash_add_undone_cnt, sched->metrics->lthash_spec_applied_cnt, sched->metrics->lthash_spec_stale_cnt, sched->metrics->lthash_spec_given_up_cnt, sched->metrics->lthash_pool_full_cnt, sched->metrics->lthash_spec_yield_cnt, sched->metrics->lthash_frozen_cnt, sched->metrics->lthash_discarded_add_owed_cnt, sched->metrics->lthash_discarded_add_pending_cnt, sched->metrics->lthash_discarded_add_held_cnt, sched->metrics->lthash_discarded_sub_queued_cnt, sched->metrics->lthash_discarded_sub_applied_cnt, sched->metrics->lthash_discarded_add_applied_cnt );
 }
 
 FD_FN_UNUSED static void
@@ -1063,6 +1071,15 @@ shred_split( fd_sched_t *       sched,
 
 /* Out-of-band LtHash helpers. */
 
+/* The lane map the block owns, the primary for the lane head, the
+   spare for the block building ahead behind it, else ULONG_MAX. */
+static inline ulong
+block_lthash_map( fd_sched_t *       sched,
+                  fd_sched_block_t * block ) {
+  if( FD_UNLIKELY( !block->staged ) ) return ULONG_MAX;
+  return fd_sched_lthash_lane_map_of( sched->lthash, block->staging_lane, block_to_idx( sched, block ) );
+}
+
 /* A new entry for acct in the block's lane map.  The account owes its
    one subtraction, so the entry goes on the block's sub queue. */
 static fd_sched_lthash_entry_t *
@@ -1070,7 +1087,9 @@ lthash_entry_new( fd_sched_t *           sched,
                   fd_sched_block_t *     block,
                   fd_acct_addr_t const * acct ) {
   ulong                     lane = block->staging_lane;
-  fd_sched_lthash_entry_t * e    = fd_sched_lthash_insert( sched->lthash, lane, acct );
+  ulong                     map_idx = block_lthash_map( sched, block );
+  if( FD_UNLIKELY( map_idx==ULONG_MAX ) ) FD_LOG_CRIT(( "invariant violation: block %lu:%lu owns no lane map", block->slot, block_to_idx( sched, block ) ));
+  fd_sched_lthash_entry_t * e    = fd_sched_lthash_insert_map( sched->lthash, lane, map_idx, acct );
   uint                      idx  = (uint)fd_sched_lthash_entry_idx( sched->lthash, lane, e );
   sched->metrics->lthash_entry_cnt++;
   if( FD_LIKELY( block->sub_q_tail==UINT_MAX ) ) block->sub_q_head = idx;
@@ -1100,7 +1119,7 @@ static void
 lthash_entry_new_write_observed( fd_sched_t *           sched,
                                  fd_sched_block_t *     block,
                                  fd_acct_addr_t const * acct ) {
-  fd_sched_lthash_entry_t * e = fd_sched_lthash_query( sched->lthash, block->staging_lane, acct );
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_query_map( sched->lthash, block->staging_lane, block_lthash_map( sched, block ), acct );
   if( FD_LIKELY( !e ) ) lthash_entry_new( sched, block, acct );
   else                  lthash_entry_rewrite( sched, block, e );
 }
@@ -1117,7 +1136,7 @@ lthash_add_created_head( fd_sched_t *       sched,
                          int                speculative ) {
   fd_acct_addr_t acct[ 1 ];
   fd_rdisp_pseudo_txn_to_addr( sched->rdisp, ptxn_idx, acct );
-  fd_sched_lthash_entry_t * e = fd_sched_lthash_query( sched->lthash, block->staging_lane, acct );
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_query_map( sched->lthash, block->staging_lane, block_lthash_map( sched, block ), acct );
   if( FD_LIKELY( !e ) ) e = lthash_entry_new( sched, block, acct );
   else                  lthash_entry_rewrite( sched, block, e );
   e->add_state = (uchar)FD_SCHED_LTHASH_ADD_PENDING;
@@ -1129,9 +1148,11 @@ lthash_add_created_head( fd_sched_t *       sched,
 }
 
 /* The dispatcher created addition pseudo transaction ptxn_idx for the
-   block.  A lane head records it in its map entry.  A lane tail has no
-   claim on the map yet, so it keeps the index until it becomes the
-   head. */
+   block.  A block that owns a lane map, the head or the one building
+   ahead behind it, stamps it on its entry, but only once every older
+   pseudo transaction parked on its list has been converted, so that
+   the ticket of record is always the latest.  Until then, and for a
+   block with no map, the index is parked on the list. */
 static void
 lthash_add_created( fd_sched_t *       sched,
                     fd_sched_block_t * block,
@@ -1140,7 +1161,7 @@ lthash_add_created( fd_sched_t *       sched,
   FD_TEST( ptxn_idx & FD_RDISP_LTHASH_PSEUDO_TXN );
   block->add_created_cnt++;
   sched->metrics->lthash_add_created_cnt++;
-  if( FD_LIKELY( block_is_lane_head( sched, block ) ) ) {
+  if( FD_LIKELY( block->ptxn_list_head==UINT_MAX && block_lthash_map( sched, block )!=ULONG_MAX ) ) {
     lthash_add_created_head( sched, block, ptxn_idx, speculative );
     return;
   }
@@ -1153,30 +1174,95 @@ lthash_add_created( fd_sched_t *       sched,
   block->ptxn_list_tail = idx;
 }
 
-/* The block just became its lane's staged head.  Claim the lane map for
-   it and give every pseudo transaction it drained as a tail an entry.
-   The subtractions will be eligible for scheduling as soon as the block
-   is active. */
+/* Converts up to max of the block's parked pseudo transactions, oldest
+   first, into entries of the map it owns, and returns how many.  Their
+   account addresses are still readable, since only a lane head
+   surfaces pseudo transactions and the block has not been one yet. */
+static ulong
+lthash_convert_chunk( fd_sched_t *       sched,
+                      fd_sched_block_t * block,
+                      ulong              max ) {
+  ulong cnt = 0UL;
+  while( cnt<max && block->ptxn_list_head!=UINT_MAX ) {
+    uint idx = block->ptxn_list_head;
+    block->ptxn_list_head = sched->ptxn_next[ idx ];
+    lthash_add_created_head( sched, block, (ulong)idx|FD_RDISP_LTHASH_PSEUDO_TXN, 0 );
+    cnt++;
+  }
+  if( block->ptxn_list_head==UINT_MAX ) block->ptxn_list_tail = UINT_MAX;
+  return cnt;
+}
+
+/* The block staged right behind the lane head, or NULL. */
+static fd_sched_block_t *
+lane_second_block( fd_sched_t * sched,
+                   ulong        lane ) {
+  ulong head_idx = sched->staged_head_bank_idx[ lane ];
+  if( head_idx==ULONG_MAX ) return NULL;
+  fd_sched_block_t * head = block_pool_ele( sched, head_idx );
+  if( !head->staged ) return NULL;
+  for( ulong child_idx=head->child_idx; child_idx!=ULONG_MAX; ) {
+    fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+    if( child->staged && child->staging_lane==lane ) return child;
+    child_idx = child->sibling_idx;
+  }
+  return NULL;
+}
+
+/* The block just became its lane's staged head.  If it built ahead in
+   the spare map the two maps swap and the switch costs nothing, and
+   the released map is cleared from later polls.  Otherwise it claims
+   the spare if no block owns it, so that the old head's map can still
+   be cleared in the background, or as a last resort claims the primary
+   outright, clearing it here.  Whatever is still parked on its list is
+   converted here as well.  The subtractions are eligible for
+   scheduling as soon as the block is active. */
 static void
 lthash_become_lane_head( fd_sched_t *       sched,
                          fd_sched_block_t * block ) {
   if( FD_UNLIKELY( !sched->lthash_oob ) ) return;
   FD_TEST( block_is_lane_head( sched, block ) );
-  fd_sched_lthash_lane_claim( sched->lthash, block->staging_lane, block_to_idx( sched, block ) );
-  uint idx = block->ptxn_list_head;
-  while( idx!=UINT_MAX ) {
-    uint next = sched->ptxn_next[ idx ];
-    /* The pseudo transaction's account address is still readable here,
-       since the block has not been the lane head this whole time, and
-       only a lane head surfaces pseudo transactions.  So no pseudo
-       transaction of this block has been surfaced, much less completed,
-       and account addresses stay alive until the pseudo transaction
-       completes. */
-    lthash_add_created_head( sched, block, (ulong)idx|FD_RDISP_LTHASH_PSEUDO_TXN, 0 );
-    idx = next;
+  fd_sched_lthash_t * l       = sched->lthash;
+  ulong               lane    = block->staging_lane;
+  ulong               bank    = block_to_idx( sched, block );
+  ulong               primary = fd_sched_lthash_lane_primary( l, lane );
+  ulong               spare   = fd_sched_lthash_lane_spare  ( l, lane );
+  if( FD_LIKELY( fd_sched_lthash_map_bank( l, lane, spare )==bank ) ) {
+    fd_sched_lthash_lane_swap( l, lane );
+    sched->metrics->lthash_lane_swap_cnt++;
+  } else if( fd_sched_lthash_map_bank( l, lane, primary )!=bank ) {
+    if( fd_sched_lthash_map_state( l, lane, primary )!=FD_SCHED_LTHASH_MAP_LIVE && fd_sched_lthash_map_state( l, lane, spare )!=FD_SCHED_LTHASH_MAP_LIVE ) {
+      fd_sched_lthash_map_claim( l, lane, spare, bank );
+      fd_sched_lthash_lane_swap( l, lane );
+    } else {
+      fd_sched_lthash_lane_claim( l, lane, bank );
+    }
   }
-  block->ptxn_list_head = UINT_MAX;
-  block->ptxn_list_tail = UINT_MAX;
+  sched->metrics->lthash_lane_convert_cnt += (uint)lthash_convert_chunk( sched, block, ULONG_MAX );
+}
+
+/* One round of background work on the lanes' maps, from the polls of
+   fd_sched_task_next_ready that hand out nothing, like the drain.  A
+   released map gets a chunk of its entries cleared.  Otherwise the
+   block staged behind the lane head claims the spare map if it is
+   free and converts a chunk of its parked pseudo transactions. */
+static void
+lthash_map_chunk( fd_sched_t * sched ) {
+  if( FD_UNLIKELY( !sched->lthash_oob ) ) return;
+  fd_sched_lthash_t * l = sched->lthash;
+  for( ulong lane=0UL; lane<FD_SCHED_MAX_STAGING_LANES; lane++ ) {
+    ulong primary = fd_sched_lthash_lane_primary( l, lane );
+    ulong spare   = fd_sched_lthash_lane_spare  ( l, lane );
+    if( fd_sched_lthash_map_state( l, lane, primary )==FD_SCHED_LTHASH_MAP_CLEANING ) { fd_sched_lthash_map_clean( l, lane, primary, FD_SCHED_LTHASH_MAP_CHUNK ); continue; }
+    if( fd_sched_lthash_map_state( l, lane, spare   )==FD_SCHED_LTHASH_MAP_CLEANING ) { fd_sched_lthash_map_clean( l, lane, spare,   FD_SCHED_LTHASH_MAP_CHUNK ); continue; }
+    if( !fd_ulong_extract_bit( sched->staged_bitset, (int)lane ) ) continue;
+    fd_sched_block_t * second = lane_second_block( sched, lane );
+    if( !second || second->dying ) continue;
+    ulong second_idx = block_to_idx( sched, second );
+    if( fd_sched_lthash_map_state( l, lane, spare )==FD_SCHED_LTHASH_MAP_FREE ) fd_sched_lthash_map_claim( l, lane, spare, second_idx );
+    if( fd_sched_lthash_map_bank( l, lane, spare )!=second_idx ) continue;
+    lthash_convert_chunk( sched, second, FD_SCHED_LTHASH_MAP_CHUNK );
+  }
 }
 
 /* Pops up to max of the accounts that rdisp is still tracking for us,
@@ -1232,11 +1318,11 @@ lthash_draining_block( fd_sched_t * sched ) {
 
 /* This is paced at up to once per fd_sched_task_next_ready(), when it
    finds no real transaction to dispatch.  This helps overlap the drain
-   with exec tile work. */
+   and the lane map work of lthash_map_chunk with exec tile work. */
 static inline void
 lthash_drain_chunk( fd_sched_t * sched ) {
-  if( FD_LIKELY( !sched->lthash_draining_cnt ) ) return;
-  lthash_maybe_drain( sched, lthash_draining_block( sched ), FD_SCHED_LTHASH_DRAIN_CHUNK );
+  if( FD_UNLIKELY( sched->lthash_draining_cnt ) ) lthash_maybe_drain( sched, lthash_draining_block( sched ), FD_SCHED_LTHASH_DRAIN_CHUNK );
+  lthash_map_chunk( sched );
 }
 
 /* Whether a block's first FEC set has to wait for a drain. */
@@ -1293,7 +1379,7 @@ lthash_owe_addition( fd_sched_t *           sched,
      pseudo transaction index will be handed to us. */
   ulong ptxn_idx = fd_rdisp_add_extra_pseudo_txn( sched->rdisp, bank_idx, addr );
   if( FD_UNLIKELY( !ptxn_idx ) ) FD_LOG_CRIT(( "fd_rdisp_add_extra_pseudo_txn failed for block %lu:%lu", block->slot, bank_idx ));
-  fd_sched_lthash_entry_t * e = fd_sched_lthash_query( sched->lthash, block->staging_lane, addr );
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_query_map( sched->lthash, block->staging_lane, block_lthash_map( sched, block ), addr );
   if( e && e->ptxn_idx==(uint)ptxn_idx ) return;
 
   /* At this point, this pseudo transaction is either genuinely new and
@@ -1349,9 +1435,8 @@ lthash_block_reset( fd_sched_t *       sched,
   sched->lthash_draining_cnt -= (uint)block->lthash_draining;
   lthash_block_init( block );
   ulong bank_idx = block_to_idx( sched, block );
-  if( block->staged && fd_sched_lthash_lane_bank( sched->lthash, block->staging_lane )==bank_idx ) {
-    fd_sched_lthash_lane_reset( sched->lthash, block->staging_lane );
-  }
+  ulong map_idx  = block_lthash_map( sched, block );
+  if( map_idx!=ULONG_MAX ) fd_sched_lthash_map_release( sched->lthash, block->staging_lane, map_idx );
   fd_lthash_zero( sched->lthash_delta+bank_idx );
 }
 
@@ -1414,9 +1499,10 @@ lthash_demote( fd_sched_t *       sched,
   /* Owed additions are respected by rdisp demotion.  In addition, we
      need to stick the writable accounts that we are tracking back into
      rdisp. */
-  uint add_owed_cnt = block->add_owed_cnt;
-  if( fd_sched_lthash_lane_bank( sched->lthash, lane )==bank_idx ) {
-    for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( sched->lthash, lane );
+  uint  add_owed_cnt = block->add_owed_cnt;
+  ulong map_idx      = block_lthash_map( sched, block );
+  if( map_idx!=ULONG_MAX ) {
+    for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( sched->lthash, lane, map_idx );
          !fd_sched_lthash_iter_done( sched->lthash, lane, it );
          it = fd_sched_lthash_iter_next( sched->lthash, lane, it ) ) {
       fd_sched_lthash_entry_t * e = fd_sched_lthash_iter_ele( sched->lthash, lane, it );
@@ -1533,7 +1619,7 @@ lthash_surface( fd_sched_t *       sched,
   sched->metrics->lthash_add_surfaced_cnt++;
   fd_acct_addr_t acct[ 1 ];
   fd_rdisp_pseudo_txn_to_addr( sched->rdisp, ptxn_idx, acct );
-  fd_sched_lthash_entry_t * e = fd_sched_lthash_query( sched->lthash, block->staging_lane, acct );
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_query_map( sched->lthash, block->staging_lane, block_lthash_map( sched, block ), acct );
   if( FD_UNLIKELY( !e ) ) {
     /* Every pseudo transaction of a head block must have an entry. */
     sched->print_buf_sz = 0UL;
@@ -4292,7 +4378,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     sched->metrics->lthash_first_write_cnt     += first_write_cnt;
     sched->metrics->lthash_coalesced_cnt       += writable_cnt-first_write_cnt;
     block->add_owed_cnt                        += (uint)first_write_cnt;
-    if( FD_LIKELY( block_is_lane_head( sched, block ) ) ) {
+    if( FD_LIKELY( block_lthash_map( sched, block )!=ULONG_MAX ) ) {
       for( ulong iter = fd_rdisp_neww_iter_init( neww ); !fd_rdisp_neww_iter_done( iter ); iter=fd_rdisp_neww_iter_next( neww, iter ) ) {
         fd_acct_addr_t const * acct = get_acct( txn, imms, alts, (ushort)iter );
         FD_TEST( acct );

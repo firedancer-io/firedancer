@@ -6,8 +6,9 @@
 
 /* This module helps the scheduler manage per-account state for
    computing a block's LtHash delta out of band.  Each staging lane has
-   a map from pubkey to an entry that tracks the account's subtraction
-   and addition.  Only the head block of each lane uses the map.  A pool
+   two maps from pubkey to an entry that tracks the account's
+   subtraction and addition, one for the head block of the lane and one
+   in which the block behind it builds ahead.  A pool
    of LtHash values shared by all lanes keeps the values of speculative
    additions that a later write to the account may need to undo.
 
@@ -106,7 +107,7 @@ ulong fd_sched_lthash_align    ( void );
 ulong fd_sched_lthash_footprint( ulong entry_max, ulong spec_max );
 
 /* fd_sched_lthash_new formats mem, which has the required alignment and
-   footprint, with every lane idle and empty and every speculation slot
+   footprint, with every lane idle and empty and every speculation entry
    free.  Seeds the lane maps with the given seed.  Returns mem, or NULL
    on bad arguments.
 
@@ -122,21 +123,52 @@ fd_sched_lthash_new( void * mem,
 fd_sched_lthash_t *
 fd_sched_lthash_join( void * mem );
 
-/* The lane must be in [0,FD_SCHED_LTHASH_LANE_CNT).
+/* The lane must be in [0,FD_SCHED_LTHASH_LANE_CNT).  Each lane has two
+   maps, each with its own entry region, so that the block behind the
+   lane head can build its entries while the head still uses its map,
+   and the switch of heads only swaps the two.  A map is FREE, LIVE
+   while a block owns it, or CLEANING after it is released with entries
+   still to clear.  Entry indices are lane wide, map k owns
+   [k*entry_max,(k+1)*entry_max), so the subtraction queue and the
+   batches need not know which map an entry is in.
 
-   fd_sched_lthash_lane_bank returns the bank the lane is claimed by, or
-   ULONG_MAX if the lane is idle.
+   fd_sched_lthash_lane_primary returns the index of the map the lane
+   head owns and fd_sched_lthash_lane_spare the other one.
+   fd_sched_lthash_lane_map_of returns the LIVE map owned by bank_idx,
+   or ULONG_MAX.  fd_sched_lthash_map_state returns a map's
+   FD_SCHED_LTHASH_MAP_* state and fd_sched_lthash_map_bank the bank
+   that owns a LIVE map, else ULONG_MAX.
 
-   fd_sched_lthash_lane_claim claims the lane for bank_idx, which must
-   be less than UINT_MAX.  The lane must be idle or already claimed by
-   bank_idx.
+   fd_sched_lthash_map_claim gives a FREE map to bank_idx, which must be
+   less than UINT_MAX, after clearing it in full if it was CLEANING.
+   fd_sched_lthash_map_release takes a LIVE map from its owner, leaving
+   it CLEANING if it has entries and FREE otherwise.  Pointers to and
+   indices of its entries are invalid afterwards.
+   fd_sched_lthash_map_clean clears up to max entries of a CLEANING
+   map, releasing their speculation entries, and returns how many are
+   left.  Clearing the last one makes the map FREE.
+   fd_sched_lthash_lane_swap makes the spare map, which must be LIVE,
+   the primary one.  The primary must not be LIVE.
 
-   fd_sched_lthash_lane_reset frees every entry of the lane along with
-   its speculation entry, if any, and makes the lane idle.  Pointers to
-   and indices of the lane's entries are invalid afterwards.
+   fd_sched_lthash_lane_bank returns the bank that owns the primary
+   map, or ULONG_MAX.  fd_sched_lthash_lane_claim gives the primary map
+   to bank_idx unless it owns it already.  fd_sched_lthash_lane_reset
+   releases the primary map and clears it in full.
+   fd_sched_lthash_lane_entry_cnt returns its entry count. */
 
-   fd_sched_lthash_lane_entry_cnt returns the number of entries in the
-   lane. */
+#define FD_SCHED_LTHASH_MAP_FREE     (0)
+#define FD_SCHED_LTHASH_MAP_LIVE     (1)
+#define FD_SCHED_LTHASH_MAP_CLEANING (2)
+
+ulong fd_sched_lthash_lane_primary( fd_sched_lthash_t const * l, ulong lane_idx );
+ulong fd_sched_lthash_lane_spare  ( fd_sched_lthash_t const * l, ulong lane_idx );
+ulong fd_sched_lthash_lane_map_of ( fd_sched_lthash_t const * l, ulong lane_idx, ulong bank_idx );
+int   fd_sched_lthash_map_state   ( fd_sched_lthash_t const * l, ulong lane_idx, ulong map_idx );
+ulong fd_sched_lthash_map_bank    ( fd_sched_lthash_t const * l, ulong lane_idx, ulong map_idx );
+void  fd_sched_lthash_map_claim   ( fd_sched_lthash_t * l, ulong lane_idx, ulong map_idx, ulong bank_idx );
+void  fd_sched_lthash_map_release ( fd_sched_lthash_t * l, ulong lane_idx, ulong map_idx );
+ulong fd_sched_lthash_map_clean   ( fd_sched_lthash_t * l, ulong lane_idx, ulong map_idx, ulong max );
+void  fd_sched_lthash_lane_swap   ( fd_sched_lthash_t * l, ulong lane_idx );
 
 ulong
 fd_sched_lthash_lane_bank( fd_sched_lthash_t * l,
@@ -155,14 +187,18 @@ ulong
 fd_sched_lthash_lane_entry_cnt( fd_sched_lthash_t const * l,
                                 ulong                     lane_idx );
 
-/* fd_sched_lthash_query returns the lane's entry for acct, or NULL if
-   there is none.
+/* fd_sched_lthash_query returns the primary map's entry for acct, or
+   NULL if there is none.
 
-   fd_sched_lthash_insert adds an entry for acct to the lane and returns
-   it as SUB_QUEUED, ADD_NONE, no speculation entry, pseudo transaction
-   index 0, q_next UINT_MAX, and the lane's bank as bank_idx.  The lane
-   must not be idle, must not already have an entry for acct, and must
-   have free entry space.  The entry lives until the lane is reset.
+   fd_sched_lthash_insert adds an entry for acct to the primary map and
+   returns it as SUB_QUEUED, ADD_NONE, no speculation entry, pseudo
+   transaction index 0, q_next UINT_MAX, and the map's bank as
+   bank_idx.  The map must be LIVE, must not already have an entry for
+   acct, and must have free entry space.  The entry lives until the map
+   is released.
+
+   fd_sched_lthash_query_map and fd_sched_lthash_insert_map do the same
+   on the map map_idx names.
 
    fd_sched_lthash_entry_idx returns the index in [0,entry_max) of
    entry, an entry of the lane.  fd_sched_lthash_entry is the reverse of
@@ -177,6 +213,18 @@ fd_sched_lthash_entry_t *
 fd_sched_lthash_insert( fd_sched_lthash_t *    l,
                         ulong                  lane_idx,
                         fd_acct_addr_t const * acct );
+
+fd_sched_lthash_entry_t *
+fd_sched_lthash_query_map( fd_sched_lthash_t *    l,
+                           ulong                  lane_idx,
+                           ulong                  map_idx,
+                           fd_acct_addr_t const * acct );
+
+fd_sched_lthash_entry_t *
+fd_sched_lthash_insert_map( fd_sched_lthash_t *    l,
+                            ulong                  lane_idx,
+                            ulong                  map_idx,
+                            fd_acct_addr_t const * acct );
 
 ulong
 fd_sched_lthash_entry_idx( fd_sched_lthash_t *             l,
@@ -226,22 +274,23 @@ ulong
 fd_sched_lthash_spec_free_cnt( fd_sched_lthash_t const * l );
 
 /* fd_sched_lthash_iter_{init,done,next,ele} visit each entry of the
-   lane once, in insertion order:
+   lane's map map_idx once, in insertion order:
 
-     for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( l, lane );
+     for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( l, lane, map_idx );
           !fd_sched_lthash_iter_done( l, lane, it );
           it = fd_sched_lthash_iter_next( l, lane, it ) ) {
        fd_sched_lthash_entry_t * e = fd_sched_lthash_iter_ele( l, lane, it );
        ...
      }
 
-   The lane may be queried during the walk, but no entry may be inserted
-   and the lane may not be reset until the walk ends.  Fields of the
+   The map may be queried during the walk, but no entry may be inserted
+   and the map may not be released until the walk ends.  Fields of the
    visited entries other than acct and map_next may be modified. */
 
 fd_sched_lthash_iter_t
 fd_sched_lthash_iter_init( fd_sched_lthash_t * l,
-                           ulong               lane_idx );
+                           ulong               lane_idx,
+                           ulong               map_idx );
 
 int
 fd_sched_lthash_iter_done( fd_sched_lthash_t *    l,
