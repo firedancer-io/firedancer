@@ -51,16 +51,21 @@
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
 
-#define QUIC_K_GRANULARITY_NS    (1000000L) /* RFC 9002 kGranularity (1ms), same as FD_QUIC_K_GRANULARITY_NS */
-#define QUIC_BAN_TIMEOUT_NS      (10L*1000L*1000L*1000L) /* 10 seconds */
-#define QUIC_CONN_BACKOFF_MIN_NS (1L*1000L*1000L*1000L) /* reconnect delay when fd_quic had no free conn to connect with */
-#define QUIC_CONN_BACKOFF_MAX_NS (1L*1000L*1000L*1000L) /* reconnect delay doubles up to this */
-#define QUIC_CONN_AHEAD_NS       (10L*1000L*1000L*1000L) /* connect to peers this long before our first ranked epoch, spreading the handshakes out (Agave admits next-epoch voters from 30000 slots out) */
-#define QUIC_CLOSE_CODE_UNKNOWN  (2U)
-#define QUIC_CLOSE_CODE_EVICTED  (3U)
-#define QUIC_CLOSE_CODE_BANNED   (4U)
-#define QUIC_CONN_MAX            (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
-#define QUIC_CLIENT_CONN_MAX     (AG_VAT_MAX * 4) /* one conn to every validator of the prev, curr and next epochs, plus an epoch of evicted conns still closing */
+#define QUIC_CLOSE_CODE_INVALID_IDENTITY     (2U) /* agave_votor_transport::error::close_codes::INVALID_IDENTITY */
+#define QUIC_CLOSE_CODE_NOT_ADMITTED         (3U) /* agave_votor_transport::error::close_codes::NOT_ADMITTED */
+#define QUIC_CLOSE_CODE_BANNED               (4U) /* agave_votor_transport::error::close_codes::BANNED */
+#define QUIC_CLOSE_CODE_TOO_MANY_CONNECTIONS (5U) /* agave_votor_transport::error::close_codes::TOO_MANY_CONNECTIONS */
+
+#define QUIC_BAN_TIMEOUT_NS   (10L*1000L*1000L*1000L) /* agave_bls_sigverify::bls_sigverifier::BAN_TIMEOUT */
+#define QUIC_K_GRANULARITY_NS (1000000L)              /* 1 ms, RFC 9002 kGranularity, same as FD_QUIC_K_GRANULARITY_NS */
+
+#define QUIC_CLIENT_CONN_BACKOFF_MIN_NS (1L*1000L*1000L*1000L)  /* 1 s */
+#define QUIC_CLIENT_CONN_BACKOFF_MAX_NS (1L*1000L*1000L*1000L)  /* 1 s */
+#define QUIC_CLIENT_CONN_AHEAD_NS       (10L*1000L*1000L*1000L) /* connect to peers this long before our first ranked epoch, spreading the handshakes out (Agave admits next-epoch voters from 30000 slots out) */
+#define QUIC_CLIENT_CONN_MAX            (AG_VAT_MAX * (3 + 1))  /* one conn to every validator of the prev, curr and next epochs, plus an epoch of evicted conns still closing */
+
+#define QUIC_SERVER_CONN_PER_PEER_MAX (2UL)                                        /* allow up to 2 per peer, in case of failures (zombies, network partition, etc.) */
+#define QUIC_SERVER_CONN_MAX          (AG_VAT_MAX * QUIC_SERVER_CONN_PER_PEER_MAX) /* at most AG_VAT_MAX connections */
 
 #define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
 #define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
@@ -84,10 +89,10 @@ static fd_quic_limits_t quic_client_limits = {
 };
 
 static fd_quic_limits_t quic_server_limits = {
-  .conn_cnt                    = QUIC_CONN_MAX,
+  .conn_cnt                    = QUIC_SERVER_CONN_MAX,
   .handshake_cnt               = 1024UL,
   .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
-  .inflight_frame_cnt          = 64UL * QUIC_CONN_MAX,
+  .inflight_frame_cnt          = 64UL * QUIC_SERVER_CONN_MAX,
   .min_inflight_frame_cnt_conn = 32UL,
 };
 
@@ -124,7 +129,7 @@ struct peer {
   ushort           curr_rank;
   ushort           next_rank;
   fd_quic_conn_t * tx_conn;
-  fd_quic_conn_t * rx_conn;
+  fd_quic_conn_t * rx_conn[ QUIC_SERVER_CONN_PER_PEER_MAX ];
   long             ban_ts;
   long             conn_ts;
   long             conn_backoff;
@@ -319,7 +324,7 @@ struct fd_votor_tile {
   contact_info_t *   contact_infos;
   peer_t *           peers;
   fd_pubkey_t        client_peer_id_keys[ QUIC_CLIENT_CONN_MAX ];
-  fd_pubkey_t        server_peer_id_keys[ QUIC_CONN_MAX ];
+  fd_pubkey_t        server_peer_id_keys[ QUIC_SERVER_CONN_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
   uchar              net_buf[ FD_NET_MTU ];
   fd_quic_t *        quic_client;
@@ -553,10 +558,11 @@ ban_peer( fd_votor_tile_t * ctx,
           long              now ) {
   FD_BASE58_ENCODE_32_BYTES( peer->id_key.uc, id_key_b58 );
   FD_LOG_WARNING(( "banning peer %s", id_key_b58 ));
-  if( FD_LIKELY( peer->rx_conn ) ) {
-    fd_quic_conn_set_context( peer->rx_conn, NULL );
-    fd_quic_conn_close( peer->rx_conn, QUIC_CLOSE_CODE_BANNED );
-    peer->rx_conn = NULL;
+  for( ulong i=0UL; i<QUIC_SERVER_CONN_PER_PEER_MAX; i++ ) {
+    if( FD_UNLIKELY( !peer->rx_conn[ i ] ) ) continue;
+    fd_quic_conn_set_context( peer->rx_conn[ i ], NULL );
+    fd_quic_conn_close( peer->rx_conn[ i ], QUIC_CLOSE_CODE_BANNED );
+    peer->rx_conn[ i ] = NULL;
   }
   if( FD_LIKELY( peer->tx_conn ) ) {
     fd_quic_conn_set_context( peer->tx_conn, NULL );
@@ -660,10 +666,10 @@ quic_client_connect( fd_votor_tile_t *      ctx,
   if( FD_UNLIKELY( ctx->halt_signing ) ) return; /* halted for an identity switch, and the TLS handshake must sign */
   peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   if( FD_UNLIKELY( !self || peer==self ) ) return;
-  if( FD_UNLIKELY( self->curr_rank==USHORT_MAX ) ) { /* not voting yet: only connect ahead, within QUIC_CONN_AHEAD_NS of our first ranked epoch */
+  if( FD_UNLIKELY( self->curr_rank==USHORT_MAX ) ) { /* not voting yet: only connect ahead, within QUIC_CLIENT_CONN_AHEAD_NS of our first ranked epoch */
     ulong root = ag_pool_finalized_slot( ctx->pool );
     if( FD_UNLIKELY( self->next_rank==USHORT_MAX || root==ULONG_MAX )                                                     ) return;
-    if( FD_UNLIKELY( root<ctx->next_epoch_slot && (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot>QUIC_CONN_AHEAD_NS ) ) return;
+    if( FD_UNLIKELY( root<ctx->next_epoch_slot && (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot>QUIC_CLIENT_CONN_AHEAD_NS ) ) return;
   }
   if( FD_UNLIKELY( peer->prev_rank==USHORT_MAX && peer->curr_rank==USHORT_MAX && peer->next_rank==USHORT_MAX ) ) return;
   if( FD_UNLIKELY( peer->tx_conn ) ) return;
@@ -679,12 +685,16 @@ quic_client_connect( fd_votor_tile_t *      ctx,
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
   if( FD_UNLIKELY( !conn ) ) {
     if( FD_LIKELY( !peer->reconn_pending ) ) {
-      reconn_t reconn = { .timeout = now+QUIC_CONN_BACKOFF_MIN_NS, .id_key = peer->id_key };
+      reconn_t reconn = { .timeout = now+QUIC_CLIENT_CONN_BACKOFF_MIN_NS, .id_key = peer->id_key };
       reconn_prq_insert( ctx->reconn_prq, &reconn );
       peer->reconn_pending = 1;
     }
     return;
   }
+
+  memcpy( conn->tls_hs->hs.cli.server_pubkey, peer->id_key.uc, sizeof(fd_pubkey_t) ); /* fail the handshake before authenticating to whoever else holds the peer's address */
+  conn->tls_hs->hs.cli.server_pubkey_len = sizeof(fd_pubkey_t);
+  conn->tls_hs->hs.cli.server_pubkey_pin = 1;
 
   peer->conn_ts = now;
   ctx->client_peer_id_keys[ conn->conn_idx ] = peer->id_key;
@@ -841,7 +851,7 @@ quic_client_conn_final( fd_quic_conn_t * conn,
   long now = fd_clock_tile_now( ctx->clock );
   long pto = (long)( conn->rtt->smoothed_rtt + fmaxf( 4.0f*conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
   peer->tx_conn      = NULL;
-  peer->conn_backoff = fd_long_min( fd_long_max( 2L*peer->conn_backoff, pto ), QUIC_CONN_BACKOFF_MAX_NS );
+  peer->conn_backoff = fd_long_min( fd_long_max( 2L*peer->conn_backoff, pto ), QUIC_CLIENT_CONN_BACKOFF_MAX_NS );
   peer->conn_ts      = now;
   if( FD_LIKELY( !peer->reconn_pending ) ) {
     reconn_t reconn = { .timeout = now+peer->conn_backoff, .id_key = peer->id_key };
@@ -860,7 +870,7 @@ quic_client_conn_hs_complete( fd_quic_conn_t * conn,
   if( FD_UNLIKELY( !id_key ) ) return;
 
   if( FD_LIKELY( !conn->tls_hs || memcmp( conn->tls_hs->hs.cli.server_pubkey, id_key->uc, sizeof(fd_pubkey_t) ) ) ) {
-    fd_quic_conn_close( conn, QUIC_CLOSE_CODE_UNKNOWN );
+    fd_quic_conn_close( conn, QUIC_CLOSE_CODE_INVALID_IDENTITY );
     return;
   }
 
@@ -907,15 +917,15 @@ quic_server_conn_new( fd_quic_conn_t * conn,
     fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED );
     return;
   }
+  ulong idx = 0UL;
+  while( peer && idx<QUIC_SERVER_CONN_PER_PEER_MAX && peer->rx_conn[ idx ] ) idx++;
+  if( FD_UNLIKELY( idx==QUIC_SERVER_CONN_PER_PEER_MAX ) ) { /* never the incumbents: another node's contact info can make the peer dial us */
+    fd_quic_conn_close( conn, QUIC_CLOSE_CODE_TOO_MANY_CONNECTIONS );
+    return;
+  }
   ctx->server_peer_id_keys[ conn->conn_idx ] = *id_key;
   fd_quic_conn_set_context( conn, &ctx->server_peer_id_keys[ conn->conn_idx ] );
-  if( FD_LIKELY( peer ) ) {
-    if( FD_UNLIKELY( peer->rx_conn ) ) {
-      fd_quic_conn_set_context( peer->rx_conn, NULL );
-      fd_quic_conn_close( peer->rx_conn, 0U );
-    }
-    peer->rx_conn = conn;
-  }
+  if( FD_LIKELY( peer ) ) peer->rx_conn[ idx ] = conn;
 }
 
 /* QUIC callback */
@@ -928,7 +938,8 @@ quic_server_conn_final( fd_quic_conn_t * conn,
   fd_quic_conn_set_context( conn, NULL ); /* a reused conn slot must not carry this peer's key */
   if( FD_UNLIKELY( !id_key ) ) return;
   peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
-  if( FD_LIKELY( peer && peer->rx_conn==conn ) ) peer->rx_conn = NULL;
+  if( FD_UNLIKELY( !peer ) ) return;
+  for( ulong i=0UL; i<QUIC_SERVER_CONN_PER_PEER_MAX; i++ ) if( FD_UNLIKELY( peer->rx_conn[ i ]==conn ) ) peer->rx_conn[ i ] = NULL;
 }
 
 /* QUIC callback */
@@ -1366,7 +1377,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->curr_rank      = USHORT_MAX;
       peer->next_rank      = USHORT_MAX;
       peer->tx_conn        = NULL;
-      peer->rx_conn        = NULL;
+      memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
       peer->ban_ts         = 0L;
       peer->conn_ts        = 0L;
       peer->conn_backoff   = 0L;
@@ -1389,7 +1400,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->prev_rank      = USHORT_MAX;
       peer->next_rank      = USHORT_MAX;
       peer->tx_conn        = NULL;
-      peer->rx_conn        = NULL;
+      memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
       peer->ban_ts         = 0L;
       peer->conn_ts        = 0L;
       peer->conn_backoff   = 0L;
@@ -1412,7 +1423,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->prev_rank      = USHORT_MAX;
       peer->curr_rank      = USHORT_MAX;
       peer->tx_conn        = NULL;
-      peer->rx_conn        = NULL;
+      memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
       peer->ban_ts         = 0L;
       peer->conn_ts        = 0L;
       peer->conn_backoff   = 0L;
@@ -1444,13 +1455,14 @@ handle_epoch( fd_votor_tile_t *           ctx,
     }
     if( FD_LIKELY( peer->tx_conn ) ) {
       fd_quic_conn_set_context( peer->tx_conn, NULL );
-      fd_quic_conn_close( peer->tx_conn, QUIC_CLOSE_CODE_EVICTED );
+      fd_quic_conn_close( peer->tx_conn, QUIC_CLOSE_CODE_NOT_ADMITTED );
       peer->tx_conn = NULL;
     }
-    if( FD_LIKELY( peer->rx_conn ) ) {
-      fd_quic_conn_set_context( peer->rx_conn, NULL );
-      fd_quic_conn_close( peer->rx_conn, QUIC_CLOSE_CODE_EVICTED );
-      peer->rx_conn = NULL;
+    for( ulong i=0UL; i<QUIC_SERVER_CONN_PER_PEER_MAX; i++ ) {
+      if( FD_UNLIKELY( !peer->rx_conn[ i ] ) ) continue;
+      fd_quic_conn_set_context( peer->rx_conn[ i ], NULL );
+      fd_quic_conn_close( peer->rx_conn[ i ], QUIC_CLOSE_CODE_NOT_ADMITTED );
+      peer->rx_conn[ i ] = NULL;
     }
     if( FD_UNLIKELY( peer->reconn_pending ) ) {
       for( ulong i=0UL; i<reconn_prq_cnt( ctx->reconn_prq ); i++ ) {
@@ -1663,7 +1675,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     ulong          root = ag_pool_finalized_slot( ctx->pool );
     if( FD_UNLIKELY( !self || self->curr_rank!=USHORT_MAX || self->next_rank==USHORT_MAX ) ) {
       ctx->conn_ahead_slot = ctx->next_epoch_slot;
-    } else if( FD_UNLIKELY( root!=ULONG_MAX && ( root>=ctx->next_epoch_slot || (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot<=QUIC_CONN_AHEAD_NS ) ) ) {
+    } else if( FD_UNLIKELY( root!=ULONG_MAX && ( root>=ctx->next_epoch_slot || (long)( ctx->next_epoch_slot-root )*ctx->ns_per_slot<=QUIC_CLIENT_CONN_AHEAD_NS ) ) ) {
       ctx->conn_ahead_slot = ctx->next_epoch_slot;
       ulong cnt = 0UL;
       for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
@@ -1675,7 +1687,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
       for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
         peer_t * peer = &ctx->peers[ slot ];
         if( FD_UNLIKELY( peers_key_inval( peer->id_key ) || peer==self || peer->tx_conn || peer->reconn_pending || !contact_infos_query( ctx->contact_infos, peer->id_key, NULL ) ) ) continue;
-        reconn_t reconn = { .timeout = now+(long)idx*(QUIC_CONN_AHEAD_NS/2L)/(long)cnt, .id_key = peer->id_key };
+        reconn_t reconn = { .timeout = now+(long)idx*(QUIC_CLIENT_CONN_AHEAD_NS/2L)/(long)cnt, .id_key = peer->id_key };
         reconn_prq_insert( ctx->reconn_prq, &reconn );
         peer->reconn_pending = 1;
         idx++;
@@ -2668,7 +2680,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_quic_set_aio_net_tx( ctx->quic_server, quic_tx_aio );
 
   ctx->quic_server->config.role                       = FD_QUIC_ROLE_SERVER;
-  ctx->quic_server->config.retry                      = 0;
+  ctx->quic_server->config.retry                      = 1;
   ctx->quic_server->config.idle_timeout               = 5L*1000L*1000L*1000L;
   ctx->quic_server->config.ack_delay                  = 2L*1000L*1000L;
   memcpy( ctx->quic_server->config.identity_public_key, ctx->id_key.uc, 32UL );
