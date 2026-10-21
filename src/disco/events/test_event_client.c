@@ -257,15 +257,16 @@ FD_UNIT_TEST( stream_heartbeat ) {
 }
 
 static fd_event_client_t *
-test_connected_client( fd_circq_t * circq,
-                       fd_rng_t *   rng,
-                       ulong        buf_max ) {
+test_connected_client_rate( fd_circq_t * circq,
+                            fd_rng_t *   rng,
+                            ulong        buf_max,
+                            ulong        tx_rate_mbps ) {
   void * client_mem = aligned_alloc( fd_event_client_align(), fd_event_client_footprint( buf_max ) );
   FD_TEST( client_mem );
   uchar identity_pubkey[32] = {0};
   fd_event_client_t * client = fd_event_client_join( fd_event_client_new(
       client_mem, NULL, rng, circq, g_epoll_fd, 1<<20, "http://localhost:1", identity_pubkey, "0.0.0",
-      "0000000000000000000000000000000000000000", "test", 1UL, 2UL, 3UL, buf_max, 0, NULL, 0UL ) );
+      "0000000000000000000000000000000000000000", "test", 1UL, 2UL, 3UL, buf_max, 0, NULL, tx_rate_mbps ) );
   FD_TEST( client );
   fd_grpc_client_t * grpc = client->grpc_client;
   client->state       = FD_EVENT_CLIENT_STATE_CONNECTED;
@@ -281,6 +282,13 @@ test_connected_client( fd_circq_t * circq,
   FD_TEST( !ZSTD_isError( ZSTD_CCtx_reset( client->zst, ZSTD_reset_session_only ) ) );
   client->zout = (ZSTD_outBuffer){ .dst = grpc->nanopb_tx+sizeof(fd_grpc_hdr_t), .size = grpc->nanopb_tx_max-sizeof(fd_grpc_hdr_t), .pos = 0UL };
   return client;
+}
+
+static fd_event_client_t *
+test_connected_client( fd_circq_t * circq,
+                       fd_rng_t *   rng,
+                       ulong        buf_max ) {
+  return test_connected_client_rate( circq, rng, buf_max, 0UL );
 }
 
 /* Queue an event of sz bytes, incompressible unless zero. */
@@ -425,6 +433,61 @@ FD_UNIT_TEST( tx_pacing_large_msg ) {
   FD_TEST( fd_event_client_next_deadline( client, dl )==dl+FLUSH_NS );
   test_poll_tx( client, dl+FLUSH_NS );
   FD_TEST( client->metrics.events_sent==2UL && test_drain( grpc ) );
+
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* An explicit rate is honored (0 keeps the default), and a paced event
+   goes out at its deadline even when a byte is not a whole number of
+   nanoseconds. */
+FD_UNIT_TEST( tx_pacing_rates ) {
+  static uchar circq_mem[ 4096UL+(1UL<<20) ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  ulong const mbps[ 3 ] = { 0UL, 3UL, 64UL };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 1UL<<20 ) );
+    FD_TEST( circq );
+    fd_rng_t rng_mem[1];
+    fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+    fd_event_client_t * client = test_connected_client_rate( circq, rng, 1UL<<20, mbps[ i ] );
+    long const rate = (long)( ( mbps[ i ] ? mbps[ i ] : FD_EVENT_CLIENT_TX_RATE_MBPS_DEFAULT )*125000UL );
+    FD_TEST( client->tx_byte_rate==rate );
+
+    test_push( circq, rng, 16UL, 0 );
+    long now = fd_log_wallclock();
+    client->tx_tokens = -1000L; client->tx_tokens_ns = now;
+    client->last_response_ns = now; client->last_stream_send_ns = now;
+    long dl = fd_event_client_next_deadline( client, now );
+    FD_TEST( dl==now+( 1001L*(long)1e9+rate-1L )/rate );
+    FD_TEST( (ulong)( (uint128)(ulong)( dl-1L-now )*(ulong)rate/1000000000UL )<=1000UL );
+    test_poll_tx( client, dl );
+    FD_TEST( client->zbatch_cnt==1UL );
+
+    free( client );
+    fd_rng_delete( fd_rng_leave( rng ) );
+  }
+}
+
+/* At a low rate a large batch leaves more than a heartbeat interval of
+   debt.  No heartbeat can go out while events are queued, so the
+   deadline is the refill, not an already expired heartbeat. */
+FD_UNIT_TEST( tx_pacing_debt_past_heartbeat ) {
+  static uchar circq_mem[ 4096UL+(1UL<<20) ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 1UL<<20 ) );
+  FD_TEST( circq );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client_rate( circq, rng, 1UL<<20, 1UL );
+  long const rate = 125000L;
+
+  test_push( circq, rng, 16UL, 0 );
+  long now = fd_log_wallclock();
+  client->tx_tokens = -3000000L; client->tx_tokens_ns = now; /* 24 s of debt */
+  client->last_response_ns    = now;
+  client->last_stream_send_ns = now-FD_EVENT_CLIENT_HEARTBEAT_NANOS-1L;
+  long dl = fd_event_client_next_deadline( client, now );
+  FD_TEST( dl==now+( 3000001L*(long)1e9+rate-1L )/rate );
+  FD_TEST( dl>now+FD_EVENT_CLIENT_HEARTBEAT_NANOS );
 
   free( client );
   fd_rng_delete( fd_rng_leave( rng ) );
