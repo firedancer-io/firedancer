@@ -38,11 +38,10 @@ ROWS = (
     ("snapshot_load", "snapshot load, testnet",    "snapshot", snapshot_load,                                              ".2f s",      1.5,  3.0, False),
     ("mem_mainnet",   "mem total, mainnet",        "replay",   lambda d, s: mem(d, s, "mainnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_testnet",   "mem total, testnet",        "replay",   lambda d, s: mem(d, s, "testnet"),                          ".2f GiB",    0.0,  1.0, False),
-    ("mem_ag_mainnet","mem total, ag mainnet",     "replay",   lambda d, s: mem(d, s, "ag.mainnet"),                       ".2f GiB",    0.0,  1.0, False),
     ("compile",       "clean compile, firedancer", "*",        lambda d, s: float(read(d, s, "build.time").split()[0]),   ".2f s",       1.5,  3.0, False),
     ("binsize",       "binary size, firedancer",   "replay",   lambda d, s: os.path.getsize(f"{d}/{s}/bin/firedancer") / 1e6, ".2f MB",  0.5,  2.0, False),
 )
-HIST_HDR = ("TPS", "BENCH", "SNAP", "MEM·M", "MEM·T", "AG·M", "COMPILE", "BINARY")
+HIST_HDR = ("TPS", "BENCH", "SNAP", "MEM·M", "MEM·T", "COMPILE", "BINARY")
 
 def tier(row, d):
     _, _, _, _, _, warn, red, up = row
