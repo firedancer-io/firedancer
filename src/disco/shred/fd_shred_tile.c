@@ -1006,10 +1006,16 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
       complete_msg->turbine_shred_cnt       = (ulong)fd_ulong_popcnt( set->turbine_shred_rcvd );
       complete_msg->repair_shred_cnt        = (ulong)fd_ulong_popcnt( set->repair_shred_rcvd );
       complete_msg->reconstructed_shred_cnt = 2U*(uint)FD_FEC_SHRED_CNT-(uint)(fd_uint_popcnt( set->data_shred_rcvd ) + fd_uint_popcnt( set->parity_shred_rcvd ));
+      complete_msg->data_shred_rcvd         = set->data_shred_rcvd;
+      complete_msg->parity_shred_rcvd       = set->parity_shred_rcvd;
+      complete_msg->repair_data_rcvd        = (uint)set->repair_shred_rcvd; /* data shreds are the low FD_FEC_SHRED_CNT bits */
     } else {
       complete_msg->turbine_shred_cnt       = 0U;
       complete_msg->repair_shred_cnt        = 0U;
       complete_msg->reconstructed_shred_cnt = 0U;
+      complete_msg->data_shred_rcvd         = 0U;
+      complete_msg->parity_shred_rcvd       = 0U;
+      complete_msg->repair_data_rcvd        = 0U;
     }
 
     fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_fec_complete_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
