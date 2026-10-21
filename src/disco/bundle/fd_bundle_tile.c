@@ -207,13 +207,22 @@ during_frag( fd_bundle_tile_t * ctx,
              ulong              ctl    FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_RESET ) ) return;
-    if( FD_UNLIKELY( chunk<ctx->replay_in.chunk0 || chunk>ctx->replay_in.wmark || sz!=sizeof(fd_poh_reset_t) ) )
+    if( FD_LIKELY( sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_NEXT_LEADER ) ) return;
+    ulong want_sz = sig==REPLAY_SIG_RESET ? sizeof(fd_poh_reset_t) : sizeof(fd_replay_next_leader_t);
+    if( FD_UNLIKELY( chunk<ctx->replay_in.chunk0 || chunk>ctx->replay_in.wmark || sz!=want_sz ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in.chunk0, ctx->replay_in.wmark ));
 
-    fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_in.mem, chunk );
-    ctx->next_leader_slot_staged = reset->next_leader_slot;
-    ctx->reset_slot_staged       = reset->completed_slot;
+    if( sig==REPLAY_SIG_RESET ) {
+      /* An Alpenglow boot reset carries no next leader slot, keep the
+         one from the preceding next leader message. */
+      fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_in.mem, chunk );
+      ctx->next_leader_slot_staged = reset->next_leader_slot;
+      ctx->reset_slot_staged       = reset->completed_slot;
+    } else {
+      fd_replay_next_leader_t const * next_leader = fd_chunk_to_laddr_const( ctx->replay_in.mem, chunk );
+      ctx->next_leader_slot_staged = next_leader->next_leader_slot;
+      ctx->reset_slot_staged       = next_leader->slot;
+    }
   }
 }
 
@@ -228,7 +237,8 @@ after_frag( fd_bundle_tile_t *  ctx,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
-    if( FD_LIKELY( sig!=REPLAY_SIG_RESET ) ) return;
+    if( FD_LIKELY( sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_NEXT_LEADER ) ) return;
+    if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->next_leader_slot_staged==ULONG_MAX ) ) return;
     ctx->next_leader_slot = ctx->next_leader_slot_staged;
     ctx->reset_slot       = ctx->reset_slot_staged;
   }

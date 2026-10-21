@@ -1403,6 +1403,12 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
 
   publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t) );
 
+  fd_replay_next_leader_t * next_leader = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  next_leader->slot             = ctx->reset_slot;
+  next_leader->next_leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot :
+                                  query_next_leader_slot( ctx, fd_ulong_max( ctx->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) ) );
+  publish_replay_out( ctx, stem, REPLAY_SIG_NEXT_LEADER, sizeof(fd_replay_next_leader_t) );
+
   /* Skip the telemetry event for the initial boot block (snapshot /
      genesis): it was not replayed. */
   if( FD_LIKELY( !is_initial ) ) report_block_completed( ctx, bank, is_leader, slot_info );
@@ -5983,10 +5989,15 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 #undef DEBUG_LOGGING
 
-/* counting carefully, after_credit can generate at most 8 frags and
-   returnable_frag boot_genesis can generate at most 7 frags, so 15 is a
-   conservative bound. */
-#define STEM_BURST (15UL)
+/* Credits are checked against the out link with the fewest, so the
+   burst is the most frags one stem iteration publishes to any one out
+   link: 4, from boot (slot completed, next leader, root advanced,
+   reset) or try_fini_leader chaining into the next leader slot (slot
+   completed, next leader, reset, became leader).  after_credit and
+   returnable_frag never both publish in one iteration: every
+   after_credit path that publishes returns nonzero, which skips the
+   input poll. */
+#define STEM_BURST (4UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch and replay_slot, which

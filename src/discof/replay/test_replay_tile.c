@@ -1615,11 +1615,11 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( root->parent_accdb_fork_id.val==37U );
   FD_TEST( mock_accdb_fork_id_next==0U );
 
-  /* Verify REPLAY_SIG_RESET was published (3rd message after
-     SLOT_COMPLETED and ROOT_ADVANCED). */
-  FD_TEST( test_stem_seqs[ out_idx ]>=seq0+3UL );
+  /* Verify REPLAY_SIG_RESET was published (4th message after
+     SLOT_COMPLETED, NEXT_LEADER and ROOT_ADVANCED). */
+  FD_TEST( test_stem_seqs[ out_idx ]>=seq0+4UL );
   fd_frag_meta_t const * reset_meta = test_stem_mcaches[ out_idx ]
-      + fd_mcache_line_idx( seq0+2UL, test_stem_depths[ out_idx ] );
+      + fd_mcache_line_idx( seq0+3UL, test_stem_depths[ out_idx ] );
   FD_TEST( reset_meta->sig==REPLAY_SIG_RESET );
   FD_TEST( reset_meta->sz ==sizeof(fd_poh_reset_t) );
   fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_out->mem, reset_meta->chunk );
@@ -2351,7 +2351,7 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   FD_TEST( b1->state==FD_BANK_STATE_FROZEN );
   FD_TEST( ctx->consensus_root_slot==0UL && ctx->finalized_block_id_lo.slot<=ctx->consensus_root_slot );
   FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+2UL );
 
   /* A slow final cert names its slot; the notar cert beside it names
      the block.  Completing slot 2 roots slot 1 without a votor frag. */
@@ -2361,11 +2361,11 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer->notar_cert.block_id = id1;
   fd_bank_t * b2 = add_replayable_block( ctx, b1, 2UL, &id2 );
   FD_TEST( !replay_block_finalize( ctx, test_stem, b2 ) );
-  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+1UL, test_stem_depths[ out_idx ] );
+  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+2UL, test_stem_depths[ out_idx ] );
   FD_TEST( m->sig==REPLAY_SIG_SLOT_COMPLETED );
   fd_replay_slot_completed_t const * completed = fd_chunk_to_laddr_const( wksp, m->chunk );
   FD_TEST( completed->footer.has_final_cert && completed->footer.final_cert.slot==1UL && fd_hash_eq( &completed->footer.notar_cert.block_id, &id1 ) );
-  expect_rooted( ctx, wksp, seq0+2UL, b1 );
+  expect_rooted( ctx, wksp, seq0+4UL, b1 );
 
   /* A fast final cert names its block, and wins over a slow cert beside it. */
   mock_footer->has_fast_final_cert      = 1;
@@ -2373,7 +2373,7 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer->fast_final_cert.block_id = id2;
   fd_bank_t * b3 = add_replayable_block( ctx, b2, 3UL, &id3 );
   FD_TEST( !replay_block_finalize( ctx, test_stem, b3 ) );
-  expect_rooted( ctx, wksp, seq0+4UL, b2 );
+  expect_rooted( ctx, wksp, seq0+7UL, b2 );
   FD_TEST( ctx->votor_final->slot==ULONG_MAX );
   mock_footer_finalize = 0;
 
@@ -2523,7 +2523,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
       FD_TEST( b->state==( dead_end ? FD_BANK_STATE_DEAD : FD_BANK_STATE_FROZEN ) ); /* completed on the last done frag */
       FD_TEST( b->refcnt==refcnt0 );
       if( !dead_end ) {
-        fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( test_stem_seqs[ out_idx ]-1UL, test_stem_depths[ out_idx ] );
+        fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( test_stem_seqs[ out_idx ]-2UL, test_stem_depths[ out_idx ] );
         FD_TEST( m->sig==REPLAY_SIG_SLOT_COMPLETED );
         parent = b;
       }
@@ -5678,9 +5678,9 @@ test_wfs_boot_publish_order( fd_wksp_t * wksp,
   mock_footer_finalize = 0;
 
   FD_TEST( !ctx->wfs_complete );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+3UL );
-  ulong const expected[ 3 ] = { REPLAY_SIG_SLOT_COMPLETED, REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_RESET };
-  for( ulong i=0UL; i<3UL; i++ ) {
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+4UL );
+  ulong const expected[ 4 ] = { REPLAY_SIG_SLOT_COMPLETED, REPLAY_SIG_NEXT_LEADER, REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_RESET };
+  for( ulong i=0UL; i<4UL; i++ ) {
     fd_frag_meta_t const * f = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+i, test_stem_depths[ out_idx ] );
     FD_TEST( f->sig==expected[ i ] );
   }
