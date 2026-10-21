@@ -618,14 +618,19 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
       FD_LOG_CRIT(( "unexpected message tag %u", view->tag ));
   }
 
+  long our_creation_nanos = ctx->instance_creation_wallclock_nanos;
   for( ulong i=0UL; i<values_len; i++ ) {
     fd_gossip_value_t const * value = &values[ i ];
     if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
 
-    if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ) ) continue;
-    if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) continue;
-
-    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ));
+    long their_creation_nanos = FD_MICRO_TO_NANOSEC( value->contact_info->outset );
+    if( FD_UNLIKELY( their_creation_nanos>our_creation_nanos &&
+                     !memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) {
+      FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns. "
+                   "If the newer instance is a failover peer booted without `[failover.enabled]`, stop it and enable failover "
+                   "there, then run `firedancer failover promote --force` on the machine that should hold the identity.",
+                   our_creation_nanos, their_creation_nanos ));
+    }
   }
 }
 
