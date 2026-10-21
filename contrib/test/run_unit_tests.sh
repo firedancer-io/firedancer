@@ -38,7 +38,6 @@ declare -A TEST_GIGANTIC_PAGES=(
   [test_log_collector]=4
   [test_ssmanifest_parser]=2
   [test_replay_tile]=2
-  [test_repair_tile]=2
   [test_quic_streams]=2
   [test_quic_server]=2
   [test_quic_retx]=2

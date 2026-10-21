@@ -960,45 +960,6 @@
 
 </div>
 
-## Repair Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">repair_&#8203;pkt_&#8203;tx</span> | counter | Network packets sent, including reqs, pings, pongs, etc |
-| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">pong</span>"} | counter | Repair requests sent, by type (Pong) |
-| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">window_&#8203;index</span>"} | counter | Repair requests sent, by type (Shred at an index) |
-| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">highest_&#8203;window_&#8203;index</span>"} | counter | Repair requests sent, by type (Highest shred at or above an index) |
-| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">orphan</span>"} | counter | Repair requests sent, by type (Ancestors of an orphan slot) |
-| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">parent_&#8203;fec_&#8203;set_&#8203;count</span>"} | counter | Repair requests sent, by type (Parent and FEC set count of a block (Alpenglow)) |
-| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">fec_&#8203;set_&#8203;root</span>"} | counter | Repair requests sent, by type (Merkle root of a FEC set (Alpenglow)) |
-| <span class="metrics-name">repair_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;request_&#8203;type="<span class="metrics-enum">window_&#8203;index_&#8203;for_&#8203;block_&#8203;id</span>"} | counter | Repair requests sent, by type (Shred at an index of a specific block (Alpenglow)) |
-| <span class="metrics-name">repair_&#8203;highest_&#8203;repaired_&#8203;slot</span> | gauge | Highest slot on the repair frontier, 0 if none; its ancestors are complete, the slot itself may not be |
-| <span class="metrics-name">repair_&#8203;highest_&#8203;turbine_&#8203;slot</span> | gauge | Highest slot a turbine shred was received for, 0 if none |
-| <span class="metrics-name">repair_&#8203;shred_&#8203;old_&#8203;ignored</span> | counter | Shreds received older than the root, ignored |
-| <span class="metrics-name">repair_&#8203;last_&#8203;requested_&#8203;slot</span> | gauge | Last slot we requested a single shred for, 0 if none |
-| <span class="metrics-name">repair_&#8203;last_&#8203;requested_&#8203;orphan_&#8203;slot</span> | gauge | Last slot we requested an orphan for, 0 if none |
-| <span class="metrics-name">repair_&#8203;request_&#8203;in_&#8203;flight</span> | gauge | Requests awaiting a response, excluding orphan and highest window requests |
-| <span class="metrics-name">repair_&#8203;peer_&#8203;count</span> | gauge | Repair peers currently tracked |
-| <span class="metrics-name">repair_&#8203;sign_&#8203;backpressure</span> | counter | Loop iterations where no sign tile was available to sign a request |
-| <span class="metrics-name">repair_&#8203;turbine_&#8203;grace_&#8203;elapsed</span> | counter | Times a missing shred outlived the turbine grace period and became eligible for repair |
-| <span class="metrics-name">repair_&#8203;shred_&#8203;rerequested</span> | counter | Times we re-requested a shred from the inflights queue |
-| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Pings rejected, by reason (Failed to decode) |
-| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">unknown_&#8203;peer</span>"} | counter | Pings rejected, by reason (Sender is not a known peer) |
-| <span class="metrics-name">repair_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Pings rejected, by reason (Signature did not verify) |
-| <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;duration_&#8203;nanos</span> | histogram | Time from a slot's first shred (first request for catchup slots) until all its data shreds are received |
-| <span class="metrics-name">repair_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time from sending a repair request to receiving its response |
-| <span class="metrics-name">repair_&#8203;block_&#8203;evicted</span> | counter | Blocks evicted from the forest |
-| <span class="metrics-name">repair_&#8203;block_&#8203;insert_&#8203;failed</span> | counter | Blocks we failed to insert into the forest due to failed eviction |
-| <span class="metrics-name">repair_&#8203;last_&#8203;evicted_&#8203;slot</span> | gauge | Most recent slot evicted from the forest, 0 if none |
-| <span class="metrics-name">repair_&#8203;last_&#8203;eviction_&#8203;cause_&#8203;slot</span> | gauge | Slot that caused the most recent forest eviction, 0 if none |
-| <span class="metrics-name">repair_&#8203;last_&#8203;insert_&#8203;failed_&#8203;slot</span> | gauge | Most recent slot we failed to insert into the forest, 0 if none |
-| <span class="metrics-name">repair_&#8203;chain_&#8203;verify_&#8203;failed</span> | counter | Times any block failed chained merkle verification |
-| <span class="metrics-name">repair_&#8203;last_&#8203;chain_&#8203;verify_&#8203;failed_&#8203;slot</span> | gauge | Most recent slot that failed chained merkle verification, 0 if none |
-
-</div>
-
 ## Rserve Tile
 
 <div class="metrics">
