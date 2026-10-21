@@ -685,15 +685,6 @@
 
 </div>
 
-## Poh Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-
-</div>
-
 ## Sign Tile
 
 <div class="metrics">
