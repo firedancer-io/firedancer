@@ -469,9 +469,8 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_COST_TRACKER_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-        int tile_uses_vote_stakes = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "tower"  ) ||
-                                    !strcmp( tile->name, "execle" ) || !strcmp( tile->name, "execrp" ) ||
-                                    !strcmp( tile->name, "snapmk" );
+        int tile_uses_vote_stakes = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
+                                    !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapmk" );
         if( FD_UNLIKELY( -1==fcntl( FD_VOTE_STAKES_FD, F_SETFD, tile_uses_vote_stakes ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 

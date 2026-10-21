@@ -13,26 +13,13 @@
 #include "../../../../util/net/fd_udp.h"
 
 static int
-before_frag( fd_quic_trace_ctx_t * ctx,
+before_frag( fd_quic_trace_ctx_t * ctx    FD_FN_UNUSED,
              ulong                 in_idx FD_FN_UNUSED,
              ulong                 seq    FD_FN_UNUSED,
              ulong                 sig ) {
-  /* Skip non-QUIC packets, based on the tile we target */
+  /* Skip non-QUIC packets */
   ulong proto = fd_disco_netmux_sig_proto( sig );
-  int   send  = ctx->trace_send;
-
-  switch( proto ) {
-    case DST_PROTO_OUTGOING:
-      return 0;
-    case DST_PROTO_TPU_QUIC:
-      return send;
-    case DST_PROTO_SEND:
-      return !send;
-    default:
-        return 1;
-  }
-
-  return 0;
+  return (proto!=DST_PROTO_OUTGOING) & (proto!=DST_PROTO_TPU_QUIC);
 }
 
 static void
@@ -44,7 +31,7 @@ during_frag( fd_quic_trace_ctx_t * ctx,
              ulong                 sz,
              ulong                 ctl ) {
   ulong proto = fd_disco_netmux_sig_proto( sig );
-  if( (proto==DST_PROTO_TPU_QUIC) | (proto==DST_PROTO_SEND) ) {
+  if( proto==DST_PROTO_TPU_QUIC ) {
     fd_memcpy( ctx->buffer, fd_net_rx_translate_frag( &ctx->net_in_bounds[0], chunk, ctl, sz ), sz );
   } else if( proto == DST_PROTO_OUTGOING ) {
     ulong p = ctx->net_out_base + (chunk<<FD_CHUNK_LG_SZ);
@@ -128,7 +115,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * ctx,
   }
 
   if( !keys || memcmp( keys->pkt_key, EMPTY, sizeof( keys->pkt_key ) ) == 0 ) {
-    int is_client = ctx->trace_send;
+    int is_client = 0;
     int is_egress = (int)key_idx;
 
     /* (server,egress) and (client,ingress) don't have the client's orig DCID avail */

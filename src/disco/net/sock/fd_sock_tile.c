@@ -230,7 +230,6 @@ privileged_init( fd_topo_t const *      topo,
     (ushort)tile->sock.net.gossip_listen_port,
     (ushort)tile->sock.net.repair_client_listen_port,
     (ushort)tile->sock.net.repair_serve_listen_port,
-    (ushort)tile->sock.net.txsend_src_port,
     (ushort)tile->sock.net.votor_quic_client_listen_port,
     (ushort)tile->sock.net.votor_quic_server_listen_port
   };
@@ -241,7 +240,6 @@ privileged_init( fd_topo_t const *      topo,
     "net_gossvf", /* gossip_listen_port */
     "net_shred",  /* shred_listen_port (repair) */
     "net_rserve", /* repair_serve_listen_port */
-    "net_txsend", /* txsend_src_port */
     "net_votor",  /* votor_quic_client_listen_port */
     "net_votor"   /* votor_quic_server_listen_port */
   };
@@ -252,11 +250,10 @@ privileged_init( fd_topo_t const *      topo,
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
     DST_PROTO_REPAIR,   /* shred_listen_port (repair) */
     DST_PROTO_RSERVE,   /* repair_serve_listen_port */
-    DST_PROTO_SEND,     /* send_src_port */
     DST_PROTO_VOTOR,    /* votor_quic_client_listen_port */
     DST_PROTO_VOTOR     /* votor_quic_server_listen_port */
   };
-  for( uint candidate_idx=0U; candidate_idx<9; candidate_idx++ ) {
+  for( uint candidate_idx=0U; candidate_idx<sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]); candidate_idx++ ) {
     if( !udp_port_candidates[ candidate_idx ] ) continue;
     uint sock_idx = ctx->sock_cnt;
     if( sock_idx>=FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));

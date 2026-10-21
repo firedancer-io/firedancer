@@ -42,11 +42,9 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "rpc",    ALWAYS                       },
   { "gossvf", ALWAYS                       },
   { "gossip", ALWAYS                       },
-  { "repair", ALWAYS                       },
   { "rotor",  ALWAYS                       },
   { "rserve", ALWAYS                       },
   { "replay", ALWAYS|THRUPUT               },
-  { "tower",  ALWAYS                       },
   { "votor",  ALWAYS                       },
   { "pktgen", ALWAYS                       },
   { "mwaitx", ALWAYS|PIN_EFF               },
@@ -60,10 +58,8 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   /* Must sleep until snapshot load finishes */
   { "accdb",  POSTSTART|THRUPUT            },
   { "execle", POSTSTART|THRUPUT            },
-  { "poh",    POSTSTART|CRITICAL           },
   { "motor",  POSTSTART|CRITICAL           },
   { "execrp", POSTSTART|DEDICATED|THRUPUT  },
-  { "txsend", POSTSTART                    },
   { "solcap", POSTSTART|PIN_EFF            },
 
   /* Yield to the kernel scheduler */
@@ -574,9 +570,9 @@ static ulong
 smt_rank( fd_topo_tile_t const * tile,
           ulong                  execrp_floor,
           int                    replay_first ) {
-  static char const * const T4[] = { "tower", "votor", "shred", "net", "mlx5", "sock", "accdb", NULL };
-  static char const * const T5[] = { "repair", "rotor", NULL };
-  static char const * const T6[] = { "execle", "dedup", "sign", "resolv", "quic", "verify", "txsend", "bundle", "shred", "net", "mlx5", "sock", NULL };
+  static char const * const T4[] = { "votor", "shred", "net", "mlx5", "sock", "accdb", NULL };
+  static char const * const T5[] = { "rotor", NULL };
+  static char const * const T6[] = { "execle", "dedup", "sign", "resolv", "quic", "verify", "bundle", "shred", "net", "mlx5", "sock", NULL };
   static char const * const T7[] = { "gui", "rpc", "event", "rserve", "gossip", "gossvf", NULL };
 
   char const * name = tile->name;
@@ -965,11 +961,11 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   for( ulong i=0UL; i<cpus->cpu_cnt && graded && efficient; i++ ) graded = cpu_bv_test( cpu_assigned, i ) || !cpus->cpu[ i ].isolated;
   cpu_bv_t numa_fence[ cpu_bv_word_cnt ]; cpu_bv_new( numa_fence );
 
-  /* Pack, poh, accdb and execle go first into one L3 with the cores the
+  /* Pack, motor, accdb and execle go first into one L3 with the cores the
      plan gives them, pairing execle to fit and spilling the highest to
      the next L3.  The rest is planned around them, or without them if
      it then does not fit. */
-  static char const * const GROUP[] = { "pack", "poh", "motor", "accdb", "execle", NULL };
+  static char const * const GROUP[] = { "pack", "motor", "accdb", "execle", NULL };
   int group = !efficient && fd_topo_cpus_l3_complete( cpus );
   cpu_bv_t base      [ cpu_bv_word_cnt ]; cpu_bv_copy( base, cpu_assigned );
   cpu_bv_t group_post[ cpu_bv_word_cnt ]; cpu_bv_new( group_post ); /* free during snapshot load */
@@ -1020,12 +1016,12 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     }
     if( attempt || !group || !( graded || skip_ht_pairs ) ) break;
 
-    ulong lead = 0UL, ex = 0UL, ew = 0UL; /* cores of pack, poh and accdb, execle, execle on whole cores */
+    ulong lead = 0UL, ex = 0UL, ew = 0UL; /* cores of pack, motor and accdb, execle, execle on whole cores */
     for( ulong i=0UL; i<( graded ? steady_cnt : topo->tile_cnt ); i++ ) {
       ulong g = name_idx( topo->tiles[ graded ? steady_idx[ i ] : i ].name, GROUP );
-      lead += (ulong)( g<4UL );
-      ex   += (ulong)( g==4UL );
-      ew   += (ulong)( g==4UL && ( !graded || steady_mode[ i ]==SMT_WHOLE ) );
+      lead += (ulong)( g<3UL );
+      ex   += (ulong)( g==3UL );
+      ew   += (ulong)( g==3UL && ( !graded || steady_mode[ i ]==SMT_WHOLE ) );
     }
     /* First L3 in CPU order that fits, else fits execle paired, else the largest */
     ulong l3 = ULONG_MAX, l3_cores = 0UL, best = 0UL;
@@ -1054,7 +1050,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
         if( c==ULONG_MAX ) { l3 = ULONG_MAX; break; } /* the rest is placed as usual */
         ulong s = cpus->cpu[ c ].sibling;
         ulong m = ULONG_MAX; /* tile on the sibling, which goes to the rest if s is cleared */
-        if( g<4UL ) {
+        if( g<3UL ) {
           for( ulong i=0UL; i<steady_cnt && graded; i++ ) { /* as planned */
             if( steady_idx[ i ]!=j ) continue;
             if( steady_mode[ i ]==SMT_PAIR && steady_partner[ i ]!=ULONG_MAX ) m = steady_idx[ steady_partner[ i ] ];

@@ -74,7 +74,6 @@ struct fd_diag_tile {
     ulong bundle_cnt;
     ulong shred_tile_idx[ FD_TILE_MAX ];
     ulong shred_cnt;
-    ulong tower_idx;
     ulong votor_idx;
     ulong replay_idx;
   } tiles;
@@ -177,8 +176,6 @@ struct fd_diag_tile {
   ulong file_cnt;
 
   struct {
-    ulong prev_vote_slot;
-    long  vote_slot_changed_ns;
     ulong prev_reset_slot;
     long  reset_slot_changed_ns;
     ulong prev_turbine_slot;
@@ -381,8 +378,6 @@ check_builder_status( fd_diag_tile_t * ctx ) {
 
 static void
 check_engine_metric( fd_diag_tile_t * ctx, long now ) {
-  static ulong const vote_distance_threshold    = 150UL;
-  static long  const vote_stall_threshold_ns    = 60L*1000L*1000L*1000L;
   static ulong const replay_distance_threshold  = 12UL;
   static long  const replay_stall_threshold_ns  = 12L*1000L*1000L*1000L;
   static long  const turbine_stall_threshold_ns = 12L*1000L*1000L*1000L;
@@ -409,7 +404,6 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
     else                      bundle_status = FD_DIAG_BUNDLE_STATUS_DISCONNECTED;
   }
 
-  ulong tower_idx   = ctx->tiles.tower_idx;
   ulong votor_idx   = ctx->tiles.votor_idx;
   ulong vote_status = FD_DIAG_VOTE_STATUS_DISABLED;
 
@@ -430,27 +424,6 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
       } else {
         int current = fd_int_if( replay_slot>=128UL, vote_slot+128UL>replay_slot, vote_slot>0UL );
         vote_status = fd_ulong_if( current, FD_DIAG_VOTE_STATUS_VOTING, FD_DIAG_VOTE_STATUS_DELINQUENT );
-      }
-    }
-  } else if( FD_LIKELY( ctx->is_voting && tower_idx!=ULONG_MAX ) ) {
-    if( FD_UNLIKELY( ctx->metrics[ tower_idx ][ FD_METRICS_GAUGE_TILE_STATE_OFF ]!=1UL ) ) {
-      vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
-    } else {
-      volatile ulong * m = ctx->metrics[ tower_idx ];
-      ulong vote_slot    = m[ FD_METRICS_GAUGE_TOWER_LAST_VOTE_SLOT_OFF ];
-      ulong replay_slot  = m[ FD_METRICS_GAUGE_TOWER_LAST_REPLAYED_SLOT_OFF ];
-      if( FD_UNLIKELY( !vote_slot || replay_slot==0UL ) ) {
-        vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
-      } else {
-        if( FD_UNLIKELY( vote_slot!=ctx->check_engine.prev_vote_slot ) ) {
-          ctx->check_engine.prev_vote_slot       = vote_slot;
-          ctx->check_engine.vote_slot_changed_ns = now;
-        }
-        int delinquent = (replay_slot>vote_slot && replay_slot-vote_slot>vote_distance_threshold) ||
-                         (now-ctx->check_engine.vote_slot_changed_ns>vote_stall_threshold_ns);
-        vote_status = fd_ulong_if( delinquent,
-                                   FD_DIAG_VOTE_STATUS_DELINQUENT,
-                                   FD_DIAG_VOTE_STATUS_VOTING );
       }
     }
   }
@@ -1745,7 +1718,6 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<ctx->tiles.bundle_cnt; i++ ) ctx->tiles.bundle_tile_idx[ i ] = fd_topo_find_tile( topo, "bundle", i );
   ctx->tiles.shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
   for( ulong i=0UL; i<ctx->tiles.shred_cnt; i++ ) ctx->tiles.shred_tile_idx[ i ] = fd_topo_find_tile( topo, "shred", i );
-  ctx->tiles.tower_idx  = fd_topo_find_tile( topo, "tower",  0UL );
   ctx->tiles.votor_idx  = fd_topo_find_tile( topo, "votor",  0UL );
   ctx->tiles.replay_idx = fd_topo_find_tile( topo, "replay", 0UL );
 
@@ -1753,7 +1725,6 @@ unprivileged_init( fd_topo_t const *      topo,
   cpu_owner_refresh( ctx, topo );
 
   ctx->is_voting = tile->diag.is_voting;
-  ctx->check_engine.vote_slot_changed_ns    = ctx->next_report_nanos;
   ctx->check_engine.reset_slot_changed_ns   = ctx->next_report_nanos;
   ctx->check_engine.turbine_slot_changed_ns = ctx->next_report_nanos;
   ctx->check_engine.byte_snapshot_ns        = ctx->next_report_nanos;

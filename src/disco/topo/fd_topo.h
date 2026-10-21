@@ -111,7 +111,6 @@ struct fd_topo_net_tile {
   ushort gossip_listen_port;
   ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
-  ushort txsend_src_port;
   ushort votor_quic_client_listen_port;
   ushort votor_quic_server_listen_port;
 };
