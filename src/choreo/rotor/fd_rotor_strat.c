@@ -224,23 +224,38 @@ fd_rotor_strat_pick( fd_rotor_strat_t * strat,
   return NULL;
 }
 
+/* staked_avail returns 0 if staked slot idx cannot be drawn, 1 if it
+   can but its hedge is over FD_ROTOR_STRAT_HEDGE_MAX_NS, 2 if it can. */
+
+static int
+staked_avail( fd_rotor_strat_t const * strat,
+              ulong                    idx,
+              long                     now,
+              ulong const *            avoid,
+              ulong                    avoid_cnt ) {
+  fd_rotor_strat_peer_t const * peer = &strat->cur.peers[ idx ];
+  for( ulong i=0UL; i<avoid_cnt; i++ ) if( idx==avoid[ i ] ) return 0;
+  if( !peer->ip4 || peer->inflight>=FD_ROTOR_STRAT_INFLIGHT_MAX || peer->ban_ts>now ) return 0;
+  return 2-( peer->srtt && peer->srtt+4L*peer->rttvar>FD_ROTOR_STRAT_HEDGE_MAX_NS );
+}
+
 fd_rotor_strat_peer_t *
 fd_rotor_strat_pick_staked( fd_rotor_strat_t * strat,
                             long               now,
-                            ulong              avoid,
+                            ulong const *      avoid,
+                            ulong              avoid_cnt,
                             ulong              r ) {
   ulong n = strat->staked_cnt;
-  ulong m = 0UL;
-  for( ulong idx=0UL; idx<n; idx++ ) {
-    fd_rotor_strat_peer_t const * peer = &strat->cur.peers[ idx ];
-    m += (ulong)( idx!=avoid && peer->ip4 && peer->inflight<FD_ROTOR_STRAT_INFLIGHT_MAX && peer->ban_ts<=now );
-  }
-  if( FD_UNLIKELY( !m ) ) return NULL;
+  ulong m[ 3 ] = {0};
+  for( ulong idx=0UL; idx<n; idx++ ) m[ staked_avail( strat, idx, now, avoid, avoid_cnt ) ]++;
+  int   min = 2-!m[ 2 ]; /* slow peers only if no other */
+  ulong cnt = m[ 2 ]+fd_ulong_if( min==1, m[ 1 ], 0UL );
+  if( FD_UNLIKELY( !cnt ) ) return NULL;
 
-  ulong k = fd_ulong_min( (r&UINT_MAX)%m, (r>>32)%m ); /* among the available peers, in stake order */
+  ulong k = fd_ulong_min( (r&UINT_MAX)%cnt, (r>>32)%cnt ); /* among the available peers, in stake order */
   for( ulong idx=0UL; idx<n; idx++ ) {
     fd_rotor_strat_peer_t * peer = &strat->cur.peers[ idx ];
-    if( idx==avoid || !peer->ip4 || peer->inflight>=FD_ROTOR_STRAT_INFLIGHT_MAX || peer->ban_ts>now ) continue;
+    if( staked_avail( strat, idx, now, avoid, avoid_cnt )<min ) continue;
     if( k-- ) continue;
     peer->inflight++;
     place( strat, idx );

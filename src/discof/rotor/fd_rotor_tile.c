@@ -76,6 +76,7 @@ struct pending {
   uint        fec_idx;     /* FEC index */
   uint        fec_set_cnt; /* the blk's when sent */
   uint        tag;         /* FD_ROTOR_SERDE_TAG_* of the request */
+  int         fanout;      /* sent to several peers at once, ts shared by its siblings */
 };
 typedef struct pending pending_t;
 
@@ -127,6 +128,8 @@ typedef struct sign sign_t;
 #define PING_TTL  (500L*1000000L)   /* a ping is answered this long after we sent its peer a request, Agave's 2*DELTA */
 #define BAN_TTL   (10L*1000000000L) /* a peer whose response fails to verify is not picked for this long */
 #define STUCK_MAX (3U)              /* attempts with no new shred before a retry leaves the bucket order */
+#define ESCAPE_FANOUT (3UL)         /* staked peers an escaped shred request goes to at once */
+#define RETRY_MAX PENDING_TTL       /* a reply later than this no longer verifies */
 #define NO_PEER   (10L*1000000L)    /* a req with no peer to pick waits this long */
 
 static fd_ed25519_sig_t const sig_null = {0};
@@ -268,10 +271,13 @@ struct fd_rotor_tile {
     ulong      req_hedged;
     ulong      req_expired;
     ulong      req_stuck_escaped;
+    ulong      req_stuck_fanout;
+    ulong      req_late_attempt;
     ulong      peer_byid_banned;
     ulong      byid_expired;
     fd_histf_t response_latency[ 1 ];
     fd_histf_t retry_delay[ 1 ];
+    fd_histf_t escape_hedge[ 1 ];
   } metrics[ 1 ];
 };
 typedef struct fd_rotor_tile fd_rotor_tile_t;
@@ -528,7 +534,24 @@ handle_shred( fd_rotor_tile_t * ctx,
     pending_t * pending = reply ? pending_map_ele_query( ctx->pending_map, &key, NULL, ctx->pending_pool ) : NULL;
     for( ; pending; pending = (pending_t *)pending_map_ele_next_const( pending, NULL, ctx->pending_pool ) ) {
       if( FD_LIKELY( fd_rnonce_ss_compute( ctx->rnonce_ss, normal, slot, shred->idx, pending->ts )!=msg->rnonce ) ) continue;
-      fd_rotor_strat_request_done( ctx->strat, &pending->peer, now-pending->ts, pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
+      if( FD_UNLIKELY( pending->fanout ) ) {
+        /* Siblings share the nonce, so the reply cannot say which peer
+           sent it: the first one ends them all, without an rtt sample. */
+        pending_t * sib = pending_map_ele_query( ctx->pending_map, &key, NULL, ctx->pending_pool );
+        while( sib ) {
+          pending_t * next = (pending_t *)pending_map_ele_next_const( sib, NULL, ctx->pending_pool );
+          if( sib!=pending && sib->fanout && sib->ts==pending->ts ) {
+            fd_rotor_strat_request_failed( ctx->strat, &sib->peer, 0L );
+            pending_map_ele_remove_fast( ctx->pending_map,   sib, ctx->pending_pool );
+            pending_dlist_ele_remove   ( ctx->pending_dlist, sib, ctx->pending_pool );
+            pending_pool_ele_release   ( ctx->pending_pool,  sib );
+          }
+          sib = next;
+        }
+        fd_rotor_strat_request_failed( ctx->strat, &pending->peer, 0L );
+      } else {
+        fd_rotor_strat_request_done( ctx->strat, &pending->peer, now-pending->ts, pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
+      }
       fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-pending->ts ) );
       ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
       fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
@@ -899,6 +922,8 @@ metrics_write( fd_rotor_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, REQUEST_EXPIRED,          ctx->metrics->req_expired   );
   FD_MCNT_SET( ROTOR, REQUEST_BY_ID_EXPIRED,    ctx->metrics->byid_expired      );
   FD_MCNT_SET( ROTOR, REQUEST_STUCK_ESCAPED,    ctx->metrics->req_stuck_escaped );
+  FD_MCNT_SET( ROTOR, REQUEST_FANOUT_SENT,      ctx->metrics->req_stuck_fanout  );
+  FD_MCNT_SET( ROTOR, REQUEST_LATE_RETRIED,     ctx->metrics->req_late_attempt  );
   FD_MCNT_SET( ROTOR, PEER_BY_ID_BANNED,        ctx->metrics->peer_byid_banned  );
 
   FD_MCNT_SET      ( ROTOR, SHRED_OLD_IGNORED, ctx->metrics->shred_old );
@@ -921,6 +946,7 @@ metrics_write( fd_rotor_tile_t * ctx ) {
 
   FD_MHIST_COPY( ROTOR, RESPONSE_LATENCY_NANOS, ctx->metrics->response_latency );
   FD_MHIST_COPY( ROTOR, RETRY_DELAY_NANOS,      ctx->metrics->retry_delay      );
+  FD_MHIST_COPY( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS, ctx->metrics->escape_hedge     );
 }
 
 FD_FN_CONST static inline ulong
@@ -1090,69 +1116,94 @@ after_credit( fd_rotor_tile_t *   ctx,
     }
 
     /* A retry asks someone else.  After STUCK_MAX attempts that brought
-       no new shred, the fastest peers are not answering: pick a staked
-       peer at random instead. */
+       no new shred, the fastest peers are not answering: ask staked
+       peers at random instead, a shred request several at once. */
     uint rcvd   = fec ? fec->rcvd : 0U;
     uint stuck  = fd_uint_if( req.attempt && !( rcvd & ~req.rcvd ), req.stuck+1U, 0U ); /* only new shreds are progress, not an eviction; kept only once sent */
     int  escape = stuck>=STUCK_MAX && !blk->eager;
-    fd_rotor_strat_peer_t * peer = escape ? fd_rotor_strat_pick_staked( ctx->strat, now, (ulong)req.last_peer-1UL, fd_rng_ulong( ctx->rng ) ) : NULL;
-    ctx->metrics->req_stuck_escaped += (ulong)!!peer;
-    if( FD_LIKELY( !peer ) ) peer = fd_rotor_strat_pick( ctx->strat, now, !blk->eager && req.attempt, (ulong)req.last_peer-1UL );
-    if( FD_UNLIKELY( !peer ) ) {
+    ulong fan_max = fd_ulong_if( escape && tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID,
+                                 fd_ulong_min( ESCAPE_FANOUT, ( sign_pool_free( ctx->sign_pool )-SIGN_RESERVE )/(ulong)fd_uint_popcnt( mask ) ), 1UL );
+    fd_rotor_strat_peer_t * peers[ ESCAPE_FANOUT ];
+    ulong                   avoid[ ESCAPE_FANOUT+1UL ] = { (ulong)req.last_peer-1UL };
+    ulong                   peer_cnt = 0UL;
+    while( escape && peer_cnt<fan_max ) {
+      fd_rotor_strat_peer_t * p = fd_rotor_strat_pick_staked( ctx->strat, now, avoid, 1UL+peer_cnt, fd_rng_ulong( ctx->rng ) );
+      if( FD_UNLIKELY( !p ) ) break;
+      fd_histf_sample( ctx->metrics->escape_hedge, (ulong)fd_long_if( !!p->srtt, p->srtt+4L*p->rttvar, FD_ROTOR_STRAT_HEDGE_NS ) ); /* uncapped */
+      avoid[ 1UL+peer_cnt ] = (ulong)( p-ctx->strat->cur.peers );
+      peers[ peer_cnt++ ]   = p;
+    }
+    int escaped = !!peer_cnt;
+    ctx->metrics->req_stuck_escaped += (ulong)escaped;
+    ctx->metrics->req_stuck_fanout  += peer_cnt-(ulong)escaped;
+    if( FD_LIKELY( !peer_cnt ) ) {
+      peers[ 0 ] = fd_rotor_strat_pick( ctx->strat, now, !blk->eager && req.attempt, (ulong)req.last_peer-1UL );
+      peer_cnt   = (ulong)!!peers[ 0 ];
+    }
+    if( FD_UNLIKELY( !peer_cnt ) ) {
       ctx->metrics->req_no_peer++;
       req.timeout = now+NO_PEER;
       push_timeout( ctx, blk, &req );
       break;
     }
-    peer->ping_ts = now;
     req.stuck     = stuck;
     req.rcvd      = rcvd;
 
     uint nonce = fd_rng_uint( ctx->rng );
     while( meta && pending_map_ele_query_const( ctx->pending_map, &(ulong){ nonce }, NULL, ctx->pending_pool ) ) nonce = fd_rng_uint( ctx->rng );
 
-    if( FD_UNLIKELY( !pending_pool_free( ctx->pending_pool ) ) ) { /* evict the oldest, a reply to it no longer matches */
-      pending_t * oldest = pending_dlist_ele_pop_head( ctx->pending_dlist, ctx->pending_pool );
-      fd_rotor_strat_request_failed( ctx->strat, &oldest->peer, 0 );
-      pending_map_ele_remove_fast( ctx->pending_map, oldest, ctx->pending_pool );
-      pending_pool_ele_release   ( ctx->pending_pool, oldest );
-    }
-    pending_t * pending = pending_pool_ele_acquire( ctx->pending_pool );
-    pending->key         = fd_ulong_if( meta, (ulong)nonce, (ulong)(uint)blk->slot<<32 | fd_uint_if( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX || req.tag==FD_ROTOR_SERDE_TAG_ORPHAN, (uint)ctx->rotor->fec_blk_max, req.fec_idx ) ); /* an ORPHAN's first reply is of the slot itself, matched like a HIGHEST */
-    pending->ts          = now;
-    pending->slot        = blk->slot;
-    pending->blk         = req.blk;
-    pending->dmr         = blk->dmr;
-    pending->peer        = peer->id_key;
-    pending->fec_idx     = req.fec_idx;
-    pending->fec_set_cnt = blk->cmpl_fec_cnt;
-    pending->tag         = tag;
-    pending_map_ele_insert     ( ctx->pending_map,   pending, ctx->pending_pool );
-    pending_dlist_ele_push_tail( ctx->pending_dlist, pending, ctx->pending_pool );
+    long hedge = 0L;
+    for( ulong p=0UL; p<peer_cnt; p++ ) {
+      fd_rotor_strat_peer_t * peer = peers[ p ];
+      peer->ping_ts = now;
+      hedge         = fd_long_max( hedge, fd_rotor_strat_hedge_ns( peer ) );
 
-    for( uint m=mask; m; m=fd_uint_pop_lsb( m ) ) {
-      uint             idx          = req.fec_idx*FD_FEC_SHRED_CNT+(uint)fd_uint_find_lsb( m );
-      uint             rnonce       = fd_uint_if( meta, nonce, fd_rnonce_ss_compute( ctx->rnonce_ss, tag!=FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX && tag!=FD_ROTOR_SERDE_TAG_ORPHAN, blk->slot, idx, now ) );
-      sign_t *         sign         = sign_pool_ele_acquire( ctx->sign_pool );
-      *sign = (sign_t){ .sig_off = sizeof(uint), .daddr = peer->ip4, .dport = fd_ushort_bswap( peer->port ) };
-      switch( tag ) {
-      case FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT:  sign->sz = fd_rotor_req_parent_and_fec_set_count_ser ( &(fd_rotor_parent_fec_set_count_t){ .slot = blk->slot, .block_id = blk->dmr                     }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
-      case FD_ROTOR_SERDE_TAG_FEC_SET_ROOT:              sign->sz = fd_rotor_req_fec_set_root_ser             ( &(fd_rotor_fec_set_root_t){ .slot = blk->slot, .block_id = blk->dmr, .fec_set_idx = idx }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
-      case FD_ROTOR_SERDE_TAG_ORPHAN:                    sign->sz = fd_rotor_req_orphan_ser                   ( &(fd_rotor_orphan_t){ .slot = blk->slot                                               }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
-      case FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX:      sign->sz = fd_rotor_req_highest_window_index_ser     ( &(fd_rotor_highest_shred_t){ .slot = blk->slot, .shred_idx = blk->rcvd_fec_cnt*FD_FEC_SHRED_CNT }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
-      case FD_ROTOR_SERDE_TAG_WINDOW_INDEX:              sign->sz = fd_rotor_req_window_index_ser             ( &(fd_rotor_shred_t){ .slot = blk->slot, .shred_idx = idx                                 }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
-      case FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID: sign->sz = fd_rotor_req_window_index_for_block_id_ser( &(fd_rotor_shred_for_block_id_t){ .slot = blk->slot, .shred_idx = idx, .block_id = blk->dmr }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
+      if( FD_UNLIKELY( !pending_pool_free( ctx->pending_pool ) ) ) { /* evict the oldest, a reply to it no longer matches */
+        pending_t * oldest = pending_dlist_ele_pop_head( ctx->pending_dlist, ctx->pending_pool );
+        fd_rotor_strat_request_failed( ctx->strat, &oldest->peer, 0 );
+        pending_map_ele_remove_fast( ctx->pending_map, oldest, ctx->pending_pool );
+        pending_pool_ele_release   ( ctx->pending_pool, oldest );
       }
+      pending_t * pending = pending_pool_ele_acquire( ctx->pending_pool );
+      pending->key         = fd_ulong_if( meta, (ulong)nonce, (ulong)(uint)blk->slot<<32 | fd_uint_if( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX || req.tag==FD_ROTOR_SERDE_TAG_ORPHAN, (uint)ctx->rotor->fec_blk_max, req.fec_idx ) ); /* an ORPHAN's first reply is of the slot itself, matched like a HIGHEST */
+      pending->ts          = now;
+      pending->slot        = blk->slot;
+      pending->blk         = req.blk;
+      pending->dmr         = blk->dmr;
+      pending->peer        = peer->id_key;
+      pending->fec_idx     = req.fec_idx;
+      pending->fec_set_cnt = blk->cmpl_fec_cnt;
+      pending->tag         = tag;
+      pending->fanout      = peer_cnt>1UL;
+      pending_map_ele_insert     ( ctx->pending_map,   pending, ctx->pending_pool );
+      pending_dlist_ele_push_tail( ctx->pending_dlist, pending, ctx->pending_pool );
 
-      ulong s = 0UL;
-      for( ulong i=1UL; i<ctx->sign_cnt; i++ ) s = fd_ulong_if( ctx->sign[ i ].free>ctx->sign[ s ].free, i, s );
-      ulong sz = fd_rotor_req_sig_ser( sign->buf, sign->sz, fd_chunk_to_laddr( ctx->sign[ s ].mem, ctx->sign[ s ].chunk ) );
-      fd_stem_publish( stem, ctx->sign[ s ].idx, (sign_pool_idx( ctx->sign_pool, sign )<<32)|(ulong)FD_KEYGUARD_SIGN_TYPE_ED25519, ctx->sign[ s ].chunk, sz, 0UL, 0UL, 0UL );
-      ctx->sign[ s ].chunk = fd_dcache_compact_next( ctx->sign[ s ].chunk, sz, ctx->sign[ s ].chunk0, ctx->sign[ s ].wmark );
-      ctx->sign[ s ].free--;
+      for( uint m=mask; m; m=fd_uint_pop_lsb( m ) ) {
+        uint             idx          = req.fec_idx*FD_FEC_SHRED_CNT+(uint)fd_uint_find_lsb( m );
+        uint             rnonce       = fd_uint_if( meta, nonce, fd_rnonce_ss_compute( ctx->rnonce_ss, tag!=FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX && tag!=FD_ROTOR_SERDE_TAG_ORPHAN, blk->slot, idx, now ) );
+        sign_t *         sign         = sign_pool_ele_acquire( ctx->sign_pool );
+        *sign = (sign_t){ .sig_off = sizeof(uint), .daddr = peer->ip4, .dport = fd_ushort_bswap( peer->port ) };
+        switch( tag ) {
+        case FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT:  sign->sz = fd_rotor_req_parent_and_fec_set_count_ser ( &(fd_rotor_parent_fec_set_count_t){ .slot = blk->slot, .block_id = blk->dmr                     }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
+        case FD_ROTOR_SERDE_TAG_FEC_SET_ROOT:              sign->sz = fd_rotor_req_fec_set_root_ser             ( &(fd_rotor_fec_set_root_t){ .slot = blk->slot, .block_id = blk->dmr, .fec_set_idx = idx }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
+        case FD_ROTOR_SERDE_TAG_ORPHAN:                    sign->sz = fd_rotor_req_orphan_ser                   ( &(fd_rotor_orphan_t){ .slot = blk->slot                                               }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
+        case FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX:      sign->sz = fd_rotor_req_highest_window_index_ser     ( &(fd_rotor_highest_shred_t){ .slot = blk->slot, .shred_idx = blk->rcvd_fec_cnt*FD_FEC_SHRED_CNT }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
+        case FD_ROTOR_SERDE_TAG_WINDOW_INDEX:              sign->sz = fd_rotor_req_window_index_ser             ( &(fd_rotor_shred_t){ .slot = blk->slot, .shred_idx = idx                                 }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
+        case FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID: sign->sz = fd_rotor_req_window_index_for_block_id_ser( &(fd_rotor_shred_for_block_id_t){ .slot = blk->slot, .shred_idx = idx, .block_id = blk->dmr }, sig_null, &ctx->identity_key, &peer->id_key, ts, rnonce, sign->buf ); break;
+        }
+
+        ulong s = 0UL;
+        for( ulong i=1UL; i<ctx->sign_cnt; i++ ) s = fd_ulong_if( ctx->sign[ i ].free>ctx->sign[ s ].free, i, s );
+        ulong sz = fd_rotor_req_sig_ser( sign->buf, sign->sz, fd_chunk_to_laddr( ctx->sign[ s ].mem, ctx->sign[ s ].chunk ) );
+        fd_stem_publish( stem, ctx->sign[ s ].idx, (sign_pool_idx( ctx->sign_pool, sign )<<32)|(ulong)FD_KEYGUARD_SIGN_TYPE_ED25519, ctx->sign[ s ].chunk, sz, 0UL, 0UL, 0UL );
+        ctx->sign[ s ].chunk = fd_dcache_compact_next( ctx->sign[ s ].chunk, sz, ctx->sign[ s ].chunk0, ctx->sign[ s ].wmark );
+        ctx->sign[ s ].free--;
+      }
     }
-    ctx->metrics->request_tx[ tag ] += (ulong)fd_uint_popcnt( mask );
+    fd_rotor_strat_peer_t * peer = peers[ 0 ];
+    ctx->metrics->request_tx[ tag ] += peer_cnt*(ulong)fd_uint_popcnt( mask );
     ctx->metrics->req_hedged        += (ulong)!!req.attempt;
+    ctx->metrics->req_late_attempt  += (ulong)( req.attempt>=3U );
 
     blk->telemetry.first_req_ts      = fd_long_if( !blk->telemetry.first_req_ts, now, blk->telemetry.first_req_ts );
     uint * req_cnt = NULL;
@@ -1164,9 +1215,13 @@ after_credit( fd_rotor_tile_t *   ctx,
     case FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT:  req_cnt = &blk->telemetry.req_parent_cnt;    break;
     case FD_ROTOR_SERDE_TAG_FEC_SET_ROOT:              req_cnt = &blk->telemetry.req_fec_root_cnt;  break;
     }
-    if( FD_LIKELY( req_cnt ) ) *req_cnt += (uint)fd_uint_popcnt( mask );
+    if( FD_LIKELY( req_cnt ) ) *req_cnt += (uint)( peer_cnt*(ulong)fd_uint_popcnt( mask ) );
 
-    req.timeout = now+( fd_long_max( fd_rotor_strat_hedge_ns( peer ), 1L<<24 )<<fd_uint_min( req.attempt, 3U ) ); /* a re-pick gets a new shred nonce */
+    /* Backoff spares a peer already asked; an escape asks new ones.  A
+       reply after RETRY_MAX no longer verifies, so waiting longer is
+       waste. */
+    uint shift  = fd_uint_if( escaped, 0U, fd_uint_min( req.attempt, 3U ) );
+    req.timeout = now+fd_long_min( fd_long_max( hedge, 1L<<24 )<<shift, RETRY_MAX ); /* a re-pick gets a new shred nonce */
     req.attempt   = (uchar)fd_uint_min( req.attempt+1U, UCHAR_MAX );
     req.last_peer = (ushort)( 1UL+(ulong)( peer-ctx->strat->cur.peers ) );
     fd_histf_sample( ctx->metrics->retry_delay, (ulong)( req.timeout-now ) );
@@ -1419,6 +1474,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_clock_tile_init( ctx->clock );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( ROTOR, RESPONSE_LATENCY_NANOS ), FD_MHIST_MAX( ROTOR, RESPONSE_LATENCY_NANOS ) ) ) );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->retry_delay,      FD_MHIST_MIN( ROTOR, RETRY_DELAY_NANOS      ), FD_MHIST_MAX( ROTOR, RETRY_DELAY_NANOS      ) ) ) );
+  FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->escape_hedge,     FD_MHIST_MIN( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS ), FD_MHIST_MAX( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS ) ) ) );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

@@ -3976,7 +3976,45 @@ message MetricsReplayRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
-// Delay scheduled before a request's next attempt: its peer's hedge time with the per-attempt backoff
+// Uncapped hedge time (srtt+4*rttvar, 200 ms if unmeasured) of each staked peer an escaped retry was sent to
+message MetricsRotorEscapePeerHedgeDelayNanos {
+  // [0, 10000000) nanos
+  uint64 b0 = 1;
+  // [10000000, 16378937) nanos
+  uint64 b1 = 2;
+  // [16378937, 26826958) nanos
+  uint64 b2 = 3;
+  // [26826958, 43939706) nanos
+  uint64 b3 = 4;
+  // [43939706, 71968568) nanos
+  uint64 b4 = 5;
+  // [71968568, 117876865) nanos
+  uint64 b5 = 6;
+  // [117876865, 193069775) nanos
+  uint64 b6 = 7;
+  // [193069775, 316227769) nanos
+  uint64 b7 = 8;
+  // [316227769, 517947472) nanos
+  uint64 b8 = 9;
+  // [517947472, 848342904) nanos
+  uint64 b9 = 10;
+  // [848342904, 1389495502) nanos
+  uint64 b10 = 11;
+  // [1389495502, 2275845935) nanos
+  uint64 b11 = 12;
+  // [2275845935, 3727593730) nanos
+  uint64 b12 = 13;
+  // [3727593730, 6105402305) nanos
+  uint64 b13 = 14;
+  // [6105402305, 10000000000) nanos
+  uint64 b14 = 15;
+  // [10000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Delay scheduled before a request's next attempt: its peer's hedge time (at most 500 ms) with the per-attempt backoff, none after an escape, at most 1 s
 message MetricsRotorRetryDelayNanos {
   // [0, 10000000) nanos
   uint64 b0 = 1;
@@ -10074,7 +10112,7 @@ message MetricsRotor {
   MetricsRotorPingRejected ping_rejected = 44;
   // Time from sending a repair request to receiving its response
   MetricsRotorResponseLatencyNanos response_latency_nanos = 45;
-  // Delay scheduled before a request's next attempt: its peer's hedge time with the per-attempt backoff
+  // Delay scheduled before a request's next attempt: its peer's hedge time (at most 500 ms) with the per-attempt backoff, none after an escape, at most 1 s
   MetricsRotorRetryDelayNanos retry_delay_nanos = 46;
   // Timeouts in the eager, notar and final timeout queues
   uint64 timeout_pending = 47;
@@ -10096,10 +10134,16 @@ message MetricsRotor {
   uint64 catchup_slot = 55;
   // WindowIndexForBlockId requests that expired unanswered, at or above the root
   uint64 request_by_id_expired = 56;
-  // Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set
+  // Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set
   uint64 request_stuck_escaped = 57;
   // Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies
   uint64 peer_by_id_banned = 58;
+  // Extra staked peers an escaped WindowIndexForBlockId retry was also sent to, up to 2 per retry
+  uint64 request_fanout_sent = 59;
+  // Request attempts sent after 3 or more earlier attempts for the same timer
+  uint64 request_late_retried = 60;
+  // Uncapped hedge time (srtt+4*rttvar, 200 ms if unmeasured) of each staked peer an escaped retry was sent to
+  MetricsRotorEscapePeerHedgeDelayNanos escape_peer_hedge_delay_nanos = 61;
 }
 
 // Metrics of one rserve tile instance, one row per sweep

@@ -8,9 +8,10 @@
    bucket's cheaper of the next two peers by srtt*(inflight+1), the
    cursor advancing one peer so every peer meets every neighbor,
    every FD_ROTOR_STRAT_EXPLORE-th pick tries an unmeasured peer first,
-   and a request is hedged after srtt+4*rttvar (RFC 6298).  It also
-   estimates each leader's turbine time, which decides how long a
-   missing FEC set waits for turbine before it is repaired. */
+   and a request is hedged after srtt+4*rttvar (RFC 6298), at most
+   FD_ROTOR_STRAT_HEDGE_MAX_NS.  It also estimates each leader's turbine
+   time, which decides how long a missing FEC set waits for turbine
+   before it is repaired. */
 
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
@@ -21,6 +22,7 @@
 #define FD_ROTOR_STRAT_EXPIRED_MAX  (32U)  /* requests in a row a peer leaves unanswered before it is banned */
 #define FD_ROTOR_STRAT_BYID_MAX     (4U)   /* by-id requests in a row, other replies aside */
 #define FD_ROTOR_STRAT_HEDGE_NS     (200L*1000000L) /* hedge time of an unmeasured peer */
+#define FD_ROTOR_STRAT_HEDGE_MAX_NS (500L*1000000L) /* a later reply is as good as lost */
 #define FD_ROTOR_STRAT_EAGER_MIN_NS (20L*1000000L)
 #define FD_ROTOR_STRAT_EAGER_MAX_NS (250L*1000000L)  /* also the eager wait until turbine is measured */
 #define FD_ROTOR_STRAT_TURBINE_MIN  (8UL)            /* samples before a leader's own estimate is used */
@@ -147,14 +149,17 @@ fd_rotor_strat_pick( fd_rotor_strat_t * strat,
                      ulong              avoid );
 
 /* fd_rotor_strat_pick_staked returns a staked peer at random, higher
-   stake ranks likelier, other than slot avoid, for a request the bucket
-   order keeps failing, and counts it in flight.  r is a random number.
-   NULL if none is available. */
+   stake ranks likelier, other than the avoid_cnt slots in avoid, for a
+   request the bucket order keeps failing, and counts it in flight.
+   Peers whose hedge exceeds FD_ROTOR_STRAT_HEDGE_MAX_NS are drawn only
+   if no other is available.  r is a random number.  NULL if none is
+   available. */
 
 fd_rotor_strat_peer_t *
 fd_rotor_strat_pick_staked( fd_rotor_strat_t * strat,
                             long               now,
-                            ulong              avoid,
+                            ulong const *      avoid,
+                            ulong              avoid_cnt,
                             ulong              r );
 
 /* fd_rotor_strat_request_done ends a request picked from id_key with a
@@ -211,7 +216,7 @@ fd_rotor_strat_eager_ns( fd_rotor_strat_t *  strat,
 
 static inline long
 fd_rotor_strat_hedge_ns( fd_rotor_strat_peer_t const * peer ) {
-  return fd_long_if( !!peer->srtt, peer->srtt+4L*peer->rttvar, FD_ROTOR_STRAT_HEDGE_NS );
+  return fd_long_if( !!peer->srtt, fd_long_min( peer->srtt+4L*peer->rttvar, FD_ROTOR_STRAT_HEDGE_MAX_NS ), FD_ROTOR_STRAT_HEDGE_NS );
 }
 
 fd_rotor_strat_peer_t *

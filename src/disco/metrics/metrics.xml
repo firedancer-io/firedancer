@@ -1164,7 +1164,7 @@ deliberate exception with lint-allow="<rule id>")
         <summary>Time from sending a repair request to receiving its response</summary>
     </histogram>
     <histogram name="RetryDelayNanos" min="10000000" max="60000000000">
-        <summary>Delay scheduled before a request's next attempt: its peer's hedge time with the per-attempt backoff</summary>
+        <summary>Delay scheduled before a request's next attempt: its peer's hedge time (at most 500 ms) with the per-attempt backoff, none after an escape, at most 1 s</summary>
     </histogram>
     <gauge name="TimeoutPending" summary="Timeouts in the eager, notar and final timeout queues" />
     <counter name="TimeoutCancelled" summary="Timeouts dropped because their block is gone or their work is done" />
@@ -1172,7 +1172,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="RequestHedged" summary="Request attempts after the first for the same timer" />
     <counter name="RequestExpired" summary="Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted" />
     <counter name="RequestByIdExpired" summary="WindowIndexForBlockId requests that expired unanswered, at or above the root" />
-    <counter name="RequestStuckEscaped" summary="Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set" />
+    <counter name="RequestStuckEscaped" summary="Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set" />
+    <counter name="RequestFanoutSent" summary="Extra staked peers an escaped WindowIndexForBlockId retry was also sent to, up to 2 per retry" />
+    <counter name="RequestLateRetried" summary="Request attempts sent after 3 or more earlier attempts for the same timer" />
+    <histogram name="EscapePeerHedgeDelayNanos" min="10000000" max="10000000000">
+        <summary>Uncapped hedge time (srtt+4*rttvar, 200 ms if unmeasured) of each staked peer an escaped retry was sent to</summary>
+    </histogram>
     <counter name="PeerByIdBanned" summary="Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies" />
     <counter name="PingProbeTx" summary="Requests sent to elicit a ping from a peer with a new address" />
     <gauge name="EagerDelayNanos" summary="Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled)" />

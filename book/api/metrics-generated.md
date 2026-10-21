@@ -2223,14 +2223,17 @@
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">unknown_&#8203;peer</span>"} | counter | Pings rejected, by reason (Sender is not a known peer) |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;rejected</span><br/>{ping_&#8203;reject_&#8203;reason="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Pings rejected, by reason (Signature did not verify) |
 | <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time from sending a repair request to receiving its response |
-| <span class="metrics-name">rotor_&#8203;retry_&#8203;delay_&#8203;nanos</span> | histogram | Delay scheduled before a request's next attempt: its peer's hedge time with the per-attempt backoff |
+| <span class="metrics-name">rotor_&#8203;retry_&#8203;delay_&#8203;nanos</span> | histogram | Delay scheduled before a request's next attempt: its peer's hedge time (at most 500 ms) with the per-attempt backoff, none after an escape, at most 1 s |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;pending</span> | gauge | Timeouts in the eager, notar and final timeout queues |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;cancelled</span> | counter | Timeouts dropped because their block is gone or their work is done |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;no_&#8203;peer_&#8203;deferred</span> | counter | Timeouts deferred because no peer could be picked |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;hedged</span> | counter | Request attempts after the first for the same timer |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;expired</span> | counter | Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;by_&#8203;id_&#8203;expired</span> | counter | WindowIndexForBlockId requests that expired unanswered, at or above the root |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;stuck_&#8203;escaped</span> | counter | Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;stuck_&#8203;escaped</span> | counter | Retries sent to random staked peers because 3 attempts in a row brought no new shred of the FEC set |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;fanout_&#8203;sent</span> | counter | Extra staked peers an escaped WindowIndexForBlockId retry was also sent to, up to 2 per retry |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;late_&#8203;retried</span> | counter | Request attempts sent after 3 or more earlier attempts for the same timer |
+| <span class="metrics-name">rotor_&#8203;escape_&#8203;peer_&#8203;hedge_&#8203;delay_&#8203;nanos</span> | histogram | Uncapped hedge time (srtt+4*rttvar, 200 ms if unmeasured) of each staked peer an escaped retry was sent to |
 | <span class="metrics-name">rotor_&#8203;peer_&#8203;by_&#8203;id_&#8203;banned</span> | counter | Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;probe_&#8203;tx</span> | counter | Requests sent to elicit a ping from a peer with a new address |
 | <span class="metrics-name">rotor_&#8203;eager_&#8203;delay_&#8203;nanos</span> | gauge | Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled) |

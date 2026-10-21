@@ -225,7 +225,8 @@ test_retry_spread( void ) {
 
 /* By-id expiries ban a peer after FD_ROTOR_STRAT_BYID_MAX in a row
    even while it answers positional requests; a by-id reply resets the
-   run.  The stuck pick draws only available staked peers, never avoid. */
+   run.  The stuck pick draws only available staked peers, never avoid,
+   and slow ones last. */
 
 static void
 test_byid_and_stuck( void ) {
@@ -265,7 +266,7 @@ test_byid_and_stuck( void ) {
   fd_rotor_strat_request_failed( strat, &ids[ 3 ].key, 1000L ); /* banned */
   ulong hit[ 4 ] = {0};
   for( ulong i=0UL; i<4000UL; i++ ) {
-    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, 1UL, fd_ulong_hash( i ) );
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, &(ulong){ 1UL }, 1UL, fd_ulong_hash( i ) );
     ulong slot = (ulong)( peer-strat->cur.peers );
     FD_TEST( peer && slot<4UL && slot!=1UL && slot!=3UL );
     hit[ slot ]++;
@@ -278,15 +279,37 @@ test_byid_and_stuck( void ) {
 
   hit[ 1 ] = hit[ 2 ] = 0UL;
   for( ulong i=0UL; i<4000UL; i++ ) {
-    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, 0UL, fd_ulong_hash( i ) );
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, &(ulong){ 0UL }, 1UL, fd_ulong_hash( i ) );
     ulong slot = (ulong)( peer-strat->cur.peers );
     FD_TEST( slot==1UL || slot==2UL );
     hit[ slot ]++;
     fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
   }
   FD_TEST( hit[ 1 ]>hit[ 2 ] );
+
+  /* Several avoided slots are all skipped; a peer whose hedge is over
+     the cap is drawn only when no other is available. */
+
+  ulong avoid[ 2 ] = { 0UL, 1UL };
+  for( ulong i=0UL; i<64UL; i++ ) {
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, avoid, 2UL, fd_ulong_hash( i ) );
+    FD_TEST( peer==&strat->cur.peers[ 2 ] );
+    fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
+  }
+  strat->cur.peers[ 1 ].srtt   = 2L*FD_ROTOR_STRAT_HEDGE_MAX_NS;
+  strat->cur.peers[ 1 ].rttvar = 0L;
+  FD_TEST( fd_rotor_strat_hedge_ns( &strat->cur.peers[ 1 ] )==FD_ROTOR_STRAT_HEDGE_MAX_NS );
+  for( ulong i=0UL; i<64UL; i++ ) {
+    fd_rotor_strat_peer_t * peer = fd_rotor_strat_pick_staked( strat, 200L, avoid, 1UL, fd_ulong_hash( i ) );
+    FD_TEST( peer==&strat->cur.peers[ 2 ] );
+    fd_rotor_strat_request_failed( strat, &peer->id_key, 0L );
+  }
+  fd_rotor_strat_request_failed( strat, &ids[ 2 ].key, 1000L );
+  FD_TEST( fd_rotor_strat_pick_staked( strat, 200L, avoid, 1UL, 7UL )==&strat->cur.peers[ 1 ] );
+  fd_rotor_strat_request_failed( strat, &ids[ 1 ].key, 0L );
+
   for( ulong i=0UL; i<3UL; i++ ) fd_rotor_strat_request_failed( strat, &ids[ i ].key, 1000L );
-  FD_TEST( !fd_rotor_strat_pick_staked( strat, 200L, ULONG_MAX, 7UL ) ); /* the unstaked peer is never drawn */
+  FD_TEST( !fd_rotor_strat_pick_staked( strat, 200L, NULL, 0UL, 7UL ) ); /* the unstaked peer is never drawn */
 }
 
 int
