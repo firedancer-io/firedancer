@@ -315,6 +315,7 @@ struct fd_config {
       ulong max_shreds_per_block;
       ulong disable_blockstore_from_slot;
       int   disable_status_cache;
+      int   telemetry;
     } bench;
 
     struct {

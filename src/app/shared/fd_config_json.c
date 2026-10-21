@@ -498,6 +498,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "max_shreds_per_block",         config->development.bench.max_shreds_per_block );
       jw_ulong( &w, "disable_blockstore_from_slot", config->development.bench.disable_blockstore_from_slot );
       jw_bool ( &w, "disable_status_cache",         config->development.bench.disable_status_cache );
+      jw_bool ( &w, "telemetry",                    config->development.bench.telemetry );
     jw_obj_close( &w );
     jw_obj_open( &w, "bundle" );
       jw_path ( &w, "ssl_key_log_file",  config->development.bundle.ssl_key_log_file );

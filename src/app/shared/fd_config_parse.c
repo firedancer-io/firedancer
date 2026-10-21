@@ -276,6 +276,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  development.bench.max_shreds_per_block           );
   CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
   CFG_POP      ( bool,   development.bench.disable_status_cache           );
+  CFG_POP      ( bool,   development.bench.telemetry                      );
 
   CFG_POP      ( cstr,   development.bundle.ssl_key_log_file              );
   CFG_POP      ( uint,   development.bundle.buffer_size_kib               );

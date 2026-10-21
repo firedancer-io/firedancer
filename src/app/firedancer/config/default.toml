@@ -2256,6 +2256,11 @@ telemetry = true
         # the rest of the network.
         max_shreds_per_block = 0
 
+        # Whether bench sends telemetry.  Benchmark load can be very
+        # high and spam the telemetry server, so this is not suggested
+        # unless specifically needed to investigate an issue.
+        telemetry = false
+
     # Experimental options for the bundle tile.  These should not be
     # changed on a production validator.
     [development.bundle]
