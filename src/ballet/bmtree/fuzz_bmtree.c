@@ -114,31 +114,31 @@ fuzz_bmtree( fd_bmtree_node_t const * leafs,
 
     if( FD_LIKELY( leaf_cnt>1UL ) ) {
       FD_FUZZ_MUST_BE_COVERED;
-      inc_proof[ 1 ]++; /* Corrupt the proof */
+      inc_proof[ 1 ] = (uchar)( inc_proof[ 1 ]+1 ); /* Corrupt the proof */
       assert( proof_root_1 == fd_bmtree_from_proof( leaf, i, proof_root_1, inc_proof, depth-1UL, hash_sz, prefix_sz ) );
 
       assert( !fd_memeq( root_1, proof_root_1, hash_sz ) );
 
       assert( !fd_bmtree_commitp_insert_with_proof( tree2, i, leaf, inc_proof, depth-1UL, NULL ) );
 
-      inc_proof[ 1 ]--;
+      inc_proof[ 1 ] = (uchar)( inc_proof[ 1 ]-1 );
     } /* Otherwise the proof is empty, so there's nothing to corrupt */
 
-    root_1[ 1 ]++; /* Corrupt the root */
+    root_1[ 1 ] = (uchar)( root_1[ 1 ]+1 ); /* Corrupt the root */
     assert( proof_root_1 == fd_bmtree_from_proof( leaf, i, proof_root_1, inc_proof, depth-1UL, hash_sz, prefix_sz ) );
 
     assert( !fd_memeq( root_1, proof_root_1, hash_sz ) );
 
-    root_1[ 1 ]--;
+    root_1[ 1 ] = (uchar)( root_1[ 1 ]-1 );
 
-    leaf->hash[ 1 ]++; /* Corrupt the leaf */
+    leaf->hash[ 1 ] = (uchar)( leaf->hash[ 1 ]+1 ); /* Corrupt the leaf */
     assert( proof_root_1 == fd_bmtree_from_proof( leaf, i, proof_root_1, inc_proof, depth-1UL, hash_sz, prefix_sz ) );
 
     assert( !fd_memeq( root_1, proof_root_1, hash_sz ) );
 
     assert( !fd_bmtree_commitp_insert_with_proof( tree2, i, leaf, inc_proof, depth-1UL, NULL ) );
 
-    leaf->hash[ 1 ]--;
+    leaf->hash[ 1 ] = (uchar)( leaf->hash[ 1 ]-1 );
   }
   uchar * root_2 = fd_bmtree_commitp_fini( tree2, leaf_cnt );
   assert( root_2 );

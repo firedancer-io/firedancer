@@ -584,7 +584,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   }
 
 
-  wrapped_sig_t const * w_sig = (wrapped_sig_t const *)shred->signature;
+  wrapped_sig_t w_sig[1];
+  fd_memcpy( w_sig->u, shred->signature, FD_ED25519_SIG_SZ );
 
   /* Is this FEC set in progress? */
   set_ctx_t * ctx = ctx_map_ele_query( ctx_map, w_sig, NULL, ctx_pool );
