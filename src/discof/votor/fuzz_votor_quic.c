@@ -256,7 +256,7 @@ fuzz_build_stakes( fd_vote_stake_weight_t * out,
     out[i].vote_key.uc[ 0 ] = (uchar)( i + 0x80UL );
     fd_bls_sec_t sec; memset( &sec, (int)( i*7UL + 1UL ), FD_BLS_SEC_SZ );
     fd_bls_pub_t pub; fd_bls_sec_to_pub( &sec, &pub );
-    blst_p1_affine_compress( out[i].bls_key, &pub );
+    fd_bls_pub_compress( &pub, out[i].bls_key );
   }
 }
 

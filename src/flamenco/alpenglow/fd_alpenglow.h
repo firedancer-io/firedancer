@@ -108,8 +108,8 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
                           ulong                          quorum_numer,
                           ushort                         shred_version,
                           fd_footer_cache_t *            cache,
-                          blst_p2_affine const *         hm,
-                          blst_p2_affine *               hm_out );
+                          fd_bls_hash_t const *         hm,
+                          fd_bls_hash_t *               hm_out );
 
 /* This encodes a footer's vote reward work, including the certs' signer
    sets, each indexed by rank in the vote stakes snapshot of its slot's

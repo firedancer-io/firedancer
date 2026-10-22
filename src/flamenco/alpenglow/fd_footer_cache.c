@@ -58,8 +58,8 @@ void
 fd_footer_cache_hash_msg( fd_footer_cache_t * cache,
                           uchar const *       msg,
                           ulong               msg_sz,
-                          blst_p2_affine *    h ) {
-  blst_p2_affine const * hit = fd_footer_cache_hash_query( cache, msg, msg_sz );
+                          fd_bls_hash_t *    h ) {
+  fd_bls_hash_t const * hit = fd_footer_cache_hash_query( cache, msg, msg_sz );
   if( hit ) { *h = *hit; return; }
   fd_bls_hash_msg( msg, msg_sz, h );
   fd_footer_cache_hash_insert( cache, msg, msg_sz, h );
@@ -69,7 +69,7 @@ void
 fd_footer_cache_hash_insert( fd_footer_cache_t *    cache,
                              uchar const *          msg,
                              ulong                  msg_sz,
-                             blst_p2_affine const * h ) {
+                             fd_bls_hash_t const * h ) {
   FD_TEST( msg_sz && msg_sz<=FD_FOOTER_CACHE_MSG_MAX );
   ulong i = cache->next++ % FD_FOOTER_CACHE_MSG_CNT;
   cache->e[ i ].sz = msg_sz;
@@ -112,7 +112,7 @@ fd_footer_cache_memo_insert( fd_footer_cache_memo_t * memo,
   return 1;
 }
 
-blst_p2_affine const *
+fd_bls_hash_t const *
 fd_footer_cache_hash_query( fd_footer_cache_t const * cache,
                             uchar const *             msg,
                             ulong                     msg_sz ) {
