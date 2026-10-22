@@ -241,6 +241,7 @@ struct fd_rotor_tile {
   /* Events */
 
   fd_event_block_received_t * event;
+  long                        report_peers_ts; /* last repair_peer emit */
 
   /* Metrics */
 
@@ -465,6 +466,39 @@ report_block_received( void *                 ctx_,
     ev->first_shred_received_time = fd_ulong_if( fec->first_ts && ( !ev->first_shred_received_time || (ulong)fec->first_ts<ev->first_shred_received_time ), (ulong)fec->first_ts, ev->first_shred_received_time );
   }
   fd_event_report_block_received( ev );
+}
+
+static void
+report_repair_peers( fd_rotor_tile_t * ctx,
+                     long              now ) {
+  fd_rotor_strat_t * strat = ctx->strat;
+  ulong              rows  = 0UL;
+  for( ulong idx=0UL; idx<FD_ROTOR_STRAT_PEER_MAX && rows<2000UL; idx++ ) { /* staked first, by stake rank */
+    fd_rotor_strat_peer_t * peer = &strat->cur.peers[ idx ];
+    if( FD_UNLIKELY( idx>=strat->staked_cnt && fd_rotor_strat_peer_map_ele_query( strat->cur.map, &peer->id_key, NULL, strat->cur.peers )!=peer ) ) continue; /* free slot */
+
+    fd_event_repair_peer_t ev = {0};
+    memcpy( ev.identity, peer->id_key.uc, sizeof(fd_pubkey_t) );
+    if( FD_LIKELY( peer->ip4 ) ) {
+      FD_STORE( ushort, ev.ip+10, (ushort)0xffff );
+      FD_STORE( uint,   ev.ip+12, peer->ip4 );
+    }
+    ev.port      = peer->port;
+    ev.staked    = idx<strat->staked_cnt;
+    ev.req_cnt   = peer->req_cnt;
+    ev.res_cnt   = peer->res_cnt;
+    ev.exp_cnt   = peer->exp_cnt;
+    ev.ban_cnt   = peer->ban_cnt;
+    ev.out_cnt   = peer->out_cnt;
+    ev.srtt_ns   = (ulong)peer->srtt_ns;
+    ev.rttvar_ns = (ulong)peer->rttvar_ns;
+    ev.turbine_srtt_ns   = (ulong)peer->turbine_srtt;
+    ev.turbine_rttvar_ns = (ulong)peer->turbine_rttvar;
+    ev.turbine_cnt       = peer->turbine_cnt;
+    fd_event_report_repair_peer( &ev );
+    rows++;
+  }
+  ctx->report_peers_ts = now;
 }
 
 
@@ -1043,6 +1077,8 @@ after_credit( fd_rotor_tile_t *   ctx,
     if(      FD_UNLIKELY( pending->answered ) ) {}
     else if( FD_LIKELY  ( answerable        ) ) ctx->metrics->peer_byid_banned += (ulong)( fd_rotor_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid )==1 );
     else                                        fd_rotor_strat_request_failed ( ctx->strat, &pending->peer, 0           );
+    fd_rotor_strat_peer_t * unanswerable = !pending->answered && !answerable ? fd_rotor_strat_query( ctx->strat, &pending->peer ) : NULL;
+    if( FD_LIKELY( unanswerable ) ) unanswerable->exp_cnt++; /* an expiry, but no ban: request_failed counts it nowhere */
     ctx->metrics->req_expired+= (ulong)!pending->answered;
     pending_dlist_ele_pop_head ( ctx->pending_dlist, ctx->pending_pool );
     pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
@@ -1118,7 +1154,7 @@ after_credit( fd_rotor_tile_t *   ctx,
     int  escape = stuck>=STUCK_MAX && !blk->eager;
     fd_rotor_strat_peer_t * peer = escape ? fd_rotor_strat_pick_staked( ctx->strat, now, (ulong)req.last_peer-1UL, fd_rng_ulong( ctx->rng ) ) : NULL;
     ctx->metrics->req_stuck_escaped += (ulong)!!peer;
-    if( FD_UNLIKELY( peer ) ) fd_histf_sample( ctx->metrics->escape_hedge, (ulong)fd_long_if( !!peer->srtt, peer->srtt+4L*peer->rttvar, FD_ROTOR_STRAT_HEDGE_NS ) ); /* uncapped */
+    if( FD_UNLIKELY( peer ) ) fd_histf_sample( ctx->metrics->escape_hedge, (ulong)fd_long_if( !!peer->srtt_ns, peer->srtt_ns+4L*peer->rttvar_ns, FD_ROTOR_STRAT_HEDGE_NS ) ); /* uncapped */
     if( FD_LIKELY( !peer ) ) peer = fd_rotor_strat_pick( ctx->strat, now, !blk->eager && req.attempt, (ulong)req.last_peer-1UL );
     if( FD_UNLIKELY( !peer ) ) {
       ctx->metrics->req_no_peer++;
@@ -1351,6 +1387,9 @@ static inline void
 during_housekeeping( fd_rotor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
+  long now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( now/1000000000L>ctx->report_peers_ts/1000000000L ) ) report_repair_peers( ctx, now ); /* on whole seconds */
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
     ctx->halt_signing = 0;
@@ -1443,6 +1482,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->strat && ctx->ping_deque && ctx->eager_prq && ctx->notar_prq && ctx->final_prq && ctx->pending_pool && ctx->pending_map && ctx->pending_dlist && ctx->sign_pool );
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, (uint)ctx->seed, ctx->seed>>32 ) ) );
   fd_clock_tile_init( ctx->clock );
+  ctx->report_peers_ts = fd_clock_tile_now( ctx->clock );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( ROTOR, RESPONSE_LATENCY_NANOS ), FD_MHIST_MAX( ROTOR, RESPONSE_LATENCY_NANOS ) ) ) );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->retry_delay,      FD_MHIST_MIN( ROTOR, RETRY_DELAY_NANOS      ), FD_MHIST_MAX( ROTOR, RETRY_DELAY_NANOS      ) ) ) );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->escape_hedge,     FD_MHIST_MIN( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS ), FD_MHIST_MAX( ROTOR, ESCAPE_PEER_HEDGE_DELAY_NANOS ) ) ) );

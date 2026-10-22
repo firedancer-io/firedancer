@@ -61,7 +61,7 @@ test_order( void ) {
   /* Of two peers in a bucket, the one with fewer requests in flight. */
 
   FD_TEST( fd_rotor_strat_query( strat, &a )->bucket==fd_rotor_strat_query( strat, &b )->bucket );
-  fd_rotor_strat_query( strat, &b )->inflight = 5U;
+  fd_rotor_strat_query( strat, &b )->out_cnt = 5U;
   for( ulong i=0UL; i<4UL; i++ ) {
     FD_TEST( fd_rotor_strat_pick( strat, 0L, 1, ULONG_MAX )==fd_rotor_strat_query( strat, &a ) );
     fd_rotor_strat_request_done( strat, &a, 150L*1000000L, 0 );
@@ -69,10 +69,10 @@ test_order( void ) {
 
   /* A failed reply bans without an rtt sample. */
 
-  long srtt = fd_rotor_strat_query( strat, &a )->srtt;
+  long srtt = fd_rotor_strat_query( strat, &a )->srtt_ns;
   fd_rotor_strat_request_failed( strat, &a, 100L );
   fd_rotor_strat_request_failed( strat, &b, 100L );
-  FD_TEST( fd_rotor_strat_query( strat, &a )->srtt==srtt );
+  FD_TEST( fd_rotor_strat_query( strat, &a )->srtt_ns==srtt );
   FD_TEST( !fd_rotor_strat_pick( strat, 50L, 1, ULONG_MAX ) );
   FD_TEST(  fd_rotor_strat_pick( strat, 100L, 1, ULONG_MAX ) );
 
@@ -83,7 +83,7 @@ test_order( void ) {
   fd_rotor_strat_request_failed( strat, &a, 150L );
   FD_TEST( fd_rotor_strat_query( strat, &a )->ban_ts==200L );
 
-  FD_TEST( fd_rotor_strat_hedge_ns( fd_rotor_strat_query( strat, &a ) )==srtt+4L*fd_rotor_strat_query( strat, &a )->rttvar );
+  FD_TEST( fd_rotor_strat_hedge_ns( fd_rotor_strat_query( strat, &a ) )==srtt+4L*fd_rotor_strat_query( strat, &a )->rttvar_ns );
 }
 
 /* A peer at the in-flight cap leaves its bucket until a request ends;
@@ -187,7 +187,7 @@ test_retry_spread( void ) {
 
   for( ulong i=0UL; i<4UL; i++ ) {
     fd_rotor_strat_peer_t * peer = fd_rotor_strat_query( strat, &ids[ i ].key );
-    peer->srtt = 0L; peer->rttvar = 0L;
+    peer->srtt_ns = 0L; peer->rttvar_ns = 0L;
     fd_rotor_strat_request_done( strat, &ids[ i ].key, (long)( 151UL-(i&1UL)*2UL+(i>>1)*2UL )*1000000L, 0 ); /* 151, 149, 153, 151 ms */
   }
   ulong b = fd_rotor_strat_query( strat, &ids[ 0 ].key )->bucket;

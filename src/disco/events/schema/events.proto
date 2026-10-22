@@ -12202,6 +12202,38 @@ message MetricsMotor {
   uint64 timer_irq = 24;
 }
 
+// Repair requests this validator has sent to one peer, and what came back, as running totals. Emitted by the rotor tile once a second, on whole wall-clock seconds, for every peer the repair strategy knows (staked peers first, by stake rank, then unstaked peers with an address), idle or not; at most 2000 rows per second, the rest are skipped that second. Totals count from when the repair strategy last learned the peer and restart at 0 if it forgets the peer, so a decrease marks a restart. Requests are counted, not shreds: a request may ask for several shreds of one FEC set and counts as answered on its first reply.
+message RepairPeer {
+  // Validator identity of the peer.
+  bytes identity = 1;
+  // IPv4 address requests were sent to, stored as an IPv4-mapped IPv6 address (all zeros if gossip has no address for the peer).
+  bytes ip = 2;
+  // UDP port of the peer's serve-repair endpoint (0 if unknown).
+  uint32 port = 3;
+  // Whether the peer is staked in the current epoch, as ranked by the repair strategy.
+  bool staked = 4;
+  // Repair requests sent to the peer.
+  uint32 req_cnt = 5;
+  // Requests answered: the first reply matched to an outstanding request.
+  uint32 res_cnt = 6;
+  // Requests that expired unanswered, including requests no peer could answer yet (highest-index and orphan requests, or below the root), which do not count toward a ban.
+  uint32 exp_cnt = 7;
+  // Times the peer was banned from requests: for a reply that failed verification (a metadata reply whose proof did not check), or for a run of unanswered requests (32 in a row, or 4 by-id).
+  uint32 ban_cnt = 8;
+  // Requests outstanding when the row was emitted.
+  uint32 out_cnt = 9;
+  // Smoothed round-trip time to the peer when the row was emitted (RFC 6298), 0 if never measured.
+  uint64 srtt_ns = 10;
+  // Mean deviation of the round-trip time, 0 if never measured.
+  uint64 rttvar_ns = 11;
+  // As leader, smoothed time from a FEC set's first shred to the FEC set completing at this validator, by turbine or repair (RFC 6298), 0 if never measured. Once turbine_cnt reaches 8, repair of this leader's blocks waits turbine_srtt_ns+4*turbine_rttvar_ns, clamped to 20-250 ms, before asking for a FEC set; before that it waits the estimate across all leaders.
+  uint64 turbine_srtt_ns = 12;
+  // Mean deviation of the turbine time, 0 if never measured.
+  uint64 turbine_rttvar_ns = 13;
+  // FEC sets of this leader that completed at this validator, the samples behind turbine_srtt_ns.
+  uint64 turbine_cnt = 14;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -12267,5 +12299,6 @@ message Event {
     MetricsSnapsv metrics_snapsv = 60;
     MetricsLink metrics_link = 61;
     MetricsMotor metrics_motor = 62;
+    RepairPeer repair_peer = 63;
   }
 }

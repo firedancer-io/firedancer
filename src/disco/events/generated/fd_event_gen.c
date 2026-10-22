@@ -1147,6 +1147,53 @@ fd_event_block_received_serialize( fd_circq_t *                      circq,
 }
 
 void
+fd_event_repair_peer_serialize( fd_circq_t *                   circq,
+                                fd_event_client_t *            client,
+                                long                           timestamp_nanos,
+                                ulong                          link_seq,
+                                fd_event_repair_peer_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_REPAIR_PEER_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_REPAIR_PEER_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_REPAIR_PEER_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 63U ); /* RepairPeer */
+  ok &= !!fd_pb_push_bytes ( encoder, 1U, msg->identity, 32UL );
+  ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->ip, 16UL );
+  if( msg->port ) ok &= !!fd_pb_push_uint32( encoder, 3U, (uint)msg->port );
+  if( msg->staked ) ok &= !!fd_pb_push_bool  ( encoder, 4U, msg->staked );
+  if( msg->req_cnt ) ok &= !!fd_pb_push_uint32( encoder, 5U, (uint)msg->req_cnt );
+  if( msg->res_cnt ) ok &= !!fd_pb_push_uint32( encoder, 6U, (uint)msg->res_cnt );
+  if( msg->exp_cnt ) ok &= !!fd_pb_push_uint32( encoder, 7U, (uint)msg->exp_cnt );
+  if( msg->ban_cnt ) ok &= !!fd_pb_push_uint32( encoder, 8U, (uint)msg->ban_cnt );
+  if( msg->out_cnt ) ok &= !!fd_pb_push_uint32( encoder, 9U, (uint)msg->out_cnt );
+  if( msg->srtt_ns ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->srtt_ns );
+  if( msg->rttvar_ns ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->rttvar_ns );
+  if( msg->turbine_srtt_ns ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->turbine_srtt_ns );
+  if( msg->turbine_rttvar_ns ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->turbine_rttvar_ns );
+  if( msg->turbine_cnt ) ok &= !!fd_pb_push_uint64( encoder, 14U, (ulong)msg->turbine_cnt );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -1243,6 +1290,10 @@ fd_event_serialize_by_type( ulong               type,
     fd_event_block_received_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;
   }
+  case 63UL:
+    FD_TEST( ev_sz==sizeof(fd_event_repair_peer_t) );
+    fd_event_repair_peer_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_repair_peer_t const *)ev );
+    break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }
 }

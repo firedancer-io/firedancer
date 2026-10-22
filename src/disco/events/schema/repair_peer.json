@@ -1,0 +1,21 @@
+{
+    "name": "repair_peer",
+    "id": 63,
+    "description": "Repair requests this validator has sent to one peer, and what came back, as running totals. Emitted by the rotor tile once a second, on whole wall-clock seconds, for every peer the repair strategy knows (staked peers first, by stake rank, then unstaked peers with an address), idle or not; at most 2000 rows per second, the rest are skipped that second. Totals count from when the repair strategy last learned the peer and restart at 0 if it forgets the peer, so a decrease marks a restart. Requests are counted, not shreds: a request may ask for several shreds of one FEC set and counts as answered on its first reply.",
+    "fields": {
+        "identity":          { "type": "Pubkey",                             "description": "Validator identity of the peer." },
+        "ip":                { "type": "IPv6",                               "description": "IPv4 address requests were sent to, stored as an IPv4-mapped IPv6 address (all zeros if gossip has no address for the peer)." },
+        "port":              { "type": "UInt16",                             "description": "UDP port of the peer's serve-repair endpoint (0 if unknown)." },
+        "staked":            { "type": "Bool",                               "description": "Whether the peer is staked in the current epoch, as ranked by the repair strategy." },
+        "req_cnt":           { "type": "UInt32", "compression": "T64, ZSTD", "description": "Repair requests sent to the peer." },
+        "res_cnt":           { "type": "UInt32", "compression": "T64, ZSTD", "description": "Requests answered: the first reply matched to an outstanding request." },
+        "exp_cnt":           { "type": "UInt32", "compression": "T64, ZSTD", "description": "Requests that expired unanswered, including requests no peer could answer yet (highest-index and orphan requests, or below the root), which do not count toward a ban." },
+        "ban_cnt":           { "type": "UInt32", "compression": "T64, ZSTD", "description": "Times the peer was banned from requests: for a reply that failed verification (a metadata reply whose proof did not check), or for a run of unanswered requests (32 in a row, or 4 by-id)." },
+        "out_cnt":           { "type": "UInt32", "compression": "T64, ZSTD", "description": "Requests outstanding when the row was emitted." },
+        "srtt_ns":           { "type": "UInt64", "compression": "T64, ZSTD", "description": "Smoothed round-trip time to the peer when the row was emitted (RFC 6298), 0 if never measured." },
+        "rttvar_ns":         { "type": "UInt64", "compression": "T64, ZSTD", "description": "Mean deviation of the round-trip time, 0 if never measured." },
+        "turbine_srtt_ns":   { "type": "UInt64", "compression": "T64, ZSTD", "description": "As leader, smoothed time from a FEC set's first shred to the FEC set completing at this validator, by turbine or repair (RFC 6298), 0 if never measured. Once turbine_cnt reaches 8, repair of this leader's blocks waits turbine_srtt_ns+4*turbine_rttvar_ns, clamped to 20-250 ms, before asking for a FEC set; before that it waits the estimate across all leaders." },
+        "turbine_rttvar_ns": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Mean deviation of the turbine time, 0 if never measured." },
+        "turbine_cnt":       { "type": "UInt64", "compression": "T64, ZSTD", "description": "FEC sets of this leader that completed at this validator, the samples behind turbine_srtt_ns." }
+    }
+}
