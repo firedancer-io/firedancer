@@ -536,7 +536,7 @@ struct __attribute__((packed)) fd_gui_slot {
   uchar     notarization_kind; /* Alpenglow: one of FD_GUI_AG_NOTAR_* */
   uchar     finalization_kind; /* Alpenglow: one of FD_GUI_AG_FINAL_* */
   uchar     vote_rewarded;     /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
-  ushort    vote_count;        /* Alpenglow: distinct reward cert signers, USHORT_MAX if unknown */
+  ushort    vote_count;        /* Alpenglow: distinct signers of the reward certs carried by this (cert) slot, USHORT_MAX if unknown */
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
@@ -615,7 +615,7 @@ struct fd_gui_epoch {
   uchar  is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_IS_VOTER_* */
   uchar  skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
   uchar  vote_rewarded[ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
-  ushort vote_count   [ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: distinct reward cert signers, USHORT_MAX if unknown */
+  ushort vote_count   [ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: distinct signers of the reward certs carried by this (cert) slot, USHORT_MAX if unknown */
 
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
@@ -1006,6 +1006,7 @@ struct fd_gui_summary {
 
   int          is_full_client;
   int          is_alpenglow;
+  int          is_voting;      /* configured to vote (vote account set) */
   char const * version;
   char const * cluster;
   char         accounts_database_path[ PATH_MAX ];
