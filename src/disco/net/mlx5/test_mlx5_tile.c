@@ -1475,6 +1475,16 @@ main( int     argc,
   tile->net.bind_address    = 0U;
   rx_seq++;
 
+  /* A TX packet routed to a VLAN is dropped */
+  fd_netdev_t * eth = fd_netdev_tbl_query( &tile->router.netdev_tbl, IF_IDX_ETH0 );
+  FD_TEST( eth );
+  ulong initial_unsupported_drop_count = tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
+  eth->is_vlan = 1U;
+  memset( &tile->net.tx_route, 0, sizeof(tile->net.tx_route) );
+  FD_TEST( before_frag( tile, 0UL, tx_seq, fd_disco_netmux_sig( 0U, 0, neigh2_ip4_addr, DST_PROTO_OUTGOING, 0UL ) )==1 );
+  FD_TEST( initial_unsupported_drop_count+1==tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ] );
+  eth->is_vlan = 0U;
+
   /* Clean up */
   fd_wksp_free_laddr( metrics_mem );
   fd_wksp_free_laddr( tile );

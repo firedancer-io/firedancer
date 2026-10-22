@@ -540,6 +540,20 @@ main( int     argc,
     ctx->net.tile_cnt = 1UL;
   }
 
+  /* A TX packet routed to a VLAN device should be dropped */
+  {
+    ctx->if_virt = IF_IDX_ETH0;
+    fd_netdev_t * eth = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH0 );
+    FD_TEST( eth );
+    ulong unsupported_drop_count = ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ];
+    ulong tx_pkt_cnt = ctx->net.metrics.tx_pkt_cnt;
+    eth->is_vlan = 1U;
+    FD_TEST( before_frag( ctx, 0UL, 0UL, fd_disco_netmux_sig( 0, SHRED_PORT, random_ip, DST_PROTO_OUTGOING, 42UL ) )==1 );
+    FD_TEST( unsupported_drop_count+1==ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ] );
+    FD_TEST( tx_pkt_cnt==ctx->net.metrics.tx_pkt_cnt );
+    eth->is_vlan = 0U;
+  }
+
   /* ctx->net.in_dcache_ctx */
   ctx->net.in_dcache_ctx[ 0 ].wksp_base = fd_wksp_containing( app_tx_dcache_mem );
   ctx->net.in_dcache_ctx[ 0 ].chunk0    = tx_chunk0;

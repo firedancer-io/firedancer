@@ -566,6 +566,11 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
+  if( FD_UNLIKELY( netdev->is_vlan ) ) {
+    route->use_vlan = 1U;
+    return 1;
+  }
+
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
     ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
@@ -667,6 +672,12 @@ before_frag( fd_net_ctx_t * ctx,
   /* Skip if another net tile is responsible for this packet */
 
   if( kind_id!=target_idx ) return 1; /* ignore */
+
+  /* VLAN support is in progress. Drop vlan packets until Tx support is finished.*/
+  if( FD_UNLIKELY( route->use_vlan ) ) {
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    return 1;
+  }
 
   if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
     /* Packet does not route to an XDP interface */

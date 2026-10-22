@@ -46,6 +46,7 @@ struct fd_net_tx_route {
   uint   use_gre;
   uint   gre_outer_src_ip;
   uint   gre_outer_dst_ip;
+  uint   use_vlan;
 };
 typedef struct fd_net_tx_route fd_net_tx_route_t;
 

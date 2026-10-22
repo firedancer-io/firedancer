@@ -182,6 +182,9 @@ fd_netdev_tbl_fprintf( fd_netdev_tbl_join_t const * tbl,
     if( dev->slave_tbl_idx>=0 ) {
       WRAP_PRINT( file, " master" );
     }
+    if( dev->is_vlan ) {
+      WRAP_PRINT( file, " vlan" );
+    }
     WRAP_PRINTF( file,
         "\n    link " FD_ETH_MAC_FMT "\n",
         FD_ETH_MAC_FMT_ARGS( dev->mac_addr ) );

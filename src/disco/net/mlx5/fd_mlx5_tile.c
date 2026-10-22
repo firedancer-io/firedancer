@@ -868,6 +868,12 @@ before_frag( fd_mlx5_tile_t * ctx,
   if( route->use_loopback ) target_idx = 0UL;
   if( kind_id!=target_idx ) return 1;
 
+  /* VLAN support is in progress. Drop vlan packets until Tx support is finished.*/
+  if( FD_UNLIKELY( route->use_vlan ) ) {
+    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    return 1;
+  }
+
   /* Drop the packet if no SQ WQE is available. */
   fd_mlx5_tx_qp_t const * tx_qp       = &ctx->tx_qp;
   uint const              outstanding = tx_qp->sq_prod-tx_qp->sq_cons;
