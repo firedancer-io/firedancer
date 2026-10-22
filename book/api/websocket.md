@@ -640,12 +640,11 @@ The `wait_for_supermajority_*` fields will be `null` if the
 client is not configured to wait for a cluster restart, which is the
 case for typical client usage.
 
-The `wait_for_supermajority_*_stake` stake fields are derived
-differently from the `gossip.network_stats.health` activated stake
-(which is from the start of the epoch). These fields account for any
-stake that is activating/deactivating in the current epoch and any stake
-that was explicitly undelegated prior to restart (e.g. inactive testnet
-participants or bad actors).
+The `wait_for_supermajority_*` stake and peer fields cover the
+identities of the vote accounts admitted for the epoch the cluster
+restarts into, the same set that drives that epoch's leader schedule.
+Stake that is not admitted for that epoch, for example vote accounts
+without a BLS key or below the admission balance, is not counted.
 
 During the `waiting_for_supermajority` phase, per-peer offline status
 is available via the `wait_for_supermajority.peer_{add|remove}` message.

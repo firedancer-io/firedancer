@@ -120,10 +120,10 @@ gossip_activity_update_fn( void *                           _ctx,
                            int                              change_type ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
 
-  /* We won't start tracking updates until replay has sent the epoch
-     stakes.  This is okay since this callback is triggered by all
-     contact info updates, including refreshes, so any updates we
-     missed at boot will show up shortly after. */
+  /* We won't start tracking updates until after the manifest is loaded.
+     This is okay since this callback is triggered by all contact info
+     updates, including refreshes, so any updates we missed at boot will
+     show up shortly after. */
   if( FD_LIKELY( !ctx->my_contact_info->shred_version || ctx->wfs_state!=FD_GOSSIP_WFS_STATE_WAIT ) ) return;
 
   /* gossvf should filter out messages with mismatching shred version */
@@ -351,11 +351,6 @@ handle_epoch( fd_gossip_tile_ctx_t *      ctx,
      resumed, which is the first epoch message replay sends at boot.
      The list is filled once; the manifest handler owns wfs_state. */
   if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE || ctx->wfs_stakes_cnt ) ) return;
-
-  ctx->wfs_stake.online = 0UL;
-  ctx->wfs_stake.total  = 0UL;
-  ctx->wfs_peers.online = 0UL;
-  memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
 
   fd_memcpy( ctx->wfs_stakes, weights, msg->staked_id_cnt*sizeof(fd_stake_weight_t) );
   ctx->wfs_stakes_cnt = msg->staked_id_cnt;
