@@ -136,15 +136,8 @@ typedef struct fd_gui_peers_metric_rate fd_gui_peers_metric_rate_t;
 
 struct fd_gui_peers_voter {
   fd_vote_stake_weight_t weight;
-  ulong vote_slot;
 };
 typedef struct fd_gui_peers_voter fd_gui_peers_voter_t;
-
-struct fd_gui_peers_voter_idx {
-  fd_pubkey_t key;
-  ulong       idx;
-};
-typedef struct fd_gui_peers_voter_idx fd_gui_peers_voter_idx_t;
 
 /* fd_gui_peers_row_t holds all of the per-peer state that is read when
    formatting websocket viewport messages snapshotted into a client's
@@ -164,7 +157,6 @@ struct fd_gui_peers_row {
 
   int         has_vote_info;
   fd_pubkey_t vote_account;
-  int         delinquent;
   ulong       stake;
 
   uchar       country_code_idx;
@@ -390,17 +382,12 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_gossip_stats_t gossip_stats  [ 1 ];
   fd_gui_peers_node_t contact_info_table[ FD_CONTACT_INFO_TABLE_SIZE ];
 
-  ulong slot_voted; /* last vote slot for this validator */
-
-  /* stakes is sorted descending by identity pubkey.  vote_idx is sorted
-     descending by vote account pubkey, each entry pointing back into
-     the stakes array. */
+  /* stakes is sorted descending by identity pubkey. */
   struct {
     ulong epoch;
 
     ulong                    stakes_cnt;
     fd_gui_peers_voter_t     stakes  [ MAX_STAKE_WEIGHTS ];
-    fd_gui_peers_voter_idx_t vote_idx[ MAX_STAKE_WEIGHTS ];
   } epochs[ 2 ];
 
   union {
@@ -415,7 +402,6 @@ struct fd_gui_peers_ctx {
       fd_stake_weight_t      manifest_id_weights  [ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
       fd_vote_stake_weight_t manifest_vote_weights[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
     };
-    fd_gui_peers_voter_t voters_scratch[ MAX_STAKE_WEIGHTS ];
     struct {
       fd_gui_peers_row_t viewport    [ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* new rows snapshotted from live_table */
       fd_gui_peers_row_t viewport_ref[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* old baseline, diff reference */
@@ -480,24 +466,6 @@ void
 fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    fd_gossip_update_message_t const * update,
                                    long                               now );
-
-void
-fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
-                          fd_pubkey_t const *  vote_account,
-                          ulong                vote_slot,
-                          int                  is_us );
-
-/* fd_gui_peers_handle_identity_change invalidates/resets state from the
-   previous identity.  Namely, it resets the vote slot. */
-void
-fd_gui_peers_handle_identity_change( fd_gui_peers_ctx_t * peers );
-
-/* fd_gui_peers_update_delinquency is called infrequently (currently,
-   once per slot) and scans the cluster for any nodes that are
-   delinquent, publishing delinquency updates to the frontend. */
-void
-fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
-                                 long                 now );
 
 /* fd_gui_peers_handle_epoch_info is called at the epoch boundary and
    publishes updates for peer stake information. */
