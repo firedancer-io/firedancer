@@ -1461,7 +1461,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   int est_result = fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
-  int is_vote          = est_result==1;
 
   int nonce_result = fd_pack_validate_durable_nonce( txne );
   if( FD_UNLIKELY( !nonce_result ) ) REJECT( INVALID_NONCE );
@@ -1557,7 +1556,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   expq_insert( pack->expiration_q, temp );
 
   treap_ele_insert( insert_into, ord, pack->pool );
-  return (is_vote) | (replaces<<1) | (is_durable_nonce<<2);
+  return (replaces<<1) | (is_durable_nonce<<2);
 }
 #undef REJECT
 

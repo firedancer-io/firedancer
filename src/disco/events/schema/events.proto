@@ -2514,14 +2514,14 @@ message MetricsPackTxnInsertAttempted {
   uint64 nonce_priority_too_low = 15;
   // Transaction's fee was too low given its compute unit requirement and other competing transactions
   uint64 priority_too_low = 16;
-  // Transaction that was not a simple vote added to pending transactions
+  // Transaction added to pending transactions
   uint64 nonvote_add = 17;
   // Simple vote transaction was added to pending transactions
-  uint64 vote_add = 18;
-  // Transaction that was not a simple vote replaced a lower priority transaction
+  uint64 vote_add = 18 [deprecated = true];
+  // Transaction replaced a lower priority transaction
   uint64 nonvote_replace = 19;
   // Simple vote transaction replaced a lower priority transaction
-  uint64 vote_replace = 20;
+  uint64 vote_replace = 20 [deprecated = true];
   // Durable nonce transaction added to pending transactions
   uint64 nonce_nonvote_add = 21;
   // Never produced: durable nonce transactions can't be simple votes

@@ -323,10 +323,8 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
    Transactions can be rejected through no fault of their own, so it
    doesn't necessarily imply bad behavior.
 
-   The non-negative (success) codes are essentially a bitflag of three
+   The non-negative (success) codes are essentially a bitflag of two
    bits:
-    * (1) whether the transaction met the criteria for a simple vote or
-      not,
     * (2) whether this transaction replaced a previously accepted, low
       priority transaction, rather than being accepted in addition to
       all the previously accepted transactions.
@@ -341,8 +339,6 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
    When the heap is full, and a nonce transaction is inserted, these
    return values don't allow you to disambiguate whether the replaced
    transaction had the same nonce info or not.
-
-   Vote and durable nonce transactions are mutually exclusive.
 
    The negative (failure) codes are a normal enumeration (not a
    bitflag).
@@ -388,9 +384,7 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
     with any changes to these return values. */
 #define FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE (  6)
 #define FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     (  4)
-#define FD_PACK_INSERT_ACCEPT_VOTE_REPLACE          (  3)
 #define FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE       (  2)
-#define FD_PACK_INSERT_ACCEPT_VOTE_ADD              (  1)
 #define FD_PACK_INSERT_ACCEPT_NONVOTE_ADD           (  0)
 #define FD_PACK_INSERT_REJECT_PRIORITY              ( -1)
 #define FD_PACK_INSERT_REJECT_NONCE_PRIORITY        ( -2)
