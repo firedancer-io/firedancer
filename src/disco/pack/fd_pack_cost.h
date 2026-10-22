@@ -29,11 +29,6 @@
        transaction loading stage, after accounts data is loaded.
    These are all summed to determine the total transaction cost. */
 
-/* Simple votes use the full transaction cost model.  Pack recognizes
-   them so it can use a tight execution-cost upper bound and maintain a
-   separate vote reservation for scheduling.  The reservation is not a
-   runtime consensus limit. */
-
 /* To compute the built-in cost, we need to check a table. The table
    is known ahead of time though, so we can build a perfect hash
    table for performance.
@@ -197,82 +192,6 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
    filter out the by signature entries which are useless to us, so
    initially the status cache needs twice as much space. */
 #define FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT (2UL*FD_MAX_TXN_PER_SLOT)
-
-
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L55 */
-
-#define FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS (2100UL)
-
-/* SIMD-0387: BLS proof-of-possession verification cost charged by the
-   vote program for authorize instructions.
-
-   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L83 */
-#define FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS (34500UL)
-
-/* Upper bound on execution CUs used by vote instructions.
-
-   The only vote instructions which use more than the default cost are
-   the authorize instruction, which also charge the BLS
-   proof-of-possession verification cost.
-
-   IMPORTANT: if the vote program starts charging more CUs for any
-   instructions, this constant will need to be updated.
- */
-#define FD_PACK_VOTE_MAX_COMPUTE_UNITS (FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS + FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS)
-
-/* Max loaded account data size: FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ
-
-   Cost: ceil( FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ / 32,768 ) * 8
-       = ceil( 67,108,864 / 32,768 ) * 8
-       = 2,048 * 8
-       = 16,384 CUs */
-#define FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST (16384UL)
-
-/* Maximum instruction data cost for a simple vote transaction:
-   - 1 signature
-   - 2 transaction accounts
-   - 0 instruction accounts
-
-   Which results in a fixed overhead of:
-   - Signature count:           1
-   - 1 signature:               64
-   - Message header:            3
-   - Account count:             1
-   - 2 account entries:         64
-   - Recent blockhash:          32
-   - Instruction count:         1
-   - program_id:                1
-   - Instruction account count: 1
-   - Instruction data length:   1
-   Total:                       169 bytes
-
-   Leaving (FD_TXN_MTU - 169) = 1063 bytes for the instruction data.
-   This results in a cost of 1063 / 4 = 265 CUs.
-    */
-#define FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST (265UL)
-
-/* A simple vote transaction is any transaction that satisfies the
-   following conditions:
-   - Has 1 or 2 signatures
-   - Is a legacy transaction
-   - Has exactly one instruction
-   - Must invoke the vote program
-
-   Therefore the worst-case most expensive simple vote transaction has:
-   - 2 signatures
-   - 35 writable accounts (see FD_TXN_ACCT_ADDR_MAX)
-   - The maximum amount of compute units for a vote program instruction
-   - 1 instruction of the maximum instruction data size
-   - The maximum amount of loaded accounts data
-   = 65,189 CUs
-*/
-static const ulong FD_PACK_MAX_SIMPLE_VOTE_COST = ( 2UL*FD_PACK_COST_PER_SIGNATURE                 + /* 1,440  */
-                                                    35UL*FD_PACK_COST_PER_WRITABLE_ACCT            + /* 10,500 */
-                                                    FD_PACK_VOTE_MAX_COMPUTE_UNITS                 + /* 36,600 */
-                                                    FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST + /* 16,384 */
-                                                    FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST );       /* 265    */
-
-#undef FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST
 
 /* Computes the total cost and a few related properties for the
    specified transaction.  On success, returns the cost, which is in

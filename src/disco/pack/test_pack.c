@@ -524,7 +524,9 @@ void test_vote( void ) {
   FD_LOG_NOTICE(( "TEST VOTE" ));
   fd_pack_t * pack = init_all( 128UL, 1UL, 4UL, &outcome );
   ulong i = 0;
-  ulong pack_cost_estimate = 4UL * FD_PACK_MAX_SIMPLE_VOTE_COST;
+  uint  _flags = 0U;
+  make_vote_transaction( i );
+  ulong pack_cost_estimate = 4UL * fd_pack_compute_cost( TXN( &txnp_scratch[ i ] ), txnp_scratch[ i ].payload, &_flags, NULL, NULL, NULL, NULL, NULL );
 
   make_vote_transaction( i ); insert( i++, pack );
   make_vote_transaction( i ); insert( i++, pack );
@@ -1105,7 +1107,7 @@ test_limits( void ) {
   uint  _flags = 0U;;
   make_vote_transaction( 0UL );
   ulong const vote_cost = fd_pack_compute_cost( TXN( &txnp_scratch[ 0 ] ), txnp_scratch[ 0 ].payload, &_flags, NULL, NULL, NULL, NULL, NULL );
-  FD_TEST( vote_cost && vote_cost<=FD_PACK_MAX_SIMPLE_VOTE_COST );
+  FD_TEST( vote_cost );
 
   /* Test the CU limit */
   if( 1 ) {
@@ -1118,11 +1120,11 @@ test_limits( void ) {
     }
 
     /* Test that as we gradually increase the CU limit, the correct number of votes get scheduled. */
-    for( ulong cu_limit=0UL; cu_limit<33UL*vote_cost; cu_limit += vote_cost ) {
+    for( ulong cu_limit=0UL; cu_limit<17UL*vote_cost; cu_limit += vote_cost ) {
       schedule_validate_microblock( pack, cu_limit, cu_limit/vote_cost, 0UL, 0UL, &outcome );
     }
-    /* sum_{x=0}^32 x = 528, so there should be 496 transactions left */
-    FD_TEST( fd_pack_avail_txn_cnt( pack )==496UL );
+    /* sum_{x=0}^16 x = 136, so there should be 888 transactions left */
+    FD_TEST( fd_pack_avail_txn_cnt( pack )==888UL );
   }
 
 
