@@ -28,7 +28,7 @@ zstd_accepts( uchar const * data,
   for( ulong iter=0UL; iter<=data_sz+1UL; iter++ ) {
     ZSTD_outBuffer output = {
       .dst  = oracle_output,
-      .size = sizeof(oracle_output),
+      .size = iter ? sizeof(oracle_output) : 0UL,
       .pos  = 0UL
     };
     ulong prev_pos = input.pos;
