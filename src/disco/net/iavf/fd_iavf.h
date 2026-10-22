@@ -63,6 +63,12 @@ int
 fd_iavf_iommu_check( char const *  pf_if,
                      char const ** diagnostic );
 
+/* fd_iavf_ari_check requires ARI forwarding on pf_if's PCI bus.
+   Reads ari_enabled and returns 0 on success or -1 with errno set,
+   including EOPNOTSUPP when disabled. Does not log failures. */
+int
+fd_iavf_ari_check( char const * pf_if );
+
 /* fd_iavf_numvfs_get reads pf_if's enabled VF count from sriov_numvfs.
    A count of zero is valid. Returns 0 on success or -1 with errno set,
    leaving numvfs unchanged on failure. Does not log failures. */
@@ -70,10 +76,9 @@ int
 fd_iavf_numvfs_get( char const * pf_if,
                     uint *       numvfs );
 
-/* fd_iavf_sriov_resources_check requires assigned VF BAR0 and BAR3 memory
-   ranges in pf_if's PCI resource file. Returns 0 on success or -1 with
-   errno set, including ENOMEM for missing or unusable allocations.
-   Only reads sysfs and does not log failures or create VFs. */
+/* fd_iavf_sriov_resources_check requires a PCI bus number for VF 0 and
+   assigned VF BAR0 and BAR3 memory ranges. Returns 0 on success or -1
+   on failure. Only reads sysfs and does not log failures or create VFs. */
 int
 fd_iavf_sriov_resources_check( char const * pf_if );
 

@@ -661,6 +661,15 @@ iavf_pf_config_check( fd_config_t const * config,
   int fini_check = check_type==FD_CONFIGURE_CHECK_TYPE_FINI_PERM ||
                    check_type==FD_CONFIGURE_CHECK_TYPE_PRE_FINI  ||
                    check_type==FD_CONFIGURE_CHECK_TYPE_POST_FINI;
+  if( !fini_check && FD_UNLIKELY( -1==fd_iavf_ari_check( pf_if ) ) ) {
+    int err = errno;
+    if( err==EOPNOTSUPP ) {
+      FD_LOG_ERR(( "iavf provider requires PCIe ARI forwarding, but on PF %s ARI is disabled. "
+                   "Please either enable ARI on the device or set [net.provider] to \"auto\"", pf_if ));
+    }
+    FD_LOG_ERR(( "Reading ARI forwarding status for PF %s from /sys/class/net/%s/device/ari_enabled failed (%i-%s)",
+                 pf_if, pf_if, err, fd_io_strerror( err ) ));
+  }
   /* A PF's only VF is removed by configure fini. Report it before checking
      ntuple rules so missing rules cannot cause fini to skip VF removal */
   if( fini_check && numvfs==1U ) {
@@ -669,12 +678,15 @@ iavf_pf_config_check( fd_config_t const * config,
   if( !fini_check && 0==numvfs ) {
     if( FD_UNLIKELY( -1==fd_iavf_sriov_resources_check( pf_if ) ) ) {
       int err = errno;
+      if( err==ENOSPC ) {
+        FD_LOG_ERR(( "Cannot create VF 0 on PF %s. The VF's PCI bus number is outside the parent bridge's assigned range", pf_if ));
+      }
       if( err==ENOMEM ) {
         FD_LOG_ERR(( "The system has not reserved PCIe memory for VFs on PF %s.\n\n"
                      "  %s", pf_if, fd_iavf_sriov_bios_guide( 0 ) ));
       }
-      FD_LOG_ERR(( "Checking VF PCIe memory resources for PF %s failed (%i-%s). "
-                   "Check that /sys/class/net/%s/device/resource is accessible.",
+      FD_LOG_ERR(( "Checking VF PCIe resources for PF %s failed (%i-%s). "
+                   "Check that the PCI sysfs files under /sys/class/net/%s/device are accessible.",
                    pf_if, err, fd_io_strerror( err ), pf_if ));
     }
     NOT_CONFIGURED( "PF %s has no VFs", pf_if );
@@ -858,8 +870,9 @@ init( fd_config_t const * config ) {
   if( -1==fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
     FD_LOG_ERR(( "Discovering PFs for interface %s failed (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
   }
-  /* Resolve every PF's iommu_group and check VF BAR allocations on PFs with
-     sriov_numvfs==0 before creating any VF or replacing any PF ntuple rules */
+  /* Resolve every PF's iommu_group and check VF bus numbers and BAR
+     allocations on PFs with sriov_numvfs==0 before creating any VF or
+     replacing any PF ntuple rules */
   int member_configured[ FD_IAVF_MEMBER_MAX ];
   for( ulong i=0UL; i<member_cnt; i++ ) {
     char const * diagnostic;
