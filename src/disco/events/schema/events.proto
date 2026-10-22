@@ -7853,7 +7853,7 @@ message RuntimeTxn {
   // Fee-payer pubkey
   bytes fee_payer = 9;
   // True if the transaction was classified as a simple vote, false otherwise
-  bool is_simple_vote = 10;
+  bool is_simple_vote = 10 [deprecated = true];
   // True if the transaction is part of a bundle, false otherwise
   bool is_bundle = 11;
   // True if the transaction was committable (landed on-chain)

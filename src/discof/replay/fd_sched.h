@@ -110,7 +110,6 @@ struct fd_sched_txn_info {
    int   txn_err;
    uint  next_idx;
    long  received_ns;
-   int   is_simple_vote;
 
    /* LONG_MAX if stage was not reached */
    long  tick_parsed;

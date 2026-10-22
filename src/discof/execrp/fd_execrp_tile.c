@@ -2,7 +2,6 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
 
-#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -184,7 +183,6 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
   msg->txn_exec->is_noop         = ctx->txn_out.err.is_noop;
   msg->txn_exec->txn_err         = ctx->txn_out.err.txn_err;
-  msg->txn_exec->is_simple_vote  = ctx->txn_out.details.is_simple_vote;
 
   msg->txn_exec->tick_load_start        = ctx->txn_out.details.load_start_ticks;
   msg->txn_exec->tick_check_start       = ctx->txn_out.details.check_start_ticks;
@@ -200,38 +198,6 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->bank_seq        = ctx->bank->bank_seq;
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
   msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
-
-  int is_vote = 0;
-  if( FD_LIKELY( ctx->txn_out.details.is_simple_vote ) ) {
-    fd_txn_t const * txn = TXN( ctx->txn_in.txn );
-    uchar const *    payload = ctx->txn_in.txn->payload;
-    fd_compact_tower_sync_serde_t tower_sync[ 1 ];
-    if( FD_LIKELY( fd_txn_parse_simple_vote( txn, payload, tower_sync ) ) ) {
-      fd_acct_addr_t const * accs = fd_txn_get_acct_addrs( txn, payload );
-      *msg->txn_exec->vote.identity  = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 0 ] );
-      *msg->txn_exec->vote.vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ txn->signature_cnt==1 ? 1 : 2 ] );
-
-      ulong cur       = fd_ulong_if( tower_sync->root==ULONG_MAX, 0UL, tower_sync->root );
-      ulong cnt       = 0UL;
-      int   overflow  = 0;
-      for( ulong i=0UL; i<tower_sync->lockouts_cnt; i++ ) {
-        if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, tower_sync->lockouts[ i ].offset, &cur ) ) ) { overflow = 1; break; }
-        msg->txn_exec->vote.vote_slots[ cnt++ ] = cur;
-      }
-      if( FD_LIKELY( !overflow ) ) {
-        msg->txn_exec->vote.vote_slot_cnt = (uchar)cnt;
-        msg->txn_exec->vote.slot          = cnt ? msg->txn_exec->vote.vote_slots[ cnt-1UL ] : cur;
-        is_vote                           = 1;
-      }
-    }
-  }
-
-  if( FD_UNLIKELY( !is_vote ) ) {
-    msg->txn_exec->vote.slot          = ULONG_MAX;
-    msg->txn_exec->vote.vote_slot_cnt = (uchar)0;
-    *msg->txn_exec->vote.identity     = (fd_pubkey_t){ 0 };
-    *msg->txn_exec->vote.vote_acct    = (fd_pubkey_t){ 0 };
-  }
 
   if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {
     uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;

@@ -275,7 +275,6 @@ struct fd_txn_out {
 
     ulong                       signature_count;           /* Number of signatures in the transaction */
     fd_signature_t              signature;                 /* First transaction signature */
-    int                         is_simple_vote;            /* Whether the transaction is a simple vote */
     ulong                       commit_index_in_slot;      /* 0-indexed commit-completion order within this slot */
   } details;
 

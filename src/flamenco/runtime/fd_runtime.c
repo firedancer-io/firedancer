@@ -1282,11 +1282,8 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.execution_fees,  txn_out->details.execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.priority_fees,   txn_out->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.signature_count, txn_out->details.signature_count );
-
-  if( FD_LIKELY( !txn_out->details.is_simple_vote ) ) {
-    FD_ATOMIC_FETCH_AND_ADD( &bank->f.nonvote_txn_count, 1 );
-    if( FD_UNLIKELY( txn_out->err.txn_err ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.nonvote_failed_txn_count, 1 );
-  }
+  FD_ATOMIC_FETCH_AND_ADD( &bank->f.nonvote_txn_count, 1 );
+  if( FD_UNLIKELY( txn_out->err.txn_err ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.nonvote_failed_txn_count, 1 );
 
   if( FD_UNLIKELY( txn_out->err.txn_err ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.failed_txn_count, 1 ); /* fees-only failures too, not just instruction errors */
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.total_compute_units_used, txn_out->details.compute_budget.compute_unit_limit-txn_out->details.compute_budget.compute_meter );
@@ -1423,7 +1420,6 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   } else {
     fd_memset( txn_out->details.signature.uc, 0, sizeof(fd_signature_t) );
   }
-  txn_out->details.is_simple_vote  = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
   memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );

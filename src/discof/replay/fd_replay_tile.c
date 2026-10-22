@@ -1369,7 +1369,6 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   txn_executed->is_committable = !!(txn_info->flags&FD_SCHED_TXN_IS_COMMITTABLE);
   txn_executed->is_fees_only = !!(txn_info->flags&FD_SCHED_TXN_IS_FEES_ONLY);
   txn_executed->is_noop = !!(txn_info->flags&FD_SCHED_TXN_IS_NOOP);
-  txn_executed->is_simple_vote = txn_info->is_simple_vote;
   txn_executed->tick_parsed = txn_info->tick_parsed;
   txn_executed->tick_sigverify_disp = txn_info->tick_sigverify_disp;
   txn_executed->tick_sigverify_done = txn_info->tick_sigverify_done;
@@ -3483,7 +3482,6 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       FD_TEST( res==0 );
       fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
       txn_info->flags |= FD_SCHED_TXN_EXEC_DONE;
-      txn_info->is_simple_vote = msg->txn_exec->is_simple_vote;
       txn_info->bank_seq = msg->txn_exec->bank_seq;
 
       txn_info->tick_load_start        = msg->txn_exec->tick_load_start;
