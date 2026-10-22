@@ -4,8 +4,9 @@
 #include "../../../ballet/shred/fd_shred.h"
 #include "../../../disco/shred/fd_fec_resolver.h"
 #include "../../../disco/metrics/fd_metrics.h"
-#include "../../../discof/reasm/fd_reasm.h"
+#include "../../../choreo/rotor/fd_rotor.h"
 #include "../../../discof/replay/fd_sched.h"
+#include "../../alpenglow/fd_block_marker_serde.h"
 
 /* Resolver sizing.  Production sizing lives in the shred tile setup;
    the values below are much smaller because the harness consumes
@@ -24,11 +25,6 @@ static ulong const RESOLVER_COMPLETE_DEPTH = 8UL;
 static ulong const RESOLVER_DONE_DEPTH     = 256UL;
 static ulong const RESOLVER_SLOT_MAX       = 4096UL;
 
-/* Reasm + scheduler sizing.  Only loosely tied to the resolver depths
-   above: large enough to cover any reasonable fuzz input while keeping
-   spad footprint bounded. */
-static ulong const REASM_POOL_MAX       = 1024UL;
-
 /* Scheduler txn/block pool sizes, bounded to the fuzz input so
    fd_sched_new's per-run free-list init stays cheap. */
 static ulong const SCHED_DEPTH          = 4096UL;
@@ -36,11 +32,10 @@ static ulong const SCHED_BLOCK_CNT_MAX  = 128UL;
 static ulong const SCHED_EXEC_CNT       = 4UL;
 
 /* Tick-verification parameters passed to fd_sched_block_verify_ticks.
-   ticks_per_slot=64 (tick_height 0, max_tick_height 64) and
-   hashes_per_tick=62500 to match mainnet and solfuzz-agave's reference
-   bank. */
+   Alpenglow expects one tick per block, so like the replay tile the
+   tick height starts at max_tick_height-1 with hashes_per_tick=1. */
 static ulong const SLOT_MAX_TICK_HEIGHT = 64UL;
-static ulong const SLOT_HASHES_PER_TICK = 62500UL;
+static ulong const SLOT_HASHES_PER_TICK = 1UL;
 
 typedef struct {
   fd_hash_t mr;
@@ -54,8 +49,10 @@ typedef struct {
   ushort    shred_sz[ FD_FEC_SHRED_CNT ];
   int       data_complete;
   int       slot_complete;
+  int       chained; /* in its slot's contiguous chain from FEC set 0 */
   ulong     payload_sz;
   uchar *   payload;
+  uchar *   data_shreds; /* num_data_shreds copies of FD_SHRED_MIN_SZ bytes */
 } fd_shred_completed_fec_t;
 
 #define SORT_NAME                sort_completed_fec
@@ -63,17 +60,6 @@ typedef struct {
 #define SORT_BEFORE(a,b)         ( (a).slot<(b).slot || ( (a).slot==(b).slot && (a).fec_set_idx<(b).fec_set_idx ) )
 #define SORT_QUICK_SWAP_MINIMIZE 1 /* ~240B key; skip no-op swaps */
 #include "../../../util/tmpl/fd_sort.c"
-
-/* Return reasm's evicted single-child chain to the pool. */
-static void
-release_evicted_chain( fd_reasm_t *     reasm,
-                       fd_reasm_fec_t * evicted ) {
-  while( evicted ) {
-    fd_reasm_fec_t * next = fd_reasm_child( reasm, evicted );
-    fd_reasm_pool_release( reasm, evicted );
-    evicted = next;
-  }
-}
 
 /* This is a harness simplification that avoids having to use store.
    Also includes logic from the shred tile to concatenate FEC set
@@ -92,11 +78,13 @@ capture_completed_fec( fd_spad_t *                spad,
   ushort code_cnt = base_parity->code.code_cnt;
 
   /* Concatenate data-shred payloads into a single buffer. */
-  uchar * payload    = fd_spad_alloc( spad, alignof(uchar), (ulong)data_cnt*FD_SHRED_MAX_SZ );
-  ulong   payload_sz = 0UL;
+  uchar * payload     = fd_spad_alloc( spad, alignof(uchar), (ulong)data_cnt*FD_SHRED_MAX_SZ );
+  uchar * data_shreds = fd_spad_alloc( spad, alignof(fd_shred_t), (ulong)data_cnt*FD_SHRED_MIN_SZ );
+  ulong   payload_sz  = 0UL;
   for( ushort i=0U; i<data_cnt; i++ ) {
     fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MIN_SZ, FD_SHRED_PROTOCOL_BLK_MAX );
     FD_TEST( shred );
+    memcpy( data_shreds + (ulong)i*FD_SHRED_MIN_SZ, set->data_shreds[ i ].b, FD_SHRED_MIN_SZ );
     ulong shred_payload_sz = fd_shred_payload_sz( shred );
     if( FD_LIKELY( shred_payload_sz ) ) {
       memcpy( payload + payload_sz, fd_shred_data_payload( shred ), shred_payload_sz );
@@ -124,6 +112,7 @@ capture_completed_fec( fd_spad_t *                spad,
   out->slot_complete     = !!(last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   out->payload_sz        = payload_sz;
   out->payload           = payload;
+  out->data_shreds       = data_shreds;
 
   /* Shreds are always chained, so the chained root is present. */
   memcpy( out->cmr.hash, (uchar const *)base_data + fd_shred_chain_off( base_data->variant ), FD_SHRED_MERKLE_ROOT_SZ );
@@ -186,7 +175,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
                                                          RESOLVER_DONE_DEPTH );
   void * resolver_mem       = fd_spad_alloc( runner->spad, fd_fec_resolver_align(), resolver_footprint );
 
-  /* Resolver/reasm/sched construction parameters are all compile-time
+  /* Resolver/rotor/sched construction parameters are all compile-time
      constants or sourced from the trusted runner spad -- a NULL return
      from any of these constructors is a harness setup bug. */
   fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new(
@@ -208,17 +197,12 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   fd_fec_resolver_set_bypass_verify( resolver, 1 );
   fd_fec_resolver_advance_slot_old ( resolver, input->root_slot );
 
-  /* Initialize reasm/sched so completed FEC sets can be
-     replay-ingested in order. */
-  void * reasm_mem = fd_spad_alloc( runner->spad, fd_reasm_align(), fd_reasm_footprint( REASM_POOL_MAX ) );
-  fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( reasm_mem, REASM_POOL_MAX, 0UL ) );
-  FD_TEST( reasm );
-  int reasm_initialized = 0;
-
+  /* Initialize sched so completed FEC sets can be replay-ingested in
+     order.  Rotor is set up below, once the root block id is known. */
   fd_rng_t rng_mem[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 0UL ) );
   void * sched_mem = fd_spad_alloc( runner->spad, fd_sched_align(), fd_sched_footprint( SCHED_DEPTH, SCHED_BLOCK_CNT_MAX, FD_SHRED_PROTOCOL_BLK_MAX, FD_MAX_TXN_PER_SLOT ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( sched_mem, rng, SCHED_DEPTH, SCHED_BLOCK_CNT_MAX, FD_SHRED_PROTOCOL_BLK_MAX, FD_MAX_TXN_PER_SLOT, SCHED_EXEC_CNT, 0 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( sched_mem, rng, SCHED_DEPTH, SCHED_BLOCK_CNT_MAX, FD_SHRED_PROTOCOL_BLK_MAX, FD_MAX_TXN_PER_SLOT, SCHED_EXEC_CNT, 1 ) );
   FD_TEST( sched );
   fd_sched_set_bypass_poh_verify( sched, 1 ); /* skip PoH end_hash compare */
   fd_sched_set_bypass_alut_resolution( sched, 1 ); /* skip ALUT resolution (no accdb) */
@@ -233,7 +217,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   fd_shred_completed_fec_t * completed =
     fd_spad_alloc( runner->spad, alignof(fd_shred_completed_fec_t), sizeof(fd_shred_completed_fec_t)*max_fec_results );
   ulong completed_cnt = 0UL;
-  uint next_bank_idx = 1U; /* 0 is the reasm/sched root, so start at 1 */
+  uint next_bank_idx = 1U; /* 0 is the rotor/sched root, so start at 1 */
 
   /* Parse each shred, feed resolver, and only continue when an FEC
      completes. */
@@ -285,32 +269,29 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     fd_shred_completed_fec_t * rec = &completed[ completed_cnt ];
     capture_completed_fec( runner->spad, out_fec_set, rec );
 
-    /* Buffer the completion; reasm runs after the shred loop in
+    /* Buffer the completion; rotor runs after the shred loop in
        (slot, fec_set_idx) order. */
     completed_cnt++;
   }
 
-  /* Sort by (slot, fec_set_idx) so set 0 anchors the reasm root
-     before any successor inserts. */
+  /* Sort by (slot, fec_set_idx) so blocks reach rotor in order. */
   sort_completed_fec_inplace( completed, completed_cnt );
 
   /* One result per completed FEC set, as both validators complete sets
      whether or not the slot is connected: per slot, the contiguous run
      from index 0 in which every set chains to the previous one's
-     Merkle root.  Delivery and ingest below only drive the block
-     verdict. */
+     Merkle root.  Only these sets are given to rotor below, which
+     drives the block verdict. */
   for( ulong k=0UL; k<completed_cnt; k++ ) {
     fd_shred_completed_fec_t * rec = &completed[ k ];
     int first_in_slot = ( k==0UL ) || ( completed[ k-1UL ].slot!=rec->slot );
     if( first_in_slot ) {
-      if( rec->fec_set_idx!=0U ) { while( k+1UL<completed_cnt && completed[ k+1UL ].slot==rec->slot ) k++; continue; }
+      rec->chained = rec->fec_set_idx==0U;
     } else {
       fd_shred_completed_fec_t * prev = &completed[ k-1UL ];
-      if( rec->fec_set_idx!=prev->fec_set_idx+FD_FEC_SHRED_CNT || memcmp( rec->cmr.hash, prev->mr.hash, sizeof(fd_hash_t) ) ) {
-        while( k+1UL<completed_cnt && completed[ k+1UL ].slot==rec->slot ) k++;
-        continue;
-      }
+      rec->chained = prev->chained && rec->fec_set_idx==prev->fec_set_idx+FD_FEC_SHRED_CNT && !memcmp( rec->cmr.hash, prev->mr.hash, sizeof(fd_hash_t) );
     }
+    if( !rec->chained ) continue;
     FD_TEST( effects->fec_set_results_count<max_fec_results );
     fd_exec_test_fec_set_parse_result_t * out_fec = &effects->fec_set_results[ effects->fec_set_results_count++ ];
     fd_memset( out_fec, 0, sizeof(*out_fec) );
@@ -326,57 +307,82 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     out_fec->payload_hash = fd_solfuzz_hash( rec->payload, rec->payload_sz );
   }
 
-  /* The root block id is the chained Merkle root of the first completed
-     FEC set that chains to the root slot.  Without one, every completed
-     set is an orphan: the reassembler would hold it and deliver nothing,
-     so there is nothing to insert. */
-  for( ulong k=0UL; k<completed_cnt && !reasm_initialized; k++ ) {
+  /* The root block id is the parent block id named by the block header
+     in shred 0 of the first completed block that builds on the root
+     slot.  Without one, nothing can link to the root, but rotor still
+     invalidates slots with a bad block header. */
+  fd_mr32_t root_blk_mr = {0};
+  for( ulong k=0UL; k<completed_cnt; k++ ) {
     fd_shred_completed_fec_t * rec = &completed[ k ];
     if( rec->fec_set_idx!=0U || rec->slot<rec->parent_off || rec->slot-rec->parent_off!=input->root_slot ) continue;
-    fd_reasm_fec_t * root = fd_reasm_init( reasm, &rec->cmr, input->root_slot );
-    if( FD_UNLIKELY( !root ) ) {
-      effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
-      break;
-    }
-    root->bank_idx    = 0UL;
-    reasm_initialized = 1;
+    fd_block_marker_t marker[1];
+    if( fd_block_marker_de( marker, rec->payload, rec->shred_sz[ 0 ] ) || marker->kind!=FD_BLOCK_MARKER_KIND_HEADER ) continue;
+    root_blk_mr = marker->header.parent_block_id;
+    break;
   }
 
-  for( ulong k=0UL; k<completed_cnt && reasm_initialized; k++ ) {
+  /* Rotor window.  Shreds for slots outside (root_slot,
+     root_slot+slot_max) are not given to rotor, like the rotor tile.
+     The harness never advances the root, so the window covers every
+     completed slot (the resolver bounds these by RESOLVER_SLOT_MAX).
+     It is sized to the input since fd_rotor_new clears its whole
+     footprint on every run. */
+  ulong slot_max = 1UL;
+  for( ulong k=0UL; k<completed_cnt; k++ ) {
+    if( completed[ k ].slot>input->root_slot ) slot_max = fd_ulong_max( slot_max, completed[ k ].slot-input->root_slot+1UL );
+  }
+  FD_TEST( slot_max<=RESOLVER_SLOT_MAX );
+  ulong        fec_max     = fd_ulong_max( completed_cnt, 1UL );
+  ulong        fec_blk_max = FD_SHRED_PROTOCOL_BLK_MAX/FD_FEC_SHRED_CNT;
+  void *       rotor_mem   = fd_spad_alloc( runner->spad, fd_rotor_align(), fd_rotor_footprint( slot_max, fec_max, fec_blk_max ) );
+  fd_rotor_t * rotor       = fd_rotor_join( fd_rotor_new( rotor_mem, slot_max, fec_max, fec_blk_max, 0UL ) );
+  FD_TEST( rotor );
+  fd_rotor_init( rotor, input->root_slot, &root_blk_mr, NULL, NULL );
+
+  /* Bank index of each rotor blk, UINT_MAX until its FEC set 0 is
+     ingested.  Rotor never frees a blk here, so a blk pool idx names
+     one blk for the whole run. */
+  ulong  blk_max      = fd_rotor_blk_pool_max( rotor->blk_pool );
+  uint * blk_bank_idx = fd_spad_alloc( runner->spad, alignof(uint), sizeof(uint)*blk_max );
+  for( ulong j=0UL; j<blk_max; j++ ) blk_bank_idx[ j ] = UINT_MAX;
+  blk_bank_idx[ fd_rotor_blk_pool_idx( rotor->blk_pool, rotor->root_blk ) ] = 0U;
+
+  for( ulong k=0UL; k<completed_cnt; k++ ) {
     fd_shred_completed_fec_t * rec = &completed[ k ];
 
-    /* Step 3: fd_reasm_insert()
-       Insert completed FEC into reasm and release elements from evicted
-       chains. */
-    fd_reasm_fec_t * evicted = NULL;
-    if( !fd_reasm_insert( reasm,
-                          &rec->mr,
-                          &rec->cmr,
-                          rec->slot,
-                          rec->fec_set_idx,
-                          rec->parent_off,
-                          rec->num_data_shreds,
-                          rec->data_complete,
-                          rec->slot_complete,
-                          0,
-                          NULL,
-                          NULL,
-                          &evicted ) ) {
-      release_evicted_chain( reasm, evicted );
-      effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
-      continue;
+    /* Step 3: fd_rotor_shred_insert() and fd_rotor_fec_complete()
+       Give rotor the FEC set's data shreds, then its completion, with
+       the rotor tile's window and parent filters. */
+    if( !rec->chained ) continue;
+    if( rec->slot<=input->root_slot || rec->slot>=input->root_slot+slot_max ) continue;
+    if( (ulong)rec->fec_set_idx+rec->num_data_shreds>fec_blk_max*FD_FEC_SHRED_CNT ) continue;
+    fd_shred_t const * shred = NULL;
+    int                ok    = 0;
+    for( ulong i=0UL; i<rec->num_data_shreds; i++ ) {
+      shred = (fd_shred_t const *)( rec->data_shreds + i*FD_SHRED_MIN_SZ );
+      ok    = shred->data.parent_off && shred->data.parent_off<=shred->slot-input->root_slot;
+      if( ok ) fd_rotor_shred_insert( rotor, shred, &rec->mr, 0, 0L );
     }
-    release_evicted_chain( reasm, evicted );
+    if( ok ) fd_rotor_fec_complete( rotor, shred, &rec->mr, 0, 0U, 0U, 0U, 0U, 0U, 0U, 0L );
 
-    /* Step 4: fd_reasm_pop() and fd_fec_set_ingest() while there are
-       completed FEC sets remaining. */
-    fd_reasm_fec_t * popped;
-    while( FD_LIKELY( (popped = fd_reasm_pop( reasm )) ) ) {
+    /* Rotor invalidates a slot for a bad block header, conflicting
+       parents or an equivocating FEC set, and never delivers it. */
+    if( fd_rotor_slot_meta( rotor, rec->slot )->invalidated ) {
+      effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
+    }
+
+    /* Step 4: pop rotor's reasm deque and fd_sched_fec_ingest() while
+       there are delivered FEC sets remaining. */
+    while( !fd_rotor_deque_empty( rotor->reasm_deque ) ) {
+      fd_rotor_deque_t       out = fd_rotor_deque_pop_head( rotor->reasm_deque );
+      fd_rotor_blk_t const * blk = fd_rotor_blk_pool_ele_const( rotor->blk_pool, out.blk_idx );
+      fd_rotor_fec_t const * fec = fd_rotor_fec_pool_ele_const( rotor->fec_pool, blk->fecs[ out.fec_idx ] );
+
       /* Query our "store"-adjacent structure (completed) for the FEC
          set payload */
       fd_shred_completed_fec_t * popped_rec = NULL;
       for( ulong j=0UL; j<completed_cnt; j++ ) {
-        if( FD_LIKELY( !memcmp( completed[ j ].mr.hash, popped->key.hash, sizeof(fd_hash_t) ) ) ) {
+        if( FD_LIKELY( !memcmp( completed[ j ].mr.hash, fec->mr32.hash, sizeof(fd_hash_t) ) ) ) {
           popped_rec = &completed[ j ];
           break;
         }
@@ -387,31 +393,33 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
          Otherwise, Firedancer's eager per-FEC parsing might reject a
          block for a bad FEC set that Agave simply doesn't parse at all.
          A FEC set is deshreddable iff some FEC set at or after it in
-         the same slot carries DATA_COMPLETE.  Complete batches are
-         still fed one FEC set at a time.  Only the final, potentially
-         incomplete batch is held back.  fec_set_results are captured
+         the same slot's chain carries DATA_COMPLETE.  Complete batches
+         are still fed one FEC set at a time.  Only the final,
+         potentially incomplete batch is held back.  fec_set_results are captured
          from the completed sets above, independent of the scheduler. */
       int deshreddable = 0;
       for( ulong j=0UL; j<completed_cnt; j++ ) {
-        if( completed[ j ].slot==popped_rec->slot && completed[ j ].fec_set_idx>=popped_rec->fec_set_idx && completed[ j ].data_complete ) {
+        if( completed[ j ].chained && completed[ j ].slot==popped_rec->slot && completed[ j ].fec_set_idx>=popped_rec->fec_set_idx && completed[ j ].data_complete ) {
           deshreddable = 1;
           break;
         }
       }
       if( !deshreddable ) continue;
 
-      /* Bank lineage comes from the reasm tree, like the replay tile.
-         Reasm pops parents before children, so the parent's bank_idx
-         was already recorded by the time we read it here. */
-      fd_reasm_fec_t * parent = fd_reasm_parent( reasm, popped );
-      FD_TEST( parent );
-      uint parent_bank_idx = parent->bank_idx;
-
-      /* If the FEC set starts a new slot (no bank yet), use a fresh
-         bank index; otherwise reuse the parent's.  Record it on the
-         node so this slot's later FECs inherit it. */
-      uint bank_idx = ( popped->fec_set_idx==0U ) ? next_bank_idx++ : parent_bank_idx;
-      popped->bank_idx = bank_idx;
+      /* Bank lineage comes from the rotor blk tree.  Rotor delivers a
+         blk only after its parent blk in full, so the parent's bank_idx
+         is known unless its batches were held back above.  FEC set 0
+         starts a new bank, later FEC sets reuse the blk's. */
+      uint parent_bank_idx;
+      if( out.fec_idx==0U ) {
+        parent_bank_idx = blk_bank_idx[ blk->parent ];
+        if( parent_bank_idx==UINT_MAX ) continue;
+        blk_bank_idx[ out.blk_idx ] = next_bank_idx++;
+      } else {
+        parent_bank_idx = blk_bank_idx[ out.blk_idx ];
+        if( parent_bank_idx==UINT_MAX ) continue;
+      }
+      uint bank_idx = blk_bank_idx[ out.blk_idx ];
 
       fd_store_fec_t store_fec[1] = {0};
       store_fec->key = popped_rec->mr;
@@ -422,14 +430,14 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       fd_sched_fec_t sched_fec = {
         .bank_idx          = bank_idx,
         .parent_bank_idx   = parent_bank_idx,
-        .slot              = popped_rec->slot,
-        .parent_slot       = fd_ulong_if( popped_rec->slot>=popped_rec->parent_off, popped_rec->slot-popped_rec->parent_off, 0UL ),
+        .slot              = blk->slot,
+        .parent_slot       = blk->parent_slot,
         .fec               = store_fec,
         .data              = popped_rec->payload,
         .shred_cnt         = popped_rec->shred_cnt,
         .is_last_in_batch  = !!popped_rec->data_complete,
-        .is_last_in_block  = !!popped_rec->slot_complete,
-        .is_first_in_block = !!(popped_rec->fec_set_idx==0U)
+        .is_last_in_block  = out.fec_idx+1U==blk->cmpl_fec_cnt,
+        .is_first_in_block = out.fec_idx==0U
       };
 
       /* Drain abandoned blocks; fd_sched_fec_ingest requires an empty
@@ -441,12 +449,12 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       FD_TEST( fd_sched_fec_can_ingest( sched, &sched_fec ) );
       if( !fd_sched_fec_ingest( sched, &sched_fec ) ) {
         effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
-      } else if( FD_LIKELY( bank_idx!=0UL ) ) {
+      } else {
         /* Harness stops at FEC ingest, so verify this slot's tick
-           window here; skip bank_idx 0 (reasm/sched root).  Only
-           complete batches reach this point, so this matches Agave's
-           model of only verifying deshredded batches. */
-        if( fd_sched_block_verify_ticks( sched, bank_idx, 0UL, SLOT_MAX_TICK_HEIGHT, SLOT_HASHES_PER_TICK ) ) {
+           window here.  Only complete batches reach this point, so
+           this matches Agave's model of only verifying deshredded
+           batches. */
+        if( fd_sched_block_verify_ticks( sched, bank_idx, SLOT_MAX_TICK_HEIGHT-1UL, SLOT_MAX_TICK_HEIGHT, SLOT_HASHES_PER_TICK ) ) {
           effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
         }
       }
