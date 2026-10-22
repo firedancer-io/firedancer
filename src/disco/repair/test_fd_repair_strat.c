@@ -61,7 +61,7 @@ test_order( void ) {
   /* Of two peers in a bucket, the one with fewer requests in flight. */
 
   FD_TEST( fd_repair_strat_query( strat, &a )->bucket==fd_repair_strat_query( strat, &b )->bucket );
-  fd_repair_strat_query( strat, &b )->inflight = 5U;
+  fd_repair_strat_query( strat, &b )->out_cnt = 5U;
   for( ulong i=0UL; i<4UL; i++ ) {
     FD_TEST( fd_repair_strat_pick( strat, 0L, 1, ULONG_MAX )==fd_repair_strat_query( strat, &a ) );
     fd_repair_strat_request_done( strat, &a, 150L*1000000L, 0 );
@@ -69,10 +69,10 @@ test_order( void ) {
 
   /* A failed reply bans without an rtt sample. */
 
-  long srtt = fd_repair_strat_query( strat, &a )->srtt;
+  long srtt = fd_repair_strat_query( strat, &a )->srtt_ns;
   fd_repair_strat_request_failed( strat, &a, 100L );
   fd_repair_strat_request_failed( strat, &b, 100L );
-  FD_TEST( fd_repair_strat_query( strat, &a )->srtt==srtt );
+  FD_TEST( fd_repair_strat_query( strat, &a )->srtt_ns==srtt );
   FD_TEST( !fd_repair_strat_pick( strat, 50L, 1, ULONG_MAX ) );
   FD_TEST(  fd_repair_strat_pick( strat, 100L, 1, ULONG_MAX ) );
 
@@ -83,7 +83,7 @@ test_order( void ) {
   fd_repair_strat_request_failed( strat, &a, 150L );
   FD_TEST( fd_repair_strat_query( strat, &a )->ban_ts==200L );
 
-  FD_TEST( fd_repair_strat_hedge_ns( fd_repair_strat_query( strat, &a ) )==srtt+4L*fd_repair_strat_query( strat, &a )->rttvar );
+  FD_TEST( fd_repair_strat_hedge_ns( fd_repair_strat_query( strat, &a ) )==srtt+4L*fd_repair_strat_query( strat, &a )->rttvar_ns );
 }
 
 /* A peer at the in-flight cap leaves its bucket until a request ends;
@@ -187,7 +187,7 @@ test_retry_spread( void ) {
 
   for( ulong i=0UL; i<4UL; i++ ) {
     fd_repair_strat_peer_t * peer = fd_repair_strat_query( strat, &ids[ i ].key );
-    peer->srtt = 0L; peer->rttvar = 0L;
+    peer->srtt_ns = 0L; peer->rttvar_ns = 0L;
     fd_repair_strat_request_done( strat, &ids[ i ].key, (long)( 151UL-(i&1UL)*2UL+(i>>1)*2UL )*1000000L, 0 ); /* 151, 149, 153, 151 ms */
   }
   ulong b = fd_repair_strat_query( strat, &ids[ 0 ].key )->bucket;
@@ -254,6 +254,12 @@ test_byid_and_stuck( void ) {
   FD_TEST( fd_repair_strat_request_expired( strat, &b->id_key, 100L, 1 )==-1 );
   b->ban_ts = 0L;
 
+  for( uint i=0U; i<FD_REPAIR_STRAT_EXPIRED_MAX-1U; i++ ) FD_TEST( !fd_repair_strat_request_expired( strat, &b->id_key, 100L, 0 ) );
+  fd_repair_strat_request_failed( strat, &b->id_key, 0L );
+  FD_TEST( !b->ban_ts && b->expired_cnt==FD_REPAIR_STRAT_EXPIRED_MAX-1U );
+  FD_TEST( fd_repair_strat_request_expired( strat, &b->id_key, 100L, 0 )==-1 );
+  b->ban_ts = 0L;
+
   for( uint i=0U; i<FD_REPAIR_STRAT_BYID_MAX-1U; i++ ) FD_TEST( !fd_repair_strat_request_expired( strat, &a->id_key, 200L, 1 ) );
   fd_repair_strat_request_done( strat, &a->id_key, 1000000L, 1 );
   FD_TEST( !fd_repair_strat_request_expired( strat, &a->id_key, 200L, 1 ) );
@@ -287,6 +293,8 @@ test_byid_and_stuck( void ) {
   FD_TEST( hit[ 1 ]>hit[ 2 ] );
   for( ulong i=0UL; i<3UL; i++ ) fd_repair_strat_request_failed( strat, &ids[ i ].key, 1000L );
   FD_TEST( !fd_repair_strat_pick_staked( strat, 200L, ULONG_MAX, 7UL ) ); /* the unstaked peer is never drawn */
+  FD_TEST( !fd_repair_strat_pick( strat, 200L, 1, ULONG_MAX ) );
+  FD_TEST( fd_repair_strat_pick( strat, 200L, 0, ULONG_MAX )==fd_repair_strat_query( strat, &u.key ) );
 }
 
 int

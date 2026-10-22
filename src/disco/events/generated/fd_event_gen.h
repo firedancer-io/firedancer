@@ -1034,11 +1034,68 @@ fd_event_block_received_footprint( fd_event_block_received_t const * msg ) {
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_BLOCK_RECEIVED_BUF_MAX (73221UL)
 
+/* Kind of request. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_WINDOW_INDEX              (1) /* Shreds of one FEC set, by slot and index. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_HIGHEST_WINDOW_INDEX      (2) /* The highest shred a peer holds of a slot, to learn the block's length. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_ORPHAN                    (3) /* The ancestry of a slot whose parent block is not held. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_PARENT_AND_FEC_SET_COUNT  (4) /* Alpenglow: a block's parent and FEC set count, with a proof against its block id. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_FEC_SET_ROOT              (5) /* Alpenglow: the merkle root of one FEC set, with a proof against its block id. */
+#define FD_EVENT_REPAIR_REQUEST_TYPE_WINDOW_INDEX_FOR_BLOCK_ID (6) /* Alpenglow: shreds of one FEC set of a specific block. */
+
+/* How the message settled. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_ANSWERED     (1) /* Its shred arrived, or its metadata reply passed its proof. A highest_window_index or orphan reply that does not complete the slot carries a nonce the shred tile cannot verify, and is dropped unmatched if its shred or FEC set is already held. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_EXPIRED      (2) /* The deadline (about 1 s after req_time) passed with no answer. Counts toward banning the peer only if no message of the same pick was answered, see ban. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_UNANSWERABLE (3) /* The deadline passed with no answer to a highest_window_index or orphan message, or to a message for a slot at or below the root, including one rooted while in flight; never bans. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_BAD          (4) /* A metadata reply from the peer's address failed its proof; the peer is banned for 10 s. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_EVICTED      (5) /* Dropped unsettled because the pending request table was full; ours, not the peer's; never bans. */
+#define FD_EVENT_REPAIR_REQUEST_OUTCOME_SUPERSEDED   (6) /* A highest_window_index or orphan message with no answer whose answer arrived another way before the deadline: the block's length, or its parent's ancestry, became known; a reply may have been a shred already held, dropped unmatched; never bans. */
+
+/* Whether and why settling this message's pick banned the peer for 10 s. A pick settles once at the deadline, so every message of a pick left unanswered then carries the same ban. */
+#define FD_EVENT_REPAIR_REQUEST_BAN_NONE      (1) /* Not banned. */
+#define FD_EVENT_REPAIR_REQUEST_BAN_BY_ID     (2) /* Its 4th window_index_for_block_id pick in a row expired with no by-id answer. */
+#define FD_EVENT_REPAIR_REQUEST_BAN_STREAK    (3) /* Its 32nd pick in a row expired with no answer of any kind. */
+#define FD_EVENT_REPAIR_REQUEST_BAN_BAD_PROOF (4) /* Its metadata reply failed its proof. */
+
+/* How the peer was picked. */
+#define FD_EVENT_REPAIR_REQUEST_PICK_FIRST        (1) /* First attempt: the fastest available peer, an unmeasured one every 16th pick. */
+#define FD_EVENT_REPAIR_REQUEST_PICK_HEDGE        (2) /* A later attempt, after the last peer's hedge time, preferring any peer but the last one asked. */
+#define FD_EVENT_REPAIR_REQUEST_PICK_STAKED_HEDGE (3) /* A later attempt for a block not known only from turbine, from staked peers only. */
+#define FD_EVENT_REPAIR_REQUEST_PICK_ESCAPE       (4) /* A later attempt after 3 in a row brought no new shred of the FEC set: a random peer among the top 100 stake ranks, higher ranks likelier. */
+
+/* Role of the block asked about in its slot when sent. */
+#define FD_EVENT_REPAIR_REQUEST_ROLE_EAGER (1) /* Neither the slot's notarized nor finalized block: turbine's block, or another block of the slot known by id. */
+#define FD_EVENT_REPAIR_REQUEST_ROLE_NOTAR (2) /* The slot's first notarized, or stronger, block. */
+#define FD_EVENT_REPAIR_REQUEST_ROLE_FINAL (3) /* The slot's finalized block. */
+
+/* One repair request message this validator sent to a peer, reported once when it settles: its answer arrived, its metadata reply was checked, the deadline passed (PENDING_TTL, about 1 s after req_time), or it was evicted. Each message asks for one thing: a window_index or window_index_for_block_id pick sends one message per missing shred of the FEC set, so one row each, sharing peer, req_time, attempt and pick; the other kinds are one message per pick. A hedge or retry to another peer is another pick. Messages never sent have no row; see the rotor tile's Timeout* and SigningHalted metrics, and TimeoutOverdueNanos for sign slot starvation. Emitted by the rotor tile. */
+struct fd_event_repair_request {
+  uchar  peer_identity[ 32UL ]; /* Validator identity of the peer asked. */
+  uchar  peer_ip[ 16UL ];       /* IPv4 address the request was sent to, stored as an IPv4-mapped IPv6 address. */
+  ushort peer_port;             /* UDP port the request was sent to: the peer's serve-repair port in gossip when sent. */
+  ushort peer_rank;             /* The peer's stake rank in the current epoch when the message settled, 0 for the most staked, as ranked by the repair strategy (65535 if unstaked or no longer known). */
+  int    type;                  /* Kind of request. */
+  ulong  slot;                  /* Slot of the block asked about. */
+  uchar  block_id[ 32UL ];      /* Block id of the block asked about; all zeros for turbine's block until it completes. */
+  uint   shred_idx;             /* For window_index and window_index_for_block_id, the index of the shred the message asked for. For fec_set_root, index of the first shred of the FEC set asked about. For highest_window_index, the shred index sent: the first index past the highest FEC set received; the peer answers only if it holds a shred at or past it, or the slot is complete. 0 for orphan and parent_and_fec_set_count. */
+  ulong  req_time;              /* When the message was queued for signing; it leaves once its signature returns, so res_time - req_time includes sign latency. */
+  ulong  res_time;              /* When this message's answer was received off the network (by the shred tile for shreds, the net tile for metadata replies); for bad, when the reply that failed its proof arrived; 0 if none. */
+  int    outcome;               /* How the message settled. */
+  int    ban;                   /* Whether and why settling this message's pick banned the peer for 10 s. A pick settles once at the deadline, so every message of a pick left unanswered then carries the same ban. */
+  uchar  attempt;               /* Earlier picks for the same request before this one, 0 for the first; at most 255. */
+  int    pick;                  /* How the peer was picked. */
+  int    role;                  /* Role of the block asked about in its slot when sent. */
+};
+typedef struct fd_event_repair_request fd_event_repair_request_t;
+
+/* Worst-case encoded size of a repair_request event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_REPAIR_REQUEST_BUF_MAX (357UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size, aligned to
    FD_EVENT_GEN_STRUCT_ALIGN. */
-#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; }))
-#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; }))
+#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_repair_request_t repair_request_; }))
+#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_repair_request_t repair_request_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -1222,6 +1279,16 @@ fd_event_block_received_serialize( fd_circq_t *                      circq,
                                    ulong                             link_seq,
                                    fd_event_block_received_t const * msg );
 
+/* Serialize a repair_request event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_repair_request_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_repair_request_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -1385,6 +1452,13 @@ fd_event_report_block_received( fd_event_block_received_t const * msg ) {
     { (void const *)msg->fec_sets, msg->fec_sets_cnt*sizeof(msg->fec_sets[0]) },
   };
   fd_event_report_gather_( 21UL, iov, sizeof(iov)/sizeof(iov[0]) );
+}
+
+/* Report a repair_request event (RepairRequest, id 63) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_repair_request( fd_event_repair_request_t const * msg ) {
+  fd_event_report_( 63UL, msg, sizeof(fd_event_repair_request_t) );
 }
 
 FD_PROTOTYPES_END
