@@ -3173,8 +3173,7 @@ fd_gui_handle_replay_txn( fd_gui_t *                       gui,
                           long                             now ) {
   if( FD_UNLIKELY( !gui->db || !gui->hist || txn->tick_sigverify_done==LONG_MAX || txn->tick_commit_end==LONG_MAX ) ) return;
   long  tick_now   = fd_tickcount();
-  uint  pack_flags = 0U;
-  ulong requested  = fd_pack_compute_cost( TXN( txn->txn ), txn->txn->payload, &pack_flags, NULL, NULL, NULL, NULL, NULL );
+  ulong requested  = fd_pack_compute_cost( TXN( txn->txn ), txn->txn->payload, NULL, NULL, NULL, NULL, NULL );
   fd_gui_store_replay_txn_t rec = {
     .insert_time_ns           = now,
     .completion_time_ns       = fd_gui_tick_to_nanos( gui, now, tick_now, fd_long_max( txn->tick_sigverify_done, txn->tick_commit_end ) ),
@@ -3427,8 +3426,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     ulong precompile_sigs                     = ULONG_MAX;
     ulong requested_loaded_accounts_data_cost = ULONG_MAX;
     ulong allocated_data                      = ULONG_MAX;
-    uint _flags = 0U;
-    ulong cost_estimate = fd_pack_compute_cost( txn, txn_payload->payload, &_flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
+    ulong cost_estimate = fd_pack_compute_cost( txn, txn_payload->payload, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
     sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
     sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
 
@@ -3490,10 +3488,9 @@ fd_gui_record_leader_txn( fd_gui_t *     gui,
                           ulong          tips,
                           uint           error_code,
                           long           now ) {
-  uint  pack_flags         = 0U;
   ulong priority_fee       = 0UL;
   ulong precompile_sig_cnt = 0UL;
-  ulong requested = fd_pack_compute_cost( TXN( txn_p ), txn_p->payload, &pack_flags, NULL,
+  ulong requested = fd_pack_compute_cost( TXN( txn_p ), txn_p->payload, NULL,
                                           &priority_fee, &precompile_sig_cnt, NULL, NULL );
   long commit_end_ns = fd_gui_tick_to_nanos( gui, now, fd_tickcount(), exec_end_ticks );
   long start_ns      = fd_long_sat_sub( commit_end_ns, fd_gui_ns_dt_float_to_long( txn_ns_dt.commit_end ) );

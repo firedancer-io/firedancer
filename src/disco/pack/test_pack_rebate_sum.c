@@ -2,7 +2,6 @@
 #include "fd_pack.h"
 #include "../../util/fd_hash32.h"
 
-#define VOTE     FD_TXN_P_FLAGS_IS_SIMPLE_VOTE
 #define BUNDLE   FD_TXN_P_FLAGS_BUNDLE
 #define IB       FD_TXN_P_FLAGS_INITIALIZER_BUNDLE
 #define SANITIZE FD_TXN_P_FLAGS_SANITIZE_SUCCESS
@@ -155,9 +154,9 @@ main( int     argc,
 
 
 
-  fake_transaction( microblock+0, alt[0],  100UL, SANITIZE | EXECUTE | VOTE, "", "" );
-  fake_transaction( microblock+1, alt[1], 3000UL, SANITIZE           | VOTE, "", "" );
-  fake_transaction( microblock+2, alt[2], 4000UL, 0,                         "", "" );
+  fake_transaction( microblock+0, alt[0],  100UL, SANITIZE | EXECUTE, "", "" );
+  fake_transaction( microblock+1, alt[1], 3000UL, SANITIZE,           "", "" );
+  fake_transaction( microblock+2, alt[2], 4000UL, 0,                  "", "" );
   FD_TEST(  0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
 
   FD_TEST( SZ(0UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );

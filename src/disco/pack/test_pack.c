@@ -202,9 +202,8 @@ make_transaction1( fd_txn_p_t * txnp,
   }
 
   txnp->payload_sz = (ushort)(p-p_base);
-  uint flags;
   fd_ulong_store_if( !!priority_fees, priority_fees, (rewards_per_cu * compute + 999999UL)/1000000UL );
-  fd_ulong_store_if( !!pack_cost_estimate, pack_cost_estimate, fd_pack_compute_cost( TXN( txnp ), txnp->payload, &flags, NULL, NULL, NULL, NULL, NULL ) );
+  fd_ulong_store_if( !!pack_cost_estimate, pack_cost_estimate, fd_pack_compute_cost( TXN( txnp ), txnp->payload, NULL, NULL, NULL, NULL, NULL ) );
 }
 
 static void
@@ -524,9 +523,8 @@ void test_vote( void ) {
   FD_LOG_NOTICE(( "TEST VOTE" ));
   fd_pack_t * pack = init_all( 128UL, 1UL, 4UL, &outcome );
   ulong i = 0;
-  uint  _flags = 0U;
   make_vote_transaction( i );
-  ulong pack_cost_estimate = 4UL * fd_pack_compute_cost( TXN( &txnp_scratch[ i ] ), txnp_scratch[ i ].payload, &_flags, NULL, NULL, NULL, NULL, NULL );
+  ulong pack_cost_estimate = 4UL * fd_pack_compute_cost( TXN( &txnp_scratch[ i ] ), txnp_scratch[ i ].payload, NULL, NULL, NULL, NULL, NULL );
 
   make_vote_transaction( i ); insert( i++, pack );
   make_vote_transaction( i ); insert( i++, pack );
@@ -534,12 +532,10 @@ void test_vote( void ) {
   make_vote_transaction( i ); insert( i++, pack );
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 4UL );
-  /* Votes are scheduled like any other transaction, but keep their
-     label */
+  /* Votes are scheduled like any other transaction */
   schedule_validate_microblock( pack, pack_cost_estimate, 4UL, 0UL, 0UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 
-  for( ulong j=0UL; j<4UL; j++ ) FD_TEST( outcome.results[ j ].txnp->flags==FD_TXN_P_FLAGS_IS_SIMPLE_VOTE );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
@@ -1104,9 +1100,8 @@ test_limits( void ) {
 
   /* All votes have the same cost estimate, which is determined by the
      cost model (i.e. fd_pack_compute_cost) */
-  uint  _flags = 0U;;
   make_vote_transaction( 0UL );
-  ulong const vote_cost = fd_pack_compute_cost( TXN( &txnp_scratch[ 0 ] ), txnp_scratch[ 0 ].payload, &_flags, NULL, NULL, NULL, NULL, NULL );
+  ulong const vote_cost = fd_pack_compute_cost( TXN( &txnp_scratch[ 0 ] ), txnp_scratch[ 0 ].payload, NULL, NULL, NULL, NULL, NULL );
   FD_TEST( vote_cost );
 
   /* Test the CU limit */
@@ -1459,7 +1454,7 @@ test_reject( void ) {
   fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
   make_vote_transaction1( bundle[0]->txnp, 0UL );
   int result = fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &_deleted );
-  FD_TEST( result==FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST );
+  FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD );
 
 
   for( ulong j=0UL; j<=i; j++ ) fd_memset( TXN( &txnp_scratch[ j ] ), (uchar)0, FD_TXN_MAX_SZ );

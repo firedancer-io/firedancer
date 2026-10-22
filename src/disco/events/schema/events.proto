@@ -2488,7 +2488,7 @@ message MetricsPackTxnInsertAttempted {
   uint64 nonce_conflict = 2;
   // Transaction uses an account on the account blocklist
   uint64 account_blocklisted = 3;
-  // Transaction is a vote in a bundle or uses an account on the bundle blocklist
+  // Transaction uses an account on the bundle blocklist
   uint64 bundle_blocklisted = 4;
   // Transaction is an invalid durable nonce transaction
   uint64 invalid_nonce = 5;

@@ -195,9 +195,7 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
 
 /* Computes the total cost and a few related properties for the
    specified transaction.  On success, returns the cost, which is in
-   [1020, FD_PACK_MAX_TXN_COST] and sets or clears the
-   FD_TXN_P_FLAG_IS_SIMPLE_VOTE bit of the value pointed to by flags to
-   indicate whether the transaction is a simple vote or not.
+   [1020, FD_PACK_MAX_TXN_COST].
 
    Additionally:
    If opt_execution_cost is non-null, on success it will contain the
@@ -220,11 +218,10 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
    allocate.  This value is in [0, 20MB].
 
    On failure, returns 0 and does not modify the value pointed to by
-   flags, opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
+   opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
 static inline ulong
 fd_pack_compute_cost( fd_txn_t const * txn,
                       uchar    const * payload,
-                      uint           * flags,
                       ulong          * opt_execution_cost,
                       ulong          * opt_fee,
                       ulong          * opt_precompile_sig_cnt,
@@ -244,8 +241,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   fd_pack_builtin_prog_cost_t const * loader_v4_row          = ROW( LOADER_V4_PROG_ID       );
 #endif /* FD_PACK_COST_USE_TRUE_ALLOC_BOUND */
 #undef ROW
-
-  *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
 
   /* We need to be mindful of overflow here, but it's not terrible.
      signature_cost < FD_TXN_ACCT_ADDR_MAX*720 + FD_TXN_INSTR_MAX * UCHAR_MAX * 6690,

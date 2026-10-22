@@ -97,7 +97,6 @@ local status_codes = {
   [38] = "ProgramCacheHitMaxLimit"
 }
 
-local tpu_simple_vote = ProtoField.uint32("fd_tpu.flags.simple_vote", "Simple Vote", base.DEC, yesno_types, 0x1)
 local tpu_bundle = ProtoField.uint32("fd_tpu.flags.bundle", "Bundle", base.DEC, yesno_types, 0x2)
 local tpu_initializer = ProtoField.uint32("fd_tpu.flags.initializer_bundle", "Initializer Bundle", base.DEC, yesno_types, 0x4)
 local tpu_sanitized = ProtoField.uint32("fd_tpu.flags.sanitized", "Sanitize Success", base.DEC, yesno_types, 0x8)
@@ -132,7 +131,6 @@ tango.fields = {
   tpu_first_seen_nanos,
   tpu_flags,
 
-  tpu_simple_vote,
   tpu_bundle,
   tpu_initializer,
   tpu_sanitized,
@@ -257,7 +255,6 @@ function tango.dissector (tvb, pinfo, tree)
       txn_tree:add_le(tpu_first_seen_nanos, txn(4120, 8))
       local flag_tvb = txn(4132,4)
       local flag_node = txn_tree:add_le(tpu_flags, flag_tvb)
-      flag_node:add_le(tpu_simple_vote, flag_tvb)
       flag_node:add_le(tpu_bundle,flag_tvb)
       flag_node:add_le(tpu_initializer,flag_tvb)
       flag_node:add_le(tpu_sanitized,  flag_tvb)

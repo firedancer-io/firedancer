@@ -218,7 +218,6 @@ test_build_vote_txn( fd_txn_p_t * out,
   FD_TEST( fd_txn_build_p( builder, out ) );
   out->pack_cu.non_execution_cus                 = 1000U;
   out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
-  out->flags = FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
   fd_txn_builder_delete( builder );
 }
 
@@ -255,7 +254,6 @@ test_build_vote_authorize_txn( fd_txn_p_t * out,
   FD_TEST( fd_txn_build_p( builder, out ) );
   out->pack_cu.non_execution_cus                 = 1000U;
   out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
-  out->flags = FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
   fd_txn_builder_delete( builder );
 }
 

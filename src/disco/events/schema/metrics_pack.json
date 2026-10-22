@@ -237,7 +237,7 @@
                 "instr_too_many_accounts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction has an instruction that references too many accounts" },
                 "nonce_conflict":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle with two conflicting durable nonce transactions" },
                 "account_blocklisted":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction uses an account on the account blocklist" },
-                "bundle_blocklisted":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction is a vote in a bundle or uses an account on the bundle blocklist" },
+                "bundle_blocklisted":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction uses an account on the bundle blocklist" },
                 "invalid_nonce":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction is an invalid durable nonce transaction" },
                 "write_sysvar":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction tries to write to a sysvar" },
                 "estimation_failed":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Estimating compute cost or fee failed" },

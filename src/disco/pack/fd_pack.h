@@ -28,7 +28,6 @@
 
 /* ---- End consensus-critical constants */
 
-#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE     ( 1U)
 #define FD_TXN_P_FLAGS_BUNDLE             ( 2U)
 #define FD_TXN_P_FLAGS_INITIALIZER_BUNDLE ( 4U)
 #define FD_TXN_P_FLAGS_SANITIZE_SUCCESS   ( 8U)
@@ -371,7 +370,7 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
     * INVALID_NONCE: the transaction looks like a durable nonce
       transaction, but the nonce authority did not sign the transaction.
     * BUNDLE_BLACKLIST: bundles are enabled and the transaction uses an
-      account in the bundle blacklist, or the bundle contains a vote.
+      account in the bundle blacklist.
     * ACCT_BLOCKLIST: the transaction included an account address in the
       account blocklist.
     * NONCE_CONFLICT: bundle with two transactions that attempt to lock

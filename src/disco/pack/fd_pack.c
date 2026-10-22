@@ -1018,8 +1018,7 @@ fd_pack_join( void * mem ) {
 }
 
 
-/* Returns 0 on failure, 1 on success for a vote, 2 on success for a
-   non-vote. */
+/* Returns 0 on failure, 1 on success. */
 static int
 fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
                                       fd_pack_ord_txn_t      * out,
@@ -1032,7 +1031,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
   ulong precompile_sigs;
   ulong requested_loaded_accounts_data_cost;
   ulong allocated_data;
-  ulong cost_estimate = fd_pack_compute_cost( txn, txne->txnp->payload, &txne->txnp->flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
+  ulong cost_estimate = fd_pack_compute_cost( txn, txne->txnp->payload, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
 
   if( FD_UNLIKELY( !cost_estimate ) ) return 0;
 
@@ -1075,7 +1074,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
   ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);
   out->rewards /= (uint)divisor;
 
-  return fd_int_if( txne->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
+  return 1;
 }
 
 /* Returns 0 on failure, 1 if not a durable nonce transaction, and 2 if
@@ -1632,8 +1631,6 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
     int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord, pack->lim );
     if( FD_UNLIKELY( est_result==0 ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL;  break; }
-    /* Votes not allowed in bundles */
-    if( FD_UNLIKELY( est_result==1 ) ) { err = FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST; break; }
     int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
     if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;    break; }
     /* The expires_at field is interpreted differently for nonce vs.
