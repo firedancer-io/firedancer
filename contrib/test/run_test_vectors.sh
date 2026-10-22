@@ -25,7 +25,7 @@ fi
 # If WORK_DIR is provided, use it directly and skip the whole
 # git clone/fetch/checkout/cache/rsync dance. The provided directory
 # is expected to already contain the fixtures laid out as
-# <WORK_DIR>/{block,syscall,txn,elf_loader,instr,shred}/fixtures
+# <WORK_DIR>/{block,syscall,txn,elf_loader,instr}/fixtures
 if [ -n "${WORK_DIR:-}" ]; then
   echo "Using provided WORK_DIR: $WORK_DIR"
 else
@@ -79,7 +79,6 @@ export FD_LOG_PATH="$LOG_PATH/solfuzz.log"
   "$WORK_DIR/txn/fixtures" \
   "$WORK_DIR/elf_loader/fixtures" \
   "$WORK_DIR/instr/fixtures" \
-  "$WORK_DIR/shred/fixtures" \
   "$WORK_DIR/cost/fixtures" \
   "$WORK_DIR/vm_serialization/fixtures" \
   "$WORK_DIR/gossip/fixtures"

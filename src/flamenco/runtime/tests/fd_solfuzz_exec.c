@@ -10,7 +10,6 @@
 #include "generated/vm_serialization.pb.h"
 #include "generated/cost.pb.h"
 #include "generated/elf.pb.h"
-#include "generated/shred.pb.h"
 #include "generated/gossip.pb.h"
 
 #include "../fd_executor_err.h"
@@ -356,26 +355,6 @@ fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
 
   // Cleanup
   pb_release( &fd_exec_test_elf_loader_fixture_t_msg, fixture );
-  return ok;
-}
-
-int
-fd_solfuzz_pb_shred_fixture( fd_solfuzz_runner_t * runner,
-                             uchar const *         in,
-                             ulong                 in_sz ) {
-  fd_exec_test_shred_parse_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_shred_parse_fixture_t_msg ) ) {
-    FD_LOG_WARNING(( "Invalid shred fixture." ));
-    return 0;
-  }
-
-  fd_spad_push( runner->spad );
-  void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_shred_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_shred_parse_effects_t_msg, runner->spad );
-  fd_spad_pop( runner->spad );
-
-  pb_release( &fd_exec_test_shred_parse_fixture_t_msg, fixture );
   return ok;
 }
 
