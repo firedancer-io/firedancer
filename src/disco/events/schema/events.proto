@@ -2424,11 +2424,11 @@ message MetricsPackTxnScheduleAttempted {
 
 // Pending transactions in pack's pool, by type
 message MetricsPackTxnPendingUsed {
-  // Non-votes in the main treap
+  // Transactions in the main treap
   uint64 regular = 1;
-  // Simple votes
-  uint64 vote = 2;
-  // Non-votes that write to a hotly-contended account
+  // Never populated: pack no longer special-cases simple votes
+  uint64 vote = 2 [deprecated = true];
+  // Transactions that write to a hotly-contended account
   uint64 conflicting = 3;
   // Transactions that are part of a bundle
   uint64 bundle = 4;
@@ -2488,7 +2488,7 @@ message MetricsPackTxnInsertAttempted {
   uint64 nonce_conflict = 2;
   // Transaction uses an account on the account blocklist
   uint64 account_blocklisted = 3;
-  // Transaction is a vote in a bundle or uses an account on the bundle blocklist
+  // Transaction uses an account on the bundle blocklist
   uint64 bundle_blocklisted = 4;
   // Transaction is an invalid durable nonce transaction
   uint64 invalid_nonce = 5;
@@ -2514,17 +2514,17 @@ message MetricsPackTxnInsertAttempted {
   uint64 nonce_priority_too_low = 15;
   // Transaction's fee was too low given its compute unit requirement and other competing transactions
   uint64 priority_too_low = 16;
-  // Transaction that was not a simple vote added to pending transactions
+  // Transaction added to pending transactions
   uint64 nonvote_add = 17;
-  // Simple vote transaction was added to pending transactions
-  uint64 vote_add = 18;
-  // Transaction that was not a simple vote replaced a lower priority transaction
+  // Never produced: pack no longer special-cases simple votes
+  uint64 vote_add = 18 [deprecated = true];
+  // Transaction replaced a lower priority transaction
   uint64 nonvote_replace = 19;
-  // Simple vote transaction replaced a lower priority transaction
-  uint64 vote_replace = 20;
+  // Never produced: pack no longer special-cases simple votes
+  uint64 vote_replace = 20 [deprecated = true];
   // Durable nonce transaction added to pending transactions
   uint64 nonce_nonvote_add = 21;
-  // Never produced: durable nonce transactions can't be simple votes
+  // Never produced
   uint64 unused = 22;
   // Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce
   uint64 nonce_nonvote_replace = 23;
@@ -2568,7 +2568,7 @@ message MetricsPackVotePerMicroblock {
   uint64 sum = 17;
 }
 
-// Transactions in a scheduled microblock, including both votes and non-votes
+// Transactions in a scheduled microblock
 message MetricsPackTxnPerMicroblock {
   // [0, 1)
   uint64 b0 = 1;
@@ -8036,7 +8036,7 @@ message BlockCompleted {
   uint32 repair_request_orphan_count = 57;
   // Whether chain verification against the confirmed block identity found a mismatched (wrong-version) FEC held for this block; the piece was cleared and re-repaired, but may have arrived by any route, turbine included. Always false for leader blocks and under alpenglow. False if repair pruned the block before completion.
   bool repair_failed_chain_verify = 58;
-  // Compute units used by all transactions, votes included; the vote/non-vote split is not part of this event (pack_vote_cost carries the producer-side vote reservation on leader rows). 0 if no cost tracker existed for the block (never prepared for replay, or no bank).
+  // Compute units used by all transactions, votes included. 0 if no cost tracker existed for the block (never prepared for replay, or no bank).
   uint64 cost_tracker_block_cost = 59;
   // New account data allocated, in bytes. 0 if no cost tracker existed for the block.
   uint64 cost_tracker_allocated_accounts_data_size = 60;
@@ -8058,8 +8058,8 @@ message BlockCompleted {
   uint64 microblock_count = 68;
   // Compute units pack reserved while building the block, votes included. Reservations are refunded as transactions finish, so this can exceed cost_tracker_block_cost (the charged amount) by refunds unsettled at slot end. 0 for blocks this validator did not produce.
   uint64 pack_block_cost = 69;
-  // Vote compute units pack reserved while building the block, less refunds settled by slot end. This is not a runtime consensus limit but gets populated by pack. 0 for blocks this validator did not produce.
-  uint64 pack_vote_cost = 70;
+  // Deprecated pack vote compute unit reservation. Always 0.
+  uint64 pack_vote_cost = 70 [deprecated = true];
   // Bytes pack's cost model reserved for block content: transaction payloads plus a 48-byte header per microblock, net of rebates settled by slot end. Excludes tick entries; can exceed the block's actual content by rebates unsettled at slot end. A size, not a compute measure. 0 for blocks this validator did not produce.
   uint64 pack_data_bytes = 71;
   // Why block production stopped; not_leader for blocks this validator did not produce.
@@ -9416,10 +9416,10 @@ message MetricsPack {
   MetricsPackTxnInsertDurationNanos txn_insert_duration_nanos = 27;
   // Duration of marking one microblock as complete
   MetricsPackMicroblockCompleteDurationNanos microblock_complete_duration_nanos = 28;
-  // Transactions in a scheduled microblock, including both votes and non-votes
+  // Transactions in a scheduled microblock
   MetricsPackTxnPerMicroblock txn_per_microblock = 29;
   // Simple vote transactions in a scheduled microblock
-  MetricsPackVotePerMicroblock vote_per_microblock = 30;
+  MetricsPackVotePerMicroblock vote_per_microblock = 30 [deprecated = true];
   // Transactions received from resolv, including bundle members
   uint64 txn_rx = 31;
   // Insert attempts, by result; bundle members are counted individually with the bundle's result
@@ -9434,7 +9434,7 @@ message MetricsPack {
   MetricsPackTxnPendingUsed txn_pending_used = 36;
   // Maximum pending transactions pack can hold
   uint64 txn_pending_capacity = 37;
-  // Lower bound on the cost of the cheapest pending non-vote transaction, 0 if none pending
+  // Lower bound on the cost of the cheapest pending transaction, 0 if none pending
   uint64 txn_pending_smallest_cost = 38;
   // Times pack did not schedule a microblock because the block microblock limit was reached
   uint64 block_microblock_limit_reached = 39;

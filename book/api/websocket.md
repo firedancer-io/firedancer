@@ -3048,10 +3048,10 @@ transaction budget.
 ##### `timeline.query_agg_txn`
 | field                        | type               | description |
 |------------------------------|--------------------|-------------|
-| success_nonvote_transactions | `(number\|null)[]` | Successful transactions not classified as simple votes |
-| failed_nonvote_transactions  | `(number\|null)[]` | Failed transactions not classified as simple votes |
-| success_vote_transactions    | `(number\|null)[]` | Successful simple-vote transactions |
-| failed_vote_transactions     | `(number\|null)[]` | Failed simple-vote transactions |
+| success_nonvote_transactions | `(number\|null)[]` | Successful transactions |
+| failed_nonvote_transactions  | `(number\|null)[]` | Failed transactions |
+| success_vote_transactions    | `(number\|null)[]` | Deprecated. `0` in every non-null bucket |
+| failed_vote_transactions     | `(number\|null)[]` | Deprecated. `0` in every non-null bucket |
 
 Success means runtime error code 0. Alpenglow consensus votes are not
 transactions and are not counted here.

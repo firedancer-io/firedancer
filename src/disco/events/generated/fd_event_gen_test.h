@@ -251,7 +251,6 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
   msg->pack_end_time = ULONG_MAX;
   msg->microblock_count = ULONG_MAX;
   msg->pack_block_cost = ULONG_MAX;
-  msg->pack_vote_cost = ULONG_MAX;
   msg->pack_data_bytes = ULONG_MAX;
   msg->pack_end_reason = INT_MAX;
   msg->bundle_txn_count = ULONG_MAX;

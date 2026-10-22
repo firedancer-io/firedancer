@@ -2,7 +2,6 @@
 #include "fd_pack.h"
 #include "../../util/fd_hash32.h"
 
-#define VOTE     FD_TXN_P_FLAGS_IS_SIMPLE_VOTE
 #define BUNDLE   FD_TXN_P_FLAGS_BUNDLE
 #define IB       FD_TXN_P_FLAGS_INITIALIZER_BUNDLE
 #define SANITIZE FD_TXN_P_FLAGS_SANITIZE_SUCCESS
@@ -104,7 +103,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  /* Normal, votes, microblock cnt with/without bundle, IB result,
+  /* Normal, microblock cnt with/without bundle, IB result,
      limits */
   fd_pack_rebate_sum_t _sum[1];
   fd_pack_rebate_sum_t * sum = fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( _sum, TEST_SEED ) );
@@ -129,7 +128,6 @@ main( int     argc,
   FD_TEST(      0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
   FD_TEST( SZ(13UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==2810000UL );
-  FD_TEST( report.rebate->vote_cost_rebate     ==0UL       );
   FD_TEST( report.rebate->data_bytes_rebate    ==222UL     );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL       );
   FD_TEST( report.rebate->ib_result            ==0         );
@@ -145,7 +143,6 @@ main( int     argc,
   FD_TEST(      0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
   FD_TEST( SZ(13UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==5620000UL );
-  FD_TEST( report.rebate->vote_cost_rebate     ==0UL       );
   FD_TEST( report.rebate->data_bytes_rebate    ==444UL     );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL       );
   FD_TEST( report.rebate->ib_result            ==0         );
@@ -157,14 +154,13 @@ main( int     argc,
 
 
 
-  fake_transaction( microblock+0, alt[0],  100UL, SANITIZE | EXECUTE | VOTE, "", "" );
-  fake_transaction( microblock+1, alt[1], 3000UL, SANITIZE           | VOTE, "", "" );
-  fake_transaction( microblock+2, alt[2], 4000UL, 0,                         "", "" );
+  fake_transaction( microblock+0, alt[0],  100UL, SANITIZE | EXECUTE, "", "" );
+  fake_transaction( microblock+1, alt[1], 3000UL, SANITIZE,           "", "" );
+  fake_transaction( microblock+2, alt[2], 4000UL, 0,                  "", "" );
   FD_TEST(  0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
 
   FD_TEST( SZ(0UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==7100UL );
-  FD_TEST( report.rebate->vote_cost_rebate     ==3100UL );
   FD_TEST( report.rebate->data_bytes_rebate    ==222UL  );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL    );
   FD_TEST( report.rebate->ib_result            ==0      );

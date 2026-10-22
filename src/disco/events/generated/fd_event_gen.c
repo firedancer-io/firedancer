@@ -429,7 +429,6 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
   if( msg->pack_end_time ) ok &= !!fd_pb_push_uint64( encoder, 67U, (ulong)msg->pack_end_time );
   if( msg->microblock_count ) ok &= !!fd_pb_push_uint64( encoder, 68U, (ulong)msg->microblock_count );
   if( msg->pack_block_cost ) ok &= !!fd_pb_push_uint64( encoder, 69U, (ulong)msg->pack_block_cost );
-  if( msg->pack_vote_cost ) ok &= !!fd_pb_push_uint64( encoder, 70U, (ulong)msg->pack_vote_cost );
   if( msg->pack_data_bytes ) ok &= !!fd_pb_push_uint64( encoder, 71U, (ulong)msg->pack_data_bytes );
   if( msg->pack_end_reason ) ok &= !!fd_pb_push_int32 ( encoder, 72U, msg->pack_end_reason );
   if( msg->bundle_txn_count ) ok &= !!fd_pb_push_uint64( encoder, 73U, (ulong)msg->bundle_txn_count );

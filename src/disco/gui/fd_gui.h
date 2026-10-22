@@ -424,7 +424,6 @@ typedef struct fd_gui_tile_timers_hist fd_gui_tile_timers_hist_t;
 struct fd_gui_scheduler_counts {
   long  sample_time_ns;
   ulong regular;
-  ulong votes;
   ulong conflicting;
   ulong bundles;
 };

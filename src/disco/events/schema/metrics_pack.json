@@ -179,7 +179,7 @@
         },
         "txn_per_microblock": {
             "type": "Tuple",
-            "description": "Transactions in a scheduled microblock, including both votes and non-votes",
+            "description": "Transactions in a scheduled microblock",
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
@@ -203,6 +203,7 @@
         "vote_per_microblock": {
             "type": "Tuple",
             "description": "Simple vote transactions in a scheduled microblock",
+            "deprecated": true,
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
@@ -228,15 +229,15 @@
             "type": "Tuple",
             "description": "Insert attempts, by result; bundle members are counted individually with the bundle's result",
             "aliases": {
-                "all":      ["instr_too_many_accounts", "nonce_conflict", "account_blocklisted", "bundle_blocklisted", "invalid_nonce", "write_sysvar", "estimation_failed", "duplicate_account", "too_many_accounts", "too_many_cu", "expired", "lut_unsupported", "unaffordable", "duplicate", "nonce_priority_too_low", "priority_too_low", "nonvote_add", "vote_add", "nonvote_replace", "vote_replace", "nonce_nonvote_add", "unused", "nonce_nonvote_replace"],
+                "all":      ["instr_too_many_accounts", "nonce_conflict", "account_blocklisted", "bundle_blocklisted", "invalid_nonce", "write_sysvar", "estimation_failed", "duplicate_account", "too_many_accounts", "too_many_cu", "expired", "lut_unsupported", "unaffordable", "duplicate", "nonce_priority_too_low", "priority_too_low", "nonvote_add", "nonvote_replace", "nonce_nonvote_add", "unused", "nonce_nonvote_replace"],
                 "rejected": ["instr_too_many_accounts", "nonce_conflict", "account_blocklisted", "bundle_blocklisted", "invalid_nonce", "write_sysvar", "estimation_failed", "duplicate_account", "too_many_accounts", "too_many_cu", "expired", "lut_unsupported", "unaffordable", "duplicate", "nonce_priority_too_low", "priority_too_low"],
-                "replaced": ["nonvote_replace", "vote_replace", "nonce_nonvote_replace"]
+                "replaced": ["nonvote_replace", "nonce_nonvote_replace"]
             },
             "fields": {
                 "instr_too_many_accounts": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction has an instruction that references too many accounts" },
                 "nonce_conflict":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle with two conflicting durable nonce transactions" },
                 "account_blocklisted":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction uses an account on the account blocklist" },
-                "bundle_blocklisted":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction is a vote in a bundle or uses an account on the bundle blocklist" },
+                "bundle_blocklisted":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction uses an account on the bundle blocklist" },
                 "invalid_nonce":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction is an invalid durable nonce transaction" },
                 "write_sysvar":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction tries to write to a sysvar" },
                 "estimation_failed":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Estimating compute cost or fee failed" },
@@ -249,12 +250,12 @@
                 "duplicate":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack aware of transaction with same signature" },
                 "nonce_priority_too_low":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction's fee was too low given its compute unit requirement and another competing transactions that uses the same durable nonce" },
                 "priority_too_low":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction's fee was too low given its compute unit requirement and other competing transactions" },
-                "nonvote_add":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction that was not a simple vote added to pending transactions" },
-                "vote_add":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Simple vote transaction was added to pending transactions" },
-                "nonvote_replace":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction that was not a simple vote replaced a lower priority transaction" },
-                "vote_replace":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Simple vote transaction replaced a lower priority transaction" },
+                "nonvote_add":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction added to pending transactions" },
+                "vote_add":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never produced: pack no longer special-cases simple votes", "deprecated": true },
+                "nonvote_replace":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction replaced a lower priority transaction" },
+                "vote_replace":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never produced: pack no longer special-cases simple votes", "deprecated": true },
                 "nonce_nonvote_add":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Durable nonce transaction added to pending transactions" },
-                "unused":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never produced: durable nonce transactions can't be simple votes" },
+                "unused":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never produced" },
                 "nonce_nonvote_replace":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce" }
             }
         },
@@ -303,14 +304,14 @@
             "type": "Tuple",
             "description": "Pending transactions in pack's pool, by type",
             "fields": {
-                "regular":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "Non-votes in the main treap" },
-                "vote":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "Simple votes" },
-                "conflicting": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Non-votes that write to a hotly-contended account" },
+                "regular":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions in the main treap" },
+                "vote":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "Never populated: pack no longer special-cases simple votes", "deprecated": true },
+                "conflicting": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that write to a hotly-contended account" },
                 "bundle":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that are part of a bundle" }
             }
         },
         "txn_pending_capacity":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum pending transactions pack can hold" },
-        "txn_pending_smallest_cost":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Lower bound on the cost of the cheapest pending non-vote transaction, 0 if none pending" },
+        "txn_pending_smallest_cost":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Lower bound on the cost of the cheapest pending transaction, 0 if none pending" },
         "block_microblock_limit_reached": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times pack did not schedule a microblock because the block microblock limit was reached" },
         "block_byte_limit_reached":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times pack did not schedule a microblock because the block byte limit was reached" },
         "txn_schedule_attempted": {

@@ -15,7 +15,6 @@
 #include "../../flamenco/runtime/program/fd_system_program.h"
 #include "../../flamenco/runtime/program/fd_bpf_loader_program.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
-#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../util/tmpl/fd_unit_test.c"
 #include <unistd.h>
@@ -45,19 +44,6 @@ struct test_env {
 };
 
 typedef struct test_env test_env_t;
-
-static void
-test_mock_validator_keys( fd_pubkey_t * identity_key,
-                          fd_pubkey_t * vote_key ) {
-  fd_rng_t rng[1];
-  FD_TEST( fd_rng_join( fd_rng_new( rng, 1U, 0UL ) ) );
-
-  for( ulong j=0UL; j<4UL; j++ ) identity_key->ul[j] = fd_rng_ulong( rng );
-  for( ulong j=0UL; j<4UL; j++ ) vote_key->ul[j]     = fd_rng_ulong( rng );
-  for( ulong j=0UL; j<4UL; j++ ) (void)fd_rng_ulong( rng );
-
-  fd_rng_delete( fd_rng_leave( rng ) );
-}
 
 static fd_topo_obj_t *
 test_topo_obj_laddr( fd_topo_t *  topo,
@@ -188,77 +174,6 @@ static void
 test_env_destroy( test_env_t * env ) {
   ulong tag = TOPO_TAG;
   fd_wksp_tag_free( env->mini->wksp, &tag, 1UL );
-}
-
-static void
-test_build_vote_txn( fd_txn_p_t * out,
-                     fd_bank_t *   bank ) {
-  fd_pubkey_t identity_key;
-  fd_pubkey_t vote_key;
-  test_mock_validator_keys( &identity_key, &vote_key );
-
-  fd_acct_addr_t const vote_prog_id = { .b = { VOTE_PROG_ID } };
-  fd_hash_t const *    recent_blockhash    = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
-  FD_TEST( recent_blockhash );
-
-  uchar const vote_data[] = {
-    0x0e,0x00,0x00,0x00,
-  };
-
-  fd_txn_builder_t builder[1];
-  FD_TEST( fd_txn_builder_new( builder, 1UL ) );
-  FD_TEST( fd_txn_builder_fee_payer_set( builder, &identity_key ) );
-  fd_txn_builder_blockhash_set( builder, recent_blockhash );
-  FD_TEST( fd_txn_builder_instr_open( builder, &vote_prog_id, vote_data, sizeof(vote_data) ) );
-  FD_TEST( fd_txn_builder_instr_account_push( builder, &vote_key,    FD_TXN_ACCT_CAT_WRITABLE ) );
-  FD_TEST( fd_txn_builder_instr_account_push( builder, &identity_key, FD_TXN_ACCT_CAT_SIGNER   ) );
-  fd_txn_builder_instr_close( builder );
-
-  fd_memset( out, 0, sizeof(fd_txn_p_t) );
-  FD_TEST( fd_txn_build_p( builder, out ) );
-  FD_TEST( fd_txn_is_simple_vote_transaction( TXN(out), out->payload ) );
-  out->pack_cu.non_execution_cus                 = 1000U;
-  out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
-  out->flags = FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-  fd_txn_builder_delete( builder );
-}
-
-static void
-test_build_vote_authorize_txn( fd_txn_p_t * out,
-                               fd_bank_t *   bank ) {
-  fd_pubkey_t identity_key;
-  fd_pubkey_t vote_key;
-  test_mock_validator_keys( &identity_key, &vote_key );
-
-  fd_pubkey_t new_authority = { .ul = { 0xa17a0UL } };
-  fd_acct_addr_t const vote_prog_id = { .b = { VOTE_PROG_ID } };
-  fd_hash_t const * recent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
-  FD_TEST( recent_blockhash );
-
-  uchar instr_data[ 40UL ];
-  uint discriminant = fd_vote_instruction_enum_authorize;
-  uint authorization_type = fd_vote_authorize_enum_voter;
-  fd_memcpy( instr_data,       &discriminant,       sizeof(uint) );
-  fd_memcpy( instr_data+4UL,   &new_authority,      sizeof(fd_pubkey_t) );
-  fd_memcpy( instr_data+36UL,  &authorization_type, sizeof(uint) );
-
-  fd_txn_builder_t builder[1];
-  FD_TEST( fd_txn_builder_new( builder, 2UL ) );
-  FD_TEST( fd_txn_builder_fee_payer_set( builder, &identity_key ) );
-  fd_txn_builder_blockhash_set( builder, recent_blockhash );
-  FD_TEST( fd_txn_builder_instr_open( builder, &vote_prog_id, instr_data, sizeof(instr_data) ) );
-  FD_TEST( fd_txn_builder_instr_account_push( builder, &vote_key,        FD_TXN_ACCT_CAT_WRITABLE ) );
-  FD_TEST( fd_txn_builder_instr_account_push( builder, &fd_sysvar_clock_id, 0U ) );
-  FD_TEST( fd_txn_builder_instr_account_push( builder, &identity_key,    FD_TXN_ACCT_CAT_SIGNER   ) );
-  fd_txn_builder_instr_close( builder );
-
-  fd_memset( out, 0, sizeof(fd_txn_p_t) );
-  FD_TEST( fd_txn_build_p( builder, out ) );
-  FD_TEST( fd_txn_is_simple_vote_transaction( TXN(out), out->payload ) );
-  out->pack_cu.non_execution_cus                 = 1000U;
-  out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
-  out->flags = FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-  fd_txn_builder_delete( builder );
 }
 
 #define TEST_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _to_add, _sz ) __extension__({ \
@@ -1007,120 +922,6 @@ FD_UNIT_TEST( execle_rebate_slot_change_resets_batch ) {
   FD_TEST( fd_frag_meta_seq_query( test_out_pack_meta( 0UL ) )==ULONG_MAX );
   FD_TEST( opt_poll_in );
   FD_TEST( !charge_busy );
-
-  test_env_destroy( env );
-}
-
-FD_UNIT_TEST( execle_vote ) {
-  /* Simple vote transaction */
-  test_env_t * env = test_env_create();
-
-  FD_TEST( env->execle->banks==env->mini->banks );
-  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
-  FD_TEST( bank );
-
-  ulong in_chunk = env->execle->pack_in_chunk0;
-  fd_txn_e_t * in_txn = fd_chunk_to_laddr( env->execle->pack_in_mem, in_chunk );
-  test_build_vote_txn( in_txn->txnp, bank );
-  fd_memset( in_txn->alt_accts, 0, sizeof(in_txn->alt_accts) );
-
-  fd_microblock_execle_trailer_t * in_trailer = (fd_microblock_execle_trailer_t *)( in_txn+1UL );
-  *in_trailer = (fd_microblock_execle_trailer_t) {
-    .bank_idx       = env->bank_idx,
-    .microblock_idx = 0UL,
-    .pack_idx       = 0U,
-    .pack_txn_idx   = 0UL,
-    .is_bundle      = 0,
-  };
-
-  ulong sig = fd_disco_poh_sig( bank->f.slot, POH_PKT_TYPE_MICROBLOCK, env->execle->kind_id );
-  ulong sz  = sizeof(fd_txn_e_t) + sizeof(fd_microblock_execle_trailer_t);
-  ulong seq = env->in_seq++;
-  FD_TEST( !before_frag( env->execle, 0UL, seq, sig ) );
-  during_frag( env->execle, 0UL, seq, sig, in_chunk, sz, 0UL );
-
-  fd_stem_context_t stem[1];
-  after_frag( env->execle, 0UL, seq, sig, sz, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execle, stem ) );
-
-  FD_TEST( fd_fseq_query( env->execle->busy_fseq )==seq );
-  FD_TEST( fd_fseq_query( env->pack_in_fseq )==seq+1UL );
-  fd_topo_link_t const * execle_poh = test_topo_link( "execle_poh" );
-  fd_frag_meta_t const * out_poh_mcache = execle_poh->mcache;
-  fd_frag_meta_t const * out_poh_meta = out_poh_mcache + fd_mcache_line_idx( 0UL, execle_poh->depth );
-  FD_TEST( fd_frag_meta_seq_query( out_poh_meta )==0UL );
-  FD_TEST( out_poh_meta->sig==fd_disco_execle_sig( bank->f.slot, 0U ) );
-  FD_TEST( out_poh_meta->sz==sizeof(fd_txn_p_t)+sizeof(fd_microblock_trailer_t) );
-
-  fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, out_poh_meta->chunk );
-  FD_TEST( out_txn->payload_sz==in_txn->txnp->payload_sz );
-  FD_TEST( fd_txn_is_simple_vote_transaction( TXN(out_txn), out_txn->payload ) );
-  FD_TEST( env->execle->txn_out[0].err.is_committable );
-  FD_TEST( !env->execle->txn_out[0].err.is_fees_only );
-  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR );
-  FD_TEST( (out_txn->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR)<<24) );
-  FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
-  FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
-  FD_TEST( out_txn->execle_cu.actual_consumed_cus + out_txn->execle_cu.rebated_cus ==
-           in_txn->txnp->pack_cu.non_execution_cus + in_txn->txnp->pack_cu.requested_exec_plus_acct_data_cus );
-  FD_TEST( out_txn->execle_cu.actual_consumed_cus==
-           in_txn->txnp->pack_cu.non_execution_cus +
-           env->execle->txn_out[0].details.compute_budget.compute_unit_limit -
-           env->execle->txn_out[0].details.compute_budget.compute_meter +
-           env->execle->txn_out[0].details.txn_cost.transaction.loaded_accounts_data_size_cost );
-
-  fd_microblock_trailer_t const * trailer = test_out_poh_trailer_nonbundle( env, 1UL );
-  FD_TEST( trailer->pack_txn_idx==0UL );
-  FD_TEST( trailer->tips==0UL );
-  fd_txn_p_t txn_copy = *out_txn;
-  uchar expected_hash[32];
-  test_compute_expected_hash( &txn_copy, 1UL, expected_hash );
-  FD_TEST( !memcmp( trailer->hash, expected_hash, 32UL ) );
-  test_assert_txn_ns_dt_ordered( &trailer->txn_ns_dt );
-
-  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_FAILED_IDX ]==1UL );
-  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_INSTRUCTION_ERROR_IDX ]==1UL );
-
-  test_env_destroy( env );
-}
-
-FD_UNIT_TEST( execle_bundle_vote_authorize ) {
-  /* Simple vote transaction in a bundle */
-  test_env_t * env = test_env_create();
-  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
-  FD_TEST( bank );
-
-  fd_txn_p_t txn[1];
-  test_build_vote_authorize_txn( txn, bank );
-  test_execle_run( env, txn, 1UL, 2U, 16UL, 1 );
-
-  test_assert_bundle_out( env, 1UL, 2U );
-  fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
-  FD_TEST( fd_txn_is_simple_vote_transaction( TXN(out_txn), out_txn->payload ) );
-  FD_TEST( env->execle->txn_out[0].err.is_committable );
-  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );
-  FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
-  ulong actual_consumed_cus =
-      txn->pack_cu.non_execution_cus +
-      env->execle->txn_out[0].details.compute_budget.compute_unit_limit -
-      env->execle->txn_out[0].details.compute_budget.compute_meter +
-      env->execle->txn_out[0].details.txn_cost.transaction.loaded_accounts_data_size_cost;
-  FD_TEST( out_txn->execle_cu.actual_consumed_cus==actual_consumed_cus );
-  FD_TEST( out_txn->execle_cu.rebated_cus==
-           txn->pack_cu.non_execution_cus + txn->pack_cu.requested_exec_plus_acct_data_cus - actual_consumed_cus );
-  FD_TEST( !env->execle->txn_out[0].err.is_fees_only );
-
-  fd_microblock_trailer_t const * trailer = test_out_poh_trailer_bundle( env, 0UL );
-  FD_TEST( trailer->pack_txn_idx==16UL );
-  FD_TEST( trailer->tips==0UL );
-  fd_txn_p_t txn_copy = *out_txn;
-  uchar expected_hash[32];
-  test_compute_expected_hash( &txn_copy, 1UL, expected_hash );
-  FD_TEST( !memcmp( trailer->hash, expected_hash, 32UL ) );
-  test_assert_txn_ns_dt_ordered( &trailer->txn_ns_dt );
-
-  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_SUCCESS_IDX ]==1UL );
-  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_SUCCESS_IDX ]==1UL );
 
   test_env_destroy( env );
 }

@@ -29,11 +29,6 @@
        transaction loading stage, after accounts data is loaded.
    These are all summed to determine the total transaction cost. */
 
-/* Simple votes use the full transaction cost model.  Pack recognizes
-   them so it can use a tight execution-cost upper bound and maintain a
-   separate vote reservation for scheduling.  The reservation is not a
-   runtime consensus limit. */
-
 /* To compute the built-in cost, we need to check a table. The table
    is known ahead of time though, so we can build a perfect hash
    table for performance.
@@ -174,14 +169,12 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
    anticipated value while the lower bound should be the current active
    limit. */
 #define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (30000000UL)
-#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
 
 /* The 200ms slot params with raise_block_limits_to_100m (simd 0286,
    simd 0525).  Clusters with a larger block cost limit are not
    supported. */
 #define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      ( 50000000UL)
-#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ( 36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND * 4UL / 10UL ) /* simd 0306 */
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/cost-model/src/block_cost_limits.rs#L39-L41 */
@@ -200,87 +193,9 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
    initially the status cache needs twice as much space. */
 #define FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT (2UL*FD_MAX_TXN_PER_SLOT)
 
-
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L55 */
-
-#define FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS (2100UL)
-
-/* SIMD-0387: BLS proof-of-possession verification cost charged by the
-   vote program for authorize instructions.
-
-   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L83 */
-#define FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS (34500UL)
-
-/* Upper bound on execution CUs used by vote instructions.
-
-   The only vote instructions which use more than the default cost are
-   the authorize instruction, which also charge the BLS
-   proof-of-possession verification cost.
-
-   IMPORTANT: if the vote program starts charging more CUs for any
-   instructions, this constant will need to be updated.
- */
-#define FD_PACK_VOTE_MAX_COMPUTE_UNITS (FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS + FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS)
-
-/* Max loaded account data size: FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ
-
-   Cost: ceil( FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ / 32,768 ) * 8
-       = ceil( 67,108,864 / 32,768 ) * 8
-       = 2,048 * 8
-       = 16,384 CUs */
-#define FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST (16384UL)
-
-/* Maximum instruction data cost for a simple vote transaction:
-   - 1 signature
-   - 2 transaction accounts
-   - 0 instruction accounts
-
-   Which results in a fixed overhead of:
-   - Signature count:           1
-   - 1 signature:               64
-   - Message header:            3
-   - Account count:             1
-   - 2 account entries:         64
-   - Recent blockhash:          32
-   - Instruction count:         1
-   - program_id:                1
-   - Instruction account count: 1
-   - Instruction data length:   1
-   Total:                       169 bytes
-
-   Leaving (FD_TXN_MTU - 169) = 1063 bytes for the instruction data.
-   This results in a cost of 1063 / 4 = 265 CUs.
-    */
-#define FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST (265UL)
-
-/* A simple vote transaction is any transaction that satisfies the
-   following conditions:
-   - Has 1 or 2 signatures
-   - Is a legacy transaction
-   - Has exactly one instruction
-   - Must invoke the vote program
-
-   Therefore the worst-case most expensive simple vote transaction has:
-   - 2 signatures
-   - 35 writable accounts (see FD_TXN_ACCT_ADDR_MAX)
-   - The maximum amount of compute units for a vote program instruction
-   - 1 instruction of the maximum instruction data size
-   - The maximum amount of loaded accounts data
-   = 65,189 CUs
-*/
-static const ulong FD_PACK_MAX_SIMPLE_VOTE_COST = ( 2UL*FD_PACK_COST_PER_SIGNATURE                 + /* 1,440  */
-                                                    35UL*FD_PACK_COST_PER_WRITABLE_ACCT            + /* 10,500 */
-                                                    FD_PACK_VOTE_MAX_COMPUTE_UNITS                 + /* 36,600 */
-                                                    FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST + /* 16,384 */
-                                                    FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST );       /* 265    */
-
-#undef FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST
-
 /* Computes the total cost and a few related properties for the
    specified transaction.  On success, returns the cost, which is in
-   [1020, FD_PACK_MAX_TXN_COST] and sets or clears the
-   FD_TXN_P_FLAG_IS_SIMPLE_VOTE bit of the value pointed to by flags to
-   indicate whether the transaction is a simple vote or not.
+   [1020, FD_PACK_MAX_TXN_COST].
 
    Additionally:
    If opt_execution_cost is non-null, on success it will contain the
@@ -303,11 +218,10 @@ static const ulong FD_PACK_MAX_SIMPLE_VOTE_COST = ( 2UL*FD_PACK_COST_PER_SIGNATU
    allocate.  This value is in [0, 20MB].
 
    On failure, returns 0 and does not modify the value pointed to by
-   flags, opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
+   opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
 static inline ulong
 fd_pack_compute_cost( fd_txn_t const * txn,
                       uchar    const * payload,
-                      uint           * flags,
                       ulong          * opt_execution_cost,
                       ulong          * opt_fee,
                       ulong          * opt_precompile_sig_cnt,
@@ -327,10 +241,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   fd_pack_builtin_prog_cost_t const * loader_v4_row          = ROW( LOADER_V4_PROG_ID       );
 #endif /* FD_PACK_COST_USE_TRUE_ALLOC_BOUND */
 #undef ROW
-
-  int is_simple_vote = fd_txn_is_simple_vote_transaction( txn, payload );
-  if( FD_UNLIKELY( is_simple_vote ) ) *flags |=  FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-  else                                *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
 
   /* We need to be mindful of overflow here, but it's not terrible.
      signature_cost < FD_TXN_ACCT_ADDR_MAX*720 + FD_TXN_INSTR_MAX * UCHAR_MAX * 6690,
@@ -385,18 +295,11 @@ fd_pack_compute_cost( fd_txn_t const * txn,
       signature_cost += secp256r1_signature_cnt * FD_PACK_COST_PER_SECP256R1_SIGNATURE;
     }
     /* BPF programs can allocate 10kB per account per instruction.
-       The vote program (see below) and the address lookup table program
+       The vote program and the address lookup table program
        (up to 56+32*256 bytes) do allocate, and several native programs
        can reduce the size of an account, but the only ones that can
        possibly allocate more than 10kB per account are below.
        Additionally, none of the above programs allocate at all.
-
-       A normal vote does not allocate any data, but a simple vote may
-       actually invoke one of the vote program instructions that does
-       allocate FD_VOTE_STATE_V3_SZ or V4, which are both 3762 bytes.
-       If it invokes the vote program but isn't a simple vote, it will
-       be caught by the general case and overestimated at 10kB per
-       account, which is fine.
 
        Note: This complexity here is pretty gross, but we need a better
        bound for allocated_data than 20MB, and this seems to be the best
@@ -545,10 +448,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   } else {
     fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
   }
-
-  /* As an optimization, for simple votes we can override execution cost
-    with a known tighter upper bound. */
-  if( FD_UNLIKELY( is_simple_vote ) ) *execution_cost           = (uint)FD_PACK_VOTE_MAX_COMPUTE_UNITS;
 
   fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            (ulong)(*execution_cost)      );
   fd_ulong_store_if( !!opt_fee,                       opt_fee,                       *fee                          );

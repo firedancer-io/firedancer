@@ -28,7 +28,6 @@
 
 /* ---- End consensus-critical constants */
 
-#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE     ( 1U)
 #define FD_TXN_P_FLAGS_BUNDLE             ( 2U)
 #define FD_TXN_P_FLAGS_INITIALIZER_BUNDLE ( 4U)
 #define FD_TXN_P_FLAGS_SANITIZE_SUCCESS   ( 8U)
@@ -56,17 +55,14 @@
    The limits imposed by practical constraints are almost certainly
    much, much tighter. */
 struct fd_pack_limits {
-  /* max_{cost, vote_cost}_per_block, max_write_cost_per_acct are
+  /* max_cost_per_block, max_write_cost_per_acct are
      consensus-critical limits and must be agreed on cluster-wide.  A
      block that consumes more than max_cost_per_block cost units
      (closely related to, but not identical to CUs) in total is invalid.
-     Similarly, a block where the sum of the cost of all vote
-     transactions exceeds max_vote_cost_per_block cost units is invalid.
      Similarly, a block in where the sum of the cost of all transactions
      that write to a given account exceeds max_write_cost_per_acct is
      invalid. */
   ulong max_cost_per_block;          /* in [0, UINT_MAX) */
-  ulong max_vote_cost_per_block;     /* in [0, max_cost_per_block] */
   ulong max_write_cost_per_acct;     /* in [0, max_cost_per_block] */
 
   /* max_data_bytes_per_block is derived from consensus-critical limits
@@ -151,7 +147,6 @@ typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
    field. */
 struct fd_pack_limits_usage {
   ulong block_cost;
-  ulong vote_cost;
 
   /* Contains the top 5 writers in the block. If there are less than 5
      writeable accounts, unused slots will have their pubkey zeroed out. */
@@ -252,7 +247,7 @@ fd_pack_t * fd_pack_join( void * mem );
 
 /* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
    in fd_pack.c. */
-#define FD_PACK_PENDING_TXN_CNT_OFF 80
+#define FD_PACK_PENDING_TXN_CNT_OFF 72
 FD_FN_PURE static inline ulong
 fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
   return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
@@ -279,10 +274,8 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
    limits->max_data_bytes_per_block data bytes (counting microblock
    headers as before).  future microblocks will also exclude those that
    cause the total block cost to exceed limits->max_cost_per_block.
-   Similarly those that cause the total vote-only cost to exceed
-   limits->max_vote_cost_per_block. Also, those that cause the total
-   per-account, per block write cost to exceed
-   limits->max_write_cost_per_acct.  Note that
+   Also, those that cause the total per-account, per block write cost to
+   exceed limits->max_write_cost_per_acct.  Note that
    limits->max_txn_per_microblock is ignored. Limits are inclusive, as
    per usual (i.e. a block may have exactly max_microblocks_per_block
    microblocks, but not more).  pack must be a valid local join.
@@ -315,13 +308,11 @@ void fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_li
    after fd_pack_end_block, otherwise the copied data will be stale. */
 void fd_pack_get_top_writers( fd_pack_t const * pack, fd_pack_addr_use_t top_writers[static FD_PACK_TOP_WRITERS_CNT] );
 
-/* Copies the currently smallest pending,
-   non-conflicting, non-vote transaction into opt_pending_smallest iff
-   it is not NULL and the smallest pending vote into opt_vote_smallest
-   iff it is not NULL.  These values are updates any time a new
+/* Copies the currently smallest pending, non-conflicting transaction
+   into pending_smallest.  This value is updated any time a new
    transaction is inserted into the pending treap, or moved from another
    treap into the pending treap. */
-void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pending_smallest, fd_pack_smallest_t * opt_votes_smallest );
+void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * pending_smallest );
 
 /* Return values for fd_pack_insert_txn_fini:  Non-negative values
    indicate the transaction was accepted and may be returned in a future
@@ -330,10 +321,8 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
    Transactions can be rejected through no fault of their own, so it
    doesn't necessarily imply bad behavior.
 
-   The non-negative (success) codes are essentially a bitflag of three
+   The non-negative (success) codes are essentially a bitflag of two
    bits:
-    * (1) whether the transaction met the criteria for a simple vote or
-      not,
     * (2) whether this transaction replaced a previously accepted, low
       priority transaction, rather than being accepted in addition to
       all the previously accepted transactions.
@@ -348,8 +337,6 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
    When the heap is full, and a nonce transaction is inserted, these
    return values don't allow you to disambiguate whether the replaced
    transaction had the same nonce info or not.
-
-   Vote and durable nonce transactions are mutually exclusive.
 
    The negative (failure) codes are a normal enumeration (not a
    bitflag).
@@ -382,7 +369,7 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
     * INVALID_NONCE: the transaction looks like a durable nonce
       transaction, but the nonce authority did not sign the transaction.
     * BUNDLE_BLACKLIST: bundles are enabled and the transaction uses an
-      account in the bundle blacklist, or the bundle contains a vote.
+      account in the bundle blacklist.
     * ACCT_BLOCKLIST: the transaction included an account address in the
       account blocklist.
     * NONCE_CONFLICT: bundle with two transactions that attempt to lock
@@ -393,12 +380,10 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
-#define FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE (  6)
-#define FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     (  4)
-#define FD_PACK_INSERT_ACCEPT_VOTE_REPLACE          (  3)
-#define FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE       (  2)
-#define FD_PACK_INSERT_ACCEPT_VOTE_ADD              (  1)
-#define FD_PACK_INSERT_ACCEPT_NONVOTE_ADD           (  0)
+#define FD_PACK_INSERT_ACCEPT_NONCE_REPLACE         (  6)
+#define FD_PACK_INSERT_ACCEPT_NONCE_ADD             (  4)
+#define FD_PACK_INSERT_ACCEPT_REPLACE               (  2)
+#define FD_PACK_INSERT_ACCEPT_ADD                   (  0)
 #define FD_PACK_INSERT_REJECT_PRIORITY              ( -1)
 #define FD_PACK_INSERT_REJECT_NONCE_PRIORITY        ( -2)
 #define FD_PACK_INSERT_REJECT_DUPLICATE             ( -3)
@@ -423,7 +408,7 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
 #define FD_PACK_INSERT_RETVAL_CNT 23
 
 FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
-FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions
@@ -653,12 +638,11 @@ void const * fd_pack_peek_bundle_meta( fd_pack_t const * pack );
 void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 
 
-/* FD_PACK_SCHEDULE_{VOTE,BUNDLE,TXN} form a set of bitflags used in
+/* FD_PACK_SCHEDULE_{BUNDLE,TXN} form a set of bitflags used in
    fd_pack_schedule_next_microblock below.  They control what types of
    scheduling are allowed.  The names should be self-explanatory. */
-#define FD_PACK_SCHEDULE_VOTE   1
-#define FD_PACK_SCHEDULE_BUNDLE 2
-#define FD_PACK_SCHEDULE_TXN    4
+#define FD_PACK_SCHEDULE_BUNDLE 1
+#define FD_PACK_SCHEDULE_TXN    2
 
 /* fd_pack_schedule_next_microblock schedules pending transactions.
    These transaction either form a microblock, which is a set of
@@ -672,19 +656,15 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    corresponding to a transaction type, this function will consider
    scheduling transactions of that type.  Passing 0 for schedule_flags
    is a no-op.  The full policy is as follows:
-    1. If the VOTE bit is set, attempt to schedule votes.  This is the
-       microblock case.
-    2. If the BUNDLE bit is set, and step 1 did not schedule any votes,
-       attempt to schedule bundles.  This is the bundle case.
-    3. If the TXN bit is set, and step 2 did not schedule any bundles
+    1. If the BUNDLE bit is set, attempt to schedule bundles.  This is
+       the bundle case.
+    2. If the TXN bit is set, and step 1 did not schedule any bundles
        for a reason other than account conflicts, attempt to schedule
        normal transactions.  This is the microblock case.
-   Note that it is possible to schedule a microblock containing both
-   votes and normal transactions, but bundles cannot be combined with
-   either other type.  Additionally, if the BUNDLE bit is not set, step
-   2 will not schedule any bundles for that reason, which is a reason
-   other than account conflicts, so that clause will always be
-   satisfied.
+   Bundles cannot be combined with normal transactions.  Additionally,
+   if the BUNDLE bit is not set, step 1 will not schedule any bundles
+   for that reason, which is a reason other than account conflicts, so
+   that clause will always be satisfied.
 
    Microblock case:
    Transactions part of the scheduled microblock are copied to out in no
@@ -692,15 +672,11 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    exceed total_cus, and the number of transactions will not exceed the
    value of max_txn_per_microblock given in fd_pack_new.
 
-   The block will not contain more than
-   vote_fraction*max_txn_per_microblock votes, and votes in total will
-   not consume more than vote_fraction*total_cus of the microblock.
-
    Bundle case:
    Transactions part of the scheduled bundled are copied in execution
    order (i.e. out[0] must be executed first).  The number of
    transactions will not exceed FD_PACK_MAX_TXN_PER_BUNDLE.
-   max_txn_per_microblock, total_cus, and vote_fraction are ignored,
+   max_txn_per_microblock and total_cus are ignored,
    though the block-level limits are respected.
 
    Both cases:
@@ -709,9 +685,8 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    requested execution CUs (including cus derived from the requested
    loaded accounts data size), respectively.  The sum of these two
    values is the total cost of the transaction, i.e. what is used for
-   all limits, including the total_cus value.  The lower 3 bits of the
-   flags field will be populated (simple vote, bundle, initializer
-   bundle). Inspecting these flags is the proper way to tell which
+   all limits, including the total_cus value.  The bundle and
+   initializer bundle bits of the flags field will be populated. Inspecting these flags is the proper way to tell which
    codepath executed.
 
    Returns the number of transactions in the scheduled microblock or
@@ -721,7 +696,6 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 ulong
 fd_pack_schedule_next_microblock( fd_pack_t  * pack,
                                   ulong        total_cus,
-                                  float        vote_fraction,
                                   ulong        bank_tile,
                                   int          schedule_flags,
                                   fd_txn_e_t * out );

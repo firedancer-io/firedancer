@@ -2430,21 +2430,14 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
             for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_ATTEMPTED_CNT; i++ ) jsonp_ulong( gui->http, NULL, scheduler_stats->end_block_results[ i ] );
           jsonp_close_array( gui->http );
 
-          fd_pack_smallest_t pending_smallest       = *scheduler_stats->pending_smallest;
-          fd_pack_smallest_t pending_votes_smallest = *scheduler_stats->pending_votes_smallest;
-          pending_smallest.cus         = fd_ulong_min( pending_smallest.cus,   pending_votes_smallest.cus   );
-          pending_smallest.bytes       = fd_ulong_min( pending_smallest.bytes, pending_votes_smallest.bytes );
-          pending_votes_smallest.cus   = ULONG_MAX;
-          pending_votes_smallest.bytes = ULONG_MAX;
+          fd_pack_smallest_t pending_smallest = *scheduler_stats->pending_smallest;
 
           if( FD_LIKELY( pending_smallest.cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_cost", pending_smallest.cus );
           else                                                jsonp_null( gui->http, "pending_smallest_cost" );
           if( FD_LIKELY( pending_smallest.bytes!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_bytes", pending_smallest.bytes );
           else                                                  jsonp_null( gui->http, "pending_smallest_bytes" );
-          if( FD_LIKELY( pending_votes_smallest.cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_vote_smallest_cost", pending_votes_smallest.cus );
-          else                                                      jsonp_null( gui->http, "pending_vote_smallest_cost" );
-          if( FD_LIKELY( pending_votes_smallest.bytes!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_vote_smallest_bytes", pending_votes_smallest.bytes );
-          else                                                        jsonp_null( gui->http, "pending_vote_smallest_bytes" );
+          jsonp_null( gui->http, "pending_vote_smallest_cost"  );
+          jsonp_null( gui->http, "pending_vote_smallest_bytes" );
         jsonp_close_object( gui->http );
 
       } else {
@@ -2746,10 +2739,9 @@ fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
                 fd_gui_scheduler_counts_t const * cur = (fd_gui_scheduler_counts_t const *)it.rec;
                 if( FD_UNLIKELY( cur->sample_time_ns<leader_start_time ||
                                  cur->sample_time_ns>leader_end_time ) ) continue;
-                ulong regular = cur->regular + cur->votes;
                 jsonp_open_object( gui->http, NULL );
                   jsonp_long_as_str( gui->http, "timestamp_nanos", cur->sample_time_ns );
-                  jsonp_ulong      ( gui->http, "regular",         regular             );
+                  jsonp_ulong      ( gui->http, "regular",         cur->regular        );
                   jsonp_ulong      ( gui->http, "votes",           0UL                 );
                   jsonp_ulong      ( gui->http, "conflicting",     cur->conflicting    );
                   jsonp_ulong      ( gui->http, "bundles",         cur->bundles        );
