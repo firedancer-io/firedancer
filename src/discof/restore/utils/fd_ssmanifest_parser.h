@@ -3,6 +3,7 @@
 
 #include "fd_ssmsg.h"
 #include "fd_ssparse.h"
+#include "../../../flamenco/runtime/program/vote/fd_vote_codec.h"
 
 struct fd_ssmanifest_parser_private;
 typedef struct fd_ssmanifest_parser_private fd_ssmanifest_parser_t;
@@ -39,6 +40,10 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
    Must be called after the last consume(). */
 int
 fd_ssmanifest_parser_fini( fd_ssmanifest_parser_t * parser );
+
+int
+fd_ssmanifest_vote_stakes_from_v5( fd_snapshot_manifest_vote_stakes_t * out,
+                                   fd_vote_state_v5_t const *           v5 );
 
 FD_PROTOTYPES_END
 

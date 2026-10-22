@@ -9,6 +9,7 @@
 #include "fd_system_ids.h"
 #include "program/fd_vote_program.h"
 #include "program/vote/fd_vote_codec_tmpl.h"
+#include "program/vote/fd_vote_state_versioned.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_stake_history.h"
@@ -24,6 +25,8 @@
 #include <errno.h>
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
+
+static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
 
 #define TEST_SLOTS_PER_EPOCH (12UL)
 #define TEST_VAT_EPOCH       (3UL)
@@ -88,6 +91,7 @@ static int    voter_has_bls( ulong i ) { return bls_mask_override ? !!( bls_mask
    the defaults unless a test sets them. */
 static ushort voter0_block_revenue_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
 static ulong  voter0_pending_rewards   = 0UL;
+static int    voter0_is_v5             = 0;
 static long   voter_vote_ts( ulong i ) { return ( i==NUM_VOTERS-1UL ) ? VOTE_TS_FUTURE : VOTE_TS_PAST; }
 static ushort voter_commission( ulong i ) { return (ushort)(100U*(i+1U)); }
 
@@ -182,6 +186,11 @@ put_vote_account_v4( test_env_t *        env,
   voter->pubkey = *node_pubkey;
   voter->prio   = node_pubkey->uc[0];
   fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, voter, vs->authorized_voters.pool );
+
+  if( voter0_is_v5 && fd_pubkey_eq( vote_account, &(fd_pubkey_t){ .ul[ 0 ] = 0x100UL } ) ) {
+    FD_TEST( !fd_vsv_try_convert_to_v5( versioned, env->bank->f.epoch ) );
+    versioned->v5.location = LOC_FRA;
+  }
 
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
@@ -580,6 +589,38 @@ test_vat_path_unconditional( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
+static void
+test_vat_path_v5_voter( fd_wksp_t * wksp ) {
+  voter0_is_v5 = 1;
+  test_env_t env[1];
+  test_env_create( env, wksp );
+
+  ulong const epoch = TEST_VAT_EPOCH-1UL;
+  voter0_block_revenue_bps = 2500U;
+  voter0_pending_rewards   = 777UL;
+  advance_into_epoch( env, epoch );
+  voter0_block_revenue_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+  voter0_pending_rewards   = 0UL;
+
+  fd_pubkey_t v = vote_key( 0UL );
+  fd_acc_t ro = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, v.uc );
+  FD_TEST( FD_LOAD( uint, ro.data )==fd_vote_state_versioned_enum_v5 );
+  fd_accdb_unread_one( env->accdb, &ro );
+
+  FD_TEST( vote_stakes_t1_cnt( env->bank )==NUM_VAT_ELIGIBLE );
+  fd_vote_stakes_ele_t q[1];
+  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, q ) );
+  FD_TEST( q->stake==stake_for_epoch( 0UL, epoch ) );
+  FD_TEST( q->commission==voter_commission( 0UL ) );
+  FD_TEST( q->block_revenue_commission_bps==2500U && q->pending_delegator_rewards==777UL );
+  FD_TEST( q->bls_key[ 0 ]==0xBB );
+  FD_TEST( env->bank->f.total_epoch_stake==expected_total_epoch_stake( epoch ) );
+  FD_TEST( clock_delta( env )==CLOCK_DELTA_NO_WHALE );
+
+  test_env_destroy( env );
+  voter0_is_v5 = 0;
+}
+
 /* Whether the whale's last vote made it into the clock this epoch,
    inferred from the stake-weighted timestamp: 10s when the dominant
    future-voting whale is counted, 3s when it is not. */
@@ -689,6 +730,7 @@ main( int argc, char ** argv ) {
 
   test_runtime_stack_stake_accum_map_sizing( wksp );
   test_vat_path_unconditional( wksp );
+  test_vat_path_v5_voter( wksp );
   test_vat_invalidate_revalidate( wksp );
 
   fd_wksp_delete_anonymous( wksp );

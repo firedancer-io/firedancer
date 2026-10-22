@@ -1019,12 +1019,9 @@ update_metric_vote_account( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ro.lamports ) ) {
     fd_vote_state_versioned_t vsv[1];
     if( FD_LIKELY( fd_vote_state_versioned_deserialize( vsv, ro.data, ro.data_len ) ) ) {
-      fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( vsv );
-      if( !deq_fd_vote_epoch_credits_t_empty( ec ) ) {
-        fd_vote_epoch_credits_t const * last_ec = deq_fd_vote_epoch_credits_t_peek_tail_const( ec );
-        if( last_ec->epoch==bank->f.epoch ) {
-          epoch_credits = fd_ulong_sat_sub( last_ec->credits, last_ec->prev_credits ); /* credits is the lifetime total */
-        }
+      fd_vote_epoch_credits_t const * last_ec = fd_vsv_get_last_epoch_credits( vsv );
+      if( last_ec && last_ec->epoch==bank->f.epoch ) {
+        epoch_credits = fd_ulong_sat_sub( last_ec->credits, last_ec->prev_credits ); /* credits is the lifetime total */
       }
     }
   }

@@ -42,6 +42,9 @@ fd_vsv_get_commission( fd_vote_state_versioned_t * self );
 fd_vote_epoch_credits_t const *
 fd_vsv_get_epoch_credits( fd_vote_state_versioned_t * self );
 
+fd_vote_epoch_credits_t const *
+fd_vsv_get_last_epoch_credits( fd_vote_state_versioned_t * self );
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L752-L757 */
 fd_landed_vote_t const *
 fd_vsv_get_votes( fd_vote_state_versioned_t * self );
@@ -122,17 +125,20 @@ fd_vsv_set_inflation_rewards_collector( fd_vote_state_versioned_t * self,
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L724-L729 */
 void
 fd_vsv_set_commission( fd_vote_state_versioned_t * self,
-                        uchar                      commission );
+                        uchar                      commission,
+                        ulong                      current_epoch );
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/handler.rs#L781-L786 */
 void
 fd_vsv_set_inflation_rewards_commission_bps( fd_vote_state_versioned_t * self,
-                                             ushort                      commission_bps );
+                                             ushort                      commission_bps,
+                                             ulong                       current_epoch );
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/handler.rs#L788-L793 */
 void
 fd_vsv_set_block_revenue_commission_bps( fd_vote_state_versioned_t * self,
-                                         ushort                      commission_bps );
+                                         ushort                      commission_bps,
+                                         ulong                       current_epoch );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L386-L388 */
 void
@@ -184,6 +190,13 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self );
 int
 fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
                           fd_pubkey_t const *         vote_pubkey );
+
+int
+fd_vsv_has_tower_votes( fd_vote_state_versioned_t const * self );
+
+int
+fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t * self,
+                          ulong                       current_epoch );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L872C12-L886 */
 int
