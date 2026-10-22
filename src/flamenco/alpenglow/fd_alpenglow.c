@@ -428,28 +428,31 @@ vote_account_is_v5( fd_acc_t const * acc ) {
   return FD_LOAD( uint, acc->data )==fd_vote_state_versioned_enum_v5;
 }
 
-/* epoch_credits_at returns the credits of the epoch-credits entry for
-   epoch, 0 if there is none. */
+/* epoch_credits_at returns the credits of the last epoch-credits entry
+   for epoch, 0 if there is none.  The Alpenglow migration epoch has two
+   entries for the epoch: the frozen Tower one, then (after the Alpenglow
+   marker) the one credits accrue to. */
 
 static ulong
 epoch_credits_at( fd_acc_t const *                  acc,
                   fd_vote_state_versioned_t const * vs,
                   ulong                             epoch ) {
+  ulong credits = 0UL;
   if( vote_account_is_v5( acc ) ) {
     fd_vote_state_v5_t const * v5 = fd_vote_account_v5( (uchar *)acc->data );
     for( ulong i=0UL; i<v5->accumulated_lamports_len; i++ ) {
-      if( v5->accumulated_lamports[ i ].epoch==epoch ) return v5->accumulated_lamports[ i ].credits;
+      if( v5->accumulated_lamports[ i ].epoch==epoch ) credits = v5->accumulated_lamports[ i ].credits;
     }
-    return 0UL;
+    return credits;
   }
   fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( (fd_vote_state_versioned_t *)vs );
   for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( ec );
        !deq_fd_vote_epoch_credits_t_iter_done( ec, iter );
        iter = deq_fd_vote_epoch_credits_t_iter_next( ec, iter ) ) {
     fd_vote_epoch_credits_t const * e = deq_fd_vote_epoch_credits_t_iter_ele_const( ec, iter );
-    if( e->epoch==epoch ) return e->credits;
+    if( e->epoch==epoch ) credits = e->credits;
   }
-  return 0UL;
+  return credits;
 }
 
 static void
