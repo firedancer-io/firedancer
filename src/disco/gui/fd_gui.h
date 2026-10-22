@@ -154,9 +154,8 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_IS_VOTER_YES     ((uchar)1)
 #define FD_GUI_IS_VOTER_NO      ((uchar)2)
 
-/* Under Tower, NOTARIZED isn't used and FINALIZED is a catch-all for
-   skipped.  UNKNOWN is used while fork choice has not resolved a
-   replayed slot. */
+/* UNKNOWN is used while fork choice has not resolved a replayed
+   slot. */
 #define FD_GUI_SKIP_STATUS_UNKNOWN     ((uchar)0)
 #define FD_GUI_SKIP_STATUS_NOT_SKIPPED ((uchar)1)
 #define FD_GUI_SKIP_STATUS_NOTARIZED   ((uchar)2)
@@ -171,10 +170,6 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_VOTE_STATE_NON_VOTING (0)
 #define FD_GUI_VOTE_STATE_VOTING     (1)
 #define FD_GUI_VOTE_STATE_DELINQUENT (2)
-
-#define FD_GUI_MAX_VOTE_DISTANCE     (512UL)
-
-#define FD_GUI_LANDED_VOTE_MAX      (4096UL)
 
 #define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ        (256UL<<20)
 
@@ -524,7 +519,6 @@ struct __attribute__((packed)) fd_gui_slot {
   uint      vote_failed;      /* failed vote txn count         (UINT_MAX if unknown) */
   uint      nonvote_success;  /* successful nonvote txn count  (UINT_MAX if unknown) */
   uint      nonvote_failed;   /* failed nonvote txn count      (UINT_MAX if unknown) */
-  uchar     vote_latency_exact; /* our vote latency minus skipped slots on the landed fork, or FD_GUI_VOTE_LATENCY_NOT_VOTED if no vote landed. */
   uint      max_compute_units;/* block compute unit limit      (UINT_MAX if unknown) */
   uint      compute_units;    /* block compute units consumed  (UINT_MAX if unknown) */
   ulong     transaction_fee;  /* total transaction fee         (ULONG_MAX if unknown) */
@@ -597,9 +591,6 @@ typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 #define FD_GUI_EPOCH_SCHED_CNT ((MAX_SLOTS_PER_EPOCH+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION)
 #define FD_GUI_EPOCH_PUB_CNT   (MAX_STAKE_WEIGHTS)
 
-#define FD_GUI_VOTE_LATENCY_NOT_VOTED ((uchar)(UCHAR_MAX))     /* vote missing */
-#define FD_GUI_VOTE_LATENCY_MAX       ((uchar)(UCHAR_MAX-1UL)) /* largest observable vote latency */
-
 struct fd_gui_epoch {
   ulong epoch;
   ulong start_slot;
@@ -613,7 +604,6 @@ struct fd_gui_epoch {
   fd_gui_slot_rankings_t rankings   [ 1 ]; /* global slot rankings */
   fd_gui_slot_rankings_t my_rankings[ 1 ]; /* my slots only */
 
-  uchar  latency_exact[ MAX_SLOTS_PER_EPOCH ]; /* skip-discounted latency or FD_GUI_VOTE_LATENCY_* */
   uchar  is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_IS_VOTER_* */
   uchar  skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
   uchar  vote_rewarded[ MAX_SLOTS_PER_EPOCH ]; /* Alpenglow: one of FD_GUI_VOTE_REWARDED_* */
@@ -861,7 +851,7 @@ typedef struct fd_gui_snapsv_pending fd_gui_snapsv_pending_t;
 #define FD_GUI_ACCDB_EMA_HALF_LIFE_NS (600L*1000L*1000L*1000L) /* 10 minutes */
 
 /* Tile kinds.  Determines which subset of metrics to read. */
-#define FD_GUI_ACCDB_TILE_KIND_RW     0  /* execle, execrp, replay, tower */
+#define FD_GUI_ACCDB_TILE_KIND_RW     0  /* execle, execrp, replay */
 #define FD_GUI_ACCDB_TILE_KIND_RO     1  /* rpc, resolv */
 #define FD_GUI_ACCDB_TILE_KIND_SNAPIN 2  /* snapin (direct snapshot disk writer) */
 #define FD_GUI_ACCDB_TILE_KIND_ACCDB  3  /* accdb tile itself (prewrite + compaction writes) */
@@ -931,7 +921,7 @@ struct fd_gui_accdb_stats {
 
   /* Per-tile accdb stats.  At init we walk the topology and assign a
      slot to each tile that uses the account database (execle, execrp,
-     replay, tower, rpc, resolv, accdb).  Each slot keeps cumulative
+     replay, rpc, resolv, accdb).  Each slot keeps cumulative
      previous values for delta computation and a triangular-weighted
      delta ring (same cadence / weighting as the aggregate rings). */
   ulong  accdb_tile_cnt;
@@ -1004,7 +994,6 @@ struct fd_gui_summary {
   char vote_key_base58[ FD_BASE58_ENCODED_32_SZ ];
   char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
-  int          is_alpenglow;
   int          is_voting;      /* configured to vote (vote account set) */
   char const * version;
   char const * cluster;
@@ -1016,7 +1005,6 @@ struct fd_gui_summary {
   ushort expected_shred_version;
   int    wfs_enabled;
 
-  ulong vote_distance;
   int   vote_state;
 
   long  startup_time_nanos;
@@ -1044,7 +1032,6 @@ struct fd_gui_summary {
   ulong slot_rooted;
   ulong slot_finalized;
   ulong slot_notarized;
-  ulong slot_optimistically_confirmed;
   ulong slot_estimated;
   ulong slot_caught_up;
   ulong slot_repair;
@@ -1190,12 +1177,6 @@ struct fd_gui {
     fd_gui_slot_txn_join_t *   joined; /* [max] */
   } slot_txn_scratch;
 
-  struct {
-    ulong landed_slot;
-    ulong landed_bank_seq;
-    ulong voted_slot;
-  } landed_votes[ FD_GUI_LANDED_VOTE_MAX ];
-  ulong landed_vote_cnt;
 
   struct {
     int has_block_engine;
@@ -1325,7 +1306,6 @@ fd_gui_new( void *                   shmem,
             uchar const *            identity_key,
             int                      has_vote_key,
             uchar const *            vote_key,
-            int                      is_alpenglow,
             ulong                    max_live_slots,
             ulong                    max_txn_per_slot,
             int                      snapshots_enabled,
@@ -1472,14 +1452,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
 void
 fd_gui_handle_replay_update( fd_gui_t *                         gui,
                              fd_replay_slot_completed_t const * slot_completed,
-                             ulong                              vote_slot,
                              long                               now );
-
-void
-fd_gui_stage_landed_vote( fd_gui_t * gui,
-                          ulong      landed_slot,
-                          ulong      landed_bank_seq,
-                          ulong      voted_slot );
 
 void
 fd_gui_handle_genesis_hash( fd_gui_t *        gui,
@@ -1492,14 +1465,6 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
                              ulong      slot,
                              ulong      bank_seq,
                              long       now );
-
-/* fd_gui_handle_oc_advanced is invoked on REPLAY_SIG_OC_ADVANCED.  It
-   marks the (slot, bank_seq) fork optimistically confirmed. */
-void
-fd_gui_handle_oc_advanced( fd_gui_t * gui,
-                           ulong      slot,
-                           ulong      bank_seq,
-                           long       now );
 
 void
 fd_gui_handle_ag_notarized( fd_gui_t *        gui,
@@ -1656,7 +1621,7 @@ fd_gui_slot_parent_get( fd_gui_t * gui, fd_gui_slot_t const * c ) {
 /* fd_gui_slot_get_canon returns the DB record for slot number `_slot`
    on the canonical fork, or NULL if `_slot` is skipped, above the
    canonical tip, or the tip is not yet resolved.  The canonical fork is
-   the consensus fork chosen by tower fork choice. */
+   the fork of the current reset slot. */
 
 static inline fd_gui_slot_t *
 fd_gui_slot_get_canon( fd_gui_t * gui, ulong _slot ) {
@@ -1827,13 +1792,11 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->parent_bank_seq   = parent_bank_seq;
   meta->parent_slot       = _parent_slot;
   meta->vote_slot          = ULONG_MAX;
-  meta->vote_latency_exact = FD_GUI_VOTE_LATENCY_NOT_VOTED;
   meta->max_compute_units = UINT_MAX;
   meta->completed_time    = LONG_MAX;
   meta->parent_completed_time = LONG_MAX;
   meta->mine              = (uchar)(mine & 1);
-  meta->is_voter          = FD_GUI_IS_VOTER_NO;
-  if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) meta->is_voter = FD_GUI_IS_VOTER_UNKNOWN;
+  meta->is_voter          = FD_GUI_IS_VOTER_UNKNOWN;
   meta->skip              = FD_GUI_SKIP_STATUS_UNKNOWN;
   meta->level             = (uchar)( _slot ? FD_GUI_SLOT_LEVEL_INCOMPLETE : FD_GUI_SLOT_LEVEL_ROOTED ); /* slot 0 always rooted */
   meta->notarization_kind = FD_GUI_AG_NOTAR_NONE;

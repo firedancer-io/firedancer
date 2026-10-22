@@ -417,7 +417,7 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   FD_TEST( rec );
   rec->my_total_slots          = 7UL;
   rec->my_skipped_slots        = 3UL;
-  rec->latency_exact[ 0 ]      = 2;
+  rec->is_voter[ 0 ]           = FD_GUI_IS_VOTER_YES;
   rec->rankings->largest_tips[ 0 ].slot  = RM_NEW_START + 4UL;
   rec->rankings->largest_tips[ 0 ].value = 12345UL;
 
@@ -441,7 +441,7 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   FD_TEST( rec3->epoch==key->epoch );
   FD_TEST( rec3->my_total_slots==7UL );
   FD_TEST( rec3->my_skipped_slots==3UL );
-  FD_TEST( rec3->latency_exact[ 0 ]==2 );
+  FD_TEST( rec3->is_voter[ 0 ]==FD_GUI_IS_VOTER_YES );
   FD_TEST( rec3->rankings->largest_tips[ 0 ].slot==RM_NEW_START + 4UL );
   FD_TEST( rec3->rankings->largest_tips[ 0 ].value==12345UL );
 
@@ -493,6 +493,9 @@ store_open( test_store_t * s, ulong map_bytes, int instance ) {
   FD_TEST( s->gui );
   memset( s->gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
   s->gui->slot_txn_scratch.max = 1UL;
+  static fd_gui_ag_slot_t ag_slot[ 1 ] = {{ .slot = ULONG_MAX, .bank_seq = ULONG_MAX }};
+  s->gui->ag.slot     = ag_slot;
+  s->gui->ag.slot_cnt = 1UL;
 
   s->db_mem = aligned_alloc( fd_gui_store_align(),
                              fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( TEST_STORE_BYTES ) ), fd_gui_store_align() ) );
@@ -1107,16 +1110,20 @@ test_timeline_shreds( fd_gui_t * gui ) {
     long lo, hi;
     FD_TEST( fd_gui_event_bounds( gui, FD_GUI_HIST_SHRED_EVENTS, &lo, &hi ) );
     FD_TEST( lo<=event_ns && event_ns<hi );
-    /* Advancing the root past 101 must preserve its skip marker; the
-       landed slot 102 and unresolved slot 113 must not be marked. */
-    ulong const roots[] = { 100UL, 110UL };
+    /* 101 is only marked once the root advances past it; the landed
+       slot 102 and unresolved slot 113 must not be marked. */
+    ulong        const roots  [] = { 100UL, 110UL };
+    char const * const skipped[] = { "[]", "[0]" };
     for( ulong i=0UL; i<sizeof(roots)/sizeof(roots[ 0 ]); i++ ) {
       gui->summary.slot_rooted = roots[ i ];
       FD_TEST( !fd_gui_printf_timeline_query_shreds( gui, lo, hi, 7UL ) );
-      check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_shreds\",\"id\":7,\"value\":{\"granularity\":\"shred\","
-                           "\"available_start_ns\":\"99000000000\",\"available_end_ns\":\"102000000000\","
-                           "\"reference_slot\":101,\"reference_ts\":\"101999999999\",\"slot_delta\":[0,1,12,0],\"idx\":[0,0,0,0],"
-                           "\"event\":[0,0,0,0],\"event_ts_delta\":[\"0\",\"0\",\"0\",\"0\"],\"skipped\":[0]}}" );
+      char expected[ 512 ];
+      fd_cstr_printf_check( expected, sizeof(expected), NULL,
+                            "{\"topic\":\"timeline\",\"key\":\"query_shreds\",\"id\":7,\"value\":{\"granularity\":\"shred\","
+                            "\"available_start_ns\":\"99000000000\",\"available_end_ns\":\"102000000000\","
+                            "\"reference_slot\":101,\"reference_ts\":\"101999999999\",\"slot_delta\":[0,1,12,0],\"idx\":[0,0,0,0],"
+                            "\"event\":[0,0,0,0],\"event_ts_delta\":[\"0\",\"0\",\"0\",\"0\"],\"skipped\":%s}}", skipped[ i ] );
+      check_response( gui, expected );
     }
     if( !flushed ) FD_TEST( fd_gui_shred_flush( gui, sec_ns( 101UL ) ) );
   }
