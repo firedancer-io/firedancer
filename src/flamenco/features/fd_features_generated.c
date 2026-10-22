@@ -2379,6 +2379,13 @@ fd_feature_id_t const ids[] = {
     .implemented               = 1,
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, secp256r1_syscall_enabled)>>3,
+    .id                        = {"\x06\x91\xd6\xab\x6b\x69\x3c\x66\x25\xb4\x47\x84\xe3\xc4\x2a\x27\xbb\x03\xc1\xeb\xac\xd9\xe0\xe0\xdf\x9d\xc9\x89\x30\x49\xa6\xfb"},
+                                 /* SeRjtX7Abiq5hQYbzdCny266oveDseHZh9tnrs2cdVC */
+    .name                      = "secp256r1_syscall_enabled",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2699,6 +2706,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_301 0xdbf2487401975107UL, .val = &ids[301]
 #define MAP_PERFECT_302 0xee06a6ef50308803UL, .val = &ids[302]
 #define MAP_PERFECT_303 0x363f3e34c2720204UL, .val = &ids[303]
+#define MAP_PERFECT_304 0x663c696babd69106UL, .val = &ids[304]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -3013,4 +3021,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_set_program_data_to_elf_len
 FD_STATIC_ASSERT( offsetof( fd_features_t, validator_location_registration                         )>>3==301UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_validator_location_registration                 )>>3==302UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, geo_aware_leader_schedule                               )>>3==303UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, secp256r1_syscall_enabled                               )>>3==304UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

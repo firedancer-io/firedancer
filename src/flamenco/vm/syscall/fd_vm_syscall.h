@@ -913,6 +913,8 @@ FD_VM_SYSCALL_DECL( sol_big_mod_exp );
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE      ( 5UL        ) /* bls12-381 G1 little endian */
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE      ( 6UL | 0x80 ) /* bls12-381 G2 big endian */
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE      ( 6UL        ) /* bls12-381 G2 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE         ( 7UL | 0x80 ) /* secp256r1 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE         ( 7UL        ) /* secp256r1 little endian */
 
 /* FD_VM_SYSCALL_SOL_CURVE_{...} specifies the curve operation */
 
@@ -929,6 +931,9 @@ FD_VM_SYSCALL_DECL( sol_big_mod_exp );
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ  (2*48UL)   /* G2 point (compressed) */
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ       (2*96UL)   /* G2 point (uncompressed) */
 #define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ        (12*48UL)   /* GT element */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_COMPRESSED_SZ       (33UL)   /* point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ            (64UL)   /* point (uncompressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_SECP256R1_SCALAR_SZ           (32UL)   /* scalar */
 
 /* syscall(aa2607ca) sol_curve_validate_point
 
