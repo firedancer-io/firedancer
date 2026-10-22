@@ -555,7 +555,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="NonvoteReplace" label="Transaction replaced a lower priority transaction" />
     <int value="3" name="VoteReplace" deprecated="true" label="Simple vote transaction replaced a lower priority transaction" />
     <int value="4" name="NonceNonvoteAdd" label="Durable nonce transaction added to pending transactions" />
-    <int value="5" name="Unused" label="Never produced: durable nonce transactions can't be simple votes" />
+    <int value="5" name="Unused" deprecated="true" label="Never produced" />
     <int value="6" name="NonceNonvoteReplace" label="Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce" />
     <group name="Rejected" values="InstrTooManyAccounts NonceConflict AccountBlocklisted BundleBlocklisted InvalidNonce WriteSysvar EstimationFailed DuplicateAccount TooManyAccounts TooManyCu Expired LutUnsupported Unaffordable Duplicate NoncePriorityTooLow PriorityTooLow" />
     <group name="Replaced" values="NonvoteReplace NonceNonvoteReplace" />

@@ -722,7 +722,7 @@ static fd_metrics_sample_field_t const fields_resolv[ 81 ] = {
   { FD_METRICS_COUNTER_RESOLV_ACCDB_COPIED_BYTES_OFF, 34U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_pack[ 284 ] = {
+static fd_metrics_sample_field_t const fields_pack[ 283 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -877,7 +877,6 @@ static fd_metrics_sample_field_t const fields_pack[ 284 ] = {
   { FD_METRICS_COUNTER_PACK_TXN_INSERT_ATTEMPTED_NONVOTE_ADD_OFF, 17U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_PACK_TXN_INSERT_ATTEMPTED_NONVOTE_REPLACE_OFF, 19U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_PACK_TXN_INSERT_ATTEMPTED_NONCE_NONVOTE_ADD_OFF, 21U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_PACK_TXN_INSERT_ATTEMPTED_UNUSED_OFF, 22U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_PACK_TXN_INSERT_ATTEMPTED_NONCE_NONVOTE_REPLACE_OFF, 23U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_PACK_SCHEDULE_REGIME_DURATION_NANOS_OFF, 33U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
@@ -4353,7 +4352,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "verify", 27U, fields_verify, 45UL, 574UL },
   { "dedup", 28U, fields_dedup, 43UL, 552UL },
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
-  { "pack", 30U, fields_pack, 284UL, 3025UL },
+  { "pack", 30U, fields_pack, 283UL, 3013UL },
   { "execle", 31U, fields_execle, 205UL, 2159UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },

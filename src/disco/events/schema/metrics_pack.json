@@ -229,7 +229,7 @@
             "type": "Tuple",
             "description": "Insert attempts, by result; bundle members are counted individually with the bundle's result",
             "aliases": {
-                "all":      ["instr_too_many_accounts", "nonce_conflict", "account_blocklisted", "bundle_blocklisted", "invalid_nonce", "write_sysvar", "estimation_failed", "duplicate_account", "too_many_accounts", "too_many_cu", "expired", "lut_unsupported", "unaffordable", "duplicate", "nonce_priority_too_low", "priority_too_low", "nonvote_add", "nonvote_replace", "nonce_nonvote_add", "unused", "nonce_nonvote_replace"],
+                "all":      ["instr_too_many_accounts", "nonce_conflict", "account_blocklisted", "bundle_blocklisted", "invalid_nonce", "write_sysvar", "estimation_failed", "duplicate_account", "too_many_accounts", "too_many_cu", "expired", "lut_unsupported", "unaffordable", "duplicate", "nonce_priority_too_low", "priority_too_low", "nonvote_add", "nonvote_replace", "nonce_nonvote_add", "nonce_nonvote_replace"],
                 "rejected": ["instr_too_many_accounts", "nonce_conflict", "account_blocklisted", "bundle_blocklisted", "invalid_nonce", "write_sysvar", "estimation_failed", "duplicate_account", "too_many_accounts", "too_many_cu", "expired", "lut_unsupported", "unaffordable", "duplicate", "nonce_priority_too_low", "priority_too_low"],
                 "replaced": ["nonvote_replace", "nonce_nonvote_replace"]
             },
@@ -255,7 +255,7 @@
                 "nonvote_replace":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction replaced a lower priority transaction" },
                 "vote_replace":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Simple vote transaction replaced a lower priority transaction", "deprecated": true },
                 "nonce_nonvote_add":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Durable nonce transaction added to pending transactions" },
-                "unused":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never produced: durable nonce transactions can't be simple votes" },
+                "unused":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never produced", "deprecated": true },
                 "nonce_nonvote_replace":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce" }
             }
         },

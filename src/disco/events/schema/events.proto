@@ -2524,8 +2524,8 @@ message MetricsPackTxnInsertAttempted {
   uint64 vote_replace = 20 [deprecated = true];
   // Durable nonce transaction added to pending transactions
   uint64 nonce_nonvote_add = 21;
-  // Never produced: durable nonce transactions can't be simple votes
-  uint64 unused = 22;
+  // Never produced
+  uint64 unused = 22 [deprecated = true];
   // Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce
   uint64 nonce_nonvote_replace = 23;
 }
