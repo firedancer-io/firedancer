@@ -205,7 +205,7 @@ fd_sched_lthash_map_clean( fd_sched_lthash_t * l,
   ulong                     chain_cnt = lthash_map_chain_cnt( m );
   ulong                     cnt       = ln->entry_cnt[ map_idx ];
   ulong                     cur       = ln->clean_cursor[ map_idx ];
-  ulong                     end       = fd_ulong_min( cnt, cur+max );
+  ulong                     end       = cnt-cur<=max ? cnt : cur+max; /* cur+max may wrap for a full clean */
   /* Clearing the head of each live entry's chain empties the map.  A
      chain head is set only while the chain holds an entry, and every
      entry of the map is freed here, so no chain loses an entry that

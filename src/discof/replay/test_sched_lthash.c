@@ -101,10 +101,10 @@ FD_UNIT_TEST( footprint ) {
   FD_TEST( fd_ulong_is_pow2( fd_sched_lthash_align() ) );
   FD_TEST( fd_sched_lthash_align()>=FD_LTHASH_ALIGN );
   FD_TEST( !fd_sched_lthash_footprint( 0UL,                 TEST_HASH_MAX       ) );
-  FD_TEST( !fd_sched_lthash_footprint( (ulong)UINT_MAX+1UL, TEST_HASH_MAX       ) );
+  FD_TEST( !fd_sched_lthash_footprint( (ulong)UINT_MAX/2UL+1UL, TEST_HASH_MAX   ) ); /* two entry regions per lane */
   FD_TEST( !fd_sched_lthash_footprint( TEST_ENTRY_MAX,      (ulong)UINT_MAX+1UL ) );
   FD_TEST(  fd_sched_lthash_footprint( TEST_ENTRY_MAX,      0UL                 ) );
-  FD_TEST(  fd_sched_lthash_footprint( (ulong)UINT_MAX,     (ulong)UINT_MAX     ) );
+  FD_TEST(  fd_sched_lthash_footprint( (ulong)UINT_MAX/2UL, (ulong)UINT_MAX     ) );
 
   ulong footprint = fd_sched_lthash_footprint( FD_RDISP_MAX_WRITERS_PER_BLOCK, 8192UL );
   FD_TEST( footprint && fd_ulong_is_aligned( footprint, fd_sched_lthash_align() ) );
@@ -217,6 +217,40 @@ FD_UNIT_TEST( slots ) {
   test_lthash_check_tail();
 }
 
+/* A map released with entries is cleared a chunk at a time from later
+   polls, and a claim in the middle of that has to finish the job.  The
+   full clean used to compute its end as cur+max with max ULONG_MAX,
+   which wraps once some entries are already clear, left the map
+   CLEANING, and tripped the claim's invariant. */
+FD_UNIT_TEST( map_clean_resume ) {
+  fd_sched_lthash_t * l    = test_lthash_new();
+  ulong               lane = 0UL;
+  ulong               map  = fd_sched_lthash_lane_primary( l, lane );
+  fd_sched_lthash_lane_claim( l, lane, 5UL );
+  for( ulong i=0UL; i<10UL; i++ ) { fd_acct_addr_t a = test_acct( 100UL+i ); FD_TEST( fd_sched_lthash_insert( l, lane, &a ) ); }
+  FD_TEST( fd_sched_lthash_lane_entry_cnt( l, lane )==10UL );
+
+  fd_sched_lthash_map_release( l, lane, map );
+  FD_TEST( fd_sched_lthash_map_state( l, lane, map )==FD_SCHED_LTHASH_MAP_CLEANING );
+  FD_TEST( fd_sched_lthash_map_clean( l, lane, map, 3UL )==7UL );
+  FD_TEST( fd_sched_lthash_map_state( l, lane, map )==FD_SCHED_LTHASH_MAP_CLEANING );
+  fd_sched_lthash_map_claim( l, lane, map, 6UL );
+  FD_TEST( fd_sched_lthash_map_state( l, lane, map )==FD_SCHED_LTHASH_MAP_LIVE );
+  FD_TEST( fd_sched_lthash_map_bank ( l, lane, map )==6UL );
+  FD_TEST( fd_sched_lthash_lane_entry_cnt( l, lane )==0UL );
+  for( ulong i=0UL; i<10UL; i++ ) { fd_acct_addr_t a = test_acct( 100UL+i ); FD_TEST( !fd_sched_lthash_query( l, lane, &a ) ); }
+  fd_acct_addr_t b = test_acct( 100UL );
+  FD_TEST( fd_sched_lthash_insert( l, lane, &b ) && fd_sched_lthash_query( l, lane, &b ) );
+
+  /* The same resumption through a full clean on its own. */
+  for( ulong i=1UL; i<5UL; i++ ) { fd_acct_addr_t a = test_acct( 100UL+i ); FD_TEST( fd_sched_lthash_insert( l, lane, &a ) ); }
+  fd_sched_lthash_map_release( l, lane, map );
+  FD_TEST( fd_sched_lthash_map_clean( l, lane, map, 2UL )==3UL );
+  FD_TEST( fd_sched_lthash_map_clean( l, lane, map, ULONG_MAX )==0UL );
+  FD_TEST( fd_sched_lthash_map_state( l, lane, map )==FD_SCHED_LTHASH_MAP_FREE );
+  test_lthash_check_tail();
+}
+
 FD_UNIT_TEST( rewrite ) {
   fd_sched_lthash_t * l = test_lthash_new();
   fd_sched_lthash_lane_claim( l, 0UL, 3UL );
@@ -286,7 +320,7 @@ FD_UNIT_TEST( iter ) {
   fd_sched_lthash_t * l = test_lthash_new();
 
   /* An empty lane has nothing to visit. */
-  FD_TEST( fd_sched_lthash_iter_done( l, 2UL, fd_sched_lthash_iter_init( l, 2UL ) ) );
+  FD_TEST( fd_sched_lthash_iter_done( l, 2UL, fd_sched_lthash_iter_init( l, 2UL, fd_sched_lthash_lane_primary( l, 2UL ) ) ) );
 
   /* Lane 0 holds accounts 0 to 99 and lane 1 holds 1000 to 1009. */
 # define ITER_CNT (100UL)
@@ -306,7 +340,7 @@ FD_UNIT_TEST( iter ) {
   /* The walk of lane 0 visits each of its entries once, in insertion
      order, and may modify the entries it visits. */
   ulong visit_cnt = 0UL;
-  for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( l, 0UL );
+  for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( l, 0UL, fd_sched_lthash_lane_primary( l, 0UL ) );
        !fd_sched_lthash_iter_done( l, 0UL, it );
        it = fd_sched_lthash_iter_next( l, 0UL, it ) ) {
     fd_sched_lthash_entry_t * e = fd_sched_lthash_iter_ele( l, 0UL, it );
@@ -325,7 +359,7 @@ FD_UNIT_TEST( iter ) {
   /* The walk of lane 1 sees only lane 1's entries, in insertion order
      and untouched. */
   visit_cnt = 0UL;
-  for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( l, 1UL );
+  for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( l, 1UL, fd_sched_lthash_lane_primary( l, 1UL ) );
        !fd_sched_lthash_iter_done( l, 1UL, it );
        it = fd_sched_lthash_iter_next( l, 1UL, it ) ) {
     fd_sched_lthash_entry_t * e = fd_sched_lthash_iter_ele( l, 1UL, it );
@@ -339,7 +373,7 @@ FD_UNIT_TEST( iter ) {
   /* A reset lane has nothing to visit. */
   fd_sched_lthash_lane_reset( l, 0UL );
   FD_TEST( fd_sched_lthash_lane_entry_cnt( l, 0UL )==0UL );
-  FD_TEST( fd_sched_lthash_iter_done( l, 0UL, fd_sched_lthash_iter_init( l, 0UL ) ) );
+  FD_TEST( fd_sched_lthash_iter_done( l, 0UL, fd_sched_lthash_iter_init( l, 0UL, fd_sched_lthash_lane_primary( l, 0UL ) ) ) );
   test_lthash_check_tail();
 }
 
@@ -447,7 +481,7 @@ FD_UNIT_TEST( lane_reset_reuse ) {
      finding none of the accounts shows that every chain head is clear. */
   fd_sched_lthash_lane_reset( l, 1UL );
   FD_TEST( fd_sched_lthash_lane_entry_cnt( l, 1UL )==0UL );
-  FD_TEST( fd_sched_lthash_iter_done( l, 1UL, fd_sched_lthash_iter_init( l, 1UL ) ) );
+  FD_TEST( fd_sched_lthash_iter_done( l, 1UL, fd_sched_lthash_iter_init( l, 1UL, fd_sched_lthash_lane_primary( l, 1UL ) ) ) );
   FD_TEST( fd_sched_lthash_spec_free_cnt( l )==TEST_HASH_MAX );
   for( ulong i=0UL; i<REUSE_CNT; i++ ) {
     fd_acct_addr_t a = test_acct( i );
@@ -469,7 +503,7 @@ FD_UNIT_TEST( lane_reset_reuse ) {
   static uchar seen[ TEST_ENTRY_MAX ];
   memset( seen, 0, sizeof(seen) );
   ulong visit_cnt = 0UL;
-  for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( l, 1UL );
+  for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( l, 1UL, fd_sched_lthash_lane_primary( l, 1UL ) );
        !fd_sched_lthash_iter_done( l, 1UL, it );
        it = fd_sched_lthash_iter_next( l, 1UL, it ) ) {
     ulong idx = fd_sched_lthash_entry_idx( l, 1UL, fd_sched_lthash_iter_ele( l, 1UL, it ) );
@@ -494,7 +528,7 @@ FD_UNIT_TEST( lane_reset_reuse ) {
 
   fd_sched_lthash_lane_reset( l, 1UL );
   FD_TEST( fd_sched_lthash_lane_entry_cnt( l, 1UL )==0UL );
-  FD_TEST( fd_sched_lthash_iter_done( l, 1UL, fd_sched_lthash_iter_init( l, 1UL ) ) );
+  FD_TEST( fd_sched_lthash_iter_done( l, 1UL, fd_sched_lthash_iter_init( l, 1UL, fd_sched_lthash_lane_primary( l, 1UL ) ) ) );
   for( ulong i=0UL; i<REUSE_CNT/2UL; i++ ) {
     fd_acct_addr_t a = test_acct( i        );
     fd_acct_addr_t b = test_acct( 10000UL+i );

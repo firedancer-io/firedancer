@@ -101,7 +101,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_sched_lthash_{align,footprint} return the alignment and footprint
    of a memory region for an fd_sched_lthash with entry_max entries per
    lane and spec_max speculation pool entries.  footprint returns 0 unless
-   entry_max is in [1,UINT_MAX] and spec_max is in [0,UINT_MAX]. */
+   entry_max is in [1,UINT_MAX/2] and spec_max is in [0,UINT_MAX]. */
 
 ulong fd_sched_lthash_align    ( void );
 ulong fd_sched_lthash_footprint( ulong entry_max, ulong spec_max );
