@@ -1602,7 +1602,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
                  /* (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) ||  // deprecated */
                  ctx->replay_out->idx==ULONG_MAX ||
                  !ctx->wfs_complete ||
-                 fd_accdb_snapshot_loading( ctx->accdb ) ) ) {
+                 ctx->snapshots_loading ) ) {
     return 0;
   }
 
@@ -2168,8 +2168,6 @@ refresh_vote_account_staked( fd_replay_tile_t * ctx,
 static void
 init_after_snapshot( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
-  /* snapin built the root stake delegations while writing the accounts
-     db index.  Refresh finalizes them in memory. */
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
@@ -2210,47 +2208,14 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
 
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
-  fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
-  fd_stake_history_t stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
-  /* Despite claims like https://github.com/solana-program/stake/pull/81
-     that the stake history sysvar is contiguous, testnet has in fact
-     had a gap at epoch 386. */
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_is_contiguous( stake_history ) ) ) {
-    FD_LOG_INFO(( "stake history sysvar (covering epoch %lu to %lu over %lu entries) is not contiguous; some fast paths will be disabled", stake_history->entries[ 0 ].epoch, stake_history->entries[ stake_history->len-1UL ].epoch, stake_history->len ));
-  }
-  fd_stake_delegations_refresh(
-      root_delegations,
-      bank->f.epoch,
-      stake_history, /* may be NULL */
-      &bank->f.warmup_cooldown_rate_epoch,
-      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-      FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
-  fd_stake_history_entry_t totals = fd_stake_delegations_totals( root_delegations );
+  fd_stake_history_entry_t totals = fd_stake_delegations_totals( fd_banks_stake_delegations_root_query( ctx->banks ) );
   bank->f.total_effective_stake    = totals.effective;
   bank->f.total_activating_stake   = totals.activating;
   bank->f.total_deactivating_stake = totals.deactivating;
 
-  /* Emit the stake-delegations boot baseline from the finalized root
-     cache (snapshot accepted and refreshed, or genesis loaded), so the
-     rows match the post-reconciliation cache rather than the raw
-     account stream. */
-  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
-    fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, root_delegations );
-         !fd_stake_delegations_iter_done( iter );
-         fd_stake_delegations_iter_next( iter ) ) {
-      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
-      ulong ae = d->activation_epoch  ==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
-      ulong de = d->deactivation_epoch==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
-      fd_event_runtime_stake_delegation_bootup_emit( bank->f.slot, bank->f.epoch, d->stake_account.uc,
-                                                     d->vote_account.uc, d->stake, ae, de, d->credits_observed );
-    }
-  }
-
   fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
 
-  refresh_vote_account_staked( ctx, bank );
+  ctx->snapshots_loading = 1;
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -3088,7 +3053,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
     int is_new_block = fec->fec_set_idx==0U && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
-      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active && !ctx->strmk.active && !fd_accdb_snapshot_loading( ctx->accdb ) ) ) *evict_banks_out = 1; /* see can_process_fec */
+      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active && !ctx->strmk.active && !ctx->snapshots_loading ) ) *evict_banks_out = 1; /* see can_process_fec */
       return PROCESS_FEC_WAIT;
     }
   }
@@ -3198,7 +3163,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
      one would stall the next wait_cmd until the snapshot completes.
      Loading a fast boot stream holds the root at its start slot until
      the snapin tiles are done. */
-  if( FD_UNLIKELY( ctx->snapmk.active || fd_accdb_snapshot_loading( ctx->accdb ) ) ) return 0;
+  if( FD_UNLIKELY( ctx->snapmk.active || ctx->snapshots_loading ) ) return 0;
 
   /* Don't spin in advance_root on the previous root, replay instead and
      retry next iteration. */
@@ -3356,7 +3321,7 @@ static int
 try_prune_bank( fd_replay_tile_t * ctx ) {
   /* A cancellation purges accdb, which would spin on a pending root.
      Check before popping the bank so the cancel info isn't lost. */
-  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) || fd_accdb_snapshot_loading( ctx->accdb ) ) ) return 0;
+  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) || ctx->snapshots_loading ) ) return 0;
 
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
 
@@ -3387,13 +3352,47 @@ try_prune_bank( fd_replay_tile_t * ctx ) {
   }
 }
 
+/* finish_snapshot_load runs once the snapshots are done loading. */
+
+static void
+finish_snapshot_load( fd_replay_tile_t * ctx ) {
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  refresh_vote_account_staked( ctx, bank );
+
+  /* Report every stake delegation as it stands now that the load is
+     done. */
+  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
+    fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
+    fd_stake_delegations_iter_t iter_[1];
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, root_delegations );
+         !fd_stake_delegations_iter_done( iter );
+         fd_stake_delegations_iter_next( iter ) ) {
+      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+      ulong ae = d->activation_epoch  ==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
+      ulong de = d->deactivation_epoch==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
+      fd_event_runtime_stake_delegation_bootup_emit( bank->f.slot, bank->f.epoch, d->stake_account.uc,
+                                                     d->vote_account.uc, d->stake, ae, de, d->credits_observed );
+    }
+  }
+
+  ctx->snapshots_loading = 0;
+  FD_LOG_INFO(( "snapshots finished loading at root slot %lu", bank->f.slot ));
+}
+
 static void
 after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
   if( FD_UNLIKELY( ctx->halt_replay && !ctx->is_leader ) ) return;
-  if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
+  if( FD_UNLIKELY( !ctx->is_booted ) ) return;
+  if( FD_UNLIKELY( ctx->snapshots_loading && !fd_accdb_snapshot_still_loading( ctx->accdb ) ) ) {
+    finish_snapshot_load( ctx );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+  if( FD_UNLIKELY( !ctx->wfs_complete ) ) return;
 
   /* The overall priority for the replay tile in order is:
      1. Make sure replay has room to progress:
@@ -4078,7 +4077,7 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( fd_accdb_snapshot_loading( ctx->accdb ) ) ) {
+  if( FD_UNLIKELY( ctx->snapshots_loading ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but the fast boot stream is still loading. ignoring ..." ));
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
     return;
@@ -4617,7 +4616,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->block_dump_ctx = NULL;
   }
 
-  ctx->is_booted = 0;
+  ctx->is_booted         = 0;
+  ctx->snapshots_loading = 0;
 
   ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 

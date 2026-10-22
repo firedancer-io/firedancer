@@ -1707,6 +1707,14 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
     }
 
     fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, ULONG_MAX, &new_rate_activation_epoch );
+
+    bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
+    fd_stake_delegations_refresh( stake_delegations,
+                                  0UL,
+                                  stake_history, /* may be NULL */
+                                  &bank->f.warmup_cooldown_rate_epoch,
+                                  FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                  FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
   }
 
   /* At genesis (epoch 0) there is no previous epoch, so the t-2 set

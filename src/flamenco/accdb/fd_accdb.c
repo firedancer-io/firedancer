@@ -1704,7 +1704,7 @@ fd_accdb_cmd_pending( fd_accdb_t const * accdb ) {
 }
 
 int
-fd_accdb_snapshot_loading( fd_accdb_t const * accdb ) {
+fd_accdb_snapshot_still_loading( fd_accdb_t const * accdb ) {
   return FD_VOLATILE_CONST( accdb->shmem->snapshot_loading );
 }
 
@@ -2479,9 +2479,9 @@ static void
 wait_on_stream_record( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id,
                        uchar const *      pubkey ) {
-  if( FD_LIKELY( !fd_accdb_snapshot_loading( accdb ) || exists_inner( accdb, fork_id, pubkey, 1 ) ) ) return;
+  if( FD_LIKELY( !fd_accdb_snapshot_still_loading( accdb ) || exists_inner( accdb, fork_id, pubkey, 1 ) ) ) return;
   long t0 = fd_tickcount();
-  while( fd_accdb_snapshot_loading( accdb ) && !exists_inner( accdb, fork_id, pubkey, 1 ) ) FD_SPIN_PAUSE();
+  while( fd_accdb_snapshot_still_loading( accdb ) && !exists_inner( accdb, fork_id, pubkey, 1 ) ) FD_SPIN_PAUSE();
   accdb->metrics->fast_boot_waited++;
   accdb->metrics->fast_boot_wait_ticks += (ulong)(fd_tickcount()-t0);
 }

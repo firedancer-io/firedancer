@@ -365,7 +365,9 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
                                           fd_bank_t const *          emit_bank );
 
 /* fd_stake_delegations_refresh finalizes the root after a snapshot or
-   genesis load, before any slot executes.  Pure in-memory pass: drops
+   genesis load.  The loader that wrote the root (snapin, the genesis
+   reader) calls it once as its last root write, before it reports the
+   load done.  Pure in-memory pass: drops
    tombstones, drops delegations inactive in both epoch and epoch-1
    when remove_inactive_stakes is set, sets the warmup rate and state
    tag, accumulates the stake totals and refills the pool from disk

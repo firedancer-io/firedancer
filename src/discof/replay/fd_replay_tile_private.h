@@ -458,6 +458,9 @@ struct fd_replay_tile {
      or from genesis. */
   int is_booted;
 
+  /* Whether or not the full+incremental snapshot is still loading. */
+  int snapshots_loading;
+
   fd_multi_epoch_leaders_t * mleaders;
 
   ulong max_txn_per_slot;

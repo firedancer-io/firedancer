@@ -90,6 +90,10 @@ static ushort test_accdb_attach_parents[ 8UL ];     /* parent of each attach, in
 static ushort test_accdb_attach_seq;               /* when set, attach_child hands out these ids in turn */
 static ulong test_accdb_load_begin_cnt;
 static ulong test_accdb_load_end_cnt;
+static ulong test_stake_refresh_cnt;
+static ulong test_stake_refresh_epoch;
+static ulong test_stake_refresh_load_end_cnt; /* load_end calls seen when the refresh ran */
+static int   test_stake_refresh_has_history;
 static ulong test_accdb_flush_metrics_cnt;
 static ulong test_accdb_recover_delta_cnt;
 static ulong test_accdb_save_whead_cnt;
@@ -184,6 +188,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_stake_delegations_new_fork                mock_stake_delegations_new_fork
 #define fd_stake_delegations_advance_root            mock_stake_delegations_advance_root
 #define fd_stake_delegations_evict_fork              mock_stake_delegations_evict_fork
+#define fd_stake_delegations_refresh                 mock_stake_delegations_refresh
 #define fd_features_restore_chunk                    mock_features_restore_chunk
 #define fd_ssload_manifest_validate                  mock_ssload_manifest_validate
 #define fd_stem_publish                              test_stem_publish
@@ -478,6 +483,20 @@ mock_stake_delegations_evict_fork( fd_stake_delegations_t * sd,
 }
 
 void
+mock_stake_delegations_refresh( fd_stake_delegations_t *   sd,
+                                ulong                      epoch,
+                                fd_stake_history_t const * stake_history,
+                                ulong *                    warmup_cooldown_rate_epoch,
+                                int                        use_fixed_point_stake_math,
+                                int                        remove_inactive_stakes ) {
+  (void)sd; (void)warmup_cooldown_rate_epoch; (void)use_fixed_point_stake_math; (void)remove_inactive_stakes;
+  test_stake_refresh_cnt++;
+  test_stake_refresh_epoch        = epoch;
+  test_stake_refresh_load_end_cnt = test_accdb_load_end_cnt;
+  test_stake_refresh_has_history  = !!stake_history;
+}
+
+void
 mock_features_restore_chunk( fd_features_t *             features,
                              fd_accdb_t *                accdb,
                              fd_accdb_fork_id_t          fork_id,
@@ -606,10 +625,11 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
   reset_attempt_state( ctx );
   clear_control_barrier( ctx );
 
-  ctx->lead.accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-  ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-  ctx->lead.accdb_full_fork_id = (fd_accdb_fork_id_t){ .val = 7U };
-  ctx->lead.boot_timestamp     = fd_log_wallclock();
+  ctx->lead.accdb_root_fork_id         = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  ctx->lead.accdb_incr_fork_id         = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  ctx->lead.accdb_full_fork_id         = (fd_accdb_fork_id_t){ .val = 7U };
+  ctx->lead.fast_boot.snapshot_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  ctx->lead.boot_timestamp             = fd_log_wallclock();
   ctx->lead.txncache_max_groups_per_slot  = TEST_MAX_GROUPS_PER_SLOT;
   ctx->lead.txncache_max_entries_per_slot = TEST_MAX_ENTRIES_PER_SLOT;
 
@@ -657,6 +677,7 @@ test_counters_reset( void ) {
   test_accdb_attach_seq         = 0U;
   test_accdb_load_begin_cnt     = 0UL;
   test_accdb_load_end_cnt       = 0UL;
+  test_stake_refresh_cnt        = 0UL;
   test_accdb_flush_metrics_cnt  = 0UL;
   test_accdb_recover_delta_cnt  = 0UL;
   test_accdb_save_whead_cnt     = 0UL;
@@ -754,9 +775,10 @@ test_cluster_new( ulong tile_cnt,
       msg->slot = 440123518UL;
     }
 
-    ctx->lead.accdb_root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-    ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-    ctx->lead.boot_timestamp     = fd_log_wallclock();
+    ctx->lead.accdb_root_fork_id         = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+    ctx->lead.accdb_incr_fork_id         = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+    ctx->lead.fast_boot.snapshot_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+    ctx->lead.boot_timestamp             = fd_log_wallclock();
 
     reset_attempt_state( ctx );
   }
@@ -3223,7 +3245,11 @@ test_background_snapshot( void ) {
     FD_TEST( busy && cl->ctx[ 0 ].lead.fast_boot.snapshot_finished && cl->ctx[ 0 ].state==FD_SNAPSHOT_STATE_PROCESSING );
     FD_TEST( test_feature_restore_cnt==1UL && test_feature_restore_fork.val==22U );
     FD_TEST( test_accdb_advance_root_cnt==2UL && test_accdb_advance_root_ids[ 0 ]==21U && test_accdb_advance_root_ids[ 1 ]==22U );
-    FD_TEST( test_accdb_load_end_cnt==1UL && !test_accdb_read_one_cnt );
+    FD_TEST( test_accdb_load_end_cnt==1UL && test_accdb_read_one_cnt==1UL );
+    FD_TEST( test_stake_refresh_cnt==1UL && !test_stake_refresh_load_end_cnt );
+    /* No stake history on the stream here; the read was on the stream fork. */
+    FD_TEST( test_stake_refresh_epoch==cl->ctx[ 0 ].lead.epoch && !test_stake_refresh_has_history );
+    FD_TEST( test_accdb_read_one_fork.val==22U );
     FD_TEST( test_pub_cnt==pub0+1UL );
     FD_TEST( test_pub_sig[ test_pub_cnt-1UL ]==FD_SNAPSHOT_MSG_STREAM_STOP && test_pub_out_idx[ test_pub_cnt-1UL ]==cl->ctx[ 0 ].ct_out.idx );
 
@@ -3360,9 +3386,12 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( test_accdb_advance_root_cnt==2UL ); /* the full snapshot fork, then the incremental fork */
   FD_TEST( cl->ctx[ 0 ].lead.accdb_full_fork_id.val==USHORT_MAX );
   FD_TEST( test_accdb_load_end_cnt==1UL );
+  FD_TEST( test_stake_refresh_cnt==1UL && !test_stake_refresh_load_end_cnt );
+  FD_TEST( test_stake_refresh_epoch==cl->ctx[ 0 ].lead.epoch && test_stake_refresh_has_history );
   FD_TEST( test_feature_restore_cnt==1UL );
   FD_TEST( test_feature_restore_fork.val==7U );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  /* The sysvars verified, plus the stake history read for the refresh. */
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_root_fork_id.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_incr_fork_id.val==USHORT_MAX );
