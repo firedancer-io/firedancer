@@ -362,25 +362,6 @@ test_vote_accounts( fd_snapshot_manifest_t * manifest ) {
   manifest->epoch_stakes[0].vote_stakes_len = FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS + 1UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* The vote accounts map covers every staked voter, so it is bounded
-     by the snapshot limit rather than the VAT limit. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-
-  /* vote_accounts_len at the snapshot bound is valid. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-
-  /* vote_accounts_len exceeds the snapshot bound. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
-
   /* T-1 epoch stakes exceed the VAT bound. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );

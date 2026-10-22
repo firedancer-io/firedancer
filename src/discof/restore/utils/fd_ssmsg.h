@@ -49,21 +49,6 @@ fd_ssmsg_frag_to_slot( ulong low,
    *slot = (high << 32UL) | low;
 }
 
-struct fd_snapshot_manifest_vote_account {
-  /* The pubkey of the vote account */
-  uchar vote_account_pubkey[ 32UL ];
-
-  /* The pubkey of the node account */
-  uchar node_account_pubkey[ 32UL ];
-
-  ulong stake;
-};
-
-typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
-
-/* TODO: Consider combining this struct with
-   fd_snapshot_manifest_vote_account. */
-
 struct fd_snapshot_manifest_vote_stakes {
   /* The vote pubkey */
   uchar vote[ 32UL ];
@@ -419,13 +404,6 @@ struct fd_snapshot_manifest {
 
   /* TODO: Why is this needed? */
   ulong signature_count;
-
-  /* Every staked vote account and its stake, taken from the stakes
-     cache rather than a single epoch's admitted set.  This field is only
-     used for wait for supermajority cluster restarts, which measures
-     what fraction of activated stake is visible in gossip. */
-  ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of a previous epoch.  They are primarily
