@@ -1,33 +1,10 @@
 #include "fd_tower_serdes.h"
-#include "fd_tower.h"
 
 #define DE( T, name ) do {                                \
     if( FD_UNLIKELY( buf_sz<sizeof(T) ) ) return -1;      \
     serde->name = FD_LOAD( T, buf );                      \
     buf    += sizeof(T);                                  \
     buf_sz -= sizeof(T);                                  \
-} while(0)
-
-#define SER( T, name ) do {                               \
-    if( FD_UNLIKELY( off+sizeof(T)>buf_max ) ) return -1; \
-    FD_STORE( T, buf+off, serde->name );                  \
-    off += sizeof(T);                                     \
-} while(0)
-
-#define SER_SHORT_U16( name ) do {                        \
-    uchar tmp[3];                                         \
-    ulong n = ser_short_u16( tmp, serde->name );          \
-    if( FD_UNLIKELY( off+n>buf_max ) ) return -1;         \
-    fd_memcpy( buf+off, tmp, n );                         \
-    off += n;                                             \
-} while(0)
-
-#define SER_VAR_INT( name ) do {                          \
-    uchar tmp[10];                                        \
-    ulong n = ser_var_int( tmp, serde->name );            \
-    if( FD_UNLIKELY( off+n>buf_max ) ) return -1;         \
-    fd_memcpy( buf+off, tmp, n );                         \
-    off += n;                                             \
 } while(0)
 
 static int
@@ -78,37 +55,6 @@ de_var_int( ulong * dst, uchar const ** src, ulong * src_sz ) {
   return -1;
 }
 
-static ulong
-ser_short_u16( uchar * dst, ushort val ) {
-  if     ( FD_LIKELY( val < 0x80U ) ) {
-    dst[0] = (uchar)val;
-    return 1;
-  }
-  else if( FD_LIKELY( val < 0x4000U ) ) {
-    dst[0] = (uchar)((val & 0x7FUL) | 0x80U);
-    dst[1] = (uchar)(val >> 7);
-    return 2;
-  }
-  else {
-    dst[0] = (uchar)((val & 0x7FUL) | 0x80U);
-    dst[1] = (uchar)(((val >> 7) & 0x7FUL) | 0x80U);
-    dst[2] = (uchar)(val >> 14);
-    return 3;
-  }
-}
-
-static ulong
-ser_var_int( uchar * dst, ulong val ) {
-  ulong off = 0;
-  while( FD_LIKELY( val >= 0x80UL ) ) {
-    dst[off] = (uchar)((val & 0x7FUL) | 0x80U);
-    val >>= 7;
-    off  += 1;
-  }
-  dst[off] = (uchar)val;
-  return off + 1;
-}
-
 int
 fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           uchar const *                   buf,
@@ -128,81 +74,6 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
   }
   DE( fd_hash_t, block_id );
   return 0;
-}
-
-int
-fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
-                           uchar *                               buf,
-                           ulong                                 buf_max,
-                           ulong *                               buf_sz ) {
-  if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
-  ulong off = 0;
-  SER( ulong, root );
-  SER_SHORT_U16( lockouts_cnt );
-  for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
-    SER_VAR_INT( lockouts[i].offset );
-    SER( uchar, lockouts[i].confirmation_count );
-  }
-  SER( fd_hash_t, hash             );
-  SER( uchar,     timestamp_option );
-  if( FD_LIKELY( serde->timestamp_option ) ) {
-    SER( long, timestamp );
-  }
-  SER( fd_hash_t, block_id );
-  if( FD_LIKELY( buf_sz ) ) *buf_sz = off;
-  return 0;
-}
-
-fd_vote_acc_desc_t *
-fd_vote_acc_desc( fd_vote_acc_desc_t * desc,
-                  uchar const *        data,
-                  ulong                data_sz ) {
-  if( FD_UNLIKELY( data_sz < sizeof(uint) ) ) return NULL;
-  uint kind = FD_LOAD( uint, data );
-  fd_vote_acc_t const * voter = fd_type_pun_const( data );
-  void const *  vote_cnt_p;
-  ulong         vote_stride;
-  switch( kind ) {
-  case FD_VOTE_ACC_V2:
-    vote_cnt_p  = &voter->v2.votes_cnt;
-    vote_stride = sizeof(fd_vote_acc_vote_v2_t);
-    break;
-  case FD_VOTE_ACC_V3:
-    vote_cnt_p  = &voter->v3.votes_cnt;
-    vote_stride = sizeof(fd_vote_acc_vote_t);
-    break;
-  case FD_VOTE_ACC_V4:
-    if( FD_UNLIKELY( (ulong)&voter->v4.has_bls_pubkey_compressed >= (ulong)data+data_sz ) ) return NULL;
-    vote_cnt_p  = voter->v4.bls_pubkey_compressed + (!!voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed));
-    vote_stride = sizeof(fd_vote_acc_vote_t);
-    break;
-  default:
-    return NULL;
-  }
-  if( FD_UNLIKELY( (ulong)vote_cnt_p+sizeof(ulong) > (ulong)data+data_sz ) ) return NULL;
-  ulong vote_cnt = FD_LOAD( ulong, vote_cnt_p );
-  /* FIXME silent truncation is questionable behavior */
-  vote_cnt = fd_ulong_min( vote_cnt, FD_TOWER_VOTE_MAX );
-  ulong vote_hi_p = (ulong)vote_cnt_p + sizeof(ulong) + vote_cnt*vote_stride;
-  if( FD_UNLIKELY( vote_hi_p > (ulong)data+data_sz ) ) return NULL;
-  /* Option<ulong> "root_slot" follows vote array */
-  ulong root_slot = ULONG_MAX;
-  if( FD_UNLIKELY( vote_hi_p+1UL > (ulong)data+data_sz ) ) return NULL;
-  int root_opt = FD_LOAD( uchar, (void const *)vote_hi_p );
-  if( root_opt==1 ) {
-    if( FD_UNLIKELY( vote_hi_p+9UL > (ulong)data+data_sz ) ) return NULL;
-    root_slot = FD_LOAD( ulong, (void const *)(vote_hi_p+1UL) );
-  } else if( FD_UNLIKELY( root_opt!=0 ) ) {
-    return NULL;
-  }
-  *desc = (fd_vote_acc_desc_t){
-    .kind        = (int)kind,
-    .votes_off   = (ushort)( (ulong)vote_cnt_p + sizeof(ulong) - (ulong)data ),
-    .vote_cnt    = (uchar)vote_cnt,
-    .vote_stride = (uchar)vote_stride,
-    .root_slot   = root_slot
-  };
-  return desc;
 }
 
 int
@@ -227,34 +98,4 @@ fd_txn_parse_simple_vote( fd_txn_t const *                txn,
   return 0;
 }
 
-int
-fd_compact_tower_sync_to_votes( fd_compact_tower_sync_serde_t const * serde,
-                                fd_tower_vote_t *                     out,
-                                ulong *                               out_cnt,
-                                ulong *                               out_root ) {
-  if( FD_UNLIKELY( serde->lockouts_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
-
-  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
-  ulong slot      = fd_ulong_if( serde->root==ULONG_MAX, 0UL, serde->root );
-  ulong prev_conf = FD_TOWER_VOTE_MAX+1UL;
-  /* Only the vote below is checked, Agave pops expired votes from the
-     top only, so a deeper expired vote is a normal state. */
-  for( ulong i=0UL; i<serde->lockouts_cnt; i++ ) {
-    ulong offset = serde->lockouts[ i ].offset;
-    ulong conf   = serde->lockouts[ i ].confirmation_count;
-    int repeats_slot = !offset && (i || serde->root!=ULONG_MAX);
-    if( FD_UNLIKELY( repeats_slot || offset>ULONG_MAX-slot || !conf ||
-                     conf>=prev_conf || conf>FD_TOWER_VOTE_MAX ) ) return -1;
-    if( FD_UNLIKELY( i && offset>(1UL<<prev_conf) ) ) return -1;
-    slot += offset;
-    votes[ i ] = (fd_tower_vote_t){ .slot=slot, .conf=conf };
-    prev_conf = conf;
-  }
-  fd_memcpy( out, votes, serde->lockouts_cnt*sizeof(fd_tower_vote_t) );
-  *out_cnt  = serde->lockouts_cnt;
-  *out_root = serde->root;
-  return 0;
-}
-
 #undef DE
-#undef SER
