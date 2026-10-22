@@ -305,7 +305,7 @@
             "description": "Pending transactions in pack's pool, by type",
             "fields": {
                 "regular":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions in the main treap" },
-                "vote":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "Deprecated, always 0" },
+                "vote":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "Deprecated, always 0 since Firedancer v26.11." },
                 "conflicting": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that write to a hotly-contended account" },
                 "bundle":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that are part of a bundle" }
             }

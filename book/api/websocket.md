@@ -3049,8 +3049,8 @@ transaction budget.
 |------------------------------|--------------------|-------------|
 | success_nonvote_transactions | `(number\|null)[]` | Successful transactions |
 | failed_nonvote_transactions  | `(number\|null)[]` | Failed transactions |
-| success_vote_transactions    | `(number\|null)[]` | Deprecated, always `0` |
-| failed_vote_transactions     | `(number\|null)[]` | Deprecated, always `0` |
+| success_vote_transactions    | `(number\|null)[]` | Deprecated, always `0` since Firedancer v26.11. |
+| failed_vote_transactions     | `(number\|null)[]` | Deprecated, always `0` since Firedancer v26.11. |
 
 Success means runtime error code 0. Alpenglow consensus votes are not
 transactions and are not counted here.
@@ -3832,7 +3832,7 @@ explicitly mentioned, skipped slots are not included.
 |-----------------|----------|-------------|
 | timestamp_nanos | `string` | A UNIX nanosecond timestamp representing the time when these counts were sampled by the gui tile. |
 | regular         | `number` | The number of transactions stored in the "regular" treap (i.e. the primary buffer) at `timestamp_nanos`. Vote transactions are not treated specially by pack and are counted here like any other transaction |
-| votes           | `number` | Deprecated, always `0`. Pack no longer keeps a separate buffer for vote transactions |
+| votes           | `number` | Deprecated, always `0` since Firedancer v26.11. Pack no longer keeps a separate buffer for vote transactions |
 | conflicting     | `number` | The number of transactions stored in the "conflicting" treap (i.e. the buffer for transactions with perceived account write conflicts, which receive slightly less priority) at `timestamp_nanos` |
 | bundles         | `number` | The number of transactions stored in the "bundles" treap (i.e. the buffer dedicated for bundle transactions) at `timestamp_nanos` |
 
@@ -3852,12 +3852,12 @@ explicitly mentioned, skipped slots are not included.
 | Field                        | Type              | Description |
 |------------------------------|-------------------|-------------|
 | used_total_block_cost        | `number`          | The total block cost in compute units |
-| used_total_vote_cost         | `number`          | This fixed-shape field is deprecated and always `0` |
+| used_total_vote_cost         | `number`          | This fixed-shape field is deprecated and always `0` since Firedancer v26.11. |
 | used_account_write_costs     | `WriteAcctCost[]` | The top 5 writeable account costs for this block |
 | used_total_bytes             | `number`          | The number of bytes from transaction payloads and microblock headers consumed in total for this block |
 | used_total_microblocks       | `number`          | The total number of microblocks included in this block |
 | max_total_block_cost         | `number`          | The maximum possible value for `used_total_block_cost` |
-| max_total_vote_cost          | `number`          | This fixed-shape field is deprecated and always `0` |
+| max_total_vote_cost          | `number`          | This fixed-shape field is deprecated and always `0` since Firedancer v26.11. |
 | max_account_write_cost       | `number`          | The maximum possible value for `used_account_write_cost` |
 | max_total_bytes              | `number`          | The maximum possible value for `used_total_bytes` |
 | max_total_microblocks        | `number`          | The maximum possible value for `used_total_microblocks` |
@@ -3871,8 +3871,8 @@ explicitly mentioned, skipped slots are not included.
 | end_slot_schedule_counts     | `number[]`        | `end_slot_schedule_counts` has the same meaning as `slot_schedule_counts` except only transactions that occur after the last successfully scheduled transaction in the slot are counted |
 | pending_smallest_cost        | `number\|null`    | The cost in compute units of the smallest eligible transaction in pack's transaction buffer at the end of the slot. If the buffer is empty, this is `null` |
 | pending_smallest_bytes       | `number\|null`    | The size in bytes of the smallest eligible transaction in pack's transaction buffer at the end of the slot. If the buffer is empty, this is `null` |
-| pending_vote_smallest_cost   | `number\|null`    | Deprecated, always `null`. Pack no longer keeps a separate buffer for vote transactions |
-| pending_vote_smallest_bytes  | `number\|null`    | Deprecated, always `null`. Pack no longer keeps a separate buffer for vote transactions |
+| pending_vote_smallest_cost   | `number\|null`    | Deprecated, always `null` since Firedancer v26.11. Pack no longer keeps a separate buffer for vote transactions |
+| pending_vote_smallest_bytes  | `number\|null`    | Deprecated, always `null` since Firedancer v26.11. Pack no longer keeps a separate buffer for vote transactions |
 
 
 **`Transactions`**

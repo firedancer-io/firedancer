@@ -2426,7 +2426,7 @@ message MetricsPackTxnScheduleAttempted {
 message MetricsPackTxnPendingUsed {
   // Transactions in the main treap
   uint64 regular = 1;
-  // Deprecated, always 0
+  // Deprecated, always 0 since Firedancer v26.11.
   uint64 vote = 2;
   // Transactions that write to a hotly-contended account
   uint64 conflicting = 3;

@@ -610,7 +610,7 @@ deliberate exception with lint-allow="<rule id>")
 
 <enum name="PendingTxnType">
     <int value="1" name="Regular" label="Transactions in the main treap" />
-    <int value="2" name="Vote" label="Deprecated, always 0" />
+    <int value="2" name="Vote" label="Deprecated, always 0 since Firedancer v26.11." />
     <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account" />
     <int value="4" name="Bundle" label="Transactions that are part of a bundle" />
 </enum>
