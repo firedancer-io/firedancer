@@ -1453,7 +1453,8 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
 
 static void
 fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
-  ulong stream_tile_cnt = (ulong)!!gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", 0UL ) ].snapct.fast_boot_stream;
+  fd_topo_tile_t const * stream = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", 0UL ) ];
+  ulong stream_tile_cnt = (ulong)!!stream->snapct.fast_boot_stream;
   fd_topo_tile_t const * snapct = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", stream_tile_cnt ) ];
   volatile ulong * snapct_metrics = fd_metrics_tile( snapct->metrics );
 
@@ -1530,6 +1531,13 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
                      || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI
                      || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
+  } else if( FD_UNLIKELY( stream_tile_cnt
+                       && gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP
+                       && fd_metrics_tile( stream->metrics )[ MIDX( GAUGE, SNAPCT, LOAD_STATE ) ]==FD_SNAPCT_STATE_READING_STREAM ) ) {
+    /* A fast boot replays from the stream while the snapshot loader
+       waits for replay to catch up.  Show the snapshot screen, with
+       the catch up under it, instead of the gossip screen. */
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT;
   }
 
   /* It's possible for the incremental snapshot phase to be skipped, or
