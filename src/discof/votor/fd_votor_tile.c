@@ -1612,29 +1612,25 @@ handle_replay( fd_votor_tile_t *           ctx,
 
   /* Replay verified these certs before publishing the footer (or, as
      leader, built them from ours), so skip re-verifying them. */
-  ag_cert_t *  cert = &ctx->scratch.cert;
-  fd_bls_sig_t sig_aff[1];
+  ag_cert_t * cert = &ctx->scratch.cert;
   if( footer->has_fast_final_cert ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = { .slot = footer->fast_final_cert.slot, .shred_version = ctx->shred_version } };
     memcpy( cert->fast_final.block_hash, footer->fast_final_cert.block_id.uc, sizeof(ag_block_hash_t) );
     fd_bls_set_copy( cert->fast_final.agg.set, footer->fast_final_cert.signer_set );
-    blst_p2_uncompress( sig_aff, footer->fast_final_cert.sig );
-    blst_p2_from_affine( &cert->fast_final.agg.sig, sig_aff );
+    FD_TEST( !fd_bls_sig_de_compressed( &cert->fast_final.agg.sig, footer->fast_final_cert.sig ) );
     ag_pool_add_cert( ctx->pool, cert, 1, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->fast_final.slot );
   } else if( footer->has_final_cert ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = { .slot = footer->final_cert.slot, .shred_version = ctx->shred_version } };
     fd_bls_set_copy( cert->final.agg.set, footer->final_cert.signer_set );
-    blst_p2_uncompress( sig_aff, footer->final_cert.sig );
-    blst_p2_from_affine( &cert->final.agg.sig, sig_aff );
+    FD_TEST( !fd_bls_sig_de_compressed( &cert->final.agg.sig, footer->final_cert.sig ) );
     ag_pool_add_cert( ctx->pool, cert, 1, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->final.slot );
 
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = { .slot = footer->notar_cert.slot, .shred_version = ctx->shred_version } };
     memcpy( cert->notar.block_hash, footer->notar_cert.block_id.uc, sizeof(ag_block_hash_t) );
     fd_bls_set_copy( cert->notar.agg.set, footer->notar_cert.signer_set );
-    blst_p2_uncompress( sig_aff, footer->notar_cert.sig );
-    blst_p2_from_affine( &cert->notar.agg.sig, sig_aff );
+    FD_TEST( !fd_bls_sig_de_compressed( &cert->notar.agg.sig, footer->notar_cert.sig ) );
     ag_pool_add_cert( ctx->pool, cert, 1, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->notar.slot );
   }
@@ -2260,7 +2256,7 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
     ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, vote_slot );
-    if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot>=ctx->catchup_vote_slot && !blst_p2_affine_is_inf( ag_vote_sig( &ctx->scratch.vote ) ) ) ) {
+    if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot>=ctx->catchup_vote_slot && !fd_bls_sig_is_inf( ag_vote_sig( &ctx->scratch.vote ) ) ) ) {
       if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
       ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );

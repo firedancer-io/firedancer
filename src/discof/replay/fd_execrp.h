@@ -55,7 +55,7 @@ struct fd_execrp_cert_verify_msg {
   uint                   tag;           /* vote tag */
   ushort                 shred_version;
   int                    has_hm;        /* hm is the payload's H(m), from replay's memo */
-  blst_p2_affine         hm;
+  fd_bls_hash_t         hm;
   fd_block_footer_cert_t cert[ 1 ];
 };
 typedef struct fd_execrp_cert_verify_msg fd_execrp_cert_verify_msg_t;
@@ -138,7 +138,7 @@ typedef struct fd_execrp_poh_hash_done_msg fd_execrp_poh_hash_done_msg_t;
 struct fd_execrp_cert_verify_done_msg {
   int            err;
   int            has_hm; /* hm is the H(m) the tile hashed, for replay's memo */
-  blst_p2_affine hm;
+  fd_bls_hash_t hm;
 };
 typedef struct fd_execrp_cert_verify_done_msg fd_execrp_cert_verify_done_msg_t;
 

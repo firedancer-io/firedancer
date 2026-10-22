@@ -12,8 +12,6 @@ fd_block_footer_cert_from_agg( fd_block_footer_cert_t * cert,
   cert->nbits = (ushort)( fd_bls_set_last( agg->set )+1UL );
   if( block_hash ) memcpy( cert->block_id.uc, block_hash, sizeof(fd_hash_t) );
   fd_bls_set_copy( cert->signer_set, agg->set );
-  fd_bls_sig_t a[1];
-  blst_p2_to_affine( a, &agg->sig );
-  blst_p2_affine_compress( cert->sig, a );
+  fd_bls_sig_compress( &agg->sig, cert->sig );
   return 1;
 }

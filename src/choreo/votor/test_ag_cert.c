@@ -2,7 +2,6 @@
 #include "test_ag_cert_builder.h"
 
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../third_party/blst/bindings/blst.h"
 
 #include <stdlib.h>
 
@@ -400,15 +399,6 @@ test_sig_validity( void ) {
    the same payload sum to the point at infinity.  The research reference has
    no such check, so there is no test of it to mirror. */
 
-static void
-negate_sec( fd_bls_sec_t *       out,
-            fd_bls_sec_t const * in ) {
-  blst_fr f[1];
-  blst_fr_from_scalar( f, in );
-  blst_fr_cneg( f, f, 1 );
-  blst_scalar_from_fr( out, f );
-}
-
 /* CERT_HDR_SZ is everything a serialized cert carries ahead of its
    bitmap: the version and kind tags, the slot, the block id for the kinds
    that carry one, the aggregate signature and the bitmap byte count.
@@ -432,8 +422,10 @@ static void
 test_identity_partition( void ) {
   ulong n = 11UL;
   create_signers( n );
-  negate_sec( &g_sk[10], &g_sk[9] );
-  bls_key_from_sec( g_info[10].bls_key, &g_sk[10] );
+  fd_bls_pub_t neg_pub[1];
+  FD_TEST( !fd_bls_pub_de( neg_pub, g_info[9].bls_key, sizeof(ag_bls_key_t) ) );
+  fd_bls_pub_neg( neg_pub, neg_pub );
+  fd_bls_pub_compress( neg_pub, g_info[10].bls_key );
   void * em; ag_epoch_info_t * e = make_epoch( n, &em );
   ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
 
@@ -455,6 +447,7 @@ test_identity_partition( void ) {
   /* ranks 9 and 10 cancel: the fallback partition is absent, its stake is not
      counted, and the cert degrades to the single partition form */
   mk_nf( fv, 1UL, h, 9UL, 2UL );
+  fd_bls_sig_neg( &fv[1].sig, &fv[0].sig );
   c = cert_build_notar_fallback( nv, 7UL, fv, 2UL, e );
   FD_TEST( fd_bls_set_cnt( c.notar_fallback.agg_notar_fallback.set )==0UL );
   FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
@@ -465,7 +458,8 @@ test_identity_partition( void ) {
   /* same in a skip cert's fallback partition */
   mk_skip( sv,  1UL, 0UL, 7UL );
   mk_sf  ( sfv, 1UL, 9UL, 2UL );
-    c = cert_build_skip( sv, 7UL, sfv, 2UL, e );
+  fd_bls_sig_neg( &sfv[1].sig, &sfv[0].sig );
+  c = cert_build_skip( sv, 7UL, sfv, 2UL, e );
   FD_TEST( fd_bls_set_cnt( c.skip.agg_skip_fallback.set )==0UL );
   FD_TEST( !cert_is_signer( &c, 9UL ) && !cert_is_signer( &c, 10UL ) );
   FD_TEST( cert_stake( &c )==7UL );
@@ -474,7 +468,7 @@ test_identity_partition( void ) {
   /* without the dropped partition the remaining stake can fall short, which is
      what stops ag_slot_state.c from emitting the cert at all */
   mk_notar( nv, 1UL, h, 0UL, 6UL );
-    c = cert_build_notar_fallback( nv, 6UL, fv, 2UL, e );
+  c = cert_build_notar_fallback( nv, 6UL, fv, 2UL, e );
   FD_TEST( cert_stake( &c )==6UL );
   FD_TEST( cert_verify( &c, e )==AG_CERT_VERIFY_ERR_THRESHOLD );
 
@@ -535,10 +529,10 @@ check_cert_wire( char const *         name,
   FD_TEST( buf[ off ]==kind     ); off += 1UL;
   FD_TEST( FD_LOAD( ulong, buf+off )==slot ); off += 8UL;
   if( block_id ) { FD_TEST( !memcmp( buf+off, block_id, sizeof(ag_block_hash_t) ) ); off += sizeof(ag_block_hash_t); }
-  blst_p2 exp_sig[1]; *exp_sig = agg->sig;
-  if( agg2 ) blst_p2_add_or_double( exp_sig, exp_sig, &agg2->sig );
+  fd_bls_sig_t exp_sig[1]; *exp_sig = agg->sig;
+  if( agg2 ) fd_bls_sig_add( exp_sig, exp_sig, &agg2->sig );
   uchar exp_bytes[ FD_BLS_SIG_SZ ];
-  { fd_bls_sig_t a[1]; blst_p2_to_affine( a, exp_sig ); blst_p2_affine_serialize( exp_bytes, a ); }
+  fd_bls_sig_ser( exp_sig, exp_bytes );
   FD_TEST( !memcmp( buf+off, exp_bytes, FD_BLS_SIG_SZ ) ); off += FD_BLS_SIG_SZ;
   FD_TEST( FD_LOAD( ulong, buf+off )==CERT_BITMAP_HDR_SZ+bitmap_sz ); off += 8UL;
   FD_TEST( off==hdr );
@@ -668,7 +662,7 @@ test_wire_verify( void ) {
   ulong bit_cnt;
   FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
   FD_TEST( bit_cnt==9UL );
-  FD_TEST( blst_p2_is_inf( &rt.notar_fallback.agg_notar_fallback.sig ) );
+  FD_TEST( fd_bls_sig_is_inf( &rt.notar_fallback.agg_notar_fallback.sig ) );
   FD_TEST( cert_verify( &rt, e )==AG_CERT_VERIFY_SUCCESS );
   rt.notar_fallback.slot = slot+1UL; FD_TEST( cert_verify( &rt, e )==AG_CERT_VERIFY_ERR_SIG );
 
@@ -677,7 +671,7 @@ test_wire_verify( void ) {
   c  = cert_build_skip( sv, 5UL, sfv, 4UL, e );
   sz = ag_cert_ser( &c, buf );
   FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
-  FD_TEST( blst_p2_is_inf( &rt.skip.agg_skip_fallback.sig ) );
+  FD_TEST( fd_bls_sig_is_inf( &rt.skip.agg_skip_fallback.sig ) );
   FD_TEST( cert_verify( &rt, e )==AG_CERT_VERIFY_SUCCESS );
   rt.skip.slot = slot+1UL; FD_TEST( cert_verify( &rt, e )==AG_CERT_VERIFY_ERR_SIG );
 
@@ -713,20 +707,10 @@ test_wire_not_g2( void ) {
   ulong           sz;
   ulong           bit_cnt;
 
-  ulong          one[6] = { 1UL }, four[6] = { 4UL };
-  blst_fp        fp1[1];
-  blst_fp2       b[1], t[1];
-  fd_bls_sig_t   bad[1];
-  uchar          bad_bytes[ FD_BLS_SIG_SZ ];
-  memset( bad, 0, sizeof(fd_bls_sig_t) );
-  blst_fp_from_uint64( fp1, one );
-  blst_fp_from_uint64( &b->fp[0], four ); b->fp[1] = b->fp[0];
-  do {
-    blst_fp_add( &bad->x.fp[0], &bad->x.fp[0], fp1 );
-    blst_fp2_sqr( t, &bad->x ); blst_fp2_mul( t, t, &bad->x ); blst_fp2_add( t, t, b );
-  } while( !blst_fp2_sqrt( &bad->y, t ) );
-  FD_TEST( blst_p2_affine_on_curve( bad ) && !blst_p2_affine_in_g2( bad ) );
-  blst_p2_affine_serialize( bad_bytes, bad );
+  fd_bls_sig_t bad[1];
+  uchar        bad_bytes[ FD_BLS_SIG_SZ ];
+  test_bls_torsion( bad );
+  fd_bls_sig_ser( bad, bad_bytes );
 
   mk_notar( nv, slot, h, 0UL, 9UL );
   c  = cert_build_notar( nv, 9UL, e );
@@ -764,7 +748,7 @@ test_wire_compressed( void ) {
   ulong   sz  = ag_cert_ser( &c, buf );
   uchar * sig = buf+CERT_HDR_SZ( 1 )-8UL-FD_BLS_SIG_SZ;
   FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
-  blst_p2_compress( sig, &rt.notar.agg.sig );
+  fd_bls_sig_compress( &rt.notar.agg.sig, sig );
   fd_memset( sig+FD_BLS_SIG_COMPRESSED_SZ, 0xEE, FD_BLS_SIG_SZ-FD_BLS_SIG_COMPRESSED_SZ );
   FD_TEST( sig[0]&0x80U );
   FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );

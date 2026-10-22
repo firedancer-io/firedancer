@@ -1,6 +1,5 @@
 #include "ag_bls_serde.h"
-
-#include "../../third_party/blst/bindings/blst.h"
+#include "../../ballet/bls/fd_bls12_381.h"
 
 /* Golden bitmap vectors.
 
@@ -196,13 +195,9 @@ test_roundtrip( void ) {
     sk[i].b[0] = (uchar)( i+1UL );
     fd_bls_sec_to_pub( &sk[i], pk+i );
     fd_bls_sec_sign ( &sk[i], msg, msg_sz, sig+i );
-    blst_p2 one; blst_p2_from_affine( &one, sig+i );
-    blst_p1 own; blst_p1_from_affine( &own, pk+i );
-    blst_p1 oth; blst_p1_from_affine( &oth, pk+(i+1UL)%N );
-
-    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, &own, &one ) );
-    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, &oth, &one ) );
-    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    &own, &one ) );
+    FD_TEST(  fd_bls_agg_verify( msg,                msg_sz, pk+i,             sig+i ) );
+    FD_TEST( !fd_bls_agg_verify( msg,                msg_sz, pk+(i+1UL)%N,      sig+i ) );
+    FD_TEST( !fd_bls_agg_verify( (uchar const *)"x", 1UL,    pk+i,             sig+i ) );
   }
 
   FD_LOG_NOTICE(( "blst sig round trip pass" ));
@@ -225,9 +220,7 @@ test_derive( void ) {
   uchar const * msg = (uchar const *)"derived key vote";
   ulong         msg_sz = 16UL;
   fd_bls_sig_t  sig; fd_bls_sec_sign( &sk_a, msg, msg_sz, &sig );
-  blst_p2       one; blst_p2_from_affine( &one, &sig );
-  blst_p1       pub; blst_p1_from_affine( &pub, &pk );
-  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pub, &one ) );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &pk, &sig ) );
 
   FD_LOG_NOTICE(( "bls sk derive round trip pass" ));
 }
@@ -250,17 +243,24 @@ test_ref_api( void ) {
     fd_bls_sec_sign( &sk[i], msg, msg_sz, &sig[i] );
   }
 
-  /* PublicKey::try_from_bytes -- compressed and affine both round trip */
-  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ]; blst_p1_affine_compress ( comp, pk );
-  uchar aff [ FD_BLS_PUB_SZ ];            blst_p1_affine_serialize( aff,  pk );
-  fd_bls_pub_t from_comp, from_aff;
-  FD_TEST( !fd_bls_pub_de( &from_comp, comp,        sizeof(comp)     ) );
-  FD_TEST( !fd_bls_pub_de( &from_aff,  aff,         FD_BLS_PUB_SZ    ) );
+  /* PublicKey::try_from_bytes -- compressed round trip */
+  uchar comp[ FD_BLS_PUB_COMPRESSED_SZ ]; fd_bls_pub_compress( pk, comp );
+  fd_bls_pub_t from_comp;
+  FD_TEST( !fd_bls_pub_de( &from_comp, comp, sizeof(comp) ) );
   FD_TEST( !memcmp( &from_comp, pk, sizeof(fd_bls_pub_t) ) );
-  FD_TEST( !memcmp( &from_aff,  pk, sizeof(fd_bls_pub_t) ) );
-  FD_TEST(  fd_bls_pub_de( &from_aff, comp, 47UL ) ); /* bad length */
+
+  /* Ranked stake keys take this path after the syscall has validated and
+     decompressed them.  Deserializing that trusted output must not require
+     another subgroup check. */
+  uchar trusted[ FD_BLS_PUB_SZ ];
+  FD_TEST( !fd_bls12_381_g1_decompress_syscall( trusted, comp, 1 ) );
+  fd_bls_pub_t from_trusted;
+  FD_TEST( !fd_bls_pub_de_unchecked( &from_trusted, trusted ) );
+  FD_TEST( fd_bls_pub_eq( &from_trusted, pk ) );
+
+  FD_TEST(  fd_bls_pub_de( &from_comp, comp, 47UL ) ); /* bad length */
   uchar junk[ FD_BLS_PUB_COMPRESSED_SZ ]; fd_memset( junk, 0xEE, sizeof(junk) );
-  FD_TEST(  fd_bls_pub_de( &from_aff, junk, sizeof(junk) ) ); /* not on curve */
+  FD_TEST(  fd_bls_pub_de( &from_comp, junk, sizeof(junk) ) ); /* not on curve */
 
   FD_LOG_NOTICE(( "reference api pass" ));
 }
@@ -276,31 +276,42 @@ test_pub_sum( void ) {
     fd_bls_sec_to_pub( &sk, key+i );
   }
   fd_bls_set_t set[ fd_bls_set_word_cnt ];
-  blst_p1 full[1], bad[1];
-  fd_bls_pub_sum( full, key, N, fd_bls_set_range( set, 0UL, N ), NULL );
-  fd_bls_pub_sum( bad,  key, N, fd_bls_set_range( set, 1UL, N ), NULL );
+  fd_bls_pub_t full[1];
+  fd_bls_pub_sum( full, key, fd_bls_set_range( set, 0UL, N ) );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 1234U, 0UL ) );
   for( ulong cnt=0UL; cnt<=N; cnt++ ) {
     fd_bls_set_null( set );
     while( fd_bls_set_cnt( set )<cnt ) fd_bls_set_insert( set, fd_rng_ulong_roll( rng, N ) );
-    blst_p1 exp[1], got[1], neg[1];
-    fd_memset( exp, 0, sizeof(blst_p1) );
-    for( ulong i=0UL; i<N; i++ ) if( fd_bls_set_test( set, i ) ) blst_p1_add_or_double_affine( exp, exp, key+i );
-    fd_bls_pub_sum( got, key, N, set, full );
-    FD_TEST( blst_p1_is_equal( got, exp ) );
-    FD_TEST( !!blst_p1_is_inf( got )==!cnt );
-    fd_bls_pub_sum( neg, key, N, set, bad );
-    FD_TEST( blst_p1_is_equal( neg, exp )==( 2UL*cnt<=N ) ); /* only the subtract path reads full */
+    fd_bls_pub_t exp[1], got[1], cached[1];
+    fd_memset( exp, 0, sizeof(exp) );
+    for( ulong i=0UL; i<N; i++ ) if( fd_bls_set_test( set, i ) ) fd_bls_pub_add( exp, exp, key+i );
+    fd_bls_pub_sum( got, key, set );
+    fd_bls_pub_sum_cached( cached, key, N, set, full );
+    FD_TEST( fd_bls_pub_eq( got, exp ) );
+    FD_TEST( fd_bls_pub_eq( cached, exp ) );
+    FD_TEST( !!fd_bls_pub_is_inf( got )==!cnt );
   }
   fd_rng_delete( fd_rng_leave( rng ) );
+
+  /* Batch normalization must ignore identity operands rather than lose
+     the finite contribution. */
+  fd_bls_pub_t with_inf[2];
+  fd_memset( with_inf, 0, sizeof(with_inf) );
+  with_inf[1] = key[1];
+  fd_bls_pub_t got[1];
+  fd_bls_pub_sum( got, with_inf, fd_bls_set_range( set, 0UL, 2UL ) );
+  FD_TEST( fd_bls_pub_eq( got, key+1 ) );
+  fd_memset( with_inf+1, 0, sizeof(fd_bls_pub_t) );
+  fd_bls_pub_sum( got, with_inf, set );
+  FD_TEST( fd_bls_pub_is_inf( got ) );
 
   FD_LOG_NOTICE(( "pub sum pass" ));
 }
 
-/* fd_bls_agg_verify_bisect must agree with the linear scan for any
-   pattern of bad signers: none, one, several straddling the splits,
-   the whole set, and a set whose signatures cancel to infinity. */
+/* Bad-signer isolation must identify any pattern of bad signers: none,
+   one, several straddling the splits, the whole set, and a set whose
+   signatures cancel to infinity. */
 
 static void
 test_bisect( void ) {
@@ -338,11 +349,6 @@ test_bisect( void ) {
     fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
     fd_bls_agg_construct( agg, pk, sig, set );
 
-    fd_bls_agg_verify_linear( agg, msg, msg_sz, pk, sig, exp );
-    FD_TEST( fd_bls_set_eq( exp, poison ) );
-    fd_bls_agg_verify_bisect( agg, msg, msg_sz, pk, sig, got );
-    FD_TEST( fd_bls_set_eq( got, poison ) );
-
     fd_bls_agg_t sub[1] = { *agg };
     int err = fd_bls_agg_verify_subtract( sub, msg, msg_sz, pk, sig, got );
     FD_TEST( fd_bls_set_eq( got, poison ) );
@@ -352,15 +358,30 @@ test_bisect( void ) {
     if( FD_LIKELY( !err ) ) FD_TEST( fd_bls_agg_verify( msg, msg_sz, &sub->pub, &sub->sig ) );
   }
 
+  /* An identity signature remains a signer, but must not make batch
+     normalization discard another signer's valid signature. */
+  fd_memset( sig, 0, sizeof(fd_bls_sig_t) );
+  sig[1] = good[1];
+  fd_bls_agg_t identity_agg[1];
+  fd_bls_agg_construct( identity_agg, pk, sig, fd_bls_set_range( set, 0UL, 2UL ) );
+  FD_TEST( fd_bls_set_cnt( identity_agg->set )==2UL );
+  FD_TEST( fd_bls_sig_eq( &identity_agg->sig, good+1 ) );
+  fd_bls_agg_t identity_sub[1] = { *identity_agg };
+  FD_TEST( !fd_bls_agg_verify_subtract( identity_sub, msg, msg_sz, pk, sig, got ) );
+  FD_TEST( fd_bls_set_eq( got, fd_bls_set_range( exp, 0UL, 1UL ) ) );
+  FD_TEST( fd_bls_set_eq( identity_sub->set, fd_bls_set_range( exp, 1UL, 2UL ) ) );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, &identity_sub->pub, &identity_sub->sig ) );
+
   /* two signers whose bogus signatures cancel: the aggregate sig is the
      point at infinity, so the top level fails without implicating a
      half, and both signers must still be found */
   sig[0] = good[1];
-  sig[1] = good[1]; blst_fp2_cneg( &sig[1].y, &sig[1].y, 1 );
+  sig[1] = good[1]; fd_bls_sig_neg( &sig[1], &sig[1] );
   fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
   fd_bls_agg_construct( agg, pk, sig, fd_bls_set_range( set, 0UL, 2UL ) );
-  FD_TEST( blst_p2_is_inf( &agg->sig ) );
-  fd_bls_agg_verify_bisect( agg, msg, msg_sz, pk, sig, got );
+  FD_TEST( fd_bls_sig_is_inf( &agg->sig ) );
+  fd_bls_agg_t sub[1] = { *agg };
+  FD_TEST( fd_bls_agg_verify_subtract( sub, msg, msg_sz, pk, sig, got ) );
   FD_TEST( fd_bls_set_eq( got, set ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
@@ -368,8 +389,7 @@ test_bisect( void ) {
 }
 
 /* Benchmark the bad-signer search.  N signers of which bad_cnt are
-   poisoned; reports the mean cost of one fd_bls_agg_verify_bisect
-   call and the linear scan for comparison. */
+   poisoned; reports the mean cost of finding and subtracting them. */
 
 static void
 bench_bisect( ulong N,
@@ -393,15 +413,15 @@ bench_bisect( ulong N,
 
   uchar const * msg = (uchar const *)"bisect"; ulong msg_sz = 6UL;
   ulong iter = 5UL;
-  long dt_b = fd_log_wallclock();
-  for( ulong it=0UL; it<iter; it++ ) fd_bls_agg_verify_bisect( agg, msg, msg_sz, pk, sig, bad );
-  dt_b = fd_log_wallclock()-dt_b;
+  long dt = fd_log_wallclock();
+  for( ulong it=0UL; it<iter; it++ ) {
+    fd_bls_agg_t sub[1] = { *agg };
+    (void)fd_bls_agg_verify_subtract( sub, msg, msg_sz, pk, sig, bad );
+  }
+  dt = fd_log_wallclock()-dt;
   FD_TEST( fd_bls_set_cnt( bad )==bad_cnt );
-  long dt_l = fd_log_wallclock();
-  for( ulong it=0UL; it<iter; it++ ) fd_bls_agg_verify_linear( agg, msg, msg_sz, pk, sig, bad );
-  dt_l = fd_log_wallclock()-dt_l;
-  FD_LOG_NOTICE(( "N=%4lu bad=%3lu %-9s bisect %9.3f ms  linear %9.3f ms", N, bad_cnt, scattered ? "scattered" : "clustered",
-                  (double)dt_b/(double)iter*1e-6, (double)dt_l/(double)iter*1e-6 ));
+  FD_LOG_NOTICE(( "N=%4lu bad=%3lu %-9s isolate %9.3f ms", N, bad_cnt, scattered ? "scattered" : "clustered",
+                  (double)dt/(double)iter*1e-6 ));
 }
 
 static void
