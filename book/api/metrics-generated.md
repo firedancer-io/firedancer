@@ -464,7 +464,6 @@
 | <span class="metrics-name">pack_&#8203;txn_&#8203;insert_&#8203;duration_&#8203;nanos</span> | histogram | Duration of inserting one transaction into the pending pool |
 | <span class="metrics-name">pack_&#8203;microblock_&#8203;complete_&#8203;duration_&#8203;nanos</span> | histogram | Duration of marking one microblock as complete |
 | <span class="metrics-name">pack_&#8203;txn_&#8203;per_&#8203;microblock</span> | histogram | Transactions in a scheduled microblock, including both votes and non-votes |
-| <span class="metrics-name">pack_&#8203;vote_&#8203;per_&#8203;microblock</span> | histogram | Simple vote transactions in a scheduled microblock |
 | <span class="metrics-name">pack_&#8203;txn_&#8203;rx</span> | counter | Transactions received from resolv, including bundle members |
 | <span class="metrics-name">pack_&#8203;txn_&#8203;insert_&#8203;attempted</span><br/>{pack_&#8203;txn_&#8203;insert_&#8203;result="<span class="metrics-enum">instr_&#8203;too_&#8203;many_&#8203;accounts</span>"} | counter | Insert attempts, by result; bundle members are counted individually with the bundle's result (Transaction has an instruction that references too many accounts) |
 | <span class="metrics-name">pack_&#8203;txn_&#8203;insert_&#8203;attempted</span><br/>{pack_&#8203;txn_&#8203;insert_&#8203;result="<span class="metrics-enum">nonce_&#8203;conflict</span>"} | counter | Insert attempts, by result; bundle members are counted individually with the bundle's result (Bundle with two conflicting durable nonce transactions) |

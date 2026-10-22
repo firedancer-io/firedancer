@@ -638,7 +638,7 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="TxnPerMicroblock" min="0" max="64">
         <summary>Transactions in a scheduled microblock, including both votes and non-votes</summary>
     </histogram>
-    <histogram name="VotePerMicroblock" min="0" max="64">
+    <histogram name="VotePerMicroblock" min="0" max="64" deprecated="true">
         <summary>Simple vote transactions in a scheduled microblock</summary>
     </histogram>
     <counter name="TxnRx" summary="Transactions received from resolv, including bundle members" />

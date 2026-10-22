@@ -203,6 +203,7 @@
         "vote_per_microblock": {
             "type": "Tuple",
             "description": "Simple vote transactions in a scheduled microblock",
+            "deprecated": true,
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },

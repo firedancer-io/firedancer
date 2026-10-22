@@ -726,8 +726,7 @@ struct fd_pack_private {
   ulong                use_by_bank_cnt[ FD_PACK_MAX_EXECLE_TILES ];
   ulong *              use_by_bank_txn[ FD_PACK_MAX_EXECLE_TILES ];
 
-  fd_histf_t txn_per_microblock [ 1 ];
-  fd_histf_t vote_per_microblock[ 1 ];
+  fd_histf_t txn_per_microblock[ 1 ];
 
   fd_histf_t scheduled_cus_per_block[ 1 ];
   fd_histf_t rebated_cus_per_block  [ 1 ];
@@ -941,10 +940,8 @@ fd_pack_new( void                   * mem,
     pack->use_by_bank_txn[i] = NULL;
   }
 
-  fd_histf_new( pack->txn_per_microblock,  FD_MHIST_MIN( PACK, TXN_PER_MICROBLOCK ),
-                                           FD_MHIST_MAX( PACK, TXN_PER_MICROBLOCK ) );
-  fd_histf_new( pack->vote_per_microblock, FD_MHIST_MIN( PACK, VOTE_PER_MICROBLOCK ),
-                                           FD_MHIST_MAX( PACK, VOTE_PER_MICROBLOCK ) );
+  fd_histf_new( pack->txn_per_microblock, FD_MHIST_MIN( PACK, TXN_PER_MICROBLOCK ),
+                                          FD_MHIST_MAX( PACK, TXN_PER_MICROBLOCK ) );
 
   fd_histf_new( pack->scheduled_cus_per_block, FD_MHIST_MIN( PACK, COST_SCHEDULED_PER_BLOCK ),
                                                FD_MHIST_MAX( PACK, COST_SCHEDULED_PER_BLOCK ) );
@@ -1963,7 +1960,6 @@ release_bit_reference( fd_pack_t            * pack,
 typedef struct {
   ulong cus_scheduled;
   ulong txns_scheduled;
-  ulong votes_scheduled;
   ulong bytes_scheduled;
   ulong alloc_scheduled;
 } sched_return_t;
@@ -2002,11 +1998,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
   ushort compressed_slot_number = pack->compressed_slot_number;
 
-  ulong txns_scheduled     = 0UL;
-  ulong votes_scheduled    = 0UL;
-  ulong cus_scheduled      = 0UL;
-  ulong bytes_scheduled    = 0UL;
-  ulong alloc_scheduled    = 0UL;
+  ulong txns_scheduled  = 0UL;
+  ulong cus_scheduled   = 0UL;
+  ulong bytes_scheduled = 0UL;
+  ulong alloc_scheduled = 0UL;
 
   ulong bank_tile_mask = 1UL << bank_tile;
 
@@ -2213,12 +2208,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
     }
 
-    int is_vote        = !!(cur->txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE);
-    txns_scheduled     += 1UL;                      txn_limit       -= 1UL;
-    votes_scheduled    += (ulong)is_vote;
-    cus_scheduled      += cur->compute_est;         cu_limit        -= cur->compute_est;
-    bytes_scheduled    += cur->txn->payload_sz;     byte_limit      -= cur->txn->payload_sz;
-    alloc_scheduled    += cur->txn->pack_alloc;     alloc_limit     -= cur->txn->pack_alloc;
+    txns_scheduled  += 1UL;                      txn_limit       -= 1UL;
+    cus_scheduled   += cur->compute_est;         cu_limit        -= cur->compute_est;
+    bytes_scheduled += cur->txn->payload_sz;     byte_limit      -= cur->txn->payload_sz;
+    alloc_scheduled += cur->txn->pack_alloc;     alloc_limit     -= cur->txn->pack_alloc;
 
     *(use_by_bank_txn++) = use_by_bank_cnt;
 
@@ -2254,8 +2247,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   FD_PACK_BITSET_COPY( pack->bitset_rw_in_use, bitset_rw_in_use );
   FD_PACK_BITSET_COPY( pack->bitset_w_in_use,  bitset_w_in_use  );
 
-  sched_return_t to_return = { .cus_scheduled=cus_scheduled,
-                               .txns_scheduled=txns_scheduled,   .votes_scheduled=votes_scheduled,
+  sched_return_t to_return = { .cus_scheduled=cus_scheduled,     .txns_scheduled=txns_scheduled,
                                .bytes_scheduled=bytes_scheduled, .alloc_scheduled=alloc_scheduled };
   return to_return;
 }
@@ -2750,8 +2742,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   pack->outstanding_microblock_mask |= nonempty << bank_tile;
   pack->data_bytes_consumed         += nonempty * MICROBLOCK_DATA_OVERHEAD;
 
-  fd_histf_sample( pack->txn_per_microblock,  scheduled              );
-  fd_histf_sample( pack->vote_per_microblock, status.votes_scheduled  );
+  fd_histf_sample( pack->txn_per_microblock, scheduled );
 
   pack_memcpy_fini();
   return scheduled;
@@ -2906,8 +2897,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
      infrequent to do anything related to metrics.  However, we only
      update the histograms when we are leader, so this is actually a
      good place to copy them. */
-  FD_MHIST_COPY( PACK, TXN_PER_MICROBLOCK,  pack->txn_per_microblock  );
-  FD_MHIST_COPY( PACK, VOTE_PER_MICROBLOCK, pack->vote_per_microblock );
+  FD_MHIST_COPY( PACK, TXN_PER_MICROBLOCK, pack->txn_per_microblock );
 
   FD_MGAUGE_SET( PACK, BLOCK_COST,               0UL                           );
   FD_MHIST_COPY( PACK, COST_SCHEDULED_PER_BLOCK, pack->scheduled_cus_per_block );

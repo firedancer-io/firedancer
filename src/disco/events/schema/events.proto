@@ -9419,7 +9419,7 @@ message MetricsPack {
   // Transactions in a scheduled microblock, including both votes and non-votes
   MetricsPackTxnPerMicroblock txn_per_microblock = 29;
   // Simple vote transactions in a scheduled microblock
-  MetricsPackVotePerMicroblock vote_per_microblock = 30;
+  MetricsPackVotePerMicroblock vote_per_microblock = 30 [deprecated = true];
   // Transactions received from resolv, including bundle members
   uint64 txn_rx = 31;
   // Insert attempts, by result; bundle members are counted individually with the bundle's result
