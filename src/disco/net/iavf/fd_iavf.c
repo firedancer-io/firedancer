@@ -727,6 +727,19 @@ fd_iavf_iommu_check( char const *  pf_if,
 }
 
 int
+fd_iavf_ari_check( char const * pf_if ) {
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/ari_enabled", pf_if ) );
+  ulong enabled;
+  if( FD_UNLIKELY( -1==fd_iavf_read_ulong( path, 10, &enabled ) ) ) return -1;
+  if( FD_UNLIKELY( enabled!=1UL ) ) {
+    errno = enabled==0UL ? EOPNOTSUPP : EPROTO;
+    return -1;
+  }
+  return 0;
+}
+
+int
 fd_iavf_numvfs_get( char const * pf_if,
                     uint *       numvfs ) {
   char path[ PATH_MAX ];
@@ -741,8 +754,59 @@ fd_iavf_numvfs_get( char const * pf_if,
   return 0;
 }
 
+static int
+fd_iavf_sriov_bus_check( char const * pf_if ) {
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/sriov_offset", pf_if ) );
+  ulong vf_offset;
+  if( FD_UNLIKELY( -1==fd_iavf_read_ulong( path, 10, &vf_offset ) ) ) return -1;
+  if( FD_UNLIKELY( 0==vf_offset || vf_offset>USHRT_MAX ) ) {
+    errno = EPROTO;
+    return -1;
+  }
+
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device", pf_if ) );
+  char pci_addr[ FD_IAVF_PCI_ADDR_SZ ];
+  if( FD_UNLIKELY( -1==fd_iavf_read_link_name( pci_addr, sizeof(pci_addr), path, 0 ) ||
+                   -1==fd_iavf_pci_addr_normalize( pci_addr, pci_addr ) ) ) return -1;
+
+  ulong pf_bus      = strtoul( pci_addr+5,  NULL, 16 );
+  ulong pf_device   = strtoul( pci_addr+8,  NULL, 16 );
+  ulong pf_function = strtoul( pci_addr+11, NULL, 16 );
+  /* VF 0's function offset can carry into a higher PCI bus number */
+  ulong vf_bus = pf_bus+((pf_device*8UL+pf_function+vf_offset)>>8);
+  if( vf_bus==pf_bus ) return 0;
+
+  /* Check VF 0's bus against the parent bridge's assigned bus range */
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/../config", pf_if ) );
+  int fd = open( path, O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( -1==fd ) ) return -1;
+  uchar config[ PCI_SUBORDINATE_BUS+1 ];
+  ssize_t read_sz = pread( fd, config, sizeof(config), 0 );
+  int     err     = 0;
+  if( FD_UNLIKELY( -1==read_sz ) )                         err = errno;
+  else if( FD_UNLIKELY( (ulong)read_sz!=sizeof(config) ) ) err = EPROTO;
+  if( FD_UNLIKELY( -1==close( fd ) && 0==err ) )           err = errno;
+  if( FD_UNLIKELY( 0!=err ) ) {
+    errno = err;
+    return -1;
+  }
+  if( FD_UNLIKELY( (config[ PCI_HEADER_TYPE ] & 0x7fU)!=PCI_HEADER_TYPE_BRIDGE ||
+                   config[ PCI_SECONDARY_BUS ]!=pf_bus ) ) {
+    errno = EPROTO;
+    return -1;
+  }
+  if( FD_UNLIKELY( vf_bus>config[ PCI_SUBORDINATE_BUS ] ) ) {
+    errno = ENOSPC;
+    return -1;
+  }
+  return 0;
+}
+
 int
 fd_iavf_sriov_resources_check( char const * pf_if ) {
+  if( FD_UNLIKELY( -1==fd_iavf_sriov_bus_check( pf_if ) ) ) return -1;
+
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/resource", pf_if ) );
   FILE * file = fopen( path, "re" );
