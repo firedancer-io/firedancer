@@ -256,11 +256,11 @@ fd_accdb_cmd_pending( fd_accdb_t const * accdb );
 void
 fd_accdb_wait_on_stream( fd_accdb_t * accdb );
 
-/* fd_accdb_snapshot_loading returns 1 while a snapshot or fast boot
-   stream is being loaded, 0 otherwise. */
+/* fd_accdb_snapshot_still_loading returns 1 while a snapshot or fast
+   boot stream is being loaded, 0 otherwise. */
 
 int
-fd_accdb_snapshot_loading( fd_accdb_t const * accdb );
+fd_accdb_snapshot_still_loading( fd_accdb_t const * accdb );
 
 /* fd_accdb_purge removes the provided fork and all of its descendants
    from the accounts database.  This is an extremely rare operation,

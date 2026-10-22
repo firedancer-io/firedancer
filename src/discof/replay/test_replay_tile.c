@@ -249,7 +249,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
 #define fd_accdb_cmd_pending(a)              ( (a) ? (fd_accdb_cmd_pending)(a) : 0 )
-#define fd_accdb_snapshot_loading(a)         ( (a) ? (fd_accdb_snapshot_loading)(a) : 0 )
+static int   mock_accdb_still_loading;
+#define fd_accdb_snapshot_still_loading(a)   ( (a) ? (fd_accdb_snapshot_still_loading)(a) : mock_accdb_still_loading )
 #define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
@@ -266,8 +267,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_multi_epoch_leaders_epoch_msg_init(m,msg) do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_init)(m,msg); } while(0)
 #define fd_multi_epoch_leaders_epoch_msg_fini(m)     do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_fini)(m); } while(0)
 #define fd_progcache_reset(cache)                    do { if( !mock_snapshot_boot ) (fd_progcache_reset)(cache); } while(0)
-#define fd_sysvar_cache_stake_history_view(cache,view) (mock_snapshot_boot ? NULL : (fd_sysvar_cache_stake_history_view)(cache,view))
-#define fd_stake_delegations_refresh(d,e,h,w,f,r)     do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,f,r); } while(0)
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
 #define fd_rewards_recalculate_partitioned_rewards(k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(k,a,s,c); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
@@ -1976,6 +1975,32 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_root_from_footer" ));
 }
 
+/* The root does not advance while the snapshots behind a fast boot
+   stream are still loading.  Serving a stream returns right after the
+   identity vote check, before the accdb root moves. */
+
+static void
+test_root_waits_for_snapshots( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
+  ctx->consensus_root      = id1;
+  ctx->consensus_root_slot = 1UL;
+  ctx->strmk.active        = 1;
+  ctx->strmk.stopping      = 1;
+  ctx->identity_vote_rooted = 0;
+  b1->f.identity_vote_idx   = ctx->identity_idx;
+
+  ctx->snapshots_loading = 1;
+  FD_TEST( !try_advance_published_root( ctx, test_stem ) && !ctx->identity_vote_rooted );
+  ctx->snapshots_loading = 0;
+  FD_TEST( !try_advance_published_root( ctx, test_stem ) && ctx->identity_vote_rooted );
+
+  FD_LOG_NOTICE(( "pass: test_root_waits_for_snapshots" ));
+}
+
 /* test_footer_cert_tasks drives replay_block_finalize with real signed
    footer certs and mocked idle exec tiles.  Claimed tiles get one
    CERT_VERIFY frag each and the bank stays REPLAYABLE until every done
@@ -3386,6 +3411,24 @@ test_snapshot_boot_bank_migration_slot( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_snapshot_boot_bank_migration_slot" ));
 }
 
+/* Booting from a snapshot marks the snapshots as loading; the finish
+   step clears it. */
+
+static void
+test_finish_snapshot_load( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[1];
+  static fd_runtime_stack_t stack[1];
+
+  memset( ctx, 0, sizeof(*ctx) );
+  setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  snapshot_done( ctx );
+  FD_TEST( ctx->snapshots_loading );
+  finish_snapshot_load( ctx );
+  FD_TEST( !ctx->snapshots_loading );
+
+  FD_LOG_NOTICE(( "pass: test_finish_snapshot_load" ));
+}
+
 static void
 test_wfs_auto_override( fd_wksp_t * wksp ) {
   static fd_replay_tile_t  ctx[1];
@@ -3685,12 +3728,18 @@ test_wfs_leader_gate( fd_wksp_t * wksp ) {
   FD_TEST( !ctx->wfs_complete );
   FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL )==0 );
 
-  /* after_credit returns immediately when wfs_complete==0.  If the
+  /* after_credit only finishes the snapshot load when wfs_complete==0,
+     and only once the accounts database says the load is done.  If the
      gate didn't fire, it would crash on our minimal ctx. */
   ctx->is_booted = 1;
   int opt_poll_in = 1;
   int charge_busy = 0;
+  mock_accdb_still_loading = 1;
   after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( ctx->snapshots_loading && !charge_busy );
+  mock_accdb_still_loading = 0;
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( !ctx->snapshots_loading && charge_busy && !opt_poll_in );
 
   FD_LOG_NOTICE(( "pass: test_wfs_leader_gate" ));
 }
@@ -3786,6 +3835,7 @@ main( int     argc,
   test_wait_info_produced_incr_cnt( wksp );         fd_wksp_reset( wksp, 42U );
   test_wfs_auto_override( wksp );                   fd_wksp_reset( wksp, 42U );
   test_snapshot_boot_bank_migration_slot( wksp );   fd_wksp_reset( wksp, 42U );
+  test_finish_snapshot_load( wksp );                fd_wksp_reset( wksp, 42U );
   test_wfs_error_aborts( wksp );                    fd_wksp_reset( wksp, 42U );
   test_wfs_bank_hash_mismatch( wksp );              fd_wksp_reset( wksp, 42U );
   test_wfs_done_idempotency( wksp );                fd_wksp_reset( wksp, 42U );
@@ -3803,6 +3853,7 @@ main( int     argc,
   test_root_lagging_replay( wksp );                 fd_wksp_reset( wksp, 42U );
   test_root_newer_first( wksp );                    fd_wksp_reset( wksp, 42U );
   test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
+  test_root_waits_for_snapshots( wksp );            fd_wksp_reset( wksp, 42U );
   test_footer_cert_tasks( wksp );                   fd_wksp_reset( wksp, 42U );
   test_slot_completed_keeps_leader_sentinel( wksp ); fd_wksp_reset( wksp, 42U );
   test_drain_rotor_fecs( wksp );                    fd_wksp_reset( wksp, 42U );

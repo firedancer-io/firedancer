@@ -19,6 +19,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../flamenco/rewards/fd_rewards_base.h"
 
 #include "../../flamenco/runtime/fd_bank.h"
@@ -1950,6 +1951,54 @@ fold_account_counts( fd_snapin_tile_t * ctx ) {
   }
 }
 
+/* finish_load ends the load on the lead tile: refresh the stake
+   delegations, root the loaded forks and end snapshot loading. */
+
+static void
+finish_load( fd_snapin_tile_t * ctx ) {
+  /* ensure that snapin tile sees all delta changes before rooting */
+  __atomic_thread_fence( __ATOMIC_SEQ_CST );
+  fold_account_counts( ctx );
+
+  ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
+  if( FD_LIKELY( stake_fork!=USHORT_MAX ) ) {
+    fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
+    fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
+  }
+
+  fd_accdb_fork_id_t load_fork_id = { .val = (ushort)ctx->load_fork };
+
+  ulong lamports;
+  ulong data_len;
+  int   executable;
+  uchar owner[ 32UL ];
+  int   source = fd_accdb_read_one_nocache( ctx->accdb, load_fork_id, fd_sysvar_stake_history_id.uc,
+                                            &lamports, &executable, owner,
+                                            ctx->staged.data, &data_len );
+
+  fd_stake_history_t         stake_history_[1];
+  fd_stake_history_t const * stake_history = NULL;
+  if( FD_LIKELY( source!=FD_ACCDB_READ_ONE_NOCACHE_MISS ) ) {
+    stake_history = fd_sysvar_stake_history_view( stake_history_, ctx->staged.data, data_len );
+  }
+
+  fd_features_t const * features = &ctx->lead.bank->f.features;
+  ulong warmup_cooldown_rate_epoch = fd_slot_to_epoch( &ctx->lead.epoch_schedule, features->reduce_stake_warmup_cooldown, NULL );
+  fd_stake_delegations_refresh( ctx->stake_delegations,
+                                ctx->lead.epoch,
+                                stake_history, /* may be NULL */
+                                &warmup_cooldown_rate_epoch,
+                                FD_FEATURE_ACTIVE( ctx->lead.bank_slot, features, upgrade_bpf_stake_program_to_v5_1 ),
+                                FD_FEATURE_ACTIVE( ctx->lead.bank_slot, features, remove_inactive_stakes ) );
+
+  /* Root the loaded forks, oldest first. */
+  if( FD_UNLIKELY( ctx->lead.fast_boot.snapshot_fork_id.val!=USHORT_MAX ) ) root_fork( ctx, &ctx->lead.fast_boot.snapshot_fork_id );
+  if( FD_LIKELY(   ctx->lead.accdb_full_fork_id.val!=USHORT_MAX         ) ) root_fork( ctx, &ctx->lead.accdb_full_fork_id );
+  if( FD_LIKELY(   ctx->lead.accdb_incr_fork_id.val!=USHORT_MAX         ) ) root_fork( ctx, &ctx->lead.accdb_incr_fork_id );
+
+  fd_accdb_snapshot_load_end( ctx->accdb );
+}
+
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
@@ -2207,29 +2256,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      fold_account_counts( ctx );
       if( !ctx->full ) fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->lead.accdb_incr_fork_id );
 
-      /* ensure that snapin tile sees all delta changes before rooting */
-      __atomic_thread_fence( __ATOMIC_SEQ_CST );
-
-      /* Root the full snapshot fork if it is still unrooted, then the
-         incremental fork. */
-      if( ctx->lead.accdb_full_fork_id.val!=USHORT_MAX ) {
-        root_fork( ctx, &ctx->lead.accdb_full_fork_id );
-      }
-
-      if( !ctx->full ) {
-        root_fork( ctx, &ctx->lead.accdb_incr_fork_id );
-        ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
-        fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
-        fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
-      }
-
-      fd_accdb_snapshot_load_end( ctx->accdb );
-
-      /* TODO: Pass in tile_idx and tile_cnt when parallelizing snapin */
-      fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, ctx->lead.accdb_root_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
+      fd_accdb_fork_id_t load_fork_id = { .val = (ushort)ctx->load_fork };
+      fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, load_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
+      finish_load( ctx );
 
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ), 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -2316,11 +2347,7 @@ after_credit( fd_snapin_tile_t *  ctx,
   if( FD_LIKELY( !ctx->fast_boot.stream || ctx->lead.fast_boot.snapshot_finished || ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) return;
   if( FD_LIKELY( !ctx->lead.fast_boot.replay_started || !FD_VOLATILE_CONST( ctx->shmem->fast_boot.snapshots_done ) ) ) return;
 
-  FD_COMPILER_MFENCE();
-  fold_account_counts( ctx );
-  root_fork( ctx, &ctx->lead.fast_boot.snapshot_fork_id );
-  root_fork( ctx, &ctx->lead.accdb_full_fork_id );
-  fd_accdb_snapshot_load_end( ctx->accdb );
+  finish_load( ctx );
   ctx->lead.fast_boot.snapshot_finished = 1;
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_STREAM_STOP, 0UL, 0UL, 0UL, 0UL, 0UL );
   *charge_busy = 1;
