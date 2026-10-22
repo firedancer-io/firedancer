@@ -166,6 +166,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, 8UL,                                 FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT * tile->replay.max_live_slots );
   }
   l = FD_LAYOUT_APPEND( l, fd_ag_block_id_map_align(),          fd_ag_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_bhm_map_align(),                  fd_bhm_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_bhm_pool_align(),                 fd_bhm_pool_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_bhm_dlist_align(),                fd_bhm_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),                 fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                    fd_accdb_footprint( tile->replay.max_live_slots, 0 ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_reception_stats_t),       sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
@@ -1084,6 +1087,11 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
 
   if( FD_UNLIKELY( finalized_block_id.slot<=ctx->consensus_root_slot ) ) return;
 
+  if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &finalized_block_id, NULL, ctx->bhm_pool ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( finalized_block_id.hash, block_id_b58 );
+    FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", finalized_block_id.slot, block_id_b58 ));
+  }
+
   ag_block_id_t ancestor_block_id = finalized_block_id;
   fd_bank_t *   finalized_bank    = NULL;
 
@@ -1798,6 +1806,31 @@ replay_block_complete( fd_replay_tile_t *        ctx,
     FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
     FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
     FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+
+    /* A bank hash mismatch detected now is only considered a true BHM
+       if the block_id also becomes finalized.  If the finalization
+       already arrived, ahead of replay, check the parked
+       finalized_block_id_lo/hi. */
+    ag_block_id_t const * block_id = &ctx->block_id_arr[ bank->idx ].block_info;
+    if( FD_UNLIKELY( ag_block_id_eq( block_id, &ctx->finalized_block_id_lo ) || ag_block_id_eq( block_id, &ctx->finalized_block_id_hi ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( block_id->hash, block_id_b58 );
+      FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", block_id->slot, block_id_b58 ));
+    }
+
+    if( FD_LIKELY( !fd_bhm_map_ele_query( ctx->bhm_map, block_id, NULL, ctx->bhm_pool ) ) ) {
+      if( FD_UNLIKELY( !fd_bhm_pool_free( ctx->bhm_pool ) ) ) {
+        /* Pool exhausted, evict the oldest entry. */
+        fd_bhm_ele_t * oldest = fd_bhm_dlist_ele_pop_head( ctx->bhm_dlist, ctx->bhm_pool );
+        FD_TEST( fd_bhm_map_ele_remove( ctx->bhm_map, &oldest->block_id, NULL, ctx->bhm_pool )==oldest );
+        fd_bhm_pool_ele_release( ctx->bhm_pool, oldest );
+      }
+
+      fd_bhm_ele_t * ele = fd_bhm_pool_ele_acquire( ctx->bhm_pool );
+      ele->block_id = *block_id;
+      FD_TEST( fd_bhm_map_ele_insert( ctx->bhm_map, ele, ctx->bhm_pool ) );
+      fd_bhm_dlist_ele_push_tail( ctx->bhm_dlist, ele, ctx->bhm_pool );
+    }
+
     mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, footer );
     return 1;
   } else {
@@ -4118,6 +4151,15 @@ returnable_frag( fd_replay_tile_t *  ctx,
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_PARENT_READY ) ) {
         fd_votor_parent_ready_t const * pr = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         ctx->votor_parent_ready_slot = fd_ulong_max( ctx->votor_parent_ready_slot, pr->slot );
+      } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_QUORUM ) ) {
+        fd_votor_quorum_t const * quorum = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( quorum->kind==FD_VOTOR_QUORUM_KIND_IMPLICITLY_FINALIZED ) ) {
+          ag_block_id_t block_id = ag_block_id( quorum->slot, quorum->block_id.uc );
+          if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &block_id, NULL, ctx->bhm_pool ) ) ) {
+            FD_BASE58_ENCODE_32_BYTES( block_id.hash, block_id_b58 );
+            FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", block_id.slot, block_id_b58 ));
+          }
+        }
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_REWARD ) ) {
         fd_votor_reward_t const * reward = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_reward_t *       ring   = &ctx->votor_reward[ reward->slot%(FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL) ];
@@ -4322,6 +4364,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->blockhash_seed,       sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->vote_tracker_seed,    sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->ag_block_id_map_seed, sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->bhm_map_seed,  sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->initial_block_id,     sizeof(fd_hash_t) )     );
   FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed,   sizeof(ulong) )         );
 
@@ -4354,6 +4397,10 @@ unprivileged_init( fd_topo_t const *      topo,
   void * slot_diffs_mem     = tile->replay.report_runtime_diffs ?
                               FD_SCRATCH_ALLOC_APPEND( l, 8UL,                          FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT * tile->replay.max_live_slots ) : NULL;
     block_id_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_ag_block_id_map_align(),  fd_ag_block_id_map_footprint( chain_cnt ) );
+  void * bhm_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_bhm_map_align(),          fd_bhm_map_footprint( chain_cnt ) );
+  void * bhm_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_bhm_pool_align(),         fd_bhm_pool_footprint( tile->replay.max_live_slots ) );
+  void * bhm_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bhm_dlist_align(),        fd_bhm_dlist_footprint() );
+
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->replay.max_live_slots, 0 ) );
   void * recp_stats_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reception_stats_t), sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
@@ -4605,6 +4652,13 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->ag_block_id_map = fd_ag_block_id_map_join( fd_ag_block_id_map_new( block_id_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
   FD_TEST( ctx->ag_block_id_map );
+  ctx->bhm_map  = fd_bhm_map_join( fd_bhm_map_new( bhm_map_mem, chain_cnt, ctx->bhm_map_seed ) );
+  FD_TEST( ctx->bhm_map );
+  ctx->bhm_pool = fd_bhm_pool_join( fd_bhm_pool_new( bhm_pool_mem, tile->replay.max_live_slots ) );
+  FD_TEST( ctx->bhm_pool );
+  ctx->bhm_dlist = fd_bhm_dlist_join( fd_bhm_dlist_new( bhm_dlist_mem ) );
+  FD_TEST( ctx->bhm_dlist );
+
 
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
     ctx->block_id_arr[ i ].block_id_seen = 0;

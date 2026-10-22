@@ -119,6 +119,47 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 #define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* fd_bhm_map (bank hash mismatch) remembers blocks that replay marked
+   dead because the executed bank hash did not match the one the footer
+   declared.  A finalization (explicit or implicit) for an entry in this
+   map means the cluster agreed on a bank hash we could not reproduce,
+   i.e. this validator has diverged.
+
+   The entries are FIFO evicted, so detection is best effort. On another
+   note, if we mark a slot dead due to diverging bank hash, but it is on
+   the finalized lineage but we do not receive a finalize for it (ex. it
+   only reached notar fallback threshold), we would also miss detecting
+   this bank hash mismatch. */
+
+struct fd_bhm_ele {
+  ag_block_id_t block_id;
+  ulong         next;
+  struct {
+    ulong       next;
+    ulong       prev;
+  } dlist;
+};
+typedef struct fd_bhm_ele fd_bhm_ele_t;
+
+#define POOL_NAME              fd_bhm_pool
+#define POOL_T                 fd_bhm_ele_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               fd_bhm_map
+#define MAP_ELE_T              fd_bhm_ele_t
+#define MAP_KEY_T              ag_block_id_t
+#define MAP_KEY                block_id
+#define MAP_NEXT               next
+#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME             fd_bhm_dlist
+#define DLIST_ELE_T            fd_bhm_ele_t
+#define DLIST_PREV             dlist.prev
+#define DLIST_NEXT             dlist.next
+#include "../../util/tmpl/fd_dlist.c"
+
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
 
 struct fd_replay_tile {
@@ -348,10 +389,10 @@ struct fd_replay_tile {
   ulong     published_root_slot;     /* slot number of the published root. */
   ulong     published_root_bank_idx; /* bank index of the published root. */
 
-  /* ALPENGLOW-ONLY.  Watermarks marking the finalized but unreplayed
-     slots.  lo is the oldest and held until replay reaches it.  hi is
-     the newest and continuously updated.  If the gap between hi and lo
-     exceeds max_live_slots, Firedancer halts. */
+  /* Watermarks marking the finalized but unreplayed slots.  lo is the
+     oldest and held until replay reaches it.  hi is the newest and
+     continuously updated.  If the gap between hi and lo exceeds
+     max_live_slots, Firedancer halts. */
   ag_block_id_t finalized_block_id_lo;
   ag_block_id_t finalized_block_id_hi;
 
@@ -384,6 +425,11 @@ struct fd_replay_tile {
 
   ulong                  ag_block_id_map_seed;
   fd_ag_block_id_map_t * ag_block_id_map;
+
+  ulong                  bhm_map_seed;
+  fd_bhm_map_t *         bhm_map;
+  fd_bhm_ele_t *         bhm_pool;
+  fd_bhm_dlist_t *       bhm_dlist;
 
   /* Capture-related configs */
   fd_capture_ctx_t *     capture_ctx;
@@ -432,10 +478,10 @@ struct fd_replay_tile {
   ulong       leader_tips;           /* ALPENGLOW-ONLY */
   fd_block_footer_t leader_footer[ 1 ];
 
-  fd_votor_certed_t votor_final[ 1 ];                                                /* ALPENGLOW-ONLY: highest finalization, fast over slow at the same slot */
-  fd_votor_leader_t votor_leader[ 1 ];                                               /* ALPENGLOW-ONLY: ParentReady trigger behind next_leader_slot     */
-  ulong             votor_parent_ready_slot;                                         /* ALPENGLOW-ONLY: highest window start certs made ParentReady   */
-  long              leader_window_start_ns;                                          /* ALPENGLOW-ONLY: ParentReady time of the window we are leading   */
+  fd_votor_certed_t votor_final[ 1 ];                                                /* highest finalization, fast over slow at the same slot */
+  fd_votor_leader_t votor_leader[ 1 ];                                               /* ParentReady trigger behind next_leader_slot     */
+  ulong             votor_parent_ready_slot;                                         /* highest window start certs made ParentReady   */
+  long              leader_window_start_ns;                                          /* ParentReady time of the window we are leading   */
   fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ];
 
   ulong       next_leader_slot;
@@ -496,9 +542,9 @@ struct fd_replay_tile {
   ulong delinquent_sample_slot;
   ulong delinquent_stake_lamports;
   ulong cluster_active_stake_lamports;
-  /* Alpenglow-only delinquency tracking, from the block footer reward
-     certs since last_vote_slot stalls without vote transactions.
-     Indexed by alpenglow rank, which is epoch-scoped. */
+  /* Delinquency tracking, from the block footer reward certs since
+     last_vote_slot stalls without vote transactions. Indexed by
+     alpenglow rank, which is epoch-scoped. */
   ulong ag_last_voted[ AG_VAT_MAX ];
   ulong ag_last_voted_epoch; /* ULONG_MAX before the first reward cert */
   ulong ag_last_settled;     /* highest settled slot observed */
