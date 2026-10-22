@@ -340,20 +340,23 @@ struct vote_update {
 };
 typedef struct vote_update vote_update_t;
 
-/* epoch_credits_at returns the credits of the epoch-credits entry for
-   epoch, 0 if there is none. */
+/* epoch_credits_at returns the credits of the last epoch-credits entry
+   for epoch, 0 if there is none.  The Alpenglow migration epoch has two
+   entries for the epoch: the frozen Tower one, then (after the Alpenglow
+   marker) the one credits accrue to. */
 
 static ulong
 epoch_credits_at( fd_vote_state_versioned_t const * vs,
                   ulong                             epoch ) {
   fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( (fd_vote_state_versioned_t *)vs );
+  ulong credits = 0UL;
   for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( ec );
        !deq_fd_vote_epoch_credits_t_iter_done( ec, iter );
        iter = deq_fd_vote_epoch_credits_t_iter_next( ec, iter ) ) {
     fd_vote_epoch_credits_t const * e = deq_fd_vote_epoch_credits_t_iter_ele_const( ec, iter );
-    if( e->epoch==epoch ) return e->credits;
+    if( e->epoch==epoch ) credits = e->credits;
   }
-  return 0UL;
+  return credits;
 }
 
 static int
