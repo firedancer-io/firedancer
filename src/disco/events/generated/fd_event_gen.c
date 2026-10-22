@@ -268,7 +268,6 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
   ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->signature, 64UL );
   ok &= !!fd_pb_push_bytes ( encoder, 8U, msg->blockhash, 32UL );
   ok &= !!fd_pb_push_bytes ( encoder, 9U, msg->fee_payer, 32UL );
-  if( msg->is_simple_vote ) ok &= !!fd_pb_push_bool  ( encoder, 10U, msg->is_simple_vote );
   if( msg->is_bundle ) ok &= !!fd_pb_push_bool  ( encoder, 11U, msg->is_bundle );
   if( msg->is_committable ) ok &= !!fd_pb_push_bool  ( encoder, 12U, msg->is_committable );
   if( msg->is_fees_only ) ok &= !!fd_pb_push_bool  ( encoder, 13U, msg->is_fees_only );

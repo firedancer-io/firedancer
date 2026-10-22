@@ -163,7 +163,6 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 
 #define FD_GUI_TXN_FLAGS_STARTED         ( 1U)
 #define FD_GUI_TXN_FLAGS_ENDED           ( 2U)
-#define FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE  ( 4U)
 #define FD_GUI_TXN_FLAGS_FROM_BUNDLE     ( 8U)
 #define FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK (16U)
 
@@ -639,7 +638,7 @@ struct __attribute__((packed)) fd_gui_store_txn_start {
   uint  microblock_idx;
   uint  source_ipv4;
   uchar source_tpu;
-  uchar flags;                  /* STARTED | IS_SIMPLE_VOTE | FROM_BUNDLE */
+  uchar flags;                  /* STARTED | FROM_BUNDLE */
 };
 typedef struct fd_gui_store_txn_start fd_gui_store_txn_start_t;
 
@@ -687,7 +686,6 @@ struct fd_gui_store_replay_txn {
   uint  error_code;
   uchar is_committable;
   uchar is_fees_only;
-  uchar is_simple_vote;
 };
 typedef struct fd_gui_store_replay_txn fd_gui_store_replay_txn_t;
 

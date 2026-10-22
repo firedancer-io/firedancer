@@ -591,7 +591,6 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
     .flags                    = FD_SCHED_TXN_SIGVERIFY_DONE,
     .txn_err                  = FD_RUNTIME_EXECUTE_SUCCESS,
     .received_ns              = 1000L,
-    .is_simple_vote           = 0,
     .tick_parsed              = 1001L,
     .tick_sigverify_disp      = 1002L,
     .tick_sigverify_done      = 1003L,
@@ -628,7 +627,6 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   msg->txn_exec->is_committable         = 1;
   msg->txn_exec->is_fees_only           = 1;
   msg->txn_exec->txn_err                = FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
-  msg->txn_exec->is_simple_vote         = 1;
   msg->txn_exec->tick_load_start        = 2001L;
   msg->txn_exec->tick_check_start       = 2002L;
   msg->txn_exec->tick_exec_start        = LONG_MAX;
@@ -665,7 +663,6 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   FD_TEST( out->txn_err==msg->txn_exec->txn_err );
   FD_TEST( out->is_committable==msg->txn_exec->is_committable );
   FD_TEST( out->is_fees_only==msg->txn_exec->is_fees_only );
-  FD_TEST( out->is_simple_vote==msg->txn_exec->is_simple_vote );
 
   FD_TEST( out->tick_parsed==mock_sched_txn_info.tick_parsed );
   FD_TEST( out->tick_sigverify_disp==mock_sched_txn_info.tick_sigverify_disp );

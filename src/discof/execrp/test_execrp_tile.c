@@ -581,7 +581,6 @@ FD_UNIT_TEST( execrp_simple_ok ) {
   FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
   FD_TEST( out_msg->txn_exec->is_committable );
   FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_TEST( !out_msg->txn_exec->is_simple_vote );
   FD_TEST( out_msg->txn_exec->tick_load_start   !=LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_check_start  !=LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_exec_start   !=LONG_MAX );

@@ -246,7 +246,6 @@ struct fd_event_runtime_txn {
   uchar                                signature[ 64UL ];                 /* First signature of the transaction (64 bytes) */
   uchar                                blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
   uchar                                fee_payer[ 32UL ];                 /* Fee-payer pubkey */
-  int                                  is_simple_vote;                    /* True if the transaction was classified as a simple vote, false otherwise */
   int                                  is_bundle;                         /* True if the transaction is part of a bundle, false otherwise */
   int                                  is_committable;                    /* True if the transaction was committable (landed on-chain) */
   int                                  is_fees_only;                      /* True if the transaction landed but only fees were charged (e.g. account loading failure) */
@@ -287,7 +286,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23249UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23243UL)
 
 /* Why the block was ruled invalid; not_dead otherwise. Blocks this validator produced are never dead: they do not go through replay's block checks. A block invalid for several independent reasons records the first one detected locally, which can differ across validators for the same block. */
 #define FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD                    (1) /* Not ruled invalid. */

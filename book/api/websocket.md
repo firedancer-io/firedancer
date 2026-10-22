@@ -264,7 +264,7 @@ counting for blocks published by this validator instance.
 One of `voting`, `non-voting`, or `delinquent`, indicating the current
 vote status of the validator.
 
-Under Tower, the validator considers itself delinquent if the last vote 
+Under Tower, the validator considers itself delinquent if the last vote
 it has landed on its own currently chosen fork is more than 150 slots
 behind that fork.
 
@@ -3896,7 +3896,6 @@ explicitly mentioned, skipped slots are not included.
 | txn_tips                           | `string[]`          | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
 | txn_error_code                     | `number[]`          | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
 | txn_from_bundle                    | `boolean[]`         | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
-| txn_is_simple_vote                 | `boolean[]`         | Tower-only. `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise. This field is omitted under Alpenglow |
 | txn_landed                         | `boolean[]`         | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
 | txn_bank_idx                       | `number[]`          | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
 | txn_microblock_id                  | `string[]`          | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |

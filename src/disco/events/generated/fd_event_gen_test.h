@@ -120,7 +120,6 @@ fd_event_runtime_txn_fill_max( fd_event_runtime_txn_t * msg ) {
   fd_memset( msg->signature, 0xFF, 64UL );
   fd_memset( msg->blockhash, 0xFF, 32UL );
   fd_memset( msg->fee_payer, 0xFF, 32UL );
-  msg->is_simple_vote = 1;
   msg->is_bundle = 1;
   msg->is_committable = 1;
   msg->is_fees_only = 1;

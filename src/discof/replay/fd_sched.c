@@ -233,7 +233,7 @@ struct fd_sched_block {
 typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
-FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
+FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==184UL, fd_sched_txn_info );
 FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
@@ -2904,7 +2904,6 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].flags = 0UL;
   sched->txn_info_pool[ txn_idx ].received_ns = block->fec_completed_ns;
   sched->txn_info_pool[ txn_idx ].txn_err = 0;
-  sched->txn_info_pool[ txn_idx ].is_simple_vote = 0;
 
   sched->txn_info_pool[ txn_idx ].tick_parsed = fd_tickcount();
   sched->txn_info_pool[ txn_idx ].tick_sigverify_disp = LONG_MAX;

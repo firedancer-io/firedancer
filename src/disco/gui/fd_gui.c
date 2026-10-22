@@ -2935,7 +2935,6 @@ fd_gui_timeline_handle_txn( fd_gui_t * gui,
                             ulong      transaction_fee,
                             ulong      priority_fee,
                             ulong      tips,
-                            int        is_simple_vote,
                             int        txn_succeeded,
                             long       now ) {
   if( FD_UNLIKELY( slot==ULONG_MAX || timestamp_ns<0L || timestamp_ns==LONG_MAX ) ) return;
@@ -2951,10 +2950,10 @@ fd_gui_timeline_handle_txn( fd_gui_t * gui,
     fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_TXN_FEES,         idx, transaction_fee );
     fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_PRIO_FEES,        idx, priority_fee );
     fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_TIPS,             idx, tips );
-    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_NONVOTE_SUCCESS,  idx, !is_simple_vote && txn_succeeded );
-    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_NONVOTE_FAILED,   idx, !is_simple_vote && !txn_succeeded );
-    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_VOTE_SUCCESS,     idx, is_simple_vote && txn_succeeded );
-    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_VOTE_FAILED,      idx, is_simple_vote && !txn_succeeded );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_NONVOTE_SUCCESS,  idx, !!txn_succeeded );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_NONVOTE_FAILED,   idx, !txn_succeeded );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_VOTE_SUCCESS,     idx, 0UL );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_VOTE_FAILED,      idx, 0UL );
   }
 }
 
@@ -3174,7 +3173,7 @@ fd_gui_record_replay_txn( fd_gui_t *                        gui,
 
   if( FD_LIKELY( landed ) ) fd_gui_timeline_handle_txn( gui, rec->slot, rec->commit_end_ns, rec->compute_units_consumed,
                                                         rec->block_compute_unit_limit, txn_fee, prio_fee,
-                                                        tips, rec->is_simple_vote, !rec->error_code, rec->insert_time_ns );
+                                                        tips, !rec->error_code, rec->insert_time_ns );
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, rec );
 }
 
@@ -3211,7 +3210,6 @@ fd_gui_handle_replay_txn( fd_gui_t *                       gui,
     .error_code               = (uint)(-(long)txn->txn_err),
     .is_committable           = (uchar)!!txn->is_committable,
     .is_fees_only             = (uchar)!!txn->is_fees_only,
-    .is_simple_vote           = (uchar)!!txn->is_simple_vote
   };
   fd_memcpy( rec.signature, txn->txn->payload+TXN( txn->txn )->signature_off, FD_TXN_SIGNATURE_SZ );
   fd_gui_record_replay_txn( gui, &rec );
@@ -3446,7 +3444,6 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
 
     ulong txn_idx = pack_txn_idx + i;
     uchar flags = (uchar)FD_GUI_TXN_FLAGS_STARTED;
-    flags |= (uchar)fd_uint_if( !!(txn_payload->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE), FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE, 0U );
     flags |= (uchar)fd_uint_if( (txn_payload->flags & FD_TXN_P_FLAGS_BUNDLE) || (txn_payload->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE), FD_GUI_TXN_FLAGS_FROM_BUNDLE, 0U );
 
     fd_gui_store_txn_start_t rec = {
@@ -3535,7 +3532,6 @@ fd_gui_record_leader_txn( fd_gui_t *     gui,
     .error_code               = error_code,
     .is_committable           = 1U,
     .is_fees_only             = (uchar)!!(txn_p->flags & FD_TXN_P_FLAGS_FEES_ONLY),
-    .is_simple_vote           = (uchar)!!(txn_p->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE)
   };
   fd_memcpy( replay.signature, txn_p->payload+TXN( txn_p )->signature_off, FD_TXN_SIGNATURE_SZ );
   fd_gui_record_replay_txn( gui, &replay );

@@ -31,7 +31,6 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.commit_index_in_slot = txn_out->err.is_committable ? txn_out->details.commit_index_in_slot : 0UL;
 
   /* Flags */
-  ev.is_simple_vote = !!txn_out->details.is_simple_vote;
   ev.is_bundle      = !!txn_in->bundle.is_bundle;
   ev.is_committable = !!txn_out->err.is_committable;
   ev.is_fees_only   = !!txn_out->err.is_fees_only;

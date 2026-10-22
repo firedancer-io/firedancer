@@ -453,9 +453,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
       fd_cost_tracker_t const * _ct = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would fit "
-                   "[is_simple_vote=%i, is_fees_only=%i, block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
+                   "[is_fees_only=%i, block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
                    _signature_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
-                   fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ),
                    txn_out->err.is_fees_only, _ct->block_cost, _ct->block_cost_limit, _ct->account_cost_limit ));
     }
 

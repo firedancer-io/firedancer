@@ -42,7 +42,6 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
   txn_out->accounts.executable_cnt = 0UL;
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
   txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
-  txn_out->details.is_simple_vote = fd_txn_is_simple_vote_transaction( TXN( txn_p ), txn_p->payload );
 
   int err;
   if( TXN( txn_p )->transaction_version==FD_TXN_V1 ) {

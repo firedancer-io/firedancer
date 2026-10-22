@@ -238,7 +238,6 @@ struct fd_replay_txn_executed {
   int is_fees_only;
   int is_noop;
   int txn_err;
-  int is_simple_vote;
 
   /* LONG_MAX if stage was not reached */
   long  tick_parsed;

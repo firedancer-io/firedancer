@@ -3,7 +3,6 @@
 
 #include "../../disco/fd_txn_p.h"
 #include "../../flamenco/fd_flamenco_base.h"
-#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
 
 /* Exec tile task types. */
@@ -103,7 +102,6 @@ struct fd_execrp_txn_exec_done_msg {
   int is_fees_only;
   int is_noop;
   int txn_err;
-  int is_simple_vote;
 
   /* LONG_MAX if stage was not reached */
   long tick_load_start;
@@ -122,15 +120,6 @@ struct fd_execrp_txn_exec_done_msg {
   ulong  bank_seq;
   ushort start_shred_idx;
   ushort end_shred_idx;
-
-  /* vote.slot==ULONG_MAX if this was not a vote transaction */
-  struct {
-    ulong       slot;
-    ulong       vote_slots[ 31UL ];
-    uchar       vote_slot_cnt;
-    fd_pubkey_t identity[ 1 ];
-    fd_pubkey_t vote_acct[ 1 ];
-  } vote;
 };
 typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
 
