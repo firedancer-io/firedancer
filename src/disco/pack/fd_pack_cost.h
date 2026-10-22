@@ -301,12 +301,9 @@ fd_pack_compute_cost( fd_txn_t const * txn,
        possibly allocate more than 10kB per account are below.
        Additionally, none of the above programs allocate at all.
 
-       A normal vote does not allocate any data, but a simple vote may
-       actually invoke one of the vote program instructions that does
-       allocate FD_VOTE_STATE_V3_SZ or V4, which are both 3762 bytes.
-       If it invokes the vote program but isn't a simple vote, it will
-       be caught by the general case and overestimated at 10kB per
-       account, which is fine.
+       The vote program may allocate FD_VOTE_STATE_V3_SZ or V4, which
+       are both 3762 bytes.  It is caught by the general case and
+       overestimated at 10kB per account, which is fine.
 
        Note: This complexity here is pretty gross, but we need a better
        bound for allocated_data than 20MB, and this seems to be the best

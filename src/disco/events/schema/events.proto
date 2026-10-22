@@ -2424,11 +2424,11 @@ message MetricsPackTxnScheduleAttempted {
 
 // Pending transactions in pack's pool, by type
 message MetricsPackTxnPendingUsed {
-  // Transactions in the main treap, including simple votes
+  // Transactions in the main treap
   uint64 regular = 1;
-  // Deprecated: simple votes are no longer kept in a separate treap, so this is always 0
+  // Deprecated, always 0
   uint64 vote = 2;
-  // Transactions that write to a hotly-contended account, including simple votes
+  // Transactions that write to a hotly-contended account
   uint64 conflicting = 3;
   // Transactions that are part of a bundle
   uint64 bundle = 4;

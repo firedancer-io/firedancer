@@ -686,10 +686,10 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    requested execution CUs (including cus derived from the requested
    loaded accounts data size), respectively.  The sum of these two
    values is the total cost of the transaction, i.e. what is used for
-   all limits, including the total_cus value.  The lower 3 bits of the
-   flags field will be populated (simple vote, bundle, initializer
-   bundle). Inspecting these flags is the proper way to tell which
-   codepath executed.
+   all limits, including the total_cus value.  The bundle and
+   initializer bundle bits of the flags field will be populated.
+   Inspecting these flags is the proper way to tell which codepath
+   executed.
 
    Returns the number of transactions in the scheduled microblock or
    bundle.  The return value may be 0 if there are no eligible

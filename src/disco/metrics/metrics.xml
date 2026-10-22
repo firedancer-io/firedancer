@@ -609,9 +609,9 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <enum name="PendingTxnType">
-    <int value="1" name="Regular" label="Transactions in the main treap, including simple votes" />
-    <int value="2" name="Vote" label="Deprecated: simple votes are no longer kept in a separate treap, so this is always 0" />
-    <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account, including simple votes" />
+    <int value="1" name="Regular" label="Transactions in the main treap" />
+    <int value="2" name="Vote" label="Deprecated, always 0" />
+    <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account" />
     <int value="4" name="Bundle" label="Transactions that are part of a bundle" />
 </enum>
 
