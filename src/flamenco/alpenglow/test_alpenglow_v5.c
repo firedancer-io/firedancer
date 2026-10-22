@@ -205,7 +205,7 @@ test_rewards_slices( fd_svm_mini_t * mini,
     FD_STORE( ulong, ikm, 0x700UL+i );
     fd_bls_sec_t sk; fd_bls_sec_derive( &sk, ikm, sizeof(ikm) );
     fd_bls_pub_t pub[1]; fd_bls_sec_to_pub( &sk, pub );
-    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; blst_p1_affine_compress( bls, pub );
+    uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; fd_bls_pub_compress( pub, bls );
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, vote+i, &node, 100UL*(i+1UL), 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &LOC_FRA );
     total_stake += 100UL*(i+1UL);
   }
