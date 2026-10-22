@@ -633,9 +633,9 @@ struct fd_pack_private {
   ulong relative_bundle_idx;
 
   /* pending_smallest: keep a conservative estimate of the
-     smallest transaction (by cost units and by bytes) in each heap.
-     Both CUs and bytes should be set to ULONG_MAX is the treap is
-     empty. */
+     smallest transaction (by cost units and by bytes) in the pending
+     treap.  Both CUs and bytes should be set to ULONG_MAX if the treap
+     is empty. */
   fd_pack_smallest_t pending_smallest[1];
 
   /* expiration_q: At the same time that a transaction is in exactly one
@@ -1902,13 +1902,12 @@ fd_pack_set_initializer_bundles_ready( fd_pack_t * pack ) {
 
 void
 fd_pack_metrics_write( fd_pack_t const * pack ) {
-  ulong pending_regular = treap_ele_cnt( pack->pending        );
-  ulong pending_votes  = 0UL;
-  ulong pending_bundle = treap_ele_cnt( pack->pending_bundles );
-  ulong conflicting    = pack->pending_txn_cnt - pending_votes - pending_bundle - treap_ele_cnt( pack->pending );
-  ulong smallest_cost  = fd_ulong_if( pack->pending_smallest->cus==ULONG_MAX, 0UL, pack->pending_smallest->cus );
+  ulong pending_regular = treap_ele_cnt( pack->pending         );
+  ulong pending_bundle  = treap_ele_cnt( pack->pending_bundles );
+  ulong conflicting     = pack->pending_txn_cnt - pending_regular - pending_bundle;
+  ulong smallest_cost   = fd_ulong_if( pack->pending_smallest->cus==ULONG_MAX, 0UL, pack->pending_smallest->cus );
   FD_MGAUGE_SET( PACK, TXN_PENDING_USED_REGULAR,     pending_regular             );
-  FD_MGAUGE_SET( PACK, TXN_PENDING_USED_VOTE,        pending_votes               );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_USED_VOTE,        0UL                         );
   FD_MGAUGE_SET( PACK, TXN_PENDING_USED_CONFLICTING, conflicting                 );
   FD_MGAUGE_SET( PACK, TXN_PENDING_USED_BUNDLE,      pending_bundle              );
   FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_COST,    smallest_cost               );
