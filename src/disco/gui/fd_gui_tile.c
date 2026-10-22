@@ -516,7 +516,9 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_SHRED_OUT: {
       long tsorig_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
       uint sig_src      = fd_shred_sig_src( sig );
-      if( FD_LIKELY( sig_src==SHRED_SIG_SRC_TURBINE || sig_src==SHRED_SIG_SRC_REPAIR || sig_src==SHRED_SIG_SRC_BAD_REPAIR ) ) {
+      /* Skip repair shreds that have already been received via turbine. */
+      if( FD_LIKELY( ( sig_src==SHRED_SIG_SRC_TURBINE || sig_src==SHRED_SIG_SRC_REPAIR || sig_src==SHRED_SIG_SRC_BAD_REPAIR ) &&
+                     fd_shred_sig_res( sig )!=SHRED_SIG_RESULT_DUPLICATE ) ) {
         fd_shred_base_t const * msg = (fd_shred_base_t const *)fd_type_pun_const( src );
         ulong slot      = msg->shred.slot;
         ulong shred_idx = msg->shred.idx;
