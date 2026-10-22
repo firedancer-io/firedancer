@@ -17,6 +17,8 @@
 #include "../../disco/events/fd_event_report.h"
 #include "../../disco/waker/fd_waker.h"
 #include "../../disco/fd_clock_tile.h"
+#include "../../disco/wait_info/fd_wait_info.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/resolv/fd_adns.h"
@@ -268,6 +270,8 @@ struct fd_snapct_tile {
   fd_snapct_out_link_t out_gui;
   fd_snapct_out_link_t out_rp;
   fd_snapct_out_link_t out_ct;
+
+  fd_wait_info_box_t * wait_info;
 };
 typedef struct fd_snapct_tile fd_snapct_tile_t;
 
@@ -1050,7 +1054,13 @@ after_credit( fd_snapct_tile_t *  ctx,
            one the server has.  Wait for the server's answer until the
            deadline. */
         if( FD_LIKELY( !ctx->config.fast_boot_stream ) ) {
+          /* The snapshots wait until replay has caught up on the
+             stream to reduce disk write contention. */
+          fd_wait_info_t wait_info;
+          if( FD_UNLIKELY( !fd_wait_info_try_read( &wait_info, ctx->wait_info ) || !wait_info.caught_up ) ) break;
+
           if( FD_UNLIKELY( ctx->fast_boot.server_full_slot==ULONG_MAX && now<=ctx->deadline_nanos ) ) break;
+
           if( FD_UNLIKELY( ctx->fast_boot.server_full_slot!=ULONG_MAX &&
                            ctx->fast_boot.server_full_slot==ctx->local_in.full_snapshot_slot &&
                            !memcmp( ctx->fast_boot.server_full_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT ) ) ) {
@@ -2663,6 +2673,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_gui = out1( topo, tile, "snapct_gui"  );
   ctx->out_rp  = out1( topo, tile, "snapct_repr" );
   ctx->out_ct  = out1( topo, tile, "snapct_ct"   );
+
+  if( FD_UNLIKELY( background_snapshot_loading( ctx ) ) ) {
+    ulong wait_info_obj_id = fd_pod_query_ulong( topo->props, "wait_info", ULONG_MAX );
+    FD_TEST( wait_info_obj_id!=ULONG_MAX );
+    ctx->wait_info = fd_wait_info_box_join( fd_topo_obj_laddr( topo, wait_info_obj_id ) );
+    FD_TEST( ctx->wait_info );
+  }
 }
 
 /* after_credit can result in as many as 5 stem publishes in some code
