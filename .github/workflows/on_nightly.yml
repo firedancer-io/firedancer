@@ -39,7 +39,7 @@ jobs:
         ALL,linux_clang_zen5,ALL;
         ALL,linux_clang_spacemit_k3,ALL;
       build_arm: true
-      verbose: true
+      verbose: false
       cid: 3
   builds_2:
     uses: ./.github/workflows/builds.yml
@@ -47,7 +47,7 @@ jobs:
       machine: linux_gcc_icelake
       build_arm: false
       clang: none
-      verbose: true
+      verbose: false
       cid: 4
       gcc_runner_labels: '["self-hosted", "X64"]'
   builds_3:
@@ -56,7 +56,7 @@ jobs:
       machine: linux_gcc_x86_64
       build_arm: false
       clang: none
-      verbose: true
+      verbose: false
       cid: 5
       gcc_runner_labels: '["self-hosted", "X64"]'
   builds_4:
@@ -68,7 +68,7 @@ jobs:
       machine: linux_gcc_zen2
       build_arm: false
       clang: none
-      verbose: true
+      verbose: false
       cid: 6
       gcc_runner_labels: '["self-hosted", "X64"]'
   backtest:

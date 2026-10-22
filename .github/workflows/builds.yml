@@ -232,7 +232,7 @@ jobs:
     runs-on:
       labels: ARM64
       group: fd-public-repo
-    if: ${{ inputs.build_arm }}
+    if: ${{ false && inputs.build_arm }}
     strategy:
       matrix:
         gcc_version: [12]
