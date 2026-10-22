@@ -396,8 +396,6 @@
 | <span class="metrics-name">verify_&#8203;txn_&#8203;processed</span><br/>{verify_&#8203;result="<span class="metrics-enum">parse_&#8203;failed</span>"} | counter | Transactions processed, by result (Transaction failed to parse) |
 | <span class="metrics-name">verify_&#8203;txn_&#8203;processed</span><br/>{verify_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Transactions processed, by result (Transaction was a duplicate) |
 | <span class="metrics-name">verify_&#8203;txn_&#8203;processed</span><br/>{verify_&#8203;result="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Transactions processed, by result (Transaction failed signature verification) |
-| <span class="metrics-name">verify_&#8203;vote_&#8203;gossip_&#8203;rx</span> | counter | Gossip vote transactions handled by this verify tile |
-| <span class="metrics-name">verify_&#8203;own_&#8203;vote_&#8203;rx</span> | counter | Our own vote transactions received from txsend |
 
 </div>
 

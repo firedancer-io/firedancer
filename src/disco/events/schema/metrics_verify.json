@@ -100,7 +100,7 @@
                 "signature_failed":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction failed signature verification" }
             }
         },
-        "vote_gossip_rx":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Gossip vote transactions handled by this verify tile" },
-        "own_vote_rx":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Our own vote transactions received from txsend" }
+        "vote_gossip_rx":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Gossip vote transactions handled by this verify tile", "deprecated": true },
+        "own_vote_rx":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Our own vote transactions received from txsend", "deprecated": true }
     }
 }

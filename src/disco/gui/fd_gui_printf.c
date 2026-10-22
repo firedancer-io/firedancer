@@ -823,7 +823,7 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
       jsonp_ulong( gui->http, "resolv_retained", prev->out.resolv_retained );
       jsonp_ulong( gui->http, "quic",            cur->in.quic   - prev->in.quic );
       jsonp_ulong( gui->http, "udp",             cur->in.udp    - prev->in.udp );
-      jsonp_ulong( gui->http, "gossip",          cur->in.gossip - prev->in.gossip );
+      jsonp_ulong( gui->http, "gossip",          0UL );
       jsonp_ulong( gui->http, "block_engine",    cur->in.block_engine - prev->in.block_engine );
     jsonp_close_object( gui->http );
 

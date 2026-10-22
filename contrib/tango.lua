@@ -163,7 +163,6 @@ local link_hashes = {
   [0x1f1be9] = "txsend_out",
   [0x76c6b3] = "gossip_ciaddr",
   [0x4d1d66] = "gossip_ciseen",
-  [0x5b1e3a] = "gossip_vote",
   [0xb343e8] = "gossip_misc",
   [0x02a21a] = "tower_out",
   [0x9e4bf4] = "bundle_verif",

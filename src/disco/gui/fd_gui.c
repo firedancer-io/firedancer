@@ -1351,16 +1351,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     bundle_txns_received = bundle_metrics[ MIDX( COUNTER, BUNDLE, TXN_RX ) ];
   }
 
-  {
-    cur->in.gossip = 0UL;
-    for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
-      fd_topo_tile_t const * verify = &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ];
-      volatile ulong const * verify_metrics = fd_metrics_tile( verify->metrics );
-      cur->in.gossip += verify_metrics[ MIDX( COUNTER, VERIFY, VOTE_GOSSIP_RX ) ];
-      cur->in.gossip += verify_metrics[ MIDX( COUNTER, VERIFY, OWN_VOTE_RX    ) ];
-    }
-  }
-
   cur->in.quic     = cur->out.tpu_quic_invalid +
                      cur->out.quic_overrun +
                      cur->out.quic_frag_drop +
@@ -1433,8 +1423,7 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
   stats->verify_drop_cnt = waterfall->out.verify_duplicate +
                            waterfall->out.verify_parse +
                            waterfall->out.verify_failed;
-  stats->verify_total_cnt = waterfall->in.gossip +
-                            waterfall->in.quic +
+  stats->verify_total_cnt = waterfall->in.quic +
                             waterfall->in.udp -
                             waterfall->out.net_overrun -
                             waterfall->out.tpu_quic_invalid -

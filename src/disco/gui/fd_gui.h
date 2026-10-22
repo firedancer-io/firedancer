@@ -701,7 +701,6 @@ struct fd_gui_txn_waterfall {
   struct {
     ulong quic;
     ulong udp;
-    ulong gossip;
     ulong block_engine;
     ulong pack_cranked;
   } in;

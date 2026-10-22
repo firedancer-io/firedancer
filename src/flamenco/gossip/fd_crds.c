@@ -790,7 +790,6 @@ publish_update_msg( fd_crds_t *               crds,
                     fd_stem_context_t *       stem ) {
   FD_TEST( stem );
   if( FD_LIKELY( entry->key.tag!=FD_GOSSIP_VALUE_CONTACT_INFO    &&
-                 entry->key.tag!=FD_GOSSIP_VALUE_VOTE            &&
                  entry->key.tag!=FD_GOSSIP_VALUE_DUPLICATE_SHRED &&
                  entry->key.tag!=FD_GOSSIP_VALUE_SNAPSHOT_HASHES ) ) {
     return;
@@ -799,7 +798,6 @@ publish_update_msg( fd_crds_t *               crds,
   int tag;
   switch( entry->key.tag ) {
     case FD_GOSSIP_VALUE_CONTACT_INFO:    tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;    break;
-    case FD_GOSSIP_VALUE_VOTE:            tag = FD_GOSSIP_UPDATE_TAG_VOTE;            break;
     case FD_GOSSIP_VALUE_DUPLICATE_SHRED: tag = FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED; break;
     default:                              tag = FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES; break;
   }
@@ -819,33 +817,6 @@ publish_update_msg( fd_crds_t *               crds,
       *msg->contact_info->value = *entry->ci->contact_info;
       msg->contact_info->idx = crds_contact_info_pool_idx( crds->ci_pool, entry->ci );
       sz = FD_GOSSIP_UPDATE_SZ_CONTACT_INFO;
-      break;
-    case FD_GOSSIP_VALUE_VOTE:
-      /* TODO: dynamic sizing */
-      sz = FD_GOSSIP_UPDATE_SZ_VOTE;
-      fd_crds_key_t lookup_ci;
-      lookup_ci.tag = FD_GOSSIP_VALUE_CONTACT_INFO;
-      fd_memcpy( &lookup_ci.pubkey, entry->key.pubkey, sizeof(fd_pubkey_t) );
-      fd_crds_entry_t * ci = lookup_map_ele_query( crds->lookup_map, &lookup_ci, NULL, crds->pool );
-
-      if( FD_LIKELY( ci && ci->key.tag == FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-        msg->vote->socket->is_ipv6 = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6;
-        if( msg->vote->socket->is_ipv6 ) {
-          fd_memcpy( msg->vote->socket->ip6, ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip6, 16UL );
-        } else {
-          msg->vote->socket->ip4 = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-        }
-        msg->vote->socket->port = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
-      } else {
-        msg->vote->socket->is_ipv6 = 0;
-        msg->vote->socket->ip4 = 0;
-        msg->vote->socket->port = 0;
-      }
-
-      msg->vote->first_seen_nanos = now;
-      msg->vote->value->index = entry->key.vote_index;
-      msg->vote->value->transaction_len = entry_view->vote->transaction_len;
-      fd_memcpy( msg->vote->value->transaction, entry_view->vote->transaction, entry_view->vote->transaction_len );
       break;
     case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
       /* TODO: dynamic sizing */

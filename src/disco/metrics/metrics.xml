@@ -482,8 +482,8 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="verify">
     <counter name="TxnProcessed" enum="VerifyResult" summary="Transactions processed, by result" />
-    <counter name="VoteGossipRx" summary="Gossip vote transactions handled by this verify tile" />
-    <counter name="OwnVoteRx" summary="Our own vote transactions received from txsend" />
+    <counter name="VoteGossipRx" deprecated="true" summary="Gossip vote transactions handled by this verify tile" />
+    <counter name="OwnVoteRx" deprecated="true" summary="Our own vote transactions received from txsend" />
 </tile>
 
 <enum name="DedupResult">

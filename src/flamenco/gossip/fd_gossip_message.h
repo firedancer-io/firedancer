@@ -64,7 +64,6 @@
 
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)        + sizeof((fd_gossip_update_message_t *)0)->contact_info)
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof((fd_gossip_update_message_t *)0)->contact_info_remove)
-#define FD_GOSSIP_UPDATE_SZ_VOTE                (offsetof(fd_gossip_update_message_t, vote)                + sizeof((fd_gossip_update_message_t *)0)->vote)
 #define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (offsetof(fd_gossip_update_message_t, duplicate_shred)     + sizeof((fd_gossip_update_message_t *)0)->duplicate_shred)
 #define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (offsetof(fd_gossip_update_message_t, snapshot_hashes)     + sizeof((fd_gossip_update_message_t *)0)->snapshot_hashes)
 
@@ -81,7 +80,6 @@
 
 #define FD_GOSSIP_UPDATE_TAG_CONTACT_INFO        (0)
 #define FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE (1)
-#define FD_GOSSIP_UPDATE_TAG_VOTE                (2)
 #define FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED     (3)
 #define FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES     (4)
 #define FD_GOSSIP_UPDATE_TAG_WFS_DONE            (5)
@@ -462,12 +460,6 @@ struct fd_gossip_update_message {
     struct {
       ulong idx;
     } contact_info_remove[ 1 ];
-
-    struct {
-      long first_seen_nanos;
-      fd_gossip_socket_t socket[ 1 ];
-      fd_gossip_vote_t value[ 1 ];
-    } vote[ 1 ];
 
     fd_gossip_duplicate_shred_t duplicate_shred[ 1 ];
     fd_gossip_snapshot_hashes_t snapshot_hashes[ 1 ];
