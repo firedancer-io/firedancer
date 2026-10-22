@@ -544,7 +544,7 @@ static fd_metrics_sample_field_t const fields_bundle[ 75 ] = {
   { FD_METRICS_COUNTER_BUNDLE_TXN_BUFFER_FULL_DROPPED_OFF, 39U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_verify[ 47 ] = {
+static fd_metrics_sample_field_t const fields_verify[ 45 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -590,8 +590,6 @@ static fd_metrics_sample_field_t const fields_verify[ 47 ] = {
   { FD_METRICS_COUNTER_VERIFY_TXN_PROCESSED_DUPLICATE_OFF, 4U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_VERIFY_TXN_PROCESSED_SIGNATURE_FAILED_OFF, 5U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
-  { FD_METRICS_COUNTER_VERIFY_VOTE_GOSSIP_RX_OFF, 26U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_VERIFY_OWN_VOTE_RX_OFF, 27U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_dedup[ 43 ] = {
@@ -4373,7 +4371,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "sock", 24U, fields_sock, 52UL, 657UL },
   { "quic", 25U, fields_quic, 197UL, 2110UL },
   { "bundle", 26U, fields_bundle, 75UL, 899UL },
-  { "verify", 27U, fields_verify, 47UL, 598UL },
+  { "verify", 27U, fields_verify, 45UL, 574UL },
   { "dedup", 28U, fields_dedup, 43UL, 552UL },
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
   { "pack", 30U, fields_pack, 305UL, 3245UL },

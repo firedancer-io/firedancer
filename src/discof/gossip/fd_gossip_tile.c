@@ -651,9 +651,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->update_out[ FD_GOSSIP_UPDATE_LINK_CI_SEEN ] = fd_topo_find_tile_out_link( topo, tile, "gossip_ciseen", 0UL )!=ULONG_MAX
                                                    ? out1( topo, tile, "gossip_ciseen" )
                                                    : (fd_gossip_out_ctx_t){ .idx = ULONG_MAX }; /* no gui */
-  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_VOTE    ] = fd_topo_find_tile_out_link( topo, tile, "gossip_vote", 0UL )!=ULONG_MAX
-                                                   ? out1( topo, tile, "gossip_vote" )
-                                                   : (fd_gossip_out_ctx_t){ .idx = ULONG_MAX }; /* no vote readers */
   ctx->update_out[ FD_GOSSIP_UPDATE_LINK_MISC    ] = out1( topo, tile, "gossip_misc"   );
   *ctx->gossvf_out = out1( topo, tile, "gossip_gossvf" );
 

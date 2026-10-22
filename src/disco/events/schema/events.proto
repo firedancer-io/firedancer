@@ -9225,9 +9225,9 @@ message MetricsVerify {
   // Transactions processed, by result
   MetricsVerifyTxnProcessed txn_processed = 25;
   // Gossip vote transactions handled by this verify tile
-  uint64 vote_gossip_rx = 26;
+  uint64 vote_gossip_rx = 26 [deprecated = true];
   // Our own vote transactions received from txsend
-  uint64 own_vote_rx = 27;
+  uint64 own_vote_rx = 27 [deprecated = true];
 }
 
 // Metrics of one dedup tile instance, one row per sweep

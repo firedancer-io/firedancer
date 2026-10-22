@@ -283,7 +283,6 @@ fd_topo_initialize( config_t * config ) {
   int leader_enabled      = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled      = config->tiles.rserve.enabled;
   int efficient_mode      = !strcmp( config->firedancer.layout.mode, "efficient" );
-  int gossip_vote_enabled = leader_enabled;
 
   if( FD_UNLIKELY( snapmk_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.max_full_snapshots_to_keep,
@@ -349,7 +348,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip_gossvf" );
   fd_topob_wksp( topo, "gossip_ciaddr" );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "gossip_ciseen" );
-  if( gossip_vote_enabled ) fd_topob_wksp( topo, "gossip_vote" );
   fd_topob_wksp( topo, "gossip_misc"   );
 
   fd_topob_wksp( topo, "shred_out"     );
@@ -496,9 +494,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_ciaddr", "gossip_ciaddr", 65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* min pow2 >= gossip's STEM_BURST */
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
                        fd_topob_link( topo, "gossip_ciseen", "gossip_ciseen", 65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
-  }
-  if( gossip_vote_enabled ) {
-                       fd_topob_link( topo, "gossip_vote",   "gossip_vote",   65536UL*4UL,                              sizeof(fd_gossip_update_message_t), 1UL );
   }
   /**/                 fd_topob_link( topo, "gossip_misc",   "gossip_misc",   65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
 
@@ -667,9 +662,6 @@ fd_topo_initialize( config_t * config ) {
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
                        fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_ciseen", 0UL                                                );
   }
-  if( gossip_vote_enabled ) {
-                       fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_vote",   0UL                                                );
-  }
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_misc",   0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_net",    0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -762,7 +754,6 @@ fd_topo_initialize( config_t * config ) {
     /* All verify tiles read from all QUIC tiles, packets are round robin. */
     FOR(verify_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
                          fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "quic_verify",   j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers, verify tiles may be overrun */
-    FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "gossip_vote",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(verify_tile_cnt) fd_topob_tile_out( topo, "verify",  i,                         "verify_dedup",  i                                                  );
     FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "verify_dedup",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
