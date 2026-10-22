@@ -215,7 +215,7 @@ struct fd_sched_block {
   fd_block_footer_t footer;
 
   /* Alpenglow block structure, mirroring agave's BlockComponentStage
-     as a set of "seen" flags.  Only maintained when sched->is_alpenglow.
+     as a set of "seen" flags.
      Together with mblk_cnt they determine what may come next:
 
        agave stage               header footer alpentick mblk_cnt
@@ -299,7 +299,6 @@ struct fd_sched {
   ulong                 max_mblk_per_slot;    /* Immutable, FD_SCHED_MAX_MBLK_PER_SLOT scaled with max_shreds_per_block. */
   fd_chkdup_t           chkdup[ 1 ];
   fd_sched_metrics_t    metrics[ 1 ];
-  int                   is_alpenglow; /* set if alpenglow is enabled. */
   ulong                 canary; /* == FD_SCHED_MAGIC */
   ulong                 depth;         /* Immutable. */
   ulong                 block_cnt_max; /* Immutable. */
@@ -752,8 +751,7 @@ fd_sched_new( void *     mem,
               ulong      block_cnt_max,
               ulong      max_shreds_per_block,
               ulong      max_txn_per_slot,
-              ulong      exec_cnt,
-              int        is_alpenglow ) {
+              ulong      exec_cnt ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -832,7 +830,6 @@ fd_sched_new( void *     mem,
   sched->next_ready_last_tick     = LONG_MAX;
   sched->next_ready_last_bank_idx = ULONG_MAX;
 
-  sched->is_alpenglow           = is_alpenglow;
   sched->canary                 = FD_SCHED_MAGIC;
   sched->depth                  = depth;
   sched->block_cnt_max          = block_cnt_max;
@@ -1261,7 +1258,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
-  if( FD_UNLIKELY( block->fec_eos && sched->is_alpenglow ) ) {
+  if( FD_UNLIKELY( block->fec_eos ) ) {
     int dead_reason = ag_on_final( block );
     if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
       handle_bad_block( sched, block, dead_reason );
@@ -2459,15 +2456,11 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         FD_LOG_INFO(( "bad block: TOO_MANY_TXNS, microblock header declared too many transactions, slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
         return FD_SCHED_DEAD_REASON_TOO_MANY_TXNS;
       }
-      if( FD_UNLIKELY( !sched->is_alpenglow && hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
-        FD_LOG_INFO(( "bad block: TICK_HASHES_OVERFLOW_INGEST, slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
-        return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST;
-      }
-      if( FD_UNLIKELY( sched->is_alpenglow && hdr->hash_cnt!=1UL ) ) {
+      if( FD_UNLIKELY( hdr->hash_cnt!=1UL ) ) {
         FD_LOG_INFO(( "bad block: ALPENGLOW_HASH_CNT, slot %lu, parent slot %lu, mblk idx %u declared hash_cnt %lu", block->slot, block->parent_slot, block->mblk_cnt, hdr->hash_cnt ));
         return FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT;
       }
-      if( FD_UNLIKELY( sched->is_alpenglow && block->footer_seen ) ) {
+      if( FD_UNLIKELY( block->footer_seen ) ) {
         if( FD_UNLIKELY( hdr->txn_cnt ) ) {
           FD_LOG_INFO(( "bad block: ENTRY_AFTER_BLOCK_FOOTER, slot %lu, parent slot %lu, transaction microblock after footer", block->slot, block->parent_slot ));
           return FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER;
@@ -2581,7 +2574,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
     if( block->txns_rem==0UL && block->mblks_rem==0UL && block->fec_sob ) {
       CHECK_LEFT( sizeof(ulong) );
       FD_TEST( block->fec_buf_soff==0U );
-      if( FD_UNLIKELY( sched->is_alpenglow && !FD_LOAD( ulong, block->fec_buf ) && !block->fec_eob ) ) {
+      if( FD_UNLIKELY( !FD_LOAD( ulong, block->fec_buf ) && !block->fec_eob ) ) {
         /* Block marker split across FEC sets */
         fd_block_marker_t peek[1];
         if( FD_UNLIKELY( FD_BLOCK_MARKER_DE_ERR_SZ==fd_block_marker_de( peek, block->fec_buf, (ulong)block->fec_buf_sz ) &&
@@ -2597,7 +2590,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
 
       block->fec_sob = 0;
 
-      if( FD_UNLIKELY( !block->mblks_rem && sched->is_alpenglow ) ) {
+      if( FD_UNLIKELY( !block->mblks_rem ) ) {
         /* A zero-microblock batch is a block marker */
         fd_block_marker_t marker[1];
         int err = fd_block_marker_de( marker, block->fec_buf, (ulong)block->fec_buf_sz );
@@ -2608,12 +2601,9 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         int dead_reason = ag_on_marker( sched, block, marker );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
         block->fec_buf_soff = (uint)( FD_BLOCK_MARKER_PREAMBLE_SZ+FD_LOAD( ushort, block->fec_buf+FD_BLOCK_MARKER_PREAMBLE_SZ-sizeof(ushort) ) ); /* the marker is not trailing bytes */
-      } else if( FD_UNLIKELY( block->mblks_rem && sched->is_alpenglow ) ) {
+      } else if( FD_UNLIKELY( block->mblks_rem ) ) {
         int dead_reason = ag_on_entry_batch( block );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
-      } else if( FD_UNLIKELY( !block->mblks_rem && !sched->is_alpenglow ) ) {
-        FD_LOG_INFO(( "bad block: ZERO_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks)", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));
-        return FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS;
       }
       continue;
     }

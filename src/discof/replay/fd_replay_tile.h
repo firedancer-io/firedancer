@@ -67,8 +67,7 @@
 
    ALPENGLOW
 
-   Under alpenglow, the replay tile doesn't use the reasm, but rather
-   relies on rotor to deliver FECs. Similar to reasm, rotor delivers
+   The replay tile  relies on rotor to deliver FECs. Rotor delivers
    FECs in replayable order, with no restrictions on interleaving
    between forks. Every delivered FEC is already in store. Alpenglow
    also introduces the double merkle root, which uniquely identifies

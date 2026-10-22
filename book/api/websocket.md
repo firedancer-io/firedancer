@@ -201,16 +201,8 @@ The current version of the running validator.
 |-----------|-----------|---------|
 | *Once*    | `boolean` | `true`  |
 
-Whether the validator is running Alpenglow consensus.
-
-The API supports both Tower BFT and Alpenglow validators.  Messages
-whose shape or meaning depends on the consensus implementation are
-documented below with separate **Tower** and **Alpenglow** labels.
-
-Clients must use this message to determine the running consensus
-implementation.  A server which does not publish `summary.is_alpenglow`
-must be treated as a Tower server.  The consensus mode does not change
-during the lifetime of a validator process.
+Deprecated.  A server may publish `summary.is_alpenglow`, the value is
+always `true`.
 
 #### `summary.cluster`
 | frequency       | type     | example        |

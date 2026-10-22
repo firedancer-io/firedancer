@@ -194,8 +194,6 @@ create_genesis( config_t const * config,
 
   }
 
-  /* Firedancer only bootstraps Alpenglow clusters */
-  options->alpenglow = 1;
   options->hashes_per_tick = 0UL; /* PoH is in low power mode */
 
   options->ticks_per_slot               = config->development.genesis.ticks_per_slot;

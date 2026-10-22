@@ -302,8 +302,7 @@ fd_sched_new( void *     mem,
               ulong      block_cnt_max,
               ulong      max_shreds_per_block,
               ulong      max_txn_per_slot,
-              ulong      exec_cnt,
-              int        is_alpenglow );
+              ulong      exec_cnt );
 
 fd_sched_t *
 fd_sched_join( void * mem );

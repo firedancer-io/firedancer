@@ -437,7 +437,6 @@ fd_rpc_mleaders_get_leader_for_slot( fd_multi_epoch_leaders_t const * mleaders,
 
 struct fd_rpc_tile {
   int delay_startup;
-  int alpenglow;
   int waker_rearm_pending;
 
   fd_http_server_t * http;
@@ -878,12 +877,10 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->finalized_idx = msg->bank_idx;
 
-        if( FD_UNLIKELY( ctx->alpenglow ) ) {
-          if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-          ctx->confirmed_idx = msg->bank_idx;
+        if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->confirmed_idx = msg->bank_idx;
 
-          if( FD_LIKELY( ctx->cluster_confirmed_slot!=ULONG_MAX ) ) fd_rpc_cluster_finalized( ctx, msg->slot );
-        }
+        if( FD_LIKELY( ctx->cluster_confirmed_slot!=ULONG_MAX ) ) fd_rpc_cluster_finalized( ctx, msg->slot );
         break;
       }
       case REPLAY_SIG_DROP_BANK_REF: {
@@ -3080,7 +3077,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
 
   ctx->delay_startup       = tile->rpc.delay_startup;
-  ctx->alpenglow           = tile->rpc.alpenglow;
   fd_alpenglow_pda( "carlgration", ctx->ag_genesis_cert_addr );
   ctx->waker_rearm_pending = 0;
   ctx->ws_subscribers_vote = _ws_sub_vote;

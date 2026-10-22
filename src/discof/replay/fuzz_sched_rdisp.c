@@ -13,6 +13,7 @@
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
+#include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 
 /* Keep the generated cases small.  These limits are intentionally much
    smaller than production so the fuzzer stays cheap to run and easy to
@@ -21,8 +22,8 @@
 #define TEST_MAX_TXNS_PER_BLOCK 8UL
 #define TEST_MAX_ACCTS_PER_TXN  8UL
 #define TEST_MAX_MBLKS_PER_BLK  8UL
-#define TEST_MAX_BLOCK_BYTES    4096UL
-#define TEST_MAX_SEGMENTS       8UL
+#define TEST_MAX_BLOCK_BYTES    8192UL
+#define TEST_MAX_SEGMENTS       12UL /* header, up to 8 entry, up to 2 footer, tick */
 /* Production defaults to more execrp tiles.  Four is enough here to
    exercise task interleavings without making the state space blow up. */
 #define TEST_EXEC_CNT           4UL
@@ -104,16 +105,19 @@ typedef struct {
   ulong                mblk_cnt;
   fd_hash_t            mblk_start_hash[ TEST_MAX_MBLKS_PER_BLK ];
   fd_hash_t            mblk_hashed_hash[ TEST_MAX_MBLKS_PER_BLK ];
-  ulong                poh_dispatch_mblk_cnt;
+  ulong                poh_assigned_mask; /* local mblks seen in a PoH task */
   ulong                mblk_pool_idx    [ TEST_MAX_MBLKS_PER_BLK ];
   ulong                mblk_curr_hashcnt[ TEST_MAX_MBLKS_PER_BLK ];
   fd_hash_t            mblk_curr_hash   [ TEST_MAX_MBLKS_PER_BLK ];
 
   uchar encoded[ TEST_MAX_BLOCK_BYTES ];
   ulong encoded_sz;
+  ulong entry_off; /* entry batch: mblk_cnt-1 txn microblocks */
+  ulong tick_off;  /* alpentick batch */
   uint  txn_end_off[ TEST_MAX_TXNS_PER_BLOCK ];
   uchar txn_mblk_idx[ TEST_MAX_TXNS_PER_BLOCK ];
   uint  seg_end[ TEST_MAX_SEGMENTS ];
+  uchar seg_eob[ TEST_MAX_SEGMENTS ];
   ulong seg_cnt;
   ulong ingested_seg_cnt;
   int   poh_params_set;
@@ -266,16 +270,19 @@ merkle_root( fd_hash_t * out,
    scheduler checks would no longer be meaningful. */
 FD_FN_UNUSED static void
 verify_block_encoding( block_t const * block ) {
-  FD_TEST( block->encoded_sz>=sizeof(ulong)+sizeof(fd_microblock_hdr_t) );
-  FD_TEST( FD_LOAD( ulong, block->encoded )==block->mblk_cnt );
+  FD_TEST( block->tick_off+sizeof(ulong)+sizeof(fd_microblock_hdr_t)==block->encoded_sz );
+  FD_TEST( FD_LOAD( ulong, block->encoded+block->entry_off )==block->mblk_cnt-1UL );
+  FD_TEST( FD_LOAD( ulong, block->encoded+block->tick_off  )==1UL );
 
-  ulong cursor = sizeof(ulong);
+  ulong cursor = block->entry_off+sizeof(ulong);
   ulong txn_off = 0UL;
   fd_hash_t prev_hash[ 1 ];
   fd_memcpy( prev_hash, block->start_poh, sizeof(fd_hash_t) );
 
   for( ulong i=0UL; i<block->mblk_cnt; i++ ) {
+    if( i==block->mblk_cnt-1UL ) cursor = block->tick_off+sizeof(ulong);
     FD_TEST( cursor + sizeof(fd_microblock_hdr_t) <= block->encoded_sz );
+    FD_TEST( ((fd_microblock_hdr_t const *)fd_type_pun_const( block->encoded + cursor ))->hash_cnt==1UL );
     fd_microblock_hdr_t const * hdr = fd_type_pun_const( block->encoded + cursor );
     cursor += sizeof(fd_microblock_hdr_t);
 
@@ -470,26 +477,22 @@ build_txn( reader_t * r, ulong block_idx, ulong txn_idx, txn_t * out ) {
    stream and caches every intermediate artifact that later harness
    checks need.
 
-   The generated wire image always has the form
+   The generated wire image is an Alpenglow block of four batches
 
-     [ ulong mblk_cnt ][ txn microblock... ][ final tick microblock ]
+     [ header ][ ulong cnt | txn microblock... ][ footer ][ ulong 1 | alpentick ]
 
    where each transaction microblock covers a contiguous slice of
-   block->txn[].  For transaction microblocks, wire_hash_cnt is stored
-   exactly as it would appear on the wire: pure_hash_cnt plus one extra
-   count for the final PoH record/mixin.  The harness keeps both the
-   start hash and the hash after the pure-hash portion so it can mirror
-   the scheduler's split between PoH work and transaction dispatch.  A
-   final tick-only microblock is always appended so every synthetic
-   block advances exactly one tick and produces a deterministic
-   hashes_per_tick value for fd_sched_set_poh_params().
+   block->txn[].  Every entry declares exactly one hash, so a
+   transaction microblock's one hash is the PoH record/mixin and its
+   pure hash portion is empty.  The harness keeps both the start hash
+   and the hash after the pure-hash portion so it can mirror the
+   scheduler's split between PoH work and transaction dispatch.  The
+   alpentick advances the block by exactly one tick of one hash.
 
    After encoding the block, the builder partitions the byte stream into
-   fuzz-controlled segments for incremental FEC ingestion.  If the block
-   contains anything beyond the leading microblock-count word, the first
-   segment is forced to stop right after that word.  This keeps the
-   parser's "new block" boundary stable while still letting later
-   segments split headers and transactions at arbitrary offsets.
+   fuzz-controlled segments for incremental FEC ingestion.  The header
+   is its own segment, the entry batch is split at arbitrary offsets,
+   the footer may be split once, and the alpentick is its own segment.
 
    The function also precomputes the transaction conflict predecessor
    masks and selects a failure_mode used later by the harness to inject
@@ -523,44 +526,49 @@ build_block( reader_t *        r,
   }
 
   uchar * p = block->encoded;
+  ulong   cursor = 0UL;
+
+  fd_block_marker_t marker[ 1 ];
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->kind               = FD_BLOCK_MARKER_KIND_HEADER;
+  marker->header.parent_slot = parent_slot;
+  FD_TEST( cursor+FD_BLOCK_MARKER_SER_MAX<=sizeof(block->encoded) );
+  cursor += fd_block_marker_ser( marker, p+cursor );
+  ulong header_end = cursor;
+
+  block->entry_off = cursor;
+  cursor += sizeof(ulong);
+
   ulong txns_remaining = block->txn_cnt;
-  ulong cursor         = 0UL;
   ulong txn_off        = 0UL;
-  ulong tick_hash_cnt  = 0UL;
   fd_hash_t prev_hash[ 1 ];
   fd_memcpy( prev_hash, parent_hash, sizeof(fd_hash_t) );
 
   block->mblk_cnt = 0UL;
   while( txns_remaining ) {
-    ulong tx_mblk_slots_rem = TEST_MAX_MBLKS_PER_BLK - block->mblk_cnt - 1UL; /* Reserve one slot for the final tick. */
+    ulong tx_mblk_slots_rem = TEST_MAX_MBLKS_PER_BLK - block->mblk_cnt - 1UL; /* Reserve one slot for the alpentick. */
     FD_TEST( tx_mblk_slots_rem>0UL );
     ulong min_group_txn_cnt = ( txns_remaining + tx_mblk_slots_rem - 1UL ) / tx_mblk_slots_rem;
     ulong group_txn_cnt = min_group_txn_cnt + read_range( r, txns_remaining - min_group_txn_cnt + 1UL );
-    ulong pure_hash_cnt = 1UL + read_range( r, 3UL );
-    ulong wire_hash_cnt = pure_hash_cnt + 1UL;
 
-    fd_memcpy( block->mblk_start_hash + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
+    fd_memcpy( block->mblk_start_hash  + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
+    fd_memcpy( block->mblk_hashed_hash + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
     block->mblk[ block->mblk_cnt ].start_txn      = (uint)txn_off;
     block->mblk[ block->mblk_cnt ].txn_cnt        = (uint)group_txn_cnt;
-    block->mblk[ block->mblk_cnt ].wire_hash_cnt  = wire_hash_cnt;
+    block->mblk[ block->mblk_cnt ].wire_hash_cnt  = 1UL;
     block->mblk_cnt++;
-    tick_hash_cnt += wire_hash_cnt;
-
-    fd_hash_t after_hashes[ 1 ];
-    repeat_hash( after_hashes, prev_hash, pure_hash_cnt );
-    fd_memcpy( block->mblk_hashed_hash + block->mblk_cnt-1UL, after_hashes, sizeof(fd_hash_t) );
 
     fd_hash_t merkle[ 1 ];
     merkle_root( merkle, block->txn + txn_off, group_txn_cnt );
 
     uchar mixin[ 64 ];
-    fd_memcpy( mixin,      after_hashes->hash, 32UL );
-    fd_memcpy( mixin+32UL, merkle->hash,       32UL );
+    fd_memcpy( mixin,      prev_hash->hash, 32UL );
+    fd_memcpy( mixin+32UL, merkle->hash,    32UL );
     fd_hash_t end_hash[ 1 ];
     fd_sha256_hash( mixin, sizeof(mixin), end_hash->hash );
 
     fd_microblock_hdr_t hdr = {
-      .hash_cnt = wire_hash_cnt,
+      .hash_cnt = 1UL,
       .txn_cnt  = group_txn_cnt
     };
     fd_memcpy( hdr.hash, end_hash->hash, sizeof(fd_hash_t) );
@@ -580,53 +588,71 @@ build_block( reader_t *        r,
     txn_off        += group_txn_cnt;
     txns_remaining -= group_txn_cnt;
   }
+  FD_STORE( ulong, p+block->entry_off, block->mblk_cnt );
+  ulong entry_end = cursor;
 
-  ulong tick_wire_hash_cnt = 1UL + read_range( r, 4UL );
-  block->hashes_per_tick = tick_hash_cnt + tick_wire_hash_cnt;
+  fd_memset( marker, 0, sizeof(fd_block_marker_t) );
+  marker->kind = FD_BLOCK_MARKER_KIND_FOOTER;
+  FD_TEST( cursor+FD_BLOCK_MARKER_SER_MAX<=sizeof(block->encoded) );
+  cursor += fd_block_marker_ser( marker, p+cursor );
+  ulong footer_end = cursor;
+
+  block->hashes_per_tick = 1UL;
   FD_TEST( block->mblk_cnt<TEST_MAX_MBLKS_PER_BLK );
   fd_memcpy( block->mblk_start_hash + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
   block->mblk[ block->mblk_cnt ].start_txn     = (uint)block->txn_cnt;
   block->mblk[ block->mblk_cnt ].txn_cnt       = 0U;
-  block->mblk[ block->mblk_cnt ].wire_hash_cnt = tick_wire_hash_cnt;
+  block->mblk[ block->mblk_cnt ].wire_hash_cnt = 1UL;
   block->mblk_cnt++;
 
   fd_hash_t tick_end[ 1 ];
-  repeat_hash( tick_end, prev_hash, tick_wire_hash_cnt );
+  repeat_hash( tick_end, prev_hash, 1UL );
   fd_memcpy( block->mblk_hashed_hash + block->mblk_cnt-1UL, tick_end, sizeof(fd_hash_t) );
   fd_memcpy( block->end_poh, tick_end, sizeof(fd_hash_t) );
 
   fd_microblock_hdr_t tick_hdr = {
-    .hash_cnt = tick_wire_hash_cnt,
+    .hash_cnt = 1UL,
     .txn_cnt  = 0UL
   };
   fd_memcpy( tick_hdr.hash, tick_end->hash, sizeof(fd_hash_t) );
 
-  FD_TEST( cursor + sizeof(fd_microblock_hdr_t) + sizeof(ulong) <= sizeof(block->encoded) );
-  memmove( block->encoded + sizeof(ulong), block->encoded, cursor );
-  FD_STORE( ulong, block->encoded, block->mblk_cnt );
-  for( ulong i=0UL; i<block->txn_cnt; i++ ) block->txn_end_off[ i ] += (uint)sizeof(ulong);
+  block->tick_off = cursor;
+  FD_TEST( cursor + sizeof(ulong) + sizeof(fd_microblock_hdr_t) <= sizeof(block->encoded) );
+  FD_STORE( ulong, p+cursor, 1UL );
   cursor += sizeof(ulong);
-  fd_memcpy( block->encoded + cursor, &tick_hdr, sizeof(fd_microblock_hdr_t) );
+  fd_memcpy( p + cursor, &tick_hdr, sizeof(fd_microblock_hdr_t) );
   cursor += sizeof(fd_microblock_hdr_t);
   block->encoded_sz = cursor;
 
-  block->seg_cnt = 1UL + read_range( r, fd_ulong_min( TEST_MAX_SEGMENTS, block->encoded_sz ) );
-  if( FD_LIKELY( block->encoded_sz>sizeof(ulong) ) ) block->seg_cnt = fd_ulong_max( block->seg_cnt, 2UL );
-  ulong off = 0UL;
-  if( FD_LIKELY( block->encoded_sz>sizeof(ulong) ) ) {
-    off = sizeof(ulong);
-    block->seg_end[ 0 ] = (uint)off;
-    ulong rem = block->encoded_sz - off;
-    for( ulong i=1UL; i<block->seg_cnt; i++ ) {
-      ulong min_rem = block->seg_cnt-i-1UL;
-      ulong len     = fd_ulong_if( i+1UL==block->seg_cnt, rem, 1UL + read_range( r, rem-min_rem ) );
-      off += len;
-      block->seg_end[ i ] = (uint)off;
-      rem -= len;
-    }
-  } else {
-    block->seg_end[ 0 ] = (uint)block->encoded_sz;
+  /* Segments: header | entry batch in [1,8] pieces | footer in [1,2]
+     pieces | alpentick. */
+  ulong seg = 0UL;
+  block->seg_end[ seg ] = (uint)header_end; block->seg_eob[ seg ] = 1; seg++;
+
+  ulong entry_sz  = entry_end - block->entry_off;
+  ulong entry_cnt = 1UL + read_range( r, fd_ulong_min( 8UL, entry_sz ) );
+  ulong off       = block->entry_off;
+  ulong rem       = entry_sz;
+  for( ulong i=0UL; i<entry_cnt; i++ ) {
+    ulong min_rem = entry_cnt-i-1UL;
+    ulong len     = fd_ulong_if( i+1UL==entry_cnt, rem, 1UL + read_range( r, rem-min_rem ) );
+    off += len;
+    rem -= len;
+    block->seg_end[ seg ] = (uint)off;
+    block->seg_eob[ seg ] = (uchar)(i+1UL==entry_cnt);
+    seg++;
   }
+
+  ulong footer_sz = footer_end - entry_end;
+  if( read_uchar( r )&1U ) {
+    block->seg_end[ seg ] = (uint)(entry_end + 1UL + read_range( r, footer_sz-1UL ));
+    block->seg_eob[ seg ] = 0;
+    seg++;
+  }
+  block->seg_end[ seg ] = (uint)footer_end;        block->seg_eob[ seg ] = 1; seg++;
+  block->seg_end[ seg ] = (uint)block->encoded_sz; block->seg_eob[ seg ] = 1; seg++;
+  FD_TEST( seg<=TEST_MAX_SEGMENTS );
+  block->seg_cnt = seg;
 
   switch( read_range( r, 6UL ) ) {
     case 0UL: block->failure_mode = TEST_FAIL_EXEC; break;
@@ -693,7 +719,7 @@ prepare_fec( block_t const *  block,
     .fec                = store_fec,
     .data               = (uchar *)block->encoded + seg_start,
     .shred_cnt          = 1U,
-    .is_last_in_batch   = (uint)(seg+1UL==block->seg_cnt),
+    .is_last_in_batch   = (uint)!!block->seg_eob[ seg ],
     .is_last_in_block   = (uint)(seg+1UL==block->seg_cnt),
     .is_first_in_block  = (uint)(seg==0UL),
   };
@@ -766,7 +792,7 @@ build_case( case_t * tc, uchar const * data, ulong data_sz ) {
 
   fd_rng_t rng[1];
   fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  tc->sched = fd_sched_join( fd_sched_new( tc->mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  tc->sched = fd_sched_join( fd_sched_new( tc->mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT ) );
 
   /* Seed the scheduler with bank 0 as a completed snapshot root.  The
      notify/advance pair is a no-op for the current root, but using the
@@ -1283,12 +1309,19 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
           ulong pool_idx       = task->poh_hash->mblk_idx[ i ];
           ulong local_mblk_idx = ULONG_MAX;
-          for( ulong l=0UL; l<block->poh_dispatch_mblk_cnt; l++ ) {
+          for( ulong l=0UL; l<block->mblk_cnt; l++ ) {
+            if( !fd_ulong_extract_bit( block->poh_assigned_mask, (int)l ) ) continue;
             if( block->mblk_pool_idx[ l ]==pool_idx && block->mblk_curr_hashcnt[ l ]<mblk_task_hashcnt( block, l ) ) { local_mblk_idx = l; break; }
           }
           if( local_mblk_idx==ULONG_MAX ) {
-            local_mblk_idx = block->poh_dispatch_mblk_cnt++;
+            /* Microblocks with no pure hashes can dispatch out of order,
+               so match a new one by its start hash. */
+            for( ulong l=0UL; l<block->mblk_cnt; l++ ) {
+              if( fd_ulong_extract_bit( block->poh_assigned_mask, (int)l ) ) continue;
+              if( !memcmp( task->poh_hash->hash+i, block->mblk_start_hash+l, sizeof(fd_hash_t) ) ) { local_mblk_idx = l; break; }
+            }
             FD_TEST( local_mblk_idx<block->mblk_cnt );
+            block->poh_assigned_mask = fd_ulong_set_bit( block->poh_assigned_mask, (int)local_mblk_idx );
             block->mblk_pool_idx    [ local_mblk_idx ] = pool_idx;
             block->mblk_curr_hashcnt[ local_mblk_idx ] = 0UL;
             fd_memcpy( block->mblk_curr_hash + local_mblk_idx, block->mblk_start_hash + local_mblk_idx, sizeof(fd_hash_t) );
@@ -1299,7 +1332,8 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
           entry->local_mblk_idx[ i ] = local_mblk_idx;
           fd_memcpy( entry->hash+i, task->poh_hash->hash+i, sizeof(fd_hash_t) );
         }
-        FD_TEST( task->poh_hash->hashcnt && task->poh_hash->hashcnt<=min_todo );
+        FD_TEST( task->poh_hash->hashcnt<=min_todo );
+        FD_TEST( task->poh_hash->hashcnt || !min_todo ); /* txn microblocks have no pure hashes */
         break;
       }
       default: FD_LOG_ERR(( "unexpected task_type %lu", task->task_type ));

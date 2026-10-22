@@ -444,7 +444,7 @@ genesis_create( void *                       buf,
 
   /* Genesis certificate and epoch inflation account */
   ulong alpenglow_idx = genesis->accounts_len;
-  if( options->alpenglow ) genesis->accounts_len += 2UL;
+  genesis->accounts_len += 2UL;
 
   ulong accounts_sz;
   REQUIRE( !__builtin_mul_overflow( genesis->accounts_len, sizeof(fd_genesis_account_pair_t), &accounts_sz ) );
@@ -517,7 +517,7 @@ genesis_create( void *                       buf,
 
   uchar genesis_cert_data   [ FD_GENESIS_CERT_SZ              ] = {0};
   uchar epoch_inflation_data[ FD_EPOCH_INFLATION_ACCOUNT_SOME ];
-  if( options->alpenglow ) {
+  do {
     /* WireBlockCertMessage { block: { slot: 0, block_id: 0 },
        signature: { signature: 0, bitmap: encode_base2( [] ) } }
        bincode encoded.  The bitmap is a Vec<u8> holding the base2
@@ -547,7 +547,7 @@ genesis_create( void *                       buf,
         .owner      = fd_solana_system_program_id
       }
     };
-  }
+  } while(0);
 
   /* Deploy an SPL Token compatible program and set up the token
      accounts */

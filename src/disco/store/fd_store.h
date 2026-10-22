@@ -200,7 +200,6 @@ struct fd_store {
   ulong map_gaddr;
   ulong pool_mem_gaddr;
   ulong pool_ele_gaddr;
-  int   alpenglow;                          /* slot_to_fecs exists only if set */
   ulong shred_tile_cnt;
   ulong slot_to_fecs_gaddr;                 /* shred_tile_cnt maps, slot_to_fecs_sz apart */
   ulong slot_to_fecs_sz;
@@ -252,7 +251,6 @@ struct fd_store {
      by (root,idx).  Both pools are indexed by ring_idx. */
   ulong        shred_map_gaddr;
   ulong        shred_pool_gaddr;
-  int          has_root_map;    /* 0 without alpenglow, root_{map,pool}_gaddr unused */
   ulong        root_map_gaddr;
   ulong        root_pool_gaddr;
   ulong        shred_tag_gaddr;
@@ -320,7 +318,6 @@ fd_store_footprint( ulong fec_max,
                     ulong shred_storage_gib,
                     ulong shred_cache_bytes,
                     ulong fec_set_cnt,
-                    int   alpenglow,
                     ulong shred_tile_cnt ) {
   if( FD_UNLIKELY( !fec_max || !fec_data_max || fec_max>UINT_MAX || fec_data_max>UINT_MAX ||
                    shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ) ) return 0UL;
@@ -336,7 +333,7 @@ fd_store_footprint( ulong fec_max,
                    fd_store_layout_append( &l, fd_store_map_align(),     1UL,            fd_store_map_footprint( chain_cnt ) ) ||
                    fd_store_layout_append( &l, fd_store_pool_align(),    1UL,            fd_store_pool_footprint() ) ||
                    fd_store_layout_append( &l, alignof(fd_store_fec_t),  fec_max,         sizeof(fd_store_fec_t) ) ||
-                   fd_store_layout_append( &l, fd_store_slot_to_fecs_align(), alpenglow ? shred_tile_cnt : 0UL, slot_to_fecs_sz ) ||
+                   fd_store_layout_append( &l, fd_store_slot_to_fecs_align(), shred_tile_cnt, slot_to_fecs_sz ) ||
                    fd_store_layout_append( &l, FD_STORE_PAYLOAD_PAGE_SZ, cache_slot_cnt, payload_slot_sz ) ||
                    fd_store_layout_append( &l, alignof(ulong),           cache_slot_cnt, sizeof(ulong) ) ||
                    fd_store_layout_append( &l, alignof(uint),            fec_max,         sizeof(uint) ) ||
@@ -351,11 +348,9 @@ fd_store_footprint( ulong fec_max,
                      fd_store_layout_append( &l, alignof(fd_shredb_shred_entry_t), max_shreds, sizeof(fd_shredb_shred_entry_t) ) ||
                      fd_store_layout_append( &l, alignof(atomic_ulong),            max_shreds, sizeof(atomic_ulong) ) ||
                      fd_store_layout_append( &l, alignof(atomic_ulong),            max_slots,   sizeof(atomic_ulong) ) ) ) return 0UL;
-    if( alpenglow ) {
-      ulong root_chain_cnt = fd_shredb_root_map_chain_cnt_est( max_shreds );
-      if( FD_UNLIKELY( fd_store_layout_append( &l, fd_shredb_root_map_align(),      1UL,        fd_shredb_root_map_footprint( root_chain_cnt ) ) ||
-                       fd_store_layout_append( &l, alignof(fd_shredb_root_entry_t), max_shreds, sizeof(fd_shredb_root_entry_t) ) ) ) return 0UL;
-    }
+    ulong root_chain_cnt = fd_shredb_root_map_chain_cnt_est( max_shreds );
+    if( FD_UNLIKELY( fd_store_layout_append( &l, fd_shredb_root_map_align(),      1UL,        fd_shredb_root_map_footprint( root_chain_cnt ) ) ||
+                     fd_store_layout_append( &l, alignof(fd_shredb_root_entry_t), max_shreds, sizeof(fd_shredb_root_entry_t) ) ) ) return 0UL;
   }
   if( FD_UNLIKELY( fd_store_layout_append( &l, fd_store_align(), 0UL, 1UL ) ) ) return 0UL;
   return l;
@@ -365,9 +360,7 @@ fd_store_footprint( ulong fec_max,
    bounds live FECs; fec_data_max bounds each payload.  The remaining size
    arguments configure the shred ring, RAM cache, and shred-tile arena.
    max_shreds_per_block bounds shred idxs in the shred ring, in
-   [1,FD_SHREDB_HINT_VALID].  The shred ring's root map and the
-   shred_tile_cnt slot_to_fecs partitions exist only if alpenglow,
-   which must match the footprint.  Does not create the backing file. */
+   [1,FD_SHREDB_HINT_VALID]. Does not create the backing file. */
 
 void *
 fd_store_new( void       * shmem,
@@ -378,7 +371,6 @@ fd_store_new( void       * shmem,
               ulong        fec_set_cnt,
               ulong        max_shreds_per_block,
               ulong        seed,
-              int          alpenglow,
               ulong        shred_tile_cnt );
 
 fd_store_t * fd_store_join ( void * shstore );

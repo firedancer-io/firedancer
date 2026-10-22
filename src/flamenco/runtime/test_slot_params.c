@@ -289,8 +289,7 @@ test_snapshot_baseline_select( void ) {
 }
 
 /* hashes_per_tick feeds the tick count -> last blockhash -> bank
-   hash, so it must switch to the table value at the effective slot.
-   Agave guards this on !alpenglow; FD has no alpenglow gate yet. */
+   hash, so it must switch to the table value at the effective slot. */
 static void
 test_hashes_per_tick( void ) {
   fd_epoch_schedule_t es = test_epoch_schedule();

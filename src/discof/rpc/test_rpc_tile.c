@@ -1203,18 +1203,11 @@ main( int     argc,
     static char const ag_null[] = "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":1}";
     static char const ag_bad [] = "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Firedancer Error: malformed genesis certificate\"},\"id\":1}";
 
-    FD_TEST( !ctx->alpenglow );
     FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
 
-    /* Tower: getAgGenesisCert is served like Agave, null without the
-       account, and roots do not feed health (optimistic confirmation
-       does). */
+    /* getAgGenesisCert is null without the account */
 
     expect_rpc_response( ctx, ag_req, ag_null );
-    DRIVE_ROOT_ADVANCED( 1UL, 10UL );
-    FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
-
-    ctx->alpenglow = 1;
 
     /* A root advance aliases confirmed to finalized, returning the
        previous reference of each */
@@ -1297,7 +1290,6 @@ main( int     argc,
     expect_rpc_response( ctx, ag_req, ag_bad );
 
     /* Leave the fixture as the later cases expect it */
-    ctx->alpenglow              = 0;
     ctx->cluster_confirmed_slot = ULONG_MAX;
     ctx->processed_idx          = 0UL;
     ctx->confirmed_idx          = 0UL;
