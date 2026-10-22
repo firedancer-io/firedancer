@@ -18,7 +18,6 @@
 #define POOL_NEXT  parent
 #include "../../util/tmpl/fd_pool.c"
 
-FD_IMPORT_BINARY( vote_tower_sync_txn, "src/discof/rpc/fixtures/vote_tower_sync.bin" );
 
 static void
 test_ws_conn_open( fd_http_server_t * http,
@@ -549,7 +548,7 @@ main( int     argc,
 
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
-  fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_vote", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
+  create_link( topo, wksp, "gossip_vote", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
   fd_topo_link_t * link_replay_slot = create_link( topo, wksp, "replay_slot", 4UL, sizeof(fd_replay_root_advanced_t), 1UL );
   fd_topo_link_t * link_votor_out  = create_link( topo, wksp, "votor_out",  4UL, sizeof(fd_votor_msg_t),             1UL );
 
@@ -690,58 +689,13 @@ main( int     argc,
   );
   FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
   FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
-  FD_TEST( vote_tower_sync_txn_sz<=sizeof( ((fd_gossip_vote_t *)0)->transaction ) );
-  {
-    fd_gossip_update_message_t * update = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_gossip_out->dcache ) );
-    memset( update, 0, FD_GOSSIP_UPDATE_SZ_VOTE );
-    update->tag = FD_GOSSIP_UPDATE_TAG_VOTE;
-    update->vote->value->transaction_len = vote_tower_sync_txn_sz;
-    memcpy( update->vote->value->transaction, vote_tower_sync_txn, vote_tower_sync_txn_sz );
-
-    FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_GOSSIP_UPDATE_TAG_VOTE, fd_laddr_to_chunk( wksp, update ), FD_GOSSIP_UPDATE_SZ_VOTE, 0UL, 0UL, 0UL, NULL ) );
-    struct fd_http_server_ws_connection * conn = &ctx->http->ws_conns[ 0 ];
-    FD_TEST( conn->send_frame_cnt>0UL );
-
-    ulong frame_idx = (conn->send_frame_idx+conn->send_frame_cnt-1UL) % ctx->http->max_ws_send_frame_cnt;
-    fd_http_server_ws_frame_t const * frame = &conn->send_frames[ frame_idx ];
-    FD_TEST( !frame->compressed );
-    char const expected[] =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"voteNotification\",\"params\":{\"subscription\":0,\"result\":{\"votePubkey\":\"9Diao4uo6NpeMud7t5wvGnJ3WxDM7iaYxkGtJM36T4dy\","
-        "\"slots\":[425637581,425637582,425637583,425637584,425637585,425637586,425637587,425637588,425637589,425637590,425637591,425637592,425637593,425637594,425637595,425637596,425637597,425637598,425637599,425637600,425637601,425637602,425637603,425637604,425637605,425637606,425637607,425637608,425637609,425637610,425637611],"
-        "\"hash\":\"GFiLqndBXPMfvM18KP1ow35cgL8vitqFeKCU3xFogCxx\",\"timestamp\":1781130981,"
-        "\"signature\":\"2bEoikscia2UbcJhwBY8112BZQuS1icVuNiruAXzZ53qxvbsSg9aiLzHU5JBnW6rXakPjTTjt14cqxdMmUd3qZaq\","
-        "\"transaction\":[\"Ak+K5gfbg+NpHO3UTO/QzBfIfgeNSs4njPIIX+aFRKxSvBKCZm7MXtZsIC+RFQkQKgT051zEsImZRljpQUbj1woAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgEBBKgi3FMRExpaRO6SOLvtJElE8QFMt3sk6+UDD5+fLvfft827Ax4np8ywG8B+HFowmxhhKhboEAC4ke6NRg0zZwB6H3uXqqwwUjGjRR9ELjwRK5RPAOeVvcAe35GPwVDg7AdhSB01dHS7fE12JOvTvbPYNV5z0RBD/A2jU4AAAAAAGxVqmLLaYBv9BcHpi++/hhQK10e1ZHromZsZ81RQvskBAwICAZQBDgAAAMy2XhkAAAAAHwEfAR4BHQEcARsBGgEZARgBFwEWARUBFAETARIBEQEQAQ8BDgENAQwBCwEKAQkBCAEHAQYBBQEEAQMBAgEB4qQuTZIXKp1u6K5KsnxFr+ushJ49E/9XN7NB48dr9rEB5eYpagAAAADHpDbUzrLPx+gMBJwQmbfn20XTCpAncuVI3xmG+6ulqw==\",\"base64\"]}}}\n";
-    char const * got = (char const *)( ctx->http->oring + (frame->off % ctx->http->oring_sz) );
-    if( FD_UNLIKELY( frame->len!=strlen( expected ) || memcmp( got, expected, frame->len ) ) ) {
-      FD_LOG_WARNING(( "Expected vote notification:\n---\n%s---", expected ));
-      FD_LOG_WARNING(( "Got vote notification:\n---\n%.*s---", (int)frame->len, got ));
-      FD_LOG_ERR(( "vote notification did not match expected" ));
-    }
-
-    test_ws_conn_open( ctx->http, 1UL );
-    fd_rpc_ws_subscriber_vote_add( ctx, 1UL );
-    FD_TEST( ctx->ws_subscribers_vote_cnt==2UL );
-    FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
-    FD_TEST( ctx->ws_subscribers_vote[ 1 ]==1UL );
-
-    int ws1_fd = ctx->http->pollfds[ ctx->http->max_conns+1UL ].fd;
-
-    conn->send_frame_cnt = ctx->http->max_ws_send_frame_cnt;
-    struct fd_http_server_ws_connection * conn1 = &ctx->http->ws_conns[ 1 ];
-    ulong conn1_send_frame_cnt = conn1->send_frame_cnt;
-    FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_GOSSIP_UPDATE_TAG_VOTE, fd_laddr_to_chunk( wksp, update ), FD_GOSSIP_UPDATE_SZ_VOTE, 0UL, 0UL, 0UL, NULL ) );
-    FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
-    FD_TEST( ctx->ws_subscribers_vote[ 0 ]==1UL );
-    FD_TEST( conn1->send_frame_cnt==conn1_send_frame_cnt+1UL );
-    FD_TEST( ctx->http->pollfds[ ctx->http->max_conns ].fd==-1 );
-    FD_TEST( ctx->http->pollfds[ ctx->http->max_conns+1UL ].fd==ws1_fd );
-  }
-  expect_ws_rpc_response( ctx, 1UL,
+  FD_TEST( before_frag( ctx, find_in_idx( ctx, IN_KIND_GOSSIP_OUT ), 0UL, FD_GOSSIP_UPDATE_TAG_VOTE ) );
+  expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"voteUnsubscribe\",\"params\":[0]}",
       "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":1}"
   );
   FD_TEST( ctx->ws_subscribers_vote_cnt==0UL );
-  fd_http_server_ws_close( ctx->http, 1UL, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
+  fd_http_server_ws_close( ctx->http, 0UL, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
   FD_TEST( ctx->http->metrics.ws_connection_cnt==0UL );
 
   expect_rpc_response( ctx,
@@ -1201,7 +1155,6 @@ main( int     argc,
   {
     ulong const replay_in_idx = find_in_idx( ctx, IN_KIND_REPLAY );
     ulong const votor_in_idx  = find_in_idx( ctx, IN_KIND_VOTOR  );
-    ulong const gossip_in_idx = find_in_idx( ctx, IN_KIND_GOSSIP_OUT );
 
     fd_frag_meta_t * stem_mcaches[ 1 ]  = { link_rpc_replay->mcache };
     ulong            stem_seqs[ 1 ]     = { 0UL };
@@ -1265,12 +1218,6 @@ main( int     argc,
     FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
 
     ctx->alpenglow = 1;
-
-    /* Agave no longer relays gossip tower votes to voteSubscribe */
-
-    ctx->ws_subscribers_vote_cnt = 1UL;
-    FD_TEST( before_frag( ctx, gossip_in_idx, 0UL, FD_GOSSIP_UPDATE_TAG_VOTE ) );
-    ctx->ws_subscribers_vote_cnt = 0UL;
 
     /* A root advance aliases confirmed to finalized, returning the
        previous reference of each */

@@ -23,7 +23,6 @@
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
@@ -754,8 +753,6 @@ before_frag( fd_rpc_tile_t *   ctx,
              ulong             seq FD_PARAM_UNUSED,
              ulong             sig ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT ) ) {
-    /* To match Agave, voteSubscribe shouldn't work under Alpenglow. */
-    if( sig==FD_GOSSIP_UPDATE_TAG_VOTE ) return ctx->alpenglow || !ctx->ws_subscribers_vote_cnt;
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
@@ -768,113 +765,6 @@ before_frag( fd_rpc_tile_t *   ctx,
   if( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) return sig!=FD_VOTOR_SIG_CERTED;
 
   return 0;
-}
-
-static int
-fd_rpc_extract_vote_notification( fd_gossip_vote_t const * vote,
-                                  fd_pubkey_t *            vote_pubkey,
-                                  fd_hash_t *              hash,
-                                  long *                   timestamp,
-                                  uchar *                  has_timestamp,
-                                  fd_signature_t *         signature,
-                                  ulong *                  slots,
-                                  ulong *                  slots_cnt ) {
-  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-  ulong txn_sz = fd_txn_parse( vote->transaction, vote->transaction_len, txn_mem, NULL );
-  if( FD_UNLIKELY( !txn_sz ) ) return 0;
-
-  fd_txn_t const * txn = (fd_txn_t const *)txn_mem;
-  if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, vote->transaction ) ) ) return 0;
-  if( FD_UNLIKELY( txn->instr_cnt!=1UL || txn->signature_cnt<1UL ) ) return 0;
-
-  fd_txn_instr_t const * instr = &txn->instr[ 0 ];
-  if( FD_UNLIKELY( !instr->acct_cnt ) ) return 0;
-  uchar const * instr_accts = fd_txn_get_instr_accts( instr, vote->transaction );
-  uchar vote_pubkey_idx = instr_accts[ 0 ];
-  if( FD_UNLIKELY( vote_pubkey_idx>=txn->acct_addr_cnt ) ) return 0;
-
-  fd_pubkey_t const * acct_addrs = (fd_pubkey_t const *)fd_type_pun_const( vote->transaction + txn->acct_addr_off );
-  *vote_pubkey = acct_addrs[ vote_pubkey_idx ];
-
-  fd_vote_instruction_t ix[1];
-  if( FD_UNLIKELY( !fd_vote_instruction_deserialize( ix, fd_txn_get_instr_data( instr, vote->transaction ), instr->data_sz ) ) ) return 0;
-
-  *slots_cnt = 0UL;
-  *has_timestamp = 0;
-  *timestamp = 0L;
-
-  switch( ix->discriminant ) {
-    case fd_vote_instruction_enum_tower_sync: {
-      fd_tower_sync_t const * v = &ix->tower_sync;
-      for( ulong i=0UL; i<v->lockouts_cnt; i++ ) slots[ (*slots_cnt)++ ] =
-          deq_fd_vote_lockout_t_peek_index_const( v->lockouts, i )->slot;
-      *hash = v->hash;
-      *has_timestamp = v->has_timestamp;
-      *timestamp = v->timestamp;
-      break;
-    }
-    case fd_vote_instruction_enum_tower_sync_switch: {
-      fd_tower_sync_t const * v = &ix->tower_sync_switch.tower_sync;
-      for( ulong i=0UL; i<v->lockouts_cnt; i++ ) slots[ (*slots_cnt)++ ] =
-          deq_fd_vote_lockout_t_peek_index_const( v->lockouts, i )->slot;
-      *hash = v->hash;
-      *has_timestamp = v->has_timestamp;
-      *timestamp = v->timestamp;
-      break;
-    }
-    default:
-      /* Legacy vote instructions not supported */
-      return 0;
-  }
-
-  *signature = FD_LOAD( fd_signature_t, fd_txn_get_signatures( txn, vote->transaction ) );
-  return *slots_cnt>0UL;
-}
-
-static void
-fd_rpc_publish_vote_event( fd_rpc_tile_t *          ctx,
-                           fd_gossip_vote_t const * vote ) {
-  if( FD_UNLIKELY( !ctx->ws_subscribers_vote_cnt ) ) return;
-
-  fd_pubkey_t vote_pubkey[1];
-  fd_hash_t hash[1];
-  long timestamp = 0L;
-  uchar has_timestamp = 0;
-  fd_signature_t signature[1];
-  ulong slots[ FD_VOTE_INSTR_MAX_LOCKOUT_OFFSETS_LEN ];
-  ulong slots_cnt = 0UL;
-
-  if( FD_UNLIKELY( !fd_rpc_extract_vote_notification( vote, vote_pubkey, hash, &timestamp, &has_timestamp, signature, slots, &slots_cnt ) ) ) return;
-
-  FD_BASE58_ENCODE_32_BYTES( vote_pubkey->uc, vote_pubkey_b58 );
-  FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_b58 );
-  FD_BASE58_ENCODE_64_BYTES( signature->uc, signature_b58 );
-
-  char txn_base64[ FD_BASE64_ENC_SZ( sizeof(vote->transaction) ) ];
-  ulong txn_base64_len = fd_base64_encode( txn_base64, vote->transaction, vote->transaction_len );
-
-  ulong sent_cnt = 0UL;
-  for( ulong i=0UL; i<ctx->ws_subscribers_vote_cnt; ) {
-    ulong ws_conn_id = ctx->ws_subscribers_vote[ i ];
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"method\":\"voteNotification\",\"params\":{\"subscription\":0,\"result\":{\"votePubkey\":\"%s\",\"slots\":[", vote_pubkey_b58 );
-    for( ulong j=0UL; j<slots_cnt; j++ ) fd_http_server_printf( ctx->http, "%s%lu", j ? "," : "", slots[ j ] );
-    fd_http_server_printf( ctx->http, "],\"hash\":\"%s\",", hash_b58 );
-    if( FD_LIKELY( has_timestamp ) ) fd_http_server_printf( ctx->http, "\"timestamp\":%ld,", timestamp );
-    else                             fd_http_server_printf( ctx->http, "\"timestamp\":null," );
-    fd_http_server_printf( ctx->http, "\"signature\":\"%s\",\"transaction\":[\"%.*s\",\"base64\"]}}}\n", signature_b58, (int)txn_base64_len, txn_base64 );
-
-    if( FD_UNLIKELY( fd_http_server_ws_send( ctx->http, ws_conn_id ) ) ) {
-      fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
-      fd_http_server_ws_close( ctx->http, ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW );
-      continue;
-    }
-    if( FD_UNLIKELY( i>=ctx->ws_subscribers_vote_cnt || ctx->ws_subscribers_vote[ i ]!=ws_conn_id ) ) continue;
-    sent_cnt++;
-    i++;
-  }
-
-  FD_MCNT_INC( RPC, WEBSOCKET_NOTIFICATION_PUBLISHED_VOTE, !!sent_cnt );
-  FD_MCNT_INC( RPC, WEBSOCKET_NOTIFICATION_TX_VOTE,          sent_cnt );
 }
 
 static void
@@ -1037,10 +927,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         FD_TEST( node->valid );
         node->valid = 0;
         fd_rpc_cluster_node_dlist_idx_remove( ctx->cluster_nodes_dlist, update->contact_info_remove->idx, ctx->cluster_nodes );
-        break;
-      }
-      case FD_GOSSIP_UPDATE_TAG_VOTE: {
-        fd_rpc_publish_vote_event( ctx, update->vote->value );
         break;
       }
       default: break;
