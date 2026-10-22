@@ -2,6 +2,7 @@
 #include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../../ballet/ed25519/fd_ristretto255.h"
 #include "../../../ballet/bls/fd_bls12_381.h"
+#include "../../../ballet/secp256r1/fd_secp256r1.h"
 
 int
 fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
@@ -13,6 +14,20 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L871 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
+
+  /* secp256r1 syscalls are under feature gate secp256r1_syscall_enabled.
+     To clean up the feature gate after activation, just remove this block
+     (the rest of the function will behave correctly). */
+  {
+    if( FD_UNLIKELY(
+      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, secp256r1_syscall_enabled )
+      && ( curve_id==FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE
+        || curve_id==FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE )
+    ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+    }
+  }
 
   uchar const * point = NULL;
   switch( curve_id ) {
@@ -49,6 +64,15 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
     ret = (ulong)!fd_bls12_381_g2_validate_syscall( point, big_endian ); /* 0 if valid point, 1 if not */
   } break;
 
+  case FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE:
+  case FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE: {
+
+    int big_endian = ( curve_id & 0x80 ) ? 1 : 0;
+    FD_VM_CU_UPDATE( vm, FD_VM_CURVE_SECP256R1_VALIDATE_COST );
+    point = FD_VM_MEM_HADDR_LD( vm, point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+    ret = (ulong)!fd_secp256r1_validate_syscall( point, big_endian ); /* 0 if valid point, 1 if not */
+  } break;
+
   default:
     /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L919-L928 */
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
@@ -70,6 +94,20 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
+  /* secp256r1 syscalls are under feature gate secp256r1_syscall_enabled.
+     To clean up the feature gate after activation, just remove this block
+     (the rest of the function will behave correctly). */
+  {
+    if( FD_UNLIKELY(
+      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, secp256r1_syscall_enabled )
+      && ( curve_id==FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE
+        || curve_id==FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE )
+    ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+    }
+  }
+
   /* Note: we don't strictly follow the Rust implementation, but instead combine
      common code across switch cases. Similar to fd_vm_syscall_sol_alt_bn128_group_op. */
 
@@ -87,6 +125,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 #define BLS_G1_LE FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE
 #define BLS_G2_BE FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE
 #define BLS_G2_LE FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE
+#define P256_BE   FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE
+#define P256_LE   FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE
 
   ulong cost = 0UL;
   ulong inputL_sz = 32UL;
@@ -182,6 +222,34 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       cost = FD_VM_CURVE_BLS12_381_G2_MUL_COST;
       /* inputL_sz = 32UL // scalar */
       inputR_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ;
+      break;
+
+    default:
+      goto invalid_error;
+    }
+    break;
+
+  /* secp256r1 */
+  case P256_BE:
+  case P256_LE:
+    switch( group_op ) {
+
+    case FD_VM_SYSCALL_SOL_CURVE_ADD:
+      cost = FD_VM_CURVE_SECP256R1_ADD_COST;
+      inputL_sz = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ;
+      inputR_sz = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ;
+      break;
+
+    case FD_VM_SYSCALL_SOL_CURVE_SUB:
+      cost = FD_VM_CURVE_SECP256R1_SUB_COST;
+      inputL_sz = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ;
+      inputR_sz = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ;
+      break;
+
+    case FD_VM_SYSCALL_SOL_CURVE_MUL:
+      cost = FD_VM_CURVE_SECP256R1_MUL_COST;
+      /* inputL_sz = 32UL // scalar */
+      inputR_sz = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ;
       break;
 
     default:
@@ -384,6 +452,43 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
   }
 
+  /* secp256r1 */
+  case MATCH_ID_OP( P256_BE, FD_VM_SYSCALL_SOL_CURVE_ADD ):
+  case MATCH_ID_OP( P256_LE, FD_VM_SYSCALL_SOL_CURVE_ADD ): {
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ ];
+    /* Compute add */
+    if( FD_LIKELY( fd_secp256r1_add_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      ret = 0UL; /* success */
+    }
+    break;
+  }
+
+  case MATCH_ID_OP( P256_BE, FD_VM_SYSCALL_SOL_CURVE_SUB ):
+  case MATCH_ID_OP( P256_LE, FD_VM_SYSCALL_SOL_CURVE_SUB ): {
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ ];
+    /* Compute sub */
+    if( FD_LIKELY( fd_secp256r1_sub_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      ret = 0UL; /* success */
+    }
+    break;
+  }
+
+  case MATCH_ID_OP( P256_BE, FD_VM_SYSCALL_SOL_CURVE_MUL ):
+  case MATCH_ID_OP( P256_LE, FD_VM_SYSCALL_SOL_CURVE_MUL ): {
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ ];
+    /* Compute mul */
+    if( FD_LIKELY( fd_secp256r1_mul_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      ret = 0UL; /* success */
+    }
+    break;
+  }
+
   default:
     /* COV: this can never happen because of the previous switch */
     return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
@@ -399,6 +504,8 @@ soft_error:
 #undef BLS_G1_LE
 #undef BLS_G2_BE
 #undef BLS_G2_LE
+#undef P256_BE
+#undef P256_LE
 
 invalid_error:
   /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
@@ -514,11 +621,27 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     return FD_VM_SYSCALL_ERR_INVALID_LENGTH; /* SyscallError::InvalidLength */
   }
 
+  /* secp256r1 syscalls are under feature gate secp256r1_syscall_enabled.
+     To clean up the feature gate after activation, just remove this block
+     (the rest of the function will behave correctly). */
+  {
+    if( FD_UNLIKELY(
+      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, secp256r1_syscall_enabled )
+      && ( curve_id==FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE
+        || curve_id==FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE )
+    ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+    }
+  }
+
   /* Note: we don't strictly follow the Rust implementation, but instead combine
      common code across switch cases. Similar to fd_vm_syscall_sol_alt_bn128_group_op. */
 
   ulong base_cost = 0UL;
   ulong incremental_cost = 0UL;
+  ulong scalar_sz = FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ;
+  ulong point_sz = FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ;
   switch( curve_id ) {
   case FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS:
     base_cost = FD_VM_CURVE_EDWARDS_MSM_BASE_COST;
@@ -528,6 +651,14 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   case FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO:
     base_cost = FD_VM_CURVE_RISTRETTO_MSM_BASE_COST;
     incremental_cost = FD_VM_CURVE_RISTRETTO_MSM_INCREMENTAL_COST;
+    break;
+
+  case FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE:
+  case FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE:
+    base_cost = FD_VM_CURVE_SECP256R1_MSM_BASE_COST;
+    incremental_cost = FD_VM_CURVE_SECP256R1_MSM_INCREMENTAL_COST;
+    scalar_sz = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_SCALAR_SZ;
+    point_sz = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ;
     break;
 
   default:
@@ -549,18 +680,18 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   /* Edge case points_len==0.
      Agave computes the MSM, that returns the point at infinity, and stores the result.
      This means that we have to mem map result, and then set the point at infinity,
-     that is 0x0100..00 for Edwards and 0x00..00 for Ristretto. */
+     that is 0x0100..00 for Edwards and 0x00..00 for Ristretto and secp256r1. */
   if ( FD_UNLIKELY( points_len==0 ) ) {
-    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
-    memset( result, 0, 32 );
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, point_sz );
+    memset( result, 0, point_sz );
     result[0] = curve_id==FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS ? 1 : 0;
     vm->reg[0] = 0UL;
     return FD_VM_SUCCESS;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1166-L1178 */
-  uchar const * scalars = FD_VM_MEM_HADDR_LD( vm, scalars_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ );
-  uchar const * points  = FD_VM_MEM_HADDR_LD( vm, points_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+  uchar const * scalars = FD_VM_MEM_HADDR_LD( vm, scalars_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*scalar_sz );
+  uchar const * points  = FD_VM_MEM_HADDR_LD( vm, points_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*point_sz );
 
   switch( curve_id ) {
 
@@ -589,6 +720,18 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     break;
   }
 
+  case FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE:
+  case FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE: {
+    int big_endian = ( curve_id & 0x80 ) ? 1 : 0;
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ ];
+    if( FD_LIKELY( fd_secp256r1_msm_syscall( _result, scalars, points, points_len, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      ret = 0UL; /* success */
+    }
+    break;
+  }
+
   default:
     /* COV: this can never happen because of the previous switch */
     return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
@@ -608,6 +751,20 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1118 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
+
+  /* secp256r1 syscalls are under feature gate secp256r1_syscall_enabled.
+     To clean up the feature gate after activation, just remove this block
+     (the rest of the function will behave correctly). */
+  {
+    if( FD_UNLIKELY(
+      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, secp256r1_syscall_enabled )
+      && ( curve_id==FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE
+        || curve_id==FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE )
+    ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+    }
+  }
 
   int big_endian = ( curve_id & 0x80 ) ? 1 : 0;
 
@@ -637,6 +794,18 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
     if( FD_LIKELY( fd_bls12_381_g2_decompress_syscall( _result, point, big_endian )==0 ) ) {
       uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
       memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+      ret = 0UL; /* success */
+    }
+  } break;
+
+  case FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE:
+  case FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE: {
+    FD_VM_CU_UPDATE( vm, FD_VM_CURVE_SECP256R1_DECOMPRESS_COST );
+    point = FD_VM_MEM_HADDR_LD( vm, point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_COMPRESSED_SZ );
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ ];
+    if( FD_LIKELY( fd_secp256r1_decompress_syscall( _result, point, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ );
       ret = 0UL; /* success */
     }
   } break;
