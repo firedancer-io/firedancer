@@ -17,8 +17,6 @@
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
 #define FD_SCHED_POISON_MAX_ACCT_PER_SLOT  (64UL)
 
-#define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
-
 /* 64 ticks per slot, and a single gigantic microblock containing min
    size transactions. */
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_SHRED==((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT-65UL*sizeof(fd_microblock_hdr_t))/FD_TXN_MIN_SERIALIZED_SZ), max_txn_per_slot_shred );
@@ -50,8 +48,6 @@ struct fd_sched_mblk {
   ulong start_txn_idx; /* inclusive parse idx */
   ulong end_txn_idx;   /* non-inclusive parse idx */
   ulong curr_txn_idx;  /* next txn to mixin, parse idx in block */
-  ulong hashcnt;       /* number of pure hashes, excluding final mixin */
-  ulong curr_hashcnt;
   fd_hash_t end_hash[ 1 ];
   fd_hash_t curr_hash[ 1 ];
   uint curr_sig_cnt;
@@ -95,13 +91,12 @@ struct fd_sched_block {
   uint                shred_scan_idx; /* First shred boundary not before shred_scan_off. */
   uint                shred_scan_off; /* Block byte offset at the start of shred_scan_idx. */
   uint                mblk_cnt;          /* Total number of microblocks, including ticks and non ticks.
-                                            mblk_cnt==len(unhashed)+len(hashing_in_progress)+poh_mblk_in_flight_cnt+len(mixin_in_progress)+hash_cmp_done_cnt */
+                                            mblk_cnt==len(unhashed)+poh_mblk_in_flight_cnt+len(mixin_in_progress)+hash_cmp_done_cnt */
   uint                mblk_tick_cnt;     /* Total number of tick microblocks. */
   uint                mblk_freed_cnt;    /* This is ==hash_cmp_done_cnt in most cases, except for aborted
                                             blocks, where the freed cnt will catch up to mblk_cnt and surpass
                                             hash_cmp_done_cnt when the block is reaped. */
   uint                mblk_unhashed_cnt; /* ==len(unhashed) */
-  ulong               hashcnt; /* How many hashes this block wants replay to do.  A mixin/record counts as one hash. */
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
   ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
   ulong               block_pool_max_popcnt; /* Peak block pool occupancy. */
@@ -113,23 +108,15 @@ struct fd_sched_block {
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
   int          last_mblk_is_tick;
   mblk_slist_t mblks_unhashed[ 1 ]; /* A microblock, once parsed out, is in one of these queues.  It
-                                       generally progresses from unhashed to hashing to mixin.  When a
-                                       microblock is being hashed/in-flight, it'll be transiently out of
-                                       any of the queues.  Once a microblock progresses through all stages
-                                       of work, it'll be immediately freed. */
-  mblk_slist_t mblks_hashing_in_progress[ 1 ];
+                                       progresses from unhashed to mixin.  When a microblock is being
+                                       hashed/in-flight, it'll be transiently out of any of the queues.
+                                       Once a microblock progresses through all stages of work, it'll be
+                                       immediately freed. */
   mblk_slist_t mblks_mixin_in_progress[ 1 ];
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_commit_t * bmtree;
-  ulong tick_hashcnt_wmk;  /* All ticks in a valid block must accumulate the same number of
-                              hashes since the previous tick, or since block start, and this hash
-                              count must match hashes_per_tick for the block. */
-  ulong curr_tick_hashcnt; /* Starts at 0, accumulates hashcnt, resets to 0 on the next tick. */
-  ulong tick_height;       /* Block is built off of a parent block with this many ticks. */
+  ulong tick_height;       /* Block is built off of a parent block with this many ticks, ULONG_MAX until known. */
   ulong max_tick_height;   /* Block should end with precisely this many ticks. */
-  ulong hashes_per_tick;   /* Fixed per block, feature gated, known after bank clone. */
-  int inconsistent_hashes_per_tick;
-  int zero_hash_tick;
 
   /* Parser state. */
   uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
@@ -215,7 +202,7 @@ struct fd_sched_block {
   fd_block_footer_t footer;
 
   /* Alpenglow block structure, mirroring agave's BlockComponentStage
-     as a set of "seen" flags.  Only maintained when sched->is_alpenglow.
+     as a set of "seen" flags.
      Together with mblk_cnt they determine what may come next:
 
        agave stage               header footer alpentick mblk_cnt
@@ -232,9 +219,9 @@ struct fd_sched_block {
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
-FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
+FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==104UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==184UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75776UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -299,13 +286,10 @@ struct fd_sched {
   ulong                 max_mblk_per_slot;    /* Immutable, FD_SCHED_MAX_MBLK_PER_SLOT scaled with max_shreds_per_block. */
   fd_chkdup_t           chkdup[ 1 ];
   fd_sched_metrics_t    metrics[ 1 ];
-  int                   is_alpenglow; /* set if alpenglow is enabled. */
   ulong                 canary; /* == FD_SCHED_MAGIC */
   ulong                 depth;         /* Immutable. */
   ulong                 block_cnt_max; /* Immutable. */
   ulong                 exec_cnt;      /* Immutable. */
-  ulong                 poh_simd_min;  /* Immutable. */
-  ulong                 poh_simd_max;  /* Immutable. */
   int                   bypass_poh_verify; /* Test/fuzz: skip the PoH end_hash compare in maybe_mixin. */
   int                   bypass_alut_resolution; /* Test/fuzz: skip ALUT resolution (no accdb). */
   long                  txn_in_flight_last_tick;
@@ -375,21 +359,10 @@ shred_split( fd_sched_t *       sched,
              uint               query );
 
 static void
-dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, ulong max_cnt, fd_sched_task_t * out );
+dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out );
 
 static int
 poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx );
-
-static int
-poh_retire_ready_mblks( fd_sched_t * sched, fd_sched_block_t * block );
-
-static inline ulong
-poh_batch_max_cnt( fd_sched_t const * sched, ulong queued_cnt, ulong free_cnt, ulong threshold ) {
-  ulong tile_cnt = free_cnt-threshold;
-  ulong per_tile = (queued_cnt+tile_cnt-1UL)/tile_cnt;
-  ulong max_cnt  = fd_ulong_min( fd_ulong_max( per_tile, 1UL ), sched->poh_simd_max );
-  return fd_ulong_if( max_cnt<sched->poh_simd_min, 1UL, max_cnt );
-}
 
 FD_WARN_UNUSED static int
 maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block );
@@ -611,14 +584,14 @@ print_histogram( fd_sched_t * sched, fd_histf_t * hist, ulong converter, char * 
 
 FD_FN_UNUSED static void
 print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, cert_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->cert_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, cert_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->cert_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -752,8 +725,7 @@ fd_sched_new( void *     mem,
               ulong      block_cnt_max,
               ulong      max_shreds_per_block,
               ulong      max_txn_per_slot,
-              ulong      exec_cnt,
-              int        is_alpenglow ) {
+              ulong      exec_cnt ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -821,7 +793,6 @@ fd_sched_new( void *     mem,
   for( ulong i=0; i<block_cnt_max; i++ ) {
     bpool[ i ].in_sched = 0;
     mblk_slist_new( bpool[ i ].mblks_unhashed );
-    mblk_slist_new( bpool[ i ].mblks_hashing_in_progress );
     mblk_slist_new( bpool[ i ].mblks_mixin_in_progress );
   }
 
@@ -832,7 +803,6 @@ fd_sched_new( void *     mem,
   sched->next_ready_last_tick     = LONG_MAX;
   sched->next_ready_last_bank_idx = ULONG_MAX;
 
-  sched->is_alpenglow           = is_alpenglow;
   sched->canary                 = FD_SCHED_MAGIC;
   sched->depth                  = depth;
   sched->block_cnt_max          = block_cnt_max;
@@ -840,8 +810,6 @@ fd_sched_new( void *     mem,
   sched->max_txn_per_slot       = max_txn_per_slot;
   sched->max_mblk_per_slot      = fd_ulong_min( FD_SCHED_MAX_MBLK_PER_SLOT*max_shreds_per_block/FD_SHRED_BLK_MAX, UINT_MAX ); /* mblk_cnt is uint */
   sched->exec_cnt               = exec_cnt;
-  sched->poh_simd_max           = fd_sha256_simd_lane_max(); FD_CHECK_ERR( sched->poh_simd_max<=FD_SCHED_POH_PARA, "overly wide PoH SHA batch" );
-  sched->poh_simd_min           = fd_sha256_simd_lane_min();
   sched->bypass_poh_verify      = 0;
   sched->bypass_alut_resolution = 0;
   sched->root_idx               = ULONG_MAX;
@@ -905,7 +873,6 @@ fd_sched_join( void * mem ) {
 
   for( ulong i=0; i<block_cnt_max; i++ ) {
     mblk_slist_join( sched->block_pool[ i ].mblks_unhashed );
-    mblk_slist_join( sched->block_pool[ i ].mblks_hashing_in_progress );
     mblk_slist_join( sched->block_pool[ i ].mblks_mixin_in_progress );
   }
 
@@ -1261,7 +1228,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
-  if( FD_UNLIKELY( block->fec_eos && sched->is_alpenglow ) ) {
+  if( FD_UNLIKELY( block->fec_eos ) ) {
     int dead_reason = ag_on_final( block );
     if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
       handle_bad_block( sched, block, dead_reason );
@@ -1376,8 +1343,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       ulong poh_hashing_queued_cnt = block->mblk_cnt-block->poh_mblk_in_flight_cnt-block->poh_hashing_done_cnt;
       int   poh_threshold = fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 );
       if( FD_LIKELY( poh_hashing_queued_cnt>0UL && fd_ulong_popcnt( poh_ready_bitset )>poh_threshold ) ) {
-        ulong max_cnt = poh_batch_max_cnt( sched, poh_hashing_queued_cnt, (ulong)fd_ulong_popcnt( poh_ready_bitset ), (ulong)poh_threshold );
-        dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), max_cnt, out );
+        dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), out );
         sched->next_ready_last_tick     = fd_tickcount();
         sched->next_ready_last_bank_idx = bank_idx;
         return 1UL;
@@ -1469,8 +1435,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   ulong poh_hashing_queued_cnt = block->mblk_cnt-block->poh_mblk_in_flight_cnt-block->poh_hashing_done_cnt;
   int   poh_threshold = fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 );
   if( FD_LIKELY( poh_hashing_queued_cnt>0UL && fd_ulong_popcnt( poh_ready_bitset )>poh_threshold ) ) {
-    ulong max_cnt = poh_batch_max_cnt( sched, poh_hashing_queued_cnt, (ulong)fd_ulong_popcnt( poh_ready_bitset ), (ulong)poh_threshold );
-    dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), max_cnt, out );
+    dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), out );
     sched->next_ready_last_tick     = fd_tickcount();
     sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
@@ -1675,22 +1640,20 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       FD_TEST( msg->cnt==task->cnt );
 
       /* Once the block is found to be bad, the remaining elements are
-         put back on a list so that they get freed along with the
-         block. */
+         freed without retiring. */
       int dead_reason = FD_SCHED_DEAD_REASON_NONE;
       for( ulong i=0UL; i<msg->cnt; i++ ) {
         block->poh_mblk_in_flight_cnt--;
         uint mblk_idx = (uint)task->mblk_idx[ i ];
         fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-        mblk->curr_hashcnt += task->hashcnt;
         memcpy( mblk->curr_hash, msg->hash+i, sizeof(fd_hash_t) );
-        if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) || mblk->curr_hashcnt<mblk->hashcnt ) {
-          mblk_slist_idx_push_tail( block->mblks_hashing_in_progress, mblk_idx, sched->mblk_pool );
+        if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
+          free_mblk( sched, block, mblk_idx );
           continue;
         }
         dead_reason = poh_retire_mblk( sched, block, mblk_idx );
       }
-      if( FD_LIKELY( dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) dead_reason = poh_retire_ready_mblks( sched, block );
+      if( FD_LIKELY( dead_reason==FD_SCHED_DEAD_REASON_NONE ) ) dead_reason = verify_ticks_eager( block );
       if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
         handle_bad_block( sched, block, dead_reason );
         return dead_reason;
@@ -1952,14 +1915,13 @@ fd_sched_pruned_block_next( fd_sched_t * sched ) {
 }
 
 void
-fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh ) {
+fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, fd_hash_t const * start_poh ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
   FD_TEST( max_tick_height>tick_height );
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   block->tick_height = tick_height;
   block->max_tick_height = max_tick_height;
-  block->hashes_per_tick = hashes_per_tick;
   #if FD_SCHED_SKIP_POH
   /* No-op. */
   (void)start_poh;
@@ -2140,7 +2102,6 @@ add_block( fd_sched_t * sched,
   block->mblk_freed_cnt              = 0U;
   block->mblk_tick_cnt               = 0U;
   block->mblk_unhashed_cnt           = 0U;
-  block->hashcnt                     = 0UL;
   block->dead_reason                 = FD_SCHED_DEAD_REASON_NONE;
   block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt - 1UL;
   block->mblk_pool_max_popcnt        = sched->depth - sched->mblk_pool_free_cnt;
@@ -2150,16 +2111,10 @@ add_block( fd_sched_t * sched,
   block->parse_mblk_idx              = UINT_MAX;
 
   mblk_slist_remove_all( block->mblks_unhashed, sched->mblk_pool );
-  mblk_slist_remove_all( block->mblks_hashing_in_progress, sched->mblk_pool );
   mblk_slist_remove_all( block->mblks_mixin_in_progress, sched->mblk_pool );
   block->last_mblk_is_tick            = 0;
-  block->tick_hashcnt_wmk             = 0UL;
-  block->curr_tick_hashcnt            = 0UL;
   block->tick_height                  = ULONG_MAX;
   block->max_tick_height              = ULONG_MAX;
-  block->hashes_per_tick              = ULONG_MAX;
-  block->inconsistent_hashes_per_tick = 0;
-  block->zero_hash_tick               = 0;
 
   block->header_seen        = 0;
   block->genesis_cert_seen  = 0;
@@ -2322,51 +2277,17 @@ ag_on_final( fd_sched_block_t * block ) {
   return FD_SCHED_DEAD_REASON_NONE;
 }
 
-/* Agave invokes verify_ticks() anywhere between once per slot and once
-   per entry batch, before transactions are parsed or dispatched for
-   execution.  We can't do quite the same thing due to out-of-order
-   scheduling and the fact that we allow parsing to run well ahead of
-   block boundaries.  Out-of-order scheduling is good, so is overlapping
-   parsing with execution.  The easiest thing for us would be to just
-   delay verify_ticks() wholesale till the end of a slot, except that
-   this opens us up to bogus tick and hash counts, potentially causing
-   runaway consumption of compute cycles.  Of all the checks that are
-   performed in verify_ticks(), two types are relevant to mitigating
-   this risk.  One is constraining the number of ticks, and the other is
-   constraining the number of hashes per tick.  So we implement these
-   checks here, and perform them on the fly as eagerly as possible.
-
-   Returns FD_SCHED_DEAD_REASON_NONE (0) on success, else the
+/* Bounds the tick count as soon as the tick window is known.  Returns
+   FD_SCHED_DEAD_REASON_NONE (0) on success, else the
    FD_SCHED_DEAD_REASON_* the block should be ruled invalid for.  Does
    not modify the block. */
 static int
 verify_ticks_eager( fd_sched_block_t * block ) {
-  FD_TEST( block->hashes_per_tick!=ULONG_MAX ); /* PoH params initialized. */
+  FD_TEST( block->tick_height!=ULONG_MAX ); /* PoH params initialized. */
 
   if( FD_UNLIKELY( block->mblk_tick_cnt+block->tick_height>block->max_tick_height ) ) {
     FD_LOG_INFO(( "bad block: TOO_MANY_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
     return FD_SCHED_DEAD_REASON_TOO_MANY_TICKS;
-  }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->zero_hash_tick ) ) {
-    FD_LOG_INFO(( "bad block: ZERO_HASH_TICK, slot %lu, parent slot %lu, has at least one zero hash tick", block->slot, block->parent_slot ));
-    return FD_SCHED_DEAD_REASON_ZERO_HASH_TICK;
-  }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->mblk_tick_cnt && (block->hashes_per_tick!=block->tick_hashcnt_wmk||block->inconsistent_hashes_per_tick) ) ) {
-    FD_LOG_INFO(( "bad block: WRONG_HASHES_PER_TICK, slot %lu, parent slot %lu, expected %lu, got %lu", block->slot, block->parent_slot, block->hashes_per_tick, block->tick_hashcnt_wmk ));
-    return FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK;
-  }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->curr_tick_hashcnt>block->hashes_per_tick ) ) { /* >1 to ignore low power hashing or no hashing cases */
-    /* We couldn't really check this at parse time because we may not
-       have the expected hashes per tick value yet.  We couldn't delay
-       this till after all PoH hashing is done, because this would be a
-       DoS vector.  This can't be merged with the above check, because a
-       malformed block might not end with a tick.  As in, a block might
-       end with a non-tick microblock with a high hashcnt.  Note that
-       checking the hashcnt between ticks transitively places an upper
-       bound on the hashcnt of individual microblocks, thus mitigating
-       the DoS vector. */
-    FD_LOG_INFO(( "bad block: TICK_HASHES_OVERFLOW, slot %lu, parent slot %lu, observed cumulative tick_hashcnt %lu, expected %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, block->hashes_per_tick ));
-    return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW;
   }
 
   return FD_SCHED_DEAD_REASON_NONE;
@@ -2396,8 +2317,7 @@ int
 fd_sched_block_verify_ticks( fd_sched_t * sched,
                              ulong        bank_idx,
                              ulong        tick_height,
-                             ulong        max_tick_height,
-                             ulong        hashes_per_tick ) {
+                             ulong        max_tick_height ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
   FD_TEST( max_tick_height>tick_height );
@@ -2406,7 +2326,6 @@ fd_sched_block_verify_ticks( fd_sched_t * sched,
      PoH fixup, unneeded here and unsafe to repeat per FEC set. */
   block->tick_height     = tick_height;
   block->max_tick_height = max_tick_height;
-  block->hashes_per_tick = hashes_per_tick;
   /* fec_eos => slot fully ingested, so the TOO_FEW check is meaningful
      too. */
   return block->fec_eos ? verify_ticks_final( block ) : verify_ticks_eager( block );
@@ -2459,15 +2378,11 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         FD_LOG_INFO(( "bad block: TOO_MANY_TXNS, microblock header declared too many transactions, slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
         return FD_SCHED_DEAD_REASON_TOO_MANY_TXNS;
       }
-      if( FD_UNLIKELY( !sched->is_alpenglow && hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
-        FD_LOG_INFO(( "bad block: TICK_HASHES_OVERFLOW_INGEST, slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
-        return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST;
-      }
-      if( FD_UNLIKELY( sched->is_alpenglow && hdr->hash_cnt!=1UL ) ) {
+      if( FD_UNLIKELY( hdr->hash_cnt!=1UL ) ) {
         FD_LOG_INFO(( "bad block: ALPENGLOW_HASH_CNT, slot %lu, parent slot %lu, mblk idx %u declared hash_cnt %lu", block->slot, block->parent_slot, block->mblk_cnt, hdr->hash_cnt ));
         return FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT;
       }
-      if( FD_UNLIKELY( sched->is_alpenglow && block->footer_seen ) ) {
+      if( FD_UNLIKELY( block->footer_seen ) ) {
         if( FD_UNLIKELY( hdr->txn_cnt ) ) {
           FD_LOG_INFO(( "bad block: ENTRY_AFTER_BLOCK_FOOTER, slot %lu, parent slot %lu, transaction microblock after footer", block->slot, block->parent_slot ));
           return FD_SCHED_DEAD_REASON_ENTRY_AFTER_BLOCK_FOOTER;
@@ -2478,69 +2393,9 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       block->mblks_rem--;
       block->txns_rem = hdr->txn_cnt;
 
-      /* One might think that every microblock needs to have at least
-         one hash, otherwise the block should be considered invalid.  A
-         vanilla validator certainly produces microblocks that conform
-         to this.  But a modded validator could in theory produce
-         zero-hash microblocks.  Agave's replay stage will happily take
-         those microblocks.  The Agave implementation-defined way of
-         doing PoH verify is as follows:
-
-         For a tick microblock, do the same number of hashes as
-         specified by the microblock.  Zero hashes are not allowed.
-
-         For a transaction microblock, if the number of hashes specified
-         by the microblock is <= 1, then do zero pure hashes, and simply
-         do a mixin/record.  Otherwise, do (number of hashes-1) amount
-         of pure hashing, and then do a mixin.  However, note that for
-         the purposes of tick_verify, the number of hashes specified by
-         the microblock is taken verbatim.
-
-         An additional constraint is that Agave expects non-tick
-         microblocks to leave the cumulative tick hash count at least
-         one away from hashes_per_tick at the end of a batch:
-         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L672
-
-         Observe that this is not a net new constraint.  Since ticks are
-         not allowed to have zero hashes, and ticks have to end at
-         exactly hashes_per_tick, this check is redundant.
-
-
-         Some additional references to Agave:
-
-         On the consumer side, non-tick microblocks can have a zero hash
-         count, and the mixin will happen anyways:
-         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L326
-         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L542
-
-         Ticks cannot have a zero hash count:
-         https://github.com/anza-xyz/agave/blob/v4.1.1/entry/src/entry.rs#L684
-
-         On the producer side, Agave reserves at least one hash for the
-         tick, so an Agave produced tick would satisfy the verifier:
-         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/poh.rs#L78
-         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/poh.rs#L101 */
-      block->curr_tick_hashcnt = fd_ulong_sat_add( hdr->hash_cnt, block->curr_tick_hashcnt ); /* For tick_verify, take the number of hashes verbatim. */
       sched->metrics->mblk_parsed_cnt++;
       if( FD_UNLIKELY( !hdr->txn_cnt ) ) {
         /* This is a tick microblock. */
-        if( FD_UNLIKELY( block->mblk_tick_cnt && block->tick_hashcnt_wmk!=block->curr_tick_hashcnt ) ) {
-          block->inconsistent_hashes_per_tick = 1;
-          if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
-            /* >1 to ignore low power hashing or hashing disabled */
-            FD_LOG_INFO(( "bad block: INCONSISTENT_TICK_HASHES, slot %lu, parent slot %lu, tick idx %u, tick_hashcnt_wmk %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick ));
-            return FD_SCHED_DEAD_REASON_INCONSISTENT_TICK_HASHES;
-          }
-        }
-        if( FD_UNLIKELY( !hdr->hash_cnt ) ) {
-          block->zero_hash_tick = 1;
-          if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
-            FD_LOG_INFO(( "bad block: ZERO_HASH_TICK_INGEST, slot %lu, parent slot %lu, tick idx %u has zero hashes", block->slot, block->parent_slot, block->mblk_tick_cnt ));
-            return FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_INGEST;
-          }
-        }
-        block->tick_hashcnt_wmk  = fd_ulong_max( block->curr_tick_hashcnt, block->tick_hashcnt_wmk );
-        block->curr_tick_hashcnt = 0UL;
         block->mblk_tick_cnt++;
       }
 
@@ -2553,8 +2408,6 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       mblk->start_txn_idx = block->txn_parsed_cnt;
       mblk->end_txn_idx   = mblk->start_txn_idx+hdr->txn_cnt;
       mblk->curr_txn_idx  = mblk->start_txn_idx;
-      mblk->hashcnt       = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement saturating sub for non-tick microblocks. */
-      mblk->curr_hashcnt  = 0UL;
       mblk->curr_sig_cnt  = 0U;
       mblk->mixin_txn_idx = 0U;
       mblk->is_tick       = !hdr->txn_cnt;
@@ -2563,7 +2416,6 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       block->parse_mblk_idx = mblk_idx;
 
       /* Update block tracking. */
-      block->hashcnt += mblk->hashcnt+fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL );
       memcpy( block->poh_hash, hdr->hash, sizeof(fd_hash_t) );
       block->last_mblk_is_tick = mblk->is_tick;
       block->mblk_cnt++;
@@ -2581,7 +2433,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
     if( block->txns_rem==0UL && block->mblks_rem==0UL && block->fec_sob ) {
       CHECK_LEFT( sizeof(ulong) );
       FD_TEST( block->fec_buf_soff==0U );
-      if( FD_UNLIKELY( sched->is_alpenglow && !FD_LOAD( ulong, block->fec_buf ) && !block->fec_eob ) ) {
+      if( FD_UNLIKELY( !FD_LOAD( ulong, block->fec_buf ) && !block->fec_eob ) ) {
         /* Block marker split across FEC sets */
         fd_block_marker_t peek[1];
         if( FD_UNLIKELY( FD_BLOCK_MARKER_DE_ERR_SZ==fd_block_marker_de( peek, block->fec_buf, (ulong)block->fec_buf_sz ) &&
@@ -2597,7 +2449,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
 
       block->fec_sob = 0;
 
-      if( FD_UNLIKELY( !block->mblks_rem && sched->is_alpenglow ) ) {
+      if( FD_UNLIKELY( !block->mblks_rem ) ) {
         /* A zero-microblock batch is a block marker */
         fd_block_marker_t marker[1];
         int err = fd_block_marker_de( marker, block->fec_buf, (ulong)block->fec_buf_sz );
@@ -2608,12 +2460,9 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         int dead_reason = ag_on_marker( sched, block, marker );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
         block->fec_buf_soff = (uint)( FD_BLOCK_MARKER_PREAMBLE_SZ+FD_LOAD( ushort, block->fec_buf+FD_BLOCK_MARKER_PREAMBLE_SZ-sizeof(ushort) ) ); /* the marker is not trailing bytes */
-      } else if( FD_UNLIKELY( block->mblks_rem && sched->is_alpenglow ) ) {
+      } else if( FD_UNLIKELY( block->mblks_rem ) ) {
         int dead_reason = ag_on_entry_batch( block );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
-      } else if( FD_UNLIKELY( !block->mblks_rem && !sched->is_alpenglow ) ) {
-        FD_LOG_INFO(( "bad block: ZERO_MICROBLOCKS, slot %lu, parent slot %lu, mblk_cnt %u (%u ticks)", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt ));
-        return FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS;
       }
       continue;
     }
@@ -2965,7 +2814,6 @@ dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx
 static int
 poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx ) {
   fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-  FD_TEST( mblk->curr_hashcnt==mblk->hashcnt );
   block->poh_hashing_done_cnt++;
   sched->metrics->mblk_poh_hashed_cnt++;
   if( FD_LIKELY( !mblk->is_tick ) ) {
@@ -2977,7 +2825,7 @@ poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx ) {
     if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
       FD_BASE58_ENCODE_32_BYTES( mblk->end_hash->hash, ref_str );
-      FD_LOG_INFO(( "bad block: TICK_HASH_MISMATCH, mblk %u, ours %s, claimed %s, hashcnt %lu, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->hashcnt, block->slot, block->parent_slot ));
+      FD_LOG_INFO(( "bad block: TICK_HASH_MISMATCH, mblk %u, ours %s, claimed %s, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, block->slot, block->parent_slot ));
       return FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH;
     }
   }
@@ -2989,58 +2837,25 @@ poh_retire_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx ) {
   return FD_SCHED_DEAD_REASON_NONE;
 }
 
-/* Retires microblocks at the head of the unhashed queue that have
-   nothing left for PoH to hash.  Returns FD_SCHED_DEAD_REASON_NONE on
-   success, else the dead reason. */
-static int
-poh_retire_ready_mblks( fd_sched_t * sched, fd_sched_block_t * block ) {
-  while( block->mblk_unhashed_cnt ) {
-    uint mblk_idx = (uint)mblk_slist_idx_peek_head( block->mblks_unhashed, sched->mblk_pool );
-    fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-    if( FD_LIKELY( mblk->curr_hashcnt!=mblk->hashcnt ) ) break;
-    mblk_slist_idx_pop_head( block->mblks_unhashed, sched->mblk_pool );
-    block->mblk_unhashed_cnt--;
-    int dead_reason = poh_retire_mblk( sched, block, mblk_idx );
-    if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
-  }
-  return verify_ticks_eager( block );
-}
-
 /* Assembles a PoH task for the given exec tile.  Assumes there is a
-   PoH task available for dispatching.  A microblock with nothing left
-   to hash is dispatched as a degenerate zero-hashcnt task, so that it
-   retires through fd_sched_task_done like any other PoH task. */
+   PoH task available for dispatching.  A tick needs one hash and a
+   transaction microblock none (its hash is the mixin), so a batch holds
+   only one kind.  A transaction microblock still dispatches, as a
+   degenerate zero-hashcnt task, so that it retires through
+   fd_sched_task_done like any other PoH task. */
 static void
-dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, ulong max_cnt, fd_sched_task_t * out ) {
-  FD_TEST( max_cnt>=1UL && max_cnt<=FD_SCHED_POH_PARA );
-  /* Every element of a batch advances by the same hashcnt, so the
-     batch hashcnt is the smallest remaining hashcnt of its elements.
-     Elements with more work left are re-queued on completion. */
+dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out ) {
   fd_sched_poh_hash_t * poh = out->poh_hash;
   ulong cnt     = 0UL;
-  ulong hashcnt = ULONG_MAX;
-  while( cnt<max_cnt ) {
-    mblk_slist_t * list;
-    if( FD_LIKELY( !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ) ) ) {
-      /* There's a PoH task in progress, just continue working on that. */
-      list = block->mblks_hashing_in_progress;
-    } else if( FD_LIKELY( block->mblk_unhashed_cnt ) ) {
-      list = block->mblks_unhashed;
-    } else {
-      break; /* Nothing more to batch. */
-    }
-    uint mblk_idx = (uint)mblk_slist_idx_pop_head( list, sched->mblk_pool );
+  ulong hashcnt = 0UL;
+  while( cnt<FD_SCHED_POH_PARA && block->mblk_unhashed_cnt ) {
+    uint mblk_idx = (uint)mblk_slist_idx_peek_head( block->mblks_unhashed, sched->mblk_pool );
     fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-    ulong hashcnt_todo = mblk->hashcnt-mblk->curr_hashcnt;
-    /* A microblock with nothing left to hash can't share a batch with
-       one that has work left.  The batch hashcnt would be zero, and the
-       latter would never make progress. */
-    if( FD_UNLIKELY( cnt && (!hashcnt_todo)!=(!hashcnt) ) ) {
-      mblk_slist_idx_push_head( list, mblk_idx, sched->mblk_pool );
-      break;
-    }
-    if( list==block->mblks_unhashed ) block->mblk_unhashed_cnt--;
-    hashcnt = fd_ulong_min( hashcnt, hashcnt_todo );
+    ulong mblk_hashcnt = (ulong)mblk->is_tick;
+    if( FD_UNLIKELY( cnt && mblk_hashcnt!=hashcnt ) ) break;
+    mblk_slist_idx_pop_head( block->mblks_unhashed, sched->mblk_pool );
+    block->mblk_unhashed_cnt--;
+    hashcnt = mblk_hashcnt;
     poh->mblk_idx[ cnt ] = mblk_idx;
     memcpy( poh->hash+cnt, mblk->curr_hash, sizeof(fd_hash_t) );
     cnt++;
@@ -3048,11 +2863,6 @@ dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int 
   }
   FD_TEST( cnt ); /* poh_hashing_queued_cnt>0 implies at least one queued microblock. */
 
-  /* See FD_SCHED_MAX_POH_HASHES_PER_TASK.  A batch's per iteration
-     cost depends on its width. */
-  ulong iters_max = FD_SCHED_MAX_POH_HASHES_PER_TASK;
-  if( cnt>=sched->poh_simd_min ) iters_max = fd_ulong_max( (FD_SCHED_MAX_POH_HASHES_PER_TASK<<8)/fd_sha256_simd_iter_cost_q8( cnt ), 1UL );
-  hashcnt = fd_ulong_min( hashcnt, iters_max );
   out->task_type = FD_SCHED_TT_POH_HASH;
   poh->bank_idx  = bank_idx;
   poh->exec_idx  = (ulong)exec_tile_idx;
@@ -3096,7 +2906,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
     /* If we've decided to start mixin on a partially parsed microblock,
        there better be nothing else in-progress.  Otherwise, they might
        clobber the per-block bmtree for mixin. */
-    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx && (block->poh_mblk_in_flight_cnt||!mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool )||!mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool )) ) ) {
+    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx && (block->poh_mblk_in_flight_cnt||!mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool )) ) ) {
       sched->print_buf_sz = 0UL;
       print_all( sched, block );
       FD_LOG_CRIT(( "invariant violation end_txn_idx %lu start_txn_idx %lu curr_txn_idx %lu: %s", mblk->end_txn_idx, mblk->start_txn_idx, mblk->curr_txn_idx, sched->print_buf ));
@@ -3118,7 +2928,6 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
                    (mblk->end_txn_idx>block->txn_parsed_cnt &&  /* There is something to mixin, but the microblock isn't fully parsed yet ... */
                     mblk->curr_txn_idx==mblk->start_txn_idx &&  /* ... and we haven't started mixin on it yet ... */
                     (block->poh_mblk_in_flight_cnt ||           /* ... and another microblock is in-progress and might preempt this microblock and clobber the bmtree, so we shouldn't start the partial microblock just yet.  Counting microblocks rather than tasks matters: a batched PoH task is retired one microblock at a time, and the ones not yet retired are off every list. */
-                     !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ) ||
                      !mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool ))) ) ) {
     mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, mblk_idx, sched->mblk_pool );
 
@@ -3193,7 +3002,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
     if( FD_UNLIKELY( !sched->bypass_poh_verify && memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
       FD_BASE58_ENCODE_32_BYTES( mblk->end_hash->hash, ref_str );
-      FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->hashcnt, mblk->start_txn_idx, mblk->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
+      FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->start_txn_idx, mblk->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
       return -1;
     }
   } else {
@@ -3598,7 +3407,6 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
 
     /* Return remaining mblk descriptors to the shared pool. */
     free_mblk_slist( sched, head, head->mblks_unhashed );
-    free_mblk_slist( sched, head, head->mblks_hashing_in_progress );
     free_mblk_slist( sched, head, head->mblks_mixin_in_progress );
 
     if( FD_UNLIKELY( !head->block_end_done ) ) {
