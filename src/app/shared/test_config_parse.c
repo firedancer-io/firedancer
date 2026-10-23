@@ -112,13 +112,11 @@ failover_is_valid( config_t *   config,
                    int          enabled,
                    char const * listen_address,
                    ushort       listen_port,
-                   char const * vote_account,
-                   int          alpenglow ) {
+                   char const * vote_account ) {
   int pid = fork();
   FD_TEST( pid>=0 );
   if( FD_UNLIKELY( !pid ) ) {
     config->firedancer.development.genesis.max_file_size_mib = 4055UL;
-    config->firedancer.consensus.alpenglow                   = alpenglow;
     config->firedancer.failover.enabled                      = enabled;
     config->firedancer.failover.listen_port                  = listen_port;
     fd_cstr_ncpy( config->firedancer.failover.listen_address, listen_address, sizeof(config->firedancer.failover.listen_address) );
@@ -237,14 +235,12 @@ main( int     argc,
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
 
-  FD_TEST(  failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json", 0 ) );
-  FD_TEST(  failover_is_valid( config, 1, "10.0.0.1",  8010, "vote.json", 0 ) );
-  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   0,    "vote.json", 0 ) );
-  FD_TEST( !failover_is_valid( config, 1, "localhost", 8010, "vote.json", 0 ) );
-  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   8010, "",          0 ) );
-  FD_TEST(  failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json", 1 ) );
-  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   0,    "vote.json", 1 ) );
-  FD_TEST(  failover_is_valid( config, 0, "",          0,    "",          1 ) );
+  FD_TEST(  failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json" ) );
+  FD_TEST(  failover_is_valid( config, 1, "10.0.0.1",  8010, "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   0,    "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 1, "localhost", 8010, "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   8010, ""          ) );
+  FD_TEST(  failover_is_valid( config, 0, "",          0,    ""          ) );
 
   /* Ensure we can selectively override a field */
 

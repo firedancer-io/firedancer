@@ -700,7 +700,7 @@ failover_operator_begin( fd_admin_tile_ctx_t * ctx,
     fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
     sign->param = FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR;
   }
-  find_identity_keyswitch( ctx, ctx->voter_name )->operator = 1UL;
+  find_identity_keyswitch( ctx, "votor" )->operator = 1UL;
   ctx->failover_pending = 1;
 }
 
@@ -797,7 +797,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     failover_operator_begin( ctx, req->keypair+32UL );
   }
 
-  if( ctx->failov_out_idx!=ULONG_MAX ) find_identity_keyswitch( ctx, ctx->voter_name )->operator = 1UL;
+  if( ctx->failov_out_idx!=ULONG_MAX ) find_identity_keyswitch( ctx, "votor" )->operator = 1UL;
 
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong identity_outset = (ulong)fd_log_wallclock();
@@ -860,7 +860,7 @@ get_identity( fd_admin_tile_ctx_t * ctx,
    done carefully in order to prevent votes being generated with an
    authorized voter that the sign tile is not yet aware of.  The
    authorized voter must be added to the sign tile before it is added
-   to the voter tile (the tower/votor tile).  All transitions must be
+   to the votor tile.  All transitions must be
    linear and in forward order. */
 
 /* State 0: UNLOCKED
@@ -1172,8 +1172,7 @@ snapshot_create_response( fd_admin_tile_ctx_t * ctx,
 
 /* Removing all authorized voters from the validator is the inverse of
    add-authorized-voter, and must be done in the opposite order.  When
-   adding, the sign tile is updated before the voter tile (the tower
-   tile, or the votor tile under Alpenglow) so that the voter never asks
+   adding, the sign tile is updated before the votor tile so that it never asks
    the sign tile to sign a vote with an authority index the sign tile
    does not yet know about.  When removing, the voter tile must be
    cleared before the sign tiles, so that the voter stops referencing an
@@ -1654,7 +1653,7 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
     ulong identity_outset = (ulong)fd_log_wallclock();
     for(;;) {
-      if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, keypair, NULL, 0UL ) ) ) break;
+      if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, keypair, 0UL ) ) ) break;
     }
     ctx->failover_switch = 0;
     fd_memcpy( ctx->identity_pubkey, req.identity, 32UL );
@@ -1663,7 +1662,7 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     response.result            = FD_FAILOVER_SWITCH_OK;
     response.history_watermark = find_identity_keyswitch( ctx, "votor" )->result;
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
-    FD_LOG_NOTICE(( "failover: every tile switched to `%s`, the %s halted signing at sequence %lu", new_identity, ctx->voter_name, response.history_watermark ));
+    FD_LOG_NOTICE(( "failover: every tile switched to `%s`, votor halted signing at sequence %lu", new_identity, response.history_watermark ));
   } else {
     FD_LOG_WARNING(( "the failover tile asked for an identity switch but failover is off, refusing" ));
   }
