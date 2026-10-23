@@ -211,11 +211,11 @@ struct fd_sched_block {
        AcceptingEntriesOrFooter    1      0       0        *
        AcceptingAlpentick          1      1       0        *
        Done                        1      1       1        *      */
-  int header_seen;
-  int genesis_cert_seen;
-  int update_parent_seen;
-  int footer_seen;
-  int alpentick_seen;
+  uint header_seen        : 1;
+  uint genesis_cert_seen  : 1;
+  uint update_parent_seen : 1;
+  uint footer_seen        : 1;
+  uint alpentick_seen     : 1;
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
@@ -337,7 +337,7 @@ static int
 verify_ticks_final( fd_sched_block_t * block );
 
 static int
-ag_on_final( fd_sched_block_t * block );
+on_final( fd_sched_block_t * block );
 
 static void
 add_block( fd_sched_t * sched,
@@ -1229,7 +1229,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   }
 
   if( FD_UNLIKELY( block->fec_eos ) ) {
-    int dead_reason = ag_on_final( block );
+    int dead_reason = on_final( block );
     if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) {
       handle_bad_block( sched, block, dead_reason );
       return 0;
@@ -2190,9 +2190,9 @@ add_block( fd_sched_t * sched,
    the batches sched parses. */
 
 static int
-ag_on_marker( fd_sched_t *              sched,
-              fd_sched_block_t *        block,
-              fd_block_marker_t const * marker ) {
+on_marker( fd_sched_t *              sched,
+           fd_sched_block_t *        block,
+           fd_block_marker_t const * marker ) {
   (void)sched;
   switch( marker->kind ) {
 
@@ -2245,7 +2245,7 @@ ag_on_marker( fd_sched_t *              sched,
 /* Called when a batch header declares one or more microblocks. */
 
 static int
-ag_on_entry_batch( fd_sched_block_t * block ) {
+on_entry_batch( fd_sched_block_t * block ) {
   if( FD_UNLIKELY( !block->header_seen ) ) {
     FD_LOG_INFO(( "bad block: MISSING_PARENT_MARKER, slot %lu, parent slot %lu, entries before header", block->slot, block->parent_slot ));
     return FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER;
@@ -2265,7 +2265,7 @@ ag_on_entry_batch( fd_sched_block_t * block ) {
 }
 
 static int
-ag_on_final( fd_sched_block_t * block ) {
+on_final( fd_sched_block_t * block ) {
   if( FD_UNLIKELY( !block->footer_seen ) ) {
     FD_LOG_INFO(( "bad block: MISSING_BLOCK_FOOTER, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
     return FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER;
@@ -2457,11 +2457,11 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
           FD_LOG_INFO(( "bad block: slot %lu, unable to parse block marker (err %d)", block->slot, err ));
           return FD_SCHED_DEAD_REASON_BAD_BLOCK_MARKER;
         }
-        int dead_reason = ag_on_marker( sched, block, marker );
+        int dead_reason = on_marker( sched, block, marker );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
         block->fec_buf_soff = (uint)( FD_BLOCK_MARKER_PREAMBLE_SZ+FD_LOAD( ushort, block->fec_buf+FD_BLOCK_MARKER_PREAMBLE_SZ-sizeof(ushort) ) ); /* the marker is not trailing bytes */
       } else if( FD_UNLIKELY( block->mblks_rem ) ) {
-        int dead_reason = ag_on_entry_batch( block );
+        int dead_reason = on_entry_batch( block );
         if( FD_UNLIKELY( dead_reason!=FD_SCHED_DEAD_REASON_NONE ) ) return dead_reason;
       }
       continue;

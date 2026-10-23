@@ -55,7 +55,7 @@ struct fd_block_id_ele {
   int           block_id_seen;
   ulong         slot;
   ulong         bank_seq;
-  ulong         ag_next_;
+  ulong         next;
   uint          fec_cnt;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
@@ -110,11 +110,11 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
    block id is known at the slot start.  So the entry is keyed by {slot,
    block_id} from the start and never rekeyed. */
 
-#define MAP_NAME               fd_ag_block_id_map
+#define MAP_NAME               fd_block_id_map
 #define MAP_ELE_T              fd_block_id_ele_t
 #define MAP_KEY_T              ag_block_id_t
 #define MAP_KEY                block_info
-#define MAP_NEXT               ag_next_
+#define MAP_NEXT               next
 #define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
 #include "../../util/tmpl/fd_map_chain.c"
@@ -423,8 +423,8 @@ struct fd_replay_tile {
 
   fd_hash_t *         fec_chain;
 
-  ulong                  ag_block_id_map_seed;
-  fd_ag_block_id_map_t * ag_block_id_map;
+  ulong               block_id_map_seed;
+  fd_block_id_map_t * block_id_map;
 
   ulong                  bhm_map_seed;
   fd_bhm_map_t *         bhm_map;
@@ -473,9 +473,9 @@ struct fd_replay_tile {
   uint        supports_leader : 1;
   int         recv_poh;
 
-  ulong       leader_execution_fees; /* ALPENGLOW-ONLY */
-  ulong       leader_priority_fees;  /* ALPENGLOW-ONLY */
-  ulong       leader_tips;           /* ALPENGLOW-ONLY */
+  ulong       leader_execution_fees;
+  ulong       leader_priority_fees;
+  ulong       leader_tips;
   fd_block_footer_t leader_footer[ 1 ];
 
   fd_votor_certed_t votor_final[ 1 ];                                                /* highest finalization, fast over slow at the same slot */

@@ -139,21 +139,13 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
   return (ulong)(ele - ele_arr);
 }
 
-static inline fd_block_id_ele_t *
-fd_block_id_ele_query( fd_replay_tile_t * ctx,
-                       fd_hash_t const *  block_id,
-                       ulong              slot ) {
-  ag_block_id_t key = ag_block_id( slot, block_id->uc );
-  return fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr );
-}
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
 }
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  ulong chain_cnt = fd_ag_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
+  ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),           sizeof(fd_replay_tile_t) );
@@ -165,7 +157,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_hash_t),                  sizeof(fd_hash_t) * FD_FEC_BLK_MAX * tile->replay.max_live_slots );
     l = FD_LAYOUT_APPEND( l, 8UL,                                 FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT * tile->replay.max_live_slots );
   }
-  l = FD_LAYOUT_APPEND( l, fd_ag_block_id_map_align(),          fd_ag_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),             fd_block_id_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_bhm_map_align(),                  fd_bhm_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_bhm_pool_align(),                 fd_bhm_pool_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_bhm_dlist_align(),                fd_bhm_dlist_footprint() );
@@ -1053,7 +1045,7 @@ update_metric_balances( fd_replay_tile_t * ctx,
   FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, bank->f.total_epoch_stake );
 }
 
-/* try_advance_root_ag attempts to advance root to finalized_block_id.  For
+/* try_advance_root attempts to advance root to finalized_block_id.  For
    something to be rooted, it must be BOTH finalized AND replayed.  This
    walks up the bank lineage in the block id map to find and set root.
 
@@ -1071,8 +1063,8 @@ update_metric_balances( fd_replay_tile_t * ctx,
    try_notify_consensus_root hands it off as REPLAY_SIG_ROOT_ADVANCED. */
 
 static void
-try_advance_root_ag( fd_replay_tile_t * ctx,
-                     ag_block_id_t      finalized_block_id ) {
+try_advance_root( fd_replay_tile_t * ctx,
+                  ag_block_id_t      finalized_block_id ) {
 
   if( FD_UNLIKELY( finalized_block_id.slot<=ctx->consensus_root_slot ) ) return;
 
@@ -1085,7 +1077,7 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
   fd_bank_t *   finalized_bank    = NULL;
 
   while( FD_LIKELY( ancestor_block_id.slot>ctx->consensus_root_slot ) ) {
-    fd_block_id_ele_t * ele  = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &ancestor_block_id, NULL, ctx->block_id_arr );
+    fd_block_id_ele_t * ele  = fd_block_id_map_ele_query( ctx->block_id_map, &ancestor_block_id, NULL, ctx->block_id_arr );
     fd_bank_t *         bank = ele ? fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, ele ) ) : NULL;
     if( FD_UNLIKELY( !bank || bank->bank_seq!=ele->bank_seq || bank->state!=FD_BANK_STATE_FROZEN || bank->parent_idx==ULONG_MAX ) ) break; /* not replayed */
     if( !finalized_bank ) finalized_bank = bank;
@@ -1273,7 +1265,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
   timing_slot_release( ctx, bank->idx );
 
   if( FD_UNLIKELY( slot==ctx->finalized_block_id_lo.slot && !memcmp( block_id.uc, ctx->finalized_block_id_lo.hash, sizeof(fd_hash_t) ) ) ) { /* finalized ahead of replay, replay caught up */
-    try_advance_root_ag( ctx, ctx->finalized_block_id_lo );
+    try_advance_root( ctx, ctx->finalized_block_id_lo );
     ctx->finalized_block_id_lo = ctx->finalized_block_id_hi; /* hi becomes lo once lo is reached */
   }
 }
@@ -1463,8 +1455,8 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   /* Clear the previous occupant of this reused bank idx from whichever
      map it is currently keyed in. */
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ ctx->leader_bank->idx ];
-  if( FD_LIKELY( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele ) ) {
-    FD_TEST( fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ) );
+  if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele ) ) {
+    FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ) );
   }
 
   block_id_ele->block_id_seen  = 0;
@@ -1575,16 +1567,14 @@ publish_leader_footer( fd_replay_tile_t *        ctx,
   publish_replay_out( ctx, stem, REPLAY_SIG_LEADER_FOOTER, sz );
 }
 
-/* For the most part, try_become_leader_ag mirrors try_become_leader
-   with modifications for Alpenglow-specific changes, in particular
-   1. no more PoH-hashing and 2. picking the reset bank is based on
+/* 1. no more PoH-hashing and 2. picking the reset bank is based on
    ParentReady rather than fork choice. */
 
 static inline int
-try_become_leader_ag( fd_replay_tile_t *  ctx,
-                      fd_stem_context_t * stem,
-                      uint                reason,
-                      ulong               end_slot ) {
+try_become_leader( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem,
+                   uint                reason,
+                   ulong               end_slot ) {
 
   /* Mirrors check from try_become_leader. */
 
@@ -1598,8 +1588,9 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
 
   ulong             parent_slot     = ctx->votor_leader->parent_slot;
   fd_hash_t const * parent_block_id = &ctx->votor_leader->parent_block_id;
+  ag_block_id_t     parent_key      = ag_block_id( parent_slot, parent_block_id->uc );
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_ele_query( ctx, parent_block_id, parent_slot );
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state!=FD_BANK_STATE_FROZEN ) ) return 0;
@@ -1853,8 +1844,8 @@ replay_block_complete( fd_replay_tile_t *        ctx,
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */, execution_fees_pre_settle, priority_fees_pre_settle, footer );
 
   /* The footer's finalization cert can also finalize. */
-  if( footer->has_fast_final_cert ) { try_advance_root_ag( ctx, ag_block_id( footer->fast_final_cert.slot, footer->fast_final_cert.block_id.uc ) ); }
-  else if( footer->has_final_cert ) { try_advance_root_ag( ctx, ag_block_id( footer->final_cert.slot,      footer->notar_cert.block_id.uc      ) ); }
+  if( footer->has_fast_final_cert ) { try_advance_root( ctx, ag_block_id( footer->fast_final_cert.slot, footer->fast_final_cert.block_id.uc ) ); }
+  else if( footer->has_final_cert ) { try_advance_root( ctx, ag_block_id( footer->final_cert.slot,      footer->notar_cert.block_id.uc      ) ); }
 
   /* If enabled, dump the block to a file and reset the dumping
      context state */
@@ -2032,7 +2023,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
       .parent_ready_ns = ctx->leader_window_start_ns
     };
     ctx->next_leader_slot = curr_slot+1UL;
-    if( try_become_leader_ag( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_END_START, curr_slot ) ) return 1;
+    if( try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_END_START, curr_slot ) ) return 1;
   }
 
   metrics_trigger( ctx, FD_METRICS_SAMPLE_REASON_LEADER_END, curr_slot );
@@ -2430,7 +2421,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   block_id_ele->latest_fec_idx = 0U;
   block_id_ele->block_info     = ag_block_id( 0UL, initial_block_id.uc );
   bank->f.block_id             = initial_block_id;
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
@@ -2629,7 +2620,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     bank->f.block_id             = manifest_block_id;
 
     block_id_ele->block_info = ag_block_id( snapshot_slot, manifest_block_id.uc );
-    FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
+    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
@@ -2945,12 +2936,12 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     fd_block_id_ele_t * self = NULL;
     if( FD_LIKELY( !fd_hash_check_zero( &fec->block_id ) ) ) {
       ag_block_id_t self_key = ag_block_id( fec->slot, fec->block_id.uc );
-      self = live_block_id_ele( ctx, fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &self_key, NULL, ctx->block_id_arr ) );
+      self = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &self_key, NULL, ctx->block_id_arr ) );
       if( FD_UNLIKELY( self && !self->block_id_seen && !fec->known_id ) ) self = NULL;
     }
     if( FD_LIKELY( !self && !fec->known_id ) ) {
       ag_block_id_t self_key = { .slot = fec->slot };
-      self = live_block_id_ele( ctx, fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &self_key, NULL, ctx->block_id_arr ) );
+      self = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &self_key, NULL, ctx->block_id_arr ) );
     }
     if( FD_UNLIKELY( self && ( self->block_id_seen || self->latest_fec_idx>=fec->fec_set_idx ) ) ) return PROCESS_FEC_SKIP;
   }
@@ -2970,7 +2961,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   fd_block_id_ele_t * parent          = NULL;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
     ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
-    parent = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &parent_key, NULL, ctx->block_id_arr );
+    parent = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->parent_block_id.uc, parent_key_b58 );
       FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u, parent slot %lu parent block_id %s", fec->slot, fec->fec_set_idx, fec->parent_slot, parent_key_b58 ));
@@ -2988,7 +2979,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     ag_block_id_t key = { .slot = fec->slot };
     if( FD_LIKELY( fec->known_id ) ) key = ag_block_id( fec->slot, fec->block_id.uc );
 
-    parent = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr );
+    parent = fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
       FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u slot_bid %s. parent slot %lu", fec->slot, fec->fec_set_idx, block_id_b58, fec->parent_slot ));
@@ -3101,7 +3092,8 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->notified_root_slot==ctx->consensus_root_slot &&
                  fd_hash_eq( &ctx->notified_root, &ctx->consensus_root ) ) ) return 0;
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_ele_query( ctx, &ctx->consensus_root, ctx->consensus_root_slot );
+  ag_block_id_t root_key = ag_block_id( ctx->consensus_root_slot, ctx->consensus_root.uc );
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &root_key, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
@@ -3197,7 +3189,8 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_ele_query( ctx, &ctx->consensus_root, ctx->consensus_root_slot );
+  ag_block_id_t consensus_root_key = ag_block_id( ctx->consensus_root_slot, ctx->consensus_root.uc );
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &consensus_root_key, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * target_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !target_bank ||
@@ -3401,7 +3394,7 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( try_become_leader_ag( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) ) ) {
+  if( FD_UNLIKELY( try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -3604,7 +3597,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   ulong parent_bank_idx = ULONG_MAX;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
     ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
-    fd_block_id_ele_t * parent = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &parent_key, NULL, ctx->block_id_arr );
+    fd_block_id_ele_t * parent = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
     FD_TEST( parent );
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   } else {
@@ -3620,7 +3613,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
       key = ag_block_id( fec->slot, fec->block_id.uc );
     }
 
-    fd_block_id_ele_t * parent = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr );
+    fd_block_id_ele_t * parent = fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr );
     FD_TEST( parent );
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   }
@@ -3665,8 +3658,8 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
 
     block_id_ele = &ctx->block_id_arr[ bank->idx ];
     /* Clear the previous occupant of this reused bank idx  */
-    if( FD_LIKELY( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele ) ) {
-      FD_TEST( fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ) );
+    if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele ) ) {
+      FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ) );
     }
 
     block_id_ele->block_id_seen  = 0;
@@ -3679,8 +3672,8 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     /* If this fec 0 is rebuilding an evicted block (recovery redelivery),
        the evicted bank's stale map entry may still hold this key at a
        DIFFERENT idx. */
-    fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ); // evicted / stale entry
-    FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
+    fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr ); // evicted / stale entry
+    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele.
        The block stays keyed by {slot, 0} in the compound map. */
@@ -3717,11 +3710,11 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
        was evicted (eviction does not remove map entries), now being
        rebuilt through recovery redelivery.  Evict the stale entry before
        inserting. */
-    FD_TEST( fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele );
+    FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_info, NULL, ctx->block_id_arr )==block_id_ele );
     ag_block_id_t key = ag_block_id( fec->slot, fec->block_id.uc );
     block_id_ele->block_info = key;
-    fd_ag_block_id_map_ele_remove( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr ); // evicted / stale entry
-    FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
+    fd_block_id_map_ele_remove( ctx->block_id_map, &key, NULL, ctx->block_id_arr ); // evicted / stale entry
+    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
@@ -4120,18 +4113,18 @@ returnable_frag( fd_replay_tile_t *  ctx,
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         *ctx->votor_leader    = *leader;
         ctx->next_leader_slot = leader->slot;
-        try_become_leader_ag( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
+        try_become_leader( ctx, stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL );
       } else if( FD_LIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_votor_certed_t *       fin    = ctx->votor_final;
         switch( certed->kind ) {
         case AG_CERT_KIND_FINAL:
           if( fin->slot==ULONG_MAX || certed->slot>fin->slot ) *fin = *certed;
-          try_advance_root_ag( ctx, ag_block_id( certed->slot, certed->block_id.uc ) );
+          try_advance_root( ctx, ag_block_id( certed->slot, certed->block_id.uc ) );
           break;
         case AG_CERT_KIND_FAST_FINAL: /* fast beats slow at the same slot */
           if( fin->slot==ULONG_MAX || certed->slot>fin->slot || ( certed->slot==fin->slot && fin->kind==AG_CERT_KIND_FINAL ) ) *fin = *certed;
-          try_advance_root_ag( ctx, ag_block_id( certed->slot, certed->block_id.uc ) );
+          try_advance_root( ctx, ag_block_id( certed->slot, certed->block_id.uc ) );
           break;
         default: break;
         }
@@ -4243,7 +4236,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
          on_snapshot_message). */
       ctx->next_leader_tickcount = LONG_MAX;
       if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) {
-        fd_block_id_ele_t * block_id_ele = fd_block_id_ele_query( ctx, &ctx->reset_dmr, ctx->reset_slot );
+        ag_block_id_t reset_key = ag_block_id( ctx->reset_slot, ctx->reset_dmr.uc );
+        fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &reset_key, NULL, ctx->block_id_arr );
         if( FD_LIKELY( block_id_ele ) ) {
           fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
           if( FD_LIKELY( reset_bank && reset_bank->bank_seq==block_id_ele->bank_seq && reset_bank->state!=FD_BANK_STATE_PRUNABLE ) ) {
@@ -4350,8 +4344,8 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->rng_seed,             sizeof(ctx->rng_seed) ) );
   FD_TEST( fd_rng_secure( &ctx->blockhash_seed,       sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->vote_tracker_seed,    sizeof(ulong) )         );
-  FD_TEST( fd_rng_secure( &ctx->ag_block_id_map_seed, sizeof(ulong) )         );
-  FD_TEST( fd_rng_secure( &ctx->bhm_map_seed,  sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->block_id_map_seed,    sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->bhm_map_seed,         sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->initial_block_id,     sizeof(fd_hash_t) )     );
   FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed,   sizeof(ulong) )         );
 
@@ -4371,7 +4365,7 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   void * block_id_map_mem = NULL;
-  ulong chain_cnt  = fd_ag_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
+  ulong chain_cnt  = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
@@ -4380,25 +4374,25 @@ unprivileged_init( fd_topo_t const *      topo,
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * dead_idxs_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),              sizeof(ulong) * tile->replay.max_live_slots );
   void * fec_chain_mem      = tile->replay.report_runtime_diffs ?
-                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_hash_t),           sizeof(fd_hash_t) * FD_FEC_BLK_MAX * tile->replay.max_live_slots ) : NULL;
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_hash_t),          sizeof(fd_hash_t) * FD_FEC_BLK_MAX * tile->replay.max_live_slots ) : NULL;
   void * slot_diffs_mem     = tile->replay.report_runtime_diffs ?
-                              FD_SCRATCH_ALLOC_APPEND( l, 8UL,                          FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT * tile->replay.max_live_slots ) : NULL;
-    block_id_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_ag_block_id_map_align(),  fd_ag_block_id_map_footprint( chain_cnt ) );
+                              FD_SCRATCH_ALLOC_APPEND( l, 8UL,                         FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT * tile->replay.max_live_slots ) : NULL;
+    block_id_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   void * bhm_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_bhm_map_align(),          fd_bhm_map_footprint( chain_cnt ) );
   void * bhm_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_bhm_pool_align(),         fd_bhm_pool_footprint( tile->replay.max_live_slots ) );
   void * bhm_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bhm_dlist_align(),        fd_bhm_dlist_footprint() );
 
-  void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
-  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->replay.max_live_slots, 0 ) );
-  void * recp_stats_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reception_stats_t), sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
-  void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
-  void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
-  void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
-  void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),                 fd_txncache_footprint( tile->replay.max_live_slots ) );
+  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                    fd_accdb_footprint( tile->replay.max_live_slots, 0 ) );
+  void * recp_stats_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reception_stats_t),       sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
+  void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
+  void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),             fd_vote_tracker_footprint() );
+  void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),              fd_capture_ctx_footprint() );
+  void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t),        sizeof(fd_dump_proto_ctx_t) );
   void * block_completed_ev = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t) );
-  void * timing_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_timing_slot_pool_align(),  fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
-  void * timing_rec_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_txn_timing_t), FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
-  void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               tile->replay.max_live_slots*sizeof(ulong) );
+  void * timing_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_timing_slot_pool_align(),         fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
+  void * timing_rec_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_txn_timing_t),     FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
+  void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -4637,8 +4631,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->fec_chain    = (fd_hash_t *)fec_chain_mem;
   if( FD_UNLIKELY( slot_diffs_mem ) ) fd_event_runtime_slot_diffs_init( slot_diffs_mem, tile->replay.max_live_slots );
 
-  ctx->ag_block_id_map = fd_ag_block_id_map_join( fd_ag_block_id_map_new( block_id_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
-  FD_TEST( ctx->ag_block_id_map );
+  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
+  FD_TEST( ctx->block_id_map );
   ctx->bhm_map  = fd_bhm_map_join( fd_bhm_map_new( bhm_map_mem, chain_cnt, ctx->bhm_map_seed ) );
   FD_TEST( ctx->bhm_map );
   ctx->bhm_pool = fd_bhm_pool_join( fd_bhm_pool_new( bhm_pool_mem, tile->replay.max_live_slots ) );

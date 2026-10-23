@@ -454,7 +454,7 @@ setup_ctx( fd_replay_tile_t * ctx,
   /* Block-id map */
 
   ulong bid_cnt   = TEST_BANKS_MAX;
-  ulong chain_cnt = fd_ag_block_id_map_chain_cnt_est( bid_cnt );
+  ulong chain_cnt = fd_block_id_map_chain_cnt_est( bid_cnt );
 
   ctx->block_id_arr = fd_wksp_alloc_laddr( wksp, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t) * bid_cnt, 1UL );
   FD_TEST( ctx->block_id_arr );
@@ -462,11 +462,11 @@ setup_ctx( fd_replay_tile_t * ctx,
   ctx->dead_idxs = fd_wksp_alloc_laddr( wksp, alignof(ulong), sizeof(ulong)*bid_cnt, 1UL );
   FD_TEST( ctx->dead_idxs );
 
-  void * bid_map_mem = fd_wksp_alloc_laddr( wksp, fd_ag_block_id_map_align(), fd_ag_block_id_map_footprint( chain_cnt ), 1UL );
+  void * bid_map_mem = fd_wksp_alloc_laddr( wksp, fd_block_id_map_align(), fd_block_id_map_footprint( chain_cnt ), 1UL );
   FD_TEST( bid_map_mem );
-  ctx->ag_block_id_map_seed = 7UL;
-  ctx->ag_block_id_map = fd_ag_block_id_map_join( fd_ag_block_id_map_new( bid_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
-  FD_TEST( ctx->ag_block_id_map );
+  ctx->block_id_map_seed = 7UL;
+  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( bid_map_mem, chain_cnt, ctx->block_id_map_seed ) );
+  FD_TEST( ctx->block_id_map );
   ctx->bhm_map   = fd_bhm_map_join  ( fd_bhm_map_new  ( fd_wksp_alloc_laddr( wksp, fd_bhm_map_align(),   fd_bhm_map_footprint( chain_cnt ), 1UL ), chain_cnt, 7UL ) );
   ctx->bhm_pool  = fd_bhm_pool_join ( fd_bhm_pool_new ( fd_wksp_alloc_laddr( wksp, fd_bhm_pool_align(),  fd_bhm_pool_footprint( bid_cnt ),   1UL ), bid_cnt ) );
   ctx->bhm_dlist = fd_bhm_dlist_join( fd_bhm_dlist_new( fd_wksp_alloc_laddr( wksp, fd_bhm_dlist_align(), fd_bhm_dlist_footprint(),          1UL ) ) );
@@ -543,7 +543,7 @@ setup_ctx( fd_replay_tile_t * ctx,
 }
 
 /* init_root fills the root bank's block id element.  Callers key it in
-   ag_block_id_map themselves. */
+   block_id_map themselves. */
 
 static void
 init_root( fd_replay_tile_t * ctx,
@@ -1220,16 +1220,16 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
   FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
 
-  ulong chain_cnt = fd_ag_block_id_map_chain_cnt_est( bank_cnt );
+  ulong chain_cnt = fd_block_id_map_chain_cnt_est( bank_cnt );
   ctx->block_id_arr = fd_wksp_alloc_laddr( wksp, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t)*bank_cnt, 1UL );
   FD_TEST( ctx->block_id_arr );
   memset( ctx->block_id_arr, 0, sizeof(fd_block_id_ele_t)*bank_cnt );
   ctx->dead_idxs = fd_wksp_alloc_laddr( wksp, alignof(ulong), sizeof(ulong)*bank_cnt, 1UL );
   FD_TEST( ctx->dead_idxs );
-  void * map_mem = fd_wksp_alloc_laddr( wksp, fd_ag_block_id_map_align(), fd_ag_block_id_map_footprint( chain_cnt ), 1UL );
+  void * map_mem = fd_wksp_alloc_laddr( wksp, fd_block_id_map_align(), fd_block_id_map_footprint( chain_cnt ), 1UL );
   FD_TEST( map_mem );
-  ctx->ag_block_id_map = fd_ag_block_id_map_join( fd_ag_block_id_map_new( map_mem, chain_cnt, 44UL ) );
-  FD_TEST( ctx->ag_block_id_map );
+  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( map_mem, chain_cnt, 44UL ) );
+  FD_TEST( ctx->block_id_map );
   ctx->block_id_len   = bank_cnt;
   ctx->max_live_slots = bank_cnt;
 
@@ -1301,7 +1301,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   child_ele->slot          = child->f.slot;
   child_ele->bank_seq      = child->bank_seq;
   child_ele->block_id_seen = 1;
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, child_ele, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, child_ele, ctx->block_id_arr ) );
 
   ctx->resolv_tile_cnt   = 1UL;
   ctx->consensus_root    = root_id;
@@ -1412,12 +1412,12 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
   memset( ctx->block_id_arr, 0, sizeof(fd_block_id_ele_t)*bank_cnt );
   ctx->dead_idxs = fd_wksp_alloc_laddr( wksp, alignof(ulong), sizeof(ulong)*bank_cnt, 1UL );
   FD_TEST( ctx->dead_idxs );
-  ulong  chain_cnt  = fd_ag_block_id_map_chain_cnt_est( bank_cnt );
-  void * ag_map_mem = fd_wksp_alloc_laddr( wksp, fd_ag_block_id_map_align(), fd_ag_block_id_map_footprint( chain_cnt ), 1UL );
+  ulong  chain_cnt  = fd_block_id_map_chain_cnt_est( bank_cnt );
+  void * ag_map_mem = fd_wksp_alloc_laddr( wksp, fd_block_id_map_align(), fd_block_id_map_footprint( chain_cnt ), 1UL );
   FD_TEST( ag_map_mem );
-  ctx->ag_block_id_map_seed = 7UL;
-  ctx->ag_block_id_map      = fd_ag_block_id_map_join( fd_ag_block_id_map_new( ag_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
-  FD_TEST( ctx->ag_block_id_map );
+  ctx->block_id_map_seed = 7UL;
+  ctx->block_id_map      = fd_block_id_map_join( fd_block_id_map_new( ag_map_mem, chain_cnt, ctx->block_id_map_seed ) );
+  FD_TEST( ctx->block_id_map );
   ctx->bhm_map   = fd_bhm_map_join  ( fd_bhm_map_new  ( fd_wksp_alloc_laddr( wksp, fd_bhm_map_align(),   fd_bhm_map_footprint( chain_cnt ), 1UL ), chain_cnt, 7UL ) );
   ctx->bhm_pool  = fd_bhm_pool_join ( fd_bhm_pool_new ( fd_wksp_alloc_laddr( wksp, fd_bhm_pool_align(),  fd_bhm_pool_footprint( bank_cnt ), 1UL ), bank_cnt ) );
   ctx->bhm_dlist = fd_bhm_dlist_join( fd_bhm_dlist_new( fd_wksp_alloc_laddr( wksp, fd_bhm_dlist_align(), fd_bhm_dlist_footprint(),          1UL ) ) );
@@ -1466,7 +1466,7 @@ add_replayable_block( fd_replay_tile_t * ctx,
   ele->slot          = slot;
   ele->bank_seq      = bank->bank_seq;
   ele->block_id_seen = 1;
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, ele, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, ele, ctx->block_id_arr ) );
   return bank;
 }
 
@@ -1787,7 +1787,7 @@ test_root_waits_for_replay( fd_wksp_t * wksp ) {
   fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
   b2->f.total_epoch_stake = 4242UL;
   FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, 0UL );
-  try_advance_root_ag( ctx, ctx->finalized_block_id_lo );
+  try_advance_root( ctx, ctx->finalized_block_id_lo );
   expect_rooted( ctx, wksp, seq0, b2 );
   FD_TEST( FD_MGAUGE_GET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS )==4242UL );
 
@@ -1844,7 +1844,7 @@ test_root_out_of_order_certs( fd_wksp_t * wksp ) {
 
   /* Replay catches up using the retained finality, without another cert. */
   fd_bank_t * b3 = add_block( ctx, b2, 3UL, &id3 );
-  try_advance_root_ag( ctx, ctx->finalized_block_id_hi );
+  try_advance_root( ctx, ctx->finalized_block_id_hi );
   expect_rooted( ctx, wksp, seq0+1UL, b3 );
   FD_TEST( mock_sched_root_notify_cnt==2UL );
 
@@ -1871,11 +1871,11 @@ test_root_lagging_replay( fd_wksp_t * wksp ) {
   FD_TEST( ctx->finalized_block_id_lo.slot==2UL && ctx->finalized_block_id_hi.slot==3UL );
 
   fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
-  try_advance_root_ag( ctx, ctx->finalized_block_id_lo );
+  try_advance_root( ctx, ctx->finalized_block_id_lo );
   expect_rooted( ctx, wksp, seq0, b2 );
 
   fd_bank_t * b3 = add_block( ctx, b2, 3UL, &id3 );
-  try_advance_root_ag( ctx, ctx->finalized_block_id_hi );
+  try_advance_root( ctx, ctx->finalized_block_id_hi );
   expect_rooted( ctx, wksp, seq0+1UL, b3 );
   FD_TEST( mock_sched_root_notify_cnt==2UL );
 
@@ -1903,11 +1903,11 @@ test_root_newer_first( fd_wksp_t * wksp ) {
   FD_TEST( ctx->finalized_block_id_hi.slot==3UL && !memcmp( ctx->finalized_block_id_hi.hash, id3.uc, sizeof(fd_hash_t) ) );
 
   fd_bank_t * b2 = add_block( ctx, b1, 2UL, &id2 );
-  try_advance_root_ag( ctx, ctx->finalized_block_id_lo );
+  try_advance_root( ctx, ctx->finalized_block_id_lo );
   expect_rooted( ctx, wksp, seq0, b2 );
 
   fd_bank_t * b3 = add_block( ctx, b2, 3UL, &id3 );
-  try_advance_root_ag( ctx, ctx->finalized_block_id_hi );
+  try_advance_root( ctx, ctx->finalized_block_id_hi );
   expect_rooted( ctx, wksp, seq0+1UL, b3 );
   FD_TEST( mock_sched_root_notify_cnt==2UL );
 
@@ -2262,7 +2262,7 @@ test_process_rotor_fec_skip_replayed( fd_wksp_t * wksp ) {
   fd_block_id_ele_t * root_ele = &ctx->block_id_arr[ root_bank->idx ];
   root_ele->block_info    = ag_block_id( 0UL, parent_bid.uc );
   root_ele->block_id_seen = 1;
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, root_ele, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, root_ele, ctx->block_id_arr ) );
 
   /* An ALREADY-REPLAYED complete block at slot 5 with block_id B: a live
      bank plus an ele keyed by {5, B} with block_id_seen=1. */
@@ -2277,7 +2277,7 @@ test_process_rotor_fec_skip_replayed( fd_wksp_t * wksp ) {
   ele5->latest_fec_idx = 0U;
   ele5->block_id_seen  = 1;
   ele5->block_info     = ag_block_id( 5UL, B.uc );
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, ele5, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, ele5, ctx->block_id_arr ) );
 
   mock_sched_capacity = ULONG_MAX;
   ulong used0 = fd_banks_pool_used_cnt( ctx->banks );
@@ -2310,14 +2310,14 @@ test_process_rotor_fec_skip_replayed( fd_wksp_t * wksp ) {
   FD_TEST( mock_store_view_call_cnt==view0+1UL );
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0 );
-  FD_TEST( !fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &C_key, NULL, ctx->block_id_arr ) );
+  FD_TEST( !fd_block_id_map_ele_query( ctx->block_id_map, &C_key, NULL, ctx->block_id_arr ) );
 
   FD_LOG_NOTICE(( "pass: test_process_rotor_fec_skip_replayed" ));
 }
 
 /* Exercises the drain_rotor_fecs gate in the ROTOR_SIG_FEC_REPLAY
    handler: a bank eviction breaks the replayable FEC chain, so on the
-   first un-replayable FEC (parent absent from ag_block_id_map ->
+   first un-replayable FEC (parent absent from block_id_map ->
    PROCESS_FEC_DROP) replay enters drain, ignores subsequent FECs, and
    resumes on the first replayable one (PROCESS_FEC_OK). */
 static void
@@ -2333,7 +2333,7 @@ test_drain_rotor_fecs( fd_wksp_t * wksp ) {
 
   FD_TEST( ctx->drain_rotor_fecs==0 );
 
-  /* Step 1: FEC 0 whose parent is not in ag_block_id_map -> DROP ->
+  /* Step 1: FEC 0 whose parent is not in block_id_map -> DROP ->
      enter drain, notify rotor once, consume the frag. */
   fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
   fd_hash_t mr1        = { .ul = { 201 } };
@@ -2353,7 +2353,7 @@ test_drain_rotor_fecs( fd_wksp_t * wksp ) {
   FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );   /* no new publish */
 
   /* Step 3: make a FEC replayable.  Insert the (non-prunable) root ele
-     into ag_block_id_map keyed by {parent_slot, parent_bid}; a FEC 0
+     into block_id_map keyed by {parent_slot, parent_bid}; a FEC 0
      whose parent is that entry returns PROCESS_FEC_OK, so the drain gate
      clears the flag before process_rotor_fec runs.  (process_rotor_fec
      itself may then drop for lack of a store FEC -- the exit is the
@@ -2362,7 +2362,7 @@ test_drain_rotor_fecs( fd_wksp_t * wksp ) {
   root_bank->state = FD_BANK_STATE_FROZEN;          /* valid, non-prunable parent */
   fd_block_id_ele_t * root_ele = &ctx->block_id_arr[ root_bank->idx ];
   root_ele->block_info = ag_block_id( 3UL, parent_bid.uc );
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, root_ele, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, root_ele, ctx->block_id_arr ) );
   mock_sched_capacity = ULONG_MAX;                  /* sched has room */
 
   fd_hash_t mr3 = { .ul = { 203 } };
@@ -2414,14 +2414,14 @@ test_drain_rotor_fecs_skip_wait_reentry( fd_wksp_t * wksp ) {
   skip_ele->bank_seq       = 0UL;
   skip_ele->latest_fec_idx = 0U;
   skip_ele->block_info     = ag_block_id( 5UL, zero.uc );
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, skip_ele, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, skip_ele, ctx->block_id_arr ) );
 
   ulong out_idx = ctx->replay_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
   FD_TEST( ctx->drain_rotor_fecs==0 );
 
   /* Step 1: enter drain via DROP (fec 0 whose parent {0, parent_bid} is
-     absent from ag_block_id_map).  One MISSING_FEC publish. */
+     absent from block_id_map).  One MISSING_FEC publish. */
   fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
   fd_hash_t mr1        = { .ul = { 201 } };
   FD_TEST( deliver_rotor_fec( ctx, 1UL, 0U, 0UL, &parent_bid, &mr1, 0, 0 )==0 );
@@ -2442,7 +2442,7 @@ test_drain_rotor_fecs_skip_wait_reentry( fd_wksp_t * wksp ) {
      not swallowed. */
   fd_block_id_ele_t * root_ele = &ctx->block_id_arr[ root_bank->idx ];
   root_ele->block_info = ag_block_id( 0UL, parent_bid.uc );
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, root_ele, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, root_ele, ctx->block_id_arr ) );
   root_bank->state = FD_BANK_STATE_PRUNABLE;
   fd_hash_t mr3 = { .ul = { 203 } };
   FD_TEST( deliver_rotor_fec( ctx, 8UL, 0U, 0UL, &parent_bid, &mr3, 0, 0 )==1 ); /* kept for retry */
@@ -2487,7 +2487,7 @@ setup_ag_root( fd_replay_tile_t * ctx,
   fd_block_id_ele_t * root_ele = &ctx->block_id_arr[ root_bank->idx ];
   root_ele->block_info    = ag_block_id( 0UL, parent_bid->uc );
   root_ele->block_id_seen = 1;
-  FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, root_ele, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, root_ele, ctx->block_id_arr ) );
   mock_sched_capacity = ULONG_MAX;
 }
 
@@ -2541,9 +2541,9 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 0U, 0UL, &parent_bid, &B, &mr0, 0, 0 )==0 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0+1UL );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL );
-  fd_block_id_ele_t * ele5 = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key_slot, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * ele5 = fd_block_id_map_ele_query( ctx->block_id_map, &key_slot, NULL, ctx->block_id_arr );
   FD_TEST( ele5 );
-  FD_TEST( !fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key_id, NULL, ctx->block_id_arr ) );
+  FD_TEST( !fd_block_id_map_ele_query( ctx->block_id_map, &key_id, NULL, ctx->block_id_arr ) );
   FD_TEST( ele5->latest_fec_idx==0U && !ele5->block_id_seen );
   FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
 
@@ -2575,8 +2575,8 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 2U*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr64, 1, 0 )==0 );
   FD_TEST( ctx->drain_rotor_fecs==0 );
   FD_TEST( ele5->block_id_seen );
-  FD_TEST( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key_id,   NULL, ctx->block_id_arr )==ele5 );
-  FD_TEST( !fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key_slot, NULL, ctx->block_id_arr ) );
+  FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key_id,   NULL, ctx->block_id_arr )==ele5 );
+  FD_TEST( !fd_block_id_map_ele_query( ctx->block_id_map, &key_slot, NULL, ctx->block_id_arr ) );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+3UL );
 
   FD_TEST( deliver_rotor_fec( ctx, 6UL, 0U, 5UL, &B, &mr6, 0, 0 )==0 );
@@ -2653,7 +2653,7 @@ rotor_fec_merged_copies( fd_wksp_t * wksp,
   }
   for( uint k=e_cnt; k<3U; k++ ) FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, k*FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr[ k ], k==2U, 0 )==0 );
 
-  fd_block_id_ele_t * ele = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key_id, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * ele = fd_block_id_map_ele_query( ctx->block_id_map, &key_id, NULL, ctx->block_id_arr );
   FD_TEST( ele && ele->block_id_seen && ele->latest_fec_idx==2U*FD_FEC_SHRED_CNT );
   FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
 
@@ -2703,7 +2703,7 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec    ( ctx, 5UL, 0U,               0UL, &parent_bid,     &mr0,  0, 0 )==0 );
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B, &mr32, 1, 0 )==0 );
   ag_block_id_t       key5 = ag_block_id( 5UL, B.uc );
-  fd_block_id_ele_t * ele5 = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key5, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * ele5 = fd_block_id_map_ele_query( ctx->block_id_map, &key5, NULL, ctx->block_id_arr );
   FD_TEST( ele5 && ele5->block_id_seen );
   ulong       idx5  = fd_block_id_ele_get_idx( ctx->block_id_arr, ele5 );
   fd_bank_t * bank5 = fd_banks_bank_query( ctx->banks, idx5 );
@@ -2791,12 +2791,12 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec_bid( ctx, 6UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B6, &mr6_32, 1, 0 )==0 );
   ag_block_id_t       key5_id   = ag_block_id( 5UL, B5.uc );
   ag_block_id_t       key5_slot = { .slot = 5UL };
-  fd_block_id_ele_t * stale     = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key5_id, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * stale     = fd_block_id_map_ele_query( ctx->block_id_map, &key5_id, NULL, ctx->block_id_arr );
   FD_TEST( stale && stale->block_id_seen );
   ulong idx5 = fd_block_id_ele_get_idx( ctx->block_id_arr, stale );
   for( ulong slot=5UL; slot<=6UL; slot++ ) {
     ag_block_id_t       key = ag_block_id( slot, slot==5UL ? B5.uc : B6.uc );
-    fd_block_id_ele_t * ele = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key, NULL, ctx->block_id_arr );
+    fd_block_id_ele_t * ele = fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr );
     ulong               idx = fd_block_id_ele_get_idx( ctx->block_id_arr, ele );
     fd_bank_t *         b   = fd_banks_bank_query( ctx->banks, idx );
     b->state = FD_BANK_STATE_REPLAYABLE;
@@ -2806,7 +2806,7 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
     FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
     FD_TEST( !fd_banks_bank_query( ctx->banks, idx ) );
   }
-  FD_TEST( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key5_id, NULL, ctx->block_id_arr )==stale );
+  FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key5_id, NULL, ctx->block_id_arr )==stale );
   ulong used0 = fd_banks_pool_used_cnt( ctx->banks );
   ulong ing0  = mock_sched_fec_ingest_cnt;
   ulong seq0  = test_stem_seqs[ out_idx ];
@@ -2817,10 +2817,10 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 0U, 0UL, &parent_bid, &B5, &mr5_0, 0, 0 )==0 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0+1UL );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL );
-  fd_block_id_ele_t * live = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key5_slot, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * live = fd_block_id_map_ele_query( ctx->block_id_map, &key5_slot, NULL, ctx->block_id_arr );
   FD_TEST( live && live!=stale && !live->block_id_seen && live->latest_fec_idx==0U );
   FD_TEST( fd_block_id_ele_get_idx( ctx->block_id_arr, live )!=idx5 );
-  FD_TEST( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key5_id, NULL, ctx->block_id_arr )==stale );
+  FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key5_id, NULL, ctx->block_id_arr )==stale );
   ulong idx_live = fd_block_id_ele_get_idx( ctx->block_id_arr, live );
 
   /* The same FEC 0 again: the stale id hit has no live bank, so the slot
@@ -2828,7 +2828,7 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 0U, 0UL, &parent_bid, &B5, &mr5_0, 0, 0 )==0 );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0+1UL );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL );
-  FD_TEST( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key5_slot, NULL, ctx->block_id_arr )==live );
+  FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key5_slot, NULL, ctx->block_id_arr )==live );
   FD_TEST( fd_banks_bank_query( ctx->banks, idx_live ) );
   FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
 
@@ -2836,9 +2836,9 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
      {5, B5}, displacing the stale entry. */
   FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &B5, &mr5_32, 1, 0 )==0 );
   FD_TEST( mock_sched_fec_ingest_cnt==ing0+2UL );
-  FD_TEST( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key5_id, NULL, ctx->block_id_arr )==live );
+  FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key5_id, NULL, ctx->block_id_arr )==live );
   FD_TEST( live->block_id_seen );
-  FD_TEST( !fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key5_slot, NULL, ctx->block_id_arr ) );
+  FD_TEST( !fd_block_id_map_ele_query( ctx->block_id_map, &key5_slot, NULL, ctx->block_id_arr ) );
 
   FD_LOG_NOTICE(( "pass: test_stale_id_key_does_not_shadow_rebuild" ));
 }
@@ -2949,13 +2949,13 @@ test_ag_set_identity_leader_slot( fd_wksp_t * wksp,
   FD_TEST( ctx->halt_replay && keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( keyswitch->result==7UL ); /* votor reads replay_slot */
   FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &new_identity ) );
-  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( !try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
 
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
   during_housekeeping( ctx );
   FD_TEST( !ctx->halt_replay && keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
 
-  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL )==same_identity );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL )==same_identity );
   FD_TEST( ctx->is_leader==same_identity );
   if( !same_identity ) FD_TEST( ctx->next_leader_slot==ULONG_MAX );
 
@@ -3061,7 +3061,7 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   FD_TEST( ctx->vote_tracker );
   ctx->slot_out_seq   = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->slot_out->idx   ] );
 
-  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   fd_bank_t * leader = ctx->leader_bank;
   FD_TEST( ctx->is_leader && leader && leader->f.slot==2UL && leader->refcnt==1UL );
   ulong leader_idx = leader->idx;
@@ -3091,7 +3091,7 @@ test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
   /* The cluster finalizes a sibling of our slot.  Replay roots it, but
      the handoff stays gated on is_leader. */
   fd_bank_t * b3 = add_block( ctx, b1, 3UL, &id3 );
-  try_advance_root_ag( ctx, ag_block_id( 3UL, id3.uc ) );
+  try_advance_root( ctx, ag_block_id( 3UL, id3.uc ) );
   FD_TEST( ctx->consensus_root_slot==3UL );
   FD_TEST( ctx->is_leader );
   FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
@@ -3153,20 +3153,20 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
 
   ctx->votor_final->slot = 3UL;
-  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( !try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
   ctx->votor_final->slot = ULONG_MAX;
 
   ctx->next_leader_slot    = 2UL;
   ctx->consensus_root_slot = 3UL;
   ctx->consensus_root      = id3;
-  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( !try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
 
   ctx->next_leader_slot    = 2UL;
   ctx->consensus_root_slot = 1UL;
   ctx->consensus_root      = other1;
-  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( !try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
 
   /* The cluster already produced a slot of the window (the network's
@@ -3176,7 +3176,7 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   fd_hash_t net3 = { .ul = { 403UL } };
   fd_bank_t * b3 = add_replayable_block( ctx, b1, 3UL, &net3 );
   ulong produced0 = ctx->metrics.leader_slot_already_produced;
-  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( !try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
   FD_TEST( ctx->metrics.leader_slot_already_produced==produced0+1UL );
   b3->bank_seq++; /* the network block goes away */
@@ -3192,7 +3192,7 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_PARENT_READY, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
   produced0 = ctx->metrics.leader_slot_already_produced;
   ulong superseded0 = ctx->metrics.leader_window_superseded;
-  FD_TEST( !try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( !try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
   FD_TEST( ctx->metrics.leader_window_superseded==superseded0+1UL );
   FD_TEST( ctx->metrics.leader_slot_already_produced==produced0 ); /* nothing was produced */
@@ -3201,7 +3201,7 @@ test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
   /* Rooted at the parent itself: lead. */
   ctx->next_leader_slot = 2UL;
   ctx->consensus_root   = id1;
-  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   FD_TEST( ctx->is_leader && ctx->leader_bank->f.slot==2UL );
   fd_bank_t * leader = ctx->leader_bank;
 
@@ -3240,7 +3240,7 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   fd_hash_t id1     = { .ul = { 201UL } };
   fd_hash_t id2     = { .ul = { 202UL } };
   fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
-  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
   fd_bank_t * leader = ctx->leader_bank;
 
   fd_bank_t * tip = b1;
@@ -3272,7 +3272,7 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   fd_block_id_ele_t * ele = &ctx->block_id_arr[ leader->idx ];
   FD_TEST( ele->block_id_seen && fd_hash_eq( &ele->dmr, &id2 ) );
   ag_block_id_t key2 = ag_block_id( 2UL, id2.uc );
-  FD_TEST( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key2, NULL, ctx->block_id_arr )==ele );
+  FD_TEST( fd_block_id_map_ele_query( ctx->block_id_map, &key2, NULL, ctx->block_id_arr )==ele );
   FD_TEST( !ctx->drain_rotor_fecs && test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
 
   mock_sched_capacity = ULONG_MAX;
@@ -3324,12 +3324,12 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
   FD_TEST( ctx->block_id_arr );
   memset( ctx->block_id_arr, 0, sizeof(fd_block_id_ele_t)*bank_cnt );
 
-  ulong  ag_chain_cnt = fd_ag_block_id_map_chain_cnt_est( bank_cnt );
-  void * ag_map_mem   = fd_wksp_alloc_laddr( wksp, fd_ag_block_id_map_align(), fd_ag_block_id_map_footprint( ag_chain_cnt ), 1UL );
+  ulong  ag_chain_cnt = fd_block_id_map_chain_cnt_est( bank_cnt );
+  void * ag_map_mem   = fd_wksp_alloc_laddr( wksp, fd_block_id_map_align(), fd_block_id_map_footprint( ag_chain_cnt ), 1UL );
   FD_TEST( ag_map_mem );
-  ctx->ag_block_id_map_seed = 7UL;
-  ctx->ag_block_id_map      = fd_ag_block_id_map_join( fd_ag_block_id_map_new( ag_map_mem, ag_chain_cnt, ctx->ag_block_id_map_seed ) );
-  FD_TEST( ctx->ag_block_id_map );
+  ctx->block_id_map_seed = 7UL;
+  ctx->block_id_map      = fd_block_id_map_join( fd_block_id_map_new( ag_map_mem, ag_chain_cnt, ctx->block_id_map_seed ) );
+  FD_TEST( ctx->block_id_map );
 
   ctx->block_id_len = bank_cnt;
 
@@ -3666,14 +3666,14 @@ test_wfs_leader_gate( fd_wksp_t * wksp ) {
   ctx->next_leader_slot      = 101UL;
   ctx->is_leader             = 0;
 
-  /* Blocked by wfs_complete==0.  try_become_leader_ag short-circuits on
+  /* Blocked by wfs_complete==0.  try_become_leader short-circuits on
      an OR, so pin every earlier term open (replay_out->idx==ULONG_MAX in
      particular would return 0 on its own and hide the WFS gate). */
   FD_TEST( ctx->next_leader_slot!=ULONG_MAX );
   FD_TEST( !ctx->is_leader );
   FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   FD_TEST( !ctx->wfs_complete );
-  FD_TEST( try_become_leader_ag( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL )==0 );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL )==0 );
 
   /* after_credit returns immediately when wfs_complete==0.  If the
      gate didn't fire, it would crash on our minimal ctx. */
