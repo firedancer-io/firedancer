@@ -760,19 +760,35 @@ fd_gui_store_kv_scan_next( fd_gui_store_kv_scan_t * iter ) {
   return 1;
 }
 
+void
+fd_gui_store_kv_scan_seek( fd_gui_store_kv_scan_t * iter,
+                           int (*below_cb)( void const *, void * ),
+                           void *                   ctx ) {
+  if( FD_UNLIKELY( !iter->db ) ) return;
+  fd_gui_store_ring_t const * p = &iter->db->super->ring[ iter->ring_idx ];
+  ulong lo = fd_ulong_max( iter->cur, p->evict_cur );
+  ulong hi = fd_ulong_max( lo, iter->end );
+  while( lo<hi ) {
+    ulong mid = lo + (hi-lo)/2UL;
+    if( below_cb( fd_gui_store_slot( iter->db, iter->ring_idx, p, mid ), ctx ) ) lo = mid + 1UL;
+    else                                                                        hi = mid;
+  }
+  iter->cur = lo;
+}
+
 ulong
 fd_gui_store_kv_reclaim_prefix( fd_gui_store_t * db,
                                 ulong            ring_idx,
                                 ulong            budget,
-                                int (*eligible)( void const *, void * ),
+                                int (*eligible_cb)( void const *, void * ),
                                 void *           ctx ) {
-  if( FD_UNLIKELY( !db || ring_idx>=db->ring_cnt || !eligible ) ) return 0UL;
+  if( FD_UNLIKELY( !db || ring_idx>=db->ring_cnt ) ) return 0UL;
   fd_gui_store_ring_t * p = &db->super->ring[ ring_idx ];
   if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_KV ) ) return 0UL;
   ulong first = p->evict_cur;
   while( budget && p->evict_cur<p->head_cur ) {
     uchar const * rec = fd_gui_store_slot( db, ring_idx, p, p->evict_cur );
-    if( !eligible( rec, ctx ) ) break;
+    if( eligible_cb && !eligible_cb( rec, ctx ) ) break;
     fd_gui_store_kv_idx_node_t * node = fd_gui_store_kv_find_node( db, p, ring_idx, rec+p->key_off );
     FD_TEST( node );
     fd_gui_store_kv_idx_ele_remove_fast( db->kv_idx[ ring_idx ], node, db->kv_pool );
@@ -1016,7 +1032,7 @@ ulong
 fd_gui_store_reclaim( fd_gui_store_t * db,
                       ulong            ring_idx,
                       ulong            budget,
-                      int (*eligible)( ulong, void const *, void * ),
+                      int (*eligible_cb)( ulong, void const *, void * ),
                       void *           ctx ) {
   if( FD_UNLIKELY( !db || !budget || (ring_idx!=ULONG_MAX && ring_idx>=db->ring_cnt) ) ) return 0UL;
   ulong best = ULONG_MAX;
@@ -1027,7 +1043,7 @@ fd_gui_store_reclaim( fd_gui_store_t * db,
     if( ring_idx==ULONG_MAX ? rt->reg_cnt<=rt->base : i!=ring_idx ) continue;
     if( p->evict_cur==p->head_cur ) continue;
     void const * rec = fd_gui_store_slot( db, i, p, p->evict_cur );
-    if( eligible && !eligible( i, rec, ctx ) ) continue;
+    if( eligible_cb && !eligible_cb( i, rec, ctx ) ) continue;
     ulong id = fd_gui_store_region_ring( db, i )[ rt->reg_base % db->region_cnt ];
     if( db->region_age[ id ]<age ) { best = i; age = db->region_age[ id ]; }
   }
@@ -1040,7 +1056,7 @@ fd_gui_store_reclaim( fd_gui_store_t * db,
   ulong first = p->evict_cur;
   while( budget && p->evict_cur<stop ) {
     uchar const * rec = fd_gui_store_slot( db, best, p, p->evict_cur );
-    if( eligible && !eligible( best, rec, ctx ) ) break;
+    if( eligible_cb && !eligible_cb( best, rec, ctx ) ) break;
     if( p->kind==FD_GUI_STORE_KIND_KV ) {
       fd_gui_store_kv_idx_node_t * node = fd_gui_store_kv_find_node( db, p, best, rec+p->key_off );
       FD_TEST( node );

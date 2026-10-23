@@ -40,20 +40,22 @@ typedef struct fd_gui fd_gui_t;
    of calendar days, about the span of FD_GUI_HIST_MAX_EPOCHS epochs. */
 #define FD_GUI_HIST_MAX_TIMELINE_DAYS (64UL)
 
-#define FD_GUI_HIST_SCHEDULER_COUNTS (0)  /* (ts, type)            */
-#define FD_GUI_HIST_TILE_TIMERS      (1)  /* (ts, type)            */
-#define FD_GUI_HIST_SHRED_EVENTS     (2)
-#define FD_GUI_HIST_TXN_START        (3)  /* (ts, type, bank, txn) */
-#define FD_GUI_HIST_TXN_END          (4)  /* (ts, type, bank, txn) */
-#define FD_GUI_HIST_SLOT             (5)  /* (slot, bank_seq)      */
-#define FD_GUI_HIST_LEADER_SLOT      (6)  /* (slot, bank_seq)      */
-#define FD_GUI_HIST_EPOCH            (7)  /* (epoch)               */
-#define FD_GUI_HIST_TILE_STATS       (8)  /* (ts, type)            */
-#define FD_GUI_HIST_TXN_WATERFALL    (9)  /* (ts, type)            */
-#define FD_GUI_HIST_TIMELINE_DAY     (10)
-#define FD_GUI_HIST_REPLAY_TXN       (11)
+#define FD_GUI_HIST_SCHEDULER_COUNTS  (0)  /* (ts, type)            */
+#define FD_GUI_HIST_TILE_TIMERS       (1)  /* (ts, type)            */
+#define FD_GUI_HIST_SHRED_EVENTS      (2)
+#define FD_GUI_HIST_TXN_START         (3)  /* (ts, type, bank, txn) */
+#define FD_GUI_HIST_TXN_END           (4)  /* (ts, type, bank, txn) */
+#define FD_GUI_HIST_SLOT              (5)  /* (slot, bank_seq)      */
+#define FD_GUI_HIST_LEADER_SLOT       (6)  /* (slot, bank_seq)      */
+#define FD_GUI_HIST_EPOCH             (7)  /* (epoch)               */
+#define FD_GUI_HIST_TILE_STATS        (8)  /* (ts, type)            */
+#define FD_GUI_HIST_TXN_WATERFALL     (9)  /* (ts, type)            */
+#define FD_GUI_HIST_TIMELINE_DAY      (10)
+#define FD_GUI_HIST_REPLAY_TXN        (11)
 #define FD_GUI_HIST_TIMELINE_TILE_DAY (12) /* (day_idx, tile_idx)  */
-#define FD_GUI_HIST_CNT              (13)
+#define FD_GUI_HIST_FEC_EVENTS        (13) /* (FEC event key)      */
+#define FD_GUI_HIST_FEC_EVENT_ARCHIVE (14) /* (ts, ...)            */
+#define FD_GUI_HIST_CNT               (15)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */
@@ -255,8 +257,9 @@ fd_gui_hist_kv_iter_next( fd_gui_hist_kv_slot_iter_t * iter );
 /* fd_gui_hist_evict_step reclaims at most FD_GUI_HIST_EVICT_BATCH
    records from an oldest excess region once at most one shared region
    remains free.  Every DB's newest base_regions regions are protected
-   (see fd_gui_hist_db_descs).  Returns 1 for actual progress, 0 when
-   idle or all candidates pinned.  Writes retry on pressure, then
+   (see fd_gui_hist_db_descs).  FEC staging is never evicted; it only
+   drains through fd_gui_fec_archive.  Returns 1 for actual progress, 0
+   when idle or all candidates pinned.  Writes retry on pressure, then
    recycle only their own eligible history if no excess candidate
    remains. */
 
