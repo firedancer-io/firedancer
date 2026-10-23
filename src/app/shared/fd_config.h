@@ -325,6 +325,7 @@ struct fd_config {
       int   report_shreds;
       int   report_transactions;
       int   report_runtime_diffs;
+      int   report_repair_requests;
       ulong max_upload_rate_mbps;
     } event;
 

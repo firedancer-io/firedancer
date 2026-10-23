@@ -205,6 +205,7 @@ struct fd_repair_tile {
   /* Networking */
 
   int               allow_private_address;
+  int               report_repair_requests;
   fd_pubkey_t *     ping_deque;
   fd_ip4_udp_hdrs_t net_hdr[1];
   ushort            net_id;
@@ -490,7 +491,7 @@ report_repair_request( fd_repair_tile_t * ctx,
                        long               res_ts,
                        int                outcome,
                        int                ban ) {
-  if( FD_LIKELY( !fd_event_tl ) ) return;
+  if( FD_LIKELY( !ctx->report_repair_requests || !fd_event_tl ) ) return;
   fd_repair_strat_peer_t const * peer = fd_repair_strat_query( ctx->strat, &pending->peer );
   fd_event_repair_request_t      ev   = {0};
   memcpy( ev.peer_identity, pending->peer.uc, sizeof(fd_pubkey_t) );
@@ -1124,7 +1125,7 @@ after_credit( fd_repair_tile_t *  ctx,
     else if( FD_LIKELY  ( answerable        ) ) ban = fd_repair_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid );
     else                                        fd_repair_strat_request_failed ( ctx->strat, &pending->peer, 0           );
     ctx->metrics->peer_byid_banned += (ulong)( ban==1 );
-    fd_repair_blk_t const * blk        = answerable || !fd_event_tl ? NULL : fd_repair_blk_map_ele_query_const( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
+    fd_repair_blk_t const * blk        = answerable || !ctx->report_repair_requests || !fd_event_tl ? NULL : fd_repair_blk_map_ele_query_const( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
     while( blk && fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk )!=pending->blk ) blk = fd_repair_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool );
     fd_repair_blk_t const * parent     = blk ? fd_repair_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent ) : NULL;
     int                     superseded = pending->slot>ctx->rotor->root && blk && ( ( pending->tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && blk->cmpl_fec_cnt ) || ( pending->tag==FD_REPAIR_SERDE_TAG_ORPHAN && parent && parent->parent_slot!=ULONG_MAX ) );
@@ -1613,7 +1614,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
   fd_ip4_udp_hdr_init( ctx->net_hdr, 0UL, 0U, tile->rotor.repair_client_listen_port );
-  ctx->allow_private_address = tile->rotor.allow_private_address;
+  ctx->allow_private_address  = tile->rotor.allow_private_address;
+  ctx->report_repair_requests = tile->rotor.report_repair_requests;
 
   ctx->rserve_out_idx = fd_topo_find_tile_out_link( topo, tile, "rotor_rserve", 0UL );
   if( FD_LIKELY( ctx->rserve_out_idx!=ULONG_MAX ) ) {
