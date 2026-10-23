@@ -1,5 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_mem_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_mem_h
+#if FD_HAS_AVX512
+#include "../../util/simd/fd_avx512.h"
+#elif FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
 
 #include "../runtime/fd_runtime_const.h"
 
@@ -27,6 +32,54 @@
    wastes a substantial amount of memory.  Other than different
    allocation/release patterns, both types are totally compatible. */
 
+
+/* To accelerate zeroing memory, this code is designed for use with a
+   dirty bitmap.  fd_vm_mem_{dirty,zero} talk more about this, but in
+   the expected case, it's about 20-50x faster to zero only the regions
+   of memory that were written to.  There are 3 regions of memory that
+   an SBPF program can write to: the stack, the heap, and the input
+   region, so these are the regions for which writes are tracked.  The
+   stack and heap are zero-initialized, while the input region is
+   initialized elsewhere.
+
+   This code supports a few different shaped bitmaps, since they have
+   different tradeoffs.  The granularity of tracking (FD_VM_MEM_PAGE_SZ)
+   can be 64, 128, or 256 bytes.  The larger the page size is, the
+   smaller the bitmap can be, but the more extra zeroing we might do.
+
+   Because of x86 instructions, we can ignore the high 32 bits of the
+   vaddr (the region) for free.  This lets us store only one dirty
+   bitmap instead of three, but again, means we have to zero more when
+   clearing.  FD_VM_MEM_IGNORE_HIGH controls this option.
+
+   The obvious thing amount of memory to dedicate to a page in the
+   bitmap is a single bit.  x86 even includes the bts instruction that
+   can do the whole setting operation in a single instruction.  However,
+   bts is extremely slow and microcoded on Zen 5.  Dedicating a whole
+   byte to a page means that we can use a `movb` instruction, which is
+   many times faster.  The downside to this option is that the bitmap is
+   larger, and also slower to zero.
+
+   From all these options, we calculate the offset of the dirty bitmap
+   such that the first writable address, 0x200000000, maps to right
+   after the JIT stack, at base_addr + 0xC00000.  For some options, it's
+   also possible to set it to 0 to shrink the encoding of the
+   instructions, though it shouldn't actually change the
+   microarchitectural cost of the operations. */
+#define FD_VM_MEM_PAGE_SZ           128UL
+#define FD_VM_MEM_IGNORE_HIGH       0
+#define FD_VM_MEM_ONE_BYTE_PER_PAGE 1
+
+/* FD_VM_MEM_DIRTY_SCALE is how many bytes of vaddr space one byte of the dirty map
+   covers.  SCL is an alias undefined shortly. */
+#if FD_VM_MEM_ONE_BYTE_PER_PAGE
+#  define FD_VM_MEM_DIRTY_SCALE       (FD_VM_MEM_PAGE_SZ)
+#else
+#  define FD_VM_MEM_DIRTY_SCALE       (FD_VM_MEM_PAGE_SZ*8UL)
+#endif
+#define FD_VM_MEM_DIRTY_OFFSET      ( FD_VM_MEM_IGNORE_HIGH ? 0xC00000UL : 0xC00000UL - 0x200000000/FD_VM_MEM_DIRTY_SCALE )
+
+
 struct fd_vm_mem {
   /* dirty: a bitset of FD_MAX_INSTRUCTION_STACK_DEPTH bits.  If bit i
      is set, then the memory associated with frame i may be dirty. */
@@ -36,8 +89,11 @@ struct fd_vm_mem {
      establishes a frame of memory.  That means the following address
      ranges are mapped and essentially owned by this fd_vm_mem_t object:
 
-     [0x0_0000_0000,  0x0_00A0_0000)  For SBPFv3   ro_data section     (FD_RUNTIME_ACC_SZ_MAX)
-     TODO                             For the dirty bitmap
+     [0x0_0000_0000,  varies       )  ro_data section for SBPFv3,       (FD_VM_MEM_REGION0_SZ)
+                                        the JIT's stack, and the first
+                                        part of the dirty bitmap
+     [also variable,  varies       )  second part of dirty bitmap
+     [also variable,  varies       )  third part of dirty bitmap
      [0x1_0000_0000,  0x1_00A0_0000)  For SBPFv0-2 ro_data section     (FD_RUNTIME_ACC_SZ_MAX)
      [0x2_0000_0000,  0x2_0008_0000)  For the stack                    (2*FD_VM_STACK_MAX)
      [0x3_0000_0000,  0x3_0004_0000)  For the heap                     (FD_VM_HEAP_MAX)
@@ -60,15 +116,34 @@ struct fd_vm_mem {
 
 typedef struct fd_vm_mem fd_vm_mem_t;
 
-#define FD_VM_MEM_ALLOC_CNT   5
-#define FD_VM_MEM_LARGEST_IDX 4 /* The index of the largest alloc */
+/* Use one 2MB page for the JIT */
+#if FD_VM_MEM_IGNORE_HIGH
+#  define FD_VM_MEM_REGION0_SZ  (FD_RUNTIME_ACC_SZ_MAX + FD_SHMEM_HUGE_PAGE_SZ + (BPF_LOADER_SERIALIZATION_FOOTPRINT/FD_VM_MEM_DIRTY_SCALE)
+#  define FD_VM_MEM_LARGEST_IDX 4 /* The index of the largest alloc */
+#  define FD_VM_MEM_ALLOC_CNT   5
+#else
+#  define FD_VM_MEM_REGION0_SZ (FD_RUNTIME_ACC_SZ_MAX + FD_SHMEM_HUGE_PAGE_SZ + (2UL*FD_VM_STACK_MAX)/FD_VM_MEM_DIRTY_SCALE)
+#  define FD_VM_MEM_LARGEST_IDX 6
+#  define FD_VM_MEM_ALLOC_CNT   7
+#endif
+
+/* Map addr, size to dirty bitmap offset, size */
+#define DA( addr ) ((addr)/FD_VM_MEM_DIRTY_SCALE + FD_VM_MEM_DIRTY_OFFSET)
+#define DS( sz   ) ((sz)/FD_VM_MEM_DIRTY_SCALE)
+
 static const struct { ulong offset; ulong sz; int huge; } fd_vm_mem_allocs[ FD_VM_MEM_ALLOC_CNT ] = {
-  { .offset=0x000000000UL, .sz = FD_ULONG_ALIGN_UP(FD_RUNTIME_ACC_SZ_MAX,              FD_SHMEM_HUGE_PAGE_SZ),   .huge=1 },
-  { .offset=0x100000000UL, .sz = FD_ULONG_ALIGN_UP(FD_RUNTIME_ACC_SZ_MAX,              FD_SHMEM_HUGE_PAGE_SZ),   .huge=1 },
-  { .offset=0x200000000UL, .sz = FD_ULONG_ALIGN_UP(2UL*FD_VM_STACK_MAX,                FD_SHMEM_NORMAL_PAGE_SZ), .huge=0 },
-  { .offset=0x300000000UL, .sz = FD_ULONG_ALIGN_UP(FD_VM_HEAP_MAX,                     FD_SHMEM_NORMAL_PAGE_SZ), .huge=0 },
-  { .offset=0x400000000UL, .sz = FD_ULONG_ALIGN_UP(BPF_LOADER_SERIALIZATION_FOOTPRINT, FD_SHMEM_HUGE_PAGE_SZ),   .huge=1 },
+  { .offset=0x000000000UL,     .sz = FD_ULONG_ALIGN_UP(FD_VM_MEM_REGION0_SZ,                   FD_SHMEM_HUGE_PAGE_SZ),   .huge=1 },
+#if !FD_VM_MEM_IGNORE_HIGH
+  { .offset=DA(0x300000000UL), .sz = FD_ULONG_ALIGN_UP(DS(FD_VM_HEAP_MAX),                     FD_SHMEM_NORMAL_PAGE_SZ), .huge=0 },
+  { .offset=DA(0x400000000UL), .sz = FD_ULONG_ALIGN_UP(DS(BPF_LOADER_SERIALIZATION_FOOTPRINT), FD_SHMEM_NORMAL_PAGE_SZ), .huge=0 },
+#endif
+  { .offset=0x100000000UL,     .sz = FD_ULONG_ALIGN_UP(FD_RUNTIME_ACC_SZ_MAX,                  FD_SHMEM_HUGE_PAGE_SZ),   .huge=1 },
+  { .offset=0x200000000UL,     .sz = FD_ULONG_ALIGN_UP(2UL*FD_VM_STACK_MAX+7UL,                FD_SHMEM_NORMAL_PAGE_SZ), .huge=0 },
+  { .offset=0x300000000UL,     .sz = FD_ULONG_ALIGN_UP(FD_VM_HEAP_MAX+7UL,                     FD_SHMEM_NORMAL_PAGE_SZ), .huge=0 },
+  { .offset=0x400000000UL,     .sz = FD_ULONG_ALIGN_UP(BPF_LOADER_SERIALIZATION_FOOTPRINT+7UL, FD_SHMEM_HUGE_PAGE_SZ),   .huge=1 },
 };
+#undef DS
+#undef DA
 
 static inline ulong fd_vm_mem_align    ( void ) { return alignof(fd_vm_mem_t); }
 static inline ulong fd_vm_mem_footprint( void ) { return sizeof (fd_vm_mem_t); }
@@ -156,6 +231,25 @@ fd_vm_mem_acquire( fd_vm_mem_t * m,
   return m->base_addr[level];
 }
 
+/* fd_vm_mem_dirty marks the 8 bytes [vaddr, vaddr+8) as potentially
+   written in the frame with base address of base_addr.  This does no
+   error checking, which means base_addr must be an address returned
+   from fd_vm_mem_aquire, and (importantly) vaddr MUST be a valid
+   virtual address that the caller can write to.  Again: call this AFTER
+   address translation has succeeded. */
+static inline void
+fd_vm_mem_dirty( ulong base_addr,
+                 ulong vaddr ) {
+#if FD_VM_MEM_IGNORE_HIGH
+  vaddr &= 0xFFFFFFFFUL;
+#endif
+#if FD_VM_MEM_ONE_BYTE_PER_PAGE
+  ((uchar *)(base_addr + FD_VM_MEM_DIRTY_OFFSET))[vaddr/FD_VM_MEM_PAGE_SZ] = 1;
+#else
+  ((uchar *)(base_addr + FD_VM_MEM_DIRTY_OFFSET))[vaddr/(FD_VM_MEM_PAGE_SZ*8UL)] |= 1<<((vaddr/FD_VM_MEM_PAGE_SZ)%8UL);
+#endif
+}
+
 
 /* fd_vm_mem_zero_one unconditionally zeros the frame of memory for
    execution at the specified level.
@@ -172,24 +266,7 @@ fd_vm_mem_acquire( fd_vm_mem_t * m,
    pass ULONG_MAX as levels_bitset to indicate that all dirty frames
    should be cleared.  Both functions update m to mark that the cleared
    frames are no longer dirty. */
-static inline void
-fd_vm_mem_zero_one( fd_vm_mem_t * m,
-                    ulong         level ) {
-  /* FIXME: Use dirty set instead */
-  memset( (void *)(m->base_addr[level] + fd_vm_mem_allocs[2].offset), '\0', fd_vm_mem_allocs[2].sz );
-  memset( (void *)(m->base_addr[level] + fd_vm_mem_allocs[3].offset), '\0', fd_vm_mem_allocs[3].sz );
-  m->dirty &= ~(1UL<<level);
-}
-
-static inline void
-fd_vm_mem_zero( fd_vm_mem_t * m,
-                ulong         levels_bitset ) {
-  ulong to_clear = levels_bitset & m->dirty;
-  while( to_clear ) {
-    fd_vm_mem_zero_one( m, (ulong)fd_ulong_find_lsb( to_clear ) );
-    to_clear = fd_ulong_pop_lsb( to_clear );
-  }
-  /* zero_one clears the bit in m */
-}
+void fd_vm_mem_zero_one( fd_vm_mem_t * m, ulong level         );
+void fd_vm_mem_zero    ( fd_vm_mem_t * m, ulong levels_bitset );
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_mem_h */

@@ -96,3 +96,41 @@ fd_vm_mem_delete_mmap( fd_vm_mem_t * m ) {
   }
   return (void *)m;
 }
+
+void
+fd_vm_mem_zero_one( fd_vm_mem_t * m,
+                    ulong         level ) {
+
+  ulong base_addr = m->base_addr[level];
+
+#if !FD_VM_MEM_IGNORE_HIGH
+
+  /* Zero the stack... */
+#  define START_ADDR 0x200000000UL
+#  define SZ         (2UL*FD_VM_STACK_MAX)
+#  include "fd_vm_mem_zero.c"
+
+  /* ... then the heap */
+#  define START_ADDR 0x300000000UL
+#  define SZ         FD_VM_HEAP_MAX
+#  include "fd_vm_mem_zero.c"
+
+#else
+#  define START_ADDR 0x000000000UL
+#  define SZ         (((2UL*FD_VM_STACK_MAX)>FD_VM_HEAP_MAX) ? (2UL*FD_VM_STACK_MAX) : FD_VM_HEAP_MAX)
+#  include "fd_vm_mem_zero.c"
+#endif
+
+  m->dirty &= ~(1UL<<level);
+}
+
+void
+fd_vm_mem_zero( fd_vm_mem_t * m,
+                ulong         levels_bitset ) {
+  ulong to_clear = levels_bitset & m->dirty;
+  while( to_clear ) {
+    fd_vm_mem_zero_one( m, (ulong)fd_ulong_find_lsb( to_clear ) );
+    to_clear = fd_ulong_pop_lsb( to_clear );
+  }
+  /* zero_one clears the bit in m */
+}

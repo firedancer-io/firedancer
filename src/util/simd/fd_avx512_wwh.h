@@ -17,7 +17,7 @@
 
 /* Given the ushort values, return ... */
 
-#define wwh_bcast(b0) _mm512_set1_epi16( (ushort)(b0) ) /* [ b0 b0 ... b0 ] */
+#define wwh_bcast(b0) _mm512_set1_epi16( (short)(b0) ) /* [ b0 b0 ... b0 ] */
 
 
 /* Predefined constants */

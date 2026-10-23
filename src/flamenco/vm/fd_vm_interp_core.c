@@ -419,6 +419,7 @@ interp_exec:
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_1( haddr.haddr, (uchar)imm );
+    fd_vm_mem_dirty( vm->haddr_base, vaddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -449,6 +450,7 @@ interp_exec:
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
     fd_vm_mem_st_1( haddr.haddr, (uchar)reg_src );
+    fd_vm_mem_dirty( vm->haddr_base, vaddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -491,6 +493,7 @@ interp_exec:
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_2( haddr.haddr, (ushort)imm );
+    fd_vm_mem_dirty( vm->haddr_base, vaddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -523,6 +526,7 @@ interp_exec:
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_2( haddr.haddr, (ushort)reg_src );
+    fd_vm_mem_dirty( vm->haddr_base, vaddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -793,6 +797,7 @@ interp_exec:
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_4( haddr.haddr, imm );
+    fd_vm_mem_dirty( vm->haddr_base, vaddr );
   } FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x87depr) /* FD_SBPF_OP_NEG64 deprecated */
@@ -850,6 +855,7 @@ interp_exec:
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_4( haddr.haddr, (uint)reg_src );
+    fd_vm_mem_dirty( vm->haddr_base, vaddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -890,6 +896,7 @@ interp_exec:
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_8( haddr.haddr, (ulong)(long)(int)imm );
+    fd_vm_mem_dirty( vm->haddr_base, vaddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -922,6 +929,7 @@ interp_exec:
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_8( haddr.haddr, reg_src );
+    fd_vm_mem_dirty( vm->haddr_base, vaddr );
   }
   FD_VM_INTERP_INSTR_END;
 
