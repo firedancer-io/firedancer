@@ -56,9 +56,7 @@ Firedancer source tree
       ├── util/        C language environment, system runtime, common data
       │                structures and various utilities (math, bits, rng ...)
       │
-      ├── waltz/       Networking
-      │
-      └── wiredancer/  FPGA modules
+      └── waltz/       Networking
 
 Important files
 
