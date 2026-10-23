@@ -8,7 +8,9 @@
    - Server returns a 9 byte "challenge" to be signed using the client's
      identity key
    - Client sends back the signed challenge and requests an auth token
-   - Server returns an auth token and a refresh token  */
+   - Server returns an auth token and a refresh token
+   - Client refreshes the access token at half its lifetime
+   - Client repeats the flow at half the refresh token's lifetime  */
 
 #include "../../waltz/grpc/fd_grpc_client.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
@@ -21,19 +23,27 @@ struct fd_bundle_auther {
   char   challenge[ 9 ];
   char   access_token[ 1024 ];
   ushort access_token_sz;
+  char   refresh_token[ 1024 ];
+  ushort refresh_token_sz;
+
+  long   refresh_at;
+  long   reauth_at;
 };
 
 typedef struct fd_bundle_auther fd_bundle_auther_t;
 
 #define FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge         1
 #define FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens            2
-//#define FD_BUNDLE_CLIENT_REQ_Auth_RefreshAccessToken            3
+#define FD_BUNDLE_CLIENT_REQ_Auth_RefreshAccessToken            3
 
 #define FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE  0
 #define FD_BUNDLE_AUTH_STATE_WAIT_CHALLENGE 1
 #define FD_BUNDLE_AUTH_STATE_REQ_TOKENS     2
 #define FD_BUNDLE_AUTH_STATE_WAIT_TOKENS    3
 #define FD_BUNDLE_AUTH_STATE_DONE_WAIT      4
+/* States >=DONE_WAIT hold a usable access token */
+#define FD_BUNDLE_AUTH_STATE_REQ_REFRESH    5
+#define FD_BUNDLE_AUTH_STATE_WAIT_REFRESH   6
 
 FD_PROTOTYPES_BEGIN
 
@@ -55,6 +65,12 @@ fd_bundle_auther_poll( fd_bundle_auther_t *   auther,
 void
 fd_bundle_auther_reset( fd_bundle_auther_t * auther );
 
+/* fd_bundle_auther_refresh starts an access token refresh.  Intended
+   to be called in DONE_WAIT once refresh_at has passed. */
+
+void
+fd_bundle_auther_refresh( fd_bundle_auther_t * auther );
+
 /* Response handlers */
 
 void
@@ -71,7 +87,16 @@ int
 fd_bundle_auther_handle_tokens_resp(
     fd_bundle_auther_t * auther,
     void const *         data,
-    ulong                data_sz
+    ulong                data_sz,
+    long                 now
+);
+
+int
+fd_bundle_auther_handle_refresh_resp(
+    fd_bundle_auther_t * auther,
+    void const *         data,
+    ulong                data_sz,
+    long                 now
 );
 
 FD_PROTOTYPES_END
