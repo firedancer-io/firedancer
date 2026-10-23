@@ -1977,6 +1977,45 @@ telemetry = true
         # loading.
         delay_startup = true
 
+# Firedancer validators support a coordinated failover protocol.  A
+# handoff transfers the final vote history after the active stops signing.
+# `failover promote --force` bypasses peer checks and can discard earlier
+# lockouts or allow both validators to vote.
+#
+# The protocol works by hosting a TCP listener on your validator.  Any
+# peer in possession of the currently active identity private key can
+# demote this validator to the junk identity by sending a specially
+# signed packet proving that possession.
+#
+# Between two Firedancer validators, only hand off the identity with
+# `failover promote`.  Do not use `set-identity --vote-history-file`
+# for this.  The failover protocol passes the final vote history
+# directly and checks it against what this validator replayed.  Vote
+# history files are only for handing off an identity from a validator that
+# does not run failover, such as Agave.
+[failover]
+    # Whether to accept incoming handoff requests.  Requires the full
+    # Firedancer client.  When true, the validator boots as standby under
+    # a fresh junk identity generated in memory. Its private key is not
+    # written to a file.
+    # When false, it boots normally under [paths.identity_key].  For a
+    # nonvoting requester, use an unstaked junk key as [paths.identity_key]
+    # and the active's vote account as [paths.vote_account].  Request an
+    # outgoing handoff using `failover promote <keypair>`.  The target
+    # keypair is prepared without installing it and must differ from the
+    # boot identity.
+    enabled = false
+
+    # The address to listen on.  If enabled, by default the listener is
+    # exposed to the network.  This is safe as possession of the private
+    # key is required to demote the node, but could be a vector for
+    # a targeted denial of service.  For added reliability, restrict
+    # the listener to a private network.
+    listen_address = "0.0.0.0"
+
+    # The port to listen on for handoff requests.
+    listen_port = 8010
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program

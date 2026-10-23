@@ -219,6 +219,19 @@ the running validator will not be changed.
 Switching to the identity the validator is already
 running as is refused.
 
+Between two Firedancer validators running failover, only use
+`firedancer failover promote`, which hands over the vote history
+directly. Do not use `--vote-history-file` for this, it is only for a
+vote history file from a validator that does not run failover, such as Agave.
+
+With failover on, `set-identity` also makes the new key the identity
+`failover promote` hands off, unless it is the machine's junk identity.
+Only a machine running the same key can take it over, so set that
+key as `[paths.identity_key]` on the other machine and restart it.
+After a restart, the machine boots as standby under its junk identity
+and uses `[paths.identity_key]` as the handoff target again.
+The new key cannot also be one of the authorized voters.
+
 The validator writes `vote_history-<identity>.bin` in the
 `[paths.vote_history]` directory before each vote and each block it
 produces. This is an Agave-compatible vote history file and it protects
@@ -332,6 +345,242 @@ than 16).
 | `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
 
 <<< @/snippets/commands/add-authorized-voter.ansi
+
+## `failover promote`
+This command asks a remote active validator to hand off its identity and
+vote history to the local running standby. Run this command on the
+standby. The remote validator must have `[failover.enabled]` set to
+`true` to accept the request. Both validators must use the same vote
+account.
+
+The failover commands require the full Firedancer client, which uses
+Alpenglow consensus.
+
+```sh
+firedancer failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
+```
+
+The command attaches to the local running validator and discovers it
+automatically. If more than one is running, pass `--name <name>` to
+select one (see [`ps`](#ps)). It asks for confirmation when run from a
+terminal unless `--yes` is given. Outside a terminal it proceeds
+without a prompt.
+
+Before asking for confirmation, the command checks the local validator's
+role. A standby with a prepared target identity and a fresh gossip
+address authenticates to the remote validator in advance. This connection
+does not request a handoff. Confirmation submits the handoff request, so
+the prompt does not mean the remote validator is ready to hand off.
+
+The local validator finds the active's address through gossip. Use
+`--address` to give the remote validator's IPv4 address or host name
+instead, for example when connecting over a private network. Use
+`--port` if its failover listener uses a different port from the local
+validator's `[failover.listen_port]`.
+
+If gossip has no address for the remote validator, the command refuses
+the request. Wait for its contact information or provide `--address`.
+Providing an address does not bypass peer authentication.
+
+For example, to connect to a known failover listener over a private
+network, run the following on the local standby.
+
+```sh
+firedancer failover promote --name standby --address 192.0.2.10 --port 8010
+```
+
+The remote validator must be reachable at that TCP address and port. If
+it is stopped, its failover listener is disabled, or the connection
+cannot be authenticated, the local request cannot complete the handoff.
+
+### Both validators have failover enabled
+
+Set `[failover.enabled]` to `true` on both validators. Configure the same
+staked identity in `[paths.identity_key]` and the same vote account in
+`[paths.vote_account]`. Firedancer generates a fresh junk identity in memory
+on each startup. The private key is never written to a file. Both validators
+boot under their junk identities without voting and listen for handoff requests.
+
+Once one validator is active, run the following on the standby to request
+a handoff. The staked identity keypair is already loaded from the
+configuration, so no keypair argument is needed.
+
+```sh
+firedancer failover promote --name standby
+firedancer failover status --name standby
+```
+
+For example, an accepted request prints the handoff ID and the status
+needed to confirm completion.
+
+<<< @/snippets/commands/failover-promote.ansi
+
+After the handoff, the old active can request the identity back with
+`failover promote`. If both validators are still standbys, first promote
+one with `--force` as described below. An optional keypair argument must
+match the standby's current failover target.
+
+### Only the active has failover enabled
+
+Keep `[failover.enabled]` set to `true` on the active and set it to `false`
+on the requester. Disabling failover does not disable voting. The
+requester starts under `[paths.identity_key]` without generating a junk
+identity or automatically becoming a nonvoting standby.
+
+For this workflow, start the requester with a junk identity in
+`[paths.identity_key]` and the active's vote account in
+`[paths.vote_account]`. The junk identity must differ from the active's
+identity and must not be a staked node identity. This keeps the requester
+nonvoting while it replays, even with authorized voter keys loaded. The
+vote account must remain configured for takeover.
+
+If needed, create a junk key with the existing `keys` command and set
+`[paths.identity_key]` to its path before starting the requester.
+
+```sh
+firedancer keys new /path/to/standby-identity.json
+firedancer run --config /path/to/standby.toml
+```
+
+Alpenglow validators with a vote account include a failover tile for outgoing
+requests, so allow for it when assigning CPU affinity. Pass the active's
+identity keypair on first use. This prepares the target without installing
+it. The requester must still be using the identity it started with. The
+target cannot also be an authorized voter.
+
+```sh
+firedancer failover promote /path/to/active-identity.json --name standby
+firedancer failover status --name standby
+```
+
+Later requests can omit the keypair. Repeating the same keypair preserves
+an ongoing handoff. A different keypair is refused. After takeover, the
+requester's failover listener stays disabled, so the other validator
+cannot request the identity back from it. On restart, it returns to its
+configured identity and forgets the prepared target, so the next request
+needs the keypair again.
+
+If both validators have failover disabled, neither can accept a handoff
+request.
+
+### Handoff progress and failures
+
+The following applies to both configurations.
+
+The remote validator refuses the handoff if it has no final vote history
+to hand over, the local standby has not started replaying, or the standby
+is more than 64 slots behind its finality anchor. It keeps its identity in
+these cases. It also refuses a new request while another transition is running. Once it agrees to hand
+off, it gives up the identity before the local validator adopts its
+vote history. If adoption fails or stalls, the handoff can fail with
+neither machine voting.
+
+Exit code 0 means the local validator accepted the request. It does not
+mean the remote validator has agreed to hand off or that the handoff has
+completed. The command prints a handoff ID. Check
+[`failover status`](#failover-status) on the local validator for
+`role: active` and `last handoff: <id>, taken` with that ID. Check that the
+remote validator shows `role: standby` and `action: idle`.
+
+The local validator refuses a new request if it is already active or
+another transition is running. A local refusal exits with a non-zero
+code and prints the reason to `stderr`. An accepted request can still
+fail while connecting to the remote validator, authenticating it, or
+adopting its vote history. These later failures do not change the
+command's exit code. Check status and the logs on both validators to
+determine where it stopped.
+
+If the command itself times out waiting for the local validator to
+answer, the outcome is unknown. Check status on both machines because
+the request may still complete.
+
+If the request pauses at its network deadline, the local validator stops
+dialing. Run `failover status` on both validators before retrying. Run
+`failover promote` again on the local validator to resume the
+request. This also resumes an active validator that is waiting for the
+remote validator to confirm completion. You can provide a new `--address`
+or `--port` when resuming it.
+
+### Forced promotion
+
+With `--force`, the local standby takes the identity without contacting
+the remote validator. This is also needed for first use when both
+machines are standbys. Promotion first tries eligible saved peer vote
+history. If that history cannot be adopted, it falls back to empty vote
+history with a slot bound that prevents voting at or below it. Check for
+`role: active` and `action: idle` to confirm completion.
+
+Forced promotion can cancel a handoff that is waiting for the remote
+validator's response. It cannot interrupt a local vote history adoption
+or identity switch. Replay and adoption must still complete before the
+identity can be installed.
+
+::: warning WARNING
+
+Only use `--force` after ensuring every other machine with the identity
+cannot sign. It skips the checks on the other machine and can leave votes
+and leader windows unaccounted for by accepting incomplete or empty history.
+Never force promotion on both machines at once. `--yes` only skips the
+confirmation prompt. It does not imply `--force` or suppress its warning.
+
+:::
+
+| Arguments             | Description |
+|-----------------------|-------------|
+| `<keypair>`           | Optionally provide the target identity keypair file. Required on first use when `[failover.enabled]` is `false`. |
+| `--name <name>`       | Select the validator instance to attach to if more than one is running on this host. |
+| `--config <path>`     | Optionally use the configuration TOML file the validator was started with. |
+| `--yes`               | Skip the confirmation prompt. |
+| `--force`             | Take the identity without cooperation from the remote validator, allowing incomplete or empty vote history. This option cannot be combined with `--address` or `--port`. |
+| `--address <address>` | Use this IPv4 address or host name for the remote validator instead of the address found through gossip. This option cannot be combined with `--force`. |
+| `--port <port>`       | Set the remote validator's failover TCP port. The default is the local validator's `[failover.listen_port]`, which is 8010 unless configured otherwise. This option cannot be combined with `--force`. |
+
+## `failover status`
+This command prints the local running validator's failover role, current
+action, peer and last handoff. It also reports what this machine knows
+about another holder of the identity and the vote history a forced
+promotion would adopt. Use it to check progress after
+[`failover promote`](#failover-promote).
+
+```sh
+firedancer failover status [--name <name>]
+```
+
+The command discovers the local running validator automatically. If more
+than one is running, pass `--name <name>` to select one (see [`ps`](#ps)).
+It exits with code 0 if status was retrieved, including when failover
+is disabled. Otherwise it exits with a non-zero code and prints the
+reason to `stderr`.
+
+With Alpenglow enabled, `[failover.enabled]` set to `false`, and a vote
+account configured, status reports `client only, listener disabled` and
+shows outgoing handoff progress.
+
+The following example shows a completed handoff. The last handoff ID
+matches the ID printed by `failover promote` above. The connection closes
+after completion, so `peer role` is unknown until another authenticated
+session is established. The new standby reconnects when it discovers the
+new active through gossip.
+
+<<< @/snippets/commands/failover-status.ansi
+
+`role` describes the local validator. `peer role` describes the remote
+validator only while an authenticated session is open. `last handoff`
+records the latest request's outcome, so check `role` and `action` as
+well when investigating a failed or paused handoff.
+
+`other holder` reports what the local validator knows about another
+machine using the identity. Seeing none does not prove every other
+machine is unable to sign. `takeover adopts` shows the vote history
+source a forced promotion would currently select. `coverage floor` is
+the highest slot known to have been signed locally or reported by the
+remote validator. Forced promotion can proceed without history covering
+that slot, as described above.
+
+| Arguments             | Description |
+|-----------------------|-------------|
+| `--name <name>`       | Select the validator instance to attach to if more than one is running on this host. |
+| `--config <path>`     | Optionally use the configuration TOML file the validator was started with. |
 
 ## `remove-all-authorized-voters`
 Removes all authorized voters from the running validator, including any

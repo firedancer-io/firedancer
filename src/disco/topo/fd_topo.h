@@ -245,6 +245,17 @@ struct fd_topo_tile {
       char identity_key_path[ PATH_MAX ];
     } admin;
 
+    struct {
+      char   identity_key_path[ PATH_MAX ];   /* this machine's junk key */
+      char   staked_key_path[ PATH_MAX ];     /* we read only its public half */
+      char   vote_account_path[ PATH_MAX ];
+      uint   listen_addr;                     /* network byte order */
+      ushort port;
+
+      char          gossip_host[ FD_FQDN_BUF_MAX ];
+      fd_ip4_port_t gossip_addr; /* our own gossip socket, gossip_host overrides the address */
+    } failov;
+
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
 
     struct {
@@ -404,6 +415,9 @@ struct fd_topo_tile {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
+      int   identity_key_fd; /* private startup pipe when the boot identity is generated */
+      int   failover_enabled;
+      char  failover_staked_key_path[ PATH_MAX ];
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       struct {
@@ -619,6 +633,7 @@ struct fd_topo_tile {
     struct {
       char   identity_key_path[ PATH_MAX ];
       char   vote_history_path[ PATH_MAX ];
+      int    failover_standby;
       uint   target_gid;
       uint   target_uid;
       ulong  authorized_voter_paths_cnt;
@@ -816,6 +831,7 @@ typedef struct {
    between them. */
 struct fd_topo {
   char           app_name[ 256UL ];
+  uchar          boot_identity[ 32 ]; /* generated public key, zero for a file-backed identity */
   uchar          props[ 32768UL ];
 
   ulong          sleep_obj_id;

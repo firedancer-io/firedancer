@@ -343,6 +343,12 @@ fd_config_fill( fd_config_t * config,
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
 
+  /* Under failover [paths.identity_key] is the staked key both machines
+     share. */
+  if( FD_UNLIKELY( config->firedancer.failover.enabled && !strcmp( config->paths.identity_key, "" ) ) ) {
+    FD_LOG_ERR(( "[failover.enabled] is true, so [paths.identity_key] must specify the staked identity keypair both machines share" ));
+  }
+
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
     /* Development binaries generate an identity key on boot. */
     if( FD_UNLIKELY( config->is_live_cluster && !dev ) ) FD_LOG_ERR(( "configuration file must specify [paths.identity_key] when joining a live cluster" ));
@@ -519,9 +525,27 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( runtime.program_cache_size_mib );
 }
 
+static void
+fd_config_validate_failover( fd_config_t const * config ) {
+  fd_configf_t const * f = &config->firedancer;
+
+  if( FD_LIKELY( !f->failover.enabled ) ) return;
+  if( FD_UNLIKELY( !f->failover.listen_port ) ) {
+    FD_LOG_ERR(( "[failover.listen_port] must not be zero" ));
+  }
+  uint listen_addr;
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( f->failover.listen_address, &listen_addr ) ) ) {
+    FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", f->failover.listen_address ));
+  }
+  if( FD_UNLIKELY( !strcmp( config->paths.vote_account, "" ) ) ) {
+    FD_LOG_ERR(( "[failover.enabled] is true, so [paths.vote_account] must be set to the vote account both machines vote for" ));
+  }
+}
+
 void
 fd_config_validate( fd_config_t const * config ) {
   fd_config_validatef( &config->firedancer );
+  fd_config_validate_failover( config );
 
   CFG_HAS_NON_EMPTY( name );
   CFG_HAS_NON_EMPTY( paths.base );

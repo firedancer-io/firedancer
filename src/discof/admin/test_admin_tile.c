@@ -193,6 +193,183 @@ test_set_identity( void ) {
   FD_TEST( state==FD_SET_IDENTITY_STATE_UNLOCKED && replay_ks->state==FD_KEYSWITCH_STATE_UNLOCKED );
 }
 
+static uchar adminctl_mem[ 1UL<<18 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)));
+
+/* Under failover, set-identity changes the failover identity unless the
+   key is our junk key.  OPERATOR waits while the link has no room and
+   failover commands are busy until it goes out.  A switch request from
+   before set-identity gets STALE with the failover identity. */
+
+static fd_frag_meta_t    bus_mcache[ 8 ];
+static ulong             bus_seq;
+static ulong             bus_depth = 8UL;
+static ulong             bus_cr_avail;
+static ulong             bus_min_cr_avail;
+static int               bus_reliable = 1;
+static fd_frag_meta_t *  bus_mcaches[ 1 ] = { bus_mcache };
+static fd_stem_context_t bus_stem[ 1 ];
+static uchar             bus_out[ 1024 ] __attribute__((aligned(128)));
+
+static void
+bus_setup( ulong credits ) {
+  fd_memset( bus_mcache, 0, sizeof(bus_mcache) );
+  bus_seq          = 0UL;
+  bus_cr_avail     = credits;
+  bus_min_cr_avail = credits;
+  *bus_stem = (fd_stem_context_t){ .mcaches=bus_mcaches, .seqs=&bus_seq, .depths=&bus_depth,
+                                   .cr_avail=&bus_cr_avail, .min_cr_avail=&bus_min_cr_avail,
+                                   .cr_decrement_amount=1UL, .out_reliable=&bus_reliable };
+  ctx.failov_out_idx    = 0UL;
+  ctx.failov_out_mem    = (fd_wksp_t *)bus_out;
+  ctx.failov_out_chunk0 = ctx.failov_out_wmark = ctx.failov_out_chunk = 0UL;
+}
+
+static fd_failover_operator_t
+bus_operator( void ) {
+  FD_TEST( bus_seq && bus_mcache[ bus_seq-1UL ].sig==FD_FAILOVER_BUS_OPERATOR );
+  fd_failover_operator_t operator;
+  fd_memcpy( &operator, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(operator) );
+  return operator;
+}
+
+/* Events identify the public command on completion and on rejection,
+   including requests whose payload cannot be decoded. */
+static void
+test_failover_command( ulong cmd_id,
+                       ulong payload_cmd,
+                       ulong flags,
+                       int   event_type ) {
+  setup();
+  bus_setup( 8UL );
+  ctx.adminctl          = fd_adminctl_join( fd_adminctl_new( adminctl_mem ) );
+  ctx.failover_enabled  = 1;
+  ctx.failover_slot_idx = ULONG_MAX;
+  FD_TEST( ctx.adminctl );
+
+  static fd_frag_meta_t event_mcache[ 128 ] __attribute__((aligned(128)));
+  static uchar event_mem[ 1024 ] __attribute__((aligned(128)));
+  ulong               event_seq = 0UL;
+  fd_event_reporter_t reporter  = { .mcache=event_mcache, .depth=128UL, .seq_store=&event_seq,
+                                   .mem=(fd_wksp_t *)event_mem, .mtu=sizeof(event_mem) };
+  fd_event_tl = &reporter;
+
+  for( ulong i=0UL; i<4UL; i++ ) {
+    void * payload;
+    ulong  payload_max;
+    ulong  slot_idx = fd_adminctl_reserve( ctx.adminctl, &payload, &payload_max );
+    FD_TEST( slot_idx!=ULONG_MAX && payload_max>=sizeof(fd_adminctl_failover_req_t) );
+    fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=payload_cmd, .flags=flags };
+    /* A status command must not carry a promotion, or vice versa. */
+    if( i==3UL ) req.cmd = payload_cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS ? FD_ADMINCTL_FAILOVER_CMD_HANDOFF : FD_ADMINCTL_FAILOVER_CMD_STATUS;
+    fd_memcpy( payload, &req, sizeof(req) );
+    fd_adminctl_publish( ctx.adminctl, slot_idx, cmd_id, i==2UL ? 0UL : sizeof(req) );
+    int   poll_in    = 1;
+    int   busy       = 0;
+    ulong seq_before = bus_seq;
+    for( ulong j=0UL; j<FD_ADMINCTL_SLOT_CNT && !busy; j++ ) after_credit( &ctx, bus_stem, &poll_in, &busy );
+    FD_TEST( busy );
+
+    ulong result;
+    int   event_result;
+    if( i<2UL ) {
+      FD_TEST( bus_seq==seq_before+1UL && event_seq==i );
+      fd_adminctl_failover_req_t forwarded;
+      fd_memcpy( &forwarded, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(forwarded) );
+      FD_TEST( forwarded.cmd==payload_cmd && forwarded.flags==flags );
+      result       = i ? FD_FAILOVER_CONTROL_RESULT_BAD_ROLE : FD_ADMINCTL_RESULT_SUCCESS;
+      event_result = i ? FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM : FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS;
+      ctx.failov_in.nonce  = ctx.failover_nonce;
+      ctx.failov_in.result = result;
+      failover_response( &ctx );
+    } else {
+      FD_TEST( bus_seq==seq_before );
+      result       = i==2UL ? FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH : FD_ADMINCTL_RESULT_UNKNOWN_COMMAND;
+      event_result = i==2UL ? FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH : FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND;
+    }
+    FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==result );
+    FD_TEST( event_seq==i+1UL );
+    fd_event_admin_command_t event;
+    fd_memcpy( &event, event_mem, sizeof(event) );
+    FD_TEST( event.type==event_type && event.result==event_result );
+    if( i<2UL ) {
+      char const * args = payload_cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS ? "{}" :
+                         flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ? "{\"yes\":true,\"force\":true}" : "{\"yes\":false,\"force\":false}";
+      FD_TEST( event.args_json_len==strlen( args ) && !memcmp( event.args_json, args, event.args_json_len ) );
+    }
+  }
+  fd_event_tl = NULL;
+}
+
+static void
+test_failover_identity( void ) {
+  setup();
+  FD_TEST( fd_topob_new( test_topo, "admin-test" ) );
+  fd_topob_wksp( test_topo, "wksp" )->wksp = NULL;
+  fd_keyswitch_t * votor_ks = mock_tile( "votor" );
+  fd_keyswitch_t * sign_ks  = mock_tile( "sign" );
+  ctx.topo             = test_topo;
+  ctx.failover_enabled = 1;
+  fd_memset( ctx.junk_pubkey,     0x11, 32UL );
+  fd_memset( ctx.failover_pubkey, 0x5A, 32UL );
+  fd_memcpy( ctx.identity_pubkey, ctx.junk_pubkey, 32UL );
+  uchar third[ 32 ]; fd_memset( third, 0x66, 32UL );
+  bus_setup( 8UL );
+
+  /* A key other than junk and staked becomes the failover identity, and
+     nothing goes to the failover tile until every tile switched. */
+  failover_operator_begin( &ctx, third );
+  FD_TEST( ctx.failover_epoch==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) && ctx.failover_pending && !bus_seq );
+  FD_TEST( sign_ks->param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR && votor_ks->operator==1UL );
+  fd_memcpy( ctx.identity_pubkey, third, 32UL );
+  failover_operator_notify( &ctx, bus_stem );
+  fd_failover_operator_t operator = bus_operator();
+  FD_TEST( !ctx.failover_pending && operator.epoch==1UL );
+  FD_TEST( fd_memeq( operator.identity, third, 32UL ) && fd_memeq( operator.failover_identity, third, 32UL ) );
+
+  /* The junk key keeps the failover identity.  With three credits left
+     OPERATOR waits, and goes out once there is room. */
+  bus_cr_avail = 3UL;
+  failover_operator_begin( &ctx, ctx.junk_pubkey );
+  fd_memcpy( ctx.identity_pubkey, ctx.junk_pubkey, 32UL );
+  failover_operator_notify( &ctx, bus_stem );
+  FD_TEST( ctx.failover_pending && bus_seq==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) );
+  FD_TEST( fd_sha512_join( fd_sha512_new( ctx.sha512 ) ) );
+  ctx.adminctl = fd_adminctl_join( fd_adminctl_new( adminctl_mem ) );
+  FD_TEST( ctx.adminctl );
+  void * payload;
+  ulong  payload_max;
+  ulong  slot_idx = fd_adminctl_reserve( ctx.adminctl, &payload, &payload_max );
+  FD_TEST( slot_idx!=ULONG_MAX );
+  fd_adminctl_failover_req_t creq = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF };
+  fd_memcpy( payload, &creq, sizeof(creq) );
+  fd_adminctl_publish( ctx.adminctl, slot_idx, FD_ADMINCTL_CMD_FAILOVER_PROMOTE, sizeof(creq) );
+  ulong  poll_idx;
+  void * data;
+  ulong  data_sz;
+  FD_TEST( fd_adminctl_poll( ctx.adminctl, &poll_idx, &data, &data_sz )==FD_ADMINCTL_CMD_FAILOVER_PROMOTE );
+  failover_request( &ctx, bus_stem, poll_idx, FD_ADMINCTL_CMD_FAILOVER_PROMOTE, data, data_sz );
+  FD_TEST( bus_seq==1UL );
+  FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==FD_FAILOVER_CONTROL_RESULT_BUSY );
+  bus_cr_avail = 8UL;
+  failover_operator_notify( &ctx, bus_stem );
+  operator = bus_operator();
+  FD_TEST( !ctx.failover_pending && operator.epoch==2UL );
+  FD_TEST( fd_memeq( operator.identity, ctx.junk_pubkey, 32UL ) && fd_memeq( operator.failover_identity, third, 32UL ) );
+
+  /* A switch request from before set-identity gets STALE with what it
+     installed. */
+  ctx.failov_in.nonce = 9UL;
+  fd_failover_switch_req_t sreq = { .epoch=1UL };
+  fd_memcpy( sreq.identity, third, 32UL );
+  fd_memcpy( ctx.failov_in.payload, &sreq, sizeof(sreq) );
+  failover_switch_request( &ctx, bus_stem );
+  fd_failover_switch_resp_t answer;
+  fd_memcpy( &answer, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(answer) );
+  FD_TEST( answer.result==FD_FAILOVER_SWITCH_ERR_STALE && answer.operator.epoch==2UL );
+  FD_TEST( fd_memeq( answer.operator.identity, ctx.junk_pubkey, 32UL ) && fd_memeq( answer.operator.failover_identity, third, 32UL ) );
+  ctx.topo = NULL;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -201,6 +378,11 @@ main( int     argc,
   test_add_authorized_voter();
   test_remove_all_authorized_voters();
   test_set_identity();
+  test_failover_command( FD_ADMINCTL_CMD_FAILOVER_STATUS,  FD_ADMINCTL_FAILOVER_CMD_STATUS,  0UL, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS );
+  test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
+  test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_PROMOTE,
+                         FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
+  test_failover_identity();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

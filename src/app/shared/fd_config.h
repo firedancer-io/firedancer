@@ -126,6 +126,12 @@ struct fd_configf {
     char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
   } paths;
 
+  struct {
+    int    enabled;
+    char   listen_address[ 16 ];
+    ushort listen_port;
+  } failover;
+
 };
 
 typedef struct fd_configf fd_configf_t;

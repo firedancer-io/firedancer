@@ -1,0 +1,13 @@
+$ firedancer failover status --name standby
+failover:              enabled
+role:                  active
+action:                idle
+stuck:                 no
+link:                  listening
+peer role:             unknown, no authenticated failover session
+peer boot id:          0000000000000001
+peer address:          192.0.2.10:8010, from gossip
+last handoff:          123456789, taken
+other holder:          n/a, this machine holds the identity
+takeover adopts:       an empty history (requires --force)
+coverage floor:        slot 300
