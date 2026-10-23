@@ -3,7 +3,6 @@
 #include "../bench/bench.h"
 
 #include "../../../platform/fd_file_util.h"
-#include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/keyguard/fd_keyguard_bls.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../discof/genesis/genesis_hash.h"
