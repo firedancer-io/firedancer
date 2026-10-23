@@ -110,6 +110,20 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
                                   ulong        count,
                                   ulong        id );
 
+/* fd_gui_printf_timeline_query_agg_cpu stages per-tile CPU utilization
+   for tile_cnt tiles, given as ordinals into the reported tile list.
+   Returns -1 for invalid arguments or an unknown tile. */
+
+int
+fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
+                                      char const *  granularity,
+                                      ulong         g,
+                                      long          reference,
+                                      ulong         count,
+                                      ulong const * tiles,
+                                      ulong         tile_cnt,
+                                      ulong         id );
+
 int
 fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
                                      long       start_ns,

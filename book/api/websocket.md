@@ -2957,19 +2957,26 @@ list. Clients should not assume timestamps are ordered.
 |-----------|---------------|---------|
 | *Request* | `TimelineAgg` | below   |
 
-Three methods share the following parameters and common response fields:
-`timeline.query_agg_compute`, `timeline.query_agg_revenue`, and
-`timeline.query_agg_txn`.
+Four methods share the following parameters and common response fields:
+`timeline.query_agg_compute`, `timeline.query_agg_revenue`,
+`timeline.query_agg_txn`, and `timeline.query_agg_cpu`.
 
 | param       | type     | description |
 |-------------|----------|-------------|
 | start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns      | `string` | Exclusive upper bound |
-| granularity | `string` | Required; one of the granularities below, supported by all three methods |
+| granularity | `string` | Required; one of the granularities below |
 
-| granularities |
-|---------------|
-| `250ms`, `500ms`, `1s`, `2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d` |
+The granularities are `25ms`, `50ms`, `100ms`, `250ms`, `500ms`, `1s`,
+`2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`,
+`1h`, `2h`, `4h`, `8h`, `12h`, and `1d`. Each method has a minimum:
+
+| method                       | minimum granularity |
+|------------------------------|---------------------|
+| `timeline.query_agg_cpu`     | `25ms`  |
+| `timeline.query_agg_compute` | `250ms` |
+| `timeline.query_agg_revenue` | `250ms` |
+| `timeline.query_agg_txn`     | `250ms` |
 
 The request window is aligned to the request granularity bucket
 boundaries. At most 4,096 buckets may be requested, and the aligned
@@ -3084,6 +3091,55 @@ transactions and are not counted here.
         "failed_nonvote_transactions": [12, 9, null, 15],
         "success_vote_transactions": [640, 655, null, 648],
         "failed_vote_transactions": [0, 1, null, 0]
+    }
+}
+```
+
+:::
+
+##### `timeline.query_agg_cpu`
+| param | type       | description |
+|-------|------------|-------------|
+| tiles | `number[]` | Required; non-empty list of tile indices into `summary.tiles`, at most 256 |
+
+| field       | type                 | description |
+|-------------|----------------------|-------------|
+| utilization | `(number\|null)[][]` | One array per requested tile, in request order, of per-bucket utilization from `0` (idle) to `250` (busy) |
+
+Each tile is sampled every 25ms. Larger granularities are rolled-up
+averages of this sampled data; the bucket is `null` when `cnt` is 0. An
+unknown or repeated tile index closes the connection.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_cpu",
+    "id": 51,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657044000000000",
+        "granularity": "1s",
+        "tiles": [12, 3]
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_cpu",
+    "id": 51,
+    "value": {
+        "granularity": "1s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "utilization": [
+            [212, 250, 198, null],
+            [3, 4, 2, null]
+        ]
     }
 }
 ```

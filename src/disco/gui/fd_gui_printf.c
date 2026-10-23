@@ -3441,8 +3441,11 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
                                   ulong        count,
                                   ulong        id ) {
   if( FD_UNLIKELY( reference<0L || !count || count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || g>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
-  fd_gui_timeline_granularity_t const * desc = &fd_gui_timeline_granularities[ g ];
+  int   stored;
+  ulong merge_cnt;
+  if( FD_UNLIKELY( fd_gui_timeline_tier( key, g, &stored, &merge_cnt ) ) ) return -1;
   ulong ns = fd_gui_timeline_granularity_ns( g );
+  if( FD_UNLIKELY( (ulong)reference+count*ns>=(ulong)LONG_MAX ) ) return -1; /* window end must be representable */
 
   fd_gui_timeline_query_bucket_t * b = gui->timeline_scratch.buckets;
   for( ulong i=0UL; i<count; i++ ) memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
@@ -3451,12 +3454,11 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
      the previous bucket's day is reused until the query crosses into
      the next day. */
 
-  ulong stored      = desc->stored_idx;
   ulong step        = fd_gui_timeline_stored_granularity_ns[ stored ];
   ulong cur_day_idx = ULONG_MAX;
   fd_gui_timeline_day_t const * cur_day = NULL;
   for( ulong i=0UL; i<count; i++ ) {
-    for( ulong j=0UL; j<desc->merge_cnt; j++ ) {
+    for( ulong j=0UL; j<merge_cnt; j++ ) {
       ulong ts      = (ulong)reference + i*ns + j*step;
       ulong day_idx = ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
       if( FD_UNLIKELY( day_idx!=cur_day_idx ) ) {
@@ -3513,6 +3515,122 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
     AGG_ARRAY( "failed_vote_transactions", VOTE_FAILED, 0 );
   }
 #undef AGG_ARRAY
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
+/* fd_gui_tile_from_ordinal is the inverse of fd_gui_tile_ordinal,
+   returning ULONG_MAX for an ordinal past the reported tiles. */
+
+static ulong
+fd_gui_tile_from_ordinal( fd_gui_t * gui,
+                          ulong      ordinal ) {
+  for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
+    ulong idx = gui->summary.tile[ i ];
+    if( FD_UNLIKELY( !strncmp( gui->topo->tiles[ idx ].name, "bench", 5UL ) ) ) continue;
+    if( !ordinal-- ) return idx;
+  }
+  return ULONG_MAX;
+}
+
+int
+fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
+                                      char const *  granularity,
+                                      ulong         g,
+                                      long          reference,
+                                      ulong         count,
+                                      ulong const * ordinals,
+                                      ulong         tile_cnt,
+                                      ulong         id ) {
+  if( FD_UNLIKELY( reference<0L || !count || count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || g>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
+  if( FD_UNLIKELY( !tile_cnt || tile_cnt>FD_TOPO_MAX_TILES ) ) return -1;
+  ulong tiles[ FD_TOPO_MAX_TILES ];
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    tiles[ t ] = fd_gui_tile_from_ordinal( gui, ordinals[ t ] );
+    if( FD_UNLIKELY( tiles[ t ]==ULONG_MAX ) ) return -1;
+    for( ulong u=0UL; u<t; u++ ) if( FD_UNLIKELY( tiles[ u ]==tiles[ t ] ) ) return -1;
+  }
+
+  int   stored;
+  ulong merge_cnt;
+  if( FD_UNLIKELY( fd_gui_timeline_tier( "query_agg_cpu", g, &stored, &merge_cnt ) ) ) return -1;
+  ulong ns   = fd_gui_timeline_granularity_ns( g );
+  ulong step = fd_gui_timeline_stored_granularity_ns[ stored ];
+  if( FD_UNLIKELY( (ulong)reference%ns ) ) return -1; /* buckets must not cross a day */
+  if( FD_UNLIKELY( (ulong)reference+count*ns>=(ulong)LONG_MAX ) ) return -1; /* window end must be representable */
+
+  long avail_start = 0L, avail_end = 0L;
+  ulong lo_day, hi_day;
+  int  avail = fd_gui_timeline_tile_day_bounds( gui, &lo_day, &hi_day );
+  if( FD_LIKELY( avail ) ) {
+    avail_start = (long)(lo_day*(ulong)FD_GUI_TIMELINE_DAY_NS);
+    avail_end   = (long)((hi_day+1UL)*(ulong)FD_GUI_TIMELINE_DAY_NS); /* records only exist for representable days */
+  }
+
+  jsonp_open_envelope( gui->http, "timeline", "query_agg_cpu" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  jsonp_string( gui->http, "granularity", granularity );
+  jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
+  if( FD_LIKELY( avail ) ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", avail_start );
+    jsonp_long_as_str( gui->http, "available_end_ns", avail_end );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+  jsonp_open_array( gui->http, "utilization" );
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    /* Each requested tile is merged from its own day records; a missing
+       record leaves that tile's buckets empty.  The buckets are visited
+       in ascending time order, so a day's record is looked up once. */
+    memset( gui->timeline_scratch.cpu, 0, count*sizeof(gui->timeline_scratch.cpu[ 0 ]) );
+    ulong cur_day_idx = ULONG_MAX;
+    fd_gui_timeline_tile_day_t const * cur_day = NULL;
+    for( ulong i=0UL; i<count; i++ ) {
+      /* Query buckets are aligned multiples of the tier and days are
+         multiples of every query granularity, so a bucket's tier
+         buckets are contiguous within one day record. */
+      ulong ts      = (ulong)reference + i*ns;
+      ulong day_idx = ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
+      if( FD_UNLIKELY( day_idx!=cur_day_idx ) ) {
+        cur_day_idx = day_idx;
+        cur_day     = fd_gui_timeline_tile_day_get( gui, day_idx, tiles[ t ] );
+      }
+      if( FD_UNLIKELY( !cur_day ) ) continue;
+      ulong idx = (ts%(ulong)FD_GUI_TIMELINE_DAY_NS) / step;
+      uint  sum = 0U;
+      uint  cnt = 0U;
+      if( stored==FD_GUI_TIMELINE_GRANULARITY_25MS ) {
+        uchar const * v = cur_day->util_25ms+idx;
+        for( ulong j=0UL; j<merge_cnt; j++ ) {
+          if( v[ j ]>FD_GUI_CPU_UTIL_MAX ) continue;
+          sum += v[ j ];
+          cnt++;
+        }
+      } else {
+        for( ulong j=0UL; j<merge_cnt; j++ ) {
+          ulong s, c;
+          fd_gui_timeline_cpu_get( cur_day, stored, idx+j, &s, &c );
+          sum += (uint)s;
+          cnt += (uint)c;
+        }
+      }
+      gui->timeline_scratch.cpu[ i ].sum = sum;
+      gui->timeline_scratch.cpu[ i ].cnt = cnt;
+    }
+
+    jsonp_open_array( gui->http, NULL );
+    for( ulong i=0UL; i<count; i++ ) {
+      ulong sum = gui->timeline_scratch.cpu[ i ].sum;
+      ulong cnt = gui->timeline_scratch.cpu[ i ].cnt;
+      if( !cnt ) jsonp_null( gui->http, NULL );
+      else jsonp_ulong( gui->http, NULL, (sum + cnt/2UL)/cnt );
+    }
+    jsonp_close_array( gui->http );
+  }
+  jsonp_close_array( gui->http );
   jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
   return 0;

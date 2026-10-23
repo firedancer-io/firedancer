@@ -523,6 +523,9 @@ void
 fd_config_validate( fd_config_t const * config ) {
   fd_config_validatef( &config->firedancer );
 
+  if( FD_UNLIKELY( config->tiles.gui.enabled && config->tiles.gui.db_size_gib<4UL ) )
+    FD_LOG_ERR(( "invalid [tiles.gui.db_size_gib]: must be at least 4 GiB" ));
+
   CFG_HAS_NON_EMPTY( name );
   CFG_HAS_NON_EMPTY( paths.base );
 

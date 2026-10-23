@@ -6972,6 +6972,8 @@ message MetricsGuiDbForcedEvictWriteCompleted {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database
@@ -7002,6 +7004,8 @@ message MetricsGuiDbRecordDropped {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Regions returned to the free list, by database
@@ -7032,6 +7036,8 @@ message MetricsGuiDbRegionReleased {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Regions claimed from the free list, by database
@@ -7062,6 +7068,8 @@ message MetricsGuiDbRegionClaimed {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Eviction passes that removed at least one record, by database
@@ -7092,6 +7100,8 @@ message MetricsGuiDbEvictionPassCompleted {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Records evicted from the database, by database
@@ -7122,6 +7132,8 @@ message MetricsGuiDbRecordEvicted {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Time-series records returned by scans, by database
@@ -7152,6 +7164,8 @@ message MetricsGuiDbTimeSeriesRecordRead {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Time-series scans, by database
@@ -7182,6 +7196,8 @@ message MetricsGuiDbTimeSeriesScanned {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Time-series records appended, by database
@@ -7212,6 +7228,8 @@ message MetricsGuiDbTimeSeriesRecordAppended {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database
@@ -7242,6 +7260,8 @@ message MetricsGuiDbKvQueried {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Record capacity of regions owned by each database ring; grows on demand
@@ -7272,6 +7292,8 @@ message MetricsGuiDbRecordAllocated {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Records present in the store ring
@@ -7302,6 +7324,8 @@ message MetricsGuiDbRecordUsed {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Bytes of regions owned by each database ring; grows on demand
@@ -7332,6 +7356,8 @@ message MetricsGuiDbAllocatedBytes {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Bytes occupied by records present in the store ring
@@ -7362,6 +7388,8 @@ message MetricsGuiDbUsedBytes {
   uint64 timeline_day = 12;
   // replay_txn
   uint64 replay_txn = 13;
+  // timeline_tile_day
+  uint64 timeline_tile_day = 14;
 }
 
 // Times the tile tried to park while idle (efficient mode), by result

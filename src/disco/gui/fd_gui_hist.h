@@ -31,6 +31,15 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH (43200UL) /* 10% capacity should be enough for mainnet/testnet */
 
 #define FD_GUI_HIST_MAX_EPOCHS (64UL) /* Comfortably above typical time between restarts */
+
+/* Minimum number of epochs of slot, leader slot and epoch records the
+   store always retains, regardless of pressure from other DBs. */
+#define FD_GUI_HIST_MIN_EPOCHS (3UL)
+
+/* Bounds the per-tile CPU day records retained (per tile).  Two months
+   of calendar days, about the span of FD_GUI_HIST_MAX_EPOCHS epochs. */
+#define FD_GUI_HIST_MAX_TIMELINE_DAYS (64UL)
+
 #define FD_GUI_HIST_SCHEDULER_COUNTS (0)  /* (ts, type)            */
 #define FD_GUI_HIST_TILE_TIMERS      (1)  /* (ts, type)            */
 #define FD_GUI_HIST_SHRED_EVENTS     (2)
@@ -43,7 +52,8 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_TXN_WATERFALL    (9)  /* (ts, type)            */
 #define FD_GUI_HIST_TIMELINE_DAY     (10)
 #define FD_GUI_HIST_REPLAY_TXN       (11)
-#define FD_GUI_HIST_CNT              (12)
+#define FD_GUI_HIST_TIMELINE_TILE_DAY (12) /* (day_idx, tile_idx)  */
+#define FD_GUI_HIST_CNT              (13)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */
@@ -56,9 +66,11 @@ typedef struct fd_gui_hist_metrics fd_gui_hist_metrics_t;
 struct fd_gui_hist_slot_key        { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_leader_slot_key { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_epoch_key       { ulong epoch; };
+struct fd_gui_hist_tile_day_key    { ulong day_idx; ulong tile_idx; };
 typedef struct fd_gui_hist_slot_key        fd_gui_hist_slot_key_t;
 typedef struct fd_gui_hist_leader_slot_key fd_gui_hist_leader_slot_key_t;
 typedef struct fd_gui_hist_epoch_key       fd_gui_hist_epoch_key_t;
+typedef struct fd_gui_hist_tile_day_key    fd_gui_hist_tile_day_key_t;
 
 struct fd_gui_hist_private;
 typedef struct fd_gui_hist_private fd_gui_hist_t;
@@ -129,14 +141,33 @@ fd_gui_hist_leave( fd_gui_hist_t * hist );
 void *
 fd_gui_hist_delete( void * mem );
 
-/* fd_gui_hist_db_descs returns a pointer to a static array to be passed
-   to fd_gui_store_new. */
+/* fd_gui_hist_db_descs fills descs with the FD_GUI_HIST_CNT DB
+   descriptors for a store of store_bytes, and returns descs. */
 
-fd_gui_store_desc_t const *
-fd_gui_hist_db_descs( ulong store_bytes );
+fd_gui_store_desc_t *
+fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
+                      ulong               store_bytes );
 
 FD_FN_CONST static inline ulong
 fd_gui_hist_db_cnt( void ) { return FD_GUI_HIST_CNT; }
+
+/* fd_gui_hist_store_footprint returns the footprint of a store of
+   store_bytes holding the history DBs, or 0 if store_bytes is too
+   small. */
+
+ulong
+fd_gui_hist_store_footprint( ulong store_bytes );
+
+/* fd_gui_hist_store_new formats mem as a store of store_bytes backed
+   by path, holding the history DBs.  The result is ready to join and
+   pass to fd_gui_hist_new.  Returns mem on success or NULL on failure
+   (logged, see fd_gui_store_new). */
+
+void *
+fd_gui_hist_store_new( void *       mem,
+                       char const * path,
+                       ulong        store_bytes,
+                       ulong        seed );
 
 fd_gui_hist_metrics_t const *
 fd_gui_hist_metrics( fd_gui_t const * gui );
@@ -223,10 +254,11 @@ fd_gui_hist_kv_iter_next( fd_gui_hist_kv_slot_iter_t * iter );
 
 /* fd_gui_hist_evict_step reclaims at most FD_GUI_HIST_EVICT_BATCH
    records from an oldest excess region once at most one shared region
-   remains free.  Every DB's newest FD_GUI_STORE_BASE_REGIONS regions
-   are protected.  Returns 1 for actual progress, 0 when idle or all
-   candidates pinned.  Writes retry on pressure, then recycle only their
-   own eligible history if no excess candidate remains. */
+   remains free.  Every DB's newest base_regions regions are protected
+   (see fd_gui_hist_db_descs).  Returns 1 for actual progress, 0 when
+   idle or all candidates pinned.  Writes retry on pressure, then
+   recycle only their own eligible history if no excess candidate
+   remains. */
 
 int
 fd_gui_hist_evict_step( fd_gui_t * gui );

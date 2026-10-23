@@ -1930,6 +1930,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="10" name="TxnWaterfall" label="txn_waterfall" />
     <int value="11" name="TimelineDay" label="timeline_day" />
     <int value="12" name="ReplayTxn" label="replay_txn" />
+    <int value="13" name="TimelineTileDay" label="timeline_tile_day" />
 </enum>
 
 <enum name="EventConnState">

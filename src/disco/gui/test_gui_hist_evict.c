@@ -7,6 +7,7 @@
 #include "fd_gui_hist.h"
 #include "fd_gui_printf.h"
 #include "../fd_txn_m.h"
+#include "../metrics/fd_metrics.h"
 #include "../../ballet/json/fd_jtok.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
@@ -27,7 +28,16 @@
 #define C_END_SLOT   (C_START_SLOT+SLOT_CNT-1UL) /* 1029 */
 #define BANK_SEQ     (0UL)
 
-#define TEST_STORE_BYTES (3UL<<30)
+#define TEST_STORE_BYTES (4UL<<30) /* the [tiles.gui.db_size_gib] minimum */
+#define TEST_TILE_CNT    (44UL)
+
+/* test_descs returns the DB descriptors for a TEST_STORE_BYTES store. */
+
+static fd_gui_store_desc_t const *
+test_descs( void ) {
+  static fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
+  return fd_gui_hist_db_descs( descs, TEST_STORE_BYTES );
+}
 
 /* slot -> completion wallclock ns.  slot 1000 -> 10s, 1001 -> 11s, ... so the
    window (floored second) equals (slot-990). */
@@ -341,7 +351,7 @@ test_timeline_rollover( fd_gui_t * gui ) {
   memset( rec, 0xFF, sizeof(*rec) );
   ulong day_cnt = 0UL;
   ulong cap = FD_GUI_STORE_REGION_SZ / sizeof(fd_gui_timeline_day_t);
-  ulong capacity = (fd_gui_store_shared_free_region_cnt( gui->db )+FD_GUI_STORE_BASE_REGIONS)*cap;
+  ulong capacity = (fd_gui_store_shared_free_region_cnt( gui->db )+test_descs()[ FD_GUI_HIST_TIMELINE_DAY ].base_regions)*cap;
   FD_TEST( capacity<30UL ); /* day windows wrap the 30-day time index beyond this */
   while( day_cnt<capacity ) {
     rec->insert_time_ns = sec_ns( day_cnt+1UL );
@@ -408,8 +418,8 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   /* Resolve the newest (resident) epoch's record pointer and mutate the
      per-epoch bookkeeping fields in place. */
   ulong cap = FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_epoch_t), 8UL );
-  ulong max_cnt = fd_gui_hist_db_descs( TEST_STORE_BYTES )[ FD_GUI_HIST_EPOCH ].max_records;
-  FD_TEST( max_cnt>=FD_GUI_STORE_BASE_REGIONS*cap );
+  ulong max_cnt = test_descs()[ FD_GUI_HIST_EPOCH ].max_records;
+  FD_TEST( max_cnt>=test_descs()[ FD_GUI_HIST_EPOCH ].base_regions*cap );
   for( ulong i=3UL; i<max_cnt; i++ ) put_epoch( gui, RM_OLD_EPOCH+i, RM_OLD_START+i*RM_SLOT_CNT, RM_SLOT_CNT );
   FD_TEST( !fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_EPOCH ] );
   fd_gui_hist_epoch_key_t key[ 1 ]; key->epoch = RM_OLD_EPOCH+max_cnt-1UL;
@@ -461,7 +471,7 @@ test_epoch_region_reclaimed( fd_gui_t * gui ) {
   FD_TEST( epoch_region_capacity>0UL );
 
   /* Enough epochs to rotate through the base many times. */
-  ulong const epoch_cnt = 10UL*FD_GUI_STORE_BASE_REGIONS*epoch_region_capacity;
+  ulong const epoch_cnt = 30UL*epoch_region_capacity;
   for( ulong ordinal=0UL; ordinal<epoch_cnt; ordinal++ ) {
     ulong epoch = RR_A_EPOCH + ordinal;
     ulong start = RR_A_START + ordinal*RR_SLOT_CNT;
@@ -496,11 +506,14 @@ store_open( test_store_t * s, ulong map_bytes, int instance ) {
   static fd_gui_ag_slot_t ag_slot[ 1 ] = {{ .slot = ULONG_MAX, .bank_seq = ULONG_MAX }};
   s->gui->ag.slot     = ag_slot;
   s->gui->ag.slot_cnt = 1UL;
+  s->gui->tile_cnt = TEST_TILE_CNT;
+  s->gui->cpu_util.last_slot = ULONG_MAX;
+  s->gui->cpu_util.cur_day   = ULONG_MAX;
 
   s->db_mem = aligned_alloc( fd_gui_store_align(),
-                             fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( TEST_STORE_BYTES ) ), fd_gui_store_align() ) );
+                             fd_ulong_align_up( fd_gui_hist_store_footprint( map_bytes ), fd_gui_store_align() ) );
   FD_TEST( s->db_mem );
-  s->gui->db = fd_gui_store_join( fd_gui_store_new( s->db_mem, s->path, map_bytes, fd_gui_hist_db_cnt(), 0x0123456789abcdefUL, fd_gui_hist_db_descs( TEST_STORE_BYTES ) ) );
+  s->gui->db = fd_gui_store_join( fd_gui_hist_store_new( s->db_mem, s->path, map_bytes, 0x0123456789abcdefUL ) );
   FD_TEST( s->gui->db );
 
   s->hist_mem = aligned_alloc( fd_gui_hist_align(),
@@ -522,14 +535,30 @@ store_close( test_store_t * s ) {
 
 static void
 test_timeline_db( fd_gui_t * gui ) {
-  fd_gui_store_desc_t const * descs = fd_gui_hist_db_descs( TEST_STORE_BYTES );
+  fd_gui_store_desc_t const * descs = test_descs();
   FD_TEST( FD_GUI_HIST_TIMELINE_DAY==10 );
   FD_TEST( FD_GUI_HIST_REPLAY_TXN==11 );
-  FD_TEST( FD_GUI_HIST_CNT==12 );
+  FD_TEST( FD_GUI_HIST_TIMELINE_TILE_DAY==12 );
+  FD_TEST( FD_GUI_HIST_CNT==13 );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_DAY     ].name, "timeline_day"     ) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN       ].name, "replay_txn"       ) );
   FD_TEST( descs[ FD_GUI_HIST_SHRED_EVENTS     ].val_sz==sizeof(fd_gui_shred_batch_t) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY     ].val_sz==sizeof(fd_gui_timeline_day_t) );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].name, "timeline_tile_day" ) );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].val_sz==sizeof(fd_gui_timeline_tile_day_t) );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].kind==FD_GUI_STORE_KIND_KV );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].key_sz==sizeof(fd_gui_hist_tile_day_key_t) );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].max_records>=descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].base_regions*(FD_GUI_STORE_REGION_SZ/sizeof(fd_gui_timeline_tile_day_t)) );
+  /* Retention floors: today and yesterday for every tile, and
+     FD_GUI_HIST_MIN_EPOCHS epochs of slot/leader/epoch records, survive
+     with a full head region. */
+  FD_TEST( (descs[ FD_GUI_HIST_TIMELINE_TILE_DAY ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/sizeof(fd_gui_timeline_tile_day_t))>=2UL*FD_TOPO_MAX_TILES );
+  FD_TEST( (descs[ FD_GUI_HIST_SLOT        ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( descs[ FD_GUI_HIST_SLOT        ].val_sz, 8UL ))>=FD_GUI_HIST_MIN_EPOCHS*MAX_SLOTS_PER_EPOCH );
+  FD_TEST( (descs[ FD_GUI_HIST_LEADER_SLOT ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( descs[ FD_GUI_HIST_LEADER_SLOT ].val_sz, 8UL ))>=FD_GUI_HIST_MIN_EPOCHS*FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH );
+  FD_TEST( (descs[ FD_GUI_HIST_EPOCH       ].base_regions-1UL)*(FD_GUI_STORE_REGION_SZ/fd_ulong_align_up( descs[ FD_GUI_HIST_EPOCH       ].val_sz, 8UL ))>=FD_GUI_HIST_MIN_EPOCHS );
+  FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].base_regions>=2UL );
+  FD_TEST( offsetof(fd_gui_timeline_tile_day_t,day_idx )==offsetof(fd_gui_hist_tile_day_key_t,day_idx ) );
+  FD_TEST( offsetof(fd_gui_timeline_tile_day_t,tile_idx)==offsetof(fd_gui_hist_tile_day_key_t,tile_idx) );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY ].kind==FD_GUI_STORE_KIND_TS );
   FD_TEST( descs[ FD_GUI_HIST_TIMELINE_DAY     ].ts_off==offsetof(fd_gui_timeline_day_t,end_time_ns) );
   FD_TEST( descs[ FD_GUI_HIST_SHRED_EVENTS     ].ts_off==offsetof(fd_gui_shred_batch_t,insert_time_ns) );
@@ -1150,13 +1179,13 @@ test_timeline_agg( fd_gui_t * gui ) {
   FD_TEST( gui->http );
 
   /* Empty history: every bucket is unknown and no bounds are available. */
-  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_revenue", "250ms", 0UL, 0L, 2UL, 7UL ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_revenue", "250ms", 3UL, 0L, 2UL, 7UL ) );
   check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
                        "\"available_start_ns\": null,\"available_end_ns\": null,\"txn_fees\":[null,null],\"prio_fees\":[null,null],\"tips\":[null,null]}}" );
-  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "250ms", 0UL, 0L, 2UL, 7UL ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "250ms", 3UL, 0L, 2UL, 7UL ) );
   check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_compute\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
                        "\"available_start_ns\": null,\"available_end_ns\": null,\"compute_units\":[null,null],\"max_compute_units\": null}}" );
-  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_txn", "250ms", 0UL, 0L, 2UL, 7UL ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_txn", "250ms", 3UL, 0L, 2UL, 7UL ) );
   check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_txn\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
                        "\"available_start_ns\": null,\"available_end_ns\": null,\"success_nonvote_transactions\":[null,null],\"failed_nonvote_transactions\":[null,null],"
                        "\"success_vote_transactions\":[null,null],\"failed_vote_transactions\":[null,null]}}" );
@@ -1181,6 +1210,39 @@ test_timeline_agg( fd_gui_t * gui ) {
                           "\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1024000000000\",\"granularity\":\"250ms\"}}", keys[ k ] );
     FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)valid, strlen( valid ) ) );
     fd_http_server_stage_trunc( gui->http, 0UL );
+  }
+
+  /* Granularities below each method's minimum, and names no longer
+     supported, are rejected on the request path. */
+  {
+    struct { char const * key; char const * gran; int ok; } const cases[] = {
+      { "query_agg_compute", "100ms", 0 }, { "query_agg_compute", "250ms", 1 },
+      { "query_agg_revenue", "100ms", 0 }, { "query_agg_revenue", "250ms", 1 },
+      { "query_agg_txn",     "100ms", 0 }, { "query_agg_txn",     "250ms", 1 },
+      { "query_agg_compute", "1ms",   0 }, { "query_agg_txn",     "10ms",  0 },
+      { "query_agg_cpu",     "1ms",   0 }
+    }; /* accepted CPU queries need reported tiles, see test_timeline_cpu */
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[ 0 ]); i++ ) {
+      char request[ 512 ];
+      fd_cstr_printf_check( request, sizeof(request), NULL,
+        "{\"id\":7,\"topic\":\"timeline\",\"key\":\"%s\",\"params\":{\"start_ns\":\"0\",\"end_ns\":\"1000000000\","
+        "\"granularity\":\"%s\",\"tiles\":[0]}}", cases[ i ].key, cases[ i ].gran );
+      int rc = fd_gui_ws_message( gui, 0UL, (uchar const *)request, strlen(request) );
+      if( FD_UNLIKELY( rc!=(cases[ i ].ok ? 0 : FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST) ) ) {
+        FD_LOG_ERR(( "FAIL: %s %s returned %d", cases[ i ].key, cases[ i ].gran, rc ));
+      }
+      fd_http_server_stage_trunc( gui->http, 0UL );
+    }
+    int stored; ulong merge_cnt;
+    FD_TEST( fd_gui_timeline_tier( "query_agg_compute", 2UL, &stored, &merge_cnt )==-1 ); /* 100ms */
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_compute", 4UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==2UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_compute", 5UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==4UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 1UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_25MS && merge_cnt==2UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 5UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_250MS && merge_cnt==4UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", 7UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_2S && merge_cnt==2UL );
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_txn", 22UL, &stored, &merge_cnt ) && stored==FD_GUI_TIMELINE_GRANULARITY_12H && merge_cnt==2UL );
+    FD_TEST( fd_gui_timeline_tier( "query_bogus", 22UL, &stored, &merge_cnt )==-1 );
+    FD_TEST( fd_gui_timeline_tier( "query_agg_txn", FD_GUI_TIMELINE_GRANULARITY_CNT, &stored, &merge_cnt )==-1 );
   }
 
   /* Replay producer: fees and tips are recorded at commit time. */
@@ -1259,7 +1321,7 @@ test_timeline_agg( fd_gui_t * gui ) {
   /* Both producers land in one bucket at the 250ms, 1s (4x250ms) and
      1d (2x12h) granularities.  The next bucket is unknown; for 1d it
      is a day with no record at all. */
-  ulong const gs[] = { 0UL, 2UL, 19UL };
+  ulong const gs[] = { 3UL, 5UL, 22UL };
   for( ulong i=0UL; i<sizeof(gs)/sizeof(gs[ 0 ]); i++ ) {
     ulong g   = gs[ i ];
     ulong ns  = fd_gui_timeline_granularity_ns( g );
@@ -1300,6 +1362,230 @@ test_timeline_agg( fd_gui_t * gui ) {
   FD_LOG_NOTICE(( "test_timeline_agg: requests, replay and leader producers, granularities: ok" ));
 }
 
+/* test_min_footprint checks the store's minimum size: the per-DB base
+   regions, sized for the largest topology, fit the documented 4 GiB
+   floor of [tiles.gui.db_size_gib] (src/app/shared/fd_config.c). */
+
+static void
+test_min_footprint( void ) {
+  fd_gui_store_desc_t const * descs = test_descs();
+  ulong min_size = fd_gui_store_min_size( FD_GUI_HIST_CNT, descs );
+  FD_LOG_NOTICE(( "GUI DB minimum: %lu MiB", min_size>>20 ));
+  FD_TEST( min_size<=(4UL<<30) );
+  FD_TEST( !fd_gui_store_footprint( min_size-1UL, FD_GUI_HIST_CNT, descs ) );
+  FD_TEST( fd_gui_store_footprint( min_size, FD_GUI_HIST_CNT, descs ) );
+  FD_TEST( fd_gui_hist_store_footprint( TEST_STORE_BYTES )==fd_gui_store_footprint( TEST_STORE_BYTES, FD_GUI_HIST_CNT, descs ) );
+  FD_TEST( !fd_gui_hist_store_footprint( min_size-1UL ) );
+}
+
+/* In a minimum-size store with every other DB's base full, day rollover
+   for FD_TOPO_MAX_TILES tiles only evicts records of earlier days:
+   today's and yesterday's records for every tile always survive. */
+static void
+test_tile_day_minimum_store( fd_gui_t * gui ) {
+  fd_gui_scheduler_counts_t counts = { .sample_time_ns=1L };
+  while( fd_gui_store_ts_append( gui->db, FD_GUI_HIST_SCHEDULER_COUNTS, &counts )==FD_GUI_STORE_SUCCESS ) {}
+  FD_TEST( !fd_gui_store_shared_free_region_cnt( gui->db ) );
+  for( ulong day=0UL; day<5UL; day++ ) {
+    for( ulong t=0UL; t<FD_TOPO_MAX_TILES; t++ ) {
+      fd_gui_hist_tile_day_key_t key = { .day_idx=day, .tile_idx=t };
+      fd_gui_timeline_tile_day_t * rec = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_TIMELINE_TILE_DAY, &key );
+      FD_TEST( rec );
+      rec->insert_time_ns = (long)day;
+      for( ulong d=day ? day-1UL : 0UL; d<=day; d++ )
+        for( ulong u=0UL; u<(d==day ? t+1UL : FD_TOPO_MAX_TILES); u++ )
+          FD_TEST( fd_gui_timeline_tile_day_get( gui, d, u ) );
+    }
+  }
+  FD_TEST( fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_TIMELINE_TILE_DAY ] );
+  FD_LOG_NOTICE(( "test_tile_day_minimum_store: today and yesterday survive rollover: ok" ));
+}
+
+/* test_timeline_cpu drives the CPU sampler from fake tile metrics and
+   checks the per-tile day records: 25ms sample merges, the 2s and
+   longer sum/count tiers, the tile whitelist, unknown samples, a
+   missing tile record and the availability bounds.  Tile 0 is fully
+   busy for two seconds then idle for two; tile 1 is fully busy for two
+   seconds then stops publishing; tile 2 has no metrics. */
+
+static void
+test_timeline_cpu( fd_gui_t * gui ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 4UL,
+    .outgoing_buffer_sz    = FD_GUI_HTTP_MIN_SEND_BUFFER_SZ
+  };
+  void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
+  FD_TEST( http_mem );
+  gui->http = fd_http_server_join( fd_http_server_new( http_mem, params, (fd_http_server_callbacks_t){0}, NULL ) );
+  FD_TEST( gui->http );
+
+  fd_topo_t * topo = calloc( 1UL, sizeof(fd_topo_t) );
+  FD_TEST( topo );
+  topo->tile_cnt = TEST_TILE_CNT;
+  static ulong metrics[ 2 ][ 1UL+FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  memset( metrics, 0, sizeof(metrics) );
+  topo->tiles[ 0 ].metrics = metrics[ 0 ];
+  topo->tiles[ 1 ].metrics = metrics[ 1 ];
+  gui->topo = topo;
+  gui->summary.tile_cnt = TEST_TILE_CNT;
+  for( ulong i=0UL; i<TEST_TILE_CNT; i++ ) gui->summary.tile[ i ] = i;
+
+  volatile ulong * busy0 = fd_metrics_tile( metrics[ 0 ] ) + MIDX( COUNTER, TILE, REGIME_DURATION_NANOS ) + FD_METRICS_ENUM_TILE_REGIME_V_PROCESSING_PREFRAG_IDX;
+  volatile ulong * idle0 = fd_metrics_tile( metrics[ 0 ] ) + MIDX( COUNTER, TILE, REGIME_DURATION_NANOS ) + FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX;
+  volatile ulong * busy1 = fd_metrics_tile( metrics[ 1 ] ) + MIDX( COUNTER, TILE, REGIME_DURATION_NANOS ) + FD_METRICS_ENUM_TILE_REGIME_V_PROCESSING_PREFRAG_IDX;
+
+  /* Tiles have published timers before the first sample, which only
+     sets their references. */
+  *idle0 = 1UL;
+  *busy1 = 1UL;
+  long const t0 = sec_ns( 10UL );
+  for( ulong k=0UL; k<=160UL; k++ ) {
+    if( k ) {
+      if( k<=80UL ) { *busy0 += 25000000UL; *busy1 += 25000000UL; }
+      else            *idle0 += 25000000UL;
+    }
+    fd_gui_cpu_util_snap( gui, t0 + (long)k*FD_GUI_CPU_UTIL_SAMPLE_NS + 1L );
+  }
+
+  /* One record per publishing tile for day 0.  Samples cover [10s,14s);
+     tile 1's last two seconds are unknown. */
+  fd_gui_timeline_tile_day_t const * rec0 = fd_gui_timeline_tile_day_get( gui, 0UL, 0UL );
+  fd_gui_timeline_tile_day_t const * rec1 = fd_gui_timeline_tile_day_get( gui, 0UL, 1UL );
+  FD_TEST( rec0 && rec1 && !fd_gui_timeline_tile_day_get( gui, 0UL, 2UL ) );
+  FD_TEST( rec0->day_idx==0UL && rec0->tile_idx==0UL && rec1->tile_idx==1UL );
+  ulong i0 = (ulong)t0/(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS;
+  FD_TEST( rec0->util_25ms[ i0-1UL ]==FD_GUI_CPU_UTIL_UNKNOWN );
+  FD_TEST( rec0->util_25ms[ i0     ]==FD_GUI_CPU_UTIL_MAX );
+  FD_TEST( rec0->util_25ms[ i0+80UL ]==0 );
+  FD_TEST( rec0->util_25ms[ i0+160UL ]==FD_GUI_CPU_UTIL_UNKNOWN );
+  FD_TEST( rec1->util_25ms[ i0+79UL ]==FD_GUI_CPU_UTIL_MAX );
+  FD_TEST( rec1->util_25ms[ i0+80UL ]==FD_GUI_CPU_UTIL_UNKNOWN );
+  ulong lo_day, hi_day;
+  FD_TEST( fd_gui_timeline_tile_day_bounds( gui, &lo_day, &hi_day ) && !lo_day && !hi_day );
+
+#define CPU_RESPONSE( gran, ref, util ) \
+  "{\"topic\":\"timeline\",\"key\":\"query_agg_cpu\",\"id\":7,\"value\":{\"granularity\":\"" gran "\",\"reference_ts_ns\":\"" ref "\"," \
+  "\"available_start_ns\":\"0\",\"available_end_ns\":\"86400000000000\",\"utilization\":" util "}}"
+
+  /* 1s buckets average the 25ms samples; unknown samples are skipped,
+     and a tile without a record is null. */
+  ulong tiles[ 3 ] = { 0UL, 1UL, 2UL };
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, t0, 4UL, tiles, 3UL, 7UL ) );
+  check_response( gui, CPU_RESPONSE( "1s", "10000000000", "[[250,250,0,0],[250,250,null,null],[null,null,null,null]]" ) );
+  /* The window must be aligned to the requested granularity, so no
+     bucket crosses into the next day's record. */
+  FD_TEST( fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, t0+sec_ns( 1UL )+sec_ns( 1UL )/2L, 1UL, tiles, 2UL, 7UL )==-1 );
+  FD_TEST( fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, FD_GUI_TIMELINE_DAY_NS-250000000L, 1UL, tiles, 1UL, 7UL )==-1 );
+  FD_TEST( fd_gui_printf_timeline_query_agg_cpu( gui, "1d", 22UL, FD_GUI_TIMELINE_DAY_NS-sec_ns( 2UL ), 1UL, tiles, 1UL, 7UL )==-1 );
+
+  /* The whitelist selects and orders tiles. */
+  ulong tile1[ 1 ] = { 1UL };
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "25ms", 0UL, t0+sec_ns( 2UL )-FD_GUI_CPU_UTIL_SAMPLE_NS, 2UL, tile1, 1UL, 7UL ) );
+  check_response( gui, CPU_RESPONSE( "25ms", "11975000000", "[[250,null]]" ) );
+  ulong tile10[ 2 ] = { 1UL, 0UL };
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "50ms", 1UL, t0+sec_ns( 2UL )-50000000L, 2UL, tile10, 2UL, 7UL ) );
+  check_response( gui, CPU_RESPONSE( "50ms", "11950000000", "[[250,null],[250,0]]" ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "100ms", 2UL, t0+sec_ns( 2UL )-100000000L, 2UL, tiles, 1UL, 7UL ) );
+  check_response( gui, CPU_RESPONSE( "100ms", "11900000000", "[[250,0]]" ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "250ms", 3UL, t0+sec_ns( 2UL )-250000000L, 2UL, tiles, 2UL, 7UL ) );
+  check_response( gui, CPU_RESPONSE( "250ms", "11750000000", "[[250,0],[250,null]]" ) );
+  FD_TEST( fd_gui_printf_timeline_query_agg_cpu( gui, "250ms", 3UL, t0+sec_ns( 2UL )-125000000L, 1UL, tiles, 2UL, 7UL )==-1 ); /* unaligned */
+
+  /* 2s and longer merge exact sums and counts: tile 1 only counts its
+     known samples. */
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "2s", 6UL, t0, 2UL, tiles, 2UL, 7UL ) );
+  check_response( gui, CPU_RESPONSE( "2s", "10000000000", "[[250,0],[250,null]]" ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "8s", 8UL, sec_ns( 8UL ), 1UL, tiles, 2UL, 7UL ) );
+  check_response( gui, CPU_RESPONSE( "8s", "8000000000", "[[125],[250]]" ) );
+#undef CPU_RESPONSE
+
+  /* Only tile 0 publishes into day 1, so tile 1 has no record there:
+     its day 1 buckets are null while tile 0's are not. */
+  *busy0 += 1000UL;
+  *idle0 += 1000UL;
+  fd_gui_cpu_util_snap( gui, FD_GUI_TIMELINE_DAY_NS + sec_ns( 1UL ) + 1L );
+  FD_TEST( fd_gui_timeline_tile_day_get( gui, 1UL, 0UL ) && !fd_gui_timeline_tile_day_get( gui, 1UL, 1UL ) );
+  FD_TEST( fd_gui_timeline_tile_day_bounds( gui, &lo_day, &hi_day ) && lo_day==0UL && hi_day==1UL );
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, FD_GUI_TIMELINE_DAY_NS, 1UL, tiles, 2UL, 7UL ) );
+  check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_cpu\",\"id\":7,\"value\":{\"granularity\":\"1s\",\"reference_ts_ns\":\"86400000000000\","
+                       "\"available_start_ns\":\"0\",\"available_end_ns\":\"172800000000000\",\"utilization\":[[125],[null]]}}" );
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "1d", 22UL, 0L, 2UL, tiles, 2UL, 7UL ) );
+  check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_cpu\",\"id\":7,\"value\":{\"granularity\":\"1d\",\"reference_ts_ns\":\"0\","
+                       "\"available_start_ns\":\"0\",\"available_end_ns\":\"172800000000000\",\"utilization\":[[125,125],[250,null]]}}" );
+
+  /* Day rollover creates at most FD_GUI_CPU_UTIL_CREATE_MAX records per
+     tick.  The deferred tile keeps its reference, so its first sample
+     of the day covers both ticks. */
+  FD_TEST( FD_GUI_CPU_UTIL_CREATE_MAX==1UL );
+  long const d2 = 2L*FD_GUI_TIMELINE_DAY_NS + sec_ns( 1UL );
+  *busy0 += 25000000UL; *busy1 += 25000000UL;
+  fd_gui_cpu_util_snap( gui, d2 + 1L );
+  FD_TEST( fd_gui_timeline_tile_day_get( gui, 2UL, 0UL ) && !fd_gui_timeline_tile_day_get( gui, 2UL, 1UL ) );
+  *busy0 += 25000000UL; *busy1 += 25000000UL;
+  fd_gui_cpu_util_snap( gui, d2 + FD_GUI_CPU_UTIL_SAMPLE_NS + 1L );
+  fd_gui_timeline_tile_day_t const * rec1d2 = fd_gui_timeline_tile_day_get( gui, 2UL, 1UL );
+  FD_TEST( rec1d2 && rec1d2->insert_time_ns==d2 + FD_GUI_CPU_UTIL_SAMPLE_NS + 1L );
+  ulong i2 = (ulong)sec_ns( 1UL )/(ulong)FD_GUI_CPU_UTIL_SAMPLE_NS;
+  FD_TEST( rec1d2->util_25ms[ i2-1UL ]==FD_GUI_CPU_UTIL_UNKNOWN );
+  FD_TEST( rec1d2->util_25ms[ i2     ]==FD_GUI_CPU_UTIL_MAX );
+  FD_TEST( rec1d2->sum_2S[ 0 ]==FD_GUI_CPU_UTIL_MAX && rec1d2->cnt_2S[ 0 ]==1 && !rec1d2->cnt_2S[ 1 ] && !rec1d2->cnt_12H[ 1 ] );
+
+  ulong bad[ 1 ] = { TEST_TILE_CNT };
+  FD_TEST( fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, t0, 1UL, bad, 1UL, 7UL )==-1 );
+  FD_TEST( fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, t0, 1UL, tiles, 0UL, 7UL )==-1 );
+  ulong dup[ 2 ] = { 1UL, 1UL };
+  FD_TEST( fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, t0, 1UL, dup, 2UL, 7UL )==-1 );
+
+  /* Every granularity merges at most 4 stored buckets, so the maximum
+     tile count over the full bucket count is served at every
+     granularity. */
+  for( ulong g=0UL; g<FD_GUI_TIMELINE_GRANULARITY_CNT; g++ ) {
+    int   stored;
+    ulong merge_cnt;
+    FD_TEST( !fd_gui_timeline_tier( "query_agg_cpu", g, &stored, &merge_cnt ) && merge_cnt<=4UL );
+  }
+  static ulong all[ FD_TOPO_MAX_TILES ];
+  for( ulong i=0UL; i<FD_TOPO_MAX_TILES; i++ ) all[ i ] = i;
+  gui->summary.tile_cnt = FD_TOPO_MAX_TILES;
+  for( ulong i=0UL; i<FD_TOPO_MAX_TILES; i++ ) gui->summary.tile[ i ] = i;
+  FD_TEST( !fd_gui_printf_timeline_query_agg_cpu( gui, "1s", 5UL, 0L, FD_GUI_TIMELINE_QUERY_MAX_BUCKETS, all, FD_TOPO_MAX_TILES, 7UL ) );
+  fd_http_server_stage_trunc( gui->http, 0UL );
+  gui->summary.tile_cnt = TEST_TILE_CNT;
+
+  /* The request path accepts a tile list, rejects a repeated tile, and
+     enforces the tile count limit before resolving any tile. */
+  char const * ok = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_agg_cpu\",\"params\":"
+                    "{\"start_ns\":\"10000000000\",\"end_ns\":\"12000000000\",\"granularity\":\"1s\",\"tiles\":[1,0]}}";
+  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)ok, strlen( ok ) ) );
+  char const * rep = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_agg_cpu\",\"params\":"
+                     "{\"start_ns\":\"10000000000\",\"end_ns\":\"12000000000\",\"granularity\":\"1s\",\"tiles\":[1,1]}}";
+  FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)rep, strlen( rep ) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  char * big = malloc( 8192UL );
+  FD_TEST( big );
+  ulong off = 0UL;
+  fd_cstr_printf_check( big, 8192UL, &off, "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_agg_cpu\",\"params\":"
+                        "{\"start_ns\":\"0\",\"end_ns\":\"1000000000\",\"granularity\":\"1s\",\"tiles\":[" );
+  for( ulong i=0UL; i<=FD_TOPO_MAX_TILES; i++ ) {
+    ulong n;
+    fd_cstr_printf_check( big+off, 8192UL-off, &n, "%s0", i ? "," : "" );
+    off += n;
+  }
+  fd_cstr_printf_check( big+off, 8192UL-off, NULL, "]}}" );
+  FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)big, strlen( big ) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+  free( big );
+
+  gui->topo = NULL;
+  free( topo );
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_cpu: ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1325,7 +1611,9 @@ main( int     argc,
   }
 
   /* Each test gets its own store. */
-  ulong min_bytes = fd_gui_store_min_size( FD_GUI_HIST_CNT );
+  ulong min_bytes = fd_gui_store_min_size( FD_GUI_HIST_CNT, test_descs() );
+  test_store_t s4_[ 1 ];
+  test_min_footprint();
 
   if( run_all ) {
     test_store_t s0[ 1 ];
@@ -1347,6 +1635,10 @@ main( int     argc,
     store_open( st, min_bytes + 16UL*FD_GUI_STORE_REGION_SZ, 9 );
     test_timeline_rollover( st->gui );
     store_close( st );
+
+    store_open( s4_, min_bytes, 33 );
+    test_tile_day_minimum_store( s4_->gui );
+    store_close( s4_ );
   }
 
   test_store_t s3[ 1 ];
@@ -1392,6 +1684,10 @@ main( int     argc,
   store_open( la, TEST_STORE_BYTES, 30 );
   test_leader_active_slot( la->gui );
   store_close( la );
+
+  store_open( rv, TEST_STORE_BYTES, 32 );
+  test_timeline_cpu( rv->gui );
+  store_close( rv );
 
   test_store_t s7[ 1 ];
   store_open( s7, TEST_STORE_BYTES, 10 );
