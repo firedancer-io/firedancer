@@ -464,6 +464,10 @@ setup_ctx( fd_replay_tile_t * ctx,
   ctx->ag_block_id_map_seed = 7UL;
   ctx->ag_block_id_map = fd_ag_block_id_map_join( fd_ag_block_id_map_new( bid_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
   FD_TEST( ctx->ag_block_id_map );
+  ctx->bhm_map   = fd_bhm_map_join  ( fd_bhm_map_new  ( fd_wksp_alloc_laddr( wksp, fd_bhm_map_align(),   fd_bhm_map_footprint( chain_cnt ), 1UL ), chain_cnt, 7UL ) );
+  ctx->bhm_pool  = fd_bhm_pool_join ( fd_bhm_pool_new ( fd_wksp_alloc_laddr( wksp, fd_bhm_pool_align(),  fd_bhm_pool_footprint( bid_cnt ),   1UL ), bid_cnt ) );
+  ctx->bhm_dlist = fd_bhm_dlist_join( fd_bhm_dlist_new( fd_wksp_alloc_laddr( wksp, fd_bhm_dlist_align(), fd_bhm_dlist_footprint(),          1UL ) ) );
+  FD_TEST( ctx->bhm_map && ctx->bhm_pool && ctx->bhm_dlist );
 
   ctx->reception_stats_cnt = bid_cnt;
   ctx->reception_stats = fd_wksp_alloc_laddr( wksp, alignof(fd_reception_stats_t), sizeof(fd_reception_stats_t)*bid_cnt, 1UL );
@@ -1411,6 +1415,10 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
   ctx->ag_block_id_map_seed = 7UL;
   ctx->ag_block_id_map      = fd_ag_block_id_map_join( fd_ag_block_id_map_new( ag_map_mem, chain_cnt, ctx->ag_block_id_map_seed ) );
   FD_TEST( ctx->ag_block_id_map );
+  ctx->bhm_map   = fd_bhm_map_join  ( fd_bhm_map_new  ( fd_wksp_alloc_laddr( wksp, fd_bhm_map_align(),   fd_bhm_map_footprint( chain_cnt ), 1UL ), chain_cnt, 7UL ) );
+  ctx->bhm_pool  = fd_bhm_pool_join ( fd_bhm_pool_new ( fd_wksp_alloc_laddr( wksp, fd_bhm_pool_align(),  fd_bhm_pool_footprint( bank_cnt ), 1UL ), bank_cnt ) );
+  ctx->bhm_dlist = fd_bhm_dlist_join( fd_bhm_dlist_new( fd_wksp_alloc_laddr( wksp, fd_bhm_dlist_align(), fd_bhm_dlist_footprint(),          1UL ) ) );
+  FD_TEST( ctx->bhm_map && ctx->bhm_pool && ctx->bhm_dlist );
   ctx->block_id_len   = bank_cnt;
   ctx->max_live_slots = bank_cnt;
 
