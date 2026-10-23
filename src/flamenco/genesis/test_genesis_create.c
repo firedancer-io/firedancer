@@ -90,6 +90,10 @@ main( int     argc,
   FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
   options->fund_initial_accounts = ULONG_MAX;
   FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
+  options->fund_initial_accounts = ULONG_MAX-5UL;
+  FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
+  options->fund_initial_accounts = ULONG_MAX-4UL;
+  FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
   options->fund_initial_accounts = 16UL;
   fd_log_level_logfile_set( log_level );
 
@@ -208,7 +212,7 @@ main( int     argc,
   result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
   FD_TEST( result_sz );
   FD_TEST( fd_genesis_parse( genesis, result_mem, result_sz ) );
-  FD_TEST( genesis->account_cnt==20UL+FD_GENESIS_TOKEN_ACCOUNTS_PER_ACCOUNT*16UL+3UL );
+  FD_TEST( genesis->account_cnt==20UL+FD_GENESIS_TOKEN_ACCOUNTS_PER_ACCOUNT*16UL+3UL+2UL );
 
   fd_rent_t rent = {
     .lamports_per_uint8_year = genesis->rent.lamports_per_uint8_year,
@@ -283,7 +287,6 @@ main( int     argc,
      accounts land after them in the account table. */
 
   for( ulong i=0UL; i<sizeof(options->bls_pubkey); i++ ) options->bls_pubkey[ i ] = (uchar)(i+1UL);
-  options->alpenglow = 1;
   features->alpenglow = 0UL;
 
   result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
