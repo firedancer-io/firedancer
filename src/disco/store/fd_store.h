@@ -27,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702edUL) /* firedancer store version 13 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702eeUL) /* firedancer store version 14 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -80,22 +80,22 @@ fd_shredb_root_key( uchar const * merkle_root,
   return key;
 }
 
-/* One ring entry provides keys and chain links to both maps.  All fields,
-   including tag, are protected by disk_lock. */
+/* One ring entry provides keys and chain links to both maps.  Its
+   seven-byte tag and 21-byte root key leave no padding in 44 bytes.
+   tag_hi extends the low 30 ticket bits in tag by 24 bits; the bottom
+   two tag bits hold the cell state.  All fields use disk_lock. */
 struct fd_shredb_ring_entry {
-  uint                 tag;       /* low 2 bits: state, high 30: generation */
+  uint                 tag;
+  uchar                tag_hi[ 3 ];
+  fd_shredb_root_key_t root_key;
+  fd_shredb_map_key_t  key;
   uint                 slot_next;
   uint                 root_next;
-  fd_shredb_map_key_t  key;
-  fd_shredb_root_key_t root_key;
 };
 typedef struct fd_shredb_ring_entry fd_shredb_ring_entry_t;
 FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==44UL, shredb_ring_entry_footprint );
 
-/* A 32-bit tag saves space per ring cell.  The generation wraps after
-   2^30 reservations but a pread would have to remain inflight through
-   that wrap and reuse of the same cell to miss it, which is unlikely. */
-#define FD_SHREDB_TAG_SEQ_MASK ((1U<<30)-1U)
+#define FD_SHREDB_TAG_SEQ_MASK ((1UL<<54)-1UL)
 
 #define FD_SHREDB_CELL_INVALID    (0UL)
 #define FD_SHREDB_CELL_WRITING    (1UL)
