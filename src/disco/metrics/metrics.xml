@@ -1035,6 +1035,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="0" name="ForBlockId" label="Response to a pending WindowIndexForBlockId request" />
     <int value="1" name="SlotIndex" label="Response to a pending WindowIndex or HighestWindowIndex request" />
     <int value="2" name="Unmatched" label="Matched no pending request: a duplicate, or an answer to an expired or evicted request" />
+    <int value="3" name="Eqvoc" label="Repair response that showed the slot's leader equivocating, dropped before matching; only unverified-nonce HighestWindowIndex or Orphan replies" />
 </enum>
 
 <enum name="RepairResponseType">
@@ -1051,6 +1052,14 @@ deliberate exception with lint-allow="<rule id>")
     <int value="0" name="Malformed" label="Failed to decode" />
     <int value="1" name="UnknownPeer" label="Sender is not a known peer" />
     <int value="2" name="SignatureFailed" label="Signature did not verify" />
+    <int value="3" name="SignUnavailable" label="Pong not sent: signing halted for an identity switch, or no free sign slot" />
+    <int value="4" name="AddressMismatch" label="Pong not sent: sender address differs from the peer's gossip address" />
+    <int value="5" name="Unsolicited" label="Pong not sent: no request was sent to the peer within the ping TTL" />
+</enum>
+
+<enum name="TimeoutDeferReason">
+    <int value="0" name="TurbineActive" label="HighestWindowIndex put back: turbine delivered a FEC set of the slot within the eager wait" />
+    <int value="1" name="AllReceived" label="FEC set request put back: every data shred arrived, the set has not completed" />
 </enum>
 
 <tile name="rotor">
@@ -1096,6 +1105,13 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PingProbeTx" summary="Requests sent to elicit a ping from a peer with a new address" />
     <gauge name="EagerDelayNanos" summary="Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled)" />
     <gauge name="SignRequestPending" summary="Messages in the sign pool waiting for a signature from the sign tiles" />
+    <counter name="TimeoutNoStakedPeerDeferred" summary="Of TimeoutNoPeerDeferred, retries of a block not known only from turbine, which pick only staked peers: every staked peer was banned, without an address or at its in-flight limit" />
+    <counter name="TimeoutDeferred" enum="TimeoutDeferReason" summary="Timeouts put back without sending a request, by reason, one per deferral" />
+    <counter name="TimeoutQueueFullDropped" summary="Timeouts dropped because their role's timeout queue was full; the block goes back to its treap and the work is discovered again" />
+    <counter name="TimeoutQueueFullPaused" summary="Blocks whose discovery stopped because their role's timeout queue filled; the block goes back to its treap and its remaining FEC sets are queued later" />
+    <counter name="SigningHalted" summary="Identity switches that halted signing; no request, ping or pong is signed until the switch completes and unhalts" />
+    <gauge name="TimeoutOverdueNanos" summary="Time the earliest due timeout has waited past its due time when metrics were written, 0 if none is due; grows while signing is halted or fewer than 40 sign slots are free" />
+    <gauge name="FirstCertSlot" summary="First certified slot in the window seen by a staked node, which starts its catchup, 0 if none yet" />
 </tile>
 
 <enum name="RequestMalformedReason">

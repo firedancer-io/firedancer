@@ -4,20 +4,20 @@
     "description": "Metrics of one rotor tile instance, one row per sweep",
     "local": true,
     "fields": {
-        "sample_id":                     { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
-        "sample_reason":                 { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
-        "sample_slot":                   { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
-        "sample_snapct_state":           { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
-        "sample_caught_up":              { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
-        "sample_tile_cnt":               { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
-        "kind_id":                       { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
-        "pid":                           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
-        "tid":                           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
-        "last_cpu_index":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
-        "context_switch_involuntary":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
-        "context_switch_voluntary":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
-        "page_fault_major":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
-        "page_fault_minor":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
+        "sample_id":                       { "type": "UInt64",                                                         "description": "Identifier shared by every row of one sweep" },
+        "sample_reason":                   { "type": "ref:MetricsSampleReason",                                        "description": "Why the sweep was taken" },
+        "sample_slot":                     { "type": "UInt64",                                                         "description": "Slot that triggered the sweep, 0 for periodic sweeps" },
+        "sample_snapct_state":             { "type": "ref:MetricsSnapctLoadState",                                     "description": "Snapshot load state entered, for snapct_state sweeps; unknown otherwise" },
+        "sample_caught_up":                { "type": "Bool",                                                           "description": "Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared" },
+        "sample_tile_cnt":                 { "type": "UInt64",                                                         "description": "Tile instances in the sweep, to detect partial sweeps" },
+        "kind_id":                         { "type": "UInt64",                                                         "description": "Index of this tile instance among tiles of its kind" },
+        "pid":                             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Process ID of the tile" },
+        "tid":                             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Thread ID of the tile. Same as Pid in production, but might differ in development" },
+        "last_cpu_index":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "CPU the tile last ran on" },
+        "context_switch_involuntary":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Involuntary context switches" },
+        "context_switch_voluntary":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Voluntary context switches" },
+        "page_fault_major":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Major page faults" },
+        "page_fault_minor":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Minor page faults" },
         "state": {
             "type": "LowCardinality(String)",
             "description": "Tile lifecycle state: 0=booting, 1=running, 2=shutdown",
@@ -27,9 +27,9 @@
                 "shutdown": { "description": "Shutdown" }
             }
         },
-        "heartbeat_time":                { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
-        "is_backpressured":              { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
-        "backpressure":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
+        "heartbeat_time":                  { "type": "DateTime64(9)",              "compression": "Delta, ZSTD",       "description": "Last wall-clock time the tile heartbeated" },
+        "is_backpressured":                { "type": "Bool",                                                           "description": "Whether the tile is currently backpressured" },
+        "backpressure":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing" },
         "regime_duration_nanos": {
             "type": "Tuple",
             "description": "Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it",
@@ -82,10 +82,10 @@
                 "pending":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pre-park recheck found work, did not park" }
             }
         },
-        "device_irq":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
-        "tlb_shootdown":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
-        "timer_irq":                     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
-        "pkt_tx":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Network packets sent, including requests, pings and pongs" },
+        "device_irq":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "tlb_shootdown":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "timer_irq":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
+        "pkt_tx":                          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Network packets sent, including requests, pings and pongs" },
         "request_tx": {
             "type": "Tuple",
             "description": "Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt",
@@ -102,44 +102,48 @@
                 "window_index_for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Shred at an index of a specific block (Alpenglow)" }
             }
         },
-        "highest_delivered_slot":        { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot fully delivered to replay, 0 if none" },
-        "highest_received_slot":         { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot a shred was received for, 0 if none" },
-        "first_turbine_slot":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "First turbine slot seen, the catchup target, 0 if none" },
-        "block_pending":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Blocks in the eager, notar and final block treaps, waiting for discovery" },
-        "request_in_flight":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Pending request attempts awaiting a response; a hedge is another attempt" },
-        "fec_delivered":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets published to replay" },
-        "shred_old_ignored":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Shreds received at or below the root, ignored" },
+        "highest_delivered_slot":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot fully delivered to replay, 0 if none" },
+        "highest_received_slot":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot a shred was received for, 0 if none" },
+        "first_turbine_slot":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "First turbine slot seen, the catchup target, 0 if none" },
+        "block_pending":                   { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Blocks in the eager, notar and final block treaps, waiting for discovery" },
+        "request_in_flight":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Pending request attempts awaiting a response; a hedge is another attempt" },
+        "fec_delivered":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC sets published to replay" },
+        "shred_old_ignored":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Shreds received at or below the root, ignored" },
         "shred_rx": {
             "type": "Tuple",
             "description": "Data shreds received as repair responses, by the pending request they matched",
             "aliases": {
-                "all": ["for_block_id", "slot_index", "unmatched"]
+                "all": ["for_block_id", "slot_index", "unmatched", "eqvoc"]
             },
             "fields": {
                 "for_block_id": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Response to a pending WindowIndexForBlockId request" },
                 "slot_index":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Response to a pending WindowIndex or HighestWindowIndex request" },
-                "unmatched":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Matched no pending request: a duplicate, or an answer to an expired or evicted request" }
+                "unmatched":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Matched no pending request: a duplicate, or an answer to an expired or evicted request" },
+                "eqvoc":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Repair response that showed the slot's leader equivocating, dropped before matching; only unverified-nonce HighestWindowIndex or Orphan replies" }
             }
         },
-        "meta_rx":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Alpenglow repair metadata responses received" },
-        "meta_malformed_rejected":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Metadata responses that failed to decode" },
-        "meta_unsolicited_rejected":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Metadata responses matching no outstanding request" },
-        "parent_fec_set_count_accepted": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "ParentFecSetCount responses accepted" },
-        "parent_fec_set_count_failed":   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "ParentFecSetCount responses that failed verification" },
-        "fec_set_root_accepted":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FecSetRoot responses accepted" },
-        "fec_set_root_failed":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FecSetRoot responses that failed verification" },
-        "replay_root_advanced_rx":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Root advanced messages received from replay" },
-        "replay_missing_fec_rx":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Missing FEC messages received from replay, each a from-root reconsume" },
+        "meta_rx":                         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Alpenglow repair metadata responses received" },
+        "meta_malformed_rejected":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Metadata responses that failed to decode" },
+        "meta_unsolicited_rejected":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Metadata responses matching no outstanding request" },
+        "parent_fec_set_count_accepted":   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "ParentFecSetCount responses accepted" },
+        "parent_fec_set_count_failed":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "ParentFecSetCount responses that failed verification" },
+        "fec_set_root_accepted":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FecSetRoot responses accepted" },
+        "fec_set_root_failed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FecSetRoot responses that failed verification" },
+        "replay_root_advanced_rx":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Root advanced messages received from replay" },
+        "replay_missing_fec_rx":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Missing FEC messages received from replay, each a from-root reconsume" },
         "ping_rejected": {
             "type": "Tuple",
             "description": "Pings rejected, by reason",
             "aliases": {
-                "all": ["malformed", "unknown_peer", "signature_failed"]
+                "all": ["malformed", "unknown_peer", "signature_failed", "sign_unavailable", "address_mismatch", "unsolicited"]
             },
             "fields": {
                 "malformed":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Failed to decode" },
                 "unknown_peer":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sender is not a known peer" },
-                "signature_failed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Signature did not verify" }
+                "signature_failed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Signature did not verify" },
+                "sign_unavailable": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong not sent: signing halted for an identity switch, or no free sign slot" },
+                "address_mismatch": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong not sent: sender address differs from the peer's gossip address" },
+                "unsolicited":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pong not sent: no request was sent to the peer within the ping TTL" }
             }
         },
         "response_latency_nanos": {
@@ -188,19 +192,19 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
-        "timeout_pending":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Timeouts in the eager, notar and final timeout queues" },
-        "timeout_cancelled":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeouts dropped because their block is gone or their work is done" },
-        "timeout_no_peer_deferred":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeouts deferred because no peer could be picked" },
-        "request_hedged":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Request attempts after the first for the same timer" },
-        "request_expired":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted" },
-        "ping_probe_tx":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Requests sent to elicit a ping from a peer with a new address" },
-        "eager_delay_nanos":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled)" },
-        "sign_request_pending":          { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Messages in the sign pool waiting for a signature from the sign tiles" },
-        "catchup_slot":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot past the window with a verified cert, the staked catchup target, 0 if none" },
-        "request_by_id_expired":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "WindowIndexForBlockId requests that expired unanswered, at or above the root" },
-        "request_stuck_escaped":         { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set" },
-        "peer_by_id_banned":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies" },
-        "request_late_retried":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Request attempts sent after 3 or more earlier attempts for the same timer" },
+        "timeout_pending":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Timeouts in the eager, notar and final timeout queues" },
+        "timeout_cancelled":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeouts dropped because their block is gone or their work is done" },
+        "timeout_no_peer_deferred":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeouts deferred because no peer could be picked" },
+        "request_hedged":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Request attempts after the first for the same timer" },
+        "request_expired":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Pending requests with no response after about 1 s (PENDING_TTL); a peer is banned for 10 s after 32 in a row, pending-pool evictions not counted" },
+        "ping_probe_tx":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Requests sent to elicit a ping from a peer with a new address" },
+        "eager_delay_nanos":               { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Cluster-wide wait for turbine before a missing FEC set is repaired (srtt+4*rttvar, clamped to 20-250 ms; 250 ms until sampled)" },
+        "sign_request_pending":            { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Messages in the sign pool waiting for a signature from the sign tiles" },
+        "catchup_slot":                    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Highest slot past the window with a verified cert, the staked catchup target, 0 if none" },
+        "request_by_id_expired":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "WindowIndexForBlockId requests that expired unanswered, at or above the root" },
+        "request_stuck_escaped":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Retries sent to a random staked peer because 3 attempts in a row brought no new shred of the FEC set" },
+        "peer_by_id_banned":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Peers banned for 10 s after 4 WindowIndexForBlockId requests in a row expired, whatever their other replies" },
+        "request_late_retried":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Request attempts sent after 3 or more earlier attempts for the same timer" },
         "escape_peer_hedge_delay_nanos": {
             "type": "Tuple",
             "description": "Uncapped hedge time (srtt+4*rttvar, 100 ms if unmeasured) of each staked peer an escaped retry was sent to",
@@ -223,6 +227,23 @@
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10000000000, inf) nanos" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
-        }
+        },
+        "timeout_no_staked_peer_deferred": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Of TimeoutNoPeerDeferred, retries of a block not known only from turbine, which pick only staked peers: every staked peer was banned, without an address or at its in-flight limit" },
+        "timeout_deferred": {
+            "type": "Tuple",
+            "description": "Timeouts put back without sending a request, by reason, one per deferral",
+            "aliases": {
+                "all": ["turbine_active", "all_received"]
+            },
+            "fields": {
+                "turbine_active": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "HighestWindowIndex put back: turbine delivered a FEC set of the slot within the eager wait" },
+                "all_received":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "FEC set request put back: every data shred arrived, the set has not completed" }
+            }
+        },
+        "timeout_queue_full_dropped":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Timeouts dropped because their role's timeout queue was full; the block goes back to its treap and the work is discovered again" },
+        "signing_halted":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Identity switches that halted signing; no request, ping or pong is signed until the switch completes and unhalts" },
+        "timeout_overdue_nanos":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Time the earliest due timeout has waited past its due time when metrics were written, 0 if none is due; grows while signing is halted or fewer than 40 sign slots are free" },
+        "first_cert_slot":                 { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "First certified slot in the window seen by a staked node, which starts its catchup, 0 if none yet" },
+        "timeout_queue_full_paused":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Blocks whose discovery stopped because their role's timeout queue filled; the block goes back to its treap and its remaining FEC sets are queued later" }
     }
 }

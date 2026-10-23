@@ -1010,6 +1010,54 @@ enum MetricsMotorState {
   METRICS_MOTOR_STATE_SHUTDOWN = 3;  // Shutdown
 }
 
+// Kind of request.
+enum RepairRequestType {
+  REPAIR_REQUEST_TYPE_UNSPECIFIED = 0;
+  REPAIR_REQUEST_TYPE_WINDOW_INDEX = 1;  // Shreds of one FEC set, by slot and index.
+  REPAIR_REQUEST_TYPE_HIGHEST_WINDOW_INDEX = 2;  // The highest shred a peer holds of a slot, to learn the block's length.
+  REPAIR_REQUEST_TYPE_ORPHAN = 3;  // The ancestry of a slot whose parent block is not held.
+  REPAIR_REQUEST_TYPE_PARENT_AND_FEC_SET_COUNT = 4;  // Alpenglow: a block's parent and FEC set count, with a proof against its block id.
+  REPAIR_REQUEST_TYPE_FEC_SET_ROOT = 5;  // Alpenglow: the merkle root of one FEC set, with a proof against its block id.
+  REPAIR_REQUEST_TYPE_WINDOW_INDEX_FOR_BLOCK_ID = 6;  // Alpenglow: shreds of one FEC set of a specific block.
+}
+
+// How the message settled.
+enum RepairRequestOutcome {
+  REPAIR_REQUEST_OUTCOME_UNSPECIFIED = 0;
+  REPAIR_REQUEST_OUTCOME_ANSWERED = 1;  // Its shred arrived, or its metadata reply passed its proof. A highest_window_index or orphan reply that does not complete the slot carries a nonce the shred tile cannot verify, and is dropped unmatched if its shred or FEC set is already held.
+  REPAIR_REQUEST_OUTCOME_EXPIRED = 2;  // The deadline (about 1 s after req_time) passed with no answer. Counts toward banning the peer only if no message of the same pick was answered, see ban.
+  REPAIR_REQUEST_OUTCOME_UNANSWERABLE = 3;  // The deadline passed with no answer to a highest_window_index or orphan message, or to a message for a slot at or below the root, including one rooted while in flight; never bans.
+  REPAIR_REQUEST_OUTCOME_BAD = 4;  // A metadata reply from the peer's address failed its proof; the peer is banned for 10 s.
+  REPAIR_REQUEST_OUTCOME_EVICTED = 5;  // Dropped unsettled because the pending request table was full; ours, not the peer's; never bans.
+  REPAIR_REQUEST_OUTCOME_SUPERSEDED = 6;  // A highest_window_index or orphan message with no answer whose answer arrived another way before the deadline: the block's length, or its parent's ancestry, became known; a reply may have been a shred already held, dropped unmatched; never bans.
+}
+
+// Whether and why settling this message's pick banned the peer for 10 s. A pick settles once at the deadline, so every message of a pick left unanswered then carries the same ban.
+enum RepairRequestBan {
+  REPAIR_REQUEST_BAN_UNSPECIFIED = 0;
+  REPAIR_REQUEST_BAN_NONE = 1;  // Not banned.
+  REPAIR_REQUEST_BAN_BY_ID = 2;  // Its 4th window_index_for_block_id pick in a row expired with no by-id answer.
+  REPAIR_REQUEST_BAN_STREAK = 3;  // Its 32nd pick in a row expired with no answer of any kind.
+  REPAIR_REQUEST_BAN_BAD_PROOF = 4;  // Its metadata reply failed its proof.
+}
+
+// How the peer was picked.
+enum RepairRequestPick {
+  REPAIR_REQUEST_PICK_UNSPECIFIED = 0;
+  REPAIR_REQUEST_PICK_FIRST = 1;  // First attempt: the fastest available peer, an unmeasured one every 16th pick.
+  REPAIR_REQUEST_PICK_HEDGE = 2;  // A later attempt, after the last peer's hedge time, preferring any peer but the last one asked.
+  REPAIR_REQUEST_PICK_STAKED_HEDGE = 3;  // A later attempt for a block not known only from turbine, from staked peers only.
+  REPAIR_REQUEST_PICK_ESCAPE = 4;  // A later attempt after 3 in a row brought no new shred of the FEC set: a random peer among the top 100 stake ranks, higher ranks likelier.
+}
+
+// Role of the block asked about in its slot when sent.
+enum RepairRequestRole {
+  REPAIR_REQUEST_ROLE_UNSPECIFIED = 0;
+  REPAIR_REQUEST_ROLE_EAGER = 1;  // Neither the slot's notarized nor finalized block: turbine's block, or another block of the slot known by id.
+  REPAIR_REQUEST_ROLE_NOTAR = 2;  // The slot's first notarized, or stronger, block.
+  REPAIR_REQUEST_ROLE_FINAL = 3;  // The slot's finalized block.
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -3976,6 +4024,14 @@ message MetricsReplayRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Timeouts put back without sending a request, by reason, one per deferral
+message MetricsRotorTimeoutDeferred {
+  // HighestWindowIndex put back: turbine delivered a FEC set of the slot within the eager wait
+  uint64 turbine_active = 1;
+  // FEC set request put back: every data shred arrived, the set has not completed
+  uint64 all_received = 2;
+}
+
 // Uncapped hedge time (srtt+4*rttvar, 100 ms if unmeasured) of each staked peer an escaped retry was sent to
 message MetricsRotorEscapePeerHedgeDelayNanos {
   // [0, 10000000) nanos
@@ -4098,6 +4154,12 @@ message MetricsRotorPingRejected {
   uint64 unknown_peer = 2;
   // Signature did not verify
   uint64 signature_failed = 3;
+  // Pong not sent: signing halted for an identity switch, or no free sign slot
+  uint64 sign_unavailable = 4;
+  // Pong not sent: sender address differs from the peer's gossip address
+  uint64 address_mismatch = 5;
+  // Pong not sent: no request was sent to the peer within the ping TTL
+  uint64 unsolicited = 6;
 }
 
 // Data shreds received as repair responses, by the pending request they matched
@@ -4108,6 +4170,8 @@ message MetricsRotorShredRx {
   uint64 slot_index = 2;
   // Matched no pending request: a duplicate, or an answer to an expired or evicted request
   uint64 unmatched = 3;
+  // Repair response that showed the slot's leader equivocating, dropped before matching; only unverified-nonce HighestWindowIndex or Orphan replies
+  uint64 eqvoc = 4;
 }
 
 // Signed repair messages queued, by type; window types send one per missing shred (up to 32), others one per attempt
@@ -10142,6 +10206,20 @@ message MetricsRotor {
   uint64 request_late_retried = 59;
   // Uncapped hedge time (srtt+4*rttvar, 100 ms if unmeasured) of each staked peer an escaped retry was sent to
   MetricsRotorEscapePeerHedgeDelayNanos escape_peer_hedge_delay_nanos = 60;
+  // Of TimeoutNoPeerDeferred, retries of a block not known only from turbine, which pick only staked peers: every staked peer was banned, without an address or at its in-flight limit
+  uint64 timeout_no_staked_peer_deferred = 61;
+  // Timeouts put back without sending a request, by reason, one per deferral
+  MetricsRotorTimeoutDeferred timeout_deferred = 62;
+  // Timeouts dropped because their role's timeout queue was full; the block goes back to its treap and the work is discovered again
+  uint64 timeout_queue_full_dropped = 63;
+  // Identity switches that halted signing; no request, ping or pong is signed until the switch completes and unhalts
+  uint64 signing_halted = 64;
+  // Time the earliest due timeout has waited past its due time when metrics were written, 0 if none is due; grows while signing is halted or fewer than 40 sign slots are free
+  uint64 timeout_overdue_nanos = 65;
+  // First certified slot in the window seen by a staked node, which starts its catchup, 0 if none yet
+  uint64 first_cert_slot = 66;
+  // Blocks whose discovery stopped because their role's timeout queue filled; the block goes back to its treap and its remaining FEC sets are queued later
+  uint64 timeout_queue_full_paused = 67;
 }
 
 // Metrics of one rserve tile instance, one row per sweep
@@ -12202,6 +12280,40 @@ message MetricsMotor {
   uint64 timer_irq = 24;
 }
 
+// One repair request message this validator sent to a peer, reported once when it settles: its answer arrived, its metadata reply was checked, the deadline passed (PENDING_TTL, about 1 s after req_time), or it was evicted. Each message asks for one thing: a window_index or window_index_for_block_id pick sends one message per missing shred of the FEC set, so one row each, sharing peer, req_time, attempt and pick; the other kinds are one message per pick. A hedge or retry to another peer is another pick. Messages never sent have no row; see the rotor tile's Timeout* and SigningHalted metrics, and TimeoutOverdueNanos for sign slot starvation. Emitted by the rotor tile.
+message RepairRequest {
+  // Validator identity of the peer asked.
+  bytes peer_identity = 1;
+  // IPv4 address the request was sent to, stored as an IPv4-mapped IPv6 address.
+  bytes peer_ip = 2;
+  // UDP port the request was sent to: the peer's serve-repair port in gossip when sent.
+  uint32 peer_port = 3;
+  // The peer's stake rank in the current epoch when the message settled, 0 for the most staked, as ranked by the repair strategy (65535 if unstaked or no longer known).
+  uint32 peer_rank = 4;
+  // Kind of request.
+  RepairRequestType type = 5;
+  // Slot of the block asked about.
+  uint64 slot = 6;
+  // Block id of the block asked about; all zeros for turbine's block until it completes.
+  bytes block_id = 7;
+  // For window_index and window_index_for_block_id, the index of the shred the message asked for. For fec_set_root, index of the first shred of the FEC set asked about. For highest_window_index, the shred index sent: the first index past the highest FEC set received; the peer answers only if it holds a shred at or past it, or the slot is complete. 0 for orphan and parent_and_fec_set_count.
+  uint32 shred_idx = 8;
+  // When the message was queued for signing; it leaves once its signature returns, so res_time - req_time includes sign latency.
+  uint64 req_time = 9;
+  // When this message's answer was received off the network (by the shred tile for shreds, the net tile for metadata replies); for bad, when the reply that failed its proof arrived; 0 if none.
+  uint64 res_time = 10;
+  // How the message settled.
+  RepairRequestOutcome outcome = 11;
+  // Whether and why settling this message's pick banned the peer for 10 s. A pick settles once at the deadline, so every message of a pick left unanswered then carries the same ban.
+  RepairRequestBan ban = 12;
+  // Earlier picks for the same request before this one, 0 for the first; at most 255.
+  uint32 attempt = 13;
+  // How the peer was picked.
+  RepairRequestPick pick = 14;
+  // Role of the block asked about in its slot when sent.
+  RepairRequestRole role = 15;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -12267,5 +12379,6 @@ message Event {
     MetricsSnapsv metrics_snapsv = 60;
     MetricsLink metrics_link = 61;
     MetricsMotor metrics_motor = 62;
+    RepairRequest repair_request = 63;
   }
 }

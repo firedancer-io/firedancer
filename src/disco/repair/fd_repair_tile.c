@@ -78,6 +78,11 @@ struct pending {
   uint        tag;         /* FD_REPAIR_SERDE_TAG_* of the request */
   uint        mask;        /* bit i set while shred i of the FEC set is unanswered, bit 0 for a HIGHEST or ORPHAN; the pending outlives its last answer */
   uint        answered;    /* shreds matched so far */
+  uint        ip4;
+  ushort      port;
+  uchar       attempt;
+  uchar       pick;
+  uchar       role;
 };
 typedef struct pending pending_t;
 
@@ -267,6 +272,14 @@ struct fd_repair_tile {
     ulong      ping_signature_failed;
     ulong      req_cancelled;
     ulong      req_no_peer;
+    ulong      req_no_staked_peer;
+    ulong      timeout_deferred[ FD_METRICS_ENUM_TIMEOUT_DEFER_REASON_CNT ];
+    ulong      timeout_full;
+    ulong      timeout_paused;
+    ulong      sign_halted;
+    ulong      ping_sign_unavailable;
+    ulong      ping_address_mismatch;
+    ulong      ping_unsolicited;
     ulong      req_hedged;
     ulong      req_expired;
     ulong      req_stuck_escaped;
@@ -295,6 +308,7 @@ push_timeout( fd_repair_tile_t * ctx,
     timeout_prq_insert( prq, req );
     return;
   }
+  ctx->metrics->timeout_full++;
   if( FD_LIKELY( req->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX ) ) blk->wait_fec_cnt = fd_uint_min( blk->wait_fec_cnt, req->fec_idx );
   blk->meta_req    = ( blk->meta_req    && req->tag!=FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT );
   blk->highest_req = ( blk->highest_req && req->tag!=FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX      );
@@ -333,6 +347,7 @@ poll_timeout( fd_repair_tile_t * ctx,
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_ORPHAN && ( blk->parent_slot<=ctx->rotor->root || ( parent && parent->parent_slot!=ULONG_MAX ) ) ) ) { blk->orphan_req = 0; ctx->metrics->req_cancelled++; continue; } /* its ancestry showed up, died with the root, or a lower blk asks */
       long t_eager = fd_repair_strat_eager_ns( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, blk->slot ) );
       if( FD_UNLIKELY( req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->rcvd_fec_ts+t_eager>now                  ) ) { /* turbine is not quiet yet */
+        ctx->metrics->timeout_deferred[ FD_METRICS_ENUM_TIMEOUT_DEFER_REASON_V_TURBINE_ACTIVE_IDX ]++;
         req.timeout = blk->rcvd_fec_ts+t_eager;
         push_timeout( ctx, blk, &req );
         continue;
@@ -399,6 +414,7 @@ discover( fd_repair_tile_t * ctx,
   blk->wait_fec_cnt = fec_idx;
   if( FD_LIKELY( timeout_prq_cnt( prq )<timeout_prq_max( prq ) ) ) return;
   if( FD_UNLIKELY( blk->in_blk_treap ) ) return;
+  ctx->metrics->timeout_paused++;
   fd_repair_treap_ele_insert( meta->final==idx ? ctx->rotor->final_treap : meta->notar==idx ? ctx->rotor->notar_treap : ctx->rotor->eager_treap, blk, ctx->rotor->blk_pool ); /* timeout_prq filled up, resume later */
   blk->in_blk_treap = 1;
 }
@@ -467,6 +483,46 @@ report_block_received( void *                  ctx_,
   fd_event_report_block_received( ev );
 }
 
+static void
+report_repair_request( fd_repair_tile_t * ctx,
+                       pending_t const *  pending,
+                       uint               bit_idx,
+                       long               res_ts,
+                       int                outcome,
+                       int                ban ) {
+  if( FD_LIKELY( !fd_event_tl ) ) return;
+  fd_repair_strat_peer_t const * peer = fd_repair_strat_query( ctx->strat, &pending->peer );
+  fd_event_repair_request_t      ev   = {0};
+  memcpy( ev.peer_identity, pending->peer.uc, sizeof(fd_pubkey_t) );
+  if( FD_LIKELY( pending->ip4 ) ) {
+    FD_STORE( ushort, ev.peer_ip+10, (ushort)0xffff );
+    FD_STORE( uint,   ev.peer_ip+12, pending->ip4 );
+  }
+  switch( pending->tag ) {
+  case FD_REPAIR_SERDE_TAG_WINDOW_INDEX:              ev.type = FD_EVENT_REPAIR_REQUEST_TYPE_WINDOW_INDEX;              break;
+  case FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX:      ev.type = FD_EVENT_REPAIR_REQUEST_TYPE_HIGHEST_WINDOW_INDEX;      break;
+  case FD_REPAIR_SERDE_TAG_ORPHAN:                    ev.type = FD_EVENT_REPAIR_REQUEST_TYPE_ORPHAN;                    break;
+  case FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT:  ev.type = FD_EVENT_REPAIR_REQUEST_TYPE_PARENT_AND_FEC_SET_COUNT;  break;
+  case FD_REPAIR_SERDE_TAG_FEC_SET_ROOT:              ev.type = FD_EVENT_REPAIR_REQUEST_TYPE_FEC_SET_ROOT;              break;
+  case FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID: ev.type = FD_EVENT_REPAIR_REQUEST_TYPE_WINDOW_INDEX_FOR_BLOCK_ID; break;
+  default: FD_LOG_CRIT(( "unhandled request tag %u", pending->tag ));
+  }
+  int fec = pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX || pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID || pending->tag==FD_REPAIR_SERDE_TAG_FEC_SET_ROOT || pending->tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX;
+  memcpy( ev.block_id, pending->dmr.uc, sizeof(fd_mr32_t) );
+  ev.peer_port     = pending->port;
+  ev.peer_rank     = peer && (ulong)( peer-ctx->strat->cur.peers )<ctx->strat->staked_cnt ? (ushort)( peer-ctx->strat->cur.peers ) : USHORT_MAX;
+  ev.slot          = pending->slot;
+  ev.shred_idx     = fd_uint_if( fec, pending->fec_idx*FD_FEC_SHRED_CNT+bit_idx, 0U );
+  ev.req_time      = (ulong)pending->ts;
+  ev.res_time      = (ulong)res_ts;
+  ev.outcome       = outcome;
+  ev.ban           = ban;
+  ev.attempt       = pending->attempt;
+  ev.pick          = pending->pick;
+  ev.role          = pending->role;
+  fd_event_report_repair_request( &ev );
+}
+
 
 static inline void
 handle_shred( fd_repair_tile_t * ctx,
@@ -518,6 +574,7 @@ handle_shred( fd_repair_tile_t * ctx,
     long                    now   = fd_clock_tile_now( ctx->clock );
 
     if( FD_UNLIKELY( fd_shred_sig_res( sig )==SHRED_SIG_RESULT_EQVOC ) ) {
+      ctx->metrics->shred_rx[ FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_EQVOC_IDX ] += (ulong)( fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR || fd_shred_sig_src( sig )==SHRED_SIG_SRC_BAD_REPAIR );
       fd_repair_slot_invalidated( ctx->rotor, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, now );
       return;
     }
@@ -545,6 +602,7 @@ handle_shred( fd_repair_tile_t * ctx,
       }
       pending->mask &= ~bit;
       pending->answered++;
+      report_repair_request( ctx, pending, (uint)fd_uint_find_lsb( bit ), rx_ts, FD_EVENT_REPAIR_REQUEST_OUTCOME_ANSWERED, FD_EVENT_REPAIR_REQUEST_BAN_NONE );
       ctx->metrics->shred_rx[ fd_ulong_if( pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_FOR_BLOCK_ID_IDX, FD_METRICS_ENUM_SHRED_RESPONSE_MATCH_RESULT_V_SLOT_INDEX_IDX ) ]++;
       fd_repair_blk_t * blk = fd_repair_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
       while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
@@ -722,9 +780,9 @@ handle_ping( fd_repair_tile_t *   ctx,
 
   fd_repair_strat_peer_t * peer = fd_repair_strat_query( ctx->strat, &from );
   if( FD_UNLIKELY( !peer                                                                  ) ) { ctx->metrics->ping_unknown_peer++; return; }
-  if( FD_UNLIKELY( peer->ip4!=ip4->saddr || fd_ushort_bswap( peer->port )!=udp->net_sport ) ) return;
-  if( FD_UNLIKELY( now-peer->ping_ts>=PING_TTL                                            ) ) return;
-  if( FD_UNLIKELY( ctx->halt_signing || !sign_pool_free( ctx->sign_pool )                 ) ) return;
+  if( FD_UNLIKELY( peer->ip4!=ip4->saddr || fd_ushort_bswap( peer->port )!=udp->net_sport ) ) { ctx->metrics->ping_address_mismatch++; return; }
+  if( FD_UNLIKELY( now-peer->ping_ts>=PING_TTL                                            ) ) { ctx->metrics->ping_unsolicited++; return; }
+  if( FD_UNLIKELY( ctx->halt_signing || !sign_pool_free( ctx->sign_pool )                 ) ) { ctx->metrics->ping_sign_unavailable++; return; }
 
   peer->ping_ts = now-PING_TTL; /* one verify per request we sent */
   fd_sha512_t sha[1];
@@ -753,7 +811,8 @@ handle_parent_and_fec_set_count_res( fd_repair_tile_t *   ctx,
                                      ulong                data_sz,
                                      fd_ip4_hdr_t const * ip4,
                                      fd_udp_hdr_t const * udp,
-                                     long                 now ) {
+                                     long                 now,
+                                     long                 rx_ts ) {
   uint      fec_set_cnt;
   ulong     parent_slot;
   fd_mr32_t parent_blk_mr;
@@ -776,6 +835,7 @@ handle_parent_and_fec_set_count_res( fd_repair_tile_t *   ctx,
   pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
   pending_dlist_ele_remove   ( ctx->pending_dlist, pending, ctx->pending_pool );
   pending_pool_ele_release   ( ctx->pending_pool,  pending );
+  report_repair_request( ctx, &sent, 0U, rx_ts, fd_int_if( valid, FD_EVENT_REPAIR_REQUEST_OUTCOME_ANSWERED, FD_EVENT_REPAIR_REQUEST_OUTCOME_BAD ), fd_int_if( valid, FD_EVENT_REPAIR_REQUEST_BAN_NONE, FD_EVENT_REPAIR_REQUEST_BAN_BAD_PROOF ) );
   if( FD_UNLIKELY( !valid ) ) {
     fd_repair_strat_request_failed( ctx->strat, &sent.peer, now+BAN_TTL );
     return;
@@ -797,7 +857,8 @@ handle_fec_set_root_res( fd_repair_tile_t *   ctx,
                          ulong                data_sz,
                          fd_ip4_hdr_t const * ip4,
                          fd_udp_hdr_t const * udp,
-                         long                 now ) {
+                         long                 now,
+                         long                 rx_ts ) {
   fd_mr20_t fec_mr;
   uchar     proof[ FD_REPAIR_PROOF_MAX ];
   ulong     proof_sz;
@@ -818,6 +879,7 @@ handle_fec_set_root_res( fd_repair_tile_t *   ctx,
   pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
   pending_dlist_ele_remove   ( ctx->pending_dlist, pending, ctx->pending_pool );
   pending_pool_ele_release   ( ctx->pending_pool,  pending );
+  report_repair_request( ctx, &sent, 0U, rx_ts, fd_int_if( valid, FD_EVENT_REPAIR_REQUEST_OUTCOME_ANSWERED, FD_EVENT_REPAIR_REQUEST_OUTCOME_BAD ), fd_int_if( valid, FD_EVENT_REPAIR_REQUEST_BAN_NONE, FD_EVENT_REPAIR_REQUEST_BAN_BAD_PROOF ) );
   if( FD_UNLIKELY( !valid ) ) {
     fd_repair_strat_request_failed( ctx->strat, &sent.peer, now+BAN_TTL );
     return;
@@ -833,7 +895,8 @@ handle_fec_set_root_res( fd_repair_tile_t *   ctx,
 static void
 handle_net( fd_repair_tile_t *  ctx,
             fd_stem_context_t * stem,
-            ulong               sz ) {
+            ulong               sz,
+            long                rx_ts ) {
   uchar *        data;
   ulong          data_sz;
   fd_ip4_hdr_t * ip4;
@@ -847,8 +910,8 @@ handle_net( fd_repair_tile_t *  ctx,
     return;
   }
   switch( FD_LOAD( uint, data ) ) {
-  case FD_REPAIR_SERDE_TAG_PARENT_FEC_SET_COUNT_RES: handle_parent_and_fec_set_count_res( ctx, data, data_sz, ip4, udp, now ); break;
-  case FD_REPAIR_SERDE_TAG_FEC_SET_ROOT_RES:         handle_fec_set_root_res            ( ctx, data, data_sz, ip4, udp, now ); break;
+  case FD_REPAIR_SERDE_TAG_PARENT_FEC_SET_COUNT_RES: handle_parent_and_fec_set_count_res( ctx, data, data_sz, ip4, udp, now, rx_ts ); break;
+  case FD_REPAIR_SERDE_TAG_FEC_SET_ROOT_RES:         handle_fec_set_root_res            ( ctx, data, data_sz, ip4, udp, now, rx_ts ); break;
   default: break;
   }
 }
@@ -886,6 +949,11 @@ handle_sign( fd_repair_tile_t *  ctx,
 
 static inline void
 metrics_write( fd_repair_tile_t * ctx ) {
+  long now = fd_clock_tile_now( ctx->clock );
+  long due = now;
+  due = fd_long_if( !!timeout_prq_cnt( ctx->eager_prq ), fd_long_min( due, ctx->eager_prq[ 0 ].timeout ), due );
+  due = fd_long_if( !!timeout_prq_cnt( ctx->notar_prq ), fd_long_min( due, ctx->notar_prq[ 0 ].timeout ), due );
+  due = fd_long_if( !!timeout_prq_cnt( ctx->final_prq ), fd_long_min( due, ctx->final_prq[ 0 ].timeout ), due );
   ulong queued  = fd_repair_treap_ele_cnt( ctx->rotor->eager_treap ) + fd_repair_treap_ele_cnt( ctx->rotor->notar_treap ) + fd_repair_treap_ele_cnt( ctx->rotor->final_treap );
   ulong waiting = timeout_prq_cnt( ctx->eager_prq ) + timeout_prq_cnt  ( ctx->notar_prq ) + timeout_prq_cnt( ctx->final_prq );
 
@@ -908,6 +976,8 @@ metrics_write( fd_repair_tile_t * ctx ) {
   FD_MGAUGE_SET( ROTOR, TIMEOUT_PENDING,        waiting                                             );
   FD_MGAUGE_SET( ROTOR, EAGER_DELAY_NANOS,      (ulong)fd_repair_strat_eager_ns( ctx->strat, NULL ) );
   FD_MGAUGE_SET( ROTOR, SIGN_REQUEST_PENDING,   sign_pool_used( ctx->sign_pool )                    );
+  FD_MGAUGE_SET( ROTOR, TIMEOUT_OVERDUE_NANOS,  (ulong)( now-due )                                  );
+  FD_MGAUGE_SET( ROTOR, FIRST_CERT_SLOT,        ctx->cert_slot0                                     );
 
   FD_MCNT_SET( ROTOR, FEC_DELIVERED,            ctx->metrics->fec_delivered );
   FD_MCNT_SET( ROTOR, TIMEOUT_CANCELLED,        ctx->metrics->req_cancelled );
@@ -918,6 +988,12 @@ metrics_write( fd_repair_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, REQUEST_STUCK_ESCAPED,    ctx->metrics->req_stuck_escaped );
   FD_MCNT_SET( ROTOR, REQUEST_LATE_RETRIED,     ctx->metrics->req_late_attempt  );
   FD_MCNT_SET( ROTOR, PEER_BY_ID_BANNED,        ctx->metrics->peer_byid_banned  );
+
+  FD_MCNT_SET      ( ROTOR, TIMEOUT_NO_STAKED_PEER_DEFERRED, ctx->metrics->req_no_staked_peer );
+  FD_MCNT_ENUM_COPY( ROTOR, TIMEOUT_DEFERRED,                ctx->metrics->timeout_deferred   );
+  FD_MCNT_SET      ( ROTOR, TIMEOUT_QUEUE_FULL_DROPPED,      ctx->metrics->timeout_full       );
+  FD_MCNT_SET      ( ROTOR, TIMEOUT_QUEUE_FULL_PAUSED,       ctx->metrics->timeout_paused     );
+  FD_MCNT_SET      ( ROTOR, SIGNING_HALTED,                  ctx->metrics->sign_halted        );
 
   FD_MCNT_SET      ( ROTOR, SHRED_OLD_IGNORED, ctx->metrics->shred_old );
   FD_MCNT_ENUM_COPY( ROTOR, SHRED_RX,          ctx->metrics->shred_rx  );
@@ -936,6 +1012,9 @@ metrics_write( fd_repair_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, PING_REJECTED_MALFORMED,        ctx->metrics->ping_malformed        );
   FD_MCNT_SET( ROTOR, PING_REJECTED_UNKNOWN_PEER,     ctx->metrics->ping_unknown_peer     );
   FD_MCNT_SET( ROTOR, PING_REJECTED_SIGNATURE_FAILED, ctx->metrics->ping_signature_failed );
+  FD_MCNT_SET( ROTOR, PING_REJECTED_SIGN_UNAVAILABLE, ctx->metrics->ping_sign_unavailable );
+  FD_MCNT_SET( ROTOR, PING_REJECTED_ADDRESS_MISMATCH, ctx->metrics->ping_address_mismatch );
+  FD_MCNT_SET( ROTOR, PING_REJECTED_UNSOLICITED,      ctx->metrics->ping_unsolicited      );
 
   FD_MHIST_COPY( ROTOR, RESPONSE_LATENCY_NANOS, ctx->metrics->response_latency );
   FD_MHIST_COPY( ROTOR, RETRY_DELAY_NANOS,      ctx->metrics->retry_delay      );
@@ -1040,9 +1119,18 @@ after_credit( fd_repair_tile_t *  ctx,
     int answerable = pending->slot>ctx->rotor->root && pending->tag!=FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && pending->tag!=FD_REPAIR_SERDE_TAG_ORPHAN;
     int byid = pending->tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID;
     ctx->metrics->byid_expired += (ulong)( answerable && byid && !pending->answered );
+    int ban = 0;
     if(      FD_UNLIKELY( pending->answered ) ) {}
-    else if( FD_LIKELY  ( answerable        ) ) ctx->metrics->peer_byid_banned += (ulong)( fd_repair_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid )==1 );
+    else if( FD_LIKELY  ( answerable        ) ) ban = fd_repair_strat_request_expired( ctx->strat, &pending->peer, now+BAN_TTL, byid );
     else                                        fd_repair_strat_request_failed ( ctx->strat, &pending->peer, 0           );
+    ctx->metrics->peer_byid_banned += (ulong)( ban==1 );
+    fd_repair_blk_t const * blk        = answerable || !fd_event_tl ? NULL : fd_repair_blk_map_ele_query_const( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
+    while( blk && fd_repair_blk_pool_idx( ctx->rotor->blk_pool, blk )!=pending->blk ) blk = fd_repair_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool );
+    fd_repair_blk_t const * parent     = blk ? fd_repair_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent ) : NULL;
+    int                     superseded = pending->slot>ctx->rotor->root && blk && ( ( pending->tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX && blk->cmpl_fec_cnt ) || ( pending->tag==FD_REPAIR_SERDE_TAG_ORPHAN && parent && parent->parent_slot!=ULONG_MAX ) );
+    int                     outcome    = answerable ? FD_EVENT_REPAIR_REQUEST_OUTCOME_EXPIRED : superseded ? FD_EVENT_REPAIR_REQUEST_OUTCOME_SUPERSEDED : FD_EVENT_REPAIR_REQUEST_OUTCOME_UNANSWERABLE;
+    int                     ban_kind   = fd_int_if( ban==1, FD_EVENT_REPAIR_REQUEST_BAN_BY_ID, fd_int_if( ban==-1, FD_EVENT_REPAIR_REQUEST_BAN_STREAK, FD_EVENT_REPAIR_REQUEST_BAN_NONE ) );
+    for( uint m=pending->mask; m; m=fd_uint_pop_lsb( m ) ) report_repair_request( ctx, pending, (uint)fd_uint_find_lsb( m ), 0L, outcome, ban_kind );
     ctx->metrics->req_expired+= (ulong)!pending->answered;
     pending_dlist_ele_pop_head ( ctx->pending_dlist, ctx->pending_pool );
     pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
@@ -1105,6 +1193,7 @@ after_credit( fd_repair_tile_t *  ctx,
     int                    meta  = tag==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT || tag==FD_REPAIR_SERDE_TAG_FEC_SET_ROOT;
     uint                   mask  = fd_uint_if( tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX || tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID, fec ? ~fec->rcvd : UINT_MAX, 1U ); /* bit i is a message for shred i of the FEC set */
     if( FD_UNLIKELY( !mask ) ) { /* every shred arrived, the FEC set completes without repair */
+      ctx->metrics->timeout_deferred[ FD_METRICS_ENUM_TIMEOUT_DEFER_REASON_V_ALL_RECEIVED_IDX ]++;
       req.timeout = now+fd_repair_strat_eager_ns( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, blk->slot ) );
       push_timeout( ctx, blk, &req );
       continue;
@@ -1117,11 +1206,13 @@ after_credit( fd_repair_tile_t *  ctx,
     uint stuck  = fd_uint_if( req.attempt && !( rcvd & ~req.rcvd ), req.stuck+1U, 0U ); /* only new shreds are progress, not an eviction; kept only once sent */
     int  escape = stuck>=STUCK_MAX && !blk->eager;
     fd_repair_strat_peer_t * peer = escape ? fd_repair_strat_pick_staked( ctx->strat, now, (ulong)req.last_peer-1UL, fd_rng_ulong( ctx->rng ) ) : NULL;
+    int  escaped = !!peer;
     ctx->metrics->req_stuck_escaped += (ulong)!!peer;
-    if( FD_UNLIKELY( peer ) ) fd_histf_sample( ctx->metrics->escape_hedge, (ulong)fd_long_if( !!peer->srtt, peer->srtt+4L*peer->rttvar, FD_REPAIR_STRAT_HEDGE_NS ) ); /* uncapped */
+    if( FD_UNLIKELY( peer ) ) fd_histf_sample( ctx->metrics->escape_hedge, (ulong)fd_long_if( !!peer->srtt_ns, peer->srtt_ns+4L*peer->rttvar_ns, FD_REPAIR_STRAT_HEDGE_NS ) ); /* uncapped */
     if( FD_LIKELY( !peer ) ) peer = fd_repair_strat_pick( ctx->strat, now, !blk->eager && req.attempt, (ulong)req.last_peer-1UL );
     if( FD_UNLIKELY( !peer ) ) {
       ctx->metrics->req_no_peer++;
+      ctx->metrics->req_no_staked_peer += (ulong)( !blk->eager && req.attempt );
       req.timeout = now+NO_PEER;
       push_timeout( ctx, blk, &req );
       break;
@@ -1136,9 +1227,13 @@ after_credit( fd_repair_tile_t *  ctx,
     if( FD_UNLIKELY( !pending_pool_free( ctx->pending_pool ) ) ) { /* evict the oldest, a reply to it no longer matches */
       pending_t * oldest = pending_dlist_ele_pop_head( ctx->pending_dlist, ctx->pending_pool );
       if( FD_LIKELY( !oldest->answered ) ) fd_repair_strat_request_failed( ctx->strat, &oldest->peer, 0 );
+      for( uint m=oldest->mask; m; m=fd_uint_pop_lsb( m ) ) report_repair_request( ctx, oldest, (uint)fd_uint_find_lsb( m ), 0L, FD_EVENT_REPAIR_REQUEST_OUTCOME_EVICTED, FD_EVENT_REPAIR_REQUEST_BAN_NONE );
       pending_map_ele_remove_fast( ctx->pending_map, oldest, ctx->pending_pool );
       pending_pool_ele_release   ( ctx->pending_pool, oldest );
     }
+    fd_repair_slot_meta_t const * slot_meta = fd_repair_slot_meta( ctx->rotor, blk->slot );
+    int                           role      = slot_meta->final==req.blk ? FD_EVENT_REPAIR_REQUEST_ROLE_FINAL : slot_meta->notar==req.blk ? FD_EVENT_REPAIR_REQUEST_ROLE_NOTAR : FD_EVENT_REPAIR_REQUEST_ROLE_EAGER;
+    int                           pick      = escaped ? FD_EVENT_REPAIR_REQUEST_PICK_ESCAPE : !req.attempt ? FD_EVENT_REPAIR_REQUEST_PICK_FIRST : !blk->eager ? FD_EVENT_REPAIR_REQUEST_PICK_STAKED_HEDGE : FD_EVENT_REPAIR_REQUEST_PICK_HEDGE;
     pending_t * pending = pending_pool_ele_acquire( ctx->pending_pool );
     pending->key         = fd_ulong_if( meta, (ulong)nonce, (ulong)(uint)blk->slot<<32 | fd_uint_if( req.tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX || req.tag==FD_REPAIR_SERDE_TAG_ORPHAN, (uint)ctx->rotor->fec_blk_max, req.fec_idx ) ); /* an ORPHAN's first reply is of the slot itself, matched like a HIGHEST */
     pending->ts          = now;
@@ -1146,11 +1241,16 @@ after_credit( fd_repair_tile_t *  ctx,
     pending->blk         = req.blk;
     pending->dmr         = blk->dmr;
     pending->peer        = peer->id_key;
-    pending->fec_idx     = req.fec_idx;
+    pending->fec_idx     = fd_uint_if( tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX, blk->rcvd_fec_cnt, req.fec_idx );
     pending->fec_set_cnt = blk->cmpl_fec_cnt;
     pending->tag         = tag;
     pending->mask        = mask;
     pending->answered    = 0U;
+    pending->ip4         = peer->ip4;
+    pending->port        = peer->port;
+    pending->attempt     = req.attempt;
+    pending->pick        = (uchar)pick;
+    pending->role        = (uchar)role;
     pending_map_ele_insert     ( ctx->pending_map,   pending, ctx->pending_pool );
     pending_dlist_ele_push_tail( ctx->pending_dlist, pending, ctx->pending_pool );
 
@@ -1276,14 +1376,18 @@ after_frag( fd_repair_tile_t *  ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
-            ulong               tspub  FD_PARAM_UNUSED,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_NET:
-    handle_net( ctx, stem, sz );
+  case IN_KIND_NET: {
+    long now_tick = fd_tickcount();
+    long rx_tick  = fd_frag_meta_ts_decomp( tspub, now_tick );
+    if( FD_UNLIKELY( rx_tick>now_tick ) ) rx_tick -= 1L<<32;
+    handle_net( ctx, stem, sz, fd_clock_tile_tickcount_to_wallclock( ctx->clock, rx_tick ) );
     break;
+  }
   case IN_KIND_SIGN:
     handle_sign( ctx, stem, in_idx, sig );
     break;
@@ -1369,6 +1473,7 @@ during_housekeeping( fd_repair_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    ctx->metrics->sign_halted += (ulong)!ctx->halt_signing;
     ctx->halt_signing = 1;
     memcpy( ctx->identity_key.uc, ctx->keyswitch->bytes, 32UL );
     fd_repair_strat_peer_t const * self = fd_repair_strat_query( ctx->strat, &ctx->identity_key );

@@ -648,6 +648,29 @@ fd_event_block_received_fill_max( fd_event_block_received_t * msg ) {
 static void
 fd_event_block_received_fill_max_v( void * msg ) { fd_event_block_received_fill_max( (fd_event_block_received_t *)msg ); }
 
+static inline void
+fd_event_repair_request_fill_max( fd_event_repair_request_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  fd_memset( msg->peer_identity, 0xFF, 32UL );
+  fd_memset( msg->peer_ip, 0xFF, 16UL );
+  msg->peer_port = USHORT_MAX;
+  msg->peer_rank = USHORT_MAX;
+  msg->type = INT_MAX;
+  msg->slot = ULONG_MAX;
+  fd_memset( msg->block_id, 0xFF, 32UL );
+  msg->shred_idx = UINT_MAX;
+  msg->req_time = ULONG_MAX;
+  msg->res_time = ULONG_MAX;
+  msg->outcome = INT_MAX;
+  msg->ban = INT_MAX;
+  msg->attempt = UCHAR_MAX;
+  msg->pick = INT_MAX;
+  msg->role = INT_MAX;
+}
+
+static void
+fd_event_repair_request_fill_max_v( void * msg ) { fd_event_repair_request_fill_max( (fd_event_repair_request_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -675,9 +698,10 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 19UL, FD_EVENT_ALPENGLOW_VOTE_BUF_MAX, sizeof(fd_event_alpenglow_vote_t), "alpenglow_vote", fd_event_alpenglow_vote_fill_max_v },
   { 20UL, FD_EVENT_ALPENGLOW_CERT_BUF_MAX, sizeof(fd_event_alpenglow_cert_t), "alpenglow_cert", fd_event_alpenglow_cert_fill_max_v },
   { 21UL, FD_EVENT_BLOCK_RECEIVED_BUF_MAX, sizeof(fd_event_block_received_t), "block_received", fd_event_block_received_fill_max_v },
+  { 63UL, FD_EVENT_REPAIR_REQUEST_BUF_MAX, sizeof(fd_event_repair_request_t), "repair_request", fd_event_repair_request_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (18UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (19UL)
 
 FD_PROTOTYPES_END
 

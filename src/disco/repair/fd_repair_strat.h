@@ -5,7 +5,7 @@
    I/O: the rotor tile feeds it contact infos, epoch stakes and request
    outcomes.  Peers sit in slots by stake rank, unstaked last, and in
    latency buckets by srtt+rttvar/4.  A pick takes the fastest
-   bucket's cheaper of the next two peers by srtt*(inflight+1), the
+   bucket's cheaper of the next two peers by srtt*(out_cnt+1), the
    cursor advancing one peer so every peer meets every neighbor,
    every FD_REPAIR_STRAT_EXPLORE-th pick tries an unmeasured peer first,
    and a request is hedged after srtt+4*rttvar (RFC 6298).  It also
@@ -42,10 +42,7 @@ struct fd_repair_strat_peer {
   ulong       next;           /* map chain */
   uint        ip4;            /* 0 while gossip has no address for it */
   ushort      port;
-  uint        inflight;       /* requests in flight */
   ulong       bucket;         /* the bucket of its rtt */
-  long        srtt;           /* smoothed round trip in ns, 0 if never measured */
-  long        rttvar;         /* its mean deviation */
   long        ping_ts;        /* last ping, 0 if none */
   long        ban_ts;         /* skipped until this time */
   uint        expired_cnt;    /* requests in a row it left unanswered */
@@ -53,6 +50,9 @@ struct fd_repair_strat_peer {
   long        turbine_srtt;   /* as leader, smoothed time from a FEC set's first shred to complete, 0 if never measured */
   long        turbine_rttvar; /* its mean deviation */
   ulong       turbine_cnt;    /* its samples */
+  uint        out_cnt;        /* outstanding requests (in-flight) */
+  long        srtt_ns;        /* smoothed round trip, 0 if never measured */
+  long        rttvar_ns;      /* its mean deviation */
 };
 typedef struct fd_repair_strat_peer fd_repair_strat_peer_t;
 
@@ -213,7 +213,7 @@ fd_repair_strat_eager_ns( fd_repair_strat_t * strat,
 
 static inline long
 fd_repair_strat_hedge_ns( fd_repair_strat_peer_t const * peer ) {
-  return fd_long_if( !!peer->srtt, peer->srtt+4L*peer->rttvar, FD_REPAIR_STRAT_HEDGE_NS );
+  return fd_long_if( !!peer->srtt_ns, peer->srtt_ns+4L*peer->rttvar_ns, FD_REPAIR_STRAT_HEDGE_NS );
 }
 
 fd_repair_strat_peer_t *

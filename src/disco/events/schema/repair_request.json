@@ -1,0 +1,70 @@
+{
+    "name": "repair_request",
+    "id": 63,
+    "description": "One repair request message this validator sent to a peer, reported once when it settles: its answer arrived, its metadata reply was checked, the deadline passed (PENDING_TTL, about 1 s after req_time), or it was evicted. Each message asks for one thing: a window_index or window_index_for_block_id pick sends one message per missing shred of the FEC set, so one row each, sharing peer, req_time, attempt and pick; the other kinds are one message per pick. A hedge or retry to another peer is another pick. Messages never sent have no row; see the rotor tile's Timeout* and SigningHalted metrics, and TimeoutOverdueNanos for sign slot starvation. Emitted by the rotor tile.",
+    "fields": {
+        "peer_identity": { "type": "Pubkey",                                            "description": "Validator identity of the peer asked." },
+        "peer_ip":       { "type": "IPv6",                                              "description": "IPv4 address the request was sent to, stored as an IPv4-mapped IPv6 address." },
+        "peer_port":     { "type": "UInt16",                                            "description": "UDP port the request was sent to: the peer's serve-repair port in gossip when sent." },
+        "peer_rank":     { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "The peer's stake rank in the current epoch when the message settled, 0 for the most staked, as ranked by the repair strategy (65535 if unstaked or no longer known)." },
+        "type": {
+            "type": "LowCardinality(String)",
+            "description": "Kind of request.",
+            "variants": {
+                "window_index":              { "description": "Shreds of one FEC set, by slot and index." },
+                "highest_window_index":      { "description": "The highest shred a peer holds of a slot, to learn the block's length." },
+                "orphan":                    { "description": "The ancestry of a slot whose parent block is not held." },
+                "parent_and_fec_set_count":  { "description": "Alpenglow: a block's parent and FEC set count, with a proof against its block id." },
+                "fec_set_root":              { "description": "Alpenglow: the merkle root of one FEC set, with a proof against its block id." },
+                "window_index_for_block_id": { "description": "Alpenglow: shreds of one FEC set of a specific block." }
+            }
+        },
+        "slot":          { "type": "UInt64",        "compression": "Delta, ZSTD",       "description": "Slot of the block asked about." },
+        "block_id":      { "type": "Hash",                                              "description": "Block id of the block asked about; all zeros for turbine's block until it completes." },
+        "shred_idx":     { "type": "UInt32",        "compression": "T64, ZSTD",         "description": "For window_index and window_index_for_block_id, the index of the shred the message asked for. For fec_set_root, index of the first shred of the FEC set asked about. For highest_window_index, the shred index sent: the first index past the highest FEC set received; the peer answers only if it holds a shred at or past it, or the slot is complete. 0 for orphan and parent_and_fec_set_count." },
+        "req_time":      { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When the message was queued for signing; it leaves once its signature returns, so res_time - req_time includes sign latency." },
+        "res_time":      { "type": "DateTime64(9)",                                     "description": "When this message's answer was received off the network (by the shred tile for shreds, the net tile for metadata replies); for bad, when the reply that failed its proof arrived; 0 if none." },
+        "outcome": {
+            "type": "LowCardinality(String)",
+            "description": "How the message settled.",
+            "variants": {
+                "answered":     { "description": "Its shred arrived, or its metadata reply passed its proof. A highest_window_index or orphan reply that does not complete the slot carries a nonce the shred tile cannot verify, and is dropped unmatched if its shred or FEC set is already held." },
+                "expired":      { "description": "The deadline (about 1 s after req_time) passed with no answer. Counts toward banning the peer only if no message of the same pick was answered, see ban." },
+                "unanswerable": { "description": "The deadline passed with no answer to a highest_window_index or orphan message, or to a message for a slot at or below the root, including one rooted while in flight; never bans." },
+                "bad":          { "description": "A metadata reply from the peer's address failed its proof; the peer is banned for 10 s." },
+                "evicted":      { "description": "Dropped unsettled because the pending request table was full; ours, not the peer's; never bans." },
+                "superseded":   { "description": "A highest_window_index or orphan message with no answer whose answer arrived another way before the deadline: the block's length, or its parent's ancestry, became known; a reply may have been a shred already held, dropped unmatched; never bans." }
+            }
+        },
+        "ban": {
+            "type": "LowCardinality(String)",
+            "description": "Whether and why settling this message's pick banned the peer for 10 s. A pick settles once at the deadline, so every message of a pick left unanswered then carries the same ban.",
+            "variants": {
+                "none":      { "description": "Not banned." },
+                "by_id":     { "description": "Its 4th window_index_for_block_id pick in a row expired with no by-id answer." },
+                "streak":    { "description": "Its 32nd pick in a row expired with no answer of any kind." },
+                "bad_proof": { "description": "Its metadata reply failed its proof." }
+            }
+        },
+        "attempt":       { "type": "UInt8",                                             "description": "Earlier picks for the same request before this one, 0 for the first; at most 255." },
+        "pick": {
+            "type": "LowCardinality(String)",
+            "description": "How the peer was picked.",
+            "variants": {
+                "first":        { "description": "First attempt: the fastest available peer, an unmeasured one every 16th pick." },
+                "hedge":        { "description": "A later attempt, after the last peer's hedge time, preferring any peer but the last one asked." },
+                "staked_hedge": { "description": "A later attempt for a block not known only from turbine, from staked peers only." },
+                "escape":       { "description": "A later attempt after 3 in a row brought no new shred of the FEC set: a random peer among the top 100 stake ranks, higher ranks likelier." }
+            }
+        },
+        "role": {
+            "type": "LowCardinality(String)",
+            "description": "Role of the block asked about in its slot when sent.",
+            "variants": {
+                "eager": { "description": "Neither the slot's notarized nor finalized block: turbine's block, or another block of the slot known by id." },
+                "notar": { "description": "The slot's first notarized, or stronger, block." },
+                "final": { "description": "The slot's finalized block." }
+            }
+        }
+    }
+}
