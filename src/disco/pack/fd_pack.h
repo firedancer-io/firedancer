@@ -324,6 +324,8 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
 
    The non-negative (success) codes are essentially a bitflag of two
    bits:
+    * (1) unused.  This bit was previously used to indicate that the
+      transaction was a simple vote.
     * (2) whether this transaction replaced a previously accepted, low
       priority transaction, rather than being accepted in addition to
       all the previously accepted transactions.
