@@ -500,9 +500,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_SNAPIN_MANIF: {
-      if( fd_ssmsg_sig_message( sig )==FD_SSMSG_REPLAY_READY ) {
-        if( fd_gui_wfs_mode( ctx->gui )!=FD_WFS_MODE_NOOP ) fd_gui_peers_commit_snapshot_manifest( ctx->peers );
-      } else {
+      if( fd_ssmsg_sig_message( sig )!=FD_SSMSG_REPLAY_READY ) {
         fd_gui_stage_snapshot_manifest( ctx->gui, (fd_snapshot_manifest_t const *)src );
       }
       break;

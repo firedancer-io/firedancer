@@ -3206,6 +3206,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
                      snapshot_due_for_root( ctx, published_root_block_height, target_bank->f.slot, consensus_root_block_height, consensus_root_block_height, &incremental ) ) ) {
       fd_stem_publish( stem, ctx->snapmk_out->idx, REPLAY_SIG_STREAM_STOP, ctx->snapmk_out->chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->strmk.stopping = 1;
+      return 1;
     }
     return 0;
   }
