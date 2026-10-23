@@ -343,7 +343,7 @@ FD_PROTOTYPES_BEGIN
                          void *         wire,                          \
                          ulong          wire_sz ) {                    \
     if( FD_UNLIKELY( wire_sz < sizeof(TYPE_T) ) )                      \
-      return -(long)FD_TLS_ALERT_DECODE_ERROR;                         \
+      return -(long)FD_TLS_ALERT_INTERNAL_ERROR;                       \
     TYPE_T * out = (TYPE_T *)wire;                                     \
     memcpy( out, in, sizeof(TYPE_T) );                                 \
     fd_tls_##NAME##_bswap( out );                                      \
