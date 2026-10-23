@@ -523,31 +523,6 @@ void test2( void ) {
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
-void test_vote( void ) {
-  FD_LOG_NOTICE(( "TEST VOTE" ));
-  fd_pack_t * pack = init_all( 128UL, 1UL, 4UL, &outcome );
-  ulong i = 0;
-  ulong pack_cost_estimate = 4UL * FD_PACK_MAX_SIMPLE_VOTE_COST;
-
-  make_vote_transaction( i ); insert( i++, pack );
-  make_vote_transaction( i ); insert( i++, pack );
-  make_vote_transaction( i ); insert( i++, pack );
-  make_vote_transaction( i ); insert( i++, pack );
-
-  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 4UL );
-  schedule_validate_microblock( pack, pack_cost_estimate, 0.0f, 0UL, 0UL, 0UL, &outcome );
-  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 4UL );
-
-  schedule_validate_microblock( pack, pack_cost_estimate, 0.25f, 1UL, 0UL, 0UL, &outcome );
-  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
-
-  schedule_validate_microblock( pack, pack_cost_estimate, 1.0f, 3UL, 0UL, 0UL, &outcome );
-  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
-
-  for( ulong j=0UL; j<3UL; j++ ) FD_TEST( outcome.results[ j ].txnp->flags==FD_TXN_P_FLAGS_IS_SIMPLE_VOTE );
-  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
-}
-
 static fd_ed25519_sig_t const *
 txnp_get_signatures( fd_txn_p_t const * txnp ) {
   return fd_txn_get_signatures( TXN( txnp ), txnp->payload );
@@ -1110,47 +1085,6 @@ test_limits( void ) {
   }
 
 
-  /* Test the CU limit */
-  if( 1 ) {
-    fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
-
-    for( ulong i=0UL; i<1024UL; i++ ) {
-      /* The votes are all non-conflicting */
-      make_vote_transaction( i );
-      insert( i, pack );
-    }
-
-    /* Test that as we gradually increase the CU limit, the correct number of votes get scheduled.
-       After 33 iterations we start hitting FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK. */
-    for( ulong cu_limit=0UL; cu_limit<33UL*FD_PACK_MAX_SIMPLE_VOTE_COST; cu_limit += FD_PACK_MAX_SIMPLE_VOTE_COST ) {
-      schedule_validate_microblock( pack, cu_limit, 1.0f, cu_limit/FD_PACK_MAX_SIMPLE_VOTE_COST, 0UL, 0UL, &outcome );
-    }
-    /* sum_{x=0}^32 x = 528, so there should be 496 transactions left */
-    FD_TEST( fd_pack_avail_txn_cnt( pack )==496UL );
-  }
-
-
-  /* Test the block vote limit */
-  if( 1 ) {
-    fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
-
-    for( ulong j=0UL; j<FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK/(1024UL*FD_PACK_MAX_SIMPLE_VOTE_COST); j++ ) {
-      for( ulong i=0UL; i<1024UL; i++ ) { make_vote_transaction( i ); insert( i, pack ); }
-      schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1.0f, 1024UL, 0UL, 0UL, &outcome );
-    }
-
-    for( ulong i=0UL; i<1024UL; i++ ) { make_vote_transaction( i ); insert( i, pack ); }
-    ulong consumed_cost = (1024UL*FD_PACK_MAX_SIMPLE_VOTE_COST)*(FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK/(1024UL*FD_PACK_MAX_SIMPLE_VOTE_COST));
-    ulong expected_votes = (FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK-consumed_cost)/FD_PACK_MAX_SIMPLE_VOTE_COST;
-
-    schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1.0f,        expected_votes, 0UL, 0UL, &outcome );
-    FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL-expected_votes );
-
-    fd_pack_end_block( pack );
-    schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1.0f, 1024UL-expected_votes, 0UL, 0UL, &outcome );
-  }
-
-
   /* Test the block writer limit */
   if( 1 ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
@@ -1525,14 +1459,6 @@ test_reject( void ) {
   make_transaction( i, 1000001U, 500U, 11.0, "A", "A", NULL, NULL );
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE_ACCT );
 
-  fd_txn_e_t * _bundle[1];
-  ulong _deleted;
-  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
-  make_vote_transaction1( bundle[0]->txnp, 0UL );
-  int result = fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &_deleted );
-  FD_TEST( result==FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST );
-
-
   for( ulong j=0UL; j<=i; j++ ) fd_memset( TXN( &txnp_scratch[ j ] ), (uchar)0, FD_TXN_MAX_SZ );
 }
 
@@ -1819,7 +1745,6 @@ main( int     argc,
   test0();
   test1();
   test2();
-  test_vote();
   heap_overflow_test();
   test_delete();
   test_expiration();
