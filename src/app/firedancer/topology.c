@@ -475,7 +475,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     1024UL,                                   sizeof(fd_backup_frag_t),      1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "replay_snapmk", "replay_snapmk", 16UL,                                     sizeof(fd_replay_snap_start_t),1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "snapmk_out",    "snapmk_out",    128UL,                                    sizeof(fd_snapmk_msg_t),       1UL );
-  if( snapmk_enabled ) fd_topob_link( topo, "snaprd_out",    "snaprd_out",    1024UL,                                   FD_BACKUP_RD_MTU,              1UL );
+  if( snapmk_enabled ) fd_topob_link( topo, "snaprd_out",    "snaprd_out",    16UL,                                     FD_BACKUP_RD_MTU,              1UL );
   FOR(snapsv_tile_cnt) fd_topob_link( topo, "snapsv_out",    "snapsv_out",    16384UL,                                  sizeof(fd_snapsv_msg_t),       1UL )->permit_no_consumers = 1;
   fd_topo_obj_t * zp_fseq = NULL;
   if( snapmk_enabled ) {
