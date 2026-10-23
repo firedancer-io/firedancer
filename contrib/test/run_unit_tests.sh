@@ -27,7 +27,6 @@ VERBOSE=0
 # Keep this list in sync with the sources;
 # contrib/test/gen_unit_test_pages.sh regenerates it.
 declare -A TEST_GIGANTIC_PAGES=(
-  [test_vinyl_req]=8
   [test_vat_refresh_vote_accounts]=6
   [test_vm_syscalls]=5
   [test_vm_syscall_hash]=5
