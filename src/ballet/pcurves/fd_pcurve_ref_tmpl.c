@@ -156,6 +156,43 @@ REF_(fp_neg)( FP_T *       r,
   return r;
 }
 
+static inline FP_T *
+REF_(fp_mul)( FP_T *       r,
+              FP_T const * a,
+              FP_T const * b ) {
+  FP_MUL( r, a, b );
+  return r;
+}
+
+static inline FP_T *
+REF_(fp_sqr)( FP_T *       r,
+              FP_T const * a ) {
+  FP_SQR( r, a );
+  return r;
+}
+
+/* r = 1/a = a^(p-2).  a MUST not be 0. */
+static inline FP_T *
+REF_(fp_inv)( FP_T *       r,
+              FP_T const * a ) {
+  REF_(fp_pow_limbs)( r->limbs, a->limbs, REF_(const_p_m2) );
+  return r;
+}
+
+static inline FP_T *
+REF_(fp_tomont)( FP_T *       r,
+                 FP_T const * a ) {
+  FP_TOMONT( r, a );
+  return r;
+}
+
+static inline FP_T *
+REF_(fp_demont)( FP_T *       r,
+                 FP_T const * a ) {
+  FP_DEMONT( r, a );
+  return r;
+}
+
 /* r = sqrt(a) = a^((p+1)/4) (p = 3 mod 4).  Returns NULL if a is not a
    square. */
 static inline FP_T *
@@ -310,26 +347,32 @@ REF_(point_scalarmul)( PT_T *       r,
   REF_(point_set)( r, acc );
 }
 
-/* Validates a SEC1 uncompressed point (0x04 || x || y): canonical
-   coordinates and the curve equation. */
+/* Returns 1 if (x, y), Montgomery domain, satisfies y^2 = x^3 + ax + b. */
 static inline int
-REF_(point_validate_uncompressed)( uchar const in[ 1+2*SZ ] ) {
-  if( FD_UNLIKELY( in[ 0 ]!=0x04U ) ) return PCURVE_REF_FAILURE;
-
-  FP_T x[1], y[1], lhs[1], rhs[1];
-  if( FD_UNLIKELY( !REF_(fp_frombytes)( x, in+1    ) ) ) return PCURVE_REF_FAILURE;
-  if( FD_UNLIKELY( !REF_(fp_frombytes)( y, in+1+SZ ) ) ) return PCURVE_REF_FAILURE;
-
-  FP_TOMONT( x, x );
-  FP_TOMONT( y, y );
-
-  /* y^2 = x^3 + ax + b */
+REF_(point_on_curve)( FP_T const * x,
+                      FP_T const * y ) {
+  FP_T lhs[1], rhs[1];
   FP_SQR( lhs, y );
   FP_SQR( rhs, x );
   FP_ADD( rhs, rhs, REF_(const_a_mont) );
   FP_MUL( rhs, rhs, x );
   FP_ADD( rhs, rhs, REF_(const_b_mont) );
   return REF_(fp_eq)( lhs, rhs );
+}
+
+/* Validates a SEC1 uncompressed point (0x04 || x || y): canonical
+   coordinates and the curve equation. */
+static inline int
+REF_(point_validate_uncompressed)( uchar const in[ 1+2*SZ ] ) {
+  if( FD_UNLIKELY( in[ 0 ]!=0x04U ) ) return PCURVE_REF_FAILURE;
+
+  FP_T x[1], y[1];
+  if( FD_UNLIKELY( !REF_(fp_frombytes)( x, in+1    ) ) ) return PCURVE_REF_FAILURE;
+  if( FD_UNLIKELY( !REF_(fp_frombytes)( y, in+1+SZ ) ) ) return PCURVE_REF_FAILURE;
+
+  FP_TOMONT( x, x );
+  FP_TOMONT( y, y );
+  return REF_(point_on_curve)( x, y );
 }
 
 /* Decompresses a SEC1 compressed point (0x02/0x03 || x). */
@@ -432,6 +475,25 @@ REF_(double_scalar_mul_base)( PT_T *       r,
   REF_(point_scalarmul)( t1, u1->limbs, g );
   REF_(point_scalarmul)( t2, u2->limbs, a );
   REF_(point_add)( r, t1, t2 );
+}
+
+/* Converts the Jacobian point a to affine-Montgomery (x, y) laid out
+   as 2N limbs, (0, 0) for infinity. */
+static inline void
+REF_(point_toaffine_mont)( ulong        r[ 2*N ],
+                           PT_T const * a ) {
+  if( FD_UNLIKELY( REF_(point_is_inf)( a ) ) ) {
+    memset( r, 0, 2*SZ );
+    return;
+  }
+  FP_T zinv[1], zinv2[1], x[1], y[1];
+  REF_(fp_pow_limbs)( zinv->limbs, a->z->limbs, REF_(const_p_m2) );
+  FP_SQR( zinv2, zinv );
+  FP_MUL( x, a->x, zinv2 );
+  FP_MUL( y, zinv2, zinv );
+  FP_MUL( y, y, a->y );
+  memcpy( r,   x->limbs, SZ );
+  memcpy( r+N, y->limbs, SZ );
 }
 
 #undef FP_MUL

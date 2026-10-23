@@ -417,6 +417,203 @@ test_secp256r1_verify( FD_FN_UNUSED fd_rng_t * rng ) {
   }
 }
 
+/* reverse n bytes in place */
+static void
+rev( uchar * b, ulong n ) {
+  for( ulong i=0UL; i<n/2UL; i++ ) { uchar t=b[ i ]; b[ i ]=b[ n-1UL-i ]; b[ n-1UL-i ]=t; }
+}
+
+/* Syscall vectors, big endian.  The little endian run reverses each
+   32-byte coordinate / scalar.  Identity is 64 zero bytes. */
+static void
+test_secp256r1_syscall( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar p[ 64 ], q[ 64 ], c[ 33 ], a[ 32 ], b[ 32 ], n[ 32 ], exp[ 64 ], r[ 64 ], bad[ 64 ];
+  uchar const zero[ 64 ] = { 0 };
+  fd_hex_decode( p, "e35eb19eb79db78851fa937af739a7e674a8922fd892fe8790a020b62694aed643b52bb88b2286ee58c56943f42d6fa06bcd63a78469f992c29ea3451b8de5ca", 64 );
+  fd_hex_decode( q, "13536a4e32c9b408faf7ebc3fc6c3605c2271446b6e5a8ac81f23538afe81a43e4027ed5953d6050fa565e91f5146140f76a3bad9cec1bacc02d0577ebaaf0cb", 64 );
+  fd_hex_decode( c, "02e35eb19eb79db78851fa937af739a7e674a8922fd892fe8790a020b62694aed6", 33 );
+  fd_hex_decode( a, "7b4b57f1a31ed9636c806712a9bd03bc8364dd9a404592c0937ef48aa174a36a", 32 );
+  fd_hex_decode( b, "492fa2b5748bf18b880ed104dd0483321f53f87d63da7125d4120ab008539adb", 32 );
+  fd_hex_decode( n, "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551", 32 );
+
+  for( int be=1; be>=0; be-- ) {
+    if( !be ) {
+      rev( p, 32 ); rev( p+32, 32 );
+      rev( q, 32 ); rev( q+32, 32 );
+      rev( c+1, 32 );
+      rev( a, 32 ); rev( b, 32 ); rev( n, 32 );
+    }
+    ulong ylsb = be ? 63UL : 32UL; /* least significant byte of y */
+
+    /* validate */
+    FD_TEST( fd_secp256r1_validate_syscall( p, be )==1 );
+    FD_TEST( fd_secp256r1_validate_syscall( zero, be )==1 );
+    memcpy( bad, p, 64 ); bad[ ylsb ]++;
+    FD_TEST( fd_secp256r1_validate_syscall( bad, be )==0 );
+    memcpy( bad, p, 64 ); memset( bad, 0xff, 32 ); /* x >= p */
+    FD_TEST( fd_secp256r1_validate_syscall( bad, be )==0 );
+
+    /* decompress */
+    FD_TEST( fd_secp256r1_decompress_syscall( r, c, be )==0 );
+    FD_TEST( memcmp( r, p, 64 )==0 );
+    c[ 0 ] = 0x04; FD_TEST( fd_secp256r1_decompress_syscall( r, c, be )==-1 ); c[ 0 ] = 0x02;
+    c[ 0 ] = 0x03; FD_TEST( fd_secp256r1_decompress_syscall( r, c, be )==0 ); c[ 0 ] = 0x02;
+    FD_TEST( memcmp( r, p, 32 )==0 && memcmp( r+32, p+32, 32 )!=0 ); /* -y */
+
+    /* add, sub */
+    uchar neg_p[ 64 ]; memcpy( neg_p, r, 64 );
+    FD_TEST( fd_secp256r1_add_syscall( r, p, q, be )==0 );
+    FD_TEST( fd_secp256r1_sub_syscall( exp, r, q, be )==0 );
+    FD_TEST( memcmp( exp, p, 64 )==0 );
+    FD_TEST( fd_secp256r1_add_syscall( r, p, zero, be )==0 ); FD_TEST( memcmp( r, p, 64 )==0 );
+    FD_TEST( fd_secp256r1_add_syscall( r, zero, p, be )==0 ); FD_TEST( memcmp( r, p, 64 )==0 );
+    FD_TEST( fd_secp256r1_sub_syscall( r, p, zero, be )==0 ); FD_TEST( memcmp( r, p, 64 )==0 );
+    FD_TEST( fd_secp256r1_sub_syscall( r, zero, p, be )==0 ); FD_TEST( memcmp( r, neg_p, 64 )==0 );
+    FD_TEST( fd_secp256r1_add_syscall( r, p, neg_p, be )==0 ); FD_TEST( memcmp( r, zero, 64 )==0 );
+    FD_TEST( fd_secp256r1_sub_syscall( r, p, p, be )==0 ); FD_TEST( memcmp( r, zero, 64 )==0 );
+    FD_TEST( fd_secp256r1_add_syscall( r, zero, zero, be )==0 ); FD_TEST( memcmp( r, zero, 64 )==0 );
+    FD_TEST( fd_secp256r1_add_syscall( r, p, bad, be )==-1 );
+    FD_TEST( fd_secp256r1_sub_syscall( r, bad, p, be )==-1 );
+
+    /* mul: 2P == P+P, 0*P == 0, n rejected, msm consistent */
+    uchar two[ 32 ] = { 0 }; two[ be ? 31 : 0 ] = 2;
+    FD_TEST( fd_secp256r1_add_syscall( exp, p, p, be )==0 );
+    FD_TEST( fd_secp256r1_mul_syscall( r, two, p, be )==0 ); FD_TEST( memcmp( r, exp, 64 )==0 );
+    FD_TEST( fd_secp256r1_mul_syscall( r, zero, p, be )==0 ); FD_TEST( memcmp( r, zero, 64 )==0 );
+    FD_TEST( fd_secp256r1_mul_syscall( r, a, zero, be )==0 ); FD_TEST( memcmp( r, zero, 64 )==0 );
+    FD_TEST( fd_secp256r1_mul_syscall( r, n, p, be )==-1 );
+    FD_TEST( fd_secp256r1_mul_syscall( r, a, bad, be )==-1 );
+
+    uchar sc[ 64 ], pts[ 128 ];
+    memcpy( sc, a, 32 ); memcpy( sc+32, b, 32 );
+    memcpy( pts, p, 64 ); memcpy( pts+64, q, 64 );
+    uchar ap[ 64 ], bq[ 64 ];
+    FD_TEST( fd_secp256r1_mul_syscall( ap, a, p, be )==0 );
+    FD_TEST( fd_secp256r1_mul_syscall( bq, b, q, be )==0 );
+    FD_TEST( fd_secp256r1_add_syscall( exp, ap, bq, be )==0 );
+    FD_TEST( fd_secp256r1_msm_syscall( r, sc, pts, 2UL, be )==0 ); FD_TEST( memcmp( r, exp, 64 )==0 );
+    FD_TEST( fd_secp256r1_msm_syscall( r, sc, pts, 1UL, be )==0 ); FD_TEST( memcmp( r, ap, 64 )==0 );
+    FD_TEST( fd_secp256r1_msm_syscall( r, sc, pts, 0UL, be )==0 ); FD_TEST( memcmp( r, zero, 64 )==0 );
+    memcpy( sc+32, n, 32 );
+    FD_TEST( fd_secp256r1_msm_syscall( r, sc, pts, 2UL, be )==-1 );
+    memcpy( sc+32, b, 32 ); memcpy( pts+64, bad, 64 );
+    FD_TEST( fd_secp256r1_msm_syscall( r, sc, pts, 2UL, be )==-1 );
+
+    /* msm across batches: 70 entries, repeated and degenerate points */
+    uchar sc70[ 32*70 ], pts70[ 64*70 ];
+    memset( exp, 0, 64 );
+    for( ulong i=0UL; i<70UL; i++ ) {
+      uchar const * si = (i%3UL==0UL) ? a : (i%3UL==1UL) ? b : two;
+      uchar const * pi = (i%5UL==0UL) ? zero : (i&1UL) ? p : q;
+      if( i==7UL ) si = zero;
+      memcpy( sc70 +32*i, si, 32 ); memcpy( pts70+64*i, pi, 64 );
+      FD_TEST( fd_secp256r1_mul_syscall( r, si, pi, be )==0 );
+      FD_TEST( fd_secp256r1_add_syscall( exp, exp, r, be )==0 );
+    }
+    FD_TEST( fd_secp256r1_msm_syscall( r, sc70, pts70, 70UL, be )==0 ); FD_TEST( memcmp( r, exp, 64 )==0 );
+    FD_TEST( fd_secp256r1_msm_syscall( r, sc70, pts70, 33UL, be )==0 );
+    FD_TEST( fd_secp256r1_msm_syscall( exp, sc70, pts70, 32UL, be )==0 );
+    FD_TEST( fd_secp256r1_mul_syscall( ap, sc70+32*32, pts70+64*32, be )==0 );
+    FD_TEST( fd_secp256r1_add_syscall( exp, exp, ap, be )==0 ); FD_TEST( memcmp( r, exp, 64 )==0 );
+    memcpy( pts70+64*69, bad, 64 );
+    FD_TEST( fd_secp256r1_msm_syscall( r, sc70, pts70, 70UL, be )==-1 );
+  }
+
+  /* agave vectors, big endian: a*P and a*P + b*Q */
+  fd_hex_decode( p, "e35eb19eb79db78851fa937af739a7e674a8922fd892fe8790a020b62694aed643b52bb88b2286ee58c56943f42d6fa06bcd63a78469f992c29ea3451b8de5ca", 64 );
+  fd_hex_decode( q, "13536a4e32c9b408faf7ebc3fc6c3605c2271446b6e5a8ac81f23538afe81a43e4027ed5953d6050fa565e91f5146140f76a3bad9cec1bacc02d0577ebaaf0cb", 64 );
+  fd_hex_decode( c, "02e35eb19eb79db78851fa937af739a7e674a8922fd892fe8790a020b62694aed6", 33 );
+  fd_hex_decode( a, "7b4b57f1a31ed9636c806712a9bd03bc8364dd9a404592c0937ef48aa174a36a", 32 );
+  fd_hex_decode( b, "492fa2b5748bf18b880ed104dd0483321f53f87d63da7125d4120ab008539adb", 32 );
+  FD_TEST( fd_secp256r1_decompress_syscall( r, c, 1 )==0 ); FD_TEST( memcmp( r, p, 64 )==0 );
+  fd_hex_decode( exp, "a04a6c74523cb2e3776e35d87f4b914a23dcd05105606b39b4eaa54a1eb01f53b86987a384e67ddda648e85c83723473098f5a24a22734aa53e8bc68435706e2", 64 );
+  FD_TEST( fd_secp256r1_mul_syscall( r, a, p, 1 )==0 ); FD_TEST( memcmp( r, exp, 64 )==0 );
+  fd_hex_decode( exp, "4fb14d7db13b3053b4cc66d97201104a418ec9178505b8d0f201c4376555b70e35b8e8c7081c9b317d846bf639f379f1639d0ee7bf61cc9e556b91d0a70a811c", 64 );
+  FD_TEST( fd_secp256r1_add_syscall( r, p, q, 1 )==0 ); FD_TEST( memcmp( r, exp, 64 )==0 );
+  fd_hex_decode( exp, "9ced1bbacc5a58b329ee0721c770d1105ca7a8b690f5033343dd8e3b82f06004daec98afebb934d2e9cd722d41ad9673f58809e28cd6115fa851752b1d7d48fe", 64 );
+  FD_TEST( fd_secp256r1_sub_syscall( r, p, q, 1 )==0 ); FD_TEST( memcmp( r, exp, 64 )==0 );
+  uchar sc[ 64 ], pts[ 128 ];
+  memcpy( sc, a, 32 ); memcpy( sc+32, b, 32 );
+  memcpy( pts, p, 64 ); memcpy( pts+64, q, 64 );
+  fd_hex_decode( exp, "18995d3bb393b818d06284894ab0b8d7ff5aaf8188fb46bcc589f8ef2f4f45c1fc94d7cbe3897979b4f600da0c66c72d28d880e7d913b3395e9671e85df63cb1", 64 );
+  FD_TEST( fd_secp256r1_msm_syscall( r, sc, pts, 2UL, 1 )==0 ); FD_TEST( memcmp( r, exp, 64 )==0 );
+
+  // bench
+  uchar * pp = p;
+  {
+    ulong iter = 1000000UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( pp );
+      fd_secp256r1_validate_syscall( p, 1 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_secp256r1_validate_syscall", iter, dt );
+  }
+  {
+    ulong iter = 100000UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( pp );
+      fd_secp256r1_decompress_syscall( r, c, 1 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_secp256r1_decompress_syscall", iter, dt );
+  }
+  {
+    ulong iter = 100000UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( pp );
+      fd_secp256r1_add_syscall( r, p, q, 1 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_secp256r1_add_syscall", iter, dt );
+  }
+  {
+    ulong iter = 100000UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( pp );
+      fd_secp256r1_sub_syscall( r, p, q, 1 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_secp256r1_sub_syscall", iter, dt );
+  }
+  {
+    ulong iter = 10000UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( pp );
+      fd_secp256r1_mul_syscall( r, a, p, 1 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_secp256r1_mul_syscall", iter, dt );
+  }
+  {
+    ulong iter = 10000UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( pp );
+      fd_secp256r1_msm_syscall( r, sc, pts, 2UL, 1 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_secp256r1_msm_syscall(2)", iter, dt );
+  }
+  {
+    uchar sc32[ 32*32 ], pts32[ 64*32 ];
+    for( ulong i=0UL; i<32UL; i++ ) { memcpy( sc32+32*i, sc+32*(i&1), 32 ); memcpy( pts32+64*i, pts+64*(i&1), 64 ); }
+    ulong iter = 1000UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( pp );
+      fd_secp256r1_msm_syscall( r, sc32, pts32, 32UL, 1 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_secp256r1_msm_syscall(32)", iter, dt );
+  }
+}
+
 /**********************************************************************/
 
 int
@@ -440,6 +637,8 @@ main( int     argc,
   test_secp256r1_double_scalar_mul_base_equal_points( rng );
 
   test_secp256r1_verify          ( rng );
+
+  test_secp256r1_syscall         ( rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

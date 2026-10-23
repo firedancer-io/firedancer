@@ -299,5 +299,6 @@
   {"name":"block_revenue_sharing","implemented":1,"pubkey":"Crbnc267wkJvFhYakqwWWX57sx5bkrftJLekzy6yWKLT"},
   {"name":"vote_account_initialize_v2","implemented":0,"pubkey":"VoteAccount1nitia1izeV211111111111111111111"},
   {"name":"raise_cpi_nesting_limit_to_8","implemented":0,"pubkey":"6TkHkRmP7JZy1fdM6fg5uXn76wChQBWGokHBJzrLB3mj"},
-  {"name":"loader_v3_set_program_data_to_elf_length","implemented":1,"pubkey":"EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy"}
+  {"name":"loader_v3_set_program_data_to_elf_length","implemented":1,"pubkey":"EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy"},
+  {"name":"secp256r1_syscall_enabled","implemented":1,"pubkey":"SeRjtX7Abiq5hQYbzdCny266oveDseHZh9tnrs2cdVC"}
 ]

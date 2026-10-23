@@ -13,6 +13,7 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
                                            ulong        point_vaddr,
                                            ulong        point_cnt,
                                            ulong        result_point_vaddr,
+                                           ulong        result_sz,
                                            ulong        expected_ret_code,
                                            int          expected_syscall_ret,
                                            void *       expected_result_host_ptr ) {
@@ -24,9 +25,9 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
     }
     test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
-    const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
-        FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, 32 ) == 0 );
+        const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, result_sz );
+        FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, result_sz ) == 0 );
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
@@ -182,6 +183,7 @@ main( int     argc,
     point_vaddr,
     0UL, // point_cnt
     result_point_vaddr,
+    32UL, // result_sz
     0UL, // ret_code
     FD_VM_SYSCALL_ERR_SEGFAULT, // syscall_ret
     expected_result_host_ptr
@@ -197,6 +199,7 @@ main( int     argc,
     point_vaddr,
     513UL, // point_cnt
     result_point_vaddr,
+    32UL, // result_sz
     0UL, // ret_code
     FD_VM_SYSCALL_ERR_INVALID_LENGTH, // syscall_ret
     expected_result_host_ptr
@@ -212,6 +215,7 @@ main( int     argc,
     point_vaddr,
     2UL, // point_cnt
     result_point_vaddr,
+    32UL, // result_sz
     0UL, // ret_code
     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE, // syscall_ret
     expected_result_host_ptr
@@ -256,6 +260,7 @@ main( int     argc,
       point_vaddr,
       2UL,
       result_point_vaddr,
+      32UL, // result_sz
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -298,6 +303,7 @@ main( int     argc,
       point_vaddr,
       2UL,
       result_point_vaddr,
+      32UL, // result_sz
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
@@ -594,6 +600,193 @@ main( int     argc,
 
     FD_LOG_NOTICE(( "Passed test program (sol_curve_pairing_map: bls12-381 zero pairs, BE)" ));
     test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+  }
+
+
+  /* secp256r1, test vectors from agave test_syscall_secp256r1_*.
+     LE vectors are the BE ones with each 32-byte coordinate / scalar reversed. */
+  {
+    struct {
+      ulong        curve_id;
+      char const * p;            /* valid point */
+      char const * p_invalid;    /* p with y+1, off curve */
+      char const * p_compressed;
+      char const * q;
+      char const * p_add_q;
+      char const * p_sub_q;
+      char const * a;            /* scalar */
+      char const * a_p;
+      char const * b;            /* scalar */
+      char const * a_p_add_b_q;
+      char const * n;            /* group order, smallest invalid scalar */
+    } const tests[2] = {
+      {
+        FD_VM_SYSCALL_SOL_CURVE_SECP256R1_BE,
+        "e35eb19eb79db78851fa937af739a7e674a8922fd892fe8790a020b62694aed643b52bb88b2286ee58c56943f42d6fa06bcd63a78469f992c29ea3451b8de5ca",
+        "e35eb19eb79db78851fa937af739a7e674a8922fd892fe8790a020b62694aed643b52bb88b2286ee58c56943f42d6fa06bcd63a78469f992c29ea3451b8de5cb",
+        "02e35eb19eb79db78851fa937af739a7e674a8922fd892fe8790a020b62694aed6",
+        "13536a4e32c9b408faf7ebc3fc6c3605c2271446b6e5a8ac81f23538afe81a43e4027ed5953d6050fa565e91f5146140f76a3bad9cec1bacc02d0577ebaaf0cb",
+        "4fb14d7db13b3053b4cc66d97201104a418ec9178505b8d0f201c4376555b70e35b8e8c7081c9b317d846bf639f379f1639d0ee7bf61cc9e556b91d0a70a811c",
+        "9ced1bbacc5a58b329ee0721c770d1105ca7a8b690f5033343dd8e3b82f06004daec98afebb934d2e9cd722d41ad9673f58809e28cd6115fa851752b1d7d48fe",
+        "7b4b57f1a31ed9636c806712a9bd03bc8364dd9a404592c0937ef48aa174a36a",
+        "a04a6c74523cb2e3776e35d87f4b914a23dcd05105606b39b4eaa54a1eb01f53b86987a384e67ddda648e85c83723473098f5a24a22734aa53e8bc68435706e2",
+        "492fa2b5748bf18b880ed104dd0483321f53f87d63da7125d4120ab008539adb",
+        "18995d3bb393b818d06284894ab0b8d7ff5aaf8188fb46bcc589f8ef2f4f45c1fc94d7cbe3897979b4f600da0c66c72d28d880e7d913b3395e9671e85df63cb1",
+        "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+      },
+      {
+        FD_VM_SYSCALL_SOL_CURVE_SECP256R1_LE,
+        "d6ae9426b620a09087fe92d82f92a874e6a739f77a93fa5188b79db79eb15ee3cae58d1b45a39ec292f96984a763cd6ba06f2df44369c558ee86228bb82bb543",
+        "d6ae9426b620a09087fe92d82f92a874e6a739f77a93fa5188b79db79eb15ee3cbe58d1b45a39ec292f96984a763cd6ba06f2df44369c558ee86228bb82bb543",
+        "02d6ae9426b620a09087fe92d82f92a874e6a739f77a93fa5188b79db79eb15ee3",
+        "431ae8af3835f281aca8e5b6461427c205366cfcc3ebf7fa08b4c9324e6a5313cbf0aaeb77052dc0ac1bec9cad3b6af7406114f5915e56fa50603d95d57e02e4",
+        "0eb7556537c401f2d0b8058517c98e414a100172d966ccb453303bb17d4db14f1c810aa7d0916b559ecc61bfe70e9d63f179f339f66b847d319b1c08c7e8b835",
+        "0460f0823b8edd433303f590b6a8a75c10d170c72107ee29b3585accba1bed9cfe487d1d2b7551a85f11d68ce20988f57396ad412d72cde9d234b9ebaf98ecda",
+        "6aa374a18af47e93c09245409add6483bc03bda91267806c63d91ea3f1574b7b",
+        "531fb01e4aa5eab4396b600551d0dc234a914b7fd8356e77e3b23c52746c4aa0e206574368bce853aa3427a2245a8f09733472835ce848a6dd7de684a38769b8",
+        "db9a5308b00a12d42571da637df8531f328304dd04d10e888bf18b74b5a22f49",
+        "c1454f2feff889c5bc46fb8881af5affd7b8b04a898462d018b893b33b5d9918b13cf65de871965e39b313d9e780d8282dc7660cda00f6b4797989e3cbd794fc",
+        "512563fcc2cab9f3849e17a7adfae6bcffffffffffffffff00000000ffffffff",
+      },
+    };
+
+    ulong const point_sz      = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_POINT_SZ;
+    ulong const compressed_sz = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_COMPRESSED_SZ;
+    ulong const scalar_sz     = FD_VM_SYSCALL_SOL_CURVE_SECP256R1_SCALAR_SZ;
+
+    /* heap layout */
+    ulong const p_off          = 0UL;
+    ulong const q_off          = p_off          + point_sz;
+    ulong const p_invalid_off  = q_off          + point_sz;
+    ulong const p_compr_off    = p_invalid_off  + point_sz;
+    ulong const a_off          = p_compr_off    + point_sz;   /* a || b, msm scalars */
+    ulong const b_off          = a_off          + scalar_sz;
+    ulong const a2_off         = b_off          + scalar_sz;  /* a || n, invalid msm scalars */
+    ulong const n_off          = a2_off         + scalar_sz;
+    ulong const result_off     = n_off          + scalar_sz;
+    ulong const heap_start     = FD_VM_MEM_MAP_HEAP_REGION_START;
+
+    for( ulong i=0UL; i<2UL; i++ ) {
+      ulong curve_id = tests[i].curve_id;
+      char const * name = i==0UL ? "be" : "le";
+
+      fd_hex_decode( &vm->heap[ p_off ],         tests[i].p,            point_sz );
+      fd_hex_decode( &vm->heap[ q_off ],         tests[i].q,            point_sz );
+      fd_hex_decode( &vm->heap[ p_invalid_off ], tests[i].p_invalid,    point_sz );
+      fd_hex_decode( &vm->heap[ p_compr_off ],   tests[i].p_compressed, compressed_sz );
+      fd_hex_decode( &vm->heap[ a_off ],         tests[i].a,            scalar_sz );
+      fd_hex_decode( &vm->heap[ b_off ],         tests[i].b,            scalar_sz );
+      fd_hex_decode( &vm->heap[ a2_off ],        tests[i].a,            scalar_sz );
+      fd_hex_decode( &vm->heap[ n_off ],         tests[i].n,            scalar_sz );
+
+      uchar expected[ 64 ];
+      uchar * result = &vm->heap[ result_off ];
+
+      /* validate */
+      vm->cu = 2UL*FD_VM_CURVE_SECP256R1_VALIDATE_COST;
+      FD_TEST( fd_vm_syscall_sol_curve_validate_point( vm, curve_id, heap_start+p_off, 0UL, 0UL, 0UL )==FD_VM_SUCCESS );
+      FD_TEST( vm->reg[0]==0UL );
+      FD_TEST( fd_vm_syscall_sol_curve_validate_point( vm, curve_id, heap_start+p_invalid_off, 0UL, 0UL, 0UL )==FD_VM_SUCCESS );
+      FD_TEST( vm->reg[0]==1UL );
+      FD_TEST( fd_vm_syscall_sol_curve_validate_point( vm, curve_id, heap_start+p_off, 0UL, 0UL, 0UL )==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED );
+      test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+      FD_LOG_NOTICE(( "Passed test program (fd_vm_syscall_sol_curve_validate_point: secp256r1 %s)", name ));
+
+      /* decompress */
+      vm->cu = FD_VM_CURVE_SECP256R1_DECOMPRESS_COST;
+      fd_hex_decode( expected, tests[i].p, point_sz );
+      FD_TEST( test_fd_vm_syscall_sol_curve_decompress(
+        "fd_vm_syscall_sol_curve_decompress: secp256r1",
+        vm, curve_id, heap_start+p_compr_off, heap_start+result_off, point_sz,
+        0UL, FD_VM_SUCCESS, expected ) );
+      FD_TEST( fd_vm_syscall_sol_curve_decompress( vm, curve_id, heap_start+p_compr_off, heap_start+result_off, 0UL, 0UL )==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED );
+      test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+      /* add */
+      vm->cu = FD_VM_CURVE_SECP256R1_ADD_COST;
+      fd_hex_decode( expected, tests[i].p_add_q, point_sz );
+      FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+        "fd_vm_syscall_sol_curve_group_op: secp256r1, add",
+        vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_ADD, heap_start+p_off, heap_start+q_off, heap_start+result_off, point_sz,
+        0UL, FD_VM_SUCCESS, expected ) );
+      FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+        "fd_vm_syscall_sol_curve_group_op: secp256r1, add, out of cu",
+        vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_ADD, heap_start+p_off, heap_start+q_off, heap_start+result_off, point_sz,
+        0UL, FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED, expected ) );
+
+      /* sub */
+      vm->cu = FD_VM_CURVE_SECP256R1_SUB_COST;
+      fd_hex_decode( expected, tests[i].p_sub_q, point_sz );
+      FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+        "fd_vm_syscall_sol_curve_group_op: secp256r1, sub",
+        vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_SUB, heap_start+p_off, heap_start+q_off, heap_start+result_off, point_sz,
+        0UL, FD_VM_SUCCESS, expected ) );
+      FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+        "fd_vm_syscall_sol_curve_group_op: secp256r1, sub, out of cu",
+        vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_SUB, heap_start+p_off, heap_start+q_off, heap_start+result_off, point_sz,
+        0UL, FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED, expected ) );
+
+      /* mul, then scalar n is rejected and leaves result untouched */
+      vm->cu = 3UL*FD_VM_CURVE_SECP256R1_MUL_COST;
+      fd_hex_decode( expected, tests[i].a_p, point_sz );
+      FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+        "fd_vm_syscall_sol_curve_group_op: secp256r1, mul",
+        vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_MUL, heap_start+a_off, heap_start+p_off, heap_start+result_off, point_sz,
+        0UL, FD_VM_SUCCESS, expected ) );
+      FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+        "fd_vm_syscall_sol_curve_group_op: secp256r1, mul, scalar n",
+        vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_MUL, heap_start+n_off, heap_start+p_off, heap_start+result_off, point_sz,
+        1UL, FD_VM_SUCCESS, expected ) );
+      FD_TEST( memcmp( result, expected, point_sz )==0 );
+      FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+        "fd_vm_syscall_sol_curve_group_op: secp256r1, mul, invalid point",
+        vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_MUL, heap_start+a_off, heap_start+p_invalid_off, heap_start+result_off, point_sz,
+        1UL, FD_VM_SUCCESS, expected ) );
+      FD_TEST( memcmp( result, expected, point_sz )==0 );
+      FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+        "fd_vm_syscall_sol_curve_group_op: secp256r1, mul, out of cu",
+        vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_MUL, heap_start+a_off, heap_start+p_off, heap_start+result_off, point_sz,
+        0UL, FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED, expected ) );
+
+      /* msm, then scalar n is rejected and leaves result untouched */
+      ulong msm_cost = FD_VM_CURVE_SECP256R1_MSM_BASE_COST + FD_VM_CURVE_SECP256R1_MSM_INCREMENTAL_COST;
+      vm->cu = 2UL*msm_cost;
+      fd_hex_decode( expected, tests[i].a_p_add_b_q, point_sz );
+      FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
+        "test_vm_syscall_sol_curve_multiscalar_mul: secp256r1",
+        vm, curve_id, heap_start+a_off, heap_start+p_off, 2UL, heap_start+result_off, point_sz,
+        0UL, FD_VM_SUCCESS, expected ) );
+      FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
+        "test_vm_syscall_sol_curve_multiscalar_mul: secp256r1, scalar n",
+        vm, curve_id, heap_start+a2_off, heap_start+p_off, 2UL, heap_start+result_off, point_sz,
+        1UL, FD_VM_SUCCESS, expected ) );
+      FD_TEST( memcmp( result, expected, point_sz )==0 );
+      FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
+        "test_vm_syscall_sol_curve_multiscalar_mul: secp256r1, out of cu",
+        vm, curve_id, heap_start+a_off, heap_start+p_off, 2UL, heap_start+result_off, point_sz,
+        0UL, FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED, expected ) );
+
+      /* msm with 0 points is the point at infinity */
+      vm->cu = FD_VM_COMPUTE_UNIT_LIMIT;
+      memset( expected, 0, point_sz );
+      FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
+        "test_vm_syscall_sol_curve_multiscalar_mul: secp256r1, 0 points",
+        vm, curve_id, 0UL, 0UL, 0UL, heap_start+result_off, point_sz,
+        0UL, FD_VM_SUCCESS, expected ) );
+
+      /* feature disabled */
+      bank->f.features.secp256r1_syscall_enabled = FD_FEATURE_DISABLED;
+      FD_TEST( fd_vm_syscall_sol_curve_validate_point( vm, curve_id, 0UL, 0UL, 0UL, 0UL )==FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+      FD_TEST( fd_vm_syscall_sol_curve_decompress( vm, curve_id, 0UL, 0UL, 0UL, 0UL )==FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+      FD_TEST( fd_vm_syscall_sol_curve_group_op( vm, curve_id, FD_VM_SYSCALL_SOL_CURVE_ADD, 0UL, 0UL, 0UL )==FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+      FD_TEST( fd_vm_syscall_sol_curve_multiscalar_mul( vm, curve_id, 0UL, 0UL, 1UL, 0UL )==FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+      bank->f.features.secp256r1_syscall_enabled = 0UL;
+      FD_LOG_NOTICE(( "Passed test program (secp256r1 %s, feature disabled)", name ));
+    }
   }
 
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );

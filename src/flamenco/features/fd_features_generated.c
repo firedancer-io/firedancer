@@ -2358,6 +2358,13 @@ fd_feature_id_t const ids[] = {
     .implemented               = 1,
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, secp256r1_syscall_enabled)>>3,
+    .id                        = {"\x06\x91\xd6\xab\x6b\x69\x3c\x66\x25\xb4\x47\x84\xe3\xc4\x2a\x27\xbb\x03\xc1\xeb\xac\xd9\xe0\xe0\xdf\x9d\xc9\x89\x30\x49\xa6\xfb"},
+                                 /* SeRjtX7Abiq5hQYbzdCny266oveDseHZh9tnrs2cdVC */
+    .name                      = "secp256r1_syscall_enabled",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2675,6 +2682,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_298 0x351933dc20486107UL, .val = &ids[298]
 #define MAP_PERFECT_299 0x7b717607817b2451UL, .val = &ids[299]
 #define MAP_PERFECT_300 0x0aa7b29de47f96cbUL, .val = &ids[300]
+#define MAP_PERFECT_301 0x663c696babd69106UL, .val = &ids[301]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2986,4 +2994,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, block_revenue_sharing                
 FD_STATIC_ASSERT( offsetof( fd_features_t, vote_account_initialize_v2                              )>>3==298UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_cpi_nesting_limit_to_8                            )>>3==299UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_set_program_data_to_elf_length                )>>3==300UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, secp256r1_syscall_enabled                               )>>3==301UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
