@@ -14,7 +14,7 @@
    lists below. */
 /* topo.boot_identity and sign.identity_key_fd are derived startup state,
    not operator configuration. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24458368UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==25509048UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
