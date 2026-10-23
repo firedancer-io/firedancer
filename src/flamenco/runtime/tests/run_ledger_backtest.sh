@@ -15,7 +15,6 @@ INGEST_MODE="shredcap"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 EXECRP_TILE_COUNT="10"
@@ -79,10 +78,6 @@ while [[ $# -gt 0 ]]; do
         ;;
     -g|--genesis)
         GENESIS=1
-        shift
-        ;;
-    --debug)
-        DEBUG=( gdb -q -x contrib/debug.gdb --args )
         shift
         ;;
     --log)
@@ -274,10 +269,10 @@ rm -f "${ACCOUNTS_DB:-$DUMP/accounts.db}"
 
 set -x
 if [[ -n "$CI" ]]; then
-  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}" &> /dev/null
+  $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}" &> /dev/null
   { status=$?; set +x; } &> /dev/null
 else
-  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
+  $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
   { status=$?; set +x; }
 fi
 
