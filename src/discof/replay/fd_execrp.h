@@ -185,6 +185,12 @@ typedef struct fd_execrp_cert_verify_done_msg fd_execrp_cert_verify_done_msg_t;
 
 struct fd_execrp_lthash_done_msg {
   ulong cnt;
+
+  /* For monitoring only: the task's slot, and the tickcounts when the
+     exec tile started and finished it. */
+  ulong slot;
+  long  tick_start;
+  long  tick_end;
 };
 typedef struct fd_execrp_lthash_done_msg fd_execrp_lthash_done_msg_t;
 
