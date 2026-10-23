@@ -22,7 +22,6 @@ struct fd_genesis_options {
   ulong faucet_balance;     /* in lamports */
   ulong vote_account_stake; /* in lamports */
 
-  ulong hashes_per_tick; /* 0 means unset */
   ulong ticks_per_slot;
   ulong target_tick_duration_micros;
 
@@ -39,12 +38,6 @@ struct fd_genesis_options {
      fd_keyguard_bls_key_derive, else the validator cannot vote under
      Alpenglow. */
   uchar bls_pubkey[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
-
-  /* alpenglow creates a cluster that runs Alpenglow from slot 0.  Adds
-     the genesis certificate and epoch inflation accounts, like Agave
-     solana-genesis --alpenglow.  The caller must also enable the
-     alpenglow feature in features. */
-  int   alpenglow;
 
   /* features points to an externally owned feature map.
      Adds a feature account to the genesis blob for feature enabled at
