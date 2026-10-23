@@ -24,10 +24,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/wait.h>
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
 static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
+static fd_validator_location_t const no_loc  = {0};
 static fd_validator_location_t const * voter0_location = &LOC_FRA;
 
 #define TEST_SLOTS_PER_EPOCH (12UL)
@@ -431,8 +433,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
          account data. */
       uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
       fd_memset( bls, 0xBB, sizeof(bls) );
-      fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &v, &v, stake, commission, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &v, &v, stake, commission, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+      fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &v, &v, stake, commission, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &v, &v, stake, commission, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
       fd_vote_stakes_update_state( vote_stakes, fork_id, &v, 0UL, voter_vote_ts( i ), 1 );
     }
     add_delegated_stake_account     ( env, &s, &v, stake );
@@ -715,6 +717,111 @@ test_enforce_registration_v5_invalid_location( fd_wksp_t * wksp ) {
   voter0_is_v5    = 0;
 }
 
+static int
+loc_eq( fd_validator_location_t a,
+        fd_validator_location_t b ) {
+  return a.x==b.x && a.y==b.y && a.z==b.z;
+}
+
+static void
+test_location_captured( fd_wksp_t * wksp ) {
+  voter0_is_v5 = 1;
+  test_env_t env[1];
+  test_env_create( env, wksp );
+  advance_into_epoch( env, TEST_VAT_EPOCH-1UL );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( env->bank );
+  ulong              fork_id     = env->bank->vote_stakes_fork_id;
+  fd_pubkey_t v0 = vote_key( 0UL );
+  fd_pubkey_t v1 = vote_key( 1UL );
+  fd_vote_stakes_ele_t q[1];
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, fork_id, &v0, q ) && loc_eq( q->location, LOC_FRA ) );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, fork_id, &v1, q ) && loc_eq( q->location, no_loc  ) );
+  FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, fork_id, &v0, q ) && loc_eq( q->location, LOC_FRA ) );
+
+  fd_vote_stake_weight_t weights[ NUM_VOTERS ];
+  ulong cnt = fd_stake_weights_by_node( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, weights );
+  FD_TEST( cnt==NUM_VAT_ELIGIBLE );
+  ulong seen = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( fd_pubkey_eq( &weights[ i ].vote_key, &v0 ) ) { FD_TEST( loc_eq( weights[ i ].location, LOC_FRA ) ); seen++; }
+    else                                                FD_TEST( loc_eq( weights[ i ].location, no_loc  ) );
+  }
+  FD_TEST( seen==1UL );
+
+  test_env_destroy( env );
+  voter0_is_v5 = 0;
+}
+
+static void
+test_geo_leader_schedule_gate( fd_wksp_t * wksp ) {
+  test_env_t env[1];
+  test_env_create( env, wksp );
+  fd_bank_t * bank = env->bank;
+  ulong const spe  = TEST_SLOTS_PER_EPOCH;
+
+  bank->f.features.geo_aware_leader_schedule = FD_FEATURE_DISABLED;
+  FD_TEST( !fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 0UL   ) );
+  FD_TEST( !fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 100UL ) );
+
+  bank->f.features.geo_aware_leader_schedule = 0UL;
+  FD_TEST( !fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 0UL ) );
+  FD_TEST(  fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 1UL ) );
+
+  bank->f.features.geo_aware_leader_schedule = 3UL*spe+5UL;
+  FD_TEST( !fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 3UL ) );
+  FD_TEST(  fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 4UL ) );
+  FD_TEST(  fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 9UL ) );
+
+  bank->f.features.geo_aware_leader_schedule = 4UL*spe-1UL;
+  FD_TEST( !fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 3UL ) );
+  FD_TEST(  fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 4UL ) );
+
+  bank->f.features.geo_aware_leader_schedule = 3UL*spe;
+  FD_TEST( !fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 3UL ) );
+  FD_TEST(  fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, 4UL ) );
+
+  test_env_destroy( env );
+}
+
+static void
+test_geo_schedule_enforced_set( fd_wksp_t * wksp ) {
+  voter0_is_v5 = 1;
+  test_env_t env[1];
+  test_env_create( env, wksp );
+  enable_feature( env, offsetof( fd_features_t, enforce_validator_location_registration ), 0UL );
+  enable_feature_pending( env, offsetof( fd_features_t, geo_aware_leader_schedule ) );
+  advance_into_epoch( env, 2UL );
+
+  FD_TEST( env->bank->f.features.geo_aware_leader_schedule==TEST_SLOTS_PER_EPOCH );
+  FD_TEST( fd_epoch_leaders_use_geo_aware( &env->bank->f.features, &env->bank->f.epoch_schedule, 2UL ) );
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( env->bank, 2UL );
+  FD_TEST( leaders && leaders->pub_cnt==1UL );
+  fd_pubkey_t v0 = vote_key( 0UL );
+  for( ulong i=0UL; i<leaders->sched_cnt; i++ ) FD_TEST( fd_pubkey_eq( leaders->vote_addr+i, &v0 ) );
+
+  test_env_destroy( env );
+  voter0_is_v5 = 0;
+}
+
+static void
+test_geo_schedule_unlocated_leader_err( fd_wksp_t * wksp ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    fd_log_level_logfile_set( 6 );
+    fd_log_level_stderr_set( 6 );
+    test_env_t env[1];
+    test_env_create( env, wksp );
+    enable_feature_pending( env, offsetof( fd_features_t, geo_aware_leader_schedule ) );
+    advance_into_epoch( env, 2UL );
+    _exit( 0 );
+  }
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+}
+
 /* Whether the whale's last vote made it into the clock this epoch,
    inferred from the stake-weighted timestamp: 10s when the dominant
    future-voting whale is counted, 3s when it is not. */
@@ -828,7 +935,11 @@ main( int argc, char ** argv ) {
   test_enforce_registration_from_genesis( wksp );
   test_enforce_registration_activates_at_boundary( wksp );
   test_enforce_registration_v5_invalid_location( wksp );
+  test_location_captured( wksp );
   test_vat_invalidate_revalidate( wksp );
+  test_geo_leader_schedule_gate( wksp );
+  test_geo_schedule_enforced_set( wksp );
+  test_geo_schedule_unlocated_leader_err( wksp );
 
   fd_wksp_delete_anonymous( wksp );
   FD_LOG_NOTICE(( "pass" ));

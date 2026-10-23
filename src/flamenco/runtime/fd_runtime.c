@@ -81,7 +81,8 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
       slot0,
       slot_cnt,
       stake_weight_cnt,
-      epoch_weights ) );
+      epoch_weights,
+      fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, epoch ) ) );
   if( FD_UNLIKELY( !leaders ) ) {
     FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
@@ -122,7 +123,8 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
       slot0,
       slot_cnt,
       stake_weight_cnt,
-      epoch_weights ) );
+      epoch_weights,
+      fd_epoch_leaders_use_geo_aware( &bank->f.features, &bank->f.epoch_schedule, epoch ) ) );
   if( FD_UNLIKELY( !leaders ) ) {
     FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
@@ -1719,7 +1721,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
       fd_vote_stakes_ele_t ele[1];
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
       fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &ele->pubkey, &ele->node_account, ele->stake, ele->commission, ele->bls_key,
-                                      ele->block_revenue_commission_bps, ele->pending_delegator_rewards, &ele->inflation_collector, &ele->block_collector );
+                                      ele->block_revenue_commission_bps, ele->pending_delegator_rewards, &ele->inflation_collector, &ele->block_collector, &ele->location );
     }
     fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );

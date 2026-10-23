@@ -301,5 +301,6 @@
   {"name":"raise_cpi_nesting_limit_to_8","implemented":0,"pubkey":"6TkHkRmP7JZy1fdM6fg5uXn76wChQBWGokHBJzrLB3mj"},
   {"name":"loader_v3_set_program_data_to_elf_length","implemented":1,"pubkey":"EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy"},
   {"name":"validator_location_registration","implemented":1,"pubkey":"Va1idatorLocat1onRegistrat1on11111111111111","comment":"SIMD-0674, placeholder pubkey"},
-  {"name":"enforce_validator_location_registration","implemented":1,"pubkey":"EnforceVa1idatorLocat1onRegistrat1on1111111","comment":"placeholder pubkey"}
+  {"name":"enforce_validator_location_registration","implemented":1,"pubkey":"EnforceVa1idatorLocat1onRegistrat1on1111111","comment":"placeholder pubkey"},
+  {"name":"geo_aware_leader_schedule","implemented":1,"pubkey":"GeoAwareLeaderSchedu1e111111111111111111111","comment":"placeholder pubkey"}
 ]

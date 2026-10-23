@@ -166,6 +166,7 @@ test_v5_accessors( void ) {
     ushort                    bps;
     ulong                     pending;
     fd_vote_block_timestamp_t ts;
+    fd_validator_location_t   loc;
     uchar                     bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
     FD_TEST( fd_vote_account_is_valid_v5( data, sz ) );
     FD_TEST( !fd_vote_account_node_pubkey( data, sz, &pk ) && pk.uc[ 0 ]==0x11 );
@@ -180,6 +181,8 @@ test_v5_accessors( void ) {
     FD_TEST( !fd_vote_account_last_timestamp( data, sz, &ts ) && ts.slot==4242UL && ts.timestamp==1700000000L );
     FD_TEST(  fd_vote_account_has_bls_pubkey( data, sz ) );
     FD_TEST( !fd_vote_account_bls_pubkey( data, sz, bls ) && bls[ 0 ]==0x55 );
+    loc = fd_vote_account_location( data, sz );
+    FD_TEST( loc.x==LOC.x && loc.y==LOC.y && loc.z==LOC.z );
     ulong ec_cnt; fd_vote_epoch_credits_t const * ec = fd_vote_account_epoch_credits( data, sz, &ec_cnt );
     FD_TEST( ec && ec_cnt==2UL && ec[ 1 ].epoch==8UL && ec[ 1 ].credits==200UL );
     FD_TEST( fd_vsv_is_correct_size_and_initialized( data, sz ) );
@@ -201,10 +204,14 @@ test_v5_accessors( void ) {
       FD_TEST(  fd_vote_account_last_timestamp( data, bad_sz, &ts ) );
       FD_TEST( !fd_vote_account_has_bls_pubkey( data, bad_sz ) );
       FD_TEST( !fd_vote_account_epoch_credits( data, bad_sz, &ec_cnt ) );
+      loc = fd_vote_account_location( data, bad_sz );
+      FD_TEST( !loc.x && !loc.y && !loc.z );
     }
 
     FD_STORE( uint, data+304, 9U );
     FD_TEST( !fd_vote_account_is_valid_v5( data, sz ) );
+    loc = fd_vote_account_location( data, sz );
+    FD_TEST( !loc.x && !loc.y && !loc.z );
     FD_TEST( fd_vote_account_authorized_voter( data, sz, 10UL, &a ) );
     FD_STORE( uint, data+308, 6U );
     FD_TEST( !fd_vote_account_epoch_credits( data, sz, &ec_cnt ) );

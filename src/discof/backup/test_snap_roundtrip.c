@@ -34,6 +34,13 @@
 #define TEST_WKSP_ADDL_PART_CNT (64UL)
 
 static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
+static fd_validator_location_t const LOC_TYO = { -3955214, 3355452, 3699409 };
+
+static int
+loc_eq( fd_validator_location_t a,
+        fd_validator_location_t b ) {
+  return a.x==b.x && a.y==b.y && a.z==b.z;
+}
 
 /* The writer emits one slot delta per recent slot with a block, so the
    parser must accept at least that many. */
@@ -319,6 +326,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
   fork_id = bank->vote_stakes_fork_id;
   uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+  fd_validator_location_t const no_loc = {0};
 
   /* Non-default SIMD-0123 fields and SIMD-0232 collectors: distinct
      inflation and block collectors for vote0 in the t_1 set, a
@@ -334,14 +342,14 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
     int is1 = i==1UL;
     fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls,
                                     is0 ? 2500U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, is0 ? 777UL : 0UL,
-                                    is0 ? &infl0 : NULL, is0 ? &blk0 : NULL );
+                                    is0 ? &infl0 : NULL, is0 ? &blk0 : NULL, is0 ? &LOC_FRA : &no_loc );
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls,
                                     is1 ? 1234U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, is1 ? 55UL : 0UL,
-                                    NULL, is1 ? &blk1 : NULL );
+                                    NULL, is1 ? &blk1 : NULL, is1 ? &LOC_TYO : &no_loc );
     for( ulong n=3UL; n<=5UL; n++ ) {
       int t3_0 = is0 && n==3UL;
       fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, n, &votes[i], &identities[i], 1000000UL*n, (ushort)(100UL*n), no_bls,
-                                      t3_0 ? 4321U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, t3_0 ? 99UL : 0UL, NULL, NULL );
+                                      t3_0 ? 4321U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, t3_0 ? 99UL : 0UL, NULL, NULL, t3_0 ? &LOC_TYO : &no_loc );
     }
   }
 
@@ -370,9 +378,9 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   ulong const late_epoch = bank->f.epoch+1UL;
   put_vote_account( mini, &extra_vote, &identities[0], 1UL, voter_epochs, &extra_voter );
   put_vote_account( mini, &late_vote,  &late_node,     1UL, &late_epoch,  &late_voter  );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &extra_vote,   &identities[0], 3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &phantom_vote, &phantom_node,  3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &late_vote,    &late_node,     3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &extra_vote,   &identities[0], 3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &phantom_vote, &phantom_node,  3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &late_vote,    &late_node,     3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
 
   seed_epoch_credits( bank );
 
@@ -508,6 +516,9 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
 
   FD_STORE( ulong, buf+stake_delegations_len_off, 1UL );
   memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
+  for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+    for( ulong j=0UL; j<FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS; j++ ) manifest->epoch_stakes[ i ].vote_stakes[ j ].location = (fd_validator_location_t){ 1, 1, 1 };
+  }
   fd_ssmanifest_parser_init( parser, manifest );
 
   int result = fd_ssmanifest_parser_consume( parser, buf, total_written );
@@ -557,6 +568,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         FD_TEST( !memcmp( vs->commission_inflation, &infl0, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk0,  32UL ) );
         FD_TEST( vs->commission_block_bps==2500U && vs->pending_delegator_rewards==777UL );
+        FD_TEST( loc_eq( vs->location, LOC_FRA ) );
         seen_t1_vote0 = 1;
       } else {
         /* default collectors: inflation is the vote account, block is
@@ -565,6 +577,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         FD_TEST( !memcmp( vs->commission_block,     vs->identity, 32UL ) );
         FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
         FD_TEST( vs->pending_delegator_rewards==0UL );
+        FD_TEST( loc_eq( vs->location, no_loc ) );
         if( !memcmp( vs->vote, &vote1, 32UL ) ) seen_t1_vote1 = 1;
       }
     }
@@ -579,12 +592,14 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk1,    32UL ) );
         FD_TEST( vs->commission_block_bps==1234U && vs->pending_delegator_rewards==55UL );
+        FD_TEST( loc_eq( vs->location, LOC_TYO ) );
         seen_t2_vote1 = 1;
       } else {
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote,     32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     vs->identity, 32UL ) );
         FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
         FD_TEST( vs->pending_delegator_rewards==0UL );
+        FD_TEST( loc_eq( vs->location, no_loc ) );
         if( !memcmp( vs->vote, &vote0, 32UL ) ) seen_t2_vote0 = 1;
       }
     }
@@ -609,9 +624,11 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         FD_TEST( vs->stake==1000000UL*n && vs->commission==100UL*n );
         if( n==3UL && !memcmp( vs->vote, &vote0, 32UL ) ) {
           FD_TEST( vs->commission_block_bps==4321U && vs->pending_delegator_rewards==99UL );
+          FD_TEST( loc_eq( vs->location, LOC_TYO ) );
         } else {
           FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
           FD_TEST( vs->pending_delegator_rewards==0UL );
+          FD_TEST( loc_eq( vs->location, no_loc ) );
         }
 
         int found = 0;
@@ -812,6 +829,10 @@ test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
       fd_snapshot_manifest_vote_stakes_t want = a->epoch_stakes[ i ].vote_stakes[ j ];
       FD_TEST( vs.has_identity_bls==1 );
       vs.has_identity_bls = want.has_identity_bls;
+      fd_validator_location_t const la = want.location;
+      if( la.x || la.y || la.z ) FD_TEST( loc_eq( vs.location, la      ) );
+      else                       FD_TEST( loc_eq( vs.location, LOC_FRA ) );
+      vs.location = la;
       ulong skip = fd_ulong_sat_sub( want.epoch_credits_history_len, FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX );
       want.epoch_credits_history_len -= skip;
       memmove( want.epoch_credits, want.epoch_credits+skip, want.epoch_credits_history_len*sizeof(epoch_credits_t) );

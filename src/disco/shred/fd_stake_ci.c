@@ -30,7 +30,7 @@ fd_stake_ci_new( void *              mem,
     ei->start_slot        = 0UL;
     ei->slot_cnt          = 0UL;
 
-    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL, info->vote_stake_weight ) );
+    ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL, info->vote_stake_weight, 0 ) );
     ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( ei->_sdest,  info->shred_dest, 1UL, ei->lsched, identity_key, seed ) );
   }
   info->identity_key[ 0 ] = *identity_key;
@@ -66,6 +66,7 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
   info->scratch->slot_cnt          = msg->slot_cnt;
   info->scratch->staked_vote_cnt   = msg->staked_vote_cnt;
   info->scratch->staked_id_cnt     = msg->staked_id_cnt;
+  info->scratch->geo_aware_lsched  = 0;
 
   fd_memcpy( info->vote_stake_weight, fd_stake_weight_msg_stake_weights( msg ), msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
   fd_memcpy( info->stake_weight,      fd_stake_weight_msg_id_weights( msg ),    msg->staked_id_cnt*sizeof(fd_stake_weight_t) );
@@ -93,6 +94,7 @@ fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
   info->scratch->slot_cnt            = msg->slot_cnt;
   info->scratch->staked_vote_cnt     = msg->staked_vote_cnt;
   info->scratch->staked_id_cnt       = msg->staked_id_cnt;
+  info->scratch->geo_aware_lsched    = fd_epoch_leaders_use_geo_aware( &msg->features, &msg->epoch_schedule, msg->epoch );
 
   fd_memcpy( info->vote_stake_weight, fd_epoch_info_msg_stake_weights( msg ), msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
   fd_memcpy( info->stake_weight,      fd_epoch_info_msg_id_weights( msg ),    msg->staked_id_cnt*sizeof(fd_stake_weight_t) );
@@ -197,7 +199,7 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   new_ei->slot_cnt          = info->scratch->slot_cnt;
 
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
-                                                                info->scratch->staked_vote_cnt, info->vote_stake_weight ) );
+                                                                info->scratch->staked_vote_cnt, info->vote_stake_weight, info->scratch->geo_aware_lsched ) );
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
                                                                 new_ei->lsched, info->identity_key, info->seed ) );
   log_summary( "stake update", info );

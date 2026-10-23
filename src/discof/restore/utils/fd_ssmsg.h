@@ -3,6 +3,7 @@
 
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/fd_blockhashes.h"
+#include "../../../flamenco/runtime/program/vote/fd_validator_location.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
@@ -67,6 +68,9 @@ struct fd_snapshot_manifest_vote_stakes {
 
   /* The validator BLS pubkey (used after SIMD-0326: Alpenglow) */
   uchar identity_bls[ 48UL ];
+
+  /* The validator's declared location (SIMD-0674) */
+  fd_validator_location_t location;
 
   /* The total amount of active stake for the vote account */
   ulong stake;

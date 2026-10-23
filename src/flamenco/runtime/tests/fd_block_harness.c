@@ -82,10 +82,11 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vo
     }
 
     uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+    fd_validator_location_t const no_loc = {0};
     if( use_t_1 ) fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls,
-                                                  block_revenue_commission_bps, pending_delegator_rewards, inflation_collector, block_collector );
+                                                  block_revenue_commission_bps, pending_delegator_rewards, inflation_collector, block_collector, &no_loc );
     else          fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls,
-                                                  block_revenue_commission_bps, pending_delegator_rewards, inflation_collector, block_collector );
+                                                  block_revenue_commission_bps, pending_delegator_rewards, inflation_collector, block_collector, &no_loc );
   }
 }
 

@@ -820,7 +820,20 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   manifest->epoch_stakes[1].vote_stakes[0].commission = 10;
   manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
   fd_memset( manifest->epoch_stakes[1].vote_stakes[0].identity_bls, 0xB2, sizeof(manifest->epoch_stakes[1].vote_stakes[0].identity_bls) );
+  manifest->epoch_stakes[1].vote_stakes[0].location   = (fd_validator_location_t){ 4051542, 618526, 4870645 };
   manifest->epoch_stakes[1].total_stake               = 5000UL;
+
+  uchar pubkey_t2[32]; fd_memset( pubkey_t2, 0xC0, 32 );
+  uchar ident_t2[32];  fd_memset( ident_t2,  0xC1, 32 );
+  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].vote,     pubkey_t2, 32 );
+  fd_memcpy( manifest->epoch_stakes[0].vote_stakes[0].identity, ident_t2,  32 );
+  manifest->epoch_stakes[0].vote_stakes[0].stake      = 3000UL;
+  manifest->epoch_stakes[0].vote_stakes[0].commission = 10;
+  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
+  fd_memset( manifest->epoch_stakes[0].vote_stakes[0].identity_bls, 0xC2, sizeof(manifest->epoch_stakes[0].vote_stakes[0].identity_bls) );
+  manifest->epoch_stakes[0].vote_stakes[0].location   = (fd_validator_location_t){ -3955214, 3355452, 3699409 };
+  manifest->epoch_stakes[0].total_stake               = 3000UL;
 
   /* First apply: simulate initial full snapshot load. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
@@ -838,6 +851,9 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   fd_vote_stakes_ele_t q[1];
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, q ) );
   FD_TEST( q->stake==5000UL );
+  FD_TEST( q->location.x==4051542 && q->location.y==618526 && q->location.z==4870645 );
+  FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_t2, q ) );
+  FD_TEST( q->location.x==-3955214 && q->location.y==3355452 && q->location.z==3699409 );
 
   /* Manifest B: different vote stake (pubkey_Y). */
 
@@ -921,6 +937,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
   manifest->epoch_stakes[1].vote_stakes[0].commission_block_bps      = 4321U;
   manifest->epoch_stakes[1].vote_stakes[0].pending_delegator_rewards = 99UL;
+  manifest->epoch_stakes[1].vote_stakes[0].location                  = (fd_validator_location_t){ -4646180, 2553206, -3534375 };
   manifest->epoch_stakes[1].total_stake                     = 3000UL;
 
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
@@ -933,6 +950,7 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_z, q ) );
   FD_TEST( fd_pubkey_eq( &q->node_account, (fd_pubkey_t *)ident_z ) );
   FD_TEST( q->stake==3000UL && q->commission==17U );
+  FD_TEST( q->location.x==-4646180 && q->location.y==2553206 && q->location.z==-3534375 );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 2UL )==4000UL );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==3000UL );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 0UL )==0UL );

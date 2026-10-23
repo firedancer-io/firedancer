@@ -476,6 +476,7 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
     fd_memcpy( weights[ weights_cnt ].vote_key.uc, &ele->pubkey, sizeof(fd_pubkey_t) );
     fd_memcpy( weights[ weights_cnt ].id_key.uc, &ele->node_account, sizeof(fd_pubkey_t) );
     fd_memcpy( weights[ weights_cnt ].bls_key, ele->bls_key, sizeof(weights[ weights_cnt ].bls_key) );
+    weights[ weights_cnt ].location = ele->location;
     weights[ weights_cnt ].stake = ele->stake;
     weights_cnt++;
   }
@@ -682,8 +683,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     FD_TEST( !fd_vote_account_pending_delegator_rewards( acc.data, acc.data_len, &pending_delegator_rewards ) );
     FD_TEST( !fd_vote_account_collectors( acc.data, acc.data_len, &stake_accum->pubkey, &node_account_t_1, &inflation_collector, &block_collector ) );
 
+    fd_validator_location_t location = fd_vote_account_location( acc.data, acc.data_len );
     fd_vote_stakes_insert( vote_stakes, fork_id, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1, bls_key_t_1,
-                           block_revenue_commission_bps, pending_delegator_rewards, &inflation_collector, &block_collector );
+                           block_revenue_commission_bps, pending_delegator_rewards, &inflation_collector, &block_collector, &location );
     top_votes_eligible++;
     fd_accdb_unread_one( accdb, &acc );
   }

@@ -419,11 +419,12 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
     /* Populate bank structures */
 
     uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0}; /* zeroed means no key is registered */
+    fd_validator_location_t const no_loc = {0};
     fd_pubkey_t const * block_collector = params->mock_block_collector_self ? &vote_key : params->mock_block_collector;
     fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls,
-                                    params->mock_block_revenue_commission_bps, 0UL, NULL, block_collector );
+                                    params->mock_block_revenue_commission_bps, 0UL, NULL, block_collector, &no_loc );
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls,
-                                    params->mock_block_revenue_commission_bps, 0UL, NULL, block_collector );
+                                    params->mock_block_revenue_commission_bps, 0UL, NULL, block_collector, &no_loc );
     fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_key, 0UL, 0L, 1 );
 
     fd_epoch_credits_t * epoch_credits = &epoch_credits_view->credits[ i ];
@@ -458,7 +459,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
   void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
-      leaders_mem, epoch, slot0, slot_cnt, N, stakes ) ) );
+      leaders_mem, epoch, slot0, slot_cnt, N, stakes, 0 ) ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   free( stakes );

@@ -796,6 +796,10 @@ fd_vote_account_v5( uchar * data ) {
   return fd_type_pun( data+sizeof(uint) );
 }
 
+fd_validator_location_t
+fd_vote_account_location( uchar const * data,
+                          ulong         data_sz );
+
 static inline void
 fd_vote_state_v5_commission_get( fd_vote_state_v5_t const *      self,
                                  uint                            kind,
