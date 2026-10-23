@@ -60,6 +60,13 @@
   *(sz) -= 4UL;                        \
 } while( 0 )
 
+#define READ_I32( dst, data, sz ) do { \
+  CHECK( 4UL<=(*(sz)) );               \
+  (dst) = FD_LOAD( int, *(data) );     \
+  *(data) += 4UL;                      \
+  *(sz) -= 4UL;                        \
+} while( 0 )
+
 #define READ_U64( dst, data, sz ) do {  \
   CHECK( 8UL<=(*(sz)) );                \
   (dst) = FD_LOAD( ulong, *(data) );    \
@@ -1497,6 +1504,12 @@ fd_vote_instruction_deserialize_inner( fd_vote_instruction_t * instruction,
 
     case fd_vote_instruction_enum_deposit_delegator_rewards:
       READ_U64( instruction->deposit_delegator_rewards.deposit, p, sz );
+      return 0;
+
+    case fd_vote_instruction_enum_update_location:
+      READ_I32( instruction->update_location.x, p, sz );
+      READ_I32( instruction->update_location.y, p, sz );
+      READ_I32( instruction->update_location.z, p, sz );
       return 0;
 
     default:
