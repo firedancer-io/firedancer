@@ -17,10 +17,10 @@ static void
 test_sched_footprint( void ) {
   /* Retain the savings from compact shred lengths and 4992-byte
      transactions under the default scheduler sizing. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1692836096UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1692837120UL );
   /* Only the shred length array scales with the shred limit. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1692836096UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1692836096UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1692837120UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1692837120UL );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
@@ -170,6 +170,48 @@ ingest_ag_component( fd_sched_t * sched,
 }
 
 static void
+run_interleaved_fec_tasks( fd_sched_t * sched, uint const * signature_tag, ulong * txn_exec_cnt ) {
+  for( ulong step=0UL; step<100UL; step++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+
+    fd_sched_task_t task[ 1 ];
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_BLOCK_END:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
+        break;
+      case FD_SCHED_TT_TXN_EXEC: {
+        fd_txn_p_t * txn = fd_sched_get_txn( sched, task->txn_exec->txn_idx );
+        FD_TEST( task->txn_exec->bank_idx==2UL || task->txn_exec->bank_idx==3UL );
+        FD_TEST( FD_LOAD( uint, txn->payload+1UL )==signature_tag[ task->txn_exec->bank_idx-2UL ] );
+        FD_TEST( txn->start_shred_idx==0U );
+        FD_TEST( txn->end_shred_idx==fd_ushort_if( task->txn_exec->bank_idx==2UL, 3U, 2U ) );
+        (*txn_exec_cnt)++;
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
+        break;
+      }
+      case FD_SCHED_TT_TXN_SIGVERIFY:
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
+        break;
+      case FD_SCHED_TT_POH_HASH: {
+        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
+        msg->cnt = task->poh_hash->cnt;
+        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
+          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
+        }
+        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
+        break;
+      }
+      default:
+        FD_LOG_ERR(( "unexpected task type %lu in interleaved FEC test", task->task_type ));
+    }
+  }
+}
+
+static void
 run_interleaved_fec_residual_case( void ) {
   ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem = aligned_alloc( fd_sched_align(), footprint );
@@ -241,6 +283,13 @@ run_interleaved_fec_residual_case( void ) {
     FD_TEST( fd_sched_fec_ingest( sched, fec ) );
   }
 
+  /* Only the first half of each txn has arrived, so both blocks wait
+     on the network after BLOCK_START. */
+  ulong txn_exec_cnt = 0UL;
+  run_interleaved_fec_tasks( sched, signature_tag, &txn_exec_cnt );
+  long wait_until = fd_log_wallclock()+1000000L;
+  while( fd_log_wallclock()<wait_until ) FD_SPIN_PAUSE();
+
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
@@ -275,49 +324,30 @@ run_interleaved_fec_residual_case( void ) {
     FD_TEST( ingest_ag_component( sched, 2UL+i, AG_COMP_TICK,   poh+i, 0, 1 ) );
   }
 
-  ulong txn_exec_cnt = 0UL;
-  for( ulong step=0UL; step<100UL; step++ ) {
-    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
-
-    fd_sched_task_t task[ 1 ];
-    if( !fd_sched_task_next_ready( sched, task ) ) break;
-    switch( task->task_type ) {
-      case FD_SCHED_TT_BLOCK_START:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
-        break;
-      case FD_SCHED_TT_BLOCK_END:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
-        break;
-      case FD_SCHED_TT_TXN_EXEC: {
-        fd_txn_p_t * txn = fd_sched_get_txn( sched, task->txn_exec->txn_idx );
-        FD_TEST( task->txn_exec->bank_idx==2UL || task->txn_exec->bank_idx==3UL );
-        FD_TEST( FD_LOAD( uint, txn->payload+1UL )==signature_tag[ task->txn_exec->bank_idx-2UL ] );
-        FD_TEST( txn->start_shred_idx==0U );
-        FD_TEST( txn->end_shred_idx==fd_ushort_if( task->txn_exec->bank_idx==2UL, 3U, 2U ) );
-        txn_exec_cnt++;
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_EXEC, task->txn_exec->txn_idx, task->txn_exec->exec_idx, NULL ) );
-        break;
-      }
-      case FD_SCHED_TT_TXN_SIGVERIFY:
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_TXN_SIGVERIFY, task->txn_sigverify->txn_idx, task->txn_sigverify->exec_idx, NULL ) );
-        break;
-      case FD_SCHED_TT_POH_HASH: {
-        fd_execrp_poh_hash_done_msg_t msg[ 1 ];
-        msg->cnt = task->poh_hash->cnt;
-        for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
-          repeat_hash( msg->hash+i, task->poh_hash->hash+i, task->poh_hash->hashcnt );
-        }
-        FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, task->poh_hash->exec_idx, msg ) );
-        break;
-      }
-      default:
-        FD_LOG_ERR(( "unexpected task type %lu in interleaved FEC test", task->task_type ));
-    }
-  }
+  run_interleaved_fec_tasks( sched, signature_tag, &txn_exec_cnt );
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
 
   FD_TEST( txn_exec_cnt==2UL );
   FD_TEST( fd_sched_is_drained( sched ) );
+
+  /* Both blocks wait on the network, but only one block is tracked at
+     a time: block 2's interval closes when block 3 starts, and block 3
+     covers the ~1ms wait.  Intervals are emitted in order and must not
+     overlap, and the network wait is counted once. */
+  fd_sched_slot_state_t states[ FD_SCHED_SLOT_STATE_MAX ];
+  ulong state_cnt = fd_sched_slot_states_drain( sched, states );
+  long  network_ticks = 0L;
+  long  min_wait      = (long)( 500000.0*fd_tempo_tick_per_ns( NULL ) );
+  FD_TEST( state_cnt );
+  for( ulong i=0UL; i<state_cnt; i++ ) {
+    FD_TEST( states[ i ].slot==TEST_ROOT_SLOT+1UL );
+    FD_TEST( states[ i ].end_tick>=states[ i ].start_tick );
+    if( i ) FD_TEST( states[ i ].start_tick>=states[ i-1UL ].end_tick );
+    if( states[ i ].state==FD_SCHED_SLOT_STATE_BLOCKED_NETWORK ) network_ticks += states[ i ].end_tick-states[ i ].start_tick;
+  }
+  FD_TEST( network_ticks>=min_wait );
+  FD_TEST( network_ticks<=states[ state_cnt-1UL ].end_tick-states[ 0 ].start_tick );
+  FD_TEST( !fd_sched_slot_states_drain( sched, states ) );
 
   fd_sched_delete( fd_sched_leave( sched ) );
   free( mem );
