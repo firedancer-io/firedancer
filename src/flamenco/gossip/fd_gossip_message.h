@@ -62,6 +62,17 @@
    below this threshold are treated as unstaked.  This is 100 SOL. */
 #define FD_GOSSIP_STAKED_THRESHOLD (100UL*1000000000UL)
 
+/* fd_gossip_value_tower_only returns 1 if values with the given tag
+   are dead under Alpenglow.  These are still stored, so their hashes
+   go in our pull bloom and peers stop sending them, but are never
+   relayed or served in pull responses. See Agave's
+   is_full_alpenglow_epoch filter. */
+
+FD_FN_CONST static inline int
+fd_gossip_value_tower_only( uint tag ) {
+  return tag==FD_GOSSIP_VALUE_VOTE || tag==FD_GOSSIP_VALUE_EPOCH_SLOTS || tag==FD_GOSSIP_VALUE_DUPLICATE_SHRED;
+}
+
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)        + sizeof((fd_gossip_update_message_t *)0)->contact_info)
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof((fd_gossip_update_message_t *)0)->contact_info_remove)
 #define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (offsetof(fd_gossip_update_message_t, duplicate_shred)     + sizeof((fd_gossip_update_message_t *)0)->duplicate_shred)

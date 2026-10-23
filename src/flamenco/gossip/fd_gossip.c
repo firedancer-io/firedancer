@@ -691,6 +691,7 @@ pull_scan_range( fd_gossip_t *         gossip,
       fd_crds_entry_t const * candidate = fd_crds_entry_at( gossip->crds, fd_gossip_hset_iter_owner( it, hset, lane ) );
 
       if( FD_UNLIKELY( fd_crds_entry_wallclock( candidate )>adjusted_wallclock_ms ) ) continue;
+      if( FD_UNLIKELY( fd_gossip_value_tower_only( fd_crds_entry_tag( candidate ) ) ) ) continue;
 
       uchar const * crds_val;
       ulong         crds_size;

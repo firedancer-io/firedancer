@@ -986,7 +986,8 @@ fd_crds_insert( fd_crds_t *               crds,
     return 0L;
   }
   ulong now_ms = (ulong)FD_NANOSEC_TO_MILLI( now );
-  if( FD_UNLIKELY( !opt_relay || value->wallclock+15000UL<now_ms || value->wallclock>now_ms+15000UL ) ) return 0L;
+  if( FD_UNLIKELY( !opt_relay || fd_gossip_value_tower_only( value->tag ) ) ) return 0L;
+  if( FD_UNLIKELY( value->wallclock+15000UL<now_ms || value->wallclock>now_ms+15000UL ) ) return 0L;
   if( FD_LIKELY( now-incumbent->relay.nanos>=FD_CRDS_RELAY_COALESCE_NANOS ) ) {
     incumbent->relay.nanos = now;
     *opt_relay = 1;
@@ -1009,6 +1010,11 @@ fd_crds_entry_value( fd_crds_entry_t const * entry,
 ulong
 fd_crds_entry_wallclock( fd_crds_entry_t const * entry ) {
   return entry->wallclock;
+}
+
+uint
+fd_crds_entry_tag( fd_crds_entry_t const * entry ) {
+  return entry->key.tag;
 }
 
 uchar const *

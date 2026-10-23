@@ -281,19 +281,24 @@ relay_send( void * ctx, fd_stem_context_t * stem, uchar const * data, ulong sz, 
 }
 
 static void
-relay_insert( fd_crds_t * crds, fd_rng_t * rng, fd_stem_context_t * stem, ulong origin, ulong stake, ulong wallclock, long now, int * relay ) {
+relay_insert_tag( fd_crds_t * crds, fd_rng_t * rng, fd_stem_context_t * stem, uint tag, ulong origin, ulong stake, ulong wallclock, long now, int * relay ) {
   fd_gossip_value_t value[1];
   memset( value, 0, sizeof(value) );
-  value->tag = FD_GOSSIP_VALUE_EPOCH_SLOTS;
+  value->tag = tag;
   FD_STORE( ulong, value->origin, origin );
   value->wallclock = wallclock;
   for( ulong i=0UL; i<64UL; i++ ) value->signature[ i ] = fd_rng_uchar( rng );
   uchar bytes[ 128 ];
   memcpy( bytes, value->signature, 64UL );
-  FD_STORE( uint,  bytes+64UL, FD_GOSSIP_VALUE_EPOCH_SLOTS );
+  FD_STORE( uint,  bytes+64UL, tag );
   FD_STORE( ulong, bytes+68UL, wallclock ); /* stands in for the value body */
   for( ulong i=76UL; i<128UL; i++ ) bytes[ i ] = fd_rng_uchar( rng );
   FD_TEST( !fd_crds_insert( crds, value, bytes, 128UL, stake, 1, 0, 1, now, stem, relay ) );
+}
+
+static void
+relay_insert( fd_crds_t * crds, fd_rng_t * rng, fd_stem_context_t * stem, ulong origin, ulong stake, ulong wallclock, long now, int * relay ) {
+  relay_insert_tag( crds, rng, stem, FD_GOSSIP_VALUE_LOWEST_SLOT, origin, stake, wallclock, now, relay );
 }
 
 static void
@@ -345,7 +350,7 @@ test_relay_coalesce( fd_rng_t * rng ) {
   fd_crds_advance( crds, now+100L*ms, stem, NULL );
   fd_active_set_advance( as, stem, now+102L*ms, NULL );
   FD_TEST( relay_sent_cnt==1UL );
-  FD_TEST( relay_sent_tag==FD_GOSSIP_VALUE_EPOCH_SLOTS && relay_sent_wallclock==now_ms+3UL );
+  FD_TEST( relay_sent_tag==FD_GOSSIP_VALUE_LOWEST_SLOT && relay_sent_wallclock==now_ms+3UL );
   fd_crds_advance( crds, now+300L*ms, stem, NULL );
   fd_active_set_advance( as, stem, now+302L*ms, NULL );
   FD_TEST( relay_sent_cnt==1UL );
@@ -374,6 +379,20 @@ test_relay_coalesce( fd_rng_t * rng ) {
   fd_active_set_advance( as, stem, u+102L*ms, NULL );
   FD_TEST( !relay_sent_cnt );
   relay_insert( crds, rng, stem, 4UL, FD_GOSSIP_STAKED_THRESHOLD, u_ms+110UL,       u+110L*ms, &relay ); FD_TEST( relay );
+
+  /* Tower-only values are stored but never relayed, fresh or not */
+  long  v    = u+1000L*ms;
+  ulong v_ms = (ulong)FD_NANOSEC_TO_MILLI( v );
+  static uint const tower_tags[ 3 ] = { FD_GOSSIP_VALUE_VOTE, FD_GOSSIP_VALUE_EPOCH_SLOTS, FD_GOSSIP_VALUE_DUPLICATE_SHRED };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ulong cnt0 = fd_crds_len( crds );
+    relay_insert_tag( crds, rng, stem, tower_tags[ i ], 5UL+i, FD_GOSSIP_STAKED_THRESHOLD, v_ms, v, &relay ); FD_TEST( !relay );
+    FD_TEST( fd_crds_len( crds )==cnt0+1UL );
+  }
+  relay_sent_cnt = 0UL;
+  fd_crds_advance( crds, v+200L*ms, stem, NULL );
+  fd_active_set_advance( as, stem, v+202L*ms, NULL );
+  FD_TEST( !relay_sent_cnt );
 
   free( as_mem );
   free( wsample_mem );

@@ -124,7 +124,8 @@ fd_crds_len( fd_crds_t const * crds );
    arriving within 100 ms of its last relay are held, and
    fd_crds_advance pushes the latest of them once that passes, so peers
    see at most one version of a key per 100 ms.  Values outside the
-   +/-15 s wallclock window are never relayed. */
+   +/-15 s wallclock window and tower-only values
+   (fd_gossip_value_tower_only) are never relayed. */
 
 long
 fd_crds_insert( fd_crds_t *               crds,
@@ -150,6 +151,11 @@ fd_crds_entry_value( fd_crds_entry_t const * entry,
 
 ulong
 fd_crds_entry_wallclock( fd_crds_entry_t const * entry );
+
+/* fd_crds_entry_tag returns the entry's FD_GOSSIP_VALUE_* tag. */
+
+uint
+fd_crds_entry_tag( fd_crds_entry_t const * entry );
 
 /* fd_crds_entry_hash returns a pointer to the 32b sha256 hash of the
    entry's value hash. This is used for constructing a bloom filter. */
