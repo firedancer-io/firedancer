@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import NoReturn, TextIO, TypeGuard, Union, Tuple
+from typing import TYPE_CHECKING, NoReturn, TextIO, Union, Tuple
+
+if TYPE_CHECKING:
+    from typing import TypeGuard
 
 # Arguments are passed to Linux syscalls through 64-bit registers. When
 # that syscall only uses the bottom 32-bits, like for an int, Linux ignores
