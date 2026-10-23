@@ -611,11 +611,9 @@ fd_rewards_inflation_collector( fd_bank_t *         bank,
 
    See https://github.com/anza-xyz/agave/blob/ef22c39d51b90c1f4cfccfe1f9fde94471c6242a/runtime/src/alpenglow_epoch_type.rs#L154
 
-   TODO: the migration epoch itself is a mixed Tower+Alpenglow epoch
-   (Agave AlpenglowEpochType::MigrationEpoch) whose stake rewards must
-   prorate tower and alpenglow points over num_tower_slots/num_ag_slots
-   (Agave calculate_migration_points); it is currently treated as fully
-   alpenglow. */
+   Note that the migration epoch itself is a mixed Tower+Alpenglow
+   epoch. We do not support correctly paying out rewards for this
+   epoch. */
 
 static int
 rewarded_epoch_is_alpenglow( fd_bank_t *  bank,
