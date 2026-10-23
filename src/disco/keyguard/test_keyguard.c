@@ -1,7 +1,7 @@
 #include "fd_keyguard.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/gossip/fd_gossip_value.h"
-#include "../../discof/repair/fd_repair.h"
+#include "../../disco/repair/fd_repair_serde.h"
 
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
@@ -265,9 +265,9 @@ test_tower_match( void ) {
   FD_STORE( double, body+40UL,  2.0/3.0 ); /* threshold_size */
   FD_STORE( ulong,  body+113UL, 1UL     ); /* votes_cnt */
 
-  uint  const hdr [ 3 ] = { 0x01000001U /* legacy txn, 1 signer, 1 account */, FD_GOSSIP_VALUE_VOTE,       FD_REPAIR_KIND_SHRED       };
-  ulong const type[ 3 ] = { FD_KEYGUARD_PAYLOAD_TXN,                           FD_KEYGUARD_PAYLOAD_GOSSIP, FD_KEYGUARD_PAYLOAD_REPAIR };
-  ulong const max [ 3 ] = { FD_TXN_MTU_V0,                                     FD_GOSSIP_MTU,              FD_REPAIR_MAX_PREIMAGE_SZ  };
+  uint  const hdr [ 3 ] = { 0x01000001U /* legacy txn, 1 signer, 1 account */, FD_GOSSIP_VALUE_VOTE,       FD_REPAIR_SERDE_TAG_WINDOW_INDEX };
+  ulong const type[ 3 ] = { FD_KEYGUARD_PAYLOAD_TXN,                           FD_KEYGUARD_PAYLOAD_GOSSIP, FD_KEYGUARD_PAYLOAD_REPAIR       };
+  ulong const max [ 3 ] = { FD_TXN_MTU_V0,                                     FD_GOSSIP_MTU,              FD_REPAIR_SIG_SER_MAX            };
   for( ulong i=0UL; i<3UL; i++ ) {
     FD_STORE( uint, body, hdr[ i ] );
     FD_TEST(    fd_keyguard_payload_match( body, min_sz,       FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );

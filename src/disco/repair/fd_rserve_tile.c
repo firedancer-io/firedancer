@@ -5,9 +5,8 @@
 #include <fcntl.h>
 
 #include "fd_rserve.h"
-#include "fd_repair.h"
-#include "fd_blockdb.h"
-#include "../rotor/fd_rotor_tile.h"
+#include "fd_repair_tile.h"
+#include "fd_repair_serde.h"
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyguard.h"
@@ -41,25 +40,25 @@
 #define FD_RSERVE_SIGNED_REPAIR_WINDOW (60L*10L*1000L)
 
 /* static map from request type to response metric array index */
-static uint response_metric_index[AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID + 1] = {
-  [FD_REPAIR_KIND_PING]               = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PING_IDX,
-  [FD_REPAIR_KIND_SHRED]              = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_IDX,
-  [FD_REPAIR_KIND_HIGHEST_SHRED]      = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_HIGHEST_WINDOW_INDEX_IDX,
-  [FD_REPAIR_KIND_ORPHAN]             = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_ORPHAN_IDX,
-  [AG_REPAIR_KIND_PARENT_FEC_COUNT]   = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PARENT_FEC_SET_COUNT_IDX,
-  [AG_REPAIR_KIND_FEC_ROOT]           = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_FEC_SET_ROOT_IDX,
-  [AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID] = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX,
+static uint response_metric_index[FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID + 1] = {
+  [FD_REPAIR_SERDE_TAG_PING]                      = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PING_IDX,
+  [FD_REPAIR_SERDE_TAG_WINDOW_INDEX]              = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_IDX,
+  [FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX]      = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_HIGHEST_WINDOW_INDEX_IDX,
+  [FD_REPAIR_SERDE_TAG_ORPHAN]                    = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_ORPHAN_IDX,
+  [FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT]  = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PARENT_FEC_SET_COUNT_IDX,
+  [FD_REPAIR_SERDE_TAG_FEC_SET_ROOT]              = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_FEC_SET_ROOT_IDX,
+  [FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID] = FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX,
 };
 
 /* static map from request type to received request metric array index */
-static uint request_metric_index[AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID + 1] = {
-  [FD_REPAIR_KIND_PONG]               = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PONG_IDX,
-  [FD_REPAIR_KIND_SHRED]              = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_IDX,
-  [FD_REPAIR_KIND_HIGHEST_SHRED]      = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_HIGHEST_WINDOW_INDEX_IDX,
-  [FD_REPAIR_KIND_ORPHAN]             = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_ORPHAN_IDX,
-  [AG_REPAIR_KIND_PARENT_FEC_COUNT]   = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX,
-  [AG_REPAIR_KIND_FEC_ROOT]           = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX,
-  [AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID] = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX,
+static uint request_metric_index[FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID + 1] = {
+  [FD_REPAIR_SERDE_TAG_PONG]                      = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PONG_IDX,
+  [FD_REPAIR_SERDE_TAG_WINDOW_INDEX]              = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_IDX,
+  [FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX]      = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_HIGHEST_WINDOW_INDEX_IDX,
+  [FD_REPAIR_SERDE_TAG_ORPHAN]                    = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_ORPHAN_IDX,
+  [FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT]  = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX,
+  [FD_REPAIR_SERDE_TAG_FEC_SET_ROOT]              = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX,
+  [FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID] = FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX,
 };
 
 
@@ -103,8 +102,8 @@ typedef struct ctx {
   fd_ip4_udp_hdrs_t serve_hdr[1];
   ushort            net_id;
 
-  uchar            net_buf[ FD_NET_MTU ];
-  fd_rotor_block_t rotor_buf[1];
+  uchar             net_buf[ FD_NET_MTU ];
+  fd_repair_block_t rotor_buf[1];
 
   struct {
     ulong received_request_count[FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT];
@@ -195,17 +194,18 @@ handle_pong( ctx_t              * ctx,
              ulong                payload_sz,
              uint                 saddr,
              ushort               sport ) {
-  if( FD_UNLIKELY( payload_sz!=sizeof(uint)+sizeof(fd_repair_pong_t) ) ) return;
-  fd_repair_msg_t const * msg = (fd_repair_msg_t const *)fd_type_pun_const( payload );
-  fd_repair_pong_t const * request = &msg->pong;
+  fd_repair_pong_t pong;
+  fd_ed25519_sig_t signature;
+  fd_pubkey_t      from;
+  if( FD_UNLIKELY( fd_repair_pong_de( payload, payload_sz, &pong, signature, &from )!=payload_sz ) ) return;
 
-  if( FD_UNLIKELY( fd_pubkey_eq( &ctx->identity_public_key, &request->from ) ) ) {
+  if( FD_UNLIKELY( fd_pubkey_eq( &ctx->identity_public_key, &from ) ) ) {
     /* We've received our own repair request, ignore. */
     ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_FROM_SELF_IDX ]++;
     return;
   }
 
-  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( request->hash.uc, 32UL, request->sig, request->from.uc, ctx->sha512 ) ) ) {
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( pong.hash.uc, 32UL, signature, from.uc, ctx->sha512 ) ) ) {
     /* Invalid signature, ignore. */
     ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]++;
     return;
@@ -214,7 +214,7 @@ handle_pong( ctx_t              * ctx,
   /* Verify that the pong hash corresponds to the token we would have issued
      to this (pubkey, address) under either the current or previous rotating
      secret. */
-  if( FD_UNLIKELY( !fd_rserve_pong_token_verify( ctx->rserve, request->hash.uc, &request->from, saddr, sport ) ) ) {
+  if( FD_UNLIKELY( !fd_rserve_pong_token_verify( ctx->rserve, pong.hash.uc, &from, saddr, sport ) ) ) {
     ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_PONG_TOKEN_INVALID_IDX ]++;
     return;
   }
@@ -222,7 +222,7 @@ handle_pong( ctx_t              * ctx,
   fd_rserve_t * rserve = ctx->rserve;
   ping_cache_key_t key[1];
   memset( key, 0, sizeof(ping_cache_key_t) );
-  key->pubkey = request->from;
+  key->pubkey = from;
   key->ip4    = saddr;
   key->port   = sport;
 
@@ -263,9 +263,8 @@ handle_net_request( ctx_t             * ctx,
     return;
   }
   uint tag = FD_LOAD( uint, payload );
-  ulong msg_sz = payload_sz-4UL;
 
-  if( FD_UNLIKELY( tag==FD_REPAIR_KIND_PONG ) ) {
+  if( FD_UNLIKELY( tag==FD_REPAIR_SERDE_TAG_PONG ) ) {
     ctx->metrics->received_request_count[ request_metric_index[tag] ]++;
     ctx->metrics->received_request_bytes += payload_sz;
     handle_pong( ctx, payload, payload_sz, ip4->saddr, udp->net_sport );
@@ -273,28 +272,42 @@ handle_net_request( ctx_t             * ctx,
   }
   /* Block id requests need the blockdb, which only exists when
      alpenglow is enabled. */
-  int is_bid = tag==AG_REPAIR_KIND_PARENT_FEC_COUNT || tag==AG_REPAIR_KIND_FEC_ROOT || tag==AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID;
-  if( FD_UNLIKELY( tag!=FD_REPAIR_KIND_SHRED &&
-                   tag!=FD_REPAIR_KIND_HIGHEST_SHRED &&
-                   tag!=FD_REPAIR_KIND_ORPHAN &&
+  int is_bid = tag==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT || tag==FD_REPAIR_SERDE_TAG_FEC_SET_ROOT || tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID;
+  if( FD_UNLIKELY( tag!=FD_REPAIR_SERDE_TAG_WINDOW_INDEX &&
+                   tag!=FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX &&
+                   tag!=FD_REPAIR_SERDE_TAG_ORPHAN &&
                    !( is_bid && ctx->blockdb ) ) ) {
-    if(      tag==FD_REPAIR_KIND_PING )            ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNSUPPORTED_PING_IDX ]++;
-    else if( tag==FD_REPAIR_KIND_ANCESTOR_HASHES ) ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNSUPPORTED_ANCESTOR_HASHES_IDX ]++;
-    else                                           ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNKNOWN_TAG_IDX ]++;
+    if(      tag==FD_REPAIR_SERDE_TAG_PING            ) ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNSUPPORTED_PING_IDX ]++;
+    else if( tag==FD_REPAIR_SERDE_TAG_ANCESTOR_HASHES ) ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNSUPPORTED_ANCESTOR_HASHES_IDX ]++;
+    else                                                ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNKNOWN_TAG_IDX ]++;
     return;
   }
 
-  /* Validate exact message size for each request type.  We must check
-     this before constructing the signable payload to avoid OOB reads. */
-  ulong expected_sz;
+  /* The request must be exactly its kind's size, checked before
+     constructing the signable payload to avoid OOB reads. */
+  fd_ed25519_sig_t signature;
+  fd_pubkey_t      sender;
+  fd_pubkey_t      recipient;
+  ulong            timestamp;
+  uint             nonce;
+  union {
+    fd_repair_shred_t                shred;
+    fd_repair_highest_shred_t        highest_shred;
+    fd_repair_orphan_t               orphan;
+    fd_repair_parent_fec_set_count_t parent_fec_set_count;
+    fd_repair_fec_set_root_t         fec_set_root;
+    fd_repair_shred_for_block_id_t   shred_for_block_id;
+  } req;
+  ulong req_sz = 0UL;
   switch( tag ) {
-    case FD_REPAIR_KIND_ORPHAN:             expected_sz = sizeof(fd_repair_orphan_req_t);           break;
-    case AG_REPAIR_KIND_PARENT_FEC_COUNT:   expected_sz = sizeof(ag_repair_parent_fec_count_req_t); break;
-    case AG_REPAIR_KIND_FEC_ROOT:           expected_sz = sizeof(ag_repair_fec_root_req_t);         break;
-    case AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID: expected_sz = sizeof(ag_repair_shred_block_id_req_t);   break;
-    default:                                expected_sz = sizeof(fd_repair_shred_req_t);            break;
+    case FD_REPAIR_SERDE_TAG_WINDOW_INDEX:              req_sz = fd_repair_req_window_index_de             ( payload, payload_sz, &req.shred,                signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX:      req_sz = fd_repair_req_highest_window_index_de     ( payload, payload_sz, &req.highest_shred,        signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_ORPHAN:                    req_sz = fd_repair_req_orphan_de                   ( payload, payload_sz, &req.orphan,               signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT:  req_sz = fd_repair_req_parent_and_fec_set_count_de ( payload, payload_sz, &req.parent_fec_set_count, signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_FEC_SET_ROOT:              req_sz = fd_repair_req_fec_set_root_de             ( payload, payload_sz, &req.fec_set_root,         signature, &sender, &recipient, &timestamp, &nonce ); break;
+    case FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID: req_sz = fd_repair_req_window_index_for_block_id_de( payload, payload_sz, &req.shred_for_block_id,   signature, &sender, &recipient, &timestamp, &nonce ); break;
   }
-  if( FD_UNLIKELY( msg_sz!=expected_sz ) ) {
+  if( FD_UNLIKELY( req_sz!=payload_sz ) ) {
     ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_WRONG_SIZE_IDX ]++;
     return;
   }
@@ -302,20 +315,17 @@ handle_net_request( ctx_t             * ctx,
   ctx->metrics->received_request_count[ request_metric_index[tag] ]++;
   ctx->metrics->received_request_bytes += payload_sz;
 
-  fd_repair_req_header_t header[1];
-  memcpy( header, payload+4UL, sizeof(fd_repair_req_header_t) );
-
-  if( FD_UNLIKELY( !fd_pubkey_eq( &ctx->identity_public_key, &header->to ) ) ) {
+  if( FD_UNLIKELY( !fd_pubkey_eq( &ctx->identity_public_key, &recipient ) ) ) {
     ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_WRONG_RECIPIENT_IDX ]++;
     return;
   }
-  if( FD_UNLIKELY( fd_pubkey_eq( &ctx->identity_public_key, &header->from ) ) ) {
+  if( FD_UNLIKELY( fd_pubkey_eq( &ctx->identity_public_key, &sender ) ) ) {
     ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_FROM_SELF_IDX ]++;
     return;
   }
 
   long current = FD_NANOSEC_TO_MILLI( fd_log_wallclock() );
-  long ts_diff = current - (long)header->ts;
+  long ts_diff = current - (long)timestamp;
   if( FD_UNLIKELY( ts_diff < 0L ) ) ts_diff = -ts_diff;
   if( FD_UNLIKELY( ts_diff > FD_RSERVE_SIGNED_REPAIR_WINDOW ) ) {
     ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_TIMESTAMP_SKEW_IDX ]++;
@@ -324,14 +334,13 @@ handle_net_request( ctx_t             * ctx,
 
   /* Most requests are for shreds we never stored, probe before doing
      a full ed25519 verify. */
-  if( FD_LIKELY( tag==FD_REPAIR_KIND_SHRED || tag==FD_REPAIR_KIND_HIGHEST_SHRED ) ) {
-    fd_repair_shred_req_t msg[1];
-    memcpy( msg, payload+4UL, sizeof(fd_repair_shred_req_t) );
+  if( FD_LIKELY( tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX || tag==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX ) ) {
+    fd_repair_shred_t const * msg = &req.shred; /* highest_shred shares its layout */
     if( FD_UNLIKELY( msg->shred_idx>=ctx->max_shreds_per_block ) ) {
       ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SHRED_INDEX_INVALID_IDX ]++;
       return;
     }
-    if( FD_LIKELY( !fd_store_disk_probe( ctx->store, msg->slot, tag==FD_REPAIR_KIND_SHRED ? (uint)msg->shred_idx : UINT_MAX ) ) ) {
+    if( FD_LIKELY( !fd_store_disk_probe( ctx->store, msg->slot, tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX ? (uint)msg->shred_idx : UINT_MAX ) ) ) {
       ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]++;
       ctx->metrics->unanswered[ request_metric_index[tag] ]++;
       return;
@@ -342,13 +351,10 @@ handle_net_request( ctx_t             * ctx,
 
   /* The signed bytes are the tag followed by everything after the
      signature. */
-  uchar signable[ FD_REPAIR_MAX_PREIMAGE_SZ ];
-  ulong signable_sz = payload_sz - sizeof(fd_ed25519_sig_t);
-  FD_TEST( signable_sz<=sizeof(signable) );
-  fd_memcpy( signable,     payload,      4             );
-  fd_memcpy( signable+4UL, payload+68UL, signable_sz-4 );
+  uchar signable[ FD_REPAIR_SIG_SER_MAX ];
+  ulong signable_sz = fd_repair_req_sig_ser( payload, payload_sz, signable );
 
-  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( signable, signable_sz, header->sig, header->from.uc, ctx->sha512 ) ) ) {
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( signable, signable_sz, signature, sender.uc, ctx->sha512 ) ) ) {
     ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]++;
     return;
   }
@@ -359,16 +365,15 @@ handle_net_request( ctx_t             * ctx,
      a spoofed source address. */
   ping_cache_key_t key[1];
   memset( key, 0, sizeof(ping_cache_key_t) );
-  key->pubkey = header->from;
+  key->pubkey = sender;
   key->ip4    = ip4->saddr;
   key->port   = udp->net_sport;
   ping_cache_entry_t * entry = ping_map_ele_query( ctx->rserve->ping_map, key, NULL, ctx->rserve->ping_pool );
   if( FD_LIKELY( entry ) ) {
     switch( tag ) {
-      case FD_REPAIR_KIND_SHRED:
-      case FD_REPAIR_KIND_HIGHEST_SHRED: {
-        fd_repair_shred_req_t msg[1];
-        memcpy( msg, payload+4UL, sizeof(fd_repair_shred_req_t) );
+      case FD_REPAIR_SERDE_TAG_WINDOW_INDEX:
+      case FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX: {
+        fd_repair_shred_t const * msg = &req.shred; /* highest_shred shares its layout */
 
         ulong slot = msg->slot;
         ulong shred_idx = msg->shred_idx;
@@ -381,7 +386,7 @@ handle_net_request( ctx_t             * ctx,
         uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
         int len;
         for( ulong retry=0UL;; retry++ ) {
-          if( tag==FD_REPAIR_KIND_SHRED ) {
+          if( tag==FD_REPAIR_SERDE_TAG_WINDOW_INDEX ) {
             len = fd_store_disk_query( ctx->store, ctx->disk_fd, slot, (uint)shred_idx, payload );
           } else {
             len = fd_store_disk_query_highest( ctx->store, ctx->disk_fd, slot, (uint)shred_idx, payload );
@@ -399,19 +404,18 @@ handle_net_request( ctx_t             * ctx,
         ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_SUCCESS_IDX ]++;
         ctx->metrics->disk_read_bytes += (ulong)len;
 
-        fd_memcpy( payload+len, &header->nonce, sizeof(uint) );
+        fd_memcpy( payload+len, &nonce, sizeof(uint) );
         send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->metrics->sent_pkt_types[ response_metric_index[tag] ]++;
         return;
       }
-      case FD_REPAIR_KIND_ORPHAN: {
+      case FD_REPAIR_SERDE_TAG_ORPHAN: {
         /* Orphan repair works by giving us a "root" slot to start at,
            and has us walk back through the parent slots sending the
            highest shred of each slot.
            We may send up to FD_RSERVE_MAX_ORPHAN_SLOTS of these shreds
            (including the root one). */
-        fd_repair_orphan_req_t msg[1];
-        memcpy( msg, payload+4UL, sizeof(fd_repair_orphan_req_t) );
+        fd_repair_orphan_t const * msg = &req.orphan;
 
         ulong current = msg->slot;
         for( uint i=0; i<FD_RSERVE_MAX_ORPHAN_SLOTS; i++ ) {
@@ -432,7 +436,7 @@ handle_net_request( ctx_t             * ctx,
           ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_SUCCESS_IDX ]++;
           ctx->metrics->disk_read_bytes += (ulong)len;
           fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( payload );
-          memcpy( payload+len, &header->nonce, sizeof(uint) );
+          memcpy( payload+len, &nonce, sizeof(uint) );
           send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
           ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_ORPHAN_IDX ]++;
           ushort parent_off = shred->data.parent_off;
@@ -442,11 +446,10 @@ handle_net_request( ctx_t             * ctx,
         }
         break;
       }
-      case AG_REPAIR_KIND_PARENT_FEC_COUNT: {
+      case FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT: {
         /* Serves the block's parent, FEC set count, and the proof of its
            parent-info leaf, which follows the fec_set_cnt FEC root leaves. */
-        ag_repair_parent_fec_count_req_t msg[1];
-        memcpy( msg, payload+4UL, sizeof(ag_repair_parent_fec_count_req_t) );
+        fd_repair_parent_fec_set_count_t const * msg = &req.parent_fec_set_count;
 
         fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, msg->slot, &msg->block_id );
         if( FD_UNLIKELY( !blk ) ) {
@@ -458,20 +461,19 @@ handle_net_request( ctx_t             * ctx,
         int proof_len = fd_blockdb_proof( ctx->blockdb, blk, blk->fec_set_cnt, proof );
         FD_TEST( proof_len>=0 );
 
-        uchar buf[ AG_REPAIR_RESPONSE_MAX_SZ ];
-        ulong sz = ag_repair_parent_fec_count_ser( buf, sizeof(buf), blk->fec_set_cnt, blk->parent_slot, &blk->parent_block_id,
-                                                   proof, (ulong)proof_len, header->nonce );
+        uchar buf[ FD_REPAIR_RES_DE_MAX ];
+        ulong sz = fd_repair_res_parent_fec_set_count_ser( blk->fec_set_cnt, blk->parent_slot, &blk->parent_block_id,
+                                                           proof, (ulong)proof_len*FD_SHRED_MERKLE_NODE_SZ, nonce, buf, sizeof(buf) );
         FD_TEST( sz );
 
         send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, buf, sz, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->metrics->sent_pkt_types[ response_metric_index[tag] ]++;
         return;
       }
-      case AG_REPAIR_KIND_FEC_ROOT: {
+      case FD_REPAIR_SERDE_TAG_FEC_SET_ROOT: {
         /* Serves the merkle root prefix of FEC set fec_set_idx and the
            proof of its leaf. */
-        ag_repair_fec_root_req_t msg[1];
-        memcpy( msg, payload+4UL, sizeof(ag_repair_fec_root_req_t) );
+        fd_repair_fec_set_root_t const * msg = &req.fec_set_root;
 
         fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, msg->slot, &msg->block_id );
         if( FD_UNLIKELY( !blk ) ) {
@@ -488,19 +490,18 @@ handle_net_request( ctx_t             * ctx,
         int proof_len = fd_blockdb_proof( ctx->blockdb, blk, leaf_idx, proof );
         FD_TEST( proof_len>=0 );
 
-        uchar buf[ AG_REPAIR_RESPONSE_MAX_SZ ];
-        ulong sz = ag_repair_fec_set_root_ser( buf, sizeof(buf), blk->merkle_roots[ leaf_idx ], proof, (ulong)proof_len, header->nonce );
+        uchar buf[ FD_REPAIR_RES_DE_MAX ];
+        ulong sz = fd_repair_res_fec_set_root_ser( blk->merkle_roots[ leaf_idx ], proof, (ulong)proof_len*FD_SHRED_MERKLE_NODE_SZ, nonce, buf, sizeof(buf) );
         FD_TEST( sz );
 
         send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, buf, sz, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->metrics->sent_pkt_types[ response_metric_index[tag] ]++;
         return;
       }
-      case AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID: {
+      case FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID: {
         /* Serves the data shred at shred_idx of block (slot, block_id),
            found by its FEC set's merkle root. */
-        ag_repair_shred_block_id_req_t msg[1];
-        memcpy( msg, payload+4UL, sizeof(ag_repair_shred_block_id_req_t) );
+        fd_repair_shred_for_block_id_t const * msg = &req.shred_for_block_id;
 
         fd_blockdb_blk_t const * blk = fd_blockdb_query( ctx->blockdb, msg->slot, &msg->block_id );
         if( FD_UNLIKELY( !blk ) ) {
@@ -529,7 +530,7 @@ handle_net_request( ctx_t             * ctx,
         ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_SUCCESS_IDX ]++;
         ctx->metrics->disk_read_bytes += (ulong)len;
 
-        memcpy( payload+len, &header->nonce, sizeof(uint) );
+        memcpy( payload+len, &nonce, sizeof(uint) );
         send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->metrics->sent_pkt_types[ response_metric_index[tag] ]++;
         return;
@@ -540,23 +541,22 @@ handle_net_request( ctx_t             * ctx,
        address the request arrived from.  The peer can only produce a
        valid pong if it actually receives this ping at that address. */
     uchar token[ 32UL ];
-    fd_rserve_ping_token( ctx->rserve, token, &header->from, ip4->saddr, udp->net_sport );
+    fd_rserve_ping_token( ctx->rserve, token, &sender, ip4->saddr, udp->net_sport );
 
     /* Sign the token. */
-    uchar signature[ 64UL ];
-    fd_keyguard_client_sign( ctx->keyguard_client, signature, token, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+    fd_ed25519_sig_t ping_sig;
+    fd_keyguard_client_sign( ctx->keyguard_client, ping_sig, token, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
     /* Like Agave, block id metadata requests are answered with the
        BlockIdRepairResponse ping variant, and ShredForBlockId, like the
        legacy requests, with the RepairResponse one. */
-    fd_repair_ping_t msg[ 1 ];
-    msg->kind = (tag==AG_REPAIR_KIND_PARENT_FEC_COUNT || tag==AG_REPAIR_KIND_FEC_ROOT) ? AG_REPAIR_KIND_PING : FD_REPAIR_KIND_PING;
-    msg->ping.from = ctx->identity_public_key;
-    memcpy( msg->ping.sig, signature, 64 );
-    memcpy( msg->ping.hash.uc, token, 32 );
+    uchar buf[ FD_REPAIR_PING_DE_SZ ];
+    ulong sz;
+    if( tag==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT || tag==FD_REPAIR_SERDE_TAG_FEC_SET_ROOT ) sz = fd_repair_block_id_ping_ser( &ctx->identity_public_key, (fd_hash_t const *)token, ping_sig, buf );
+    else                                                                                            sz = fd_repair_ping_ser         ( &ctx->identity_public_key, (fd_hash_t const *)token, ping_sig, buf );
 
     /* Send the ping packet back to the source. */
-    send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, (uchar const *)fd_type_pun_const( msg ), sizeof(fd_repair_ping_t), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, buf, sz, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PING_IDX ]++;
   }
 }
@@ -588,7 +588,7 @@ during_frag( ctx_t * ctx,
   }
   case IN_KIND_ROTOR: {
     if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) break;
-    if( FD_UNLIKELY( sz<FD_ROTOR_BLOCK_SZ( 0 ) || sz>sizeof(fd_rotor_block_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+    if( FD_UNLIKELY( sz<FD_REPAIR_BLOCK_SZ( 0 ) || sz>sizeof(fd_repair_block_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
       FD_LOG_ERR(( "rotor_rserve chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
     fd_memcpy( ctx->rotor_buf, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sz );
     break;
@@ -609,8 +609,8 @@ after_frag( ctx_t *             ctx,
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_ROTOR ) ) {
     if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) return;
-    fd_rotor_block_t const * msg = ctx->rotor_buf;
-    if( FD_UNLIKELY( sz!=FD_ROTOR_BLOCK_SZ( msg->fec_set_cnt ) ) )
+    fd_repair_block_t const * msg = ctx->rotor_buf;
+    if( FD_UNLIKELY( sz!=FD_REPAIR_BLOCK_SZ( msg->fec_set_cnt ) ) )
       FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));
     FD_TEST( fd_blockdb_insert( ctx->blockdb, msg->slot, &msg->block_id, msg->parent_slot, &msg->parent_block_id,
                                 msg->fec_set_cnt, (uchar const *)msg->merkle_roots ) );

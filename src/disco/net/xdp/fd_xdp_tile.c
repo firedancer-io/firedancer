@@ -13,7 +13,6 @@
 #include <linux/if_xdp.h>
 #include <sys/epoll.h>
 
-#include "../../../discof/repair/fd_repair.h"
 #include "../../metrics/fd_metrics.h"
 #include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
 #include "../../waker/fd_waker.h"

@@ -10,7 +10,7 @@
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
-#include "../../discof/repair/fd_repair.h"
+#include "../../disco/repair/fd_repair_serde.h"
 
 #include "../../waltz/ip/fd_iproute.h"
 #include "../../util/net/fd_eth.h"
@@ -325,7 +325,7 @@ fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
 
   *out_idx   = ctx->dst_out_idx[ rule_idx ];
   *dst_proto = ctx->dst_protos [ rule_idx ];
-  if( FD_UNLIKELY( *dst_proto==DST_PROTO_REPAIR && payload_sz<=AG_REPAIR_RESPONSE_MAX_SZ ) ) {
+  if( FD_UNLIKELY( *dst_proto==DST_PROTO_REPAIR && payload_sz<=FD_REPAIR_RES_DE_MAX ) ) {
     if( FD_UNLIKELY( ctx->repair_out_idx==ULONG_MAX ) ) return 0;
     *out_idx = ctx->repair_out_idx;
   }

@@ -34,7 +34,7 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
-#include "../../discof/repair/fd_repair.h"
+#include "../../disco/repair/fd_repair_serde.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -388,11 +388,16 @@ during_frag( fd_gui_ctx_t * ctx,
       uchar * payload;
       ulong payload_sz;
       if( FD_LIKELY( fd_ip4_udp_hdr_strip( src, sz, &payload, &payload_sz, NULL, NULL, NULL ) ) ) {
-        fd_repair_msg_t const * msg = (fd_repair_msg_t const *)fd_type_pun_const( payload );
-        if( FD_LIKELY( msg->kind==FD_REPAIR_KIND_SHRED ) ) {
-          if( FD_UNLIKELY( msg->shred.slot==0 ) ) break;
-          ctx->parsed.repair_net.slot = msg->shred.slot;
-          ctx->parsed.repair_net.shred_idx = msg->shred.shred_idx;
+        fd_repair_shred_t shred;
+        fd_ed25519_sig_t  signature;
+        fd_pubkey_t       sender;
+        fd_pubkey_t       recipient;
+        ulong             timestamp;
+        uint              nonce;
+        if( FD_LIKELY( fd_repair_req_window_index_de( payload, payload_sz, &shred, signature, &sender, &recipient, &timestamp, &nonce ) ) ) {
+          if( FD_UNLIKELY( shred.slot==0 ) ) break;
+          ctx->parsed.repair_net.slot = shred.slot;
+          ctx->parsed.repair_net.shred_idx = shred.shred_idx;
         }
       }
       break;

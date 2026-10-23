@@ -28,7 +28,7 @@
 #include "../../../discof/restore/fd_snapct_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
-#include "../../../discof/rotor/fd_rotor_tile.h"
+#include "../../../disco/repair/fd_repair_tile.h"
 #include "../../../discof/votor/fd_votor_tile.h"
 #include "../../../discof/replay/fd_execrp.h"
 #include "../../../disco/shred/fd_shred_tile.h"
@@ -223,7 +223,7 @@ backtest_topo( config_t * config ) {
      batches from the CLI-specified source (eg. pcap/pcapng file). */
 
   fd_topob_wksp( topo, "repair_out" );
-  fd_topob_link( topo, "repair_out", "repair_out", 65536UL, sizeof(fd_rotor_replay_fec_t), 1UL );
+  fd_topob_link( topo, "repair_out", "repair_out", 65536UL, sizeof(fd_repair_replay_fec_t), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "backt", 0UL, "repair_out", 0UL );
 

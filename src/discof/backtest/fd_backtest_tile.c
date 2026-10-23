@@ -4,7 +4,7 @@
 #include "../../disco/events/fd_event_client.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
-#include "../../discof/rotor/fd_rotor_tile.h"
+#include "../../disco/repair/fd_repair_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../choreo/votor/ag_cert.h"
@@ -273,8 +273,8 @@ after_credit( fd_backt_tile_t *   ctx,
 
   ulong parent_slot = shred->slot - shred->data.parent_off;
 
-  fd_rotor_replay_fec_t * rotor_fec = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
-  memset( rotor_fec, 0, sizeof(fd_rotor_replay_fec_t) );
+  fd_repair_replay_fec_t * rotor_fec = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
+  memset( rotor_fec, 0, sizeof(fd_repair_replay_fec_t) );
   rotor_fec->slot          = shred->slot;
   rotor_fec->fec_set_idx   = (uint)ctx->out_fec_set_idx;
   rotor_fec->mr            = mr;
@@ -295,8 +295,8 @@ after_credit( fd_backt_tile_t *   ctx,
 
   ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
 
-  fd_stem_publish( stem, ctx->repair_out->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_rotor_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_rotor_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+  fd_stem_publish( stem, ctx->repair_out->idx, ROTOR_SIG_FEC_REPLAY, ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_repair_replay_fec_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
   if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }

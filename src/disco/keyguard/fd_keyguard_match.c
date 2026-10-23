@@ -2,7 +2,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../flamenco/gossip/fd_gossip_value.h"
-#include "../../discof/repair/fd_repair.h"
+#include "../../disco/repair/fd_repair_serde.h"
 
 /* fd_keyguard_match fingerprints signing requests and checks them for
    ambiguity.
@@ -274,18 +274,18 @@ fd_keyguard_payload_matches_repair( uchar const * data,
 
   /* Every repair message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
-     location), and is at most FD_REPAIR_MAX_PREIMAGE_SZ bytes. */
+     location), and is at most FD_REPAIR_SIG_SER_MAX bytes. */
   if( sz<36UL                      ) return 0;
-  if( sz>FD_REPAIR_MAX_PREIMAGE_SZ ) return 0;
+  if( sz>FD_REPAIR_SIG_SER_MAX     ) return 0;
 
   /* Ensure that the kind matches a possible repair request. */
   uint kind = FD_LOAD( uint, data );
-  if( (kind==FD_REPAIR_KIND_SHRED)
-    | (kind==FD_REPAIR_KIND_HIGHEST_SHRED)
-    | (kind==FD_REPAIR_KIND_ORPHAN)
-    | (kind==AG_REPAIR_KIND_PARENT_FEC_COUNT)
-    | (kind==AG_REPAIR_KIND_FEC_ROOT)
-    | (kind==AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID) )
+  if( (kind==FD_REPAIR_SERDE_TAG_WINDOW_INDEX)
+    | (kind==FD_REPAIR_SERDE_TAG_HIGHEST_WINDOW_INDEX)
+    | (kind==FD_REPAIR_SERDE_TAG_ORPHAN)
+    | (kind==FD_REPAIR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT)
+    | (kind==FD_REPAIR_SERDE_TAG_FEC_SET_ROOT)
+    | (kind==FD_REPAIR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID) )
     return 1;
 
   return 0;

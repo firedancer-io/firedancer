@@ -32,7 +32,6 @@ test_stem_publish( ulong chunk,
 
 static uchar rserve_mem [ 1UL<<16 ] __attribute__((aligned(128)));
 static uchar blockdb_mem[ 1UL<<20 ] __attribute__((aligned(FD_BLOCKDB_ALIGN)));
-static uchar repair_mem [ 4096    ] __attribute__((aligned(128)));
 static uchar out_mem    [ 1UL<<16 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
 static uchar       client_priv[ 32 ];
@@ -89,16 +88,48 @@ ping_cache_add( ctx_t * ctx ) {
   ping_dlist_ele_push_tail( rserve->ping_dlist, entry, rserve->ping_pool );
 }
 
-/* sign signs msg in place as the client and returns its wire size. */
+/* The client's requests are serialized into req, signed, and return
+   their wire size. */
+
+static uchar                  req[ FD_REPAIR_SER_MAX ];
+static fd_ed25519_sig_t const sig_null;
 
 static ulong
-sign( fd_repair_msg_t * msg ) {
-  ulong preimage_sz;
-  uchar * preimage = preimage_req( msg, &preimage_sz );
-  uchar sig[ 64 ];
-  fd_ed25519_sign( sig, preimage, preimage_sz, client_pub.uc, client_priv, sha );
-  memcpy( msg->header.sig, sig, 64UL );
-  return fd_repair_sz( msg );
+sign( ulong sz ) {
+  uchar preimage[ FD_REPAIR_SIG_SER_MAX ];
+  ulong preimage_sz = fd_repair_req_sig_ser( req, sz, preimage );
+  fd_ed25519_sign( req+sizeof(uint), preimage, preimage_sz, client_pub.uc, client_priv, sha );
+  return sz;
+}
+
+static ulong
+window_index( ulong ts, uint nonce, ulong slot, ulong shred_idx ) {
+  return sign( fd_repair_req_window_index_ser( &(fd_repair_shred_t){ .slot = slot, .shred_idx = shred_idx }, sig_null, &client_pub, &server_pub, ts, nonce, req ) );
+}
+
+static ulong
+highest_window_index( ulong ts, uint nonce, ulong slot, ulong shred_idx ) {
+  return sign( fd_repair_req_highest_window_index_ser( &(fd_repair_highest_shred_t){ .slot = slot, .shred_idx = shred_idx }, sig_null, &client_pub, &server_pub, ts, nonce, req ) );
+}
+
+static ulong
+orphan( ulong ts, uint nonce, ulong slot ) {
+  return sign( fd_repair_req_orphan_ser( &(fd_repair_orphan_t){ .slot = slot }, sig_null, &client_pub, &server_pub, ts, nonce, req ) );
+}
+
+static ulong
+parent_and_fec_set_count( fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, fd_hash_t const * block_id ) {
+  return sign( fd_repair_req_parent_and_fec_set_count_ser( &(fd_repair_parent_fec_set_count_t){ .slot = slot, .block_id = *block_id }, sig_null, &client_pub, to, ts, nonce, req ) );
+}
+
+static ulong
+fec_set_root( ulong ts, uint nonce, ulong slot, fd_hash_t const * block_id, uint fec_set_idx ) {
+  return sign( fd_repair_req_fec_set_root_ser( &(fd_repair_fec_set_root_t){ .slot = slot, .block_id = *block_id, .fec_set_idx = fec_set_idx }, sig_null, &client_pub, &server_pub, ts, nonce, req ) );
+}
+
+static ulong
+window_index_for_block_id( ulong ts, uint nonce, ulong slot, fd_hash_t const * block_id, uint shred_idx ) {
+  return sign( fd_repair_req_window_index_for_block_id_ser( &(fd_repair_shred_for_block_id_t){ .slot = slot, .shred_idx = shred_idx, .block_id = *block_id }, sig_null, &client_pub, &server_pub, ts, nonce, req ) );
 }
 
 /* request sends payload to rserve from the client address and returns
@@ -160,77 +191,73 @@ now_ms( void ) {
 }
 
 static void
-test_meta_requests( fd_repair_t * client ) {
+test_meta_requests( void ) {
   static ctx_t ctx[1];
   setup( ctx, 1 );
   ping_cache_add( ctx );
   FD_TEST( fd_blockdb_insert( ctx->blockdb, blk_slot, &blk_id, blk_parent, &blk_parent_id, FEC_CNT, (uchar const *)blk_roots ) );
 
-  ag_repair_response_t res[1];
+  uint      fec_set_cnt;
+  ulong     parent_slot;
+  fd_hash_t parent_block_id;
+  uchar     root[ FD_SHRED_MERKLE_NODE_SZ ];
+  uchar     proof[ FD_REPAIR_PROOF_MAX ];
+  ulong     proof_sz;
+  uint      nonce;
 
   /* ParentAndFecSetCount */
-  fd_repair_msg_t * msg = ag_repair_parent_and_fec_set_count( client, &server_pub, now_ms(), 7U, blk_slot, &blk_id );
-  ulong sz = request( ctx, (uchar const *)msg, sign( msg ) );
+  ulong sz = request( ctx, req, parent_and_fec_set_count( &server_pub, now_ms(), 7U, blk_slot, &blk_id ) );
   FD_TEST( sz );
-  FD_TEST( !ag_repair_response_de( res, response(), sz, FD_FEC_BLK_MAX ) );
-  FD_TEST( res->kind==AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT && res->nonce==7U );
-  FD_TEST( res->parent_fec_set_res.fec_set_count==FEC_CNT );
-  FD_TEST( res->parent_fec_set_res.parent_slot==blk_parent );
-  FD_TEST( fd_hash_eq( &res->parent_fec_set_res.parent_block_id, &blk_parent_id ) );
-  FD_TEST( !ag_repair_parent_fec_count_verify( &res->parent_fec_set_res, &blk_id ) );
+  FD_TEST( fd_repair_res_parent_fec_set_count_de( response(), sz, &fec_set_cnt, &parent_slot, &parent_block_id, proof, &proof_sz, &nonce )==sz );
+  FD_TEST( nonce==7U );
+  FD_TEST( fec_set_cnt==FEC_CNT );
+  FD_TEST( parent_slot==blk_parent );
+  FD_TEST( fd_hash_eq( &parent_block_id, &blk_parent_id ) );
+  FD_TEST( !fd_repair_res_parent_fec_set_count_verify( fec_set_cnt, parent_slot, &parent_block_id, proof, proof_sz, &blk_id ) );
   FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
   FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
 
   /* FecSetRoot for every FEC set */
   for( uint k=0U; k<FEC_CNT; k++ ) {
-    msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 100U+k, blk_slot, &blk_id, k*FD_FEC_SHRED_CNT );
-    sz  = request( ctx, (uchar const *)msg, sign( msg ) );
+    sz = request( ctx, req, fec_set_root( now_ms(), 100U+k, blk_slot, &blk_id, k*FD_FEC_SHRED_CNT ) );
     FD_TEST( sz );
-    FD_TEST( !ag_repair_response_de( res, response(), sz, FD_FEC_BLK_MAX ) );
-    FD_TEST( res->kind==AG_REPAIR_RESPONSE_FEC_SET_ROOT && res->nonce==100U+k );
-    FD_TEST( !memcmp( res->fec_set_root.root, blk_roots[ k ], FD_SHRED_MERKLE_NODE_SZ ) );
-    FD_TEST( !ag_repair_fec_set_root_verify( &res->fec_set_root, &blk_id, k*FD_FEC_SHRED_CNT, FEC_CNT ) );
+    FD_TEST( fd_repair_res_fec_set_root_de( response(), sz, root, proof, &proof_sz, &nonce )==sz );
+    FD_TEST( nonce==100U+k );
+    FD_TEST( !memcmp( root, blk_roots[ k ], FD_SHRED_MERKLE_NODE_SZ ) );
+    FD_TEST( !fd_repair_res_fec_set_root_verify( root, proof, proof_sz, &blk_id, k*FD_FEC_SHRED_CNT, FEC_CNT ) );
   }
   FD_TEST( ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_FEC_SET_ROOT_IDX ]==FEC_CNT );
 
   /* Unaligned and out of range FEC set indices are rejected */
-  msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, FD_FEC_SHRED_CNT+1U );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, FEC_CNT*FD_FEC_SHRED_CNT );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, fec_set_root( now_ms(), 1U, blk_slot, &blk_id, FD_FEC_SHRED_CNT+1U ) ) );
+  FD_TEST( !request( ctx, req, fec_set_root( now_ms(), 1U, blk_slot, &blk_id, FEC_CNT*FD_FEC_SHRED_CNT ) ) );
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_FEC_SET_INDEX_INVALID_IDX ]==2UL );
 
   /* Unknown blocks miss: other block id, or right block id in another slot */
   fd_hash_t other = blk_id; other.uc[ 5 ] ^= 1;
-  msg = ag_repair_parent_and_fec_set_count( client, &server_pub, now_ms(), 1U, blk_slot, &other );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot+1UL, &blk_id, 0U );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, parent_and_fec_set_count( &server_pub, now_ms(), 1U, blk_slot, &other ) ) );
+  FD_TEST( !request( ctx, req, fec_set_root( now_ms(), 1U, blk_slot+1UL, &blk_id, 0U ) ) );
   FD_TEST( ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_PARENT_FEC_SET_COUNT_IDX ]==1UL );
   FD_TEST( ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_FEC_SET_ROOT_IDX        ]==1UL );
 
   /* Tampered after signing */
-  msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
-  sz  = sign( msg );
-  msg->fec_set_root.fec_set_idx = FD_FEC_SHRED_CNT;
-  FD_TEST( !request( ctx, (uchar const *)msg, sz ) );
+  sz = fec_set_root( now_ms(), 1U, blk_slot, &blk_id, 0U );
+  FD_STORE( uint, req+sz-sizeof(uint), FD_FEC_SHRED_CNT );
+  FD_TEST( !request( ctx, req, sz ) );
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]==1UL );
 
   /* Addressed to someone else */
   fd_pubkey_t someone = server_pub; someone.uc[ 0 ] ^= 1;
-  msg = ag_repair_parent_and_fec_set_count( client, &someone, now_ms(), 1U, blk_slot, &blk_id );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, parent_and_fec_set_count( &someone, now_ms(), 1U, blk_slot, &blk_id ) ) );
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_WRONG_RECIPIENT_IDX ]==1UL );
 
   /* Wrong size */
-  msg = ag_repair_parent_and_fec_set_count( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id );
-  sz  = sign( msg );
-  FD_TEST( !request( ctx, (uchar const *)msg, sz-1UL ) );
+  sz = parent_and_fec_set_count( &server_pub, now_ms(), 1U, blk_slot, &blk_id );
+  FD_TEST( !request( ctx, req, sz-1UL ) );
   FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_WRONG_SIZE_IDX ]==1UL );
 
   /* Stale timestamp */
-  msg = ag_repair_parent_and_fec_set_count( client, &server_pub, now_ms()-FD_RSERVE_SIGNED_REPAIR_WINDOW-1000UL, 1U, blk_slot, &blk_id );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, parent_and_fec_set_count( &server_pub, now_ms()-FD_RSERVE_SIGNED_REPAIR_WINDOW-1000UL, 1U, blk_slot, &blk_id ) ) );
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_TIMESTAMP_SKEW_IDX ]==1UL );
 
   FD_LOG_NOTICE(( "pass: test_meta_requests" ));
@@ -240,17 +267,14 @@ test_meta_requests( fd_repair_t * client ) {
    generalized signable size, then miss in the (absent) store. */
 
 static void
-test_legacy_sigverify( fd_repair_t * client ) {
+test_legacy_sigverify( void ) {
   static ctx_t ctx[1];
   setup( ctx, 1 );
   ping_cache_add( ctx );
 
-  fd_repair_msg_t * msg = fd_repair_shred( client, &server_pub, now_ms(), 1U, 10UL, 3UL );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  msg = fd_repair_highest_shred( client, &server_pub, now_ms(), 1U, 10UL, 3UL );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  msg = fd_repair_orphan( client, &server_pub, now_ms(), 1U, 10UL );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, window_index        ( now_ms(), 1U, 10UL, 3UL ) ) );
+  FD_TEST( !request( ctx, req, highest_window_index( now_ms(), 1U, 10UL, 3UL ) ) );
+  FD_TEST( !request( ctx, req, orphan              ( now_ms(), 1U, 10UL      ) ) );
 
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]==0UL );
   FD_TEST( ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]==3UL );
@@ -261,17 +285,14 @@ test_legacy_sigverify( fd_repair_t * client ) {
    any signature work. */
 
 static void
-test_no_blockdb( fd_repair_t * client ) {
+test_no_blockdb( void ) {
   static ctx_t ctx[1];
   setup( ctx, 0 );
   ping_cache_add( ctx );
 
-  fd_repair_msg_t * msg = ag_repair_parent_and_fec_set_count( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  msg = ag_repair_fec_set_root( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
-  msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, parent_and_fec_set_count ( &server_pub, now_ms(), 1U, blk_slot, &blk_id ) ) );
+  FD_TEST( !request( ctx, req, fec_set_root             ( now_ms(), 1U, blk_slot, &blk_id, 0U ) ) );
+  FD_TEST( !request( ctx, req, window_index_for_block_id( now_ms(), 1U, blk_slot, &blk_id, 0U ) ) );
   FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_UNKNOWN_TAG_IDX ]==3UL );
   FD_LOG_NOTICE(( "pass: test_no_blockdb" ));
 }
@@ -327,8 +348,7 @@ check_shred( ulong sz,
 }
 
 static void
-test_shred_for_block_id( fd_repair_t * client,
-                         fd_wksp_t *   wksp ) {
+test_shred_for_block_id( fd_wksp_t * wksp ) {
   static ctx_t ctx[1];
   setup( ctx, 1 );
   ping_cache_add( ctx );
@@ -355,8 +375,7 @@ test_shred_for_block_id( fd_repair_t * client,
   uint const idxs   [ 3 ] = { 0U, 33U, 95U };
   uchar const marks [ 3 ] = { 0x00U, 0x21U, 0x5FU };
   for( ulong i=0UL; i<3UL; i++ ) {
-    fd_repair_msg_t * msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 200U+(uint)i, blk_slot, &blk_id, idxs[ i ] );
-    ulong sz = request( ctx, (uchar const *)msg, sign( msg ) );
+    ulong sz = request( ctx, req, window_index_for_block_id( now_ms(), 200U+(uint)i, blk_slot, &blk_id, idxs[ i ] ) );
     FD_TEST( sz );
     check_shred( sz, blk_slot, idxs[ i ], marks[ i ], 200U+(uint)i );
   }
@@ -364,39 +383,33 @@ test_shred_for_block_id( fd_repair_t * client,
   FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX  ]==3UL );
 
   /* The legacy request gets the alternate version */
-  fd_repair_msg_t * msg = fd_repair_shred( client, &server_pub, now_ms(), 9U, blk_slot, 33UL );
-  ulong sz = request( ctx, (uchar const *)msg, sign( msg ) );
+  ulong sz = request( ctx, req, window_index( now_ms(), 9U, blk_slot, 33UL ) );
   FD_TEST( sz );
   check_shred( sz, blk_slot, 33U, 0xEEU, 9U );
 
   /* A shred of the block that isn't stored misses */
   ulong read_miss = ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ];
-  msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 1U );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, window_index_for_block_id( now_ms(), 1U, blk_slot, &blk_id, 1U ) ) );
   FD_TEST( ctx->metrics->disk_read[ FD_METRICS_ENUM_DISK_READ_RESULT_V_MISS_IDX ]==read_miss+1UL );
 
   /* An unknown block misses */
   fd_hash_t other = blk_id; other.uc[ 3 ] ^= 1;
-  msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &other, 0U );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, window_index_for_block_id( now_ms(), 1U, blk_slot, &other, 0U ) ) );
   FD_TEST( ctx->metrics->unanswered[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ]==2UL );
 
   /* Past the end of the block */
-  msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, FEC_CNT*FD_FEC_SHRED_CNT );
-  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( !request( ctx, req, window_index_for_block_id( now_ms(), 1U, blk_slot, &blk_id, FEC_CNT*FD_FEC_SHRED_CNT ) ) );
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SHRED_INDEX_INVALID_IDX ]==1UL );
 
   /* Tampered after signing */
-  msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
-  sz  = sign( msg );
-  msg->shred_block_id.shred_idx = 95U;
-  FD_TEST( !request( ctx, (uchar const *)msg, sz ) );
+  sz = window_index_for_block_id( now_ms(), 1U, blk_slot, &blk_id, 0U );
+  FD_STORE( uint, req+FD_REPAIR_HEADER_SER_SZ+sizeof(ulong), 95U );
+  FD_TEST( !request( ctx, req, sz ) );
   FD_TEST( ctx->metrics->dropped[ FD_METRICS_ENUM_REQUEST_DROP_REASON_V_SIGNATURE_FAILED_IDX ]==1UL );
 
   /* Wrong size */
-  msg = ag_repair_shred_block_id( client, &server_pub, now_ms(), 1U, blk_slot, &blk_id, 0U );
-  sz  = sign( msg );
-  FD_TEST( !request( ctx, (uchar const *)msg, sz-1UL ) );
+  sz = window_index_for_block_id( now_ms(), 1U, blk_slot, &blk_id, 0U );
+  FD_TEST( !request( ctx, req, sz-1UL ) );
   FD_TEST( ctx->metrics->received_malformed_count[ FD_METRICS_ENUM_REQUEST_MALFORMED_REASON_V_WRONG_SIZE_IDX ]==1UL );
 
   close( ctx->disk_fd );
@@ -415,12 +428,6 @@ main( int     argc,
   fd_ed25519_public_from_private( client_pub.uc, client_priv, sha );
   memset( server_pub.uc, 0x99, sizeof(fd_pubkey_t) );
 
-  /* fd_repair_join only adds a workspace check, so skip it to avoid
-     needing huge pages. */
-  FD_TEST( fd_repair_footprint()<=sizeof(repair_mem) );
-  fd_repair_t * client = (fd_repair_t *)fd_repair_new( repair_mem, &client_pub );
-  FD_TEST( client );
-
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                      );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
@@ -428,10 +435,10 @@ main( int     argc,
   FD_TEST( wksp );
 
   make_block();
-  test_meta_requests     ( client );
-  test_legacy_sigverify  ( client );
-  test_no_blockdb        ( client );
-  test_shred_for_block_id( client, wksp );
+  test_meta_requests     ();
+  test_legacy_sigverify  ();
+  test_no_blockdb        ();
+  test_shred_for_block_id( wksp );
 
   fd_wksp_delete_anonymous( wksp );
 
