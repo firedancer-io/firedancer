@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /* fd_snaprd_tile.c is a worker thread for reading accdb disk data.
    This tile is typically either sleeping or doing iowait. */
 
@@ -8,6 +9,7 @@
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <stdatomic.h>
 #include <time.h>
@@ -20,8 +22,10 @@
 #define SNAPRD_STATE_CAPTURE 3 /* sampling accdb partition bounds */
 #define SNAPRD_STATE_DRAIN   4 /* waiting for in-flight accdb writes to land */
 
-#define STEM_BURST 64UL /* 64 * 64KiB -> 4MiB */
+#define STEM_BURST 1UL
 #define SNAPRD_PART_MAX (1UL<<13)
+
+FD_STATIC_ASSERT( (FD_BACKUP_RD_MTU % 4096UL)==0UL, rd_mtu_direct_io );
 
 struct fd_snaprd {
   uint state;
@@ -61,6 +65,8 @@ struct fd_snaprd {
     ulong export_total_bytes;
     ulong io_blocked_ticks;
   } metrics;
+
+  int accdb_direct_fd;
 };
 
 typedef struct fd_snaprd fd_snaprd_t;
@@ -70,13 +76,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo; (void)tile;
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  fd_snaprd_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO; /* accounts db readonly fd */
+  out_fds[ out_cnt++ ] = ctx->accdb_direct_fd; /* accounts db, O_DIRECT */
   return out_cnt;
 }
 
@@ -85,9 +92,20 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo; (void)tile;
-  populate_sock_filter_policy_fd_snaprd_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RO );
+  fd_snaprd_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_fd_snaprd_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->accdb_direct_fd );
   return sock_filter_policy_fd_snaprd_tile_instr_cnt;
+}
+
+static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  fd_snaprd_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  char path[ 64 ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/self/fd/%d", FD_ACCDB_FD_RO ) );
+  ctx->accdb_direct_fd = open( path, O_RDONLY|O_DIRECT|O_NOATIME|O_CLOEXEC );
+  if( FD_UNLIKELY( ctx->accdb_direct_fd<0 ) ) FD_LOG_ERR(( "open(accounts.db, O_DIRECT) failed (%i-%s); the filesystem holding [paths.accounts] must support direct IO", errno, fd_io_strerror( errno ) ));
 }
 
 FD_FN_CONST static inline ulong
@@ -268,6 +286,7 @@ after_credit( fd_snaprd_t *       ctx,
   ulong burst_rem = STEM_BURST;
   while( ctx->state==SNAPRD_STATE_READ && stem->cr_avail[ 0 ] && burst_rem-- ) {
     ulong frag_sz = fd_ulong_min( ctx->out.mtu, ctx->part_sz-ctx->part_cur );
+    ulong read_len = fd_ulong_align_up( frag_sz, 4096UL );
 
     ulong   chunk   = ctx->out.chunk;
     uchar * out     = fd_chunk_to_laddr( ctx->out.mem, chunk );
@@ -275,8 +294,8 @@ after_credit( fd_snaprd_t *       ctx,
 
     ulong read_sz = 0UL;
     long  t0      = fd_tickcount();
-    while( read_sz<frag_sz ) {
-      long res = pread( FD_ACCDB_FD_RO, out+read_sz, frag_sz-read_sz, (long)(src_off+read_sz) );
+    while( read_sz<read_len ) {
+      long res = pread( ctx->accdb_direct_fd, out+read_sz, read_len-read_sz, (long)(src_off+read_sz) );
       if( FD_UNLIKELY( res<0L && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
       if( FD_UNLIKELY( res<0L ) ) {
         FD_LOG_ERR(( "pread failed: %i-%s", errno, fd_io_strerror( errno ) ));
@@ -288,7 +307,7 @@ after_credit( fd_snaprd_t *       ctx,
     }
     long t1 = fd_tickcount();
     ctx->metrics.bytes_read            += read_sz;
-    ctx->metrics.export_progress_bytes += read_sz;
+    ctx->metrics.export_progress_bytes += frag_sz;
     if( FD_LIKELY( frag_sz ) ) ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
 
     ctx->part_cur += frag_sz;
@@ -303,7 +322,7 @@ after_credit( fd_snaprd_t *       ctx,
     ulong ctl   = fd_frag_meta_ctl( FD_BACKUP_ORIG_DISK_FRAG, 0, eom, 0 );
     ulong tspub = frag_sz;
     fd_stem_publish( stem, 0UL, src_off, chunk, sz, ctl, 0UL, tspub );
-    ctx->out.chunk = fd_dcache_compact_next( chunk, frag_sz, ctx->out.chunk0, ctx->out.wmark );
+    ctx->out.chunk = fd_dcache_compact_next( chunk, read_len, ctx->out.chunk0, ctx->out.wmark );
 
     ctx->idle_cnt = 0UL;
     *charge_busy = 1;
@@ -332,6 +351,7 @@ fd_topo_run_tile_t fd_tile_snaprd = {
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
