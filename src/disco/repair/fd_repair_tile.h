@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_rotor_fd_rotor_tile_h
-#define HEADER_fd_src_discof_rotor_fd_rotor_tile_h
+#ifndef HEADER_fd_src_disco_repair_fd_repair_tile_h
+#define HEADER_fd_src_disco_repair_fd_repair_tile_h
 
 #include "../../disco/tiles.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -33,7 +33,7 @@
    coexist, each delivered as its FECs complete.  FEC sets with the
    same merkle root are shared between versions.  When the turbine
    version completes and its DMR matches a notar blk, the notar blk is
-   merged into it and freed (see dedup in fd_rotor.c).  So in time of
+   merged into it and freed (see dedup in fd_repair.c).  So in time of
    network blips replay may allocate two banks for the same block; the
    notar one never completes and is eventually evicted or pruned.
 
@@ -110,8 +110,8 @@
 /* alpenglow type - completed block metadata, on rotor_rserve */
 #define ROTOR_SIG_BLOCK       (4UL)
 
-struct fd_rotor_fec_metrics {
-  uint  stats_valid;        /* 1 if the counters below are populated */
+struct fd_repair_fec_metrics {
+  uint  stats_valid;         /* 1 if the counters below are populated */
 
   /* 1 if the FEC was delivered under a votor-driven version of its slot
      -- one the rotor created from a cert and filled by block id
@@ -148,9 +148,9 @@ struct fd_rotor_fec_metrics {
      figure like the rest of these metrics. */
   ulong highest_fec_complete_slot;
 };
-typedef struct fd_rotor_fec_metrics fd_rotor_fec_metrics_t;
+typedef struct fd_repair_fec_metrics fd_repair_fec_metrics_t;
 
-struct fd_rotor_replay_fec {
+struct fd_repair_replay_fec {
    ulong     slot;
    uint      fec_set_idx;
    fd_hash_t mr;
@@ -191,15 +191,15 @@ struct fd_rotor_replay_fec {
    int       known_id;
    fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
 
-   fd_rotor_fec_metrics_t metrics;
+   fd_repair_fec_metrics_t metrics;
 };
-typedef struct fd_rotor_replay_fec fd_rotor_replay_fec_t;
+typedef struct fd_repair_replay_fec fd_repair_replay_fec_t;
 
-/* fd_rotor_block is published to rserve when a block's slot-complete
+/* fd_repair_block is published to rserve when a block's slot-complete
    FEC is delivered.  merkle_roots holds the first 20B of each FEC
-   root.  The frag is variable length, see FD_ROTOR_BLOCK_SZ. */
+   root.  The frag is variable length, see FD_REPAIR_BLOCK_SZ. */
 
-struct fd_rotor_block {
+struct fd_repair_block {
   ulong     slot;
   fd_hash_t block_id;
   ulong     parent_slot;
@@ -207,8 +207,8 @@ struct fd_rotor_block {
   uint      fec_set_cnt;
   uchar     merkle_roots[ FD_FEC_BLK_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 };
-typedef struct fd_rotor_block fd_rotor_block_t;
+typedef struct fd_repair_block fd_repair_block_t;
 
-#define FD_ROTOR_BLOCK_SZ(fec_set_cnt) (offsetof(fd_rotor_block_t, merkle_roots) + (ulong)(fec_set_cnt)*FD_SHRED_MERKLE_NODE_SZ)
+#define FD_REPAIR_BLOCK_SZ(fec_set_cnt) (offsetof(fd_repair_block_t, merkle_roots) + (ulong)(fec_set_cnt)*FD_SHRED_MERKLE_NODE_SZ)
 
-#endif /* HEADER_fd_src_discof_rotor_fd_rotor_tile_h */
+#endif /* HEADER_fd_src_disco_repair_fd_repair_tile_h */

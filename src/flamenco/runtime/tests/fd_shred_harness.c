@@ -4,7 +4,7 @@
 #include "../../../ballet/shred/fd_shred.h"
 #include "../../../disco/shred/fd_fec_resolver.h"
 #include "../../../disco/metrics/fd_metrics.h"
-#include "../../../choreo/rotor/fd_rotor.h"
+#include "../../../disco/repair/fd_repair.h"
 #include "../../../discof/replay/fd_sched.h"
 #include "../../alpenglow/fd_block_marker_serde.h"
 
@@ -325,32 +325,32 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
      root_slot+slot_max) are not given to rotor, like the rotor tile.
      The harness never advances the root, so the window covers every
      completed slot (the resolver bounds these by RESOLVER_SLOT_MAX).
-     It is sized to the input since fd_rotor_new clears its whole
+     It is sized to the input since fd_repair_new clears its whole
      footprint on every run. */
   ulong slot_max = 1UL;
   for( ulong k=0UL; k<completed_cnt; k++ ) {
     if( completed[ k ].slot>input->root_slot ) slot_max = fd_ulong_max( slot_max, completed[ k ].slot-input->root_slot+1UL );
   }
   FD_TEST( slot_max<=RESOLVER_SLOT_MAX );
-  ulong        fec_max     = fd_ulong_max( completed_cnt, 1UL );
-  ulong        fec_blk_max = FD_SHRED_PROTOCOL_BLK_MAX/FD_FEC_SHRED_CNT;
-  void *       rotor_mem   = fd_spad_alloc( runner->spad, fd_rotor_align(), fd_rotor_footprint( slot_max, fec_max, fec_blk_max ) );
-  fd_rotor_t * rotor       = fd_rotor_join( fd_rotor_new( rotor_mem, slot_max, fec_max, fec_blk_max, 0UL ) );
+  ulong         fec_max     = fd_ulong_max( completed_cnt, 1UL );
+  ulong         fec_blk_max = FD_SHRED_PROTOCOL_BLK_MAX/FD_FEC_SHRED_CNT;
+  void *        rotor_mem   = fd_spad_alloc( runner->spad, fd_repair_align(), fd_repair_footprint( slot_max, fec_max, fec_blk_max ) );
+  fd_repair_t * rotor       = fd_repair_join( fd_repair_new( rotor_mem, slot_max, fec_max, fec_blk_max, 0UL ) );
   FD_TEST( rotor );
-  fd_rotor_init( rotor, input->root_slot, &root_blk_mr, NULL, NULL );
+  fd_repair_init( rotor, input->root_slot, &root_blk_mr, NULL, NULL );
 
   /* Bank index of each rotor blk, UINT_MAX until its FEC set 0 is
      ingested.  Rotor never frees a blk here, so a blk pool idx names
      one blk for the whole run. */
-  ulong  blk_max      = fd_rotor_blk_pool_max( rotor->blk_pool );
+  ulong  blk_max      = fd_repair_blk_pool_max( rotor->blk_pool );
   uint * blk_bank_idx = fd_spad_alloc( runner->spad, alignof(uint), sizeof(uint)*blk_max );
   for( ulong j=0UL; j<blk_max; j++ ) blk_bank_idx[ j ] = UINT_MAX;
-  blk_bank_idx[ fd_rotor_blk_pool_idx( rotor->blk_pool, rotor->root_blk ) ] = 0U;
+  blk_bank_idx[ fd_repair_blk_pool_idx( rotor->blk_pool, rotor->root_blk ) ] = 0U;
 
   for( ulong k=0UL; k<completed_cnt; k++ ) {
     fd_shred_completed_fec_t * rec = &completed[ k ];
 
-    /* Step 3: fd_rotor_shred_insert() and fd_rotor_fec_complete()
+    /* Step 3: fd_repair_shred_insert() and fd_repair_fec_complete()
        Give rotor the FEC set's data shreds, then its completion, with
        the rotor tile's window and parent filters. */
     if( !rec->chained ) continue;
@@ -361,22 +361,22 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     for( ulong i=0UL; i<rec->num_data_shreds; i++ ) {
       shred = (fd_shred_t const *)( rec->data_shreds + i*FD_SHRED_MIN_SZ );
       ok    = shred->data.parent_off && shred->data.parent_off<=shred->slot-input->root_slot;
-      if( ok ) fd_rotor_shred_insert( rotor, shred, &rec->mr, 0, 0L );
+      if( ok ) fd_repair_shred_insert( rotor, shred, &rec->mr, 0, 0L );
     }
-    if( ok ) fd_rotor_fec_complete( rotor, shred, &rec->mr, 0, 0U, 0U, 0U, 0U, 0U, 0U, 0L );
+    if( ok ) fd_repair_fec_complete( rotor, shred, &rec->mr, 0, 0U, 0U, 0U, 0U, 0U, 0U, 0L );
 
     /* Rotor invalidates a slot for a bad block header, conflicting
        parents or an equivocating FEC set, and never delivers it. */
-    if( fd_rotor_slot_meta( rotor, rec->slot )->invalidated ) {
+    if( fd_repair_slot_meta( rotor, rec->slot )->invalidated ) {
       effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
     }
 
     /* Step 4: pop rotor's reasm deque and fd_sched_fec_ingest() while
        there are delivered FEC sets remaining. */
-    while( !fd_rotor_deque_empty( rotor->reasm_deque ) ) {
-      fd_rotor_deque_t       out = fd_rotor_deque_pop_head( rotor->reasm_deque );
-      fd_rotor_blk_t const * blk = fd_rotor_blk_pool_ele_const( rotor->blk_pool, out.blk_idx );
-      fd_rotor_fec_t const * fec = fd_rotor_fec_pool_ele_const( rotor->fec_pool, blk->fecs[ out.fec_idx ] );
+    while( !fd_repair_deque_empty( rotor->reasm_deque ) ) {
+      fd_repair_deque_t       out = fd_repair_deque_pop_head( rotor->reasm_deque );
+      fd_repair_blk_t const * blk = fd_repair_blk_pool_ele_const( rotor->blk_pool, out.blk_idx );
+      fd_repair_fec_t const * fec = fd_repair_fec_pool_ele_const( rotor->fec_pool, blk->fecs[ out.fec_idx ] );
 
       /* Query our "store"-adjacent structure (completed) for the FEC
          set payload */

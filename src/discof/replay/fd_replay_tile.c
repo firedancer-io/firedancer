@@ -42,7 +42,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/events/fd_event_runtime.h"
 #include "../../disco/events/generated/fd_event_gen.h"
-#include "../rotor/fd_rotor_tile.h"
+#include "../../disco/repair/fd_repair_tile.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack_tmpl.h"
 
@@ -760,7 +760,7 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
                                       ulong                        bank_idx ) {
   ev->lowest_verified_fec_index    = 0U;
   ev->last_completed_fec_set_index = UINT_MAX;
-  fd_rotor_fec_metrics_t const * rm = NULL;
+  fd_repair_fec_metrics_t const * rm = NULL;
 
     fd_bank_t const * bank = bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, bank_idx );
     if( FD_UNLIKELY( !bank ) ) return;
@@ -2919,9 +2919,9 @@ live_block_id_ele( fd_replay_tile_t *  ctx,
 }
 
 static int
-can_process_rotor_fec( fd_replay_tile_t      * ctx,
-                       fd_rotor_replay_fec_t * fec,
-                       int *                   evict_banks_out ) {
+can_process_rotor_fec( fd_replay_tile_t       * ctx,
+                       fd_repair_replay_fec_t * fec,
+                       int *                    evict_banks_out ) {
   /* We can process a FEC set if a few conditions are met:
      - sched has capacity
      - banks has capacity.  Evict if we don't (see below)
@@ -3603,9 +3603,9 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
    All FECs processed by this function must be safe to be forever
    removed from the dcache. */
 static void
-process_rotor_fec( fd_replay_tile_t      * ctx,
-                   fd_stem_context_t     * stem,
-                   fd_rotor_replay_fec_t * fec ) {
+process_rotor_fec( fd_replay_tile_t       * ctx,
+                   fd_stem_context_t      * stem,
+                   fd_repair_replay_fec_t * fec ) {
   if( FD_LIKELY( fec->metrics.highest_fec_complete_slot && ( ctx->catch_up_max_fec_slot==ULONG_MAX || fec->metrics.highest_fec_complete_slot>ctx->catch_up_max_fec_slot ) ) ) {
     ctx->catch_up_max_fec_slot = fec->metrics.highest_fec_complete_slot;
     ctx->catch_up_tip_advance_cnt++;
@@ -3721,7 +3721,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
        map does not support duplicate keys: rotor guarantees at most one
        delivery stream per block (a turbine copy of a slot with a
        votor-driven version is abandoned in the rotor, see
-       fd_rotor_tile.h), so {slot, block_id} can never already be
+       fd_repair_tile.h), so {slot, block_id} can never already be
        occupied by another LIVE bank.  It can however be occupied by a
        STALE entry: a previously-completed copy of this block whose bank
        was evicted (eviction does not remove map entries), now being
@@ -4169,7 +4169,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
       /* process rotor incoming FECs. 1 to keep frag for retry, returning 0 consumes it. */
 
-      fd_rotor_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( !( ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader ) ) ) return 1; /* pace behind exec notifications, retry */
 
       int evict_banks = 0;

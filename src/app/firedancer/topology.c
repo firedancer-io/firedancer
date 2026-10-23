@@ -6,7 +6,6 @@
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../discof/gossip/fd_gossip_tile.h"
 #include "../../discof/resolv/fd_resolv_tile.h"
-#include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
@@ -16,8 +15,9 @@
 #include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/store/fd_store.h"
-#include "../../discof/rotor/fd_rotor_tile.h"
-#include "../../choreo/rotor/fd_rotor.h"
+#include "../../disco/repair/fd_repair_tile.h"
+#include "../../disco/repair/fd_repair.h"
+#include "../../disco/repair/fd_repair_serde.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/backup/fd_backup.h"
 #include "../../discof/restore/fd_snapct_tile.h"
@@ -455,7 +455,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "rserve_net",    "net_rserve",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
     /**/               fd_topob_link( topo, "rserve_sign",   "rserve_sign",   128UL,                                    32UL,                          1UL );
     /**/               fd_topob_link( topo, "sign_rserve",   "sign_rserve",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
-    /**/               fd_topob_link( topo, "rotor_rserve",  "rotor_rserve",  2048UL,                                   sizeof(fd_rotor_block_t),      1UL );
+    /**/               fd_topob_link( topo, "rotor_rserve",  "rotor_rserve",  2048UL,                                   sizeof(fd_repair_block_t),     1UL );
   }
 
   if( FD_LIKELY( snapshots_enabled ) ) {
@@ -527,11 +527,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_sign",   "gossip_sign",   128UL,                                    2048UL,                        1UL ); /* TODO: Where does 2048 come from? Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_gossip",   "sign_gossip",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",   "repair_sign",   256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL ); /* See repair_tile.c for explanation */
+  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",   "repair_sign",   256UL,                                    FD_REPAIR_SIG_SER_MAX,         1UL ); /* See repair_tile.c for explanation */
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",   "sign_repair",   256UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    FD_SHRED_STEM_BURST );
-  /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    repair_out_depth,                         sizeof(fd_rotor_replay_fec_t), 1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),     FD_SHRED_STEM_BURST );
+  /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    repair_out_depth,                         sizeof(fd_repair_replay_fec_t), 1UL );
 
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
@@ -1141,8 +1141,8 @@ fd_topo_initialize( config_t * config ) {
       P(V > budget) to z standard deviations needs a budget of
       ~N*(2.2 + 4.8*z/sqrt(N)).
 
-      We size for 2.5*N (FD_ROTOR_BLK_VERSION_NUM/DEN, the same factor
-      rotor sizes its blk pool with, see fd_rotor_blk_max), which leaves
+      We size for 2.5*N (FD_REPAIR_BLK_VERSION_NUM/DEN, the same factor
+      rotor sizes its blk pool with, see fd_repair_blk_max), which leaves
       0.3*N of headroom, ie. ~0.0625*sqrt(N) standard deviations.  The
       probability that a window holds more than 2.5*N versions is:
 
@@ -1159,7 +1159,7 @@ fd_topo_initialize( config_t * config ) {
 
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
-  ulong store_fec_max = fd_rotor_blk_max( config->firedancer.runtime.max_live_slots ) * fec_sets_per_slot; /* every FEC set of every blk rotor holds */
+  ulong store_fec_max = fd_repair_blk_max( config->firedancer.runtime.max_live_slots ) * fec_sets_per_slot; /* every FEC set of every blk rotor holds */
 
   /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true
      67 shreds * 955 payload bytes = 63985 bytes with fixed_fec_sets = false */

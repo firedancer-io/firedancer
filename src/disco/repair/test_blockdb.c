@@ -1,5 +1,5 @@
-#include "fd_blockdb.h"
-#include "fd_repair.h"
+#include "fd_rserve.h"
+#include "fd_repair_serde.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
 #define ELE_MAX (4UL)
@@ -112,47 +112,53 @@ test_proofs( fd_blockdb_t * db,
   fd_blockdb_blk_t const * blk = fd_blockdb_insert( db, slot, &bid, parent, &parent_id, fec_set_cnt, (uchar const *)roots );
   FD_TEST( blk );
 
-  uchar proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ];
-  uchar buf[ AG_REPAIR_RESPONSE_MAX_SZ ];
-  ag_repair_response_t res[1];
-  ulong expected_len = fd_bmtree_depth( fec_set_cnt+1UL )-1UL;
+  uchar     proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ];
+  uchar     buf[ FD_REPAIR_RES_DE_MAX ];
+  uint      res_fec_set_cnt;
+  ulong     res_parent;
+  fd_hash_t res_parent_id;
+  uchar     res_root[ FD_SHRED_MERKLE_NODE_SZ ];
+  uchar     res_proof[ FD_REPAIR_PROOF_MAX ];
+  ulong     res_proof_sz;
+  uint      res_nonce;
+  ulong     expected_len = fd_bmtree_depth( fec_set_cnt+1UL )-1UL;
 
   /* Parent-info leaf */
   int len = fd_blockdb_proof( db, blk, fec_set_cnt, proof );
   FD_TEST( len==(int)expected_len );
-  ulong sz = ag_repair_parent_fec_count_ser( buf, sizeof(buf), fec_set_cnt, parent, &parent_id, proof, (ulong)len, 0xABCD1234U );
+  ulong sz = fd_repair_res_parent_fec_set_count_ser( fec_set_cnt, parent, &parent_id, proof, (ulong)len*FD_SHRED_MERKLE_NODE_SZ, 0xABCD1234U, buf, sizeof(buf) );
   FD_TEST( sz );
-  FD_TEST( !ag_repair_response_de( res, buf, sz, FD_FEC_BLK_MAX ) );
-  FD_TEST( res->kind==AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT && res->nonce==0xABCD1234U );
-  FD_TEST( res->parent_fec_set_res.fec_set_count==fec_set_cnt && res->parent_fec_set_res.parent_slot==parent );
-  FD_TEST( !ag_repair_parent_fec_count_verify( &res->parent_fec_set_res, &bid ) );
+  FD_TEST( fd_repair_res_parent_fec_set_count_de( buf, sz, &res_fec_set_cnt, &res_parent, &res_parent_id, res_proof, &res_proof_sz, &res_nonce )==sz );
+  FD_TEST( res_nonce==0xABCD1234U );
+  FD_TEST( res_fec_set_cnt==fec_set_cnt && res_parent==parent );
+  FD_TEST( !fd_repair_res_parent_fec_set_count_verify( res_fec_set_cnt, res_parent, &res_parent_id, res_proof, res_proof_sz, &bid ) );
 
   /* A wrong block id or a flipped proof bit must not verify */
   fd_hash_t other = bid; other.uc[ 0 ] ^= 1;
-  FD_TEST( ag_repair_parent_fec_count_verify( &res->parent_fec_set_res, &other ) );
+  FD_TEST( fd_repair_res_parent_fec_set_count_verify( res_fec_set_cnt, res_parent, &res_parent_id, res_proof, res_proof_sz, &other ) );
   if( len ) {
-    res->parent_fec_set_res.parent_proof[ 0 ][ 0 ] ^= 1;
-    FD_TEST( ag_repair_parent_fec_count_verify( &res->parent_fec_set_res, &bid ) );
+    res_proof[ 0 ] ^= 1;
+    FD_TEST( fd_repair_res_parent_fec_set_count_verify( res_fec_set_cnt, res_parent, &res_parent_id, res_proof, res_proof_sz, &bid ) );
   }
 
   /* Every FEC root leaf */
   for( uint k=0U; k<fec_set_cnt; k++ ) {
     len = fd_blockdb_proof( db, blk, k, proof );
     FD_TEST( len==(int)expected_len );
-    sz = ag_repair_fec_set_root_ser( buf, sizeof(buf), blk->merkle_roots[ k ], proof, (ulong)len, k );
+    sz = fd_repair_res_fec_set_root_ser( blk->merkle_roots[ k ], proof, (ulong)len*FD_SHRED_MERKLE_NODE_SZ, k, buf, sizeof(buf) );
     FD_TEST( sz );
-    FD_TEST( !ag_repair_response_de( res, buf, sz, FD_FEC_BLK_MAX ) );
-    FD_TEST( res->kind==AG_REPAIR_RESPONSE_FEC_SET_ROOT && res->nonce==k );
-    FD_TEST( !memcmp( res->fec_set_root.root, full_roots[ k ].uc, FD_SHRED_MERKLE_NODE_SZ ) );
-    FD_TEST( !ag_repair_fec_set_root_verify( &res->fec_set_root, &bid, k*FD_FEC_SHRED_CNT, fec_set_cnt ) );
-    if( fec_set_cnt>1U ) FD_TEST( ag_repair_fec_set_root_verify( &res->fec_set_root, &bid, ((k+1U)%fec_set_cnt)*FD_FEC_SHRED_CNT, fec_set_cnt ) );
+    FD_TEST( fd_repair_res_fec_set_root_de( buf, sz, res_root, res_proof, &res_proof_sz, &res_nonce )==sz );
+    FD_TEST( res_nonce==k );
+    FD_TEST( !memcmp( res_root, full_roots[ k ].uc, FD_SHRED_MERKLE_NODE_SZ ) );
+    FD_TEST( !fd_repair_res_fec_set_root_verify( res_root, res_proof, res_proof_sz, &bid, k*FD_FEC_SHRED_CNT, fec_set_cnt ) );
+    if( fec_set_cnt>1U ) FD_TEST( fd_repair_res_fec_set_root_verify( res_root, res_proof, res_proof_sz, &bid, ((k+1U)%fec_set_cnt)*FD_FEC_SHRED_CNT, fec_set_cnt ) );
   }
 
   /* Past the parent-info leaf */
   FD_TEST( fd_blockdb_proof( db, blk, fec_set_cnt+1UL, proof )==-1 );
 
   /* Serializers refuse a short buffer */
-  FD_TEST( !ag_repair_fec_set_root_ser( buf, 8UL, blk->merkle_roots[ 0 ], proof, expected_len, 0U ) );
+  FD_TEST( !fd_repair_res_fec_set_root_ser( blk->merkle_roots[ 0 ], proof, expected_len*FD_SHRED_MERKLE_NODE_SZ, 0U, buf, 8UL ) );
 }
 
 int

@@ -1,7 +1,7 @@
 #define _GNU_SOURCE /* dup3 */
 #include "fd_sock_tile_private.h"
 #include "../../fd_disco_base.h"
-#include "../../../discof/repair/fd_repair.h"
+#include "../../../disco/repair/fd_repair_serde.h"
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
@@ -493,7 +493,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
        repair response (identified by the frame size), then it is sent
        to the repair tile.  The repair tile does not own any sockets, so
        we look up the net_repair link directly. */
-    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && payload_sz<=AG_REPAIR_RESPONSE_MAX_SZ ) ) {
+    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && payload_sz<=FD_REPAIR_RES_DE_MAX ) ) {
       fd_sock_link_rx_t * repair_link = ctx->link_rx + ctx->repair_rx;
       uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
       memcpy( repair_buf, eth_hdr, frame_sz );
