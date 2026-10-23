@@ -46,6 +46,14 @@ fd_topo_cpus_printf( fd_topo_cpus_t * cpus );
 int
 fd_topo_cpus_l3_complete( fd_topo_cpus_t const * cpus );
 
+/* fd_topo_cpus_free_dies sets free_cpus to the online CPUs on dies
+   with no CPU in used, skipping CPUs with an unknown die. */
+
+fd_cpuset_t *
+fd_topo_cpus_free_dies( fd_topo_cpus_t const * cpus,
+                        fd_cpuset_t const *    used,
+                        fd_cpuset_t *          free_cpus );
+
 /* fd_topo_cpus_floating computes where the launcher runs unpinned
    tiles, given launch, the launcher's affinity.  float_cpu_set gets the
    CPUs of the floats tiles minus pinned CPUs and their siblings.

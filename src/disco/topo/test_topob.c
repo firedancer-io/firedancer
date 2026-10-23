@@ -786,6 +786,51 @@ FD_UNIT_TEST( test_adjacent_siblings ) {
   }
 }
 
+/* Tiles fill whole dies from die 1 and use CPU 0's die last */
+FD_UNIT_TEST( test_die_order ) {
+  for( int efficient=0; efficient<2; efficient++ ) {
+    fd_topo_cpus_t cpus[1];
+    make_cpus( cpus, 64, efficient ? 8UL : 0UL );
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) cpus->cpu[ i ].die_idx = (i%64UL)<8UL ? 0UL : 8UL-(i%64UL)/8UL; /* CPUs 8.. on dies 7..1 */
+    static fd_topo_t _topo[1];
+    fd_topo_t * topo = _topo;
+    fd_memset( topo, 0, sizeof(*topo) );
+    make_tiles( topo, efficient ? FIREDANCER_EFF_TILES : FIREDANCER_TILES );
+    set_blocklist( topo, BLOCKLIST_0H( 64 ) );
+    topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX;
+    fd_topob_auto_layout_cpus( topo, cpus );
+
+    ulong used = 0UL; /* bit per die */
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      ulong cpu = topo->tiles[ i ].cpu_idx;
+      if( cpu!=ULONG_MAX ) used |= 1UL<<cpus->cpu[ cpu ].die_idx;
+    }
+    FD_TEST( used==0x3eUL ); /* dies 1-5, leaving 0, 6 and 7 */
+  }
+}
+
+/* Free dies: two dies of 2 cores, CPU 1 used */
+FD_UNIT_TEST( test_free_dies ) {
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 4, 0UL );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) cpus->cpu[ i ].die_idx = (i%4UL)/2UL;
+  FD_CPUSET_DECL( used ); fd_cpuset_insert( used, 1UL );
+  FD_CPUSET_DECL( free_cpus );
+  fd_topo_cpus_free_dies( cpus, used, free_cpus );
+  FD_TEST( fd_cpuset_cnt( free_cpus )==4UL );
+  for( ulong i=2UL; i<4UL; i++ ) FD_TEST( fd_cpuset_test( free_cpus, i ) && fd_cpuset_test( free_cpus, i+4UL ) );
+
+  fd_cpuset_insert( used, 6UL ); /* both dies used */
+  FD_TEST( fd_cpuset_is_null( fd_topo_cpus_free_dies( cpus, used, free_cpus ) ) );
+
+  cpus->cpu[ 7 ].online = 0; /* offline CPUs are never free */
+  fd_cpuset_remove( used, 6UL );
+  FD_TEST( fd_cpuset_cnt( fd_topo_cpus_free_dies( cpus, used, free_cpus ) )==3UL );
+
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) cpus->cpu[ i ].die_idx = ULONG_MAX; /* unknown dies */
+  FD_TEST( fd_cpuset_is_null( fd_topo_cpus_free_dies( cpus, used, free_cpus ) ) );
+}
+
 /* "Nh" on the upper sibling of a pair covers the pair */
 FD_UNIT_TEST( test_parse_affinity_upper_sibling ) {
   ulong sibling = fd_tile_private_sibling_idx( 0UL );

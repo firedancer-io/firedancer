@@ -366,6 +366,8 @@ The `kworkers` stage removes tile CPUs from the unbound workqueue mask
 at `/sys/devices/virtual/workqueue/cpumask`, so deferred kernel work
 runs on the remaining housekeeping CPUs instead.
 
+Changing the mask can stall kernel drivers in rare cases due to a bug in some kernel versions. To mitigate this, the auto layout keeps unbound kernel workqueues and Firedancer tiles assigned to CPUs on disjoint dies (best effort). This prevents the kworker mask from being changed unless a significant layout change requires it.
+
 Per-CPU (bound) kworkers are unaffected: they only run work generated
 on their own CPU, which the `irq-affinity` and `cpuset` stages
 minimize. Note that changing the mask only affects newly queued work,
@@ -374,11 +376,9 @@ silent.
 
 <<< @/snippets/kworkers.ansi
 
-The `init` mode requires root privileges. The `fini` mode restores the
-mask to all host CPUs, which is the kernel default (if the operator
-had customized the mask before `init`, that customization is not
-restored). The stage is skipped on kernels that do not expose the
-workqueue mask.
+The `init` mode requires root privileges. There is no `fini`;
+the mask stays in place until reboot. The stage is skipped on kernels
+that do not expose the workqueue mask.
 
 ## cpuset
 The `cpuset` stage creates a cgroup v2 cpuset partition in "isolated"

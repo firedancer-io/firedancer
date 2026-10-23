@@ -1,5 +1,5 @@
 $ sudo firedancer configure init kworkers
-[32mNOTICE [0m [1mkworkers[0m ... unconfigured ... [2mkernel workqueue cpumask includes Firedancer tile CPUs or their isolated siblings 1-35,65-66,90-99[0m
+[32mNOTICE [0m [1mkworkers[0m ... unconfigured ... [2mkernel workqueue cpumask is not CPUs 0-7,48-71,112-127[0m
 [32mNOTICE [0m [1mkworkers[0m ... configuring
-[32mNOTICE [0m [2mRUN: `echo "fffffff0,03fffff9,fffffff0,00000001" > /sys/devices/virtual/workqueue/cpumask`[0m
-[32mNOTICE [0m kernel workqueue cpumask changed while writing `/sys/devices/virtual/workqueue/cpumask`: ffffffff,ffffffff,ffffffff,ffffffff -> fffffff0,03fffff9,fffffff0,00000001 (kernel 7.0.0-34-generic). 
+[32mNOTICE [0m [2mRUN: `echo "ffff0000,000000ff,ffff0000,000000ff" > /sys/devices/virtual/workqueue/cpumask`[0m
+[32mNOTICE [0m kernel workqueue cpumask changed while writing `/sys/devices/virtual/workqueue/cpumask`: ffffffff,ffffffff,ffffffff,ffffffff -> ffff0000,000000ff,ffff0000,000000ff (kernel 7.0.0-34-generic). 
