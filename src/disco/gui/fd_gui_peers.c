@@ -175,6 +175,8 @@ fd_gui_peers_new( void *             shmem,
       ctx->epochs[ i ].epoch      = ULONG_MAX;
       ctx->epochs[ i ].stakes_cnt = 0UL;
     }
+    ctx->delinquency.epoch     = ULONG_MAX;
+    ctx->delinquency.reconcile = 0;
 
     ctx->next_client_nanos              = now;
     ctx->next_metric_rate_update_nanos  = now;
@@ -676,6 +678,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           fd_gui_ema_init( &peer->row.gossip_tx_sum.rate_ema, now, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
           peer->row.has_vote_info = 0;
           peer->row.stake = ULONG_MAX;
+          peer->row.delinquent = 0;
 
           /* Backfill stake from already-received epoch data.  This
              handles the case where epoch info arrived before this peer
@@ -702,6 +705,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
             peer->row.has_vote_info = 1;
             peer->row.vote_account  = best_weight.vote_key;
             peer->row.stake         = best_weight.stake;
+            peers->delinquency.reconcile = 1;
           }
 
           fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, fd_type_pun_const(update->origin ), NULL, peers->node_info_pool );
@@ -808,6 +812,7 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
     stakes_cnt++;
   }
   peers->epochs[ epoch_idx ].epoch      = epoch_info->epoch;
+  peers->epochs[ epoch_idx ].start_slot = epoch_info->start_slot;
   peers->epochs[ epoch_idx ].stakes_cnt = stakes_cnt;
 
   /* sort for deduplication */
@@ -842,13 +847,103 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
     peers->scratch.idxs   [ updated_cnt ] = peer_idx;
     updated_cnt++;
   }
+  if( FD_UNLIKELY( updated_cnt ) ) {
+    peers->delinquency.reconcile = 1;
+    fd_gui_peers_printf_nodes( peers, peers->scratch.actions, peers->scratch.idxs, updated_cnt );
+    fd_http_server_ws_broadcast( peers->http );
+  }
+}
+
+/* https://github.com/anza-xyz/agave/blob/v4.2.1/rpc-client-types/src/request.rs#L166 */
+#define FD_GUI_PEERS_DELINQUENT_SLOT_DISTANCE 128UL
+
+void
+fd_gui_peers_handle_slot_completed( fd_gui_peers_ctx_t *      peers,
+                                    ulong                     slot,
+                                    ulong                     epoch,
+                                    fd_block_footer_t const * footer ) {
+  if( FD_UNLIKELY( slot<FD_NUM_SLOTS_FOR_REWARD ) ) return;
+  ulong reward_slot = slot-FD_NUM_SLOTS_FOR_REWARD;
+
+  ulong epoch_idx = epoch % 2UL;
+  if( FD_UNLIKELY( peers->epochs[ epoch_idx ].epoch!=epoch || reward_slot<peers->epochs[ epoch_idx ].start_slot ) ) return;
+
+  /* Forks can complete an epoch E block after an epoch E+1 one. */
+  if( FD_UNLIKELY( peers->delinquency.epoch!=ULONG_MAX && epoch<peers->delinquency.epoch ) ) return;
+  if( FD_UNLIKELY( peers->delinquency.epoch!=epoch ) ) {
+    /* Ranks are remapped every epoch */
+    fd_memset( peers->delinquency.last_voted, 0, sizeof(peers->delinquency.last_voted) );
+    peers->delinquency.epoch        = epoch;
+    peers->delinquency.last_settled = 0UL;
+    peers->delinquency.stamp_since  = ULONG_MAX;
+    peers->delinquency.reconcile    = 1;
+  }
+  peers->delinquency.last_settled = fd_ulong_max( peers->delinquency.last_settled, reward_slot );
+
+  fd_bls_set_t reward_set[ fd_bls_set_word_cnt ];
+  fd_bls_set_null( reward_set );
+  if( FD_UNLIKELY( footer->has_skip_reward_cert  ) ) fd_bls_set_union( reward_set, reward_set, footer->skip_reward_cert.signer_set  );
+  if( FD_LIKELY  ( footer->has_notar_reward_cert ) ) fd_bls_set_union( reward_set, reward_set, footer->notar_reward_cert.signer_set );
+  if( FD_LIKELY( !fd_bls_set_is_null( reward_set ) && peers->delinquency.stamp_since==ULONG_MAX ) ) peers->delinquency.stamp_since = reward_slot;
+  for( ulong rank=fd_bls_set_const_iter_init( reward_set );
+       !fd_bls_set_const_iter_done( rank );
+       rank=fd_bls_set_const_iter_next( reward_set, rank ) ) {
+    peers->delinquency.last_voted[ rank ] = fd_ulong_max( peers->delinquency.last_voted[ rank ], reward_slot );
+  }
+
+  /* Until a full delinquency window has been watched this epoch, every
+     validator would read delinquent, so keep the previous values instead. */
+  if( FD_UNLIKELY( peers->delinquency.stamp_since==ULONG_MAX || peers->delinquency.last_settled<peers->delinquency.stamp_since+FD_GUI_PEERS_DELINQUENT_SLOT_DISTANCE ) ) return;
+
+  ulong updated_cnt = 0UL;
+  ulong i=0UL;
+  while( i<peers->epochs[ epoch_idx ].stakes_cnt ) {
+    fd_gui_peers_voter_t const * best = fd_gui_peers_voter_best_for_identity( peers->epochs[ epoch_idx ].stakes, peers->epochs[ epoch_idx ].stakes_cnt, &i );
+
+    ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query(
+        peers->node_pubkey_map, &best->weight.id_key, ULONG_MAX,
+        peers->contact_info_table );
+    if( FD_UNLIKELY( peer_idx==ULONG_MAX ) ) continue;
+    fd_gui_peers_node_t * peer = &peers->contact_info_table[ peer_idx ];
+
+    ushort rank       = best->weight.rank;
+    int    delinquent = rank>=FD_BLS_SET_MAX || fd_ulong_sat_sub( peers->delinquency.last_settled, peers->delinquency.last_voted[ rank ] )>=FD_GUI_PEERS_DELINQUENT_SLOT_DISTANCE;
+    if( FD_LIKELY( peer->row.delinquent==delinquent ) ) continue;
+    peer->row.delinquent = delinquent;
+
+    peers->scratch.actions[ updated_cnt ] = FD_GUI_PEERS_NODE_UPDATE;
+    peers->scratch.idxs   [ updated_cnt ] = peer_idx;
+    updated_cnt++;
+  }
+
+  /* Peers holding vote info from another epoch's stakes (e.g. dropped
+     from this epoch's set) cannot sign this epoch's reward certs.  The
+     loop above never visits them, so sweep the table whenever the set
+     of such peers may have grown. */
+  if( FD_UNLIKELY( peers->delinquency.reconcile ) ) {
+    peers->delinquency.reconcile = 0;
+    fd_gui_peers_voter_t const * stakes = peers->epochs[ epoch_idx ].stakes;
+    ulong                        cnt    = peers->epochs[ epoch_idx ].stakes_cnt;
+    for( ulong peer_idx=0UL; peer_idx<FD_CONTACT_INFO_TABLE_SIZE; peer_idx++ ) {
+      fd_gui_peers_node_t * peer = &peers->contact_info_table[ peer_idx ];
+      if( FD_LIKELY( !peer->row.valid || !peer->row.has_vote_info || peer->row.delinquent ) ) continue;
+
+      fd_gui_peers_voter_t query = { .weight = { .id_key = peer->row.pubkey } };
+      ulong idx = fd_gui_peers_voter_sort_iden_desc_split( stakes, cnt, query );
+      if( FD_LIKELY( idx<cnt && !memcmp( stakes[ idx ].weight.id_key.uc, peer->row.pubkey.uc, sizeof(fd_pubkey_t) ) ) ) continue;
+      peer->row.delinquent = 1;
+
+      peers->scratch.actions[ updated_cnt ] = FD_GUI_PEERS_NODE_UPDATE;
+      peers->scratch.idxs   [ updated_cnt ] = peer_idx;
+      updated_cnt++;
+    }
+  }
 
   if( FD_UNLIKELY( updated_cnt ) ) {
     fd_gui_peers_printf_nodes( peers, peers->scratch.actions, peers->scratch.idxs, updated_cnt );
     fd_http_server_ws_broadcast( peers->http );
   }
 }
-
 
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,

@@ -474,6 +474,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_replay_slot_completed_t const * slot_completed =  (fd_replay_slot_completed_t const *)src;
 
         fd_gui_handle_replay_update( ctx->gui, slot_completed, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_peers_handle_slot_completed( ctx->peers, slot_completed->slot, slot_completed->epoch, &slot_completed->footer );
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t * became_leader = (fd_became_leader_t *)src;
         fd_gui_became_leader( ctx->gui, became_leader->slot, became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot, became_leader->bank_seq );

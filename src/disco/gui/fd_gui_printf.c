@@ -1908,7 +1908,7 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
           jsonp_ulong( peers->http, "epoch_credits", 0UL ); /* todo: deprecate */
           jsonp_ulong( peers->http, "commission", 0UL ); /* todo: deprecate */
           jsonp_ulong( peers->http, "root_slot", 0UL ); /* todo: deprecate */
-          jsonp_bool( peers->http,  "delinquent", 0 );
+          jsonp_bool( peers->http,  "delinquent", peer->row.delinquent );
         jsonp_close_object( peers->http );
       jsonp_close_array( peers->http );
     }
