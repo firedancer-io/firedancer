@@ -1941,6 +1941,8 @@ deliberate exception with lint-allow="<rule id>")
     <int value="11" name="TimelineDay" label="timeline_day" />
     <int value="12" name="ReplayTxn" label="replay_txn" />
     <int value="13" name="TimelineTileDay" label="timeline_tile_day" />
+    <int value="14" name="FecEvents" label="fec_events" />
+    <int value="15" name="FecEventArchive" label="fec_event_archive" />
 </enum>
 
 <enum name="EventConnState">
