@@ -2981,7 +2981,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
     ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
     parent = fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &parent_key, NULL, ctx->block_id_arr );
-    if( FD_UNLIKELY( !parent ) ) {
+    if( FD_UNLIKELY( !parent || !parent->block_id_seen ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->parent_block_id.uc, parent_key_b58 );
       FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u, parent slot %lu parent block_id %s", fec->slot, fec->fec_set_idx, fec->parent_slot, parent_key_b58 ));
 
