@@ -485,13 +485,11 @@ struct fd_replay_tile {
   fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ];
 
   ulong       next_leader_slot;
-  long        next_leader_tickcount;
 
 
   ulong next_leader_query_start;
   ulong next_leader_query_slot;
 
-  double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
   ulong       epoch_end_slot;
