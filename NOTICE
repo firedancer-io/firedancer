@@ -598,3 +598,32 @@ https://github.com/madler/zlib
 Copyright (C) 1995-2022 Jean-loup Gailly and Mark Adler
 
 See src/third_party/zlib/LICENSE for the full license text.
+
+=======================================================================
+
+The radix-51 AVX-512 IFMA field arithmetic (convolution and carry
+organization) in src/ballet/ed25519/avx512/fd_ed25519_lane.h is adapted
+from Narya internal/r51x5/ifma_amd64.s and its arithmetic assurance
+notes (docs/R51_ARITHMETIC_ASSURANCE.md) at commit
+c265ee9667131a556cd332c252b79de0860c7640.
+
+https://github.com/Overclock-Validator/narya-ed25519/tree/c265ee9667131a556cd332c252b79de0860c7640
+
+From
+https://github.com/Overclock-Validator/narya-ed25519/blob/c265ee9667131a556cd332c252b79de0860c7640/NOTICE#L1:
+
+Narya
+Copyright 2026 Overclock Validator
+
+This product includes software developed at Overclock Validator
+(https://github.com/Overclock-Validator).
+
+Licensed under the Apache License, Version 2.0; see LICENSE.
+
+Narya licensing details (the LICENSE referred to above) can be found
+at:
+
+  https://github.com/Overclock-Validator/narya-ed25519/blob/c265ee9667131a556cd332c252b79de0860c7640/LICENSE
+
+Further description of the modifications can be found in the
+implementation itself.
