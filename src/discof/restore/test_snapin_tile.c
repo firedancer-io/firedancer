@@ -3297,6 +3297,7 @@ wfs_manifest_setup( fd_snapin_tile_t * ctx,
   m->slot                = slot;
   m->parent_slot         = slot ? (slot-1UL) : 0UL;
   m->has_accounts_lthash = 1;
+  m->has_block_id        = 1;
   m->blockhashes_len     = 1UL;
   m->ticks_per_slot      = 64UL;
   /* accounts_lthash, parent_bank_hash, blockhashes[0].hash, signature_count
