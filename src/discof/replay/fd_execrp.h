@@ -44,7 +44,7 @@ typedef struct fd_execrp_txn_sigverify_msg fd_execrp_txn_sigverify_msg_t;
 struct fd_execrp_poh_hash_msg {
   ulong     bank_idx;
   ulong     cnt;     /* In [1,FD_EXECRP_POH_PARA] */
-  ulong     hashcnt; /* Same for every element of the batch */
+  ulong     hashcnt; /* 0 or 1, same for every element of the batch */
   fd_hash_t hash[ FD_EXECRP_POH_PARA ];
 };
 typedef struct fd_execrp_poh_hash_msg fd_execrp_poh_hash_msg_t;

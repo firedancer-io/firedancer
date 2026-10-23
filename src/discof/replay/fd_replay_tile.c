@@ -685,8 +685,7 @@ replay_block_start( fd_replay_tile_t * ctx,
      tick height to max tick height - 1. These fields must stay in
      line with agave behavior. */
   bank->f.tick_height = bank->f.max_tick_height - 1UL;
-  bank->f.slot_params.hashes_per_tick = 1UL;
-  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick, &parent_bank->f.poh );
+  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
@@ -721,13 +720,6 @@ sched_dead_reason_to_event( int sched_reason ) {
     case FD_SCHED_DEAD_REASON_TRAILING_ENTRY:              return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TRAILING_ENTRY;
     case FD_SCHED_DEAD_REASON_TOO_MANY_TICKS:              return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_TICKS;
     case FD_SCHED_DEAD_REASON_TOO_FEW_TICKS:               return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TOO_FEW_TICKS;
-    case FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS:            return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_MICROBLOCKS;
-    case FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK:       return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_WRONG_HASHES_PER_TICK;
-    case FD_SCHED_DEAD_REASON_INCONSISTENT_TICK_HASHES:    return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_INCONSISTENT_TICK_HASHES;
-    case FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW:        return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASHES_OVERFLOW;
-    case FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST: return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST;
-    case FD_SCHED_DEAD_REASON_ZERO_HASH_TICK:              return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_HASH_TICK;
-    case FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_INGEST:       return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ZERO_HASH_TICK_INGEST;
     case FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH:          return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TICK_HASH_MISMATCH;
     case FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH:         return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_HASH_MISMATCH;
     case FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST:  return FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST;
@@ -4571,7 +4563,7 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( ctx->reception_stats, 0, sizeof(fd_reception_stats_t)*ctx->reception_stats_cnt );
 
   ctx->leader_stats.slot = ULONG_MAX;
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ), 1 ) );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
   FD_TEST( ctx->sched );
 
   ctx->in_cnt          = tile->in_cnt;

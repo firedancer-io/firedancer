@@ -458,12 +458,12 @@ FD_UNIT_TEST( execrp_poh_hash ) {
   fd_execrp_poh_hash_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, sizeof(fd_execrp_poh_hash_msg_t) );
   in_msg->bank_idx = env->bank_idx;
-  in_msg->cnt      = fd_ulong_min( FD_EXECRP_POH_PARA, fd_sha256_simd_lane_max() );
-  in_msg->hashcnt  = 7UL;
+  in_msg->cnt      = FD_EXECRP_POH_PARA;
+  in_msg->hashcnt  = 1UL;
   fd_hash_t expected[ FD_EXECRP_POH_PARA ];
   for( ulong j=0UL; j<in_msg->cnt; j++ ) {
     for( ulong i=0UL; i<sizeof(fd_hash_t); i++ ) in_msg->hash[ j ].uc[ i ] = (uchar)(i+j);
-    fd_sha256_hash_32_repeated( in_msg->hash+j, expected+j, in_msg->hashcnt );
+    fd_sha256_hash( in_msg->hash+j, sizeof(fd_hash_t), expected+j );
   }
 
   fd_stem_context_t stem[1];

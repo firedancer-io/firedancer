@@ -31,11 +31,10 @@ static ulong const SCHED_DEPTH          = 4096UL;
 static ulong const SCHED_BLOCK_CNT_MAX  = 128UL;
 static ulong const SCHED_EXEC_CNT       = 4UL;
 
-/* Tick-verification parameters passed to fd_sched_block_verify_ticks.
-   Alpenglow expects one tick per block, so like the replay tile the
-   tick height starts at max_tick_height-1 with hashes_per_tick=1. */
+/* Tick window passed to fd_sched_block_verify_ticks.  Alpenglow blocks
+   carry one tick, so a slot starts at tick_height max_tick_height-1
+   (ticks_per_slot=64 to match solfuzz-agave's reference bank). */
 static ulong const SLOT_MAX_TICK_HEIGHT = 64UL;
-static ulong const SLOT_HASHES_PER_TICK = 1UL;
 
 typedef struct {
   fd_hash_t mr;
@@ -202,7 +201,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
   fd_rng_t rng_mem[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 0UL ) );
   void * sched_mem = fd_spad_alloc( runner->spad, fd_sched_align(), fd_sched_footprint( SCHED_DEPTH, SCHED_BLOCK_CNT_MAX, FD_SHRED_PROTOCOL_BLK_MAX, FD_MAX_TXN_PER_SLOT ) );
-  fd_sched_t * sched = fd_sched_join( fd_sched_new( sched_mem, rng, SCHED_DEPTH, SCHED_BLOCK_CNT_MAX, FD_SHRED_PROTOCOL_BLK_MAX, FD_MAX_TXN_PER_SLOT, SCHED_EXEC_CNT, 1 ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( sched_mem, rng, SCHED_DEPTH, SCHED_BLOCK_CNT_MAX, FD_SHRED_PROTOCOL_BLK_MAX, FD_MAX_TXN_PER_SLOT, SCHED_EXEC_CNT ) );
   FD_TEST( sched );
   fd_sched_set_bypass_poh_verify( sched, 1 ); /* skip PoH end_hash compare */
   fd_sched_set_bypass_alut_resolution( sched, 1 ); /* skip ALUT resolution (no accdb) */
@@ -454,7 +453,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
            window here.  Only complete batches reach this point, so
            this matches Agave's model of only verifying deshredded
            batches. */
-        if( fd_sched_block_verify_ticks( sched, bank_idx, SLOT_MAX_TICK_HEIGHT-1UL, SLOT_MAX_TICK_HEIGHT, SLOT_HASHES_PER_TICK ) ) {
+        if( fd_sched_block_verify_ticks( sched, bank_idx, SLOT_MAX_TICK_HEIGHT-1UL, SLOT_MAX_TICK_HEIGHT ) ) {
           effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
         }
       }

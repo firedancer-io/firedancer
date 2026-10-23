@@ -1736,8 +1736,6 @@ fd_runtime_process_genesis_block( fd_bank_t *          bank,
                                   fd_accdb_t *         accdb,
                                   fd_capture_ctx_t *   capture_ctx,
                                   fd_runtime_stack_t * runtime_stack ) {
-  fd_sha256_hash_32_repeated( bank->f.poh.hash, bank->f.poh.hash, bank->f.slot_params.hashes_per_tick * bank->f.ticks_per_slot );
-
   bank->f.execution_fees = 0UL;
   bank->f.priority_fees = 0UL;
   bank->f.signature_count = 0UL;
@@ -1773,6 +1771,10 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
                          fd_genesis_t const *      genesis,
                          uchar const *             genesis_blob,
                          fd_runtime_stack_t *      runtime_stack ) {
+  if( FD_UNLIKELY( genesis->poh.hashes_per_tick ) ) {
+    FD_LOG_ERR(( "unsupported genesis: Firedancer only supports Alpenglow consensus" ));
+  }
+
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   *lthash = *genesis_lthash;
   fd_bank_lthash_end_locking_modify( bank );
