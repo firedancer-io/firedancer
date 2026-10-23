@@ -530,7 +530,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
    https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L676
 
     */
-struct fd_vm_syscall_processed_sibling_instruction {
+struct __attribute__((packed)) fd_vm_syscall_processed_sibling_instruction {
   /* Length of the instruction data */
   ulong data_len;
   /* Number of accounts */
