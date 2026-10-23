@@ -94,7 +94,6 @@ struct fd_poh_leader_slot_ended {
 
   ulong microblock_count;
   ulong pack_block_cost;
-  ulong pack_vote_cost;
   ulong pack_data_bytes;
   ulong bundle_txn_count;
   int   pack_end_reason;

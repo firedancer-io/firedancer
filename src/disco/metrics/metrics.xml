@@ -537,7 +537,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="-16" name="InstrTooManyAccounts" label="Transaction has an instruction that references too many accounts" />
     <int value="-15" name="NonceConflict" label="Bundle with two conflicting durable nonce transactions" />
     <int value="-14" name="AccountBlocklisted" label="Transaction uses an account on the account blocklist" />
-    <int value="-13" name="BundleBlocklisted" label="Transaction is a vote in a bundle or uses an account on the bundle blocklist" />
+    <int value="-13" name="BundleBlocklisted" label="Transaction uses an account on the bundle blocklist" />
     <int value="-12" name="InvalidNonce" label="Transaction is an invalid durable nonce transaction" />
     <int value="-11" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
     <int value="-10" name="EstimationFailed" label="Estimating compute cost or fee failed" />
@@ -550,15 +550,15 @@ deliberate exception with lint-allow="<rule id>")
     <int value="-3" name="Duplicate" label="Pack aware of transaction with same signature" />
     <int value="-2" name="NoncePriorityTooLow" label="Transaction's fee was too low given its compute unit requirement and another competing transactions that uses the same durable nonce" />
     <int value="-1" name="PriorityTooLow" label="Transaction's fee was too low given its compute unit requirement and other competing transactions" />
-    <int value="0" name="NonvoteAdd" label="Transaction that was not a simple vote added to pending transactions" />
-    <int value="1" name="VoteAdd" label="Simple vote transaction was added to pending transactions" />
-    <int value="2" name="NonvoteReplace" label="Transaction that was not a simple vote replaced a lower priority transaction" />
-    <int value="3" name="VoteReplace" label="Simple vote transaction replaced a lower priority transaction" />
+    <int value="0" name="NonvoteAdd" label="Transaction added to pending transactions" />
+    <int value="1" name="VoteAdd" deprecated="true" label="Simple vote transaction was added to pending transactions" />
+    <int value="2" name="NonvoteReplace" label="Transaction replaced a lower priority transaction" />
+    <int value="3" name="VoteReplace" deprecated="true" label="Simple vote transaction replaced a lower priority transaction" />
     <int value="4" name="NonceNonvoteAdd" label="Durable nonce transaction added to pending transactions" />
-    <int value="5" name="Unused" label="Never produced: durable nonce transactions can't be simple votes" />
+    <int value="5" name="Unused" deprecated="true" label="Never produced" />
     <int value="6" name="NonceNonvoteReplace" label="Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce" />
     <group name="Rejected" values="InstrTooManyAccounts NonceConflict AccountBlocklisted BundleBlocklisted InvalidNonce WriteSysvar EstimationFailed DuplicateAccount TooManyAccounts TooManyCu Expired LutUnsupported Unaffordable Duplicate NoncePriorityTooLow PriorityTooLow" />
-    <group name="Replaced" values="NonvoteReplace VoteReplace NonceNonvoteReplace" />
+    <group name="Replaced" values="NonvoteReplace NonceNonvoteReplace" />
 </enum>
 
 <enum name="PackTxnScheduleResult">
@@ -609,9 +609,9 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <enum name="PendingTxnType">
-    <int value="1" name="Regular" label="Non-votes in the main treap" />
-    <int value="2" name="Vote" label="Simple votes" />
-    <int value="3" name="Conflicting" label="Non-votes that write to a hotly-contended account" />
+    <int value="1" name="Regular" label="Transactions in the main treap" />
+    <int value="2" name="Vote" label="Deprecated, always 0 since Firedancer v26.11." />
+    <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account" />
     <int value="4" name="Bundle" label="Transactions that are part of a bundle" />
 </enum>
 
@@ -638,7 +638,7 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="TxnPerMicroblock" min="0" max="64">
         <summary>Transactions in a scheduled microblock, including both votes and non-votes</summary>
     </histogram>
-    <histogram name="VotePerMicroblock" min="0" max="64">
+    <histogram name="VotePerMicroblock" min="0" max="64" deprecated="true">
         <summary>Simple vote transactions in a scheduled microblock</summary>
     </histogram>
     <counter name="TxnRx" summary="Transactions received from resolv, including bundle members" />
@@ -651,7 +651,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="TxnPendingUsed" enum="PendingTxnType" summary="Pending transactions in pack's pool, by type" />
     <gauge name="TxnPendingCapacity" summary="Maximum pending transactions pack can hold" />
 
-    <gauge name="TxnPendingSmallestCost" summary="Lower bound on the cost of the cheapest pending non-vote transaction, 0 if none pending" />
+    <gauge name="TxnPendingSmallestCost" summary="Lower bound on the cost of the cheapest pending transaction, 0 if none pending" />
 
     <counter name="BlockMicroblockLimitReached" summary="Times pack did not schedule a microblock because the block microblock limit was reached" />
     <counter name="BlockByteLimitReached" summary="Times pack did not schedule a microblock because the block byte limit was reached" />

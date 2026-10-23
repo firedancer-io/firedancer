@@ -97,7 +97,6 @@ local status_codes = {
   [38] = "ProgramCacheHitMaxLimit"
 }
 
-local tpu_simple_vote = ProtoField.uint32("fd_tpu.flags.simple_vote", "Simple Vote", base.DEC, yesno_types, 0x1)
 local tpu_bundle = ProtoField.uint32("fd_tpu.flags.bundle", "Bundle", base.DEC, yesno_types, 0x2)
 local tpu_initializer = ProtoField.uint32("fd_tpu.flags.initializer_bundle", "Initializer Bundle", base.DEC, yesno_types, 0x4)
 local tpu_sanitized = ProtoField.uint32("fd_tpu.flags.sanitized", "Sanitize Success", base.DEC, yesno_types, 0x8)
@@ -132,7 +131,6 @@ tango.fields = {
   tpu_first_seen_nanos,
   tpu_flags,
 
-  tpu_simple_vote,
   tpu_bundle,
   tpu_initializer,
   tpu_sanitized,
@@ -257,7 +255,6 @@ function tango.dissector (tvb, pinfo, tree)
       txn_tree:add_le(tpu_first_seen_nanos, txn(4120, 8))
       local flag_tvb = txn(4132,4)
       local flag_node = txn_tree:add_le(tpu_flags, flag_tvb)
-      flag_node:add_le(tpu_simple_vote, flag_tvb)
       flag_node:add_le(tpu_bundle,flag_tvb)
       flag_node:add_le(tpu_initializer,flag_tvb)
       flag_node:add_le(tpu_sanitized,  flag_tvb)
@@ -436,7 +433,6 @@ local rebate = Proto("fd_pack_rebate_t", "FD CU Rebate Message")
 
 -- Define fields
 local f_total_cost_rebate = ProtoField.uint64("fd_pack_rebate_t.total_cost_rebate", "Total Cost Rebate")
-local f_vote_cost_rebate = ProtoField.uint64("fd_pack_rebate_t.vote_cost_rebate", "Vote Cost Rebate")
 local f_data_bytes_rebate= ProtoField.uint64("fd_pack_rebate_t.data_bytes_rebate", "Data Bytes Rebate")
 local f_microblock_cnt_rebate= ProtoField.uint64("fd_pack_rebate_t.microblock_cnt_rebate", "Microblock Count Rebate")
 local f_alloc_rebate = ProtoField.uint64("fd_pack_rebate_t.alloc_rebate", "Allocation Rebate")
@@ -451,22 +447,21 @@ local f_rebate_cus= ProtoField.uint64("fd_pack_rebate_t.rebate_cus", "Rebate CUs
 
 
 -- Add the fields to the protocol
-rebate.fields = { f_total_cost_rebate, f_vote_cost_rebate, f_data_bytes_rebate, f_microblock_cnt_rebate, f_alloc_rebate, f_ib_result, f_writer_cnt, f_pubkey, f_rebate_cus, f_writers, f_writer }
+rebate.fields = { f_total_cost_rebate, f_data_bytes_rebate, f_microblock_cnt_rebate, f_alloc_rebate, f_ib_result, f_writer_cnt, f_pubkey, f_rebate_cus, f_writers, f_writer }
 
 function rebate.dissector(buffer, pinfo, tree)
-    if buffer:len() < 48 then return end
-    local writer_cnt = buffer(44, 4):le_uint()
+    if buffer:len() < 40 then return end
+    local writer_cnt = buffer(36, 4):le_uint()
     -- Add fields to the tree
     tree:add_le(f_total_cost_rebate, buffer(0, 8))
-    tree:add_le(f_vote_cost_rebate, buffer(8, 8))
-    tree:add_le(f_data_bytes_rebate, buffer(16, 8))
-    tree:add_le(f_microblock_cnt_rebate, buffer(24, 8))
-    tree:add_le(f_alloc_rebate, buffer(32, 8))
-    tree:add_le(f_ib_result, buffer(40, 4))
-    tree:add_le(f_writer_cnt, buffer(44, 4))
+    tree:add_le(f_data_bytes_rebate, buffer(8, 8))
+    tree:add_le(f_microblock_cnt_rebate, buffer(16, 8))
+    tree:add_le(f_alloc_rebate, buffer(24, 8))
+    tree:add_le(f_ib_result, buffer(32, 4))
+    tree:add_le(f_writer_cnt, buffer(36, 4))
 
     if writer_cnt>0 then
-      local tvb = buffer(48)
+      local tvb = buffer(40)
       local subtree = tree:add(f_writers, tvb)
       for i=1,writer_cnt,1 do
         local s2 = subtree:add(f_writer, tvb(i*40-40, 40))
