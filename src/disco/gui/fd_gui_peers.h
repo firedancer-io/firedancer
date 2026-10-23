@@ -21,6 +21,7 @@
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
+#include "../../flamenco/alpenglow/fd_block_marker.h"
 
 #include "../../waltz/http/fd_http_server.h"
 #include "../topo/fd_topo.h"
@@ -157,6 +158,7 @@ struct fd_gui_peers_row {
   int         has_vote_info;
   fd_pubkey_t vote_account;
   ulong       stake;
+  int         delinquent;
 
   uchar       country_code_idx;
   uint        city_name_idx;
@@ -384,10 +386,19 @@ struct fd_gui_peers_ctx {
   /* stakes is sorted descending by identity pubkey. */
   struct {
     ulong epoch;
+    ulong start_slot;
 
     ulong                    stakes_cnt;
     fd_gui_peers_voter_t     stakes  [ MAX_STAKE_WEIGHTS ];
   } epochs[ 2 ];
+
+  struct {
+    ulong epoch;        /* ULONG_MAX if none */
+    ulong last_settled; /* highest reward slot seen */
+    ulong stamp_since;  /* first stamped reward slot of epoch, ULONG_MAX if none */
+    int   reconcile;    /* peers may hold vote info absent from epoch's stakes */
+    ulong last_voted[ FD_BLS_SET_MAX ];
+  } delinquency;
 
   union {
     struct {
@@ -463,6 +474,15 @@ void
 fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
                                 fd_epoch_info_msg_t const * epoch_info,
                                 long                        now );
+
+/* fd_gui_peers_handle_slot_completed stamps the reward cert signers in
+   footer (slot's block footer) and publishes peers whose delinquency
+   changed.  epoch is slot's epoch. */
+void
+fd_gui_peers_handle_slot_completed( fd_gui_peers_ctx_t *      peers,
+                                    ulong                     slot,
+                                    ulong                     epoch,
+                                    fd_block_footer_t const * footer );
 
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,

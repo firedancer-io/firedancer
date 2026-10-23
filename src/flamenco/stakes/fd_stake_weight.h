@@ -18,6 +18,7 @@ struct fd_vote_stake_weight {
   ulong                   stake;         /* total stake by vote account */
   uchar                   bls_key[ 48 ]; /* compressed BLS voting pubkey, zero if unregistered */
   fd_validator_location_t location;      /* SIMD-0674: Validator Location Registration */
+  ushort                  rank;          /* Alpenglow signer rank, FD_VOTE_STAKES_ALPENGLOW_RANK_NULL if unranked */
 };
 typedef struct fd_vote_stake_weight fd_vote_stake_weight_t;
 

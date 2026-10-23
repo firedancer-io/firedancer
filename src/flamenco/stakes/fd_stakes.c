@@ -478,6 +478,7 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
     fd_memcpy( weights[ weights_cnt ].bls_key, ele->bls_key, sizeof(weights[ weights_cnt ].bls_key) );
     weights[ weights_cnt ].location = ele->location;
     weights[ weights_cnt ].stake = ele->stake;
+    weights[ weights_cnt ].rank  = ele->rank;
     weights_cnt++;
   }
 
