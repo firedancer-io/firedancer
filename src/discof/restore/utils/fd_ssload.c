@@ -501,14 +501,10 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     fd_epoch_credits_t * ec = &epoch_credits_view->credits[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
 
-    ulong cnt                   = 0UL;
-    ec->base_credits            = 0UL;
-    ec->has_ag_migration_marker = 0;
+    ulong cnt        = 0UL;
+    ec->base_credits = 0UL;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker( &elem->epoch_credits[ j ] ) ) ) {
-        ec->has_ag_migration_marker = 1;
-        continue;
-      }
+      if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker( &elem->epoch_credits[ j ] ) ) ) continue;
       if( FD_UNLIKELY( !cnt ) ) ec->base_credits = elem->epoch_credits[ j ].prev_credits;
       ec->epoch[ cnt ]              = (ushort)elem->epoch_credits[ j ].epoch;
       ec->credits_delta[ cnt ]      = elem->epoch_credits[ j ].credits      - ec->base_credits;
