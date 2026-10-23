@@ -60,8 +60,7 @@ ENCODE_FN {
     PUSH_VAL( ulong,  bank->f.signature_count                                     );
     PUSH_VAL( ulong,  bank->f.capitalization                                      );
     PUSH_VAL( ulong,  bank->f.max_tick_height                                     );
-    PUSH_VAL( uchar,  1                                                           );
-    PUSH_VAL( ulong,  bank->f.slot_params.hashes_per_tick                         );
+    PUSH_VAL( uchar,  0 ); /* hashes_per_tick: None */
     PUSH_VAL( ulong,  bank->f.ticks_per_slot                                      );
     PUSH_VAL( fd_w_u128_t, (fd_w_u128_t){ .ud = bank->f.slot_params.ns_per_slot } );
     PUSH_VAL( ulong,  bank->f.genesis_creation_time                               );
