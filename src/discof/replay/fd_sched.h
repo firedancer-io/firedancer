@@ -184,7 +184,7 @@ struct fd_sched_poh_hash {
   ulong     bank_idx;
   ulong     exec_idx;
   ulong     cnt;     /* In [1,FD_SCHED_POH_PARA] */
-  ulong     hashcnt; /* Same for every element of the batch */
+  ulong     hashcnt; /* 0 or 1, same for every element of the batch */
   ulong     mblk_idx[ FD_SCHED_POH_PARA ];
   fd_hash_t hash    [ FD_SCHED_POH_PARA ];
 };
@@ -218,13 +218,6 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_TRAILING_ENTRY              (6)  /* Block did not end on a tick. */
 #define FD_SCHED_DEAD_REASON_TOO_MANY_TICKS              (7)  /* More ticks than required. */
 #define FD_SCHED_DEAD_REASON_TOO_FEW_TICKS               (8)  /* Fewer ticks than required. */
-#define FD_SCHED_DEAD_REASON_ZERO_MICROBLOCKS            (9)  /* A batch header declared zero microblocks. */
-#define FD_SCHED_DEAD_REASON_WRONG_HASHES_PER_TICK       (10) /* Tick hash count did not advance the expected hashes per tick. */
-#define FD_SCHED_DEAD_REASON_INCONSISTENT_TICK_HASHES    (11) /* Tick hash count differs from the block's preceding ticks, detected at FEC ingest. */
-#define FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW        (12) /* More hashes since the last tick than hashes per tick allows. */
-#define FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST (13) /* Tick header declared more hashes than can fit before the next tick, detected at FEC ingest. */
-#define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK              (14) /* Tick advanced zero hashes; PoH params were unknown when the tick parsed. */
-#define FD_SCHED_DEAD_REASON_ZERO_HASH_TICK_INGEST       (15) /* Tick advanced zero hashes, detected at FEC ingest. */
 #define FD_SCHED_DEAD_REASON_TICK_HASH_MISMATCH          (16) /* PoH hash of a tick did not verify. */
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH         (17) /* PoH hash of a transaction entry did not verify, detected when the entry's PoH hashing task completed. */
 #define FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST  (18) /* PoH hash of a transaction entry did not verify, detected at FEC ingest when a later FEC set completed the entry's transactions. */
@@ -302,8 +295,7 @@ fd_sched_new( void *     mem,
               ulong      block_cnt_max,
               ulong      max_shreds_per_block,
               ulong      max_txn_per_slot,
-              ulong      exec_cnt,
-              int        is_alpenglow );
+              ulong      exec_cnt );
 
 fd_sched_t *
 fd_sched_join( void * mem );
@@ -509,7 +501,7 @@ ulong
 fd_sched_pruned_block_next( fd_sched_t * sched );
 
 void
-fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
+fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, fd_hash_t const * start_poh );
 
 /* fd_sched_block_verify_ticks sets the tick window and verifies
    ticks on bank_idx (shred fuzz harness, no exec).  Returns
@@ -520,8 +512,7 @@ int
 fd_sched_block_verify_ticks( fd_sched_t * sched,
                              ulong        bank_idx,
                              ulong        tick_height,
-                             ulong        max_tick_height,
-                             ulong        hashes_per_tick );
+                             ulong        max_tick_height );
 
 /* fd_sched_set_bypass_poh_verify configures whether the per-microblock
    PoH end_hash comparison in maybe_mixin is bypassed.  This is intended
