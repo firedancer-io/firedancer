@@ -58,17 +58,25 @@ recv( ag_votor_t * votor ) {
 }
 
 static ag_votor_t *
-setup_votor( void * mem,
-             long   now ) {
+setup_votor_at_root( void * mem,
+                     long   now,
+                     ulong  root_slot ) {
   create_validators();
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=SCRATCH_MAX );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( mem, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
   ag_bls_key_t bls_key; bls_key_from_sec( bls_key, &g_sk[0] );
   ag_block_id_t root = genesis_block_id();
+  root.slot = root_slot;
   ag_votor_init         ( votor, &root, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
   ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, bls_key );
   return votor;
+}
+
+static ag_votor_t *
+setup_votor( void * mem,
+             long   now ) {
+  return setup_votor_at_root( mem, now, 0UL );
 }
 
 static void
@@ -278,6 +286,40 @@ test_adopt_capacity( void ) {
   FD_LOG_NOTICE(( "pass: adopt_capacity" ));
 }
 
+static void
+test_adopt_equal_anchor_prunes( void ) {
+  ag_votor_t * votor = setup_votor_at_root( scratch_a, 0L, 100UL );
+
+  /* A rejected import must leave the pruning cursor and all state
+     unchanged, even when its records start below the initial root. */
+  ag_hist_t hist = { .anchor = 100UL, .last_leader_slot = ULONG_MAX, .vote_bound = ULONG_MAX, .rec_cnt = TEST_SLOT_MAX+1UL };
+  for( ulong i=0UL; i<hist.rec_cnt; i++ ) {
+    hist.rec[ i ].slot  = 92UL+i;
+    hist.rec[ i ].flags = AG_HIST_FLAG_VOTED;
+  }
+  expect_adopt_full( votor, &hist );
+
+  /* Slots 92-99 are valid at anchor 100.  They must be reclaimed when
+     finality advances, even though this adoption does not raise it. */
+  hist.rec_cnt = 8UL;
+  round_trip( &hist );
+  FD_TEST( !ag_votor_hist_adopt( votor, &hist ) );
+  FD_TEST( !ag_votor_hist_adopt( votor, &hist ) );
+  for( ulong slot=92UL; slot<=100UL; slot++ ) FD_TEST( has_voted( votor, slot ) );
+
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED,
+                           .cert_created = { .kind = AG_CERT_KIND_FINAL, .final = { .slot = 112UL } } };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST( votor->root==104UL && votor->highest_final_cert_slot==112UL );
+  for( ulong slot=92UL; slot<=100UL; slot++ ) {
+    FD_TEST( !slot_state_map_ele_query_const( votor->slot_states->map, &slot, NULL, votor->slot_states->pool ) );
+  }
+  FD_TEST( slot_state_pool_free( votor->slot_states->pool )==TEST_SLOT_MAX-AG_SLOTS_PER_WINDOW );
+
+  teardown_votor( votor );
+  FD_LOG_NOTICE(( "pass: adopt_equal_anchor_prunes" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -287,6 +329,7 @@ main( int     argc,
   test_mark_unsent_notar();
   test_bound_travels();
   test_adopt_capacity();
+  test_adopt_equal_anchor_prunes();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

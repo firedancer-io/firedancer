@@ -734,6 +734,8 @@ ag_votor_hist_adopt( ag_votor_t *      self,
   }
 
   advance_root( self, hist->anchor );
+  /* Later pruning must visit records imported below the startup cursor. */
+  self->root = fd_ulong_min( self->root, first );
   /* Take the exporter's vote bound as well. */
   if( FD_UNLIKELY( hist->vote_bound!=ULONG_MAX ) ) ag_votor_set_vote_bound( self, hist->vote_bound );
   ulong conflicts = 0UL;
