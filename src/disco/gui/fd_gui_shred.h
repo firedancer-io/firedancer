@@ -15,6 +15,7 @@ typedef struct fd_gui fd_gui_t;
    past the closed slot watermark. */
 #define FD_GUI_FEC_RECORD_MAX     (1UL<<20)
 #define FD_GUI_FEC_SLOT_WMARK_CNT (1024UL)
+#define FD_GUI_FEC_PUBLISHED_SHRED_CNT (2UL*FD_FEC_SHRED_CNT)
 
 /* The FEC archive is an ordinary time-series ring ordered by admission
    time, while queries select by event time.  Events skewed further than
@@ -97,9 +98,24 @@ struct fd_gui_fec_event_batch {
 };
 typedef struct fd_gui_fec_event_batch fd_gui_fec_event_batch_t;
 
+struct fd_gui_fec_completion_key {
+  long timestamp;
+  uint slot;
+  uint counts;
+};
+typedef struct fd_gui_fec_completion_key fd_gui_fec_completion_key_t;
+
+struct fd_gui_fec_completion_record {
+  fd_gui_fec_completion_key_t key;
+  long                        insert_time_ns;
+};
+typedef struct fd_gui_fec_completion_record fd_gui_fec_completion_record_t;
+
 FD_STATIC_ASSERT( sizeof(fd_gui_shred_batch_t)==FD_GUI_SHRED_BATCH_SZ, shred_batch_size );
 FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_key_t)==16UL, fec_event_key_size );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_completion_key_t)==16UL, fec_completion_key_size );
 FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_t)<=32UL, fec_event_size );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_completion_record_t)<=32UL, fec_completion_size );
 FD_STATIC_ASSERT( FD_GUI_STORE_REGION_SZ/32UL>=FD_GUI_FEC_RECORD_MAX, fec_region_capacity );
 /* The batch codec stores admission deltas in 32 bits. */
 FD_STATIC_ASSERT( FD_GUI_FEC_BATCH_SPAN_NS<=(long)UINT_MAX, fec_batch_span );
@@ -185,13 +201,36 @@ fd_gui_fec_event_append( fd_gui_t * gui,
                          long       timestamp,
                          long       now );
 
+/* fd_gui_fec_completion_append returns 1 for a newly admitted completion,
+   or 0 for a duplicate or rejected record. */
+
+int
+fd_gui_fec_completion_append( fd_gui_t * gui,
+                              ulong      slot,
+                              long       timestamp,
+                              ulong      turbine,
+                              ulong      repair,
+                              ulong      reconstructed,
+                              int        leader,
+                              long       now );
+
 /* fd_gui_fec_archive moves at most budget staged FEC events, in
-   admission order, to the archive.  A staged event is only removed once
-   its archive append succeeds. Returns the number of events archived. */
+   admission order, to the archive, and drops at most budget closed
+   completions.  A staged event is only removed once its archive append
+   succeeds.  Returns the number of records moved or dropped. */
 
 ulong
 fd_gui_fec_archive( fd_gui_t * gui,
                     ulong      budget );
+
+/* fd_gui_fec_archive_channel is fd_gui_fec_archive for one staging DB
+   (FD_GUI_HIST_FEC_EVENTS or FD_GUI_HIST_FEC_COMPLETIONS), so admission
+   pressure does not drain unrelated channels. */
+
+ulong
+fd_gui_fec_archive_channel( fd_gui_t * gui,
+                            int        dbi,
+                            ulong      budget );
 
 /* fd_gui_fec_event_iter_begin selects archived and staged FEC events
    by event time in [after_ns,before_ns). */
@@ -214,6 +253,9 @@ fd_gui_event_closed_slot_wmark( fd_gui_t const * gui );
 void
 fd_gui_event_closed_slot_wmark_advance( fd_gui_t * gui,
                                         ulong      wmark );
+
+/* fd_gui_shred_window_is_empty returns 1 if there are no recorded shred
+   events in [after_ns,before_ns], 0 otherwise. */
 
 int
 fd_gui_shred_window_is_empty( fd_gui_t * gui,

@@ -40,22 +40,27 @@ typedef struct fd_gui fd_gui_t;
    of calendar days, about the span of FD_GUI_HIST_MAX_EPOCHS epochs. */
 #define FD_GUI_HIST_MAX_TIMELINE_DAYS (64UL)
 
-#define FD_GUI_HIST_SCHEDULER_COUNTS  (0)  /* (ts, type)            */
-#define FD_GUI_HIST_TILE_TIMERS       (1)  /* (ts, type)            */
-#define FD_GUI_HIST_SHRED_EVENTS      (2)
-#define FD_GUI_HIST_TXN_START         (3)  /* (ts, type, bank, txn) */
-#define FD_GUI_HIST_TXN_END           (4)  /* (ts, type, bank, txn) */
-#define FD_GUI_HIST_SLOT              (5)  /* (slot, bank_seq)      */
-#define FD_GUI_HIST_LEADER_SLOT       (6)  /* (slot, bank_seq)      */
-#define FD_GUI_HIST_EPOCH             (7)  /* (epoch)               */
-#define FD_GUI_HIST_TILE_STATS        (8)  /* (ts, type)            */
-#define FD_GUI_HIST_TXN_WATERFALL     (9)  /* (ts, type)            */
-#define FD_GUI_HIST_TIMELINE_DAY      (10)
-#define FD_GUI_HIST_REPLAY_TXN        (11)
-#define FD_GUI_HIST_TIMELINE_TILE_DAY (12) /* (day_idx, tile_idx)  */
-#define FD_GUI_HIST_FEC_EVENTS        (13) /* (FEC event key)      */
-#define FD_GUI_HIST_FEC_EVENT_ARCHIVE (14) /* (ts, ...)            */
-#define FD_GUI_HIST_CNT               (15)
+#define FD_GUI_HIST_SCHEDULER_COUNTS        (0) /* (ts, type)            */
+#define FD_GUI_HIST_TILE_TIMERS             (1) /* (ts, type)            */
+#define FD_GUI_HIST_SHRED_EVENTS            (2)
+#define FD_GUI_HIST_TXN_START               (3) /* (ts, type, bank, txn) */
+#define FD_GUI_HIST_TXN_END                 (4) /* (ts, type, bank, txn) */
+#define FD_GUI_HIST_SLOT                    (5) /* (slot, bank_seq)      */
+#define FD_GUI_HIST_LEADER_SLOT             (6) /* (slot, bank_seq)      */
+#define FD_GUI_HIST_EPOCH                   (7) /* (epoch)               */
+#define FD_GUI_HIST_TILE_STATS              (8) /* (ts, type)            */
+#define FD_GUI_HIST_TXN_WATERFALL           (9) /* (ts, type)            */
+#define FD_GUI_HIST_TIMELINE_DAY            (10)
+#define FD_GUI_HIST_REPLAY_TXN              (11)
+#define FD_GUI_HIST_REPLAY_TXN_BATCH        (12) /* (ts, ...)            */
+#define FD_GUI_HIST_FEC_EVENTS              (13) /* (FEC event key)      */
+#define FD_GUI_HIST_FEC_COMPLETIONS         (14) /* (FEC completion key) */
+#define FD_GUI_HIST_SLOT_DURATION           (15) /* (ts, ...)            */
+#define FD_GUI_HIST_TIMELINE_TILE_DAY       (16) /* (day_idx, tile_idx)  */
+#define FD_GUI_HIST_FEC_EVENT_ARCHIVE       (17) /* immutable event batches */
+#define FD_GUI_HIST_REPLAY_SLOT_STATE       (18) /* (ts, ...)            */
+#define FD_GUI_HIST_TIMELINE_TILE_STATE_DAY (19) /* (day_idx, tile_idx) */
+#define FD_GUI_HIST_CNT                     (20)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */
@@ -124,8 +129,8 @@ fd_gui_hist_footprint( void );
 
 /* fd_gui_hist_new formats the workspace region `mem`
    (>= fd_gui_hist_footprint bytes, fd_gui_hist_align aligned) as the
-   history semantics layer over the store `db`. Returns `mem` on success
-   or NULL on failure (logged). */
+   history semantics layer over the store `db`.  Returns `mem` on
+   success or NULL on failure (logged). */
 
 void *
 fd_gui_hist_new( void *                 mem,

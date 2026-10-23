@@ -101,6 +101,47 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                                          ulong                id,
                                          fd_gui_slot_t const * slot );
 
+/* fd_gui_printf_timeline_query_* stage a timeline response for [start_ns,
+   end_ns), or an aggregate response for bucket_cnt aligned buckets.
+   Return -1 for invalid arguments or scan failure, otherwise 0.  Row
+   limits produce an error envelope instead of partial rows; excess
+   aggregate buckets return -1. */
+
+int
+fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
+                                    long       start_ns,
+                                    long       end_ns,
+                                    ulong      id );
+
+int
+fd_gui_printf_timeline_query_events( fd_gui_t * gui,
+                                     long       start_ns,
+                                     long       end_ns,
+                                     ulong      id );
+
+int
+fd_gui_printf_timeline_query_fec_events( fd_gui_t * gui,
+                                         long       start_ns,
+                                         long       end_ns,
+                                         ulong      id );
+
+int
+fd_gui_printf_timeline_query_txn_meta( fd_gui_t * gui,
+                                       long       start_ns,
+                                       long       end_ns,
+                                       ulong      id );
+
+/* fd_gui_printf_timeline_query_tile_states stages the execrp and replay
+   tile states in [start_ns,end_ns), per transaction (batch==0) or per
+   batch (batch==1).  Returns -1 for invalid arguments. */
+
+int
+fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
+                                          long       start_ns,
+                                          long       end_ns,
+                                          int        batch,
+                                          ulong      id );
+
 int
 fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
                                   char const * key,
@@ -124,17 +165,24 @@ fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
                                       ulong         tile_cnt,
                                       ulong         id );
 
+/* fd_gui_printf_timeline_query_agg_tile_states stages per-tile time in
+   each tile state for every tile that records states (the execrp tiles
+   and the replay tile), listed by ordinal in the response.  Returns -1
+   for invalid arguments. */
+
+int
+fd_gui_printf_timeline_query_agg_tile_states( fd_gui_t *   gui,
+                                              char const * granularity,
+                                              ulong        g,
+                                              long         reference,
+                                              ulong        count,
+                                              ulong        id );
+
 int
 fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
                                      long       start_ns,
                                      long       end_ns,
                                      ulong      id );
-
-int
-fd_gui_printf_timeline_query_fec_events( fd_gui_t * gui,
-                                         long       start_ns,
-                                         long       end_ns,
-                                         ulong      id );
 
 void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );

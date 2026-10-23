@@ -6974,10 +6974,20 @@ message MetricsGuiDbForcedEvictWriteCompleted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 425415280;
   // fec_events
   uint64 fec_events = 344059068;
+  // fec_completions
+  uint64 fec_completions = 330963292;
+  // slot_duration
+  uint64 slot_duration = 437876333;
   // fec_event_archive
   uint64 fec_event_archive = 384859046;
+  // replay_slot_state
+  uint64 replay_slot_state = 336290660;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 342485110;
 }
 
 // Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database
@@ -7010,10 +7020,20 @@ message MetricsGuiDbRecordDropped {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 522897500;
   // fec_events
   uint64 fec_events = 408455742;
+  // fec_completions
+  uint64 fec_completions = 334063686;
+  // slot_duration
+  uint64 slot_duration = 515864163;
   // fec_event_archive
   uint64 fec_event_archive = 505628279;
+  // replay_slot_state
+  uint64 replay_slot_state = 398382173;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 533910041;
 }
 
 // Regions returned to the free list, by database
@@ -7046,10 +7066,20 @@ message MetricsGuiDbRegionReleased {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 498623576;
   // fec_events
   uint64 fec_events = 319700238;
+  // fec_completions
+  uint64 fec_completions = 271436641;
+  // slot_duration
+  uint64 slot_duration = 431211970;
   // fec_event_archive
   uint64 fec_event_archive = 380206074;
+  // replay_slot_state
+  uint64 replay_slot_state = 329305522;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 405825859;
 }
 
 // Regions claimed from the free list, by database
@@ -7082,10 +7112,20 @@ message MetricsGuiDbRegionClaimed {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 356087012;
   // fec_events
   uint64 fec_events = 279714995;
+  // fec_completions
+  uint64 fec_completions = 439637425;
+  // slot_duration
+  uint64 slot_duration = 516502967;
   // fec_event_archive
   uint64 fec_event_archive = 484377326;
+  // replay_slot_state
+  uint64 replay_slot_state = 419048398;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 507407103;
 }
 
 // Eviction passes that removed at least one record, by database
@@ -7118,10 +7158,20 @@ message MetricsGuiDbEvictionPassCompleted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 273705330;
   // fec_events
   uint64 fec_events = 481441319;
+  // fec_completions
+  uint64 fec_completions = 314716996;
+  // slot_duration
+  uint64 slot_duration = 405683160;
   // fec_event_archive
   uint64 fec_event_archive = 510332500;
+  // replay_slot_state
+  uint64 replay_slot_state = 385082965;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 355743204;
 }
 
 // Records evicted from the database, by database
@@ -7154,10 +7204,20 @@ message MetricsGuiDbRecordEvicted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 508894666;
   // fec_events
   uint64 fec_events = 435043194;
+  // fec_completions
+  uint64 fec_completions = 443476710;
+  // slot_duration
+  uint64 slot_duration = 532139173;
   // fec_event_archive
   uint64 fec_event_archive = 404897365;
+  // replay_slot_state
+  uint64 replay_slot_state = 310085390;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 315958571;
 }
 
 // Time-series records returned by scans, by database
@@ -7190,10 +7250,20 @@ message MetricsGuiDbTimeSeriesRecordRead {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 387800770;
   // fec_events
   uint64 fec_events = 419078233;
+  // fec_completions
+  uint64 fec_completions = 430072316;
+  // slot_duration
+  uint64 slot_duration = 408371284;
   // fec_event_archive
   uint64 fec_event_archive = 430267704;
+  // replay_slot_state
+  uint64 replay_slot_state = 321884243;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 447725783;
 }
 
 // Time-series scans, by database
@@ -7226,10 +7296,20 @@ message MetricsGuiDbTimeSeriesScanned {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 417636304;
   // fec_events
   uint64 fec_events = 386036988;
+  // fec_completions
+  uint64 fec_completions = 294828740;
+  // slot_duration
+  uint64 slot_duration = 354354737;
   // fec_event_archive
   uint64 fec_event_archive = 526589069;
+  // replay_slot_state
+  uint64 replay_slot_state = 398209769;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 362844138;
 }
 
 // Time-series records appended, by database
@@ -7262,10 +7342,20 @@ message MetricsGuiDbTimeSeriesRecordAppended {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 523579050;
   // fec_events
   uint64 fec_events = 381948204;
+  // fec_completions
+  uint64 fec_completions = 494324867;
+  // slot_duration
+  uint64 slot_duration = 533108296;
   // fec_event_archive
   uint64 fec_event_archive = 469754494;
+  // replay_slot_state
+  uint64 replay_slot_state = 288618370;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 414893146;
 }
 
 // Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database
@@ -7298,10 +7388,20 @@ message MetricsGuiDbKvQueried {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 512180962;
   // fec_events
   uint64 fec_events = 357560777;
+  // fec_completions
+  uint64 fec_completions = 406219977;
+  // slot_duration
+  uint64 slot_duration = 359540939;
   // fec_event_archive
   uint64 fec_event_archive = 454643118;
+  // replay_slot_state
+  uint64 replay_slot_state = 281698271;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 339639707;
 }
 
 // Record capacity of regions owned by each database ring; grows on demand
@@ -7334,10 +7434,20 @@ message MetricsGuiDbRecordAllocated {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 445898237;
   // fec_events
   uint64 fec_events = 381180965;
+  // fec_completions
+  uint64 fec_completions = 306126717;
+  // slot_duration
+  uint64 slot_duration = 380796887;
   // fec_event_archive
   uint64 fec_event_archive = 345452472;
+  // replay_slot_state
+  uint64 replay_slot_state = 494559053;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 536188419;
 }
 
 // Records present in the store ring
@@ -7370,10 +7480,20 @@ message MetricsGuiDbRecordUsed {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 349336041;
   // fec_events
   uint64 fec_events = 481009533;
+  // fec_completions
+  uint64 fec_completions = 352418953;
+  // slot_duration
+  uint64 slot_duration = 374580305;
   // fec_event_archive
   uint64 fec_event_archive = 484368933;
+  // replay_slot_state
+  uint64 replay_slot_state = 383242216;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 273045878;
 }
 
 // Bytes of regions owned by each database ring; grows on demand
@@ -7406,10 +7526,20 @@ message MetricsGuiDbAllocatedBytes {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 332202846;
   // fec_events
   uint64 fec_events = 385452405;
+  // fec_completions
+  uint64 fec_completions = 374404066;
+  // slot_duration
+  uint64 slot_duration = 533389734;
   // fec_event_archive
   uint64 fec_event_archive = 351164760;
+  // replay_slot_state
+  uint64 replay_slot_state = 425550602;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 429555008;
 }
 
 // Bytes occupied by records present in the store ring
@@ -7442,10 +7572,20 @@ message MetricsGuiDbUsedBytes {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // replay_txn_batch
+  uint64 replay_txn_batch = 534870830;
   // fec_events
   uint64 fec_events = 507732689;
+  // fec_completions
+  uint64 fec_completions = 342616039;
+  // slot_duration
+  uint64 slot_duration = 524426774;
   // fec_event_archive
   uint64 fec_event_archive = 336464076;
+  // replay_slot_state
+  uint64 replay_slot_state = 303280759;
+  // timeline_tile_state_day
+  uint64 timeline_tile_state_day = 520441961;
 }
 
 // Times the tile tried to park while idle (efficient mode), by result
