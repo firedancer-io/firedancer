@@ -169,6 +169,10 @@ backup_disk_capture( fd_snaprd_t * ctx ) {
   FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( fd_accdb_shmem_snapshot_sync( ctx->accdb ) )==FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
                  "backup capture outside snapshot_sync RUNNING" );
 
+  /* Accounts evicted during the cache pass may still be on their way
+     to disk, so wait for those writers before sampling the bounds. */
+  if( FD_UNLIKELY( fd_accdb_shmem_writer_barrier_poll( ctx->accdb, ctx->barrier ) ) ) return 0;
+
   ulong part_max = fd_accdb_shmem_partition_max( ctx->accdb );
   if( FD_UNLIKELY( part_max>SNAPRD_PART_MAX ) ) {
     FD_LOG_ERR(( "accdb partition count %lu exceeds snaprd capacity %lu", part_max, SNAPRD_PART_MAX ));
@@ -238,6 +242,9 @@ before_credit( fd_snaprd_t *       ctx,
   ctx->state      = SNAPRD_STATE_CAPTURE;
   ctx->idle_cnt   = 0UL;
   *charge_busy = 1;
+
+  /* note which tiles are mid-write, backup_disk_capture waits for them */
+  fd_accdb_shmem_writer_barrier_capture( ctx->accdb, ctx->barrier );
 }
 
 static void
