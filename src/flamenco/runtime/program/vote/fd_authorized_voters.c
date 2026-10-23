@@ -2,6 +2,7 @@
 #include "fd_vote_codec_tmpl.h"
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
+#include "fd_vote_state_v5.h"
 
 int
 fd_authorized_voters_is_empty( fd_vote_authorized_voters_t * self ) {
@@ -114,6 +115,8 @@ fd_authorized_voters_get_and_update_authorized_voter( fd_vote_state_versioned_t 
       return fd_vote_state_v3_get_and_update_authorized_voter( &self->v3, current_epoch, pubkey );
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_get_and_update_authorized_voter( &self->v4, current_epoch, pubkey );
+    case fd_vote_state_versioned_enum_v5:
+      return fd_vote_state_v5_get_and_update_authorized_voter( &self->v5, current_epoch, pubkey );
     default:
       FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", self->kind ));
   }

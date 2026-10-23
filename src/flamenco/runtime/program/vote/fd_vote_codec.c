@@ -415,6 +415,30 @@ ser_epoch_credits( fd_vote_epoch_credits_t const * epoch_credits,
 #define WIRE_VOTES_OFF_V1_V3 (69UL)   /* 4 + 32 + 32 + 1 */
 #define WIRE_BLS_OFF_V4      (144UL)  /* 4 + 32 + 32 + 32 + 32 + 2 + 2 + 8 */
 
+/* Offset of a Vote State V5 field */
+#define V5_OFF( f ) (4UL+offsetof( fd_vote_state_v5_t, f ))
+
+FD_STATIC_ASSERT( FD_VOTE_STATE_V4_SZ==FD_VOTE_STATE_V5_SZ,                                             v5_size   );
+FD_STATIC_ASSERT( V5_OFF( node_pubkey                      )==WIRE_OFF_NODE_PUBKEY,                     v5_layout );
+FD_STATIC_ASSERT( V5_OFF( inflation_rewards_collector      )==WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR,  v5_layout );
+FD_STATIC_ASSERT( V5_OFF( block_revenue_collector          )==WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR,      v5_layout );
+FD_STATIC_ASSERT( sizeof(fd_vote_state_v5_authorized_voter_t)==WIRE_AUTH_VOTER_SZ,                      v5_layout );
+
+static void
+v5_commission_load( uchar const *                   data,
+                    uint                            kind,
+                    fd_vote_state_v5_commission_t * out ) {
+  int   block      = kind==fd_commission_kind_enum_block_revenue;
+  ulong len_off    = block ? V5_OFF( block_revenue_commission_bps_len    ) : V5_OFF( inflation_rewards_commission_bps_len    );
+  ulong epochs_off = block ? V5_OFF( block_revenue_commission_bps_epochs ) : V5_OFF( inflation_rewards_commission_bps_epochs );
+  ulong bps_off    = block ? V5_OFF( block_revenue_commission_bps        ) : V5_OFF( inflation_rewards_commission_bps        );
+  out->len = FD_LOAD( uint, data+len_off );
+  for( ulong i=0UL; i<FD_VOTE_STATE_V5_COMMISSION_MAX; i++ ) {
+    out->epoch[ i ] = FD_LOAD( ulong,  data+epochs_off+i*sizeof(ulong)  );
+    out->bps  [ i ] = FD_LOAD( ushort, data+bps_off   +i*sizeof(ushort) );
+  }
+}
+
 /**********************************************************************/
 /* Vote account state -- direct field accessors                       */
 /* These read fields directly from raw bincode-encoded vote account   */
@@ -447,6 +471,15 @@ fd_vote_account_commission_bps( uchar const * data,
       CHECK( data_sz>WIRE_OFF_V1V3_COMMISSION );
       *out = data[ WIRE_OFF_V1V3_COMMISSION ] * 100U;
       return 0;
+    case fd_vote_state_versioned_enum_v5: {
+      CHECK( data_sz==FD_VOTE_STATE_V5_SZ );
+      fd_vote_state_v5_commission_t c;
+      v5_commission_load( data, fd_commission_kind_enum_inflation_rewards, &c );
+      CHECK( fd_vote_state_v5_commission_is_valid( &c ) );
+      *out = fd_vote_state_v5_commission_latest( &c );
+      if( !commission_rate_in_basis_points ) *out = (ushort)( (*out/100U)*100U );
+      return 0;
+    }
     case fd_vote_state_versioned_enum_v4:
       CHECK( data_sz>=WIRE_OFF_V4_COMMISSION_BPS+2UL );
       *out = FD_LOAD( ushort, data+WIRE_OFF_V4_COMMISSION_BPS );
@@ -477,6 +510,14 @@ fd_vote_account_block_revenue_commission_bps( uchar const * data,
     case fd_vote_state_versioned_enum_v3:
       *out = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
       return 0;
+    case fd_vote_state_versioned_enum_v5: {
+      CHECK( data_sz==FD_VOTE_STATE_V5_SZ );
+      fd_vote_state_v5_commission_t c;
+      v5_commission_load( data, fd_commission_kind_enum_block_revenue, &c );
+      CHECK( fd_vote_state_v5_commission_is_valid( &c ) );
+      *out = fd_vote_state_v5_commission_latest( &c );
+      return 0;
+    }
     case fd_vote_state_versioned_enum_v4:
       CHECK( data_sz>=WIRE_OFF_V4_BLOCK_REVENUE_COMMISSION_BPS+2UL );
       *out = FD_LOAD( ushort, data+WIRE_OFF_V4_BLOCK_REVENUE_COMMISSION_BPS );
@@ -505,29 +546,36 @@ fd_vote_account_pending_delegator_rewards( uchar const * data,
       CHECK( data_sz==FD_VOTE_STATE_V4_SZ );
       *out = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
       return 0;
+    case fd_vote_state_versioned_enum_v5:
+      CHECK( data_sz==FD_VOTE_STATE_V5_SZ );
+      *out = FD_LOAD( ulong, data+V5_OFF( pending_delegator_rewards ) );
+      return 0;
     default:
       return 1;
   }
 }
 
-/* Returns 1 iff data is an initialized v4 vote state of exactly
-   FD_VOTE_STATE_V4_SZ bytes. */
-static int
-is_v4_with_pending_delegator_rewards( uchar const * data,
-                                      ulong         data_sz ) {
-  if( data_sz!=FD_VOTE_STATE_V4_SZ ) return 0;
-  return FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v4;
+static ulong
+pending_delegator_rewards_off( uchar const * data,
+                               ulong         data_sz ) {
+  if( data_sz!=FD_VOTE_STATE_V4_SZ ) return 0UL;
+  switch( FD_LOAD( uint, data ) ) {
+    case fd_vote_state_versioned_enum_v4: return WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS;
+    case fd_vote_state_versioned_enum_v5: return V5_OFF( pending_delegator_rewards );
+    default:                              return 0UL;
+  }
 }
 
 int
 fd_vote_account_add_pending_delegator_rewards( uchar * data,
                                                ulong   data_sz,
                                                ulong   lamports ) {
-  if( FD_UNLIKELY( !is_v4_with_pending_delegator_rewards( data, data_sz ) ) ) return 1;
-  ulong cur = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
+  ulong off = pending_delegator_rewards_off( data, data_sz );
+  if( FD_UNLIKELY( !off ) ) return 1;
+  ulong cur = FD_LOAD( ulong, data+off );
   ulong sum;
   if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, lamports, &sum ) ) ) return 2;
-  FD_STORE( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS, sum );
+  FD_STORE( ulong, data+off, sum );
   return 0;
 }
 
@@ -535,9 +583,10 @@ int
 fd_vote_account_reset_pending_delegator_rewards( uchar * data,
                                                  ulong   data_sz,
                                                  ulong * old_out ) {
-  if( FD_UNLIKELY( !is_v4_with_pending_delegator_rewards( data, data_sz ) ) ) return 1;
-  *old_out = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
-  FD_STORE( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS, 0UL );
+  ulong off = pending_delegator_rewards_off( data, data_sz );
+  if( FD_UNLIKELY( !off ) ) return 1;
+  *old_out = FD_LOAD( ulong, data+off );
+  FD_STORE( ulong, data+off, 0UL );
   return 0;
 }
 
@@ -563,6 +612,9 @@ fd_vote_account_collectors( uchar const *       data,
       *inflation_rewards_collector_out = *vote_pubkey;
       *block_revenue_collector_out     = *node_pubkey;
       return 0;
+    case fd_vote_state_versioned_enum_v5:
+      CHECK( data_sz==FD_VOTE_STATE_V5_SZ );
+      __attribute__((fallthrough));
     case fd_vote_state_versioned_enum_v4:
       CHECK( data_sz>=WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR+32UL );
       fd_memcpy( inflation_rewards_collector_out, data+WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR, 32UL );
@@ -636,6 +688,17 @@ seek_authorized_voters( uchar const *  data,
       break;
     }
 
+    case fd_vote_state_versioned_enum_v5: {
+      CHECK( data_sz==FD_VOTE_STATE_V5_SZ );
+      ulong cnt = FD_LOAD( uint, data+V5_OFF( authorized_voters_len ) );
+      CHECK( cnt<=MAX_AUTHORIZED_VOTERS );
+      *out_discriminant = discriminant;
+      *out_ptr          = data+V5_OFF( authorized_voters );
+      *out_remaining    = data_sz-V5_OFF( authorized_voters );
+      *out_cnt          = cnt;
+      return 0;
+    }
+
     default:
       return 1;
   }
@@ -665,6 +728,15 @@ seek_epoch_credits( uchar const *                    data,
                     ulong                            data_sz,
                     fd_vote_epoch_credits_t const ** out_ptr,
                     ulong *                          out_cnt ) {
+  if( data_sz>=4UL && FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v5 ) {
+    CHECK( data_sz==FD_VOTE_STATE_V5_SZ );
+    ulong cnt = FD_LOAD( uint, data+V5_OFF( accumulated_lamports_len ) );
+    CHECK( cnt<=FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX );
+    *out_ptr = fd_type_pun_const( data+V5_OFF( accumulated_lamports ) );
+    *out_cnt = cnt;
+    return 0;
+  }
+
   uint          discriminant;
   uchar const * ptr;
   ulong         remaining;
@@ -715,6 +787,12 @@ int
 fd_vote_account_last_timestamp( uchar const *             data,
                                 ulong                     data_sz,
                                 fd_vote_block_timestamp_t * out ) {
+  if( data_sz>=4UL && FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v5 ) {
+    CHECK( data_sz==FD_VOTE_STATE_V5_SZ );
+    fd_memcpy( out, data+V5_OFF( last_timestamp ), sizeof(fd_vote_block_timestamp_t) );
+    return 0;
+  }
+
   fd_vote_epoch_credits_t const * epoch_credits_ptr;
   ulong                           epoch_credits_len;
   CHECK( !seek_epoch_credits( data, data_sz, &epoch_credits_ptr, &epoch_credits_len ) );
@@ -727,11 +805,13 @@ fd_vote_account_last_timestamp( uchar const *             data,
 }
 
 int
-fd_vote_account_is_v4_with_bls_pubkey( uchar const * data,
-                                       ulong         data_sz ) {
-  if( FD_UNLIKELY( data_sz<WIRE_BLS_OFF_V4+1UL ) ) return 0;
+fd_vote_account_has_bls_pubkey( uchar const * data,
+                                ulong         data_sz ) {
+  if( FD_UNLIKELY( data_sz<4UL ) ) return 0;
   uint discriminant = FD_LOAD( uint, data );
+  if( discriminant==fd_vote_state_versioned_enum_v5 ) return data_sz==FD_VOTE_STATE_V5_SZ;
   if( discriminant!=fd_vote_state_versioned_enum_v4 ) return 0;
+  if( FD_UNLIKELY( data_sz<WIRE_BLS_OFF_V4+1UL ) ) return 0;
   return !!data[ WIRE_BLS_OFF_V4 ];
 }
 
@@ -739,8 +819,12 @@ int
 fd_vote_account_bls_pubkey( uchar const * data,
                             ulong         data_sz,
                             uchar         out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] ) {
-  if( FD_UNLIKELY( !fd_vote_account_is_v4_with_bls_pubkey( data, data_sz ) )      ) return 1;
-  if( FD_UNLIKELY( data_sz<WIRE_BLS_OFF_V4+1UL+FD_BLS_PUBKEY_COMPRESSED_SZ )      ) return 1;
+  if( FD_UNLIKELY( !fd_vote_account_has_bls_pubkey( data, data_sz ) ) ) return 1;
+  if( FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v5 ) {
+    fd_memcpy( out, data+V5_OFF( bls_pubkey_compressed ), FD_BLS_PUBKEY_COMPRESSED_SZ );
+    return 0;
+  }
+  if( FD_UNLIKELY( data_sz<WIRE_BLS_OFF_V4+1UL+FD_BLS_PUBKEY_COMPRESSED_SZ ) ) return 1;
   fd_memcpy( out, data+WIRE_BLS_OFF_V4+1UL, FD_BLS_PUBKEY_COMPRESSED_SZ );
   return 0;
 }
@@ -757,6 +841,41 @@ fd_vote_account_epoch_credits( uchar const * data,
 /**********************************************************************/
 /* Vote account state -- public API                                   */
 /**********************************************************************/
+
+int
+fd_vote_account_is_valid_v5( uchar const * data,
+                             ulong         data_sz ) {
+  if( FD_UNLIKELY( data_sz!=FD_VOTE_STATE_V5_SZ || FD_LOAD( uint, data )!=fd_vote_state_versioned_enum_v5 ) ) return 0;
+
+  fd_validator_location_t location = {
+    .x = FD_LOAD( int, data+V5_OFF( location.x ) ),
+    .y = FD_LOAD( int, data+V5_OFF( location.y ) ),
+    .z = FD_LOAD( int, data+V5_OFF( location.z ) )
+  };
+  if( FD_UNLIKELY( !fd_validator_location_is_valid( &location ) ) ) return 0;
+
+  fd_vote_state_v5_commission_t commission;
+  v5_commission_load( data, fd_commission_kind_enum_inflation_rewards, &commission );
+  if( FD_UNLIKELY( !fd_vote_state_v5_commission_is_valid( &commission ) ) ) return 0;
+  v5_commission_load( data, fd_commission_kind_enum_block_revenue, &commission );
+  if( FD_UNLIKELY( !fd_vote_state_v5_commission_is_valid( &commission ) ) ) return 0;
+
+  ulong         av_len = FD_LOAD( uint, data+V5_OFF( authorized_voters_len ) );
+  uchar const * av     = data+V5_OFF( authorized_voters );
+  if( FD_UNLIKELY( av_len>MAX_AUTHORIZED_VOTERS ) ) return 0;
+  for( ulong i=1UL; i<av_len; i++ ) {
+    if( FD_UNLIKELY( FD_LOAD( ulong, av+i*WIRE_AUTH_VOTER_SZ )<=FD_LOAD( ulong, av+(i-1UL)*WIRE_AUTH_VOTER_SZ ) ) ) return 0;
+  }
+
+  ulong         ec_len = FD_LOAD( uint, data+V5_OFF( accumulated_lamports_len ) );
+  uchar const * ec     = data+V5_OFF( accumulated_lamports );
+  if( FD_UNLIKELY( ec_len>FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX ) ) return 0;
+
+  return fd_mem_iszero( av+av_len*WIRE_AUTH_VOTER_SZ, (MAX_AUTHORIZED_VOTERS-av_len)*WIRE_AUTH_VOTER_SZ ) &&
+         fd_mem_iszero( ec+ec_len*sizeof(fd_vote_epoch_credits_t),
+                        (FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX-ec_len)*sizeof(fd_vote_epoch_credits_t) ) &&
+         fd_mem_iszero( data+FD_VOTE_STATE_V5_PAD_OFF, FD_VOTE_STATE_V5_PAD_SZ );
+}
 
 fd_vote_state_versioned_t *
 fd_vote_state_versioned_new( fd_vote_state_versioned_t * self,
@@ -804,6 +923,13 @@ fd_vote_state_versioned_new( fd_vote_state_versioned_t * self,
       self->v4.epoch_credits            = epoch_credits;
       self->v4.authorized_voters.pool   = authorized_voters_pool;
       self->v4.authorized_voters.treap  = authorized_voters_treap;
+      break;
+    case fd_vote_state_versioned_enum_v5:
+      memset( &self->v5, 0, sizeof(fd_vote_state_v5_t) );
+      self->v5.inflation_rewards_commission_bps_len = 1;
+      self->v5.block_revenue_commission_bps_len     = 1;
+      self->v5.latest_vote                          = ULONG_MAX;
+      self->v5.root_slot                            = ULONG_MAX;
       break;
     default:
       return NULL;
@@ -880,6 +1006,11 @@ fd_vote_state_versioned_deserialize_inner( fd_vote_state_versioned_t * self,
       READ_BYTES( &self->v4.last_timestamp, sizeof(fd_vote_block_timestamp_t), &ptr, &rem );
       break;
     }
+
+    case fd_vote_state_versioned_enum_v5:
+      CHECK( fd_vote_account_is_valid_v5( payload, payload_sz ) );
+      fd_memcpy( &self->v5, ptr, sizeof(fd_vote_state_v5_t) );
+      break;
 
     default:
       return 1;
@@ -962,6 +1093,23 @@ fd_vote_state_versioned_serialize( fd_vote_state_versioned_t const * self,
       break;
     }
 
+    case fd_vote_state_versioned_enum_v5: {
+      fd_validator_location_t       location = self->v5.location;
+      fd_vote_state_v5_commission_t inflation_commission;
+      fd_vote_state_v5_commission_t block_commission;
+      fd_vote_state_v5_commission_get( &self->v5, fd_commission_kind_enum_inflation_rewards, &inflation_commission );
+      fd_vote_state_v5_commission_get( &self->v5, fd_commission_kind_enum_block_revenue,     &block_commission     );
+      CHECK( buf_sz>=FD_VOTE_STATE_V5_SZ );
+      CHECK( self->v5.authorized_voters_len<=MAX_AUTHORIZED_VOTERS );
+      CHECK( self->v5.accumulated_lamports_len<=FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX );
+      CHECK( fd_validator_location_is_valid( &location ) );
+      CHECK( fd_vote_state_v5_commission_is_valid( &inflation_commission ) );
+      CHECK( fd_vote_state_v5_commission_is_valid( &block_commission     ) );
+      fd_memcpy( out, &self->v5, sizeof(fd_vote_state_v5_t) );
+      fd_memset( out+sizeof(fd_vote_state_v5_t), 0, FD_VOTE_STATE_V5_PAD_SZ );
+      break;
+    }
+
     default:
       return 1;
   }
@@ -1014,6 +1162,9 @@ fd_vote_state_versioned_serialized_size( fd_vote_state_versioned_t const * self 
            + 8UL + epoch_credits_cnt * sizeof(fd_vote_epoch_credits_t)
            + sizeof(fd_vote_block_timestamp_t);
     }
+
+    case fd_vote_state_versioned_enum_v5:
+      return FD_VOTE_STATE_V5_SZ;
 
     default:
       return 0UL;

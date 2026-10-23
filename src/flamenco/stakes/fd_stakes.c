@@ -544,7 +544,7 @@ fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
   ulong minimum_balance       = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
   return lamports>=minimum_balance &&
          fd_vsv_is_correct_size_owner_and_init( owner, data, data_len ) &&
-         fd_vote_account_is_v4_with_bls_pubkey( data, data_len );
+         fd_vote_account_has_bls_pubkey( data, data_len );
 }
 
 void
@@ -666,7 +666,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     FD_TEST( !fd_vote_account_commission_bps( acc.data, acc.data_len, FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ), &commission_t_1 ) );
     FD_TEST( !fd_vote_account_node_pubkey( acc.data, acc.data_len, &node_account_t_1 ) );
-    if( FD_LIKELY( fd_vote_account_is_v4_with_bls_pubkey( acc.data, acc.data_len ) ) ) {
+    if( FD_LIKELY( fd_vote_account_has_bls_pubkey( acc.data, acc.data_len ) ) ) {
       FD_TEST( !fd_vote_account_bls_pubkey( acc.data, acc.data_len, bls_key_t_1 ) );
     }
 
