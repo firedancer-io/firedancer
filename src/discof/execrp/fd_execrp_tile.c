@@ -303,11 +303,14 @@ returnable_frag( fd_execrp_tile_t *  ctx,
       case FD_EXECRP_TT_POH_HASH: {
         fd_execrp_poh_hash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_POH_PARA, "invalid poh batch" );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_POH_PARA && msg->hashcnt<=1UL, "invalid poh batch" );
         out_msg->bank_idx      = msg->bank_idx;
         out_msg->poh_hash->cnt = msg->cnt;
         ctx->metrics.poh_hash_cnt += msg->hashcnt*msg->cnt;
-        fd_sha256_hash_32_repeated_batch( msg->hash, out_msg->poh_hash->hash, msg->hashcnt, msg->cnt );
+        for( ulong i=0UL; i<msg->cnt; i++ ) {
+          if( msg->hashcnt ) fd_sha256_hash( msg->hash+i, sizeof(fd_hash_t), out_msg->poh_hash->hash+i );
+          else               out_msg->poh_hash->hash[ i ] = msg->hash[ i ];
+        }
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_POH_HASH<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
