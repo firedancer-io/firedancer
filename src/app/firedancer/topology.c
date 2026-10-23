@@ -427,7 +427,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "sign_failov" );
   }
 
-
   fd_topob_wksp( topo, "execrp_replay" );
   fd_topob_wksp( topo, "admin_replay"  );
   if( FD_UNLIKELY( failover_enabled ) ) {

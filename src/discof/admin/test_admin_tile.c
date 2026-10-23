@@ -305,7 +305,7 @@ test_failover_identity( void ) {
   setup();
   FD_TEST( fd_topob_new( test_topo, "admin-test" ) );
   fd_topob_wksp( test_topo, "wksp" )->wksp = NULL;
-  fd_keyswitch_t * tower_ks = mock_tile( "tower" );
+  fd_keyswitch_t * votor_ks = mock_tile( "votor" );
   fd_keyswitch_t * sign_ks  = mock_tile( "sign" );
   ctx.topo             = test_topo;
   ctx.failover_enabled = 1;
@@ -319,7 +319,7 @@ test_failover_identity( void ) {
      nothing goes to the failover tile until every tile switched. */
   failover_operator_begin( &ctx, third );
   FD_TEST( ctx.failover_epoch==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) && ctx.failover_pending && !bus_seq );
-  FD_TEST( sign_ks->param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR && tower_ks->operator==1UL );
+  FD_TEST( sign_ks->param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR && votor_ks->operator==1UL );
   fd_memcpy( ctx.identity_pubkey, third, 32UL );
   failover_operator_notify( &ctx, bus_stem );
   fd_failover_operator_t operator = bus_operator();
