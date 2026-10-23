@@ -195,7 +195,7 @@ test_set_identity( void ) {
 
 static uchar adminctl_mem[ 1UL<<18 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)));
 
-/* Under failover, set-identity changes the failover identity unless the
+/* With failover, set-identity changes the failover identity unless the
    key is our junk key.  OPERATOR waits while the link has no room and
    failover commands are busy until it goes out.  A switch request from
    before set-identity gets STALE with the failover identity. */

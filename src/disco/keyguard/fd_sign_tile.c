@@ -306,8 +306,7 @@ during_frag( void * _ctx,
   during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz );
 }
 
-/* The junk key signs TLS.  The prepared failover key signs admission
-   proofs for our own junk pubkey, whichever identity is installed. */
+/* The junk key signs TLS. */
 
 static void FD_FN_SENSITIVE
 failover_sign( fd_sign_ctx_t * ctx,
@@ -457,10 +456,7 @@ after_frag( void *              _ctx,
 }
 
 /* failover_load_keys sets the failover keys, all NULL unless failover
-   is enabled.  Under failover we also keep read only copies of the junk
-   and staked keypairs, loaded here before the sandbox, and a page for a
-   key that set-identity installs.  We boot with the junk key as the
-   identity key. */
+   is enabled. */
 
 static void FD_FN_SENSITIVE
 failover_load_keys( fd_sign_ctx_t *        ctx,

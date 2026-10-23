@@ -41,9 +41,7 @@ FD_STATIC_ASSERT( SESSION_NAME_CNT==FD_FAILOVER_SESSION_CNT,      session_names 
 FD_STATIC_ASSERT( SOURCE_NAME_CNT ==FD_FAILOVER_SOURCE_CNT,       source_names  );
 FD_STATIC_ASSERT( HANDOFF_NAME_CNT==FD_FAILOVER_HANDOFF_CNT,      handoff_names );
 
-/* Strips key and its value.  fd_env_strip_cmdline_cstr silently drops a
-   key given last with no value and takes a flag that follows the key as
-   its value, so we refuse both before we strip. */
+/* Strips key and its value. */
 static char const *
 strip_value( int *        pargc,
              char ***     pargv,
@@ -134,7 +132,7 @@ action_name( uchar action ) {
   return action<ACTION_NAME_CNT ? ACTION_NAMES[ action ] : "unknown";
 }
 
-/* Map a refusal code to a human readable reason, NULL for anything
+/* Map a result code to a human readable reason, NULL for anything
    that is not a refusal. */
 static char const *
 control_result_name( ulong result ) {
@@ -165,8 +163,7 @@ control_result_name( ulong result ) {
 static void
 failover_confirm( args_t const * args ) {
   /* A promote hands off the staked identity to this machine, so the operator
-     confirms first.  The warning for `failover promote --force` is
-     printed even with --yes. */
+     confirms first. */
   if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) {
     FD_LOG_STDOUT(( "This takes the staked identity on your word.  No other machine may hold it or be\n"
                     "in a promotion, including any validator running this identity without failover.\n"
@@ -197,8 +194,7 @@ failover_confirm( args_t const * args ) {
 }
 
 /* What this machine knows of another holder of the staked identity,
-   from the checks that `failover promote --force` skips.  It is not a go
-   ahead. */
+   from the checks that `failover promote --force` skips. */
 static char const *
 other_holder( ulong result ) {
   switch( result ) {
@@ -307,7 +303,7 @@ failover_request( fd_adminctl_t *                    adminctl,
 static void __attribute__((noreturn))
 fail_disabled( int status ) {
   if( status ) FD_LOG_ERR(( "`failover status` is unavailable because this validator has no failover command bus" ));
-  FD_LOG_ERR(( "the running validator has no failover client, run Alpenglow consensus with [paths.vote_account] configured" ));
+  FD_LOG_ERR(( "failover is not enabled on the running validator, set [failover.enabled] to true and restart it" ));
 }
 
 static void __attribute__((noreturn))
@@ -418,8 +414,8 @@ failover_status_args_help( fd_action_help_t * help ) {
 static void
 failover_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "<promote|status>", NULL,        "Request takeover on this validator, or read its failover state" );
-  fd_action_help_arg( help, "[<keypair>]",      NULL,        "Path to the target identity keypair. Required on first use when\n"
-                                                             "[failover.enabled] is false. Loading it does not install it" );
+  fd_action_help_arg( help, "[<keypair>]",      NULL,        "Path to the target identity keypair, which must match the\n"
+                                                             "standby's current failover target" );
   failover_status_args_help( help );
   fd_action_help_arg( help, "--yes",            NULL,        "Skip the confirmation prompt. It does not authorize peer or\n"
                                                              "vote-history overrides" );
@@ -454,15 +450,9 @@ action_t fd_action_failover = {
   .perm           = failover_promote_perm,
   .description    = "Promote the running standby validator or read its failover state",
   .detail         = "Hands off the staked identity between two validators.  A validator with\n"
-                    "[failover] enabled boots as a standby under its junk identity and does\n"
-                    "not vote until promoted. Both validators must use the same\n"
+                    "[failover] enabled boots as a standby under a fresh junk identity and\n"
+                    "does not vote until promoted. Both validators must use the same\n"
                     "[paths.vote_account].\n"
-                    "With [failover.enabled] false, start the requester with an unstaked junk\n"
-                    "key in [paths.identity_key] to keep it nonvoting until takeover. Provide\n"
-                    "the active's keypair on first use. The requester keeps its boot identity\n"
-                    "until adoption and the identity switch complete. It does not listen for\n"
-                    "incoming handoffs. The target must differ from the boot identity and\n"
-                    "cannot be an authorized voter.\n"
                     "\n"
                     "Asks the active to hand over its identity.  With --force, takes the\n"
                     "identity without the active, for when it cannot sign.  Both forms\n"

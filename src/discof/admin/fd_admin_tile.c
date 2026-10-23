@@ -120,7 +120,7 @@ privileged_init( fd_topo_t const *      topo,
 
   fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
 
-  /* Under failover we boot on the junk key, and the key failover hands off
+  /* With failover, we boot on the junk key, and the key failover hands off
      starts as [paths.identity_key]. */
   ulong failov_idx = fd_topo_find_tile( topo, "failov", 0UL );
   if( FD_UNLIKELY( failov_idx!=ULONG_MAX ) ) {
@@ -176,7 +176,7 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     /* The stem numbers only the in links it polls, and we compare its
-       numbers with topology in link indexes, so under failover every in
+       numbers with topology in link indexes, so with failover every in
        link is polled. */
     if( FD_UNLIKELY( ctx->failov_in_idx!=ULONG_MAX ) ) FD_TEST( tile->in_link_poll[ i ] );
     if( FD_UNLIKELY( i==ctx->failov_in_idx ) ) continue;
@@ -490,7 +490,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         memcpy( sign->bytes, keypair, 64UL );
         if( FD_UNLIKELY( ctx->failover_switch ) ) {
-          /* Under failover the sign tile selects the junk key or the
+          /* With failover, the sign tile selects the junk key or the
              failover identity by its public key. */
           sign->param = FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY;
           fd_memcpy( sign->bytes,      keypair+32UL, 32UL );
@@ -683,7 +683,7 @@ failover_identity_check_poll( fd_admin_tile_ctx_t * ctx ) {
   return result;
 }
 
-/* Under failover set-identity still switches the same way. */
+/* With failover, set-identity still switches the same way. */
 
 static void
 failover_operator_begin( fd_admin_tile_ctx_t * ctx,
@@ -775,7 +775,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
-  /* Under failover a set-identity to the key already installed does
+  /* With failover, a set-identity to the key already installed does
      nothing, so failover is not restarted. */
   if( FD_UNLIKELY( ctx->failover_enabled && fd_memeq( req->keypair+32UL, ctx->identity_pubkey, 32UL ) ) ) {
     FD_LOG_NOTICE(( "set-identity: `%s` is already the identity, nothing to do", old_identity ));
