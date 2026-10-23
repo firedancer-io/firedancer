@@ -216,7 +216,6 @@ test_build_vote_txn( fd_txn_p_t * out,
 
   fd_memset( out, 0, sizeof(fd_txn_p_t) );
   FD_TEST( fd_txn_build_p( builder, out ) );
-  FD_TEST( fd_txn_is_simple_vote_transaction( TXN(out), out->payload ) );
   out->pack_cu.non_execution_cus                 = 1000U;
   out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
   out->flags = FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
@@ -254,7 +253,6 @@ test_build_vote_authorize_txn( fd_txn_p_t * out,
 
   fd_memset( out, 0, sizeof(fd_txn_p_t) );
   FD_TEST( fd_txn_build_p( builder, out ) );
-  FD_TEST( fd_txn_is_simple_vote_transaction( TXN(out), out->payload ) );
   out->pack_cu.non_execution_cus                 = 1000U;
   out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
   out->flags = FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
@@ -1053,7 +1051,6 @@ FD_UNIT_TEST( execle_vote ) {
 
   fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, out_poh_meta->chunk );
   FD_TEST( out_txn->payload_sz==in_txn->txnp->payload_sz );
-  FD_TEST( fd_txn_is_simple_vote_transaction( TXN(out_txn), out_txn->payload ) );
   FD_TEST( env->execle->txn_out[0].err.is_committable );
   FD_TEST( !env->execle->txn_out[0].err.is_fees_only );
   FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR );
@@ -1095,7 +1092,6 @@ FD_UNIT_TEST( execle_bundle_vote_authorize ) {
 
   test_assert_bundle_out( env, 1UL, 2U );
   fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
-  FD_TEST( fd_txn_is_simple_vote_transaction( TXN(out_txn), out_txn->payload ) );
   FD_TEST( env->execle->txn_out[0].err.is_committable );
   FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
   FD_TEST( out_txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS );

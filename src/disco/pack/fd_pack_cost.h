@@ -328,9 +328,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #endif /* FD_PACK_COST_USE_TRUE_ALLOC_BOUND */
 #undef ROW
 
-  int is_simple_vote = fd_txn_is_simple_vote_transaction( txn, payload );
-  if( FD_UNLIKELY( is_simple_vote ) ) *flags |=  FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-  else                                *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
+  *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
 
   /* We need to be mindful of overflow here, but it's not terrible.
      signature_cost < FD_TXN_ACCT_ADDR_MAX*720 + FD_TXN_INSTR_MAX * UCHAR_MAX * 6690,
@@ -545,10 +543,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   } else {
     fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
   }
-
-  /* As an optimization, for simple votes we can override execution cost
-    with a known tighter upper bound. */
-  if( FD_UNLIKELY( is_simple_vote ) ) *execution_cost           = (uint)FD_PACK_VOTE_MAX_COMPUTE_UNITS;
 
   fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            (ulong)(*execution_cost)      );
   fd_ulong_store_if( !!opt_fee,                       opt_fee,                       *fee                          );
