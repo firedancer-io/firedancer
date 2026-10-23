@@ -557,12 +557,13 @@ fd_repair_blk_dead( fd_repair_t *     rotor,
   while( dead && memcmp( &dead->dmr, blk_mr, sizeof(fd_mr32_t) ) ) dead = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( dead, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !dead ) ) return;
 
-  fd_repair_slot_meta_t * meta   = fd_repair_slot_meta( rotor, slot );
-  int                     eager  = meta->eager==fd_repair_blk_pool_idx( rotor->blk_pool, dead );
-  ulong                   parent = dead->parent;
-  if( FD_UNLIKELY( eager  ) ) meta->invalidated = 1; /* turbine must not rebuild it */
-  prune( rotor, dead );
-  if( FD_UNLIKELY( eager && parent!=fd_repair_blk_pool_idx_null( rotor->blk_pool ) ) ) cascade( rotor, fd_repair_blk_pool_ele( rotor->blk_pool, parent ) ); /* delivers the notar blks held behind it */
+  blk_treap_remove( rotor, dead ); /* replay rejected it, no point repairing the rest */
+  fd_repair_slot_meta_t * meta = fd_repair_slot_meta( rotor, slot );
+  if( FD_LIKELY( meta->eager!=fd_repair_blk_pool_idx( rotor->blk_pool, dead ) || meta->invalidated ) ) return;
+
+  meta->invalidated = 1; /* turbine must not rebuild it */
+  dead->eager       = 0; /* never repaired by position */
+  if( FD_LIKELY( dead->parent!=fd_repair_blk_pool_idx_null( rotor->blk_pool ) ) ) cascade( rotor, fd_repair_blk_pool_ele( rotor->blk_pool, dead->parent ) ); /* delivers the notar blks held behind it */
 }
 
 fd_repair_blk_t *

@@ -277,8 +277,11 @@ fd_repair_fini( fd_repair_t * rotor );
 
 /* replay_slot   REPLAY_SIG_SLOT_DEAD
 
-   replay rejected the blk, prune it so it is never redelivered, and if
-   it was the eager blk invalidate the slot so turbine can't rebuild it. */
+   replay rejected the blk.  If it was the eager blk the slot is
+   invalidated so turbine can't rebuild it.  We do not prune the blk. If
+   this blk gets finalized, we want to keep the block data so that if it
+   gets re-delivered, we can notify replay that it is a finalized block
+   so replay can detect a hard fork.  */
 
 void
 fd_repair_blk_dead( fd_repair_t *     rotor,

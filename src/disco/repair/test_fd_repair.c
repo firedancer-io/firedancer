@@ -771,17 +771,18 @@ test_fec_reconsume_incomplete( void ) {
   orphan_cnt( rotor );
 }
 
-/* Replay reports slot 1 dead: it is freed with its FEC sets, slot 2
-   under it is orphaned, turbine does not rebuild slot 1, and nothing is
-   redelivered. */
+/* Replay reports slot 1 dead: it is held with its FEC sets and slot 2
+   under it, the slot is invalidated so turbine does not rebuild it, and
+   the eager blk is never repaired again.  A reconsume still redelivers
+   it whole ahead of slot 2. */
 
 static void
 test_blk_dead(  void ) {
-  fd_mr32_t     root  = hash( 0xEE ), m10 = hash( 0x11 ), m20 = hash( 0x21 );
+  fd_mr32_t     root  = hash( 0xEE ), m10 = hash( 0x11 ), m20 = hash( 0x21 ), m30 = hash( 0x31 );
   fd_repair_t * rotor = setup();
   shred0  ( rotor,  1UL, 0UL, &root, &m10 );
   complete( rotor,  1UL, 0UL, 0U, 1, &m10 );
-  ulong             one = 1UL, two = 2UL;
+  ulong             one = 1UL, two = 2UL, three = 3UL;
   fd_repair_blk_t * e1  = fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   fd_mr32_t         d1  = e1->dmr;
   shred0  ( rotor,  2UL, 1UL, &d1, &m20 );
@@ -790,15 +791,174 @@ test_blk_dead(  void ) {
   expect( rotor, e1, 0U ); expect( rotor, e2, 0U );
 
   fd_repair_blk_dead( rotor, 1UL, &d1 );
-  FD_TEST( !fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
-  FD_TEST( e2->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_repair_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
+  FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].invalidated && !e1->eager && !e1->in_blk_treap );
+  FD_TEST( e2->parent==fd_repair_blk_pool_idx( rotor->blk_pool, e1 ) );
   fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
-  FD_TEST( !fd_repair_fec_map_ele_query( rotor->fec_map, &k10, NULL, rotor->fec_pool ) );
+  FD_TEST( fd_repair_fec_map_ele_query( rotor->fec_map, &k10, NULL, rotor->fec_pool ) );
+  fd_repair_blk_dead( rotor, 1UL, &d1 ); /* SLOT_DEAD again changes nothing */
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
 
   shred0( rotor, 1UL, 0UL, &root, &m10 );
-  FD_TEST( !fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_repair_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
+  FD_TEST( !e1->in_blk_treap );
+
   rotor->reconsume = 1;
   FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+  fd_mr32_t d2 = e2->dmr;
+  shred0  ( rotor, 3UL, 2UL, &d2, &m30 );
+  complete( rotor, 3UL, 2UL, 0U, 1, &m30 );
+  fd_repair_blk_t * e3 = fd_repair_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
+  expect( rotor, e1, 0U ); expect( rotor, e2, 0U ); expect( rotor, e3, 0U );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+  orphan_cnt( rotor );
+
+  fd_repair_root_advanced( rotor, 1UL, &d1 ); /* held blks advance like any other */
+  FD_TEST( fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && rotor->root_blk==e1 );
+  orphan_cnt( rotor );
+}
+
+/* The mainnet epoch 1065 crash.  Notar blk B is fully delivered, its
+   child C partly.  Replay rejects B and votor keeps naming it, once per
+   vote.  Pruning B made a fresh B that had consumed nothing, so the next
+   reconsume pushed C ahead of any of B: replay held a half built B from
+   the copy it was reading, attached C to it and ran out of room.  B is
+   held instead, naming it finds it, and a reconsume sends all of B
+   before C. */
+
+static void
+test_blk_dead_renamed( void ) {
+  fd_mr32_t     B     = hash( 0xB0 ), mB = hash( 0xB1 ), m20 = hash( 0x21 ), m21 = hash( 0x22 );
+  fd_repair_t * rotor = setup();
+  ulong         one   = 1UL, two = 2UL;
+
+  fd_repair_blk_t * b = notar( rotor, 1UL, 0xB0 );
+  parented( rotor, 1UL, 0xB0, 0UL, 0xEE, 1U );
+  fecs    ( rotor, 1UL, 0xB0, 1U );
+  complete( rotor, 1UL, 0UL, 0U, 1, &mB );
+  expect( rotor, b, 0U );
+
+  shred0  ( rotor, 2UL, 1UL, &B, &m20 );
+  complete( rotor, 2UL, 1UL, 0U, 0, &m20 );
+  fd_repair_blk_t * c = fd_repair_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  expect( rotor, c, 0U );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+
+  fd_repair_blk_dead( rotor, 1UL, &B );
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !fd_repair_blk_notarized( rotor, 1UL, &B ) ); /* found, not re-created */
+  ulong named = 0UL;
+  for( fd_repair_blk_t const * x = fd_repair_blk_map_ele_query_const( rotor->blk_map, &one, NULL, rotor->blk_pool ); x; x = fd_repair_blk_map_ele_next_const( x, NULL, rotor->blk_pool ) ) {
+    named += (ulong)!memcmp( &x->dmr, &B, sizeof(fd_mr32_t) );
+  }
+  FD_TEST( named==1UL && b->cons_fec_cnt==1U && c->parent==fd_repair_blk_pool_idx( rotor->blk_pool, b ) );
+
+  rotor->reconsume = 1; /* MISSING_FEC */
+  complete( rotor, 2UL, 1UL, 1U, 1, &m21 );
+  expect( rotor, b, 0U ); /* all of B first */
+  expect( rotor, c, 0U ); expect( rotor, c, 1U );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+  orphan_cnt( rotor );
+}
+
+/* A leader turbines B with a bad bank hash and keeps building on it, a
+   minority fork that is never finalized.  Votor still names B through
+   SafeToNotar repair events, once per vote.
+
+   Replay rejects B after receiving all of it: the slot is invalidated,
+   B is held, and naming it finds it.  Every reconsume redelivers the
+   fork from B whole, as the leader's later blks arrive.
+
+   Replay rejects B partway through, so SLOT_DEAD names the incomplete
+   turbine copy: it is held with no dmr and turbine stops.  C names B's
+   real id and waits unlinked.  A SafeToNotar repair event for that id
+   creates the notar copy, under which C waits until all of it has gone
+   out.  Replay rejects that copy too, and naming it finds it. */
+
+static void
+test_blk_dead_minority_fork( void ) {
+  fd_mr32_t     root  = hash( 0xEE ), m10 = hash( 0x11 ), m20 = hash( 0x21 ), m21 = hash( 0x22 ), m30 = hash( 0x31 ), m40 = hash( 0x41 );
+  ulong         one   = 1UL, two = 2UL, three = 3UL, four = 4UL;
+  fd_repair_t * rotor = setup();
+
+  shred0  ( rotor, 1UL, 0UL, &root, &m10 );
+  complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
+  fd_repair_blk_t * b  = fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_mr32_t         dB = b->dmr;
+  expect( rotor, b, 0U );
+  shred0  ( rotor, 2UL, 1UL, &dB, &m20 );
+  complete( rotor, 2UL, 1UL, 0U, 0, &m20 );
+  fd_repair_blk_t * c  = fd_repair_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  expect( rotor, c, 0U );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+
+  fd_repair_blk_dead( rotor, 1UL, &dB );
+  FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].invalidated && !b->eager && !b->in_blk_treap );
+  FD_TEST( c->parent==fd_repair_blk_pool_idx( rotor->blk_pool, b ) && fd_repair_deque_empty( rotor->reasm_deque ) );
+
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !fd_repair_blk_notarized( rotor, 1UL, &dB ) ); /* SafeToNotar, found */
+  shred0( rotor, 1UL, 0UL, &root, &m10 );                                                 /* turbine again */
+  FD_TEST( fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==b && !fd_repair_blk_map_ele_next_const( b, NULL, rotor->blk_pool ) );
+  FD_TEST( !b->in_blk_treap && fd_repair_deque_empty( rotor->reasm_deque ) );
+
+  rotor->reconsume = 1; /* replay dropped C under the dead B */
+  complete( rotor, 2UL, 1UL, 1U, 1, &m21 );
+  expect( rotor, b, 0U ); expect( rotor, c, 0U ); expect( rotor, c, 1U );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+
+  fd_mr32_t dC = c->dmr; /* the leader builds D on C */
+  shred0  ( rotor, 3UL, 2UL, &dC, &m30 );
+  complete( rotor, 3UL, 2UL, 0U, 1, &m30 );
+  fd_repair_blk_t * d  = fd_repair_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
+  expect( rotor, d, 0U );
+
+  rotor->reconsume = 1; /* and E on D */
+  fd_mr32_t dD = d->dmr;
+  shred0  ( rotor, 4UL, 3UL, &dD, &m40 );
+  complete( rotor, 4UL, 3UL, 0U, 1, &m40 );
+  fd_repair_blk_t * e  = fd_repair_blk_map_ele_query( rotor->blk_map, &four, NULL, rotor->blk_pool );
+  expect( rotor, b, 0U ); expect( rotor, c, 0U ); expect( rotor, c, 1U ); expect( rotor, d, 0U ); expect( rotor, e, 0U );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+  orphan_cnt( rotor );
+
+  /* Rejected partway through. */
+
+  fd_mr32_t X = hash( 0xB0 ), mX = hash( 0xB1 ), m11 = hash( 0x12 );
+  rotor = setup();
+  shred0  ( rotor, 1UL, 0UL, &root, &m10 );
+  complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
+  fd_repair_blk_t * t = fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  expect( rotor, t, 0U );
+
+  fd_repair_blk_dead( rotor, 1UL, &hash_null ); /* the incomplete turbine copy */
+  FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].invalidated && !t->eager && !t->in_blk_treap );
+  FD_TEST( !fd_repair_fec_complete( rotor, &(fd_shred_t){ .slot = 1UL, .idx = 2U*FD_FEC_SHRED_CNT-1U, .data = { .parent_off = 1, .flags = FD_SHRED_DATA_FLAG_SLOT_COMPLETE } }, &m11, 0, 0U, 0U, 0U, 0U, 0U, 0U, 0L ) );
+
+  shred0  ( rotor, 2UL, 1UL, &X, &m20 ); /* the leader builds C on B's real id */
+  complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
+  c = fd_repair_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( c->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && !c->cons_fec_cnt && orphan_cnt( rotor )==1UL );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+
+  rotor->reconsume = 1;
+  fd_repair_blk_t * n = fd_repair_blk_notarized( rotor, 1UL, &X ); /* SafeToNotar for B's real id */
+  FD_TEST( n && n!=t && c->parent==fd_repair_blk_pool_idx( rotor->blk_pool, n ) && !c->cons_fec_cnt && !orphan_cnt( rotor ) );
+  FD_TEST( !fd_repair_blk_notarized( rotor, 1UL, &X ) );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+
+  parented( rotor, 1UL, 0xB0, 0UL, 0xEE, 1U );
+  fecs    ( rotor, 1UL, 0xB0, 1U );
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+  complete( rotor, 1UL, 0UL, 0U, 1, &mX );
+  expect( rotor, n, 0U ); expect( rotor, c, 0U ); /* all of B before C */
+  FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
+
+  fd_repair_blk_dead( rotor, 1UL, &X );
+  FD_TEST( !fd_repair_blk_notarized( rotor, 1UL, &X ) );
+  ulong named = 0UL;
+  for( fd_repair_blk_t const * x = fd_repair_blk_map_ele_query_const( rotor->blk_map, &one, NULL, rotor->blk_pool ); x; x = fd_repair_blk_map_ele_next_const( x, NULL, rotor->blk_pool ) ) {
+    named += (ulong)!memcmp( &x->dmr, &X, sizeof(fd_mr32_t) );
+  }
+  FD_TEST( named==1UL && c->parent==fd_repair_blk_pool_idx( rotor->blk_pool, n ) && !n->in_blk_treap );
   orphan_cnt( rotor );
 }
 
@@ -978,9 +1138,9 @@ test_repair_blk_treap( void ) {
   orphan_cnt( rotor );
 }
 
-/* A blk in a blk_treap that is freed leaves it at once, by a prune or
-   by the root advancing past it, and the next pop returns the next
-   blk. */
+/* A blk in a blk_treap leaves it at once when replay rejects it or it
+   is freed by a prune or the root advancing past it, and the next pop
+   returns the next blk. */
 
 static void
 test_blk_treap_freed( void ) {
@@ -2381,9 +2541,9 @@ test_ancestry_eager_merge( void ) {
 }
 
 /* L names N in slot 3, whose rooted eager placeholder E3 has no dmr,
-   so L waits unlinked, then N shows up and takes L, under T, an orphan
-   whose named parent died.  The walk from L passes N and T unchanged
-   and relinks T to a re-created X', and the path still resolves. */
+   so L waits unlinked, then N shows up and takes L, under T, under X,
+   which has no ancestry.  X dies and is held: the walk from L passes N
+   and T unchanged and stops at X, the same blk, not a re-created one. */
 
 static void
 test_ancestry_two_relinks( void ) {
@@ -2408,21 +2568,23 @@ test_ancestry_two_relinks( void ) {
   fd_repair_blk_t * n = fd_repair_blk_notarized( rotor, 3UL, &N );
   FD_TEST( n && l->parent==fd_repair_blk_pool_idx( rotor->blk_pool, n ) && !rooted( rotor, l ) );
   fd_repair_blk_parented ( rotor, 3UL, &N, 2UL, &tid, 1U, 0L ); /* N under T, creating X under which T goes */
-  fd_repair_blk_dead     ( rotor, 1UL, &X );                /* X dies, T is an orphan again */
-  FD_TEST( t->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && !rooted( rotor, t ) );
+  ulong xidx = t->parent;
+  FD_TEST( xidx!=fd_repair_blk_pool_idx_null( rotor->blk_pool ) );
+  fd_repair_blk_dead     ( rotor, 1UL, &X );                /* X dies and is held */
+  FD_TEST( t->parent==xidx && !rooted( rotor, t ) );
 
   fd_mr32_t lid = l->dmr;
   fd_repair_blk_notarized( rotor, 4UL, &lid );
-  FD_TEST( !rooted( rotor, l ) );
+  FD_TEST( !rooted( rotor, l ) && t->parent==xidx );
   orphan_cnt( rotor );
 }
 
-/* T under X is part delivered when X dies, then completes unlinked and
-   takes L.  A notar cert on L walks past L, re-creates X' and relinks
-   T, the one blk the walk links: T's remaining FEC set goes out
-   although its parent is empty, and its cascade reaches L.  Once the
-   chain is connected a final cert on L walks it, links nothing and
-   delivers nothing again. */
+/* T under X is part delivered when X dies.  X is held, so T stays
+   linked and its remaining FEC set goes out as it completes, then L
+   under it.  A notar cert on L walks to X instead of re-creating it: a
+   fresh X would have consumed nothing while T had, and a reconsume
+   would send T ahead of any of X.  Once the chain is connected a final
+   cert on L walks it, links nothing and delivers nothing again. */
 
 static void
 test_ancestry_consume_top( void ) {
@@ -2444,34 +2606,34 @@ test_ancestry_consume_top( void ) {
   FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
 
   fd_repair_blk_dead( rotor, 1UL, &X );
-  FD_TEST( t->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && t->cons_fec_cnt==1U );
+  FD_TEST( t->parent==fd_repair_blk_pool_idx( rotor->blk_pool, x ) && t->cons_fec_cnt==1U );
   complete( rotor, 2UL, 1UL, 1U, 1, &m21 );
-  FD_TEST( t->buff_fec_cnt==2U && t->cons_fec_cnt==1U && fd_repair_deque_empty( rotor->reasm_deque ) );
+  expect( rotor, t, 1U );
+  FD_TEST( t->cons_fec_cnt==2U && fd_repair_deque_empty( rotor->reasm_deque ) );
   fd_mr32_t tid = t->dmr;
   shred0  ( rotor, 3UL, 2UL, &tid, &m30 );
   complete( rotor, 3UL, 2UL, 0U, 1, &m30 );
   fd_repair_blk_t * l = fd_repair_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
-  FD_TEST( l->parent==fd_repair_blk_pool_idx( rotor->blk_pool, t ) && !l->cons_fec_cnt && fd_repair_deque_empty( rotor->reasm_deque ) );
-
-  fd_mr32_t lid = l->dmr;
-  FD_TEST( !fd_repair_blk_notarized( rotor, 3UL, &lid ) );
-  fd_repair_blk_t const * x2 = fd_repair_blk_pool_ele_const( rotor->blk_pool, t->parent );
-  FD_TEST( x2 && !memcmp( &x2->dmr, &X, sizeof(fd_mr32_t) ) && x2->parent_slot==ULONG_MAX && !x2->cmpl_fec_cnt );
-  expect( rotor, t, 1U );
+  FD_TEST( l->parent==fd_repair_blk_pool_idx( rotor->blk_pool, t ) );
   expect( rotor, l, 0U );
   FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
 
-  parented( rotor, 1UL, 0xB0, 0UL, 0xEE, 1U );
+  fd_mr32_t lid = l->dmr;
+  rotor->reconsume = 1;
+  FD_TEST( !fd_repair_blk_notarized( rotor, 3UL, &lid ) );
+  FD_TEST( t->parent==fd_repair_blk_pool_idx( rotor->blk_pool, x ) ); /* found, not re-created */
   FD_TEST( rooted( rotor, l ) && fd_repair_deque_empty( rotor->reasm_deque ) );
+
   FD_TEST( fd_repair_blk_finalized( rotor, 3UL, &lid, 0L )==l );
-  FD_TEST( role( rotor, l )==ROLE_FINAL && role( rotor, t )==ROLE_FINAL && role( rotor, x2 )==ROLE_FINAL );
+  FD_TEST( role( rotor, l )==ROLE_FINAL && role( rotor, t )==ROLE_FINAL && role( rotor, x )==ROLE_FINAL );
   FD_TEST( fd_repair_deque_empty( rotor->reasm_deque ) );
   orphan_cnt( rotor );
 }
 
-/* T is final under X when replay kills X, which clears slot 1's final
-   and orphans T.  X named again comes back final through
-   link_children, in final_treap, and slot 1 refuses another blk. */
+/* T is final under X when replay kills X.  X stays slot 1's final blk
+   with T under it, out of final_treap since replay has all of it.  X
+   named again is found, not re-created, and slot 1 refuses another
+   blk. */
 
 static void
 test_ancestry_relink_final( void ) {
@@ -2487,25 +2649,24 @@ test_ancestry_relink_final( void ) {
   FD_TEST( t->parent==fd_repair_blk_pool_idx( rotor->blk_pool, x ) && role( rotor, x )==ROLE_FINAL && role( rotor, t )==ROLE_FINAL );
 
   fd_repair_blk_dead( rotor, 1UL, &X );
-  FD_TEST( !fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
-  FD_TEST( t->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && rotor->slot_meta[ one ].final==fd_repair_blk_pool_idx_null( rotor->blk_pool ) );
-  FD_TEST( orphan_cnt( rotor )==1UL );
+  FD_TEST( fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==x && !x->in_blk_treap );
+  FD_TEST( t->parent==fd_repair_blk_pool_idx( rotor->blk_pool, x ) && role( rotor, x )==ROLE_FINAL );
+  FD_TEST( !orphan_cnt( rotor ) );
 
-  fd_repair_blk_t * x2 = fd_repair_blk_notarized( rotor, 1UL, &X );
-  FD_TEST( x2 && t->parent==fd_repair_blk_pool_idx( rotor->blk_pool, x2 ) && !orphan_cnt( rotor ) );
-  FD_TEST( role( rotor, x2 )==ROLE_FINAL && x2->in_blk_treap && !x2->eager );
-  FD_TEST( fd_repair_treap_ele_cnt( rotor->final_treap )==2UL && !fd_repair_treap_ele_cnt( rotor->notar_treap ) );
+  FD_TEST( !fd_repair_blk_notarized( rotor, 1UL, &X ) );     /* found, not re-created */
   FD_TEST( !fd_repair_blk_notarized( rotor, 1UL, &other ) ); /* the slot is settled */
-  FD_TEST( fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==x2 && !fd_repair_blk_map_ele_next_const( x2, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==x && !fd_repair_blk_map_ele_next_const( x, NULL, rotor->blk_pool ) );
+  FD_TEST( role( rotor, x )==ROLE_FINAL && t->parent==fd_repair_blk_pool_idx( rotor->blk_pool, x ) );
   orphan_cnt( rotor );
 }
 
 /* orphan_map through each transition.  Two blks of different slots
    name the same parent dmr before it is held and share a key; a header
    repeated does not insert twice; the parent appearing links both out;
-   the parent dying puts both back; its re-creation takes them again;
-   a skip of their slot prunes them out; and a blk whose eager parent
-   completes as what it named leaves through link_children. */
+   the parent dying keeps both linked and naming it again finds it; a
+   skip of one's slot prunes it; a blk whose eager parent completes as
+   what it named leaves through link_children; and the root passing the
+   dead parent puts its remaining child back. */
 
 static void
 test_orphan_map( void ) {
@@ -2525,17 +2686,14 @@ test_orphan_map( void ) {
   fd_repair_blk_t * n3 = fd_repair_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
   FD_TEST( e2->parent!=fd_repair_blk_pool_idx_null( rotor->blk_pool ) && e2->parent==n3->parent );
 
-  fd_repair_blk_dead( rotor, 1UL, &P ); /* P dies, both wait for it again */
-  FD_TEST( e2->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) && n3->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) );
-  FD_TEST( orphan_cnt( rotor )==2UL );
-  fd_repair_blk_t * p = fd_repair_blk_notarized( rotor, 1UL, &P );
-  FD_TEST( p && e2->parent==fd_repair_blk_pool_idx( rotor->blk_pool, p ) && n3->parent==fd_repair_blk_pool_idx( rotor->blk_pool, p ) );
-  FD_TEST( !orphan_cnt( rotor ) && p->child!=fd_repair_blk_pool_idx_null( rotor->blk_pool ) );
+  ulong pidx = e2->parent;
+  fd_repair_blk_dead( rotor, 1UL, &P ); /* P dies, both stay linked under it */
+  FD_TEST( e2->parent==pidx && n3->parent==pidx && !orphan_cnt( rotor ) );
+  FD_TEST( !fd_repair_blk_notarized( rotor, 1UL, &P ) ); /* found, not re-created */
+  FD_TEST( e2->parent==pidx && n3->parent==pidx && !orphan_cnt( rotor ) );
 
-  fd_repair_blk_dead  ( rotor, 1UL, &P );
-  fd_repair_slot_skipped( rotor, 3UL ); /* n3 pruned while an orphan */
-  FD_TEST( orphan_cnt( rotor )==1UL );
-  FD_TEST( fd_repair_orphan_map_ele_query( rotor->orphan_map, &P, NULL, rotor->blk_pool )==e2 );
+  fd_repair_slot_skipped( rotor, 3UL ); /* n3 pruned while linked */
+  FD_TEST( !orphan_cnt( rotor ) && e2->parent==pidx );
 
   /* Slot 1's eager blk completes as a different dmr first: e2 keeps
      waiting.  A blk naming that dmr before it was computed links when
@@ -2548,22 +2706,22 @@ test_orphan_map( void ) {
   fd_mr32_t d1  = fd_repair_blk_map_ele_query( pre->blk_map, &one, NULL, pre->blk_pool )->dmr;
 
   shred0( rotor, 3UL, 1UL, &d1, &m3 ); /* slot 3 is skipped, refused */
-  FD_TEST( orphan_cnt( rotor )==1UL );
+  FD_TEST( !orphan_cnt( rotor ) );
   shred0( rotor, 4UL, 1UL, &d1, &m3 );
-  FD_TEST( orphan_cnt( rotor )==2UL );
+  FD_TEST( orphan_cnt( rotor )==1UL );
   shred0  ( rotor, 1UL, 0UL, &root, &m1 );
-  FD_TEST( orphan_cnt( rotor )==2UL ); /* no dmr yet */
+  FD_TEST( orphan_cnt( rotor )==1UL ); /* no dmr yet */
   complete( rotor, 1UL, 0UL, 0U, 1, &m1 );
-  fd_repair_blk_t * e1 = fd_repair_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  FD_TEST( !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) );
-  FD_TEST( orphan_cnt( rotor )==1UL ); /* slot 4 linked, e2 still names P */
-  FD_TEST( fd_repair_orphan_map_ele_query( rotor->orphan_map, &P, NULL, rotor->blk_pool )==e2 );
+  fd_repair_blk_t * e1 = fd_repair_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  FD_TEST( e1 && !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) );
+  FD_TEST( !orphan_cnt( rotor ) ); /* slot 4 linked, e2 still under P */
   FD_TEST( e1->child!=fd_repair_blk_pool_idx_null( rotor->blk_pool ) && fd_repair_blk_pool_ele( rotor->blk_pool, e1->child )->slot==4UL );
 
-  /* e2 advances past root with its parent slot freed: no longer held */
+  /* The root passes P: e2 is unlinked with its parent slot freed */
 
   fd_repair_root_advanced( rotor, 1UL, &d1 );
   FD_TEST( orphan_cnt( rotor )==1UL ); /* e2 names a freed P and stays an orphan, harmless */
+  FD_TEST( fd_repair_orphan_map_ele_query( rotor->orphan_map, &P, NULL, rotor->blk_pool )==e2 );
   fd_repair_root_advanced( rotor, 4UL, &fd_repair_blk_pool_ele( rotor->blk_pool, e1->child )->dmr );
   FD_TEST( !orphan_cnt( rotor ) );
 }
@@ -2666,6 +2824,8 @@ main( int     argc,
   test_fec_reconsume();
   test_fec_reconsume_incomplete();
   test_blk_dead();
+  test_blk_dead_renamed();
+  test_blk_dead_minority_fork();
   test_orphan_stops();
   test_eqvoc_invalidates();
   test_fec_alias_refused();
