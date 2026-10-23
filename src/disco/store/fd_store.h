@@ -27,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702ebUL) /* firedancer store version 11 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702edUL) /* firedancer store version 13 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -63,22 +63,6 @@ typedef __attribute__((aligned(4))) ulong fd_shredb_map_key_t;
 FD_STATIC_ASSERT( sizeof(fd_shredb_map_key_t)==8UL, shredb_map_key_footprint );
 FD_STATIC_ASSERT( alignof(fd_shredb_map_key_t)==4UL, shredb_map_key_align );
 
-struct fd_shredb_shred_entry {
-  fd_shredb_map_key_t key;
-  uint                next;
-};
-typedef struct fd_shredb_shred_entry fd_shredb_shred_entry_t;
-
-FD_STATIC_ASSERT( sizeof(fd_shredb_shred_entry_t)==12UL, shredb_shred_entry_footprint );
-
-#define MAP_NAME   fd_shredb_shred_map
-#define MAP_ELE_T  fd_shredb_shred_entry_t
-#define MAP_KEY_T  fd_shredb_map_key_t
-#define MAP_KEY    key
-#define MAP_IDX_T  uint
-#define MAP_NEXT   next
-#include "../../util/tmpl/fd_map_chain_para.c"
-
 struct fd_shredb_root_key {
   uchar root[ FD_SHRED_MERKLE_NODE_SZ ];
   uchar off; /* 0 <= off < 32 */
@@ -96,30 +80,50 @@ fd_shredb_root_key( uchar const * merkle_root,
   return key;
 }
 
-/* The pad keeps next 4-byte aligned, the map takes pointers to it. */
-struct fd_shredb_root_entry {
-  fd_shredb_root_key_t key;
-  uchar                pad[ 3 ];
-  uint                 next;
+/* One ring entry provides keys and chain links to both maps.  All fields,
+   including tag, are protected by disk_lock. */
+struct fd_shredb_ring_entry {
+  uint                 tag;       /* low 2 bits: state, high 30: generation */
+  uint                 slot_next;
+  uint                 root_next;
+  fd_shredb_map_key_t  key;
+  fd_shredb_root_key_t root_key;
 };
-typedef struct fd_shredb_root_entry fd_shredb_root_entry_t;
+typedef struct fd_shredb_ring_entry fd_shredb_ring_entry_t;
+FD_STATIC_ASSERT( sizeof(fd_shredb_ring_entry_t)==44UL, shredb_ring_entry_footprint );
 
-FD_STATIC_ASSERT( sizeof(fd_shredb_root_entry_t)==28UL, shredb_root_entry_footprint );
-
-#define MAP_NAME               fd_shredb_root_map
-#define MAP_ELE_T              fd_shredb_root_entry_t
-#define MAP_KEY_T              fd_shredb_root_key_t
-#define MAP_KEY                key
-#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0), (k1), sizeof(fd_shredb_root_key_t) ))
-#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), sizeof(fd_shredb_root_key_t) )
-#define MAP_IDX_T              uint
-#define MAP_NEXT               next
-#include "../../util/tmpl/fd_map_chain_para.c"
+/* A 32-bit tag saves space per ring cell.  The generation wraps after
+   2^30 reservations but a pread would have to remain inflight through
+   that wrap and reuse of the same cell to miss it, which is unlikely. */
+#define FD_SHREDB_TAG_SEQ_MASK ((1U<<30)-1U)
 
 #define FD_SHREDB_CELL_INVALID    (0UL)
 #define FD_SHREDB_CELL_WRITING    (1UL)
 #define FD_SHREDB_CELL_READY      (2UL)
 #define FD_SHREDB_CELL_STATE_MASK (3UL)
+
+/* The slot and root maps are non-concurrent separately-chained hash maps
+   (fd_map_chain) over the shared ring pool.  Each has its own bucket-head
+   array and threads collisions through its corresponding next field.
+   All access is serialized by the store's disk_lock. */
+
+#define MAP_NAME   fd_shredb_slot_map
+#define MAP_ELE_T  fd_shredb_ring_entry_t
+#define MAP_KEY_T  fd_shredb_map_key_t
+#define MAP_KEY    key
+#define MAP_NEXT   slot_next
+#define MAP_IDX_T  uint
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define MAP_NAME               fd_shredb_root_map
+#define MAP_ELE_T              fd_shredb_ring_entry_t
+#define MAP_KEY_T              fd_shredb_root_key_t
+#define MAP_KEY                root_key
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0), (k1), sizeof(fd_shredb_root_key_t) ))
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), sizeof(fd_shredb_root_key_t) )
+#define MAP_NEXT               root_next
+#define MAP_IDX_T              uint
+#include "../../util/tmpl/fd_map_chain.c"
 
 struct __attribute__((aligned(64))) fd_shredb_entry {
   ulong  tag;
@@ -143,6 +147,14 @@ fd_shredb_max_shreds( ulong gib ) {
 FD_FN_CONST static inline ulong
 fd_shredb_max_slots( ulong gib ) {
   return fd_ulong_max( !!gib, fd_shredb_max_shreds( gib )/FD_FEC_SHRED_CNT );
+}
+
+/* The chain count estimator halves its input, so dividing by four
+   targets max_shreds/8 buckets.  This reduces bucket memory at the
+   expense of longer chains. */
+FD_FN_CONST static inline ulong
+fd_shredb_disk_chain_cnt( ulong max_shreds ) {
+  return fd_shredb_slot_map_chain_cnt_est( max_shreds/4UL );
 }
 
 struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
@@ -247,12 +259,11 @@ struct fd_store {
   /* On-disk shred index. Lives in the wire region of the shared file
      at byte offset wire_off + ring_idx*sizeof(entry).  shred_map keys
      cells by (slot,idx), first version wins.  root_map keys every cell
-     by (root,idx).  Both pools are indexed by ring_idx. */
-  ulong        shred_map_gaddr;
-  ulong        shred_pool_gaddr;
-  ulong        root_map_gaddr;
-  ulong        root_pool_gaddr;
-  ulong        shred_tag_gaddr;
+     by (root,idx%32).  Both maps share the ring pool and disk_lock. */
+  ulong        shred_map_gaddr; /* fd_shredb_slot_map over the ring pool */
+  ulong        ring_pool_gaddr;
+  ulong        root_map_gaddr;  /* fd_shredb_root_map over the ring pool */
+  fd_rwlock_t  disk_lock;
   ulong        slot_hint_gaddr;
   ulong        disk_max_shreds;
   ulong        disk_max_slots;
@@ -339,17 +350,14 @@ fd_store_footprint( ulong fec_max,
                    fd_store_layout_append( &l, FD_STORE_PAYLOAD_PAGE_SZ, 1UL,             payload_slot_sz ) ) ) return 0UL;
   if( FD_UNLIKELY( fec_set_cnt && fd_store_layout_append( &l, alignof(fd_fec_set_t), fec_set_cnt, sizeof(fd_fec_set_t) ) ) ) return 0UL;
   if( shred_storage_gib ) {
-    ulong max_shreds   = fd_shredb_max_shreds( shred_storage_gib );
-    ulong max_slots    = fd_shredb_max_slots( shred_storage_gib );
-    ulong disk_chain_cnt = fd_shredb_shred_map_chain_cnt_est( max_shreds );
+    ulong max_shreds     = fd_shredb_max_shreds( shred_storage_gib );
+    ulong max_slots      = fd_shredb_max_slots( shred_storage_gib );
+    ulong disk_chain_cnt = fd_shredb_disk_chain_cnt( max_shreds );
     if( FD_UNLIKELY( !max_shreds || !max_slots ||
-                     fd_store_layout_append( &l, fd_shredb_shred_map_align(),     1UL,         fd_shredb_shred_map_footprint( disk_chain_cnt ) ) ||
-                     fd_store_layout_append( &l, alignof(fd_shredb_shred_entry_t), max_shreds, sizeof(fd_shredb_shred_entry_t) ) ||
-                     fd_store_layout_append( &l, alignof(atomic_ulong),            max_shreds, sizeof(atomic_ulong) ) ||
-                     fd_store_layout_append( &l, alignof(atomic_ulong),            max_slots,   sizeof(atomic_ulong) ) ) ) return 0UL;
-    ulong root_chain_cnt = fd_shredb_root_map_chain_cnt_est( max_shreds );
-    if( FD_UNLIKELY( fd_store_layout_append( &l, fd_shredb_root_map_align(),      1UL,        fd_shredb_root_map_footprint( root_chain_cnt ) ) ||
-                     fd_store_layout_append( &l, alignof(fd_shredb_root_entry_t), max_shreds, sizeof(fd_shredb_root_entry_t) ) ) ) return 0UL;
+                     fd_store_layout_append( &l, fd_shredb_slot_map_align(),      1UL,        fd_shredb_slot_map_footprint( disk_chain_cnt ) ) ||
+                     fd_store_layout_append( &l, alignof(fd_shredb_ring_entry_t), max_shreds, sizeof(fd_shredb_ring_entry_t) ) ||
+                     fd_store_layout_append( &l, alignof(atomic_ulong),           max_slots,  sizeof(atomic_ulong) ) ||
+                     fd_store_layout_append( &l, fd_shredb_root_map_align(),      1UL,        fd_shredb_root_map_footprint( disk_chain_cnt ) ) ) ) return 0UL;
   }
   if( FD_UNLIKELY( fd_store_layout_append( &l, fd_store_align(), 0UL, 1UL ) ) ) return 0UL;
   return l;
@@ -533,12 +541,12 @@ typedef struct fd_store_disk_stats fd_store_disk_stats_t;
 
 /* Persists one (slot,idx) shred, where idx is below max_shreds_per_block,
    whose FEC set has merkle root merkle_root (only the first
-   FD_SHRED_MERKLE_NODE_SZ bytes are used).  With a root map, every
-   version is indexed by (root,idx) and re-inserting a stored (root,idx)
-   is a no-op.  The first version stored for a (slot,idx) is also
-   indexed by (slot,idx), and without a root map later versions are
-   dropped.  Returns FD_STORE_DISK_INSERT_SUCCESS if written,
-   FD_STORE_DISK_INSERT_DUP if already stored or dropped, or
+   FD_SHRED_MERKLE_NODE_SZ bytes are used).  Every version is indexed by
+   (root,idx%FD_FEC_SHRED_CNT) and inserting a key already held by a
+   READY cell is a no-op, so a different idx that aliases the same
+   offset is dropped too.  The first version stored for a (slot,idx) is
+   also indexed by (slot,idx).  Returns FD_STORE_DISK_INSERT_SUCCESS if
+   written, FD_STORE_DISK_INSERT_DUP if already stored or dropped, or
    FD_STORE_DISK_INSERT_ERR. */
 
 int
@@ -561,7 +569,7 @@ fd_store_disk_query( fd_store_t const * store,
 /* fd_store_disk_query_root copies the shred at shred_idx of the FEC set
    whose merkle root starts with the FD_SHRED_MERKLE_NODE_SZ bytes at
    merkle_root to out.  Finds any stored version.  Returns its positive
-   byte count, MISS (always, without a root map), or retryable BUSY. */
+   byte count, MISS, or retryable BUSY. */
 
 int
 fd_store_disk_query_root( fd_store_t const * store,
