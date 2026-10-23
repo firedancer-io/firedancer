@@ -353,8 +353,8 @@ standby. The remote validator must have `[failover.enabled]` set to
 `true` to accept the request. Both validators must use the same vote
 account.
 
-The failover commands require the full Firedancer client with
-Alpenglow consensus enabled through `[consensus.alpenglow]` or `--alpenglow`.
+The failover commands require the full Firedancer client, which uses
+Alpenglow consensus.
 
 ```sh
 firedancer failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
