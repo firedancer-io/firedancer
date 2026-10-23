@@ -88,8 +88,13 @@ jobs:
         run: |
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           clang -O0 -fwrapv -fsanitize=pointer-overflow contrib/test/ubsan_pointer_overflow.c -o "${RUNNER_TEMP}/ubsan_pointer_overflow"
-          if "${RUNNER_TEMP}/ubsan_pointer_overflow"; then
+          if probe_output="$("${RUNNER_TEMP}/ubsan_pointer_overflow" 2>&1)"; then
             echo "pointer-overflow sanitizer probe unexpectedly passed" >&2
+            exit 1
+          fi
+          printf '%s\n' "$probe_output"
+          if ! grep -Fq 'runtime error: applying non-zero offset to non-null pointer' <<< "$probe_output"; then
+            echo "probe failed without the expected UBSan pointer-overflow report" >&2
             exit 1
           fi
 
