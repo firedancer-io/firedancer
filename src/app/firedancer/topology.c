@@ -1555,6 +1555,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rotor.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->rotor.allow_private_address = config->development.gossip.allow_private_address;
+    tile->rotor.report_repair_requests = config->development.event.report_repair_requests;
 
     for( ulong i=0; i<tile->in_cnt; i++ ) {
       if( !strcmp( config->topo.links[ tile->in_link_id[ i ] ].name, "sign_repair" ) ) {

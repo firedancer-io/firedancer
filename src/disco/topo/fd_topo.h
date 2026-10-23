@@ -591,6 +591,7 @@ struct fd_topo_tile {
       ulong   fec_max;
       ulong   max_shreds_per_block;
       int     allow_private_address;
+      int     report_repair_requests;
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;

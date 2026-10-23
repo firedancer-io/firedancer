@@ -278,6 +278,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   development.event.report_shreds                  );
   CFG_POP      ( bool,   development.event.report_transactions            );
   CFG_POP      ( bool,   development.event.report_runtime_diffs           );
+  CFG_POP      ( bool,   development.event.report_repair_requests         );
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
