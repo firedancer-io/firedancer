@@ -282,7 +282,6 @@ typedef struct fd_snapin_shmem fd_snapin_shmem_t;
 struct fd_snapin_tile {
   int  state;
   uint full : 1;  /* loading a full snapshot? */
-  int  alpenglow;
 
   fd_snapin_lead_t lead;
 
@@ -1210,7 +1209,7 @@ process_manifest( fd_snapin_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->alpenglow && !manifest->has_block_id ) ) {
+  if( FD_UNLIKELY( !manifest->has_block_id ) ) {
     FD_LOG_WARNING(( "snapshot manifest missing block id" ));
     transition_malformed( ctx, stem );
     return;
@@ -2345,7 +2344,6 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));
 
   ctx->full     = 1;
-  ctx->alpenglow = tile->snapin.alpenglow;
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
   ctx->lane_cnt = tile->in_cnt;
   clear_control_barrier( ctx );
