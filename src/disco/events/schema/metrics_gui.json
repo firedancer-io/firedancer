@@ -109,7 +109,9 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "fec_events", "field_number": 507732689 },
+                "fec_event_archive": { "type": "UInt64", "compression": "T64, ZSTD", "description": "fec_event_archive", "field_number": 336464076 }
             }
         },
         "db_allocated_bytes": {
@@ -129,7 +131,9 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "fec_events", "field_number": 385452405 },
+                "fec_event_archive": { "type": "UInt64", "compression": "T64, ZSTD", "description": "fec_event_archive", "field_number": 351164760 }
             }
         },
         "db_free_bytes":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bytes of free regions not owned by any database ring" },
@@ -150,7 +154,9 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "fec_events", "field_number": 481009533 },
+                "fec_event_archive": { "type": "UInt64", "compression": "T64, ZSTD", "description": "fec_event_archive", "field_number": 484368933 }
             }
         },
         "db_record_allocated": {
@@ -170,14 +176,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "T64, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "fec_events", "field_number": 381180965 },
+                "fec_event_archive": { "type": "UInt64", "compression": "T64, ZSTD", "description": "fec_event_archive", "field_number": 345452472 }
             }
         },
         "db_kv_queried": {
             "type": "Tuple",
             "description": "Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -193,14 +201,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 357560777 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 454643118 }
             }
         },
         "db_time_series_record_appended": {
             "type": "Tuple",
             "description": "Time-series records appended, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -216,14 +226,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 381948204 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 469754494 }
             }
         },
         "db_time_series_scanned": {
             "type": "Tuple",
             "description": "Time-series scans, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -239,14 +251,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 386036988 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 526589069 }
             }
         },
         "db_time_series_record_read": {
             "type": "Tuple",
             "description": "Time-series records returned by scans, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -262,14 +276,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 419078233 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 430267704 }
             }
         },
         "db_record_evicted": {
             "type": "Tuple",
             "description": "Records evicted from the database, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -285,14 +301,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 435043194 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 404897365 }
             }
         },
         "db_eviction_pass_completed": {
             "type": "Tuple",
             "description": "Eviction passes that removed at least one record, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -308,14 +326,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 481441319 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 510332500 }
             }
         },
         "db_region_claimed": {
             "type": "Tuple",
             "description": "Regions claimed from the free list, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -331,14 +351,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 279714995 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 484377326 }
             }
         },
         "db_region_released": {
             "type": "Tuple",
             "description": "Regions returned to the free list, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -354,14 +376,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 319700238 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 380206074 }
             }
         },
         "db_record_dropped": {
             "type": "Tuple",
             "description": "Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -377,14 +401,16 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 408455742 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 505628279 }
             }
         },
         "db_forced_evict_write_completed": {
             "type": "Tuple",
             "description": "Writes that evicted records before succeeding, by database",
             "aliases": {
-                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"]
+                "all": ["scheduler_counts", "tile_timers", "shred_events", "txn_start", "txn_end", "tower", "slot", "leader_slot", "epoch", "tile_stats", "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day", "fec_events", "fec_event_archive"]
             },
             "fields": {
                 "scheduler_counts":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "scheduler_counts" },
@@ -400,7 +426,9 @@
                 "txn_waterfall":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "txn_waterfall" },
                 "timeline_day":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_day" },
                 "replay_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "replay_txn" },
-                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" }
+                "timeline_tile_day": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "timeline_tile_day" },
+                "fec_events":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_events", "field_number": 344059068 },
+                "fec_event_archive": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "fec_event_archive", "field_number": 384859046 }
             }
         }
     }

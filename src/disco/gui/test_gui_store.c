@@ -737,8 +737,8 @@ test_region_grow_reclaim( void ) {
 }
 
 static int
-prefix_eligible( void const * rec,
-                 void *       ctx ) {
+prefix_eligible_cb( void const * rec,
+                    void *       ctx ) {
   return ((ent16_val_t const *)rec)->payload<*(ulong *)ctx;
 }
 
@@ -758,11 +758,11 @@ test_kv_prefix_scan( void ) {
   FD_TEST( it.end-it.cur==3UL && it.append_capacity==cap-3UL );
   FD_TEST( ent16_put( db, 7UL, 1UL, 0UL )==FD_GUI_STORE_SUCCESS );
   ulong eligible = 1UL;
-  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 0UL, prefix_eligible, &eligible ) );
-  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible )==1UL );
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 0UL, prefix_eligible_cb, &eligible ) );
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible_cb, &eligible )==1UL );
   FD_TEST( fd_gui_store_kv_scan_next( &it ) );
   FD_TEST( ((ent16_val_t const *)it.rec)->slot==9UL && ((ent16_val_t const *)it.rec)->bank_seq==2UL );
-  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible ) );
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible_cb, &eligible ) );
   FD_TEST( fd_gui_store_kv_scan_next( &it ) && ((ent16_val_t const *)it.rec)->slot==8UL );
   FD_TEST( !fd_gui_store_kv_scan_next( &it ) );
   ulong key[ 2 ] = { 9UL, 1UL };
@@ -770,9 +770,9 @@ test_kv_prefix_scan( void ) {
   key[ 1 ] = 2UL;
   FD_TEST( fd_gui_store_kv_get( db, DB_ENT16, key ) );
   eligible = 3UL;
-  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 1UL, prefix_eligible, &eligible )==1UL );
-  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible )==2UL );
-  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible ) );
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 1UL, prefix_eligible_cb, &eligible )==1UL );
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible_cb, &eligible )==2UL );
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible_cb, &eligible ) );
   FD_TEST( ent16_put( db, 9UL, 1UL, 1UL )==FD_GUI_STORE_SUCCESS );
   fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
   FD_TEST( it.end-it.cur==1UL && it.append_capacity==cap-5UL );
@@ -821,9 +821,9 @@ base_check( fd_gui_store_t * db,
 }
 
 static int
-base_eligible( ulong        ring,
-               void const * rec,
-               void *       ctx ) {
+base_eligible_cb( ulong        ring,
+                  void const * rec,
+                  void *       ctx ) {
   (void)ring;
   return ((ulong const *)rec)[ 1 ]!=*(ulong *)ctx;
 }
@@ -871,8 +871,8 @@ test_protected_bases( ulong shared ) {
   for( ulong i=0UL; i<2UL*shared; i++ ) FD_TEST( !base_put( db, 0UL, end+i ) );
   end += 2UL*shared;
   ulong pinned = 2UL*shared;
-  FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible, &pinned ) );
-  FD_TEST( !fd_gui_store_reclaim( db, 0UL, ULONG_MAX, base_eligible, &pinned ) );
+  FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible_cb, &pinned ) );
+  FD_TEST( !fd_gui_store_reclaim( db, 0UL, ULONG_MAX, base_eligible_cb, &pinned ) );
 
   /* Rollover at a completely full store, repeated beyond the physical
      region-id ring's wrap.  Reclaiming a base restores the entitlement:
@@ -910,10 +910,10 @@ test_protected_bases( ulong shared ) {
     FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL )==2UL );
     FD_TEST( !base_put( db, 1UL, base ) && !base_put( db, 1UL, base+1UL ) );
     pinned = end-base-2UL;
-    FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible, &pinned )==2UL );
+    FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible_cb, &pinned )==2UL );
     base_check( db, 0UL, end-base-2UL, end );
     base_check( db, 1UL, 2UL, base+2UL );
-    FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible, &pinned ) );
+    FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible_cb, &pinned ) );
     FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL )==2UL );
     base_check( db, 0UL, end-base, end );
     FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL ) );

@@ -59,6 +59,8 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_TIMELINE_DAY     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_DAY_IDX,
   [ FD_GUI_HIST_REPLAY_TXN       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_IDX,
   [ FD_GUI_HIST_TIMELINE_TILE_DAY ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_TILE_DAY_IDX,
+  [ FD_GUI_HIST_FEC_EVENTS ]        = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENTS_IDX,
+  [ FD_GUI_HIST_FEC_EVENT_ARCHIVE ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENT_ARCHIVE_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -531,7 +533,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         ulong shred_idx = msg->shred.idx;
         int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
         /* tsorig is the timestamp when the shred was received by the shred tile */
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, msg->shred.fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
       }
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );

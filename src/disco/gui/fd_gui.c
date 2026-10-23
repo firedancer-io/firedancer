@@ -13,6 +13,9 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
+#include "../shred/fd_fec_set.h"
+
+FD_STATIC_ASSERT( FD_FEC_SHRED_CNT==32UL, fec_shred_count );
 
 #include <stdio.h>
 
@@ -416,6 +419,11 @@ fd_gui_new( void *                   shmem,
   gui->shreds.leader_shred_slot       = ULONG_MAX;
   gui->shreds.dropped_event_cnt       = 0UL;
   fd_memset( &gui->shreds.builder, 0, sizeof(gui->shreds.builder) );
+  gui->shreds.closed_slot_wmark       = 0UL;
+  gui->shreds.fec_marker_sequence     = 0UL;
+  gui->shreds.fec_insert_time_ns      = 0L;
+  gui->shreds.dropped_fec_event_cnt   = 0UL;
+  gui->shreds.clamped_fec_event_cnt   = 0UL;
   gui->shreds.broadcast_watermark_ns  = now;
   gui->summary.catch_up_repair_sz     = 0UL;
   gui->summary.catch_up_turbine_sz    = 0UL;
@@ -1726,6 +1734,7 @@ fd_gui_sample_catchup_slot( fd_gui_t * gui ) {
 void
 fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long tsorig, long now ) {
   fd_gui_shred_event_append( gui, slot, shred_idx, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, tsorig, now );
+  fd_gui_fec_event_append( gui, slot, shred_idx/FD_FEC_SHRED_CNT, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, tsorig, now );
 }
 
 static void
@@ -1928,7 +1937,11 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     /* Lazy eviction must outpace ingest: ~1 ms of batches per tick */
     long evict_end = fd_tickcount() + (long)( 1e6*gui->tick_per_ns );
-    while( fd_gui_hist_evict_step( gui ) && fd_tickcount()<evict_end ) {}
+    for(;;) {
+      ulong archived = fd_gui_fec_archive( gui, 512UL );
+      int   evicted  = fd_gui_hist_evict_step( gui );
+      if( (!archived && !evicted) || fd_tickcount()>=evict_end ) break;
+    }
 
     gui->next_sample_10millis += 10L*1000L*1000L;
     return 1;
@@ -2185,6 +2198,7 @@ fd_gui_request_timeline( fd_gui_t *   gui,
   int err;
   if( !strcmp( key, "query_shreds" ) ) {
     if( FD_LIKELY( !strcmp( name, "shred" ) ) ) err = fd_gui_printf_timeline_query_shreds( gui, start_ns, end_ns, id );
+    else if( !strcmp( name, "fec" ) )          err = fd_gui_printf_timeline_query_fec_events( gui, start_ns, end_ns, id );
     else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } else {
     ulong g = 0UL;
@@ -2449,6 +2463,7 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
+                     ulong      fec_set_idx,
                      int        is_turbine,
                      long       tsorig,
                      long       now ) {
@@ -2493,6 +2508,7 @@ fd_gui_handle_shred( fd_gui_t * gui,
 
   uchar event = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR );
   fd_gui_shred_event_append( gui, slot, shred_idx, event, tsorig, now );
+  fd_gui_fec_event_append( gui, slot, fec_set_idx/FD_FEC_SHRED_CNT, event, tsorig, now );
 }
 
 void
@@ -2510,6 +2526,10 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
 
   for( ulong i=gui->shreds.leader_shred_cnt; i<gui->shreds.leader_shred_cnt+fec_shred_cnt; i++ ) {
     fd_gui_shred_event_append( gui, slot, i, FD_GUI_SLOT_SHRED_SHRED_PUBLISHED, tsorig, now );
+    /* Every shred of a FEC set maps to the same FEC event. */
+    if( i==gui->shreds.leader_shred_cnt || !(i%FD_FEC_SHRED_CNT) ) {
+      fd_gui_fec_event_append( gui, slot, i/FD_FEC_SHRED_CNT, FD_GUI_SLOT_SHRED_SHRED_PUBLISHED, tsorig, now );
+    }
   }
   gui->shreds.leader_shred_cnt += fec_shred_cnt;
   if( FD_UNLIKELY( is_end_of_slot ) ) gui->shreds.leader_shred_cnt = 0UL;
@@ -2532,6 +2552,7 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
     for( ulong i=0UL; i<FD_SHRED_BLK_MAX; i++ ) ts[ i ] = LONG_MAX;
   }
 
+  ulong fec = ULONG_MAX;
   for( ulong i = start_shred_idx; i<end_shred_idx; i++ ) {
     /*
       We're leaving this state transition out due to its proximity to
@@ -2546,6 +2567,12 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
       ts[ i ] = tspub_ns;
     }
     fd_gui_shred_event_append( gui, slot, i, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, tspub_ns, now );
+    /* Every shred of a FEC set maps to the same FEC event, and all
+       carry the same timestamp, so one update per FEC set suffices. */
+    if( fec!=i/FD_FEC_SHRED_CNT ) {
+      fec = i/FD_FEC_SHRED_CNT;
+      fd_gui_fec_event_append( gui, slot, fec, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, tspub_ns, now );
+    }
   }
 }
 
@@ -2573,6 +2600,9 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
   ulong prev_rooted = gui->summary.slot_rooted;
 
   gui->summary.slot_rooted = _slot;
+  /* Slots below the root can no longer change, so their FEC events can
+     be archived. */
+  fd_gui_event_closed_slot_wmark_advance( gui, _slot );
   fd_gui_printf_root_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
 
@@ -3463,7 +3493,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
     if( FD_LIKELY( epoch ) ) fd_gui_broadcast_skip_rate( gui, epoch->epoch );
   }
 
-  fd_gui_shred_event_append( gui, slot_completed->slot, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, slot_completed->completion_time_nanos, now );
+  fd_gui_shred_event_slot_complete( gui, slot_completed->slot, slot_completed->completion_time_nanos, now );
 
   /* Set skip status based on the current canonical fork. */
   fd_gui_slot_t * canon = fd_gui_slot_get_canon( gui, slot_completed->slot );

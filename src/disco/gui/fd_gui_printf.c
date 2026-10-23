@@ -3342,15 +3342,17 @@ fd_gui_timeline_slot_skipped( fd_gui_t * gui,
 #define SORT_BEFORE(a,b) ((a).slot<(b).slot)
 #include "../../util/tmpl/fd_sort.c"
 
-int
-fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
-                                     long       start,
-                                     long       end,
-                                     ulong      id ) {
+static int
+fd_gui_timeline_query_events( fd_gui_t * gui,
+                              long       start,
+                              long       end,
+                              ulong      id,
+                              int        fec ) {
   if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
   fd_gui_shred_event_t * events = gui->timeline_scratch.events;
   fd_gui_shred_event_iter_t it;
-  fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
+  if( fec ) fd_gui_fec_event_iter_begin( gui, &it, start, end );
+  else      fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
   ulong n              = 0UL;
   ulong reference_slot = ULONG_MAX;
   long  reference_ts   = LONG_MAX;
@@ -3376,8 +3378,8 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "timeline", "query_shreds" );
   jsonp_ulong( gui->http, "id", id );
   jsonp_open_object( gui->http, "value" );
-  jsonp_string( gui->http, "granularity", "shred" );
-  fd_gui_timeline_bounds( gui, FD_GUI_HIST_SHRED_EVENTS );
+  jsonp_string( gui->http, "granularity", fec ? "fec" : "shred" );
+  fd_gui_timeline_bounds( gui, fec ? FD_GUI_HIST_FEC_EVENTS : FD_GUI_HIST_SHRED_EVENTS );
   if( n ) {
     jsonp_ulong( gui->http, "reference_slot", reference_slot );
     jsonp_long_as_str( gui->http, "reference_ts", reference_ts );
@@ -3413,6 +3415,22 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
   jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
   return 0;
+}
+
+int
+fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
+                                     long       start,
+                                     long       end,
+                                     ulong      id ) {
+  return fd_gui_timeline_query_events( gui, start, end, id, 0 );
+}
+
+int
+fd_gui_printf_timeline_query_fec_events( fd_gui_t * gui,
+                                         long       start,
+                                         long       end,
+                                         ulong      id ) {
+  return fd_gui_timeline_query_events( gui, start, end, id, 1 );
 }
 
 /* fd_gui_timeline_day_bounds returns the span of live day records.

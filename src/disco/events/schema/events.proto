@@ -6974,6 +6974,10 @@ message MetricsGuiDbForcedEvictWriteCompleted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 344059068;
+  // fec_event_archive
+  uint64 fec_event_archive = 384859046;
 }
 
 // Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database
@@ -7006,6 +7010,10 @@ message MetricsGuiDbRecordDropped {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 408455742;
+  // fec_event_archive
+  uint64 fec_event_archive = 505628279;
 }
 
 // Regions returned to the free list, by database
@@ -7038,6 +7046,10 @@ message MetricsGuiDbRegionReleased {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 319700238;
+  // fec_event_archive
+  uint64 fec_event_archive = 380206074;
 }
 
 // Regions claimed from the free list, by database
@@ -7070,6 +7082,10 @@ message MetricsGuiDbRegionClaimed {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 279714995;
+  // fec_event_archive
+  uint64 fec_event_archive = 484377326;
 }
 
 // Eviction passes that removed at least one record, by database
@@ -7102,6 +7118,10 @@ message MetricsGuiDbEvictionPassCompleted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 481441319;
+  // fec_event_archive
+  uint64 fec_event_archive = 510332500;
 }
 
 // Records evicted from the database, by database
@@ -7134,6 +7154,10 @@ message MetricsGuiDbRecordEvicted {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 435043194;
+  // fec_event_archive
+  uint64 fec_event_archive = 404897365;
 }
 
 // Time-series records returned by scans, by database
@@ -7166,6 +7190,10 @@ message MetricsGuiDbTimeSeriesRecordRead {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 419078233;
+  // fec_event_archive
+  uint64 fec_event_archive = 430267704;
 }
 
 // Time-series scans, by database
@@ -7198,6 +7226,10 @@ message MetricsGuiDbTimeSeriesScanned {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 386036988;
+  // fec_event_archive
+  uint64 fec_event_archive = 526589069;
 }
 
 // Time-series records appended, by database
@@ -7230,6 +7262,10 @@ message MetricsGuiDbTimeSeriesRecordAppended {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 381948204;
+  // fec_event_archive
+  uint64 fec_event_archive = 469754494;
 }
 
 // Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database
@@ -7262,6 +7298,10 @@ message MetricsGuiDbKvQueried {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 357560777;
+  // fec_event_archive
+  uint64 fec_event_archive = 454643118;
 }
 
 // Record capacity of regions owned by each database ring; grows on demand
@@ -7294,6 +7334,10 @@ message MetricsGuiDbRecordAllocated {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 381180965;
+  // fec_event_archive
+  uint64 fec_event_archive = 345452472;
 }
 
 // Records present in the store ring
@@ -7326,6 +7370,10 @@ message MetricsGuiDbRecordUsed {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 481009533;
+  // fec_event_archive
+  uint64 fec_event_archive = 484368933;
 }
 
 // Bytes of regions owned by each database ring; grows on demand
@@ -7358,6 +7406,10 @@ message MetricsGuiDbAllocatedBytes {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 385452405;
+  // fec_event_archive
+  uint64 fec_event_archive = 351164760;
 }
 
 // Bytes occupied by records present in the store ring
@@ -7390,6 +7442,10 @@ message MetricsGuiDbUsedBytes {
   uint64 replay_txn = 13;
   // timeline_tile_day
   uint64 timeline_tile_day = 14;
+  // fec_events
+  uint64 fec_events = 507732689;
+  // fec_event_archive
+  uint64 fec_event_archive = 336464076;
 }
 
 // Times the tile tried to park while idle (efficient mode), by result

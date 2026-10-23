@@ -19,6 +19,8 @@ FD_STATIC_ASSERT( sizeof(fd_gui_leader_slot_t     )<=FD_GUI_STORE_MAX_REC_SZ, re
 FD_STATIC_ASSERT( sizeof(fd_gui_epoch_t           )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_timeline_day_t     )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_timeline_tile_day_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_t        )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_batch_t  )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 
 /* Each key type must alias the matching record field exactly. */
 FD_STATIC_ASSERT( offsetof( fd_gui_hist_slot_key_t,        slot     )==offsetof( fd_gui_slot_t,        slot     ), key_layout );
@@ -33,6 +35,7 @@ FD_STATIC_ASSERT( offsetof( fd_gui_hist_tile_day_key_t,    tile_idx )==offsetof(
 #define FD_GUI_HIST_KEYSHAPE_SLOT_BANK  (1) /* (slot, bank_seq) */
 #define FD_GUI_HIST_KEYSHAPE_EPOCH      (2) /* (epoch)          */
 #define FD_GUI_HIST_KEYSHAPE_DAY_TILE   (3) /* (day_idx, tile_idx) */
+#define FD_GUI_HIST_KEYSHAPE_FEC        (4) /* (16-byte FEC event key) */
 
 static inline long
 fd_gui_hist_dbi_res_ns( int dbi FD_PARAM_UNUSED ) {
@@ -51,6 +54,7 @@ fd_gui_hist_dbi_ts_off( int dbi ) {
     case FD_GUI_HIST_TXN_END:          return offsetof( fd_gui_store_txn_end_t,    insert_time_ns    );
     case FD_GUI_HIST_REPLAY_TXN:       return offsetof( fd_gui_store_replay_txn_t, insert_time_ns    );
     case FD_GUI_HIST_TIMELINE_DAY:     return offsetof( fd_gui_timeline_day_t,     end_time_ns       );
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return offsetof( fd_gui_fec_event_batch_t, insert_time_ns    );
     default:                           return 0UL;
   }
 }
@@ -71,11 +75,13 @@ fd_gui_hist_keyshape( int dbi ) {
     case FD_GUI_HIST_TXN_START:
     case FD_GUI_HIST_TXN_END:          return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_REPLAY_TXN:
-    case FD_GUI_HIST_TIMELINE_DAY:     return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
+    case FD_GUI_HIST_TIMELINE_DAY:
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_SLOT:
     case FD_GUI_HIST_LEADER_SLOT:      return FD_GUI_HIST_KEYSHAPE_SLOT_BANK;
     case FD_GUI_HIST_EPOCH:            return FD_GUI_HIST_KEYSHAPE_EPOCH;
     case FD_GUI_HIST_TIMELINE_TILE_DAY: return FD_GUI_HIST_KEYSHAPE_DAY_TILE;
+    case FD_GUI_HIST_FEC_EVENTS:       return FD_GUI_HIST_KEYSHAPE_FEC;
     default: FD_LOG_ERR(( "invalid dbi %d", dbi )); return -1;
   }
 }
@@ -153,6 +159,19 @@ fd_gui_hist_tile_day_key_cmp( void const * a, void const * b ) {
   return 0;
 }
 
+static ulong
+fd_gui_hist_fec_key_hash( void const * key ) {
+  ulong words[ 2 ];
+  fd_memcpy( words, key, sizeof(words) );
+  return fd_ulong_hash( words[ 0 ] ) ^ fd_ulong_hash( words[ 1 ] );
+}
+
+static int
+fd_gui_hist_fec_key_cmp( void const * a,
+                         void const * b ) {
+  return memcmp( a, b, sizeof(fd_gui_fec_event_key_t) );
+}
+
 static inline ulong
 fd_gui_hist_rec_sz( int dbi ) {
   switch( dbi ) {
@@ -169,13 +188,16 @@ fd_gui_hist_rec_sz( int dbi ) {
     case FD_GUI_HIST_EPOCH:            return sizeof(fd_gui_epoch_t);
     case FD_GUI_HIST_TIMELINE_DAY:     return sizeof(fd_gui_timeline_day_t);
     case FD_GUI_HIST_TIMELINE_TILE_DAY: return sizeof(fd_gui_timeline_tile_day_t);
+    case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_fec_event_t);
+    case FD_GUI_HIST_FEC_EVENT_ARCHIVE: return sizeof(fd_gui_fec_event_batch_t);
     default:                           return 0UL;
   }
 }
 
 /* fd_gui_hist_key_sz returns the KV key width for `dbi`: 16 bytes
    (slot, bank_seq) for slot-keyed DBs, 8 bytes for EPOCH, 16 bytes
-   (day_idx, tile_idx) for TIMELINE_TILE_DAY, 0 for TS. */
+   (day_idx, tile_idx) for TIMELINE_TILE_DAY, 16 bytes for FEC_EVENTS,
+   0 for TS. */
 static inline ulong
 fd_gui_hist_key_sz( int dbi ) {
   switch( dbi ) {
@@ -183,6 +205,7 @@ fd_gui_hist_key_sz( int dbi ) {
     case FD_GUI_HIST_LEADER_SLOT: return sizeof(fd_gui_hist_leader_slot_key_t);
     case FD_GUI_HIST_EPOCH:       return sizeof(fd_gui_hist_epoch_key_t);
     case FD_GUI_HIST_TIMELINE_TILE_DAY: return sizeof(fd_gui_hist_tile_day_key_t);
+    case FD_GUI_HIST_FEC_EVENTS:  return sizeof(fd_gui_fec_event_key_t);
     default:                      return 0UL; /* TS DBs have no key */
   }
 }
@@ -197,6 +220,7 @@ static inline ulong
     case FD_GUI_HIST_LEADER_SLOT: return fd_gui_hist_leader_slot_key_hash;
     case FD_GUI_HIST_EPOCH:       return fd_gui_hist_epoch_key_hash;
     case FD_GUI_HIST_TIMELINE_TILE_DAY: return fd_gui_hist_tile_day_key_hash;
+    case FD_GUI_HIST_FEC_EVENTS:  return fd_gui_hist_fec_key_hash;
     default:                      return NULL;
   }
 }
@@ -208,6 +232,7 @@ static inline int
     case FD_GUI_HIST_LEADER_SLOT: return fd_gui_hist_leader_slot_key_cmp;
     case FD_GUI_HIST_EPOCH:       return fd_gui_hist_epoch_key_cmp;
     case FD_GUI_HIST_TIMELINE_TILE_DAY: return fd_gui_hist_tile_day_key_cmp;
+    case FD_GUI_HIST_FEC_EVENTS:  return fd_gui_hist_fec_key_cmp;
     default:                      return NULL;
   }
 }
@@ -218,6 +243,13 @@ static inline int
 static inline ulong
 fd_gui_hist_kv_stride( int dbi ) {
   return fd_ulong_align_up( fd_gui_hist_rec_sz( dbi ), 8UL );
+}
+
+/* fd_gui_hist_kv_cap returns the number of records of KV DB `dbi` that
+   fit in one store region. */
+static inline ulong
+fd_gui_hist_kv_cap( int dbi ) {
+  return FD_GUI_STORE_REGION_SZ / fd_gui_hist_kv_stride( dbi );
 }
 
 /* fd_gui_hist_base_regions returns the number of regions DB `dbi` is
@@ -238,7 +270,7 @@ fd_gui_hist_ceil_div( ulong a, ulong b ) {
 
 static ulong
 fd_gui_hist_base_regions( int dbi ) {
-  ulong cap = FD_GUI_STORE_REGION_SZ / fd_gui_hist_kv_stride( dbi );
+  ulong cap = fd_gui_hist_kv_cap( dbi );
   switch( dbi ) {
     case FD_GUI_HIST_SLOT:              return fd_gui_hist_ceil_div( FD_GUI_HIST_MIN_EPOCHS*MAX_SLOTS_PER_EPOCH, cap ) + 1UL;
     case FD_GUI_HIST_LEADER_SLOT:       return fd_gui_hist_ceil_div( FD_GUI_HIST_MIN_EPOCHS*FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH, cap ) + 1UL;
@@ -249,13 +281,40 @@ fd_gui_hist_base_regions( int dbi ) {
   }
 }
 
+/* fd_gui_hist_max_keys returns the most distinct keys KV DB `dbi` can
+   ever hold.  Shared regions beyond this are never needed. */
+static ulong
+fd_gui_hist_max_keys( int dbi ) {
+  switch( dbi ) {
+    case FD_GUI_HIST_SLOT:              return FD_GUI_HIST_MAX_EPOCHS*MAX_SLOTS_PER_EPOCH;
+    case FD_GUI_HIST_LEADER_SLOT:       return FD_GUI_HIST_MAX_EPOCHS*FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH;
+    case FD_GUI_HIST_EPOCH:             return FD_GUI_HIST_MAX_EPOCHS;
+    case FD_GUI_HIST_TIMELINE_TILE_DAY: return FD_GUI_HIST_MAX_TIMELINE_DAYS*FD_TOPO_MAX_TILES;
+    default: FD_LOG_ERR(( "invalid kv dbi %d", dbi )); return 0UL;
+  }
+}
+
+/* fd_gui_hist_kv_max_records returns max_records for KV DB `dbi`, given
+   its base_regions and the number of shared regions in the store. */
+static ulong
+fd_gui_hist_kv_max_records( int   dbi,
+                            ulong base_regions,
+                            ulong shared ) {
+  if( dbi==FD_GUI_HIST_FEC_EVENTS ) return FD_GUI_FEC_RECORD_MAX;
+  ulong cap = fd_gui_hist_kv_cap( dbi );
+  ulong lo  = base_regions*cap;
+  ulong hi  = (base_regions+shared)*cap;
+  return fd_ulong_max( lo, fd_ulong_min( hi, fd_gui_hist_max_keys( dbi ) ) );
+}
+
 fd_gui_store_desc_t *
 fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
                       ulong               store_bytes ) {
   static char const * const names[ FD_GUI_HIST_CNT ] = {
     "scheduler_counts", "tile_timers", "shred_events", "txn_start",
     "txn_end", "slot", "leader_slot", "epoch", "tile_stats",
-    "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day"
+    "txn_waterfall", "timeline_day", "replay_txn", "timeline_tile_day",
+    "fec_events", "fec_event_archive"
   };
 
   for( int i=0; i<FD_GUI_HIST_CNT; i++ ) descs[ i ].base_regions = fd_gui_hist_base_regions( i );
@@ -266,16 +325,7 @@ fd_gui_hist_db_descs( fd_gui_store_desc_t descs[ static FD_GUI_HIST_CNT ],
     ulong rec_sz = fd_gui_hist_rec_sz( i );
     ulong key_sz = ts ? 0UL : fd_gui_hist_key_sz( i ); /* TS DBs have no key (0) */
     ulong val_sz = ts ? fd_ulong_max( rec_sz, 1UL ) : rec_sz;
-    ulong base_regions = descs[ i ].base_regions;
-    ulong max_records = 0UL;
-    if( !ts ) {
-      int shape = fd_gui_hist_keyshape( i );
-      ulong cap   = FD_GUI_STORE_REGION_SZ / fd_gui_hist_kv_stride( i );
-      ulong limit = shape==FD_GUI_HIST_KEYSHAPE_EPOCH    ? FD_GUI_HIST_MAX_EPOCHS
-                  : shape==FD_GUI_HIST_KEYSHAPE_DAY_TILE ? FD_GUI_HIST_MAX_TIMELINE_DAYS*FD_TOPO_MAX_TILES
-                  : FD_GUI_HIST_MAX_EPOCHS*(i==FD_GUI_HIST_LEADER_SLOT ? FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH : MAX_SLOTS_PER_EPOCH);
-      max_records = fd_ulong_max( base_regions*cap, fd_ulong_min( (base_regions+shared)*cap, limit ) );
-    }
+    ulong max_records = ts ? 0UL : fd_gui_hist_kv_max_records( i, descs[ i ].base_regions, shared );
 
     descs[ i ].name        = names[ i ];
     descs[ i ].kind        = ts ? FD_GUI_STORE_KIND_TS : FD_GUI_STORE_KIND_KV;
@@ -390,12 +440,22 @@ fd_gui_hist_metrics( fd_gui_t const * gui ) {
 }
 
 static int
+fd_gui_hist_reclaim_eligible_cb( ulong        dbi,
+                                 void const * rec FD_PARAM_UNUSED,
+                                 void *       ctx FD_PARAM_UNUSED ) {
+  /* FEC staging is not disposable history, including closed records
+     awaiting archival.  Only fd_gui_fec_archive drains it. */
+  return dbi!=FD_GUI_HIST_FEC_EVENTS;
+}
+
+static int
 fd_gui_hist_make_room( fd_gui_t * gui,
                        int        dbi,
                        int        rc ) {
   if( FD_UNLIKELY( rc!=FD_GUI_STORE_MAP_FULL && rc!=FD_GUI_STORE_RING_FULL ) ) return 0;
-  if( rc==FD_GUI_STORE_MAP_FULL && fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, NULL, NULL ) ) return 1;
-  return !!fd_gui_store_reclaim( gui->db, (ulong)dbi, FD_GUI_HIST_EVICT_BATCH, NULL, NULL );
+  if( dbi==FD_GUI_HIST_FEC_EVENTS ) return !!fd_gui_fec_archive( gui, FD_GUI_HIST_EVICT_BATCH );
+  if( rc==FD_GUI_STORE_MAP_FULL && fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible_cb, NULL ) ) return 1;
+  return !!fd_gui_store_reclaim( gui->db, (ulong)dbi, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible_cb, NULL );
 }
 
 void *
@@ -413,6 +473,8 @@ fd_gui_hist_kv_get_or_create( fd_gui_t *   gui,
       if( FD_UNLIKELY( forced_eviction ) ) fd_gui_hist( gui )->metrics.reserves[ dbi ]++;
       return val;
     }
+    /* FEC staging pressure gets one bounded archive attempt. */
+    if( forced_eviction && dbi==FD_GUI_HIST_FEC_EVENTS ) break;
     if( FD_UNLIKELY( !fd_gui_hist_make_room( gui, dbi, rc ) ) ) break;
     forced_eviction = 1;
   }
@@ -614,5 +676,5 @@ fd_gui_hist_evict_step( fd_gui_t * gui ) {
   if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return 0;
   /* Keep one shared region in reserve. */
   if( fd_gui_store_shared_free_region_cnt( gui->db )>1UL ) return 0;
-  return !!fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, NULL, NULL );
+  return !!fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible_cb, NULL );
 }

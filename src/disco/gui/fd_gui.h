@@ -1328,6 +1328,13 @@ struct fd_gui {
     fd_gui_shred_builder_t builder;
     ulong                  dropped_event_cnt;
 
+    /* FEC event staging (see fd_gui_fec_event_append). */
+    ulong closed_slot_wmark;     /* Slots below this are permanently closed */
+    ulong fec_marker_sequence;   /* Last slot complete marker sequence */
+    long  fec_insert_time_ns;    /* Last staged admission time */
+    ulong dropped_fec_event_cnt;
+    ulong clamped_fec_event_cnt;
+
     /* Events with insert_time_ns below this watermark have already
        been pushed to clients. */
     long broadcast_watermark_ns;
@@ -1527,6 +1534,7 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
+                     ulong      fec_set_idx,
                      int        is_turbine,
                      long       tsorig,
                      long       now );

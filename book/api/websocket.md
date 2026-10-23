@@ -2882,22 +2882,27 @@ exceeded. Narrow the window and retry.
 |-------------|----------|-------------|
 | start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns      | `string` | Exclusive upper bound |
-| granularity | `string` | Must be `shred`. Required |
+| granularity | `string` | Either `shred` or `fec`. Required |
 
-Returns one row per recorded shred event as it arrives, including events
-in the active, unflushed batch. Empty results have empty arrays and
-`null` reference fields.
+At `shred` granularity, returns one row per recorded shred event as it
+arrives, including events in the active, unflushed batch.
+
+At `fec` granularity, returns one row per FEC set and event kind,
+available as shred events arrive. Each timestamp is the min over all of
+the shreds in the fec set, for that event.
+
+Empty results have empty arrays and `null` reference fields.
 
 **`TimelineShreds`**
 | field              | type               | description |
 |--------------------|--------------------|-------------|
-| granularity        | `string`           | Echoes `shred` |
-| available_start_ns | `string\|null`     | Inclusive backing lookup start |
-| available_end_ns   | `string\|null`     | Exclusive backing lookup end |
+| granularity        | `string`           | Echoes `shred` or `fec` |
+| available_start_ns | `string\|null`     | Inclusive backing lookup start for the requested granularity |
+| available_end_ns   | `string\|null`     | Exclusive backing lookup end for the requested granularity |
 | reference_slot     | `number\|null`     | Smallest slot in the response |
 | reference_ts       | `string\|null`     | Smallest event timestamp in the response |
 | slot_delta         | `number[]`         | Per row, `slot - reference_slot` |
-| idx                | `(number\|null)[]` | Shred index. `null` for a slot-complete marker |
+| idx                | `(number\|null)[]` | Shred or FEC index. `null` for a slot-complete marker |
 | event              | `number[]`         | Event kind, using the enum below |
 | event_ts_delta     | `string[]`         | Per row, nanoseconds since `reference_ts` |
 | skipped            | `number[]`         | Sparse slot deltas among returned rows classified as skipped; absence is not proof of known non-skipped coverage |
