@@ -429,9 +429,8 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
     fd_epoch_credits_t * epoch_credits = &epoch_credits_view->credits[ i ];
     fd_memcpy( epoch_credits->pubkey, &vote_key, sizeof(fd_pubkey_t) );
-    epoch_credits->cnt                     = 0UL;
-    epoch_credits->base_credits            = 0UL;
-    epoch_credits->has_ag_migration_marker = 0;
+    epoch_credits->cnt          = 0UL;
+    epoch_credits->base_credits = 0UL;
 
     fd_stake_delegations_root_update( stake_delegations,
                                       &stake_key, &vote_key,

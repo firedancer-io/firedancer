@@ -189,7 +189,6 @@ ENCODE_FN {
 
     ulong       ec_cnt            = 0UL;
     fd_epoch_credits_t const * ec = NULL;
-    ulong ag_marker_idx           = ULONG_MAX;
 
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
@@ -203,13 +202,6 @@ ENCODE_FN {
       ec = find_epoch_credits( enc->bank, &ele->pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
-      if( FD_UNLIKELY( ec->has_ag_migration_marker ) ) {
-        ulong ag_migration_slot  = bank->f.alpenglow_migration_slot;
-        FD_TEST( ag_migration_slot!=ULONG_MAX );
-        ulong ag_migration_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ag_migration_slot, NULL );
-        ag_marker_idx            = fd_epoch_credits_ag_marker_idx( ec, ag_migration_epoch );
-        ec_cnt++;
-      }
     }
 
     /* SIMD-0232 collectors.  t-3..t-5 collectors are never consulted on
@@ -260,15 +252,10 @@ ENCODE_FN {
         .accumulated_lamports_len                = (uint)( ec_cnt-ec_skip )
       };
       memcpy( v5.bls_pubkey_compressed, ele->bls_key, FD_BLS_PUB_COMPRESSED_SZ );
-      for( ulong k=0UL, j=0UL; k<ec_cnt; k++ ) {
-        if( FD_UNLIKELY( k==ag_marker_idx ) ) {
-          if( k>=ec_skip ) v5.accumulated_lamports[ k-ec_skip ] = (fd_vote_epoch_credits_t){ ULONG_MAX, ULONG_MAX, ULONG_MAX };
-          continue;
-        }
-        if( k>=ec_skip ) v5.accumulated_lamports[ k-ec_skip ] = (fd_vote_epoch_credits_t){ (ulong)ec->epoch[j],
-                                                                                           ec->base_credits + (ulong)ec->credits_delta[j],
-                                                                                           ec->base_credits + (ulong)ec->prev_credits_delta[j] };
-        j++;
+      for( ulong j=ec_skip; j<ec_cnt; j++ ) {
+        v5.accumulated_lamports[ j-ec_skip ] = (fd_vote_epoch_credits_t){ (ulong)ec->epoch[j],
+                                                                          ec->base_credits + (ulong)ec->credits_delta[j],
+                                                                          ec->base_credits + (ulong)ec->prev_credits_delta[j] };
       }
       typedef struct { uchar b[ FD_VOTE_STATE_V5_PAD_SZ ]; } v5_tail_t;
       PUSH_VAL( uint,               fd_vote_state_versioned_enum_v5 );
@@ -297,17 +284,10 @@ ENCODE_FN {
 
       /* Epoch credits */
       PUSH_VAL( ulong, ec_cnt );
-      for( ulong k=0UL, j=0UL; k<ec_cnt; k++ ) {
-        if( FD_UNLIKELY( k==ag_marker_idx ) ) {
-          PUSH_VAL( ulong, ULONG_MAX );
-          PUSH_VAL( ulong, ULONG_MAX );
-          PUSH_VAL( ulong, ULONG_MAX );
-          continue;
-        }
+      for( ulong j=0UL; j<ec_cnt; j++ ) {
         PUSH_VAL( ulong, (ulong)ec->epoch[j] );
         PUSH_VAL( ulong, ec->base_credits + (ulong)ec->credits_delta[j] );
         PUSH_VAL( ulong, ec->base_credits + (ulong)ec->prev_credits_delta[j] );
-        j++;
       }
 
       PUSH_VAL( ulong, 0UL ); /* last_timestamp_slot */
