@@ -1,2 +1,0 @@
-#!/bin/sh
-exec gdb -iex 'add-auto-load-safe-path .' "$@"
