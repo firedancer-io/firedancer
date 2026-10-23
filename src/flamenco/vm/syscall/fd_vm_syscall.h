@@ -695,10 +695,11 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
    Inputs:
 
-     r1 - seeds, bytes VM pointer, indexed [0,seed_cnt),
+     r1 - seed, ulong pair VM pointer, indexed [0,seed_cnt), 8 byte
+          aligned
      r2 - seed_cnt, may be 0,
-     r3 - program_id, byte VM pointer, indexed [0,32), 8 byte aligned
-     r4 - out, byte VM pointer, indexed [0,32), 8 byte aligned
+     r3 - program_id, byte VM pointer, indexed [0,32)
+     r4 - out, byte VM pointer, indexed [0,32)
      r5 - ignored
 
      seed[i] holds the ulong pair
@@ -710,14 +711,14 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged.  vm->cu==0.
 
-     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
-     bad address range for program_id, seed,
-     seed[i].mem and/or out (including 8-byte alignment for seed if the
-     VM has check_align set). vm->reg[0] unchanged.  Compute budget
-     decremented.
+     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt>FD_VM_PDA_SEEDS_MAX and/or
+     seed[i].sz>FD_VM_PDA_SEED_MEM_MAX.  vm->reg[0] unchanged.  Compute
+     budget decremented.
 
-     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  vm->reg[0] unchanged.
-     vm->cu decremented and vm->cu>=0.
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for seed, seed[i].mem,
+     program_id, and, if a PDA was created, out (including 8-byte
+     alignment for seed if the VM has check_align set).  vm->reg[0]
+     unchanged.  vm->cu decremented and vm->cu>=0.
 
      FD_VM_SUCCESS: success.  If vm->reg[0]==0, a PDA was created and
      stored at out.  If vm->reg[0]==1, create failed and out was unchanged.
@@ -732,10 +733,11 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
    Inputs:
 
-     r1 - seed, ulong pair VM pointer, indexed [0,seed_cnt),
+     r1 - seed, ulong pair VM pointer, indexed [0,seed_cnt), 8 byte
+          aligned
      r2 - seed_cnt, may be 0,
-     r3 - program_id, byte VM pointer, indexed [0,32), 8 byte aligned
-     r4 - out, byte VM pointer, indexed [0,32), 8 byte aligned
+     r3 - program_id, byte VM pointer, indexed [0,32)
+     r4 - out, byte VM pointer, indexed [0,32)
      r5 - bump_seed, byte VM pointer, indexed [0,1)
 
      seed[i] holds the ulong pair
@@ -747,14 +749,14 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute
      budget.  vm->reg[0] unchanged.  vm->cu==0.
 
-     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
-     bad address range for program_id, seed,
-     seed[i].mem, out and/or bump_seed (including 8-byte alignment for
-     seed if the VM has check_align set). vm->reg[0] unchanged.  Compute
+     FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt>FD_VM_PDA_SEEDS_MAX and/or
+     seed[i].sz>FD_VM_PDA_SEED_MEM_MAX.  vm->reg[0] unchanged.  Compute
      budget decremented.
 
-     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  vm->reg[0] unchanged.
-     vm->cu decremented and vm->cu>=0.
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for seed, seed[i].mem,
+     program_id, and, if a PDA was found, out and/or bump_seed (including
+     8-byte alignment for seed if the VM has check_align set).
+     vm->reg[0] unchanged.  vm->cu decremented and vm->cu>=0.
 
      FD_VM_SUCCESS: success.  If vm->reg[0]==0, a PDA was found and stored at
      out and the suffix stored at bump_seed.  If vm->reg[0]==1, no PDA was
