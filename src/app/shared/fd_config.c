@@ -343,7 +343,7 @@ fd_config_fill( fd_config_t * config,
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
 
-  /* Under failover [paths.identity_key] is the staked key both machines
+  /* With failover, [paths.identity_key] is the staked key both machines
      share. */
   if( FD_UNLIKELY( config->firedancer.failover.enabled && !strcmp( config->paths.identity_key, "" ) ) ) {
     FD_LOG_ERR(( "[failover.enabled] is true, so [paths.identity_key] must specify the staked identity keypair both machines share" ));

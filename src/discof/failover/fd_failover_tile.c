@@ -415,10 +415,9 @@ privileged_init( fd_topo_t const *      topo,
   char staked_b58[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( ctx->hello.junk_pubkey,   NULL, junk_b58   );
   fd_base58_encode_32( ctx->hello.staked_pubkey, NULL, staked_b58 );
-  if( ctx->client_only ) FD_LOG_NOTICE(( "failover listener is off, `failover promote <keypair>` can request an outgoing handoff while this machine retains its configured identity `%s`", junk_b58 ));
-  else                   FD_LOG_NOTICE(( "failover is on, booting as a standby under junk identity `%s` for staked identity `%s`, listening on `" FD_IP4_ADDR_FMT ":%u`, "
-                                         "this machine does not vote until `failover promote` hands it the identity from the active, or `failover promote --force` takes it when no machine holds it, "
-                                         "the junk identity is this machine's own unique key, never copy it", junk_b58, staked_b58, FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port ));
+  if( !ctx->client_only ) FD_LOG_NOTICE(( "failover is on, booting as a standby under junk identity `%s` for staked identity `%s`, listening on `" FD_IP4_ADDR_FMT ":%u`, "
+                                          "this machine does not vote until `failover promote` hands it the identity from the active, or `failover promote --force` takes it when no machine holds it",
+                                          junk_b58, staked_b58, FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port ));
 
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch+scratch_footprint( tile ) );
 }

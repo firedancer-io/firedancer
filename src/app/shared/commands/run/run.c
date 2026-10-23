@@ -1085,8 +1085,8 @@ fdctl_check_configure( config_t const * config ) {
   fd_cpu_isolation_check_cgroup( config );
 }
 
-/* Each Sign tile gets its own one-shot pipe.  Only the public key goes
-   into the config shared with other tiles and saved for CLI discovery. */
+/* Each Sign tile gets its own one-shot pipe for receiving the ephemeral
+   generated junk key. */
 static void FD_FN_SENSITIVE
 failover_junk_prepare( config_t * config ) {
   if( fd_topo_find_tile( &config->topo, "failov", 0UL )==ULONG_MAX ) return;

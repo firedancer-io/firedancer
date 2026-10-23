@@ -296,7 +296,7 @@ test_bls_request_rejected( void ) {
   FD_TEST( bls_request_exit_status( FD_KEYGUARD_SIGN_TYPE_BLS|(1UL<<32), 11UL )==1 ); /* authorized voter 0, none loaded */
 }
 
-/* Under failover the sign tile switches by public key between the junk
+/* With failover, the sign tile switches by public key between the junk
    key and the failover identity, the staked key from boot or a key
    set-identity installed. */
 

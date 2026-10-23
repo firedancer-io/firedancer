@@ -244,7 +244,7 @@ struct fd_topo_tile {
     } admin;
 
     struct {
-      char   identity_key_path[ PATH_MAX ];   /* this machine's junk key */
+      char   identity_key_path[ PATH_MAX ];   /* the boot identity, the junk key generated at boot with failover */
       char   staked_key_path[ PATH_MAX ];     /* we read only its public half */
       char   vote_account_path[ PATH_MAX ];
       uint   listen_addr;                     /* network byte order */

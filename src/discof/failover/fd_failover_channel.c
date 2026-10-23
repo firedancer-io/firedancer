@@ -607,7 +607,7 @@ hello_err_name( int err ) {
   switch( err ) {
   case HELLO_ERR_TLS_KEY:                return "its junk key is not the key TLS authenticated, check who can reach the failover port";
   case FD_FAILOVER_HELLO_ERR_VERSION:    return "the protocol version differs, run the same Firedancer version on both machines";
-  case FD_FAILOVER_HELLO_ERR_STAKED:     return "the failover identity differs, check that both machines run [paths.identity_key] with the same keypair, or the same key from their last `set-identity`";
+  case FD_FAILOVER_HELLO_ERR_STAKED:     return "the failover identity differs, both machines need the same handoff target, from [paths.identity_key] or their last `set-identity`";
   case FD_FAILOVER_HELLO_ERR_VOTE_ACCT:  return "the vote account differs, check that [paths.vote_account] is the same on both machines";
   case FD_FAILOVER_HELLO_ERR_JUNK_EQ:    return "its junk key is ours, check that the address is the other validator";
   case FD_FAILOVER_HELLO_ERR_JUNK_STAKE: return "a boot identity is the staked key, the standby must use a different identity";
