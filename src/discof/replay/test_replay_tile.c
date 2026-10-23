@@ -511,9 +511,7 @@ setup_ctx( fd_replay_tile_t * ctx,
   ctx->identity_vote_rooted = 1;
   ctx->highwater_leader_slot = ULONG_MAX;
   ctx->next_leader_slot      = ULONG_MAX;
-  ctx->next_leader_tickcount = LONG_MAX;
   ctx->reset_slot            = 0UL;
-  ctx->tick_per_ns           = fd_tempo_tick_per_ns( NULL );
   ctx->block_id_len   = bid_cnt;
   ctx->max_live_slots = bid_cnt;
   ctx->consensus_root_slot     = ULONG_MAX;

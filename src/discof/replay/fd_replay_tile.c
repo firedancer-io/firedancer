@@ -1650,7 +1650,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
-  ctx->next_leader_tickcount = now;
 
   fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
 
@@ -1686,7 +1685,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   ctx->leader_stats.slot                = ctx->next_leader_slot;
   ctx->leader_stats.timing_table_idx    = ULONG_MAX;
   ctx->leader_stats.became_leader_nanos = now_nanos;
-  ctx->leader_stats.leader_slot_start_nanos = fd_clock_epoch_y( ctx->clock->epoch, ctx->next_leader_tickcount );
+  ctx->leader_stats.leader_slot_start_nanos = now_nanos;
 
   FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || ctx->highwater_leader_slot<ctx->next_leader_slot );
   ctx->highwater_leader_slot = ctx->next_leader_slot;
@@ -1764,7 +1763,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   ctx->leader_window_start_ns = ctx->votor_leader->parent_ready_ns;
   ctx->next_leader_slot       = ULONG_MAX;
-  ctx->next_leader_tickcount  = LONG_MAX;
 
   return 1;
 }
@@ -4231,22 +4229,6 @@ returnable_frag( fd_replay_tile_t *  ctx,
       ctx->wfs_complete = 1;
       maybe_verify_shred_version( ctx );
 
-      /* Recalculate next_leader_tickcount relative to now.  The
-         original value was computed at boot time (in boot_genesis or
-         on_snapshot_message). */
-      ctx->next_leader_tickcount = LONG_MAX;
-      if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) {
-        ag_block_id_t reset_key = ag_block_id( ctx->reset_slot, ctx->reset_dmr.uc );
-        fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &reset_key, NULL, ctx->block_id_arr );
-        if( FD_LIKELY( block_id_ele ) ) {
-          fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
-          if( FD_LIKELY( reset_bank && reset_bank->bank_seq==block_id_ele->bank_seq && reset_bank->state!=FD_BANK_STATE_PRUNABLE ) ) {
-            double slot_duration_ticks = (double)reset_bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
-            ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
-          }
-        }
-      }
-
       FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
 
       if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
@@ -4540,8 +4522,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->is_booted = 0;
 
-  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
-
   fd_clock_tile_init( ctx->clock );
 
   ctx->max_txn_per_slot     = tile->replay.max_txn_per_slot;
@@ -4610,7 +4590,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot           = 0UL;
   ctx->reset_timestamp_nanos = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
-  ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
 
   ctx->votor_final->slot       = ULONG_MAX;
