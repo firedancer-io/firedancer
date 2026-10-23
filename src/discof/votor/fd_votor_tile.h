@@ -126,6 +126,47 @@ union fd_votor_msg {
 };
 typedef union fd_votor_msg fd_votor_msg_t;
 
+/* votor_gui is a GUI-only reliable link carrying the vote activity
+   the GUI's Votes track draws.  Each frag is a packed array of 1 to
+   FD_VOTOR_GUI_REC_MAX fd_votor_gui_rec_t (sz is a multiple of the
+   record size, sig is unused).  Votor batches records and publishes a
+   frag when the batch fills or its oldest record is
+   FD_VOTOR_GUI_FLUSH_NS old, so the GUI sees activity within ~10ms.
+
+   kind      | rank, stake | sub
+   ----------|-------------|---------------
+   VOTE      | voter       | AG_VOTE_KIND_*
+   VOTE_CAST | ours        | AG_VOTE_KIND_*
+   VOTE_ACK  | ours        | AG_VOTE_KIND_*
+
+   VOTE is a vote the pool accepted (ours included, first per voter per
+   kind), so the cumulative stake of VOTE records per (slot, sub) is the
+   stake the pool has counted.  VOTE_CAST is when we broadcast our own
+   vote, VOTE_ACK when the reward leader's QUIC ACK for our reward vote
+   arrived (only notar and skip votes are reward votes).  slot is the
+   vote's slot, total_stake that of the slot's epoch, and ts_ns the
+   votor's wallclock (fd_log_wallclock domain) at the event.
+   Certificates and ParentReady reach the GUI on votor_out. */
+
+#define FD_VOTOR_GUI_REC_KIND_VOTE      (0)
+#define FD_VOTOR_GUI_REC_KIND_VOTE_CAST (1)
+#define FD_VOTOR_GUI_REC_KIND_VOTE_ACK  (2)
+
+struct fd_votor_gui_rec {
+  ulong  slot;
+  long   ts_ns;
+  ulong  stake;
+  ulong  total_stake; /* of the slot's epoch */
+  ushort rank;
+  uchar  kind;        /* FD_VOTOR_GUI_REC_KIND_* */
+  uchar  sub;
+};
+typedef struct fd_votor_gui_rec fd_votor_gui_rec_t;
+
+#define FD_VOTOR_GUI_REC_MAX  (102UL)
+#define FD_VOTOR_GUI_MTU      (FD_VOTOR_GUI_REC_MAX*sizeof(fd_votor_gui_rec_t))
+#define FD_VOTOR_GUI_FLUSH_NS (10L*1000L*1000L)
+
 extern fd_topo_run_tile_t fd_tile_votor;
 
 #endif /* HEADER_fd_src_discof_votor_fd_votor_tile_h */

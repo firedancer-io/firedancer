@@ -209,7 +209,7 @@ fd_gui_shred_event_iter_next( fd_gui_shred_event_iter_t * iter ) {
     }
   }
 
-  /* Staged FEC events, only set up by fd_gui_fec_event_iter_begin. */
+  /* Only fd_gui_fec_event_iter_begin activates this alternate backend. */
   while( fd_gui_store_kv_scan_next( &iter->_fec_iter ) ) {
     fd_gui_fec_event_t const * src = iter->_fec_iter.rec;
     if( src->insert_time_ns>=iter->_fec_insert_hi ) {
@@ -251,11 +251,42 @@ fd_gui_shred_event_append( fd_gui_t * gui,
                            long       timestamp,
                            long       now ) {
   fd_gui_shred_builder_t * builder = &gui->shreds.builder;
+  int marker = event==FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
   if( FD_UNLIKELY( !gui->db || !gui->hist || slot>UINT_MAX || idx>USHORT_MAX ||
-                  (idx==USHORT_MAX && event!=FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE) ||
-                  now<builder->prev.insert_time_ns ) ) {
+                  (marker ? idx!=USHORT_MAX : idx==USHORT_MAX) ||
+                  (event>FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE && event!=FD_GUI_SLOT_SHRED_SHRED_PUBLISHED) ||
+                  (!marker && (timestamp<0L || timestamp==LONG_MAX || slot<fd_gui_event_closed_slot_wmark( gui ))) ||
+                  now<0L || now==LONG_MAX || now<builder->prev.insert_time_ns ) ) {
     gui->shreds.dropped_event_cnt++;
     return;
+  }
+  if( (marker && timestamp>=0L && timestamp!=LONG_MAX) ||
+      event==FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE || event==FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR ||
+      event==FD_GUI_SLOT_SHRED_SHRED_PUBLISHED ) {
+    /* Retain arrival/completion independently of detailed event and fork
+       eviction.  Producer timestamps need not arrive in timestamp order. */
+    fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+    if( epoch && slot>=epoch->start_slot && slot-epoch->start_slot<epoch->slot_cnt && slot-epoch->start_slot<MAX_SLOTS_PER_EPOCH ) {
+      ulong idx = slot-epoch->start_slot;
+      uchar state = epoch->timeline_slot_state[ idx ];
+      if( marker ) {
+        /* A landed slot uses its classified fork's completion.  Skipped
+           slots use the earliest recorded completion across replays,
+           including completions received after skip classification. */
+        if( !(state & FD_GUI_TIMELINE_SLOT_STATE_VALID) || (state & FD_GUI_TIMELINE_SLOT_STATE_SKIPPED) ) {
+          epoch->timeline_slot_end_ns[ idx ] = (state & FD_GUI_TIMELINE_SLOT_STATE_COMPLETED)
+            ? fd_long_min( epoch->timeline_slot_end_ns[ idx ], timestamp ) : timestamp;
+          epoch->timeline_slot_start_ns[ idx ] = (state & FD_GUI_TIMELINE_SLOT_STATE_STARTED)
+            ? epoch->timeline_slot_first_shred_ns[ idx ] : LONG_MAX;
+          epoch->timeline_slot_state[ idx ] = (uchar)(state | FD_GUI_TIMELINE_SLOT_STATE_COMPLETED);
+          if( state & FD_GUI_TIMELINE_SLOT_STATE_VALID ) fd_gui_epoch_timeline_slot_note( epoch, idx );
+        }
+      } else if( !(state & FD_GUI_TIMELINE_SLOT_STATE_VALID) ) {
+        epoch->timeline_slot_first_shred_ns[ idx ] = (state & FD_GUI_TIMELINE_SLOT_STATE_STARTED)
+          ? fd_long_min( epoch->timeline_slot_first_shred_ns[ idx ], timestamp ) : timestamp;
+        epoch->timeline_slot_state[ idx ] = (uchar)(state | FD_GUI_TIMELINE_SLOT_STATE_STARTED);
+      }
+    }
   }
   fd_gui_shred_batch_t * batch = &builder->batch;
   long window_ns = (long)shred_window( now )*FD_GUI_HIST_RES_1S_NS;
@@ -357,6 +388,7 @@ fd_gui_shred_event_slot_complete( fd_gui_t * gui,
                                   ulong      slot,
                                   long       timestamp,
                                   long       now ) {
+  if( FD_UNLIKELY( slot>UINT_MAX ) ) return;
   fd_gui_shred_event_append( gui, slot, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, timestamp, now );
   fd_gui_fec_event_append( gui, slot, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE, timestamp, now );
 }
@@ -394,6 +426,24 @@ fd_gui_event_bounds( fd_gui_t * gui,
     int have = first!=LONG_MAX;
     *lo = have ? fd_long_max( 0L, fd_long_sat_sub( first, FD_GUI_FEC_EVENT_LAG_MAX_NS ) ) : LONG_MAX;
     *hi = have ? fd_long_min( LONG_MAX-1L, fd_long_sat_add( last, FD_GUI_FEC_EVENT_LAG_MAX_NS+1L ) ) : LONG_MIN;
+    return have;
+  }
+  if( dbi==FD_GUI_HIST_VOTES || dbi==FD_GUI_HIST_VOTE_EVENTS ) {
+    /* Both vote databases, with the margins of fd_gui_timeline_scan:
+       rows are inserted up to FD_GUI_TXN_BATCH_QUERY_MARGIN_NS after
+       their votor timestamp, or 1s before it. */
+    long first = LONG_MAX;
+    long last  = LONG_MIN;
+    int  dbs[ 2 ] = { FD_GUI_HIST_VOTES, FD_GUI_HIST_VOTE_EVENTS };
+    for( int i=0; i<2; i++ ) {
+      long f, l;
+      if( !gui->db || !fd_gui_store_ts_live_timestamp_bounds( gui->db, (ulong)dbs[ i ], &f, &l ) ) continue;
+      first = fd_long_min( first, f );
+      last  = fd_long_max( last,  l );
+    }
+    int have = first!=LONG_MAX;
+    *lo = have ? fd_long_max( 0L, fd_long_sat_sub( first, FD_GUI_TXN_BATCH_QUERY_MARGIN_NS ) ) : LONG_MAX;
+    *hi = have ? fd_long_min( LONG_MAX-1L, fd_long_sat_add( last, FD_GUI_HIST_RES_1S_NS+1L ) ) : LONG_MIN;
     return have;
   }
   long first;
