@@ -73,6 +73,8 @@ struct fd_execrp_tile {
   fd_txn_in_t  txn_in;
   fd_txn_out_t txn_out;
 
+  uchar tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
+
   fd_runtime_t runtime[1];
 
   struct {
@@ -294,6 +296,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         if( FD_UNLIKELY( ctx->capture_ctx ) ) {
           ctx->capture_ctx->current_txn_idx = msg->capture_txn_idx;
         }
+
+        char signature[FD_BASE58_ENCODED_64_SZ];
+        FD_LOG_DEBUG(( "executing %s", fd_base58_encode_64( *fd_txn_get_signatures( TXN(ctx->txn_in.txn), ctx->txn_in.txn->payload ), NULL, signature ) ));
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
@@ -523,9 +528,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
+  ctx->runtime->log.enable_vm_tracing    = 0;
   ctx->runtime->log.log_collector        = &ctx->log_collector;
   ctx->runtime->log.dumping_mem          = _dumping;
-  ctx->runtime->log.tracing_mem          = NULL;
+  ctx->runtime->log.tracing_mem          = &ctx->tracing_mem[0][0];
   ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
   ctx->runtime->log.dump_proto_ctx       = ctx->dump_proto_ctx;
   ctx->runtime->log.txn_dump_ctx         = ctx->txn_dump_ctx;

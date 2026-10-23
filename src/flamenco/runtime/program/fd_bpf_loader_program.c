@@ -519,6 +519,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 
+  FD_LOG_DEBUG(( "executing at stack height %hhu", instr_ctx->instr->stack_height ));
+
   long const regime1 = fd_tickcount();
 
   int exec_err = fd_vm_exec( vm );
@@ -539,6 +541,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
       FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
     }
   }
+
+  FD_LOG_DEBUG(( "done executing at stack height %hhu", instr_ctx->instr->stack_height ));
 
   /* Log consumed compute units and return data.
      https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/lib.rs#L1418-L1429 */
