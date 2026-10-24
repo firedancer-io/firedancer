@@ -13,47 +13,22 @@ PAGE_CNT=
 TESTS=
 VERBOSE=0
 
-# Most unit tests fit in a single 1 GiB gigantic page.  The scheduler
-# therefore reserves one page per running job by default so that it can
-# fill every available CPU.  The handful of tests below allocate a
-# larger anonymous workspace; they are passed their own --page-cnt and
-# the scheduler accounts for those extra gigantic pages so the in-flight
-# set never over-subscribes the hugetlbfs reservation (an over-subscribed
-# test hard-fails when fd_wksp_new_anonymous cannot acquire its pages).
-#
-# Tests are always run with --page-sz gigantic, so the count here is the
-# number of 1 GiB pages needed to hold each test's default workspace
-# footprint (ceil(default_page_cnt * default_page_sz / 1 GiB)).
+# Workspace budgets in GiB of tests that need more than 1 GiB, converted
+# to PAGE_SZ pages for dispatch and admission.  Other tests use PAGE_CNT.
 # Keep this list in sync with the sources;
 # contrib/test/gen_unit_test_pages.sh regenerates it.
 declare -A TEST_GIGANTIC_PAGES=(
   [test_vinyl_req]=8
-  [test_vat_refresh_vote_accounts]=6
-  [test_vm_syscalls]=5
-  [test_vm_syscall_hash]=5
-  [test_vm_syscall_curve]=5
-  [test_vm_interp]=5
-  [test_bpf_loader_program]=5
-  [test_log_collector]=4
   [test_ssmanifest_parser]=2
+  [test_snapin_tile]=2
   [test_replay_tile]=2
-  [test_quic_streams]=2
   [test_quic_server]=2
-  [test_quic_retx]=2
-  [test_quic_pkt_meta_lifecycle]=2
-  [test_quic_keep_alive]=2
-  [test_quic_hs]=2
-  [test_quic_conn]=2
-  [test_quic_conformance]=2
-  [test_quic_concurrency]=2
-  [test_quic_bw]=2
-  [test_progcache]=2
   [test_groove_volume]=2
-  [test_snapin_tile]=3
 )
 
 # Read command-line args
 
+TEST_OPTS="$*"  # for the Make indirection below
 while [[ $# -gt 0 ]]; do
 
   FLAG="$1"
@@ -106,7 +81,7 @@ if [[ -z "$TESTS" && -z "${RECURSE_GUARD:-}" ]]; then
   # Make then re-executes this file with the proper parameters.
 
   export RECURSE_GUARD=1
-  exec make run-unit-test TEST_OPTS="$*"
+  exec make run-unit-test TEST_OPTS="$TEST_OPTS"
 fi
 
 # Parse command-line args
@@ -137,18 +112,14 @@ parse_list () {
 # NUMAS holds the list of NUMA nodes to use
 parse_list NUMAS "$NUMA_IDX"
 
-# Derive PAGE_CNT
-if [[ -z "$PAGE_CNT" ]]; then
-  case "$PAGE_SZ" in
-    normal)   PAGE_CNT=$(( (JOB_MEM+     0xfff)/    0x1000 )) ;;
-    huge)     PAGE_CNT=$(( (JOB_MEM+  0x1fffff)/  0x200000 )) ;;
-    gigantic) PAGE_CNT=$(( (JOB_MEM+0x3fffffff)/0x40000000 )) ;;
-    *)
-      echo "Unknown page size: $PAGE_SZ" >&2
-      exit 1
-      ;;
-  esac
-fi
+# Derive PAGE_KIB and PAGE_CNT
+case "$PAGE_SZ" in
+  normal)   PAGE_KIB=4 ;;
+  huge)     PAGE_KIB=2048 ;;
+  gigantic) PAGE_KIB=1048576 ;;
+  *)        echo "Unknown page size: $PAGE_SZ" >&2; exit 1 ;;
+esac
+PAGE_CNT="${PAGE_CNT:-$(( (JOB_MEM + PAGE_KIB*1024 - 1) / (PAGE_KIB*1024) ))}"
 
 # Count and map available CPUs per NUMA
 declare -a NUMA_CPUS
@@ -164,8 +135,8 @@ done
 # the number of concurrent jobs on a node is bounded by its CPU count.
 # Memory is a separate budget (NUMA_PAGES below): the scheduler only
 # dispatches a test onto a free CPU if that node still has enough free
-# gigantic pages for the test's workspace.  This decouples concurrency
-# from per-test memory so the common case (most tests need 1 page) fills
+# PAGE_SZ pages for the test's workspace.  This decouples concurrency
+# from per-test memory so the common case (most tests need 1 GiB) fills
 # every CPU, while the few large tests are admitted as pages allow.
 declare -a NUMA_SLOTS
 if [[ "$JOBS" == 0 ]]; then
@@ -181,19 +152,32 @@ else
   done
   # Distribute remainder
   for (( i = 0; i < JOBS % ${#NUMAS[@]}; i++ )); do
-    NUMA_SLOTS[$i]="$(( NUMA_SLOTS[i] + 1 ))"
+    NUMA_SLOTS[NUMAS[i]]="$(( NUMA_SLOTS[NUMAS[i]] + 1 ))"
   done
 fi
 
-# Determine the per-NUMA gigantic page budget for admission control.
+# Read in list of automatic unit tests to schedule as jobs
+declare -a TEST_LIST=()
+declare -A TEST_PAGES
+MAX_TEST_PAGES=0
+while read -r line || [[ -n "$line" ]]; do
+  if [[ "$line" =~ ^[[:space:]]*(#|$) ]]; then continue; fi
+  TEST_LIST+=( "$line" )
+  gib="${TEST_GIGANTIC_PAGES[${line##*/}]:-0}"
+  pages=$(( gib ? gib*1048576/PAGE_KIB : PAGE_CNT ))
+  TEST_PAGES[$line]="$pages"
+  if [[ "$pages" -gt "$MAX_TEST_PAGES" ]]; then MAX_TEST_PAGES="$pages"; fi
+done < "$TESTS"
+if [[ "${#TEST_LIST[@]}" -eq 0 ]]; then
+  echo "test.sh: No tests selected!" >&2
+  exit 1
+fi
+
+# Determine the per-NUMA budget in PAGE_SZ pages for admission control.
 # Note: This is far from ideal and racy when multiple jobs share the
 #       same runner.
 echo "test.sh: $PAGE_CNT $PAGE_SZ pages per job (default)" >&2
 declare -a NUMA_PAGES
-MAX_TEST_PAGES=1
-for pages in "${TEST_GIGANTIC_PAGES[@]}"; do
-  if [[ "$pages" -gt "$MAX_TEST_PAGES" ]]; then MAX_TEST_PAGES="$pages"; fi
-done
 for numa in "${NUMAS[@]}"; do
   case "$PAGE_SZ" in
     gigantic)
@@ -208,24 +192,35 @@ for numa in "${NUMAS[@]}"; do
       ;;
   esac
   NUMA_PAGES[$numa]="$free_pages"
-  # The largest single test must fit, or it can never be scheduled.
-  if [[ "$free_pages" -lt "$MAX_TEST_PAGES" ]]; then
-    echo "test.sh: $free_pages free $PAGE_SZ pages on NUMA $numa, but the largest test needs $MAX_TEST_PAGES" >&2
-    echo "test.sh: Not enough memory!" >&2
-    exit 1
-  fi
   echo "test.sh: NUMA $numa: ${NUMA_SLOTS[$numa]} CPU slots, $free_pages free $PAGE_SZ pages" >&2
 done
 
-# Ensure we have at least one CPU slot.
+# Workspaces are locked with mlock, which checks RLIMIT_MEMLOCK for every
+# page size.  Only warn, as tests without a workspace are unaffected.
+memlock_kib="$(ulimit -l)"
+if [[ "$memlock_kib" != unlimited ]] && (( MAX_TEST_PAGES*PAGE_KIB > memlock_kib )); then
+  echo "test.sh: WARNING: MEMLOCK limit is $memlock_kib KiB, but the largest selected workspace needs $(( MAX_TEST_PAGES*PAGE_KIB )) KiB; tests that lock more will fail" >&2
+fi
+
+# Ensure we have at least one CPU slot, and a node with one that fits
+# the largest selected test, or it can never be scheduled.
 JOBS=0
+FIT=0
 for numa in "${NUMAS[@]}"; do
   JOBS=$(( JOBS + NUMA_SLOTS[numa] ))
+  if (( NUMA_SLOTS[numa] && NUMA_PAGES[numa]>=MAX_TEST_PAGES )); then FIT=1; fi
 done
 if [[ "$JOBS" -eq 0 ]]; then
   echo "test.sh: No CPUs available!" >&2
   exit 1
 fi
+if [[ "$FIT" -eq 0 ]]; then
+  echo "test.sh: No NUMA node with a CPU slot has the $MAX_TEST_PAGES free $PAGE_SZ pages the largest test needs" >&2
+  echo "test.sh: Not enough memory!" >&2
+  exit 1
+fi
+
+echo "test.sh: Scheduling ${#TEST_LIST[@]} tests with $JOBS workers" >&2
 
 # Clean up process tree on exit
 trap 'exit' INT QUIT TERM
@@ -246,29 +241,13 @@ declare -A CPU2PID
 declare -A PID2UNIT
 # Remember logfile name of each PID
 declare -A PID2LOG
-# Remember how many gigantic pages each PID reserved
+# Remember how many pages each PID reserved
 declare -A PID2PAGES
 
 # NUMA_SLOTS holds the number of free CPU slots per node and NUMA_PAGES
-# the number of free gigantic pages per node.  When a job spawns, the
+# the number of free PAGE_SZ pages per node.  When a job spawns, the
 # node's slot count is decremented by one and its page count by the
 # test's page need; both are restored when the job is reaped.
-
-# test_pages <progname>
-#   Echo the number of gigantic pages a test reserves (its --page-cnt).
-test_pages () {
-  echo "${TEST_GIGANTIC_PAGES[$1]:-$PAGE_CNT}"
-}
-
-# Read in list of automatic unit tests to schedule as jobs
-declare -a TEST_LIST
-while read -r line; do
-  if [[ "$line" =~ ^[[:space:]]*# ]]; then
-    continue
-  fi
-  TEST_LIST+=( "$line" )
-done < <(grep -v '^#' "$TESTS")
-echo "test.sh: Scheduling ${#TEST_LIST[@]} tests with $JOBS workers" >&2
 
 rc_path () {
   echo "$RC_DIR/$1.rc"
@@ -375,13 +354,12 @@ sow () {
       # node's remaining page budget.
       local idx=-1 i
       for i in "${!TEST_LIST[@]}"; do
-        local need; need="$(test_pages "${TEST_LIST[$i]##*/}")"
-        if [[ "$need" -le "${NUMA_PAGES[$numa]}" ]]; then idx="$i"; break; fi
+        if [[ "${TEST_PAGES[${TEST_LIST[$i]}]}" -le "${NUMA_PAGES[$numa]}" ]]; then idx="$i"; break; fi
       done
       # No queued test fits right now; wait for a job to free pages.
       if [[ "$idx" -eq -1 ]]; then break; fi
       local test="${TEST_LIST[$idx]}"
-      local need; need="$(test_pages "${test##*/}")"
+      local need="${TEST_PAGES[$test]}"
       TEST_LIST=( "${TEST_LIST[@]:0:$idx}" "${TEST_LIST[@]:$((idx+1))}" )
       NUMA_SLOTS[$numa]="$(( NUMA_SLOTS[numa] - 1 ))"
       NUMA_PAGES[$numa]="$(( NUMA_PAGES[numa] - need ))"
