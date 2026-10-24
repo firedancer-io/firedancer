@@ -683,6 +683,12 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
          in this epoch. */
       set_ctx_t * victim_ctx = ctx_treap_rev_iter_ele( ctx_treap_rev_iter_init( ctx_treap, ctx_pool ), ctx_pool );
 
+      /* The new set would be the highest, so it is the one to drop.
+         Evicting the victim for it costs a sigverify and makes repair
+         re-request the victim, whose shreds then evict the next one. */
+      slot_fec_pair_t new_key[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
+      if( FD_UNLIKELY( slot_fec_pair_compare( new_key, victim_ctx )>=0 ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+
       if( FD_LIKELY( out_spilled ) ) {
         out_spilled->slot         = victim_ctx->slot;
         out_spilled->fec_set_idx  = victim_ctx->fec_set_idx;
