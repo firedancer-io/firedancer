@@ -3476,6 +3476,88 @@ test_wfs_auto_override( fd_wksp_t * wksp ) {
 }
 
 static void
+test_wfs_identity_switch_before_boot( fd_wksp_t * wksp,
+                                      int         alpenglow ) {
+  static fd_replay_tile_t   ctx[1];
+  static fd_runtime_stack_t stack[1];
+  static fd_keyswitch_t     keyswitch[1];
+
+  memset( ctx, 0, sizeof(*ctx) );
+  fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  ctx->alpenglow             = alpenglow;
+  root->f.features.alpenglow = alpenglow ? 0UL : FD_FEATURE_DISABLED;
+
+  void * vote_tracker_mem = fd_wksp_alloc_laddr( wksp, fd_vote_tracker_align(), fd_vote_tracker_footprint(), 1UL );
+  FD_TEST( vote_tracker_mem );
+  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, 0UL ) );
+  FD_TEST( ctx->vote_tracker );
+
+  fd_pubkey_t old_identity = { .ul = { 0x11UL } };
+  fd_pubkey_t new_identity = { .ul = { 0x22UL } };
+
+  memset( keyswitch, 0, sizeof(keyswitch) );
+  ctx->keyswitch          = keyswitch;
+  ctx->identity_pubkey[0] = old_identity;
+  keyswitch->result       = ULONG_MAX;
+  memcpy( keyswitch->bytes, &new_identity, sizeof(new_identity) );
+
+  /* maybe_switch_identity reports the seq the voter must consume up
+     to, from a different link per consensus mode: votor reads
+     replay_slot, tower reads replay_out.  Both carry a distinct seq so
+     the assertion below pins which one was read. */
+  ctx->replay_out_seq = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->replay_out->idx ] );
+  ctx->slot_out_seq   = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->slot_out->idx   ] );
+  fd_mcache_seq_update( fd_mcache_seq_laddr( test_stem_mcaches[ ctx->replay_out->idx ] ), alpenglow ? 43UL : 42UL );
+  fd_mcache_seq_update( fd_mcache_seq_laddr( test_stem_mcaches[ ctx->slot_out->idx   ] ), alpenglow ? 42UL : 43UL );
+
+  /* WFS configured and matching, so the boot will resolve auto to
+     false.  Until then replay is unbooted and the flag is auto. */
+  ctx->wfs_enabled                    = 1;
+  ctx->wfs_hash_is_zero               = 0;
+  ctx->expected_bank_hash             = root->f.bank_hash;
+  ctx->wait_for_supermajority_at_slot = 100UL;
+  ctx->expected_shred_version         = 1234;
+  ctx->wait_for_vote_to_start_leader  = FD_BOOLAU_AUTO;
+  ctx->is_booted                      = 0;
+
+  /* The set-identity lands mid-load.  Replay halts, but must not
+     rotate: reaching maybe_switch_identity here is the FD_LOG_CRIT. */
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( ctx->halt_replay );
+  FD_TEST( fd_keyswitch_state_query( keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  FD_TEST( keyswitch->result==ULONG_MAX );
+  FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &old_identity ) );
+  FD_TEST( ctx->wait_for_vote_to_start_leader==FD_BOOLAU_AUTO );
+
+  /* Halting replay must not gate the snapshot, so drive it through
+     returnable_frag as the stem does rather than calling
+     on_snapshot_message.  IN_KIND_SNAP is 0, and the chunk bounds
+     check is skipped for the zero-length DONE. */
+  static ulong wfs_metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  volatile ulong * saved = fd_metrics_tl;
+  fd_metrics_tl        = wfs_metrics;
+  mock_snapshot_boot   = 1;
+  mock_footer_finalize = 1;
+  memset( mock_footer, 0, sizeof(fd_block_footer_t) );
+  FD_TEST( ctx->in_kind[ 0 ]==IN_KIND_SNAP );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  mock_footer_finalize = 0;
+  mock_snapshot_boot   = 0;
+  fd_metrics_tl        = saved;
+  FD_TEST( ctx->is_booted );
+  FD_TEST( ctx->wait_for_vote_to_start_leader==FD_BOOLAU_FALSE );
+
+  /* Now the deferred rotation completes. */
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( keyswitch->result==42UL );
+  FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &new_identity ) );
+
+  FD_LOG_NOTICE(( "pass: test_wfs_identity_switch_before_boot(alpenglow=%d)", alpenglow ));
+}
+
+static void
 test_wfs_error_aborts( fd_wksp_t * wksp ) {
   static fd_replay_tile_t   ctx[1];
   static fd_runtime_stack_t stack[1];
@@ -3776,6 +3858,8 @@ main( int     argc,
   test_wait_info_produced_incr_cnt( wksp );         fd_wksp_reset( wksp, 42U );
   test_wfs_auto_override( wksp );                   fd_wksp_reset( wksp, 42U );
   test_snapshot_boot_bank_migration_slot( wksp );   fd_wksp_reset( wksp, 42U );
+  test_wfs_identity_switch_before_boot( wksp, 0 );  fd_wksp_reset( wksp, 42U );
+  test_wfs_identity_switch_before_boot( wksp, 1 );  fd_wksp_reset( wksp, 42U );
   test_wfs_error_aborts( wksp );                    fd_wksp_reset( wksp, 42U );
   test_wfs_bank_hash_mismatch( wksp );              fd_wksp_reset( wksp, 42U );
   test_wfs_done_idempotency( wksp );                fd_wksp_reset( wksp, 42U );

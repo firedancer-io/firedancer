@@ -1514,7 +1514,8 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   fd_vote_tracker_reset( ctx->vote_tracker );
 
   /* identity_vote_rooted was just reset, so the gate rests on the flag
-     alone and a surviving auto would read as armed (see fd_wfs.h). */
+     alone and a surviving auto would read as armed (see fd_wfs.h).
+     Invariant: auto is resolved before is_booted can be observed. */
   if( FD_UNLIKELY( ctx->wait_for_vote_to_start_leader==FD_BOOLAU_AUTO ) ) {
     FD_LOG_CRIT(( "wait_for_vote_to_start_leader unresolved (auto) at identity rotation" ));
   }
