@@ -623,26 +623,37 @@ publish_reward_cert( fd_votor_tile_t *   ctx,
   int   err;
 
   uchar const *        hash  = votes->top_notar_hash;
-  fd_bls_agg_t const * notar = ag_slot_state_notar_reward_agg( state, states, &reward->agg_notar );
+  fd_bls_agg_t         base[1];
+  fd_bls_agg_t const * notar = ag_pool_notar_reward_agg( ctx->pool, reward_slot, &reward->agg_notar, base );
   if( FD_LIKELY( notar ) ) {
     ag_slot_state_sigs( state, states, AG_VOTE_KIND_NOTAR, hash, reward->agg_notar.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, reward_slot, hash, ctx->shred_version, msg );
     ctx->metrics.bls_verify++;
-    err    = fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
+    err    = fd_bls_set_is_null( reward->agg_notar.set ) ? 0 : fd_bls_agg_verify_subtract( &reward->agg_notar, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_notar );
-    else                     memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) );
+
+    if( FD_UNLIKELY( !fd_bls_set_is_null( base->set ) ) ) {
+      blst_p1_add_or_double( &reward->agg_notar.pub, &reward->agg_notar.pub, &base->pub );
+      blst_p2_add_or_double( &reward->agg_notar.sig, &reward->agg_notar.sig, &base->sig );
+      fd_bls_set_union( reward->agg_notar.set, reward->agg_notar.set, base->set );
+    }
+    if( FD_LIKELY( !fd_bls_set_is_null( reward->agg_notar.set ) ) ) memcpy( reward->block_id.uc, hash, sizeof(fd_hash_t) );
   }
 
-  fd_bls_agg_t const * skip = ag_slot_state_skip_reward_agg( state );
+  fd_bls_agg_t const * skip = ag_pool_skip_reward_agg( ctx->pool, reward_slot, &reward->agg_skip, base );
   if( FD_LIKELY( skip ) ) {
-    reward->agg_skip = *skip;
     ag_slot_state_sigs( state, states, AG_VOTE_KIND_SKIP, NULL, reward->agg_skip.set, sigs );
     msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, reward_slot, NULL, ctx->shred_version, msg );
     ctx->metrics.bls_verify++;
-    err    = fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
+    err    = fd_bls_set_is_null( reward->agg_skip.set ) ? 0 : fd_bls_agg_verify_subtract( &reward->agg_skip, msg, msg_sz, epoch_info->pubkeys, sigs, ctx->scratch.bad );
     ban_bad_ranks( ctx, ctx->scratch.bad, reward_slot );
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_skip );
+    if( FD_UNLIKELY( !fd_bls_set_is_null( base->set ) ) ) {
+      blst_p1_add_or_double( &reward->agg_skip.pub, &reward->agg_skip.pub, &base->pub );
+      blst_p2_add_or_double( &reward->agg_skip.sig, &reward->agg_skip.sig, &base->sig );
+      fd_bls_set_union( reward->agg_skip.set, reward->agg_skip.set, base->set );
+    }
   }
 
   fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REWARD, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );

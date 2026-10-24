@@ -2614,6 +2614,198 @@ test_reward_certs( void ) {
   reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
   FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==1UL && fd_bls_set_cnt( reward->agg_skip.set )==1UL && fd_bls_set_test( reward->agg_skip.set, 1UL ) );
 
+  /* A verified notar cert's signers are rewarded though their votes
+     never arrived, each rank aggregated once. */
+
+  slot = 3UL;
+  vote = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR, .notar = { .slot = slot, .rank = 0, .shred_version = 1 } };
+  memcpy( vote.notar.block_hash, hash, sizeof(ag_block_hash_t) );
+  vote.notar.sig = reward_vote_sig( epoch_info, 0UL, AG_VOTE_KIND_NOTAR, slot, hash );
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  vote.notar.rank = 1;
+  vote.notar.sig  = reward_vote_sig( epoch_info, 1UL, AG_VOTE_KIND_NOTAR, slot, hash );
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+
+  fd_bls_sig_t cert_sigs[ AG_VAT_MAX ];
+  fd_bls_set_t cert_set[ fd_bls_set_word_cnt ]; fd_bls_set_null( cert_set );
+  for( ulong r=1UL; r<=2UL; r++ ) { cert_sigs[ r ] = reward_vote_sig( epoch_info, r, AG_VOTE_KIND_NOTAR, slot, hash ); fd_bls_set_insert( cert_set, r ); }
+  ag_cert_t cert = { .kind = AG_CERT_KIND_NOTAR, .notar = { .slot = slot, .stake = 20UL, .shred_version = 1 } };
+  memcpy( cert.notar.block_hash, hash, sizeof(ag_block_hash_t) );
+  fd_bls_agg_construct( &cert.notar.agg, epoch_info->pubkeys, cert_sigs, cert_set );
+  FD_TEST( ag_pool_add_cert( ctx.pool, &cert, 1, ctx.scratch.bad )==AG_POOL_SUCCESS );
+
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==4UL );
+  meta   = mcache+fd_mcache_line_idx( 3UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==3UL && fd_bls_set_test( reward->agg_notar.set, 0UL ) && fd_bls_set_test( reward->agg_notar.set, 2UL ) );
+  FD_TEST( !memcmp( reward->block_id.uc, hash, sizeof(fd_hash_t) ) );
+  uchar   msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong   msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, 1, msg );
+  blst_p1 pub[1]; fd_bls_pub_sum( pub, epoch_info->pubkeys, epoch_info->validator_cnt, reward->agg_notar.set, NULL );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, pub, &reward->agg_notar.sig ) );
+
+  /* A fast finalize cert too: the union of both certs, less the vote
+     they share (held), adds rank 3. */
+
+  fd_bls_set_null( cert_set );
+  fd_bls_set_insert( cert_set, 1UL ); fd_bls_set_insert( cert_set, 3UL );
+  cert_sigs[ 3 ] = reward_vote_sig( epoch_info, 3UL, AG_VOTE_KIND_NOTAR, slot, hash );
+  ag_cert_t ff = { .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = { .slot = slot, .stake = 20UL, .shred_version = 1 } };
+  memcpy( ff.fast_final.block_hash, hash, sizeof(ag_block_hash_t) );
+  fd_bls_agg_construct( &ff.fast_final.agg, epoch_info->pubkeys, cert_sigs, cert_set );
+  FD_TEST( ag_pool_add_cert( ctx.pool, &ff, 1, ctx.scratch.bad )==AG_POOL_SUCCESS );
+
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==5UL );
+  meta   = mcache+fd_mcache_line_idx( 4UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==4UL );
+  fd_bls_pub_sum( pub, epoch_info->pubkeys, epoch_info->validator_cnt, reward->agg_notar.set, NULL );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, pub, &reward->agg_notar.sig ) );
+
+  /* Certs sharing a vote we do not hold: the larger cert alone, plus the
+     held votes outside it. */
+
+  ag_pool_delete( ag_pool_leave( ctx.pool ) );
+  ctx.pool = test_pool( epoch_info, 0UL );
+  slot = 2UL;
+  msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_NOTAR, slot, hash, 1, msg );
+  vote = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR, .notar = { .slot = slot, .rank = 0, .shred_version = 1 } };
+  memcpy( vote.notar.block_hash, hash, sizeof(ag_block_hash_t) );
+  vote.notar.sig = reward_vote_sig( epoch_info, 0UL, AG_VOTE_KIND_NOTAR, slot, hash );
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  for( ulong r=1UL; r<=3UL; r++ ) cert_sigs[ r ] = reward_vote_sig( epoch_info, r, AG_VOTE_KIND_NOTAR, slot, hash );
+  fd_bls_set_null( cert_set ); fd_bls_set_insert( cert_set, 1UL ); fd_bls_set_insert( cert_set, 2UL );
+  cert = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = { .slot = slot, .stake = 20UL, .shred_version = 1 } };
+  memcpy( cert.notar.block_hash, hash, sizeof(ag_block_hash_t) );
+  fd_bls_agg_construct( &cert.notar.agg, epoch_info->pubkeys, cert_sigs, cert_set );
+  FD_TEST( ag_pool_add_cert( ctx.pool, &cert, 1, ctx.scratch.bad )==AG_POOL_SUCCESS );
+  fd_bls_set_insert( cert_set, 3UL ); /* {1,2,3}: shares unheld 1 and 2 */
+  ff = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = { .slot = slot, .stake = 30UL, .shred_version = 1 } };
+  memcpy( ff.fast_final.block_hash, hash, sizeof(ag_block_hash_t) );
+  fd_bls_agg_construct( &ff.fast_final.agg, epoch_info->pubkeys, cert_sigs, cert_set );
+  FD_TEST( ag_pool_add_cert( ctx.pool, &ff, 1, ctx.scratch.bad )==AG_POOL_SUCCESS );
+
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==6UL );
+  meta   = mcache+fd_mcache_line_idx( 5UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==4UL && fd_bls_set_test( reward->agg_notar.set, 0UL ) );
+  fd_bls_pub_sum( pub, epoch_info->pubkeys, epoch_info->validator_cnt, reward->agg_notar.set, NULL );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, pub, &reward->agg_notar.sig ) );
+
+  /* Duplicate notar certs (6 voters staked 10..15, quorum 45): one naming
+     no one new is not kept, a forged one is skipped without harm, one
+     sharing a vote we do not hold is skipped, and a genuine one naming a
+     new signer joins. */
+
+  ag_pool_delete( ag_pool_leave( ctx.pool ) );
+  fd_vote_stake_weight_t stakes6[ 6 ];
+  build_stakes( stakes6, 6UL, 10UL );
+  epoch_info = rank_voters( &epoch_info_mem, stakes6, 6UL, NULL, NULL );
+  ctx.curr_epoch_info = epoch_info;
+  ctx.pool = test_pool( epoch_info, 0UL );
+  for( ulong r=0UL; r<6UL; r++ ) cert_sigs[ r ] = reward_vote_sig( epoch_info, r, AG_VOTE_KIND_NOTAR, slot, hash );
+  ulong const held[3] = { 0UL, 2UL, 3UL };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    vote = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR, .notar = { .slot = slot, .rank = (ushort)held[ i ], .shred_version = 1, .sig = cert_sigs[ held[ i ] ] } };
+    memcpy( vote.notar.block_hash, hash, sizeof(ag_block_hash_t) );
+    FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  }
+
+#define CERT_OF( ... ) do { ulong const _r[] = { __VA_ARGS__ }; fd_bls_set_null( cert_set ); for( ulong _i=0UL; _i<sizeof(_r)/sizeof(_r[0]); _i++ ) fd_bls_set_insert( cert_set, _r[ _i ] ); \
+                            fd_bls_agg_null( &cert.notar.agg ); fd_bls_agg_construct( &cert.notar.agg, epoch_info->pubkeys, cert_sigs, cert_set ); } while(0)
+  cert = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = { .slot = slot, .shred_version = 1 } };
+  memcpy( cert.notar.block_hash, hash, sizeof(ag_block_hash_t) );
+  CERT_OF( 0, 1, 2, 3 );  /* 46: the first, verified */
+  FD_TEST( ag_pool_add_cert( ctx.pool, &cert, 0, ctx.scratch.bad )==AG_POOL_SUCCESS );
+  CERT_OF( 1, 2, 3, 0 );  /* names no one new: not kept */
+  FD_TEST( ag_pool_add_cert( ctx.pool, &cert, 0, ctx.scratch.bad )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( ag_pool_slot_state( ctx.pool, slot )->certs.reward_cand_cnt==0UL );
+  CERT_OF( 2, 3, 4, 5 );  /* forged: signer 5's signature replaced by 4's */
+  { fd_bls_sig_t f = cert_sigs[ 5 ]; cert_sigs[ 5 ] = cert_sigs[ 4 ]; CERT_OF( 2, 3, 4, 5 ); cert_sigs[ 5 ] = f; }
+  FD_TEST( ag_pool_add_cert( ctx.pool, &cert, 0, ctx.scratch.bad )==AG_POOL_ERR_DUPLICATE );
+  CERT_OF( 1, 4, 5, 2 );  /* 52, shares unheld 1: skipped */
+  FD_TEST( ag_pool_add_cert( ctx.pool, &cert, 0, ctx.scratch.bad )==AG_POOL_ERR_DUPLICATE );
+  CERT_OF( 2, 3, 4, 5 );  /* 54, shares held 2 and 3: joins */
+  FD_TEST( ag_pool_add_cert( ctx.pool, &cert, 0, ctx.scratch.bad )==AG_POOL_ERR_DUPLICATE );
+#undef CERT_OF
+  FD_TEST( ag_pool_slot_state( ctx.pool, slot )->certs.reward_cand_cnt==3UL ); /* a forgery shuts no one out */
+
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==7UL );
+  meta   = mcache+fd_mcache_line_idx( 6UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==6UL ); /* {0,1,2,3} + {2,3,4,5} */
+  fd_bls_pub_sum( pub, epoch_info->pubkeys, epoch_info->validator_cnt, reward->agg_notar.set, NULL );
+  FD_TEST( fd_bls_agg_verify( msg, msg_sz, pub, &reward->agg_notar.sig ) );
+  ag_slot_certs_t const * kc = &ag_pool_slot_state( ctx.pool, slot )->certs;
+  ulong const notar_cand_cnt = kc->reward_cand_cnt;
+  FD_TEST( kc->reward_cand[ 0 ].bad && !kc->reward_cand[ 1 ].bad && !kc->reward_cand[ 1 ].ok && kc->reward_cand[ 2 ].ok ); /* forged; skipped unverified; joined */
+  FD_TEST( notar_cand_cnt==3UL );
+
+  /* Skip: a skip-only cert's skippers are rewarded though their skip
+     votes never arrived; a cert with skip fallback signers is not kept. */
+
+  ag_pool_delete( ag_pool_leave( ctx.pool ) );
+  ctx.pool = test_pool( epoch_info, 0UL );
+  fd_bls_sig_t skip_sigs[ AG_VAT_MAX ];
+  for( ulong r=0UL; r<6UL; r++ ) skip_sigs[ r ] = reward_vote_sig( epoch_info, r, AG_VOTE_KIND_SKIP, slot, NULL );
+  vote = (ag_vote_t){ .kind = AG_VOTE_KIND_SKIP, .skip = { .slot = slot, .rank = 0, .shred_version = 1, .sig = skip_sigs[ 0 ] } };
+  FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+
+  ag_cert_t sk = { .kind = AG_CERT_KIND_SKIP, .skip = { .slot = slot, .shred_version = 1 } };
+  fd_bls_set_null( cert_set ); for( ulong r=0UL; r<=3UL; r++ ) fd_bls_set_insert( cert_set, r ); /* {0,1,2,3}, 46: the first, verified */
+  fd_bls_agg_construct( &sk.skip.agg_skip, epoch_info->pubkeys, skip_sigs, cert_set );
+  FD_TEST( ag_pool_add_cert( ctx.pool, &sk, 0, ctx.scratch.bad )==AG_POOL_SUCCESS );
+
+  fd_bls_sig_t sf_sigs[ AG_VAT_MAX ];
+  for( ulong r=0UL; r<6UL; r++ ) sf_sigs[ r ] = reward_vote_sig( epoch_info, r, AG_VOTE_KIND_SKIP_FALLBACK, slot, NULL );
+  sk = (ag_cert_t){ .kind = AG_CERT_KIND_SKIP, .skip = { .slot = slot, .shred_version = 1 } };
+  fd_bls_set_null( cert_set ); fd_bls_set_insert( cert_set, 0UL ); fd_bls_set_insert( cert_set, 1UL ); fd_bls_set_insert( cert_set, 2UL );
+  fd_bls_agg_construct( &sk.skip.agg_skip, epoch_info->pubkeys, skip_sigs, cert_set );
+  fd_bls_set_null( cert_set ); fd_bls_set_insert( cert_set, 4UL ); /* a fallback signer: inseparable */
+  fd_bls_agg_construct( &sk.skip.agg_skip_fallback, epoch_info->pubkeys, sf_sigs, cert_set );
+  FD_TEST( ag_pool_add_cert( ctx.pool, &sk, 0, ctx.scratch.bad )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( ag_pool_slot_state( ctx.pool, slot )->certs.reward_cand_cnt==0UL );
+
+  sk = (ag_cert_t){ .kind = AG_CERT_KIND_SKIP, .skip = { .slot = slot, .shred_version = 1 } };
+  fd_bls_set_null( cert_set ); fd_bls_set_insert( cert_set, 0UL ); for( ulong r=3UL; r<6UL; r++ ) fd_bls_set_insert( cert_set, r ); /* {0,3,4,5}, 52: shares held 0, unheld 3 */
+  fd_bls_agg_construct( &sk.skip.agg_skip, epoch_info->pubkeys, skip_sigs, cert_set );
+  FD_TEST( ag_pool_add_cert( ctx.pool, &sk, 0, ctx.scratch.bad )==AG_POOL_ERR_DUPLICATE );
+  sk = (ag_cert_t){ .kind = AG_CERT_KIND_SKIP, .skip = { .slot = slot, .shred_version = 1 } };
+  fd_bls_set_null( cert_set ); fd_bls_set_insert( cert_set, 0UL ); fd_bls_set_insert( cert_set, 4UL ); fd_bls_set_insert( cert_set, 5UL ); fd_bls_set_insert( cert_set, 2UL );
+  /* {0,2,4,5}, 51: shares held 0 and unheld 2 */
+  fd_bls_agg_construct( &sk.skip.agg_skip, epoch_info->pubkeys, skip_sigs, cert_set );
+  FD_TEST( ag_pool_add_cert( ctx.pool, &sk, 0, ctx.scratch.bad )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( ag_pool_slot_state( ctx.pool, slot )->certs.reward_cand_cnt==2UL );
+
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==8UL );
+  meta   = mcache+fd_mcache_line_idx( 7UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_skip.set )==4UL ); /* both candidates share an unheld skipper: the verified cert alone */
+  uchar sk_msg[ AG_VOTE_SIGNING_SER_MAX ];
+  ulong sk_msg_sz = ag_vote_signing_ser( AG_VOTE_KIND_SKIP, slot, NULL, 1, sk_msg );
+  fd_bls_pub_sum( pub, epoch_info->pubkeys, epoch_info->validator_cnt, reward->agg_skip.set, NULL );
+  FD_TEST( fd_bls_agg_verify( sk_msg, sk_msg_sz, pub, &reward->agg_skip.sig ) );
+
+  /* Holding skip votes 2 and 3 lets both candidates join: all six. */
+
+  for( ulong r=2UL; r<=3UL; r++ ) {
+    vote = (ag_vote_t){ .kind = AG_VOTE_KIND_SKIP, .skip = { .slot = slot, .rank = (ushort)r, .shred_version = 1, .sig = skip_sigs[ r ] } };
+    FD_TEST( ag_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==AG_POOL_SUCCESS );
+  }
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==9UL );
+  meta   = mcache+fd_mcache_line_idx( 8UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_skip.set )==6UL );
+  fd_bls_pub_sum( pub, epoch_info->pubkeys, epoch_info->validator_cnt, reward->agg_skip.set, NULL );
+  FD_TEST( fd_bls_agg_verify( sk_msg, sk_msg_sz, pub, &reward->agg_skip.sig ) );
+
+
   peers_delete( peers_leave( ctx.peers ) );
   ag_pool_delete( ag_pool_leave( ctx.pool ) );
   FD_LOG_NOTICE(( "pass: test_reward_certs" ));

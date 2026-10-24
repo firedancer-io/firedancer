@@ -164,6 +164,18 @@ ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * parent_id,
                    fd_bls_set_t *        bad );
 
+fd_bls_agg_t *
+ag_pool_skip_reward_agg( ag_pool_t *    self,
+                         ulong          slot,
+                         fd_bls_agg_t * out,
+                         fd_bls_agg_t * out_base );
+
+fd_bls_agg_t *
+ag_pool_notar_reward_agg( ag_pool_t *    self,
+                          ulong          slot,
+                          fd_bls_agg_t * out,
+                          fd_bls_agg_t * out_base );
+
 /* PoolImpl::slot_state, read-only */
 
 ag_slot_state_t const *

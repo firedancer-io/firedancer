@@ -551,7 +551,10 @@ ag_pool_add_cert( ag_pool_t *       self,
   case AG_CERT_KIND_SKIP:           duplicate = state->certs.skip.slot!=ULONG_MAX;                                    break;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
-  if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
+  if( FD_UNLIKELY( duplicate ) ) {
+    if( FD_LIKELY( !verified && ( cert->kind==AG_CERT_KIND_NOTAR || cert->kind==AG_CERT_KIND_FAST_FINAL || cert->kind==AG_CERT_KIND_SKIP ) ) ) ag_slot_state_add_reward_cand( state, cert );
+    return AG_POOL_ERR_DUPLICATE;
+  }
 
   int err = AG_CERT_VERIFY_SUCCESS;
   if( FD_LIKELY( !verified ) ) err = ag_cert_verify( cert, epoch_info );
@@ -622,6 +625,24 @@ ag_pool_slot_state( ag_pool_t const * self,
                     ulong             slot ) {
   slot_state_ele_t const * ele = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
   return ele ? &ele->slot_state : NULL;
+}
+
+fd_bls_agg_t *
+ag_pool_skip_reward_agg( ag_pool_t *    self,
+                         ulong          slot,
+                         fd_bls_agg_t * out,
+                         fd_bls_agg_t * out_base ) {
+  slot_state_ele_t * ele = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
+  return ele ? ag_slot_state_skip_reward_agg( &ele->slot_state, &self->slot_states->shared, out, out_base ) : NULL;
+}
+
+fd_bls_agg_t *
+ag_pool_notar_reward_agg( ag_pool_t *    self,
+                          ulong          slot,
+                          fd_bls_agg_t * out,
+                          fd_bls_agg_t * out_base ) {
+  slot_state_ele_t * ele = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
+  return ele ? ag_slot_state_notar_reward_agg( &ele->slot_state, &self->slot_states->shared, out, out_base ) : NULL;
 }
 
 ag_slot_states_t const *
