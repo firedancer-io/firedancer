@@ -594,9 +594,13 @@ ag_pool_add_vote( ag_pool_t *       self,
   ag_slot_state_t * slot_state_ = slot_state( self, slot );
   ulong             voter_stake = ag_epoch_info_validator( epoch_info, voter )->stake;
 
-  if       ( FD_UNLIKELY( ag_slot_state_check_slashable_offence( slot_state_, states, vote )!=AG_SLASHABLE_NONE ) ) {
+  if( FD_UNLIKELY( ag_slot_state_check_slashable_offence( slot_state_, states, vote )!=AG_SLASHABLE_NONE ) ) {
     return AG_POOL_ERR_SLASHABLE;
-  } else if( FD_UNLIKELY( ag_slot_state_should_ignore_vote( slot_state_, states, vote ) ) ) {
+  }
+  if( FD_UNLIKELY( ag_slot_state_check_conflicting_vote( slot_state_, states, vote ) ) ) {
+    return AG_POOL_ERR_SLASHABLE;
+  }
+  if( FD_UNLIKELY( ag_slot_state_should_ignore_vote( slot_state_, states, vote ) ) ) {
     return AG_POOL_ERR_DUPLICATE;
   }
   if( FD_UNLIKELY( !verified && !blst_p2_affine_in_g2( ag_vote_sig( vote ) ) ) ) {
