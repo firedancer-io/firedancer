@@ -381,10 +381,7 @@ static void
 refresh_sdest( fd_stake_ci_t *            info,
                fd_shred_dest_weighted_t * shred_dest_temp,
                ulong                      cnt,
-               ulong                      staked_cnt,
                fd_per_epoch_info_t *      ei ) {
-  sort_pubkey_inplace( shred_dest_temp + staked_cnt, cnt - staked_cnt );
-
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
   ei->sdest = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, shred_dest_temp, cnt, ei->lsched,
                                                      info->identity_key, info->seed ) );
@@ -402,15 +399,19 @@ ci_dest_add_one_unstaked( fd_stake_ci_t *            info,
     return;
   }
   ulong cur_cnt = fd_shred_dest_cnt_all( ei->sdest );
-  for( ulong i=0UL; i<cur_cnt; i++ ) {
-    info->shred_dest_temp[ i ] = *fd_shred_dest_idx_to_dest( ei->sdest, (fd_shred_dest_idx_t)i );
-  }
+  fd_shred_dest_weighted_t const * cur = fd_shred_dest_idx_to_dest( ei->sdest, 0U );
 
-  /* TODO: Alternative batched copy using memcpy. Check with Philip if safe */
-  // fd_shred_dest_weighted_t * cur_dest = ei->sdest->all_destinations;
-  // fd_memcpy( info->shred_dest_temp, cur_dest, sizeof(fd_shred_dest_weighted_t)*cur_cnt );
-  info->shred_dest_temp[ cur_cnt++ ] = *new_entry;
-  refresh_sdest( info, info->shred_dest_temp, cur_cnt, fd_shred_dest_cnt_staked( ei->sdest ), ei );
+  ulong lo = fd_shred_dest_cnt_staked( ei->sdest );
+  ulong hi = cur_cnt;
+  while( lo<hi ) {
+    ulong mid = (lo+hi)>>1;
+    if( memcmp( cur[ mid ].pubkey.uc, new_entry->pubkey.uc, 32UL )>=0 ) lo = mid+1UL;
+    else                                                                hi = mid;
+  }
+  fd_memcpy( info->shred_dest_temp,        cur,      sizeof(fd_shred_dest_weighted_t)*lo             );
+  info->shred_dest_temp[ lo ] = *new_entry;
+  fd_memcpy( info->shred_dest_temp+lo+1UL, cur + lo, sizeof(fd_shred_dest_weighted_t)*(cur_cnt-lo) );
+  refresh_sdest( info, info->shred_dest_temp, cur_cnt+1UL, ei );
 }
 
 static void
@@ -443,16 +444,11 @@ ci_dest_remove_impl( fd_stake_ci_t *       info,
        retained */
     return;
   }
-  ulong cur_cnt = fd_shred_dest_cnt_all( ei->sdest );
-  for( ulong i=0UL, j=0UL; i<cur_cnt; i++ ) {
-    if( FD_UNLIKELY( i==idx ) ) continue;
-    info->shred_dest_temp[ j++ ] = *fd_shred_dest_idx_to_dest( ei->sdest, (fd_shred_dest_idx_t) i );
-  }
-  /* TODO: Alternative batched copy using memcpy. Check with Philip if this is safe */
-  // fd_shred_dest_weighted_t * cur_dest = ei->sdest->all_destinations;
-  // fd_memcpy( info->shred_dest_temp, cur_dest, sizeof(fd_shred_dest_weighted_t)*(idx) );
-  // fd_memcpy( info->shred_dest_temp + idx, cur_dest + idx + 1UL, sizeof(fd_shred_dest_weighted_t)*(cur_cnt - idx - 1UL) );
-  refresh_sdest( info, info->shred_dest_temp, cur_cnt-1UL, fd_shred_dest_cnt_staked( ei->sdest ), ei );
+  ulong                            cur_cnt = fd_shred_dest_cnt_all( ei->sdest );
+  fd_shred_dest_weighted_t const * cur     = fd_shred_dest_idx_to_dest( ei->sdest, 0U );
+  fd_memcpy( info->shred_dest_temp,       cur,             sizeof(fd_shred_dest_weighted_t)*idx                 );
+  fd_memcpy( info->shred_dest_temp + idx, cur + idx + 1UL, sizeof(fd_shred_dest_weighted_t)*(cur_cnt-idx-1UL) );
+  refresh_sdest( info, info->shred_dest_temp, cur_cnt-1UL, ei );
 }
 
 void
