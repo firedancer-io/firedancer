@@ -55,9 +55,7 @@ typedef struct sysvar_lut sysvar_tbl_t;
 struct fd_sysvar_pos {
   /* Offsets relative to start of sysvar cache */
   uint data_off;  /* Raw data offset */
-  uint obj_off;   /* Typed object offset */
   uint data_max;
-  uint obj_max;
 
   char const * name;
 
@@ -79,8 +77,9 @@ static fd_pubkey_t const fd_sysvar_key_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [ FD_SYSVAR_stake_history_IDX     ] = {{ SYSVAR_STAKE_HIST_ID     }},
 };
 
-/* fd_sysvar_obj_restore restores a typed representation of a sysvar
-   from serialized data.  This is called internally whenever sysvar
+/* fd_sysvar_obj_restore validates the serialized data of a sysvar and
+   updates its FD_SYSVAR_FLAG_VALID flag.  Returns 0 on success or
+   EINVAL if invalid.  This is called internally whenever sysvar
    serialized data is updated directly.  DO NOT USE DIRECTLY. */
 
 int

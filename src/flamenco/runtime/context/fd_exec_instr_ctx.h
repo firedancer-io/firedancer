@@ -82,7 +82,7 @@ fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( fd_exec_instr_ctx_t
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
-  /* Return a NotEnoughAccountKeys error if the idx is out of bounds.
+  /* Return a MissingAccount error if the idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L559 */
   if( FD_UNLIKELY( idx_in_instr>=ctx->instr->acct_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
