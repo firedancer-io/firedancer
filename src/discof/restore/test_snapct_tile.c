@@ -1372,6 +1372,48 @@ test_predict_incremental_wfs_gate( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+static void
+test_log_download_peer_churn( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  for( int remove=0; remove<2; remove++ ) {
+    fd_snapct_tile_t * ctx;
+    setup_full_snapct( scratch, ssping, &ctx, msg );
+    test_output      = output;
+    test_publish_cnt = 0UL;
+
+    ulong const   idx    = 3UL;
+    fd_pubkey_t   peer   = test_pubkey( 0x33 );
+    fd_ip4_port_t addr_a = test_addr( 0x08080404U, 8899 );
+    fd_ip4_port_t addr_b = test_addr( 0x08080808U, 8899 );
+    send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_a );
+
+    ctx->peer.addr        = addr_a;
+    *ctx->peer.key.pubkey = peer;
+    ctx->peer.key.is_url  = 0;
+    ctx->predicted_incremental.full_slot = 100UL;
+    ctx->state            = FD_SNAPCT_STATE_READING_FULL_HTTP;
+    ctx->flush_ack_cnt    = 1;
+    ctx->out_ld.mem       = (fd_wksp_t *)output;
+    ctx->out_ld.wmark     = 128UL;
+    ctx->download_enabled = 1;
+    init_load( ctx, NULL, 1, 1 );
+    FD_TEST( test_publish_cnt==1UL && !ctx->start_sent );
+
+    if( remove ) send_contact_info_remove( ctx, msg, idx, &peer );
+    else         send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_b );
+
+    snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
+    ctx->ssping = NULL;
+    int busy = 0;
+    after_credit( ctx, NULL, NULL, &busy );
+    FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
+    FD_TEST( test_start.addr.l==addr_a.l );
+  }
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1417,6 +1459,7 @@ main( int     argc,
   test_blacklist_peer_readd_blocked( ssping );
   test_blacklist_pool_exhaustion( ssping );
   test_predict_incremental_wfs_gate( ssping );
+  test_log_download_peer_churn( ssping );
   test_wfs_init_no_download();
   test_flushing_full_file_done_incremental_source();
   test_flushing_full_file_done_wfs_floor();
