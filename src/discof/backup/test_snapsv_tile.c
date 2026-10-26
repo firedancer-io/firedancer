@@ -572,11 +572,34 @@ FD_UNIT_TEST( redirect_full ) {
 FD_UNIT_TEST( redirect_incremental ) {
   snapsv_env_t * env = snapsv_env_create();
   uchar hash[ 32 ]; memset( hash, 0xb2, sizeof(hash) );
+  snapsv_env_add_snap( env, 100UL, ULONG_MAX, 4096UL, hash, 1 );
   snapsv_env_add_snap( env, 200UL, 100UL, 4096UL, hash, 1 );
 
   char name[ FD_SNAP_NAME_MAX ];
   snap_name( name, 200UL, 100UL, hash, 1 );
   expect_redirect( env, "GET /incremental-snapshot.tar.bz2 HTTP/1.1\r\n\r\n", name );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( redirect_incremental_matches_newest_full ) {
+  snapsv_env_t * env = snapsv_env_create();
+  uchar hash[ 32 ]; memset( hash, 0xc3, sizeof(hash) );
+  snapsv_env_add_snap( env, 100UL, ULONG_MAX, 4096UL, hash, 1 );
+  snapsv_env_add_snap( env, 150UL, 100UL, 4096UL, hash, 1 );
+  char old_name[ FD_SNAP_NAME_MAX ];
+  snap_name( old_name, 150UL, 100UL, hash, 1 );
+  expect_redirect( env, "GET /incremental-snapshot.tar.zst HTTP/1.1\r\n\r\n", old_name );
+
+  snapsv_env_add_snap( env, 200UL, ULONG_MAX, 4096UL, hash, 1 );
+  expect_res_env( env, "GET /incremental-snapshot.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+
+  snapsv_env_add_snap( env, 250UL, 200UL, 4096UL, hash, 1 );
+  char name[ FD_SNAP_NAME_MAX ];
+  snap_name( name, 250UL, 200UL, hash, 1 );
+  expect_redirect( env, "GET /incremental-snapshot.tar.zst HTTP/1.1\r\n\r\n", name );
+
+  snapsv_env_del_snap( env, 200UL, ULONG_MAX );
+  expect_redirect( env, "GET /incremental-snapshot.tar.zst HTTP/1.1\r\n\r\n", old_name );
   snapsv_env_destroy( env );
 }
 

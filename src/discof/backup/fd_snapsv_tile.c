@@ -1356,12 +1356,15 @@ newest_snap( fd_snapsv_t * ctx,
   }
   snap_entry_t * entry = incremental ? ctx->newest_incr : ctx->newest_full;
   if( FD_UNLIKELY( !entry ) ) {
-    snap_entry_t * entry0   = snap_map_ele0( ctx->snap_map );
-    ulong          ele_max  = snap_map_ele_max( ctx->snap_map );
+    snap_entry_t * full = incremental ? newest_snap( ctx, 0 ) : NULL;
+    if( FD_UNLIKELY( incremental && !full ) ) return NULL;
+    ulong          base_slot = full ? full->key.slot : ULONG_MAX;
+    snap_entry_t * entry0    = snap_map_ele0( ctx->snap_map );
+    ulong          ele_max   = snap_map_ele_max( ctx->snap_map );
     for( ulong i=0UL; i<ele_max; i++ ) {
       snap_entry_t * e = &entry0[ i ];
       if( snap_map_ele_is_free( e ) ) continue;
-      if( (e->key.base_slot!=ULONG_MAX)!=!!incremental ) continue;
+      if( e->key.base_slot!=base_slot ) continue;
       if( entry && e->key.slot<=entry->key.slot ) continue;
       entry = e;
     }
@@ -2064,12 +2067,12 @@ snap_open( fd_snapsv_t * ctx,
   entry->fd     = FD_SNAP_RO_FD( pool_idx );
   entry->locked = 0;
   entry->is_zstd = !!is_zstd;
+  ctx->newest_incr = NULL;
   if( base_slot==ULONG_MAX ) {
     ctx->snap_cnt_full++;
     ctx->newest_full = NULL;
   } else {
     ctx->snap_cnt_incr++;
-    ctx->newest_incr = NULL;
   }
 }
 
