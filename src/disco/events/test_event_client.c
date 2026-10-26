@@ -487,6 +487,13 @@ FD_UNIT_TEST( credit_stall ) {
   FD_TEST( client->stall_since==t1 );
   FD_TEST( !credit_stall_check( client, t1+FD_EVENT_CLIENT_CREDIT_STALL_NANOS ) );
 
+  /* Acks still arriving keep the connection: the path is draining. */
+  long ta = t1+FD_EVENT_CLIENT_CREDIT_STALL_NANOS-1L;
+  client->metrics.last_acked_id++; /* an ack watermark arrived */
+  FD_TEST( !credit_stall_check( client, ta ) );
+  FD_TEST( client->stall_since==ta );
+  t1 = ta;
+
   /* No further progress: reconnect with backoff, counter bumped. */
   long t2 = t1+FD_EVENT_CLIENT_CREDIT_STALL_NANOS+1L;
   FD_TEST( credit_stall_check( client, t2 ) );
