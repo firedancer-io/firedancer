@@ -105,6 +105,7 @@ struct fd_event_client {
   long  stall_since;
   ulong stall_rem;
   ulong stall_events_sent;
+  ulong stall_acked_id;
 
   int auth_send_pending;
 
@@ -1094,10 +1095,13 @@ credit_stall_check( fd_event_client_t * client,
     client->stall_since = 0L;
     return 0;
   }
-  if( !client->stall_since || rem!=client->stall_rem || client->metrics.events_sent!=client->stall_events_sent ) {
+
+  if( !client->stall_since || rem!=client->stall_rem || client->metrics.events_sent!=client->stall_events_sent ||
+      client->metrics.last_acked_id!=client->stall_acked_id ) {
     client->stall_since       = now;
     client->stall_rem         = rem;
     client->stall_events_sent = client->metrics.events_sent;
+    client->stall_acked_id    = client->metrics.last_acked_id;
     return 0;
   }
   if( FD_LIKELY( now-client->stall_since<=FD_EVENT_CLIENT_CREDIT_STALL_NANOS ) ) return 0;
