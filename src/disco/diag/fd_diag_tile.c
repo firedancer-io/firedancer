@@ -883,13 +883,20 @@ host_metrics( fd_diag_tile_t * ctx ) {
    each running sum are the last value read, so adding the difference
    carries the sum across a wrap. */
 
+static int
+disk_stat_read( fd_diag_tile_t * ctx,
+                ulong            f[ static 11 ] ) {
+  char buf[ 512 ];
+  if( ctx->disk_fd<0 || read_optional( ctx->disk_fd, buf, sizeof(buf) ) ) return -1;
+  char * p = buf;
+  for( ulong i=0UL; i<11UL; i++ ) f[ i ] = strtoul( p, &p, 10 );
+  return 0;
+}
+
 static void
 disk_metrics( fd_diag_tile_t * ctx ) {
-  char buf[ 512 ];
-  if( ctx->disk_fd<0 || read_optional( ctx->disk_fd, buf, sizeof(buf) ) ) return;
-  char * p = buf;
   ulong f[ 11 ];
-  for( ulong i=0UL; i<11UL; i++ ) f[ i ] = strtoul( p, &p, 10 );
+  if( disk_stat_read( ctx, f ) ) return;
 
   ulong * ms   = ctx->disk_ms;
   ulong * base = ctx->disk_ms_base;
@@ -1597,8 +1604,17 @@ privileged_init( fd_topo_t const *      topo,
 
   sensors_init( ctx );
 
+  /* The ms counters count from here, so the first sample is not the
+     kernel's since-boot value. */
   ctx->disk_fd = open_disk_stat( tile->diag.accounts_path );
   memset( ctx->disk_ms, 0, sizeof(ctx->disk_ms) );
+  ulong f[ 11 ];
+  if( !disk_stat_read( ctx, f ) ) {
+    ctx->disk_ms[ 0 ] = f[ 7  ];
+    ctx->disk_ms[ 1 ] = f[ 9  ];
+    ctx->disk_ms[ 2 ] = f[ 10 ];
+  }
+  memcpy( ctx->disk_ms_base, ctx->disk_ms, sizeof(ctx->disk_ms_base) );
 
   ctx->numa.cnt = 0UL;
   if( FD_UNLIKELY( !ctx->gui_enabled ) ) return;
@@ -1719,8 +1735,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_irq_report_nanos   = ctx->next_report_nanos;
   ctx->next_system_report_nanos = ctx->next_report_nanos;
   sensor_metrics( ctx, ctx->next_report_nanos ); /* RAPL baseline, so the first report has package power */
-  disk_metrics( ctx );
-  memcpy( ctx->disk_ms_base, ctx->disk_ms, sizeof(ctx->disk_ms_base) ); /* the disk ms counters count from here */
   if( FD_UNLIKELY( ctx->gui_enabled ) ) {
     ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "diag_gui", 0UL );
     FD_TEST( out_idx!=ULONG_MAX );
