@@ -735,18 +735,13 @@ init_load( fd_snapct_tile_t *  ctx,
 static void
 log_download( fd_snapct_tile_t * ctx,
               int                full,
-              ulong              slot ) {
+              int                is_https ) {
   fd_sspeer_t const * peer = &ctx->peer;
   char const *        what = full ? "full" : "incremental";
+  ulong               slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
 
   if( peer->key.is_url ) {
-    char const * scheme = "http";
-    for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
-      if( peer->addr.l==ctx->resolved_servers[ i ].addr.l ) {
-        scheme = ctx->resolved_servers[ i ].is_https ? "https" : "http";
-        break;
-      }
-    }
+    char const * scheme = is_https ? "https" : "http";
     if( peer->key.url.hostname[ 0 ] ) {
       FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://%s:%hu%s",
                       what, fd_log_style_bold(), scheme, peer->key.url.hostname, fd_ushort_bswap( peer->addr.port ), fd_log_style_normal() ));
@@ -966,7 +961,7 @@ after_credit( fd_snapct_tile_t *  ctx,
           break;
         }
       }
-      log_download( ctx, full, full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot );
+      log_download( ctx, full, out->is_https );
     }
     ulong sz = file ? 0UL : sizeof(fd_ssctrl_start_t);
     fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sz, 0UL, 0UL, 0UL );
