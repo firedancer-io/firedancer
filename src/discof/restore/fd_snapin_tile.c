@@ -2286,7 +2286,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
-  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
+  if( FD_LIKELY( !tile->kind_id ) ) out_fds[ out_cnt++ ] = FD_TXNCACHE_FD;
 
   return out_cnt;
 }
