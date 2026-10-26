@@ -13,10 +13,34 @@
 #define FD_BLS_DST               "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
 #define FD_BLS_DST_SZ            (sizeof(FD_BLS_DST)-1UL)
 
+#if FD_HAS_AVX512
+
+#include "../../util/simd/fd_avx512.h"
+
+#define FD_BLS_ALIGNED __attribute__((aligned(64)))
+
+typedef struct FD_BLS_ALIGNED {
+   wwv_t m1;
+   wwv_t m2;
+} fd_bls_fp_t;
+
+typedef struct { fd_bls_fp_t c[2]; } fd_bls_fp2_t;
+
+/* Complete homogeneous projective points. */
+typedef struct FD_BLS_ALIGNED { fd_bls_fp_t  x, y, z; } fd_bls_pub_t;
+typedef struct FD_BLS_ALIGNED { fd_bls_fp2_t x, y, z; } fd_bls_sig_t;
+typedef struct FD_BLS_ALIGNED { fd_bls_fp2_t x, y;    } fd_bls_hash_t;
+
+typedef blst_scalar fd_bls_sec_t;
+
+#else
+
 typedef blst_scalar    fd_bls_sec_t;
 typedef blst_p1        fd_bls_pub_t;
 typedef blst_p2        fd_bls_sig_t;
 typedef blst_p2_affine fd_bls_hash_t;
+
+#endif
 
 #define SET_NAME fd_bls_set
 #define SET_MAX  FD_BLS_SET_MAX
