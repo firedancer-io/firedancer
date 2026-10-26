@@ -54,6 +54,7 @@ fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
 #define FD_SSRESOLVE_ADVANCE_AGAIN   ( 0) /* try again */
 #define FD_SSRESOLVE_ADVANCE_SUCCESS ( 1) /* successful advance */
 #define FD_SSRESOLVE_ADVANCE_RESULT  ( 2) /* successful advance with valid resolve result */
+#define FD_SSRESOLVE_ADVANCE_ABSENT  ( 3) /* resolved, but the server has no such snapshot */
 
 int
 fd_ssresolve_advance_poll_out( fd_ssresolve_t * ssresolve );
