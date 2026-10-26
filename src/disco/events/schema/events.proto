@@ -5382,7 +5382,7 @@ message MetricsSnapinFlushRegimeDurationNanos {
   uint64 disk_write = 2;
   // Inserting written accounts into the accounts database index
   uint64 index_insert = 3;
-  // Updating stake delegations for stake and replaced accounts
+  // Updating stake delegations
   uint64 stake_delegation = 4;
 }
 

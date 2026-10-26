@@ -1446,7 +1446,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="0" name="DiskReserve" label="Reserving space in the accounts database file, including partition growth" />
     <int value="1" name="DiskWrite" label="Writing the account write buffer to the accounts database file" />
     <int value="2" name="IndexInsert" label="Inserting written accounts into the accounts database index" />
-    <int value="3" name="StakeDelegation" label="Updating stake delegations for stake and replaced accounts" />
+    <int value="3" name="StakeDelegation" label="Updating stake delegations" />
 </enum>
 
 <enum name="SnapshotStreamState">

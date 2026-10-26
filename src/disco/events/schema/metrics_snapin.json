@@ -126,7 +126,7 @@
                 "disk_reserve":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Reserving space in the accounts database file, including partition growth" },
                 "disk_write":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Writing the account write buffer to the accounts database file" },
                 "index_insert":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Inserting written accounts into the accounts database index" },
-                "stake_delegation": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Updating stake delegations for stake and replaced accounts" }
+                "stake_delegation": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Updating stake delegations" }
             }
         },
         "disk_write_duration_nanos": {
