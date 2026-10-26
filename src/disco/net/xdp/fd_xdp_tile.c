@@ -1146,7 +1146,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->free_tx.queue = free_tx;
   ctx->free_tx.depth = tile->xdp.free_ring_depth;
 
-  /* Firedancer require the ring be a power of two. */
+  /* Firedancer requires the ring be a power of two. */
   FD_TEST( fd_ulong_is_pow2( tile->xdp.free_ring_depth ) );
 
   /* Create and install XSKs */
