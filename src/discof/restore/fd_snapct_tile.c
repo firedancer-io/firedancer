@@ -735,55 +735,45 @@ init_load( fd_snapct_tile_t *  ctx,
 static void
 log_download( fd_snapct_tile_t * ctx,
               int                full,
-              fd_ip4_port_t      addr,
               ulong              slot ) {
-  for( gossip_ci_map_iter_t iter = gossip_ci_map_iter_init( ctx->gossip.ci_map, ctx->gossip.ci_table );
-      !gossip_ci_map_iter_done( iter, ctx->gossip.ci_map, ctx->gossip.ci_table );
-      iter = gossip_ci_map_iter_next( iter, ctx->gossip.ci_map, ctx->gossip.ci_table ) ) {
-    gossip_ci_entry_t const * ci_entry = gossip_ci_map_iter_ele_const( iter, ctx->gossip.ci_map, ctx->gossip.ci_table );
-    if( ci_entry->rpc_addr.l==addr.l ) {
-      FD_TEST( ci_entry->allowed );
+  fd_sspeer_t const * peer = &ctx->peer;
+  char const *        what = full ? "full" : "incremental";
 
-      int is_entrypoint = 0;
-      for( ulong i=0UL; i<ctx->resolved_entrypoints_cnt; i++ ) {
-        if( FD_UNLIKELY( ctx->resolved_entrypoints[ i ].addr==addr.addr ) ) { is_entrypoint = 1; break; }
+  if( peer->key.is_url ) {
+    char const * scheme = "http";
+    for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
+      if( peer->addr.l==ctx->resolved_servers[ i ].addr.l ) {
+        scheme = ctx->resolved_servers[ i ].is_https ? "https" : "http";
+        break;
       }
-      char const * kind = ctx->config.sources.gossip.allow_any ? "untrusted gossip peer" : "trusted gossip peer";
-      if( FD_UNLIKELY( is_entrypoint ) ) kind = "entrypoint gossip peer";
-
-      FD_BASE58_ENCODE_32_BYTES( ci_entry->pubkey.uc, pubkey_b58 );
-      FD_LOG_NOTICE(( "downloading %s snapshot from %s %s%s%s",
-                      full ? "full" : "incremental", kind, fd_log_style_bold(), pubkey_b58, fd_log_style_normal() ));
-      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from %s %s at " FD_IP4_ADDR_FMT ":%hu",
-                    full ? "full" : "incremental", slot, kind, pubkey_b58,
-                    FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
-      return;
     }
+    if( peer->key.url.hostname[ 0 ] ) {
+      FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://%s:%hu%s",
+                      what, fd_log_style_bold(), scheme, peer->key.url.hostname, fd_ushort_bswap( peer->addr.port ), fd_log_style_normal() ));
+      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server %s://%s:%hu at " FD_IP4_ADDR_FMT,
+                    what, slot, scheme, peer->key.url.hostname, fd_ushort_bswap( peer->addr.port ), FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ) ));
+    } else {
+      FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://" FD_IP4_ADDR_FMT ":%hu%s",
+                      what, fd_log_style_bold(), scheme, FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), fd_log_style_normal() ));
+      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server %s://" FD_IP4_ADDR_FMT ":%hu",
+                    what, slot, scheme, FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
+    }
+    return;
   }
 
-  for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
-    if( addr.l==ctx->resolved_servers[ i ].addr.l ) {
-      char const * scheme = ctx->resolved_servers[ i ].is_https ? "https" : "http";
-      if( ctx->resolved_servers[ i ].hostname[ 0 ] ) {
-        FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://%s:%hu%s",
-                        full ? "full" : "incremental",
-                        fd_log_style_bold(), scheme, ctx->resolved_servers[ i ].hostname, fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
-        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s://%s:%hu",
-                      full ? "full" : "incremental", slot, i,
-                      scheme, ctx->resolved_servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
-      } else {
-        FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://" FD_IP4_ADDR_FMT ":%hu%s",
-                        full ? "full" : "incremental",
-                        fd_log_style_bold(), scheme, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
-        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s://" FD_IP4_ADDR_FMT ":%hu",
-                      full ? "full" : "incremental", slot, i,
-                      scheme, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
-      }
-      return;
-    }
+  int is_entrypoint = 0;
+  for( ulong i=0UL; i<ctx->resolved_entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( ctx->resolved_entrypoints[ i ].addr==peer->addr.addr ) ) { is_entrypoint = 1; break; }
   }
+  char const * kind = ctx->config.sources.gossip.allow_any ? "untrusted gossip peer" : "trusted gossip peer";
+  if( FD_UNLIKELY( is_entrypoint ) ) kind = "entrypoint gossip peer";
 
-  FD_TEST( 0 ); /* should not be possible */
+  FD_BASE58_ENCODE_32_BYTES( peer->key.pubkey->uc, pubkey_b58 );
+  FD_LOG_NOTICE(( "downloading %s snapshot from %s %s%s%s",
+                  what, kind, fd_log_style_bold(), pubkey_b58, fd_log_style_normal() ));
+  FD_LOG_INFO(( "downloading %s snapshot at slot %lu from %s %s at " FD_IP4_ADDR_FMT ":%hu",
+                what, slot, kind, pubkey_b58,
+                FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
 }
 
 static void
@@ -976,7 +966,7 @@ after_credit( fd_snapct_tile_t *  ctx,
           break;
         }
       }
-      log_download( ctx, full, ctx->peer.addr, full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot );
+      log_download( ctx, full, full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot );
     }
     ulong sz = file ? 0UL : sizeof(fd_ssctrl_start_t);
     fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sz, 0UL, 0UL, 0UL );
