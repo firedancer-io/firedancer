@@ -11116,6 +11116,20 @@ message MetricsDiag {
   uint64 io_pressure_duration_nanos = 53;
   // Time all non-idle tasks stalled on IO together since boot (PSI full), a subset of IoPressureDurationNanos
   uint64 io_pressure_full_duration_nanos = 54;
+  // Bytes read from the accounts disk since boot (/sys/block stat sectors read), 0 if not on a block device
+  uint64 disk_read_bytes = 55;
+  // Bytes written to the accounts disk since boot (/sys/block stat sectors written), 0 if not on a block device
+  uint64 disk_written_bytes = 56;
+  // Write requests the accounts disk completed since boot (/sys/block stat writes completed), 0 if not on a block device
+  uint64 disk_written = 57;
+  // Time write requests to the accounts disk spent from submission to completion since the diag tile started, summed over requests (/sys/block stat write ticks), 0 if not on a block device
+  uint64 disk_write_duration_nanos = 58;
+  // Time the accounts disk had at least one request in flight since the diag tile started (/sys/block stat io_ticks), 0 if not on a block device
+  uint64 disk_busy_duration_nanos = 59;
+  // Integral of requests in flight at the accounts disk over time since the diag tile started (request-nanoseconds, /sys/block stat time_in_queue); divide by elapsed time for the average queue depth, 0 if not on a block device
+  uint64 disk_request_in_flight_integral_nanos = 60;
+  // Requests the accounts disk had in flight at the last sample (/sys/block stat in_flight), 0 if not on a block device
+  uint64 disk_request_in_flight = 61;
 }
 
 // Metrics of one genesi tile instance, one row per sweep

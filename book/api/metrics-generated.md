@@ -1460,6 +1460,13 @@
 | <span class="metrics-name">diag_&#8203;memory_&#8203;pressure_&#8203;full_&#8203;duration_&#8203;nanos</span> | counter | Time all non-idle tasks stalled on memory together since boot (PSI full), a subset of MemoryPressureDurationNanos |
 | <span class="metrics-name">diag_&#8203;io_&#8203;pressure_&#8203;duration_&#8203;nanos</span> | counter | Time at least one task stalled on IO since boot (PSI some), 0 if the kernel lacks PSI |
 | <span class="metrics-name">diag_&#8203;io_&#8203;pressure_&#8203;full_&#8203;duration_&#8203;nanos</span> | counter | Time all non-idle tasks stalled on IO together since boot (PSI full), a subset of IoPressureDurationNanos |
+| <span class="metrics-name">diag_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Bytes read from the accounts disk since boot (/sys/block stat sectors read), 0 if not on a block device |
+| <span class="metrics-name">diag_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the accounts disk since boot (/sys/block stat sectors written), 0 if not on a block device |
+| <span class="metrics-name">diag_&#8203;disk_&#8203;written</span> | counter | Write requests the accounts disk completed since boot (/sys/block stat writes completed), 0 if not on a block device |
+| <span class="metrics-name">diag_&#8203;disk_&#8203;write_&#8203;duration_&#8203;nanos</span> | counter | Time write requests to the accounts disk spent from submission to completion since the diag tile started, summed over requests (/sys/block stat write ticks), 0 if not on a block device |
+| <span class="metrics-name">diag_&#8203;disk_&#8203;busy_&#8203;duration_&#8203;nanos</span> | counter | Time the accounts disk had at least one request in flight since the diag tile started (/sys/block stat io_ticks), 0 if not on a block device |
+| <span class="metrics-name">diag_&#8203;disk_&#8203;request_&#8203;in_&#8203;flight_&#8203;integral_&#8203;nanos</span> | counter | Integral of requests in flight at the accounts disk over time since the diag tile started (request-nanoseconds, /sys/block stat time_in_queue); divide by elapsed time for the average queue depth, 0 if not on a block device |
+| <span class="metrics-name">diag_&#8203;disk_&#8203;request_&#8203;in_&#8203;flight</span> | gauge | Requests the accounts disk had in flight at the last sample (/sys/block stat in_flight), 0 if not on a block device |
 
 </div>
 

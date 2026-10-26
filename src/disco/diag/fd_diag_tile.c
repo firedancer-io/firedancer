@@ -19,6 +19,7 @@
 #include <sys/types.h> /* SEEK_SET */
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h> /* major, minor */
 #include <sys/vfs.h>
 #include <linux/futex.h>
 #include <time.h>
@@ -95,7 +96,10 @@ struct fd_diag_tile {
   int         proc_meminfo_fd;
   int         proc_loadavg_fd;
   int         proc_vmstat_fd;
-  int         psi_fd[ 3 ]; /* /proc/pressure/{cpu,memory,io}, -1 if absent */
+  int         psi_fd[ 3 ];       /* /proc/pressure/{cpu,memory,io}, -1 if absent */
+  int         disk_fd;           /* /sys/block/<dev>/stat of the accounts disk, -1 if none */
+  ulong       disk_ms[ 3 ];      /* write, busy and queue ms, carried across the 32-bit wrap */
+  ulong       disk_ms_base[ 3 ]; /* the same at diag start */
   ulong       host_cpu_baseline[ FD_METRICS_ENUM_SYSTEM_CPU_STATE_CNT ]; /* /proc/stat ticks at diag start */
   ulong       host_cpu_ticks   [ FD_METRICS_ENUM_SYSTEM_CPU_STATE_CNT ]; /* highest ticks since then published */
   ulong       device_irq_boot    [ FD_TILE_MAX ]; /* /proc/interrupts at diag start */
@@ -871,6 +875,37 @@ host_metrics( fd_diag_tile_t * ctx ) {
   }
 }
 
+/* /sys/block/<dev>/stat fields: reads completed, reads merged, sectors
+   read, read ms, writes completed, writes merged, sectors written,
+   write ms, requests in flight, io ms, weighted io ms.  Newer kernels
+   append discard and flush fields.  Sectors are always 512 bytes.  The
+   ms fields are 32-bit in the kernel and wrap.  The low 32 bits of
+   each running sum are the last value read, so adding the difference
+   carries the sum across a wrap. */
+
+static void
+disk_metrics( fd_diag_tile_t * ctx ) {
+  char buf[ 512 ];
+  if( ctx->disk_fd<0 || read_optional( ctx->disk_fd, buf, sizeof(buf) ) ) return;
+  char * p = buf;
+  ulong f[ 11 ];
+  for( ulong i=0UL; i<11UL; i++ ) f[ i ] = strtoul( p, &p, 10 );
+
+  ulong * ms   = ctx->disk_ms;
+  ulong * base = ctx->disk_ms_base;
+  ms[ 0 ] += (uint)f[ 7  ]-(uint)ms[ 0 ];
+  ms[ 1 ] += (uint)f[ 9  ]-(uint)ms[ 1 ];
+  ms[ 2 ] += (uint)f[ 10 ]-(uint)ms[ 2 ];
+
+  FD_MCNT_SET  ( DIAG, DISK_READ_BYTES,                       f[ 2 ]*512UL                 );
+  FD_MCNT_SET  ( DIAG, DISK_WRITTEN_BYTES,                    f[ 6 ]*512UL                 );
+  FD_MCNT_SET  ( DIAG, DISK_WRITTEN,                          f[ 4 ]                       );
+  FD_MCNT_SET  ( DIAG, DISK_WRITE_DURATION_NANOS,             (ms[ 0 ]-base[ 0 ])*1000000UL );
+  FD_MCNT_SET  ( DIAG, DISK_BUSY_DURATION_NANOS,              (ms[ 1 ]-base[ 1 ])*1000000UL );
+  FD_MCNT_SET  ( DIAG, DISK_REQUEST_IN_FLIGHT_INTEGRAL_NANOS, (ms[ 2 ]-base[ 2 ])*1000000UL );
+  FD_MGAUGE_SET( DIAG, DISK_REQUEST_IN_FLIGHT,                f[ 8 ]                       );
+}
+
 static void
 sensor_metrics( fd_diag_tile_t * ctx,
                 long             now ) {
@@ -981,6 +1016,7 @@ before_credit( fd_diag_tile_t *    ctx,
   }
 
   check_engine_metric( ctx, now );
+  if( FD_UNLIKELY( sched_due ) ) disk_metrics( ctx );
   if( FD_UNLIKELY( now>=ctx->next_irq_report_nanos ) ) {
     ctx->next_irq_report_nanos = now + IRQ_REPORT_INTERVAL_NANOS;
     irq_metrics( ctx );
@@ -1383,6 +1419,28 @@ sensors_init( fd_diag_tile_t * ctx ) {
   FD_LOG_INFO(( "diag found %lu hardware sensors and %lu powercap packages", ctx->sensor.cnt, ctx->sensor.rapl_cnt ));
 }
 
+/* Opens the I/O stat file of the block device holding path: the whole
+   disk for a partition, an md or dm device as is.  Returns -1 if path
+   is not on a block device. */
+
+static int
+open_disk_stat( char const * path ) {
+  char        dev[ PATH_MAX ];
+  struct stat st;
+  if( !resolve_path_prefix( path, dev ) || stat( dev, &st ) ) return -1;
+
+  char file[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( file, sizeof(file), NULL, "/sys/dev/block/%u:%u", major( st.st_dev ), minor( st.st_dev ) ) );
+  if( FD_UNLIKELY( !realpath( file, dev ) ) ) return -1;
+  FD_TEST( fd_cstr_printf_check( file, sizeof(file), NULL, "%s/partition", dev ) );
+  if( !access( file, F_OK ) ) *strrchr( dev, '/' ) = '\0';
+  FD_TEST( fd_cstr_printf_check( file, sizeof(file), NULL, "%s/stat", dev ) );
+
+  int fd = open( file, O_RDONLY|O_CLOEXEC );
+  if( FD_LIKELY( fd>=0 ) ) FD_LOG_INFO(( "diag reading disk stats of %s for `%s`", strrchr( dev, '/' )+1, path ));
+  return fd;
+}
+
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -1539,6 +1597,9 @@ privileged_init( fd_topo_t const *      topo,
 
   sensors_init( ctx );
 
+  ctx->disk_fd = open_disk_stat( tile->diag.accounts_path );
+  memset( ctx->disk_ms, 0, sizeof(ctx->disk_ms) );
+
   ctx->numa.cnt = 0UL;
   if( FD_UNLIKELY( !ctx->gui_enabled ) ) return;
 
@@ -1658,6 +1719,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_irq_report_nanos   = ctx->next_report_nanos;
   ctx->next_system_report_nanos = ctx->next_report_nanos;
   sensor_metrics( ctx, ctx->next_report_nanos ); /* RAPL baseline, so the first report has package power */
+  disk_metrics( ctx );
+  memcpy( ctx->disk_ms_base, ctx->disk_ms, sizeof(ctx->disk_ms_base) ); /* the disk ms counters count from here */
   if( FD_UNLIKELY( ctx->gui_enabled ) ) {
     ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "diag_gui", 0UL );
     FD_TEST( out_idx!=ULONG_MAX );
@@ -1750,7 +1813,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   fd_diag_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   int logfile_fd = fd_log_private_logfile_fd();
-  ulong required_fds = 10UL+3UL*ctx->tile_cnt+ctx->numa.cnt+ctx->mount_cnt+ctx->sensor.cnt+ctx->sensor.rapl_cnt+(ulong)(-1!=logfile_fd);
+  ulong required_fds = 11UL+3UL*ctx->tile_cnt+ctx->numa.cnt+ctx->mount_cnt+ctx->sensor.cnt+ctx->sensor.rapl_cnt+(ulong)(-1!=logfile_fd);
   for( ulong i=0UL; i<ctx->file_cnt; i++ )
     required_fds += (ulong)( ctx->files[ i ].data_fd>=0 && ctx->files[ i ].data_fd!=logfile_fd );
   if( FD_UNLIKELY( out_fds_cnt<required_fds ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
@@ -1766,6 +1829,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( ctx->proc_loadavg_fd>=0 ) out_fds[ out_cnt++ ] = ctx->proc_loadavg_fd; /* /proc/loadavg */
   if( ctx->proc_vmstat_fd >=0 ) out_fds[ out_cnt++ ] = ctx->proc_vmstat_fd;  /* /proc/vmstat */
   for( ulong i=0UL; i<3UL; i++ ) if( ctx->psi_fd[ i ]>=0 ) out_fds[ out_cnt++ ] = ctx->psi_fd[ i ]; /* /proc/pressure */
+  if( ctx->disk_fd>=0 ) out_fds[ out_cnt++ ] = ctx->disk_fd; /* /sys/block/<dev>/stat */
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( -1!=ctx->stat_fds[ i ] )      out_fds[ out_cnt++ ] = ctx->stat_fds[ i ];      /* /proc/<pid>/task/<tid>/stat */
     if( -1!=ctx->sched_fds[ i ] )     out_fds[ out_cnt++ ] = ctx->sched_fds[ i ];     /* /proc/<pid>/task/<tid>/sched */
