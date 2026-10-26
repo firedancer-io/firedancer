@@ -1613,26 +1613,24 @@ failover_adopt_answer( fd_votor_tile_t *   ctx,
     FD_LOG_WARNING(( "failover: refusing a vote history adoption outside standby or client startup" ));
     result = (fd_votor_adopt_result_t){ .result=FD_VOTOR_ADOPT_ERR_INVALID, .root=ULONG_MAX, .vote_slot=ULONG_MAX, .vote_bound=ULONG_MAX };
   } else {
-    /* The client's old notar votes belong to its boot identity.  Fence
-       their whole windows so the target cannot finalize them.  Export
-       the bound with future histories so another machine preserves it. */
-    ulong client_bound = ULONG_MAX;
-    if( FD_UNLIKELY( !ctx->failover_engaged ) ) {
-      ag_hist_t local;
-      ag_votor_hist_export( ctx->votor, ULONG_MAX, &local );
-      ulong tip = ag_hist_tip( &local );
-      if( tip!=ULONG_MAX ) client_bound = ag_first_slot_in_window( tip )+AG_SLOTS_PER_WINDOW-1UL;
-    }
+    /* Our slot states hold the votes of the boot identity, a standby's
+       junk key or a client's own key, and none of them went out as the
+       target.  Fence their whole windows so the target cannot finalize
+       them or build on them.  Export the bound with future histories so
+       another machine preserves it. */
+    ulong boot_bound = ULONG_MAX;
+    ag_hist_t local;
+    ag_votor_hist_export( ctx->votor, ULONG_MAX, &local );
+    ulong tip = ag_hist_tip( &local );
+    if( tip!=ULONG_MAX ) boot_bound = ag_first_slot_in_window( tip )+AG_SLOTS_PER_WINDOW-1UL;
     result = failover_adopt_hist( ctx, ctx->adopt_req, ctx->adopt_req_sz );
     if( FD_LIKELY( result.result==FD_VOTOR_ADOPT_SUCCESS ) ) {
-      if( FD_UNLIKELY( !ctx->failover_engaged ) ) {
-        if( client_bound!=ULONG_MAX ) {
-          ag_votor_set_vote_bound( ctx->votor, client_bound );
-          raise_leader_floor( ctx, client_bound );
-          result.vote_bound = ag_votor_get_vote_bound( ctx->votor );
-        }
-        ctx->last_vote_slot = ULONG_MAX;
+      if( boot_bound!=ULONG_MAX ) {
+        ag_votor_set_vote_bound( ctx->votor, boot_bound );
+        raise_leader_floor( ctx, boot_bound );
+        result.vote_bound = ag_votor_get_vote_bound( ctx->votor );
       }
+      if( FD_UNLIKELY( !ctx->failover_engaged ) ) ctx->last_vote_slot = ULONG_MAX;
       ctx->failover_engaged = 1;
       ctx->vote_authority = 0;
       update_own_rank( ctx );
