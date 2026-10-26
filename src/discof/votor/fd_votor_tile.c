@@ -410,14 +410,11 @@ report_alpenglow_vote( fd_votor_tile_t * ctx,
   ev.kind       = FD_EVENT_ALPENGLOW_VOTE_KIND_NOTAR+tag-AG_VOTE_SERDE_TAG_NOTAR;
   ev.voter_rank = USHORT_MAX;
 
-  ag_epoch_info_t const * epoch_info = NULL;
   if( FD_LIKELY( vote ) ) {
     ev.slot       = ag_vote_slot( vote );
     ev.voter_rank = ag_vote_rank( vote );
-    epoch_info    = fd_ptr_if( ev.slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( ev.slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     uchar const * block_hash = ag_vote_block_hash( vote );
-    if( FD_LIKELY( block_hash                                            ) ) memcpy( ev.block_id,       block_hash,                                  sizeof(ag_block_hash_t) );
-    if( FD_LIKELY( epoch_info && ev.voter_rank<epoch_info->validator_cnt ) ) memcpy( ev.voter_identity, epoch_info->validators[ ev.voter_rank ].id_key, sizeof(ag_id_key_t)     );
+    if( FD_LIKELY( block_hash ) ) memcpy( ev.block_id, block_hash, sizeof(ag_block_hash_t) );
   }
 
   fd_pubkey_t const * id_key = conn ? fd_quic_conn_get_context( conn ) : &ctx->id_key;
@@ -437,7 +434,6 @@ report_alpenglow_vote( fd_votor_tile_t * ctx,
   ev.quorum_reached_skip_cert           = fd_uchar_extract_bit( quorum_reached, AG_POOL_QUORUM_REACHED_SKIP           );
   ev.aggregation_start_time             = (ulong)fd_long_if( result==FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, aggregation_start_time, 0L );
   ev.broadcast_start_time               = (ulong)broadcast_start_time;
-  ev.done_time                          = (ulong)fd_clock_tile_now( ctx->clock );
 
   if( FD_UNLIKELY( reason==FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION ) ) {
     ulong                   reward_slot = ev.slot+AG_REWARD_SLOT_DELTA;
@@ -530,7 +526,6 @@ report_alpenglow_cert( fd_votor_tile_t * ctx,
   ev.processing_result    = result;
   ev.verify_start_time    = (ulong)verify_start_time;
   ev.broadcast_start_time = (ulong)broadcast_start_time;
-  ev.done_time            = (ulong)fd_clock_tile_now( ctx->clock );
 
   if( FD_UNLIKELY( !conn ) ) {
     ag_epoch_info_t const * epoch_info = fd_ptr_if( ev.slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( ev.slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );

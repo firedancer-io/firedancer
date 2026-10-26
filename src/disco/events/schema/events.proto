@@ -8624,7 +8624,7 @@ message RuntimeVoteAccount {
   uint64 epoch_credits_cnt = 15;
 }
 
-// An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we received the vote, or cast it if our_vote; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48
+// An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we finished processing the vote; the *_time columns are the phases before it, each running until the next. References: Table 6, Definition 12, Algorithm 1, Lemma 48
 message AlpenglowVote {
   // Which slot the vote is for.
   uint64 slot = 1;
@@ -8633,12 +8633,12 @@ message AlpenglowVote {
   // Where the voter ranks in the slot's epoch (only if ranked, 65535 otherwise). Also marks their position in the Cert array
   uint32 voter_rank = 3;
   // Validator identity of the voter, looked up from voter_rank in the slot's epoch (all zeros if voter_rank is 65535).
-  bytes voter_identity = 4;
+  bytes voter_identity = 4 [deprecated = true];
   // What kind of vote is this.
   AlpenglowVoteKind kind = 5;
   // IPv4 address of the peer we received the vote from; ourselves if our_vote, stored as an IPv4-mapped IPv6 address (all zeros if unknown).
   bytes received_from_ip = 6;
-  // Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). Not necessarily the voter; see voter_identity.
+  // Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). This is the voter whenever voter_rank is set, since votes are only accepted from their voter.
   bytes received_from_identity = 7;
   // Whether this is our own vote, which we store like any other; received_from_identity is then our identity.
   bool our_vote = 8;
@@ -8669,10 +8669,10 @@ message AlpenglowVote {
   // When we started broadcasting the vote to our peers (only if our_vote, 0 otherwise).
   uint64 broadcast_start_time = 21;
   // When we finished processing the vote, may be any of the above stages including short-circuiting at earlier stages.
-  uint64 done_time = 22;
+  uint64 done_time = 22 [deprecated = true];
 }
 
-// An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we received the cert, or constructed it if our_cert; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48
+// An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we finished processing the cert; the *_time columns are the phases before it, each running until the next. References: Table 6, Definition 12, Algorithm 1, Lemma 48
 message AlpenglowCert {
   // Which slot the cert is for.
   uint64 slot = 1;
@@ -8699,7 +8699,7 @@ message AlpenglowCert {
   // When we started broadcasting the cert to our peers, BLS verification having finished (only if our_cert, 0 otherwise).
   uint64 broadcast_start_time = 12;
   // When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages.
-  uint64 done_time = 13;
+  uint64 done_time = 13 [deprecated = true];
 }
 
 // A block that completed reception on this validator or was abandoned and pruned.  A block gets a row if it received a shred marked as final in the slot, and received all shreds up to the final shred, or if it was incomplete but collected later during pruning. Tallies are best-effort: on equivocated slots, shreds shared between versions of the slot may merge or double count. Delivery is best-effort: rows travel a lossy telemetry link, so a block_completed row can arrive without its block_received row or vice versa.

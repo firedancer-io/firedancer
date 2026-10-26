@@ -29,6 +29,7 @@ class ClickHouseType(Enum):
     UInt128 = auto()
     Int64 = auto()
     Pubkey = auto()
+    LowCardinalityPubkey = auto()
     Hash = auto()
     Signature = auto()
     Bool = auto()
@@ -48,6 +49,7 @@ class ClickHouseType(Enum):
         "UInt128": "UInt128",
         "Int64": "Int64",
         "Pubkey": "Pubkey",
+        "LowCardinality(Pubkey)": "LowCardinalityPubkey",
         "Hash": "Hash",
         "Signature": "Signature",
         "Bool": "Bool",
@@ -68,6 +70,7 @@ class ClickHouseType(Enum):
         "UInt128": "bytes",
         "Int64": "sint64",
         "Pubkey": "bytes",
+        "LowCardinalityPubkey": "bytes",
         "Hash": "bytes",
         "Signature": "bytes",
         "Bool": "bool",
@@ -305,10 +308,11 @@ def generate_protobuf(schemas: List[Schema]) -> str:
     return "\n".join(lines)
 
 _FIXED_BYTE_SZ = {
-    ClickHouseType.IPv6:      16,
-    ClickHouseType.Pubkey:    32,
-    ClickHouseType.Hash:      32,
-    ClickHouseType.Signature: 64,
+    ClickHouseType.IPv6:                 16,
+    ClickHouseType.Pubkey:               32,
+    ClickHouseType.LowCardinalityPubkey: 32,
+    ClickHouseType.Hash:                 32,
+    ClickHouseType.Signature:            64,
 }
 
 _SCALAR_C = {

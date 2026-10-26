@@ -968,7 +968,6 @@ fd_event_alpenglow_vote_serialize( fd_circq_t *                      circq,
   if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->slot );
   ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->block_id, 32UL );
   if( msg->voter_rank ) ok &= !!fd_pb_push_uint32( encoder, 3U, (uint)msg->voter_rank );
-  ok &= !!fd_pb_push_bytes ( encoder, 4U, msg->voter_identity, 32UL );
   if( msg->kind ) ok &= !!fd_pb_push_int32 ( encoder, 5U, msg->kind );
   ok &= !!fd_pb_push_bytes ( encoder, 6U, msg->received_from_ip, 16UL );
   ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->received_from_identity, 32UL );
@@ -992,7 +991,6 @@ fd_event_alpenglow_vote_serialize( fd_circq_t *                      circq,
   if( msg->aggregation_start_time ) ok &= !!fd_pb_push_uint64( encoder, 19U, (ulong)msg->aggregation_start_time );
   if( msg->verify_start_time ) ok &= !!fd_pb_push_uint64( encoder, 20U, (ulong)msg->verify_start_time );
   if( msg->broadcast_start_time ) ok &= !!fd_pb_push_uint64( encoder, 21U, (ulong)msg->broadcast_start_time );
-  if( msg->done_time ) ok &= !!fd_pb_push_uint64( encoder, 22U, (ulong)msg->done_time );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );
@@ -1053,7 +1051,6 @@ fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
   if( msg->processing_result ) ok &= !!fd_pb_push_int32 ( encoder, 10U, msg->processing_result );
   if( msg->verify_start_time ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->verify_start_time );
   if( msg->broadcast_start_time ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->broadcast_start_time );
-  if( msg->done_time ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->done_time );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );

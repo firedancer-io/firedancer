@@ -539,7 +539,6 @@ fd_event_alpenglow_vote_fill_max( fd_event_alpenglow_vote_t * msg ) {
   msg->slot = ULONG_MAX;
   fd_memset( msg->block_id, 0xFF, 32UL );
   msg->voter_rank = USHORT_MAX;
-  fd_memset( msg->voter_identity, 0xFF, 32UL );
   msg->kind = INT_MAX;
   fd_memset( msg->received_from_ip, 0xFF, 16UL );
   fd_memset( msg->received_from_identity, 0xFF, 32UL );
@@ -562,7 +561,6 @@ fd_event_alpenglow_vote_fill_max( fd_event_alpenglow_vote_t * msg ) {
   msg->aggregation_start_time = ULONG_MAX;
   msg->verify_start_time = ULONG_MAX;
   msg->broadcast_start_time = ULONG_MAX;
-  msg->done_time = ULONG_MAX;
 }
 
 static void
@@ -590,7 +588,6 @@ fd_event_alpenglow_cert_fill_max( fd_event_alpenglow_cert_t * msg ) {
   msg->processing_result = INT_MAX;
   msg->verify_start_time = ULONG_MAX;
   msg->broadcast_start_time = ULONG_MAX;
-  msg->done_time = ULONG_MAX;
 }
 
 static void
