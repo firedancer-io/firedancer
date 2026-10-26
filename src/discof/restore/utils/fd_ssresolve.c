@@ -409,6 +409,17 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
     return fd_ssresolve_parse_redirect( ssresolve, headers, header_cnt, result );
   }
 
+  /* A 404 on the incremental is not a failure, it just means that the
+     server does not have one.  Note that some mirrors may report a
+     missing object as 410.  Resolve the leg with no slot so the peer
+     stays usable as a full-only source.  A peer without a full
+     snapshot cannot be selected, so that is considered an ERROR. */
+  int is_absent = (status==404) | (status==410);
+  if( FD_UNLIKELY( is_absent && !ssresolve->full ) ) {
+    ssresolve->state = FD_SSRESOLVE_STATE_DONE;
+    return FD_SSRESOLVE_ADVANCE_ABSENT;
+  }
+
   if( FD_UNLIKELY( status!=200 ) ) {
     char req_path[ 4096UL ];
     if( FD_LIKELY( ssresolve->is_https ) ) {
