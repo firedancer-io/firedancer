@@ -115,6 +115,42 @@
             }
         },
         "account_processed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Accounts processed across all snapshots" },
-        "account_batch_processed":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account batches processed across all snapshots" }
+        "account_batch_processed":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account batches processed across all snapshots" },
+        "flush_regime_duration_nanos": {
+            "type": "Tuple",
+            "description": "Time this tile spent flushing the account write buffer, by phase; subset of the tile's Busy regime",
+            "aliases": {
+                "all": ["disk_reserve", "disk_write", "index_insert", "stake_delegation"]
+            },
+            "fields": {
+                "disk_reserve":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Reserving space in the accounts database file, including partition growth" },
+                "disk_write":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Writing the account write buffer to the accounts database file" },
+                "index_insert":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Inserting written accounts into the accounts database index" },
+                "stake_delegation": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Updating stake delegations for stake and replaced accounts" }
+            }
+        },
+        "disk_write_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration of one write of the account write buffer to the accounts database file",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1000000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000000, 1637894) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1637894, 2682696) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2682696, 4393971) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4393971, 7196857) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7196857, 11787687) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[11787687, 19306978) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19306978, 31622778) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[31622778, 51794749) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[51794749, 84834293) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[84834293, 138949554) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[138949554, 227584598) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[227584598, 372759378) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[372759378, 610540235) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[610540235, 1000000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        }
     }
 }

@@ -1442,6 +1442,13 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="Ignored" label="Dropped because an inserted duplicate was newer" />
 </enum>
 
+<enum name="SnapinFlushRegime">
+    <int value="0" name="DiskReserve" label="Reserving space in the accounts database file, including partition growth" />
+    <int value="1" name="DiskWrite" label="Writing the account write buffer to the accounts database file" />
+    <int value="2" name="IndexInsert" label="Inserting written accounts into the accounts database index" />
+    <int value="3" name="StakeDelegation" label="Updating stake delegations for stake and replaced accounts" />
+</enum>
+
 <enum name="SnapshotStreamState">
     <int value="0" name="Idle" label="Idle" />
     <int value="1" name="Processing" label="Processing" />
@@ -1467,6 +1474,10 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="AccountProgress" enum="SnapinAccountResult" summary="Accounts this tile processed in the current load, by result (Ignored accounts are not inserted); sum across tiles, rewinds on retry" />
     <counter name="AccountProcessed" summary="Accounts processed across all snapshots" />
     <counter name="AccountBatchProcessed" summary="Account batches processed across all snapshots" />
+    <counter name="FlushRegimeDurationNanos" enum="SnapinFlushRegime" source="ticks" summary="Time this tile spent flushing the account write buffer, by phase; subset of the tile's Busy regime" />
+    <histogram name="DiskWriteDurationNanos" min="1000000" max="1000000000" source="ticks">
+        <summary>Duration of one write of the account write buffer to the accounts database file</summary>
+    </histogram>
 </tile>
 
 <tile name="metric">
