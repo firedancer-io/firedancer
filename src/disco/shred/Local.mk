@@ -6,15 +6,15 @@ $(call add-objs,fd_fec_resolver,fd_disco)
 $(call add-objs,fd_shred_dest_resolver fd_shred_tile,fd_disco)
 $(call make-unit-test,test_fec_resolver,test_fec_resolver,fd_flamenco fd_disco fd_ballet fd_tango fd_reedsol fd_util_test fd_util)
 $(call run-unit-test,test_fec_resolver)
-endif
 $(call make-unit-test,test_shred_dest,test_shred_dest,fd_disco fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_shred_dest_conformance,test_shred_dest_conformance,fd_disco fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_stake_ci,test_stake_ci,fd_disco fd_flamenco fd_ballet fd_util fd_tango fd_reedsol)
-$(call make-unit-test,test_rnonce_ss,test_rnonce_ss,fd_util)
-$(call make-unit-test,test_shred_batch,test_shred_batch,fd_disco fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_shred_dest)
 $(call run-unit-test,test_shred_dest_conformance)
 $(call run-unit-test,test_stake_ci)
+endif
+$(call make-unit-test,test_rnonce_ss,test_rnonce_ss,fd_util)
+$(call make-unit-test,test_shred_batch,test_shred_batch,fd_disco fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_rnonce_ss)
 $(call run-unit-test,test_shred_batch)
 ifdef FD_HAS_HOSTED
