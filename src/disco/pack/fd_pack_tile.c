@@ -44,9 +44,10 @@
    become leader, so we snoop on the block heights of the recent
    blockhashes of transactions coming from resolv.  There's a small
    possibility that these are on a different fork than the one we become
-   leader for, so we aren't fully strict until becoming leader. */
+   leader for, so we might not want to be fully strict until becoming
+   leader, but having to delete a bunch of expired transactions lead to
+   a 100us delay in sending out the first shred. */
 #define TRANSACTION_LIFETIME_SLOTS 151UL
-#define TRANSACTION_LIFETIME_SLOTS_NOT_STRICT (151UL+8UL)
 
 /* Time is normally a long, but pack expects a ulong.  Add -LONG_MIN to
    the time values so that LONG_MIN maps to 0, LONG_MAX maps to
@@ -923,11 +924,9 @@ during_frag( fd_pack_ctx_t * ctx,
          with expired but high-fee-paying transactions.  That can only
          happen if we are getting transactions.
 
-         We aren't as strict here, because there's the possibility we
-         could replay a transaction that landed in one fork, then end up
-         building off a different fork. */
+         FIXME: this should use rooted slots instead. */
       ctx->highest_observed_block_height = sig;
-      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_block_height, TRANSACTION_LIFETIME_SLOTS_NOT_STRICT )-TRANSACTION_LIFETIME_SLOTS_NOT_STRICT );
+      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_block_height, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
       FD_MCNT_INC( PACK, TXN_DROPPED_EXPIRED, exp_cnt );
     }
 
