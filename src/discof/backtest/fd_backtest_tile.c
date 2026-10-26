@@ -225,7 +225,7 @@ after_credit( fd_backt_tile_t *   ctx,
   fd_shred_t const * shred = (fd_shred_t const *)ctx->shreds[ ctx->shreds_idx ];
   fd_shred_t const * next_shred = (fd_shred_t const *)ctx->shreds[ (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN ];
 
-  int completes_slot = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+  uchar completes_slot = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int completes_fec_set = completes_slot || next_shred->slot!=shred->slot || next_shred->fec_set_idx!=shred->fec_set_idx;
   int begins_fec_set = ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx;
   if( FD_UNLIKELY( begins_fec_set ) ) {
@@ -280,7 +280,7 @@ after_credit( fd_backt_tile_t *   ctx,
   rotor_fec->mr            = mr;
   rotor_fec->parent_slot   = parent_slot;
   rotor_fec->data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
-  rotor_fec->slot_complete = completes_slot;
+  rotor_fec->slot_complete = !!completes_slot;
 
   rotor_fec->metrics.highest_fec_complete_slot = shred->slot;
   if( FD_UNLIKELY( ctx->out_fec_set_idx==0UL ) ) {

@@ -2196,8 +2196,8 @@ deliver_rotor_fec( fd_replay_tile_t * ctx,
   fec->mr              = *mr;
   fec->parent_slot     = parent_slot;
   fec->parent_block_id = *parent_block_id;
-  fec->slot_complete   = slot_complete;
-  fec->known_id        = verified;
+  fec->slot_complete   = !!slot_complete;
+  fec->known_id        = !!verified;
 
   /* Clear the pacing gate at the top of the handler
      (execrp_idle_cnt >= 2*in_cnt || is_leader) so the FEC reaches the
@@ -2231,8 +2231,8 @@ deliver_rotor_fec_bid( fd_replay_tile_t * ctx,
   fec->parent_slot     = parent_slot;
   fec->parent_block_id = *parent_block_id;
   fec->block_id        = *block_id;
-  fec->slot_complete   = slot_complete;
-  fec->known_id        = verified;
+  fec->slot_complete   = !!slot_complete;
+  fec->known_id        = !!verified;
   ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
   return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ROTOR_SIG_FEC_REPLAY, chunk,
                           sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
@@ -2673,6 +2673,99 @@ rotor_fec_merged_copies( fd_wksp_t * wksp,
   FD_TEST( ctx->drain_rotor_fecs==0 );
 }
 
+/* deliver_rotor_fec_final delivers a single FEC block {slot, block_id}
+   whose FEC 0 completes it, with rotor's finalized flag. */
+
+static int
+deliver_rotor_fec_final( fd_replay_tile_t * ctx,
+                         ulong              slot,
+                         fd_hash_t const *  parent_block_id,
+                         fd_hash_t const *  block_id,
+                         fd_hash_t const *  mr,
+                         int                finalized ) {
+  ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
+  fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  memset( fec, 0, sizeof(*fec) );
+  fec->slot            = slot;
+  fec->mr              = *mr;
+  fec->parent_slot     = 0UL;
+  fec->parent_block_id = *parent_block_id;
+  fec->block_id        = *block_id;
+  fec->slot_complete   = 1;
+  fec->known_id        = 1;
+  fec->finalized       = !!finalized;
+  ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
+  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ROTOR_SIG_FEC_REPLAY, chunk,
+                          sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
+                          fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
+}
+
+/* test_rotor_fec_redelivered_final: rotor marks a complete block
+   finalized only once it knows, so a block first delivered unfinalized
+   can be redelivered finalized.  The redelivery is SKIPped as already
+   received, but its finalization must still reach the block_id_ele,
+   which the bank hash mismatch check reads once the block finishes
+   executing.  The redelivery of a block that already died on a
+   mismatch hits the mismatch cache and is fatal (FD_LOG_ERR), so this
+   test only checks the cache holds it. */
+
+static void
+test_rotor_fec_redelivered_final( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_ag_root( ctx, &parent_bid );
+
+  fd_hash_t     B     = { .ul = { 0x5150UL } };
+  fd_hash_t     C     = { .ul = { 0x6160UL } };
+  fd_hash_t     D     = { .ul = { 0x7170UL } };
+  fd_hash_t     mr5   = { .ul = { 501 } };
+  fd_hash_t     mr6   = { .ul = { 601 } };
+  fd_hash_t     mr7   = { .ul = { 701 } };
+  ag_block_id_t key5  = ag_block_id( 5UL, B.uc );
+  ag_block_id_t key6  = ag_block_id( 6UL, C.uc );
+  ag_block_id_t key7  = ag_block_id( 7UL, D.uc );
+
+  /* Finalized on first delivery. */
+  FD_TEST( deliver_rotor_fec_final( ctx, 7UL, &parent_bid, &D, &mr7, 1 )==0 );
+  fd_block_id_ele_t * ele7 = fd_block_id_map_ele_query( ctx->block_id_map, &key7, NULL, ctx->block_id_arr );
+  FD_TEST( ele7 && ele7->block_id_seen && ele7->finalized );
+
+  /* (a) Still executing: delivered unfinalized, then redelivered
+     finalized.  The redelivery is skipped without touching the store
+     or banks, but marks the ele, so the later mismatch is fatal. */
+  FD_TEST( deliver_rotor_fec_final( ctx, 5UL, &parent_bid, &B, &mr5, 0 )==0 );
+  fd_block_id_ele_t * ele5 = fd_block_id_map_ele_query( ctx->block_id_map, &key5, NULL, ctx->block_id_arr );
+  FD_TEST( ele5 && ele5->block_id_seen && !ele5->finalized );
+
+  ulong q0    = ctx->metrics.store_query_cnt;
+  ulong used0 = fd_banks_pool_used_cnt( ctx->banks );
+  FD_TEST( deliver_rotor_fec_final( ctx, 5UL, &parent_bid, &B, &mr5, 1 )==0 );
+  FD_TEST( ctx->metrics.store_query_cnt==q0 );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used0 );
+  FD_TEST( ele5->finalized );
+
+  /* (b) Control: an unfinalized redelivery leaves the ele unmarked, and
+     the mismatch only marks the block dead and caches it, where a
+     finalized redelivery would find it. */
+  FD_TEST( deliver_rotor_fec_final( ctx, 6UL, &parent_bid, &C, &mr6, 0 )==0 );
+  fd_block_id_ele_t * ele6 = fd_block_id_map_ele_query( ctx->block_id_map, &key6, NULL, ctx->block_id_arr );
+  FD_TEST( ele6 && ele6->block_id_seen );
+  fd_bank_t * bank6 = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, ele6 ) );
+  FD_TEST( bank6 );
+  FD_TEST( deliver_rotor_fec_final( ctx, 6UL, &parent_bid, &C, &mr6, 0 )==0 );
+  FD_TEST( !ele6->finalized );
+
+  fd_block_footer_t footer[1] = {0};
+  footer->bank_hash         = bank6->f.bank_hash;
+  footer->bank_hash.ul[ 0 ] ^= 1UL;
+  FD_TEST( replay_block_complete( ctx, test_stem, bank6, footer, 0UL, 0UL )==1 );
+  FD_TEST( bank6->state==FD_BANK_STATE_DEAD );
+  FD_TEST( fd_bhm_map_ele_query( ctx->bhm_map, &key6, NULL, ctx->bhm_pool ) );
+
+  FD_LOG_NOTICE(( "pass: test_rotor_fec_redelivered_final" ));
+}
+
 static void
 test_rotor_fec_merged_copies( fd_wksp_t * wksp ) {
   rotor_fec_merged_copies( wksp, 1U, 0U ); fd_wksp_reset( wksp, 42U ); /* repaired copy ahead */
@@ -2991,7 +3084,7 @@ deliver_leader_fec( fd_replay_tile_t * ctx,
   fec->parent_slot     = parent_slot;
   fec->parent_block_id = *parent_block_id;
   fec->block_id        = *block_id;
-  fec->slot_complete   = slot_complete;
+  fec->slot_complete   = !!slot_complete;
   fec->is_leader       = 1;
   ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
   return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ROTOR_SIG_FEC_REPLAY, chunk,
@@ -3810,6 +3903,7 @@ main( int     argc,
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
   test_rotor_fec_rooted_past( wksp );               fd_wksp_reset( wksp, 42U );
   test_rotor_fec_merged_copies( wksp );             fd_wksp_reset( wksp, 42U );
+  test_rotor_fec_redelivered_final( wksp );         fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 1 );      fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );

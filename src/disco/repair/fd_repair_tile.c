@@ -1076,6 +1076,7 @@ after_credit( fd_repair_tile_t *  ctx,
     msg->is_leader       = fec->is_leader;
     msg->known_id        = fd_repair_slot_meta( ctx->rotor, blk->slot )->eager!=out.blk_idx;
     msg->block_id        = blk->dmr;
+    msg->finalized       = msg->slot_complete && fd_repair_slot_meta( ctx->rotor, blk->slot )->final==out.blk_idx;
     msg->metrics.highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, ctx->catchup_slot );
     msg->metrics.fec_completed_ts_nanos    = fec->cmpl_ts;       /* shred tile rx of the shred that completed it, 0 for our own */
     msg->metrics.votor_repaired            = (uchar)msg->known_id;

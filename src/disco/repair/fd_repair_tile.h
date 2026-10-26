@@ -162,9 +162,9 @@ struct fd_repair_replay_fec {
                                  replay do parent reparsing */
    fd_hash_t parent_block_id;
 
-   int       slot_complete;
-   int       data_complete;
-   int       is_leader;
+   uchar     slot_complete : 1;
+   uchar     data_complete : 1;
+   uchar     is_leader     : 1;
 
    /* known_id.  This is not the same as slot_complete = 1. known_id
       should be set always to 1 if the block id was known from the
@@ -188,8 +188,9 @@ struct fd_repair_replay_fec {
       a block whose repaired copy is also delivering, the surviving
       turbine copy keeps known_id 0, and replay keeps building its
       {slot, 0} bank, abandoning the notarized copy's bank. */
-   int       known_id;
+   uchar     known_id : 1;
    fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
+   uchar     finalized : 1; /* Known pre-execution that this block is finalized. 1 iff slot_complete and block is finalized. */
 
    fd_repair_fec_metrics_t metrics;
 };
