@@ -509,6 +509,15 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey );
 
+/* fd_accdb_data_len returns the data length of the account at fork_id,
+   or zero if the account does not exist.  Reads only metadata, not
+   account data. */
+
+ulong
+fd_accdb_data_len( fd_accdb_t *       accdb,
+                   fd_accdb_fork_id_t fork_id,
+                   uchar const *      pubkey );
+
 /* fd_accdb_reset reinitializes the accdb to the state immediately after
    fd_accdb_new.  All in-memory index state is cleared and all pool
    joins are re-established.  The caller is responsible for truncating

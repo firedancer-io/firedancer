@@ -643,6 +643,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     if( FD_UNLIKELY( !stake_t_1 ) ) continue;
 
+    /* Stake can be delegated to any address, so reject accounts that
+       can't be vote accounts before reading their data. */
+    ulong data_len = fd_accdb_data_len( accdb, bank->accdb_fork_id, stake_accum->pubkey.uc );
+    if( FD_UNLIKELY( data_len!=FD_VOTE_STATE_V2_SZ && data_len!=FD_VOTE_STATE_V3_SZ &&
+                     data_len!=FD_VOTE_STATE_V4_SZ && data_len!=FD_VOTE_STATE_V5_SZ ) ) continue;
+
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, stake_accum->pubkey.uc );
     if( FD_UNLIKELY( !acc.lamports ) ) {
       fd_accdb_unread_one( accdb, &acc );
