@@ -278,6 +278,14 @@ test_pd_write_bit_and_probe( void ) {
   FD_TEST( len==big );
   free( bigbuf );
 
+  /* fd_accdb_data_len sees ancestor versions and treats closed or
+     missing accounts as zero length. */
+  fd_accdb_fork_id_t c2 = fd_accdb_attach_child( accdb, f1 );
+  FD_TEST( fd_accdb_data_len( accdb, f1, pk  )==sizeof(data) );
+  FD_TEST( fd_accdb_data_len( accdb, c2, pk4 )==big          );
+  FD_TEST( fd_accdb_data_len( accdb, f2, pk2 )==0UL          );
+  FD_TEST( fd_accdb_data_len( accdb, f2, pk3 )==0UL          );
+
   test_teardown( accdb, fd );
 }
 
