@@ -94,6 +94,7 @@ struct fd_backup_disk_msg {
   uint        acc_idx;
   uint        snap_sz;
   uint        data_sz;
+  ulong       lamports;
 };
 typedef struct fd_backup_disk_msg fd_backup_disk_msg_t;
 
@@ -101,9 +102,16 @@ typedef struct fd_backup_disk_msg fd_backup_disk_msg_t;
    compression jobs for multiple disk accounts that were read into a
    contiguous buffer (fast path). */
 
+/* FD_BACKUP_ACC_IDX_DISK in acc_idx marks an account found in the
+   accdb disk index (no acc_pool element). */
+
+#define FD_BACKUP_ACC_IDX_DISK (UINT_MAX-1U)
+
 struct fd_backup_disk_batch_msg {
   uint        acc_idx [ FD_BACKUP_DISK_PARA ]; /* UINT_MAX is sentinel */
   uint        frag_off[ FD_BACKUP_DISK_PARA ];
+  ulong       lamports[ FD_BACKUP_DISK_PARA ];
+  uint        size    [ FD_BACKUP_DISK_PARA ]; /* FD_ACCDB_SIZE_PACK */
 };
 typedef struct fd_backup_disk_batch_msg fd_backup_disk_batch_msg_t;
 

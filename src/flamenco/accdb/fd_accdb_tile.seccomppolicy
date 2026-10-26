@@ -3,7 +3,10 @@
 #
 # accounts_fd: The accounts database writes to a single file on disk to
 #              store account data as not all of can fit in memory.
-uint logfile_fd, uint accounts_fd
+#
+# accounts_idx_fd: The accounts index file (accounts.db-index), read
+#                  to find rooted accounts that are not in memory.
+uint logfile_fd, uint accounts_fd, uint accounts_idx_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -32,7 +35,11 @@ pread64: (eq (arg 0) accounts_fd)
 # storage if the cache is full (to complete an eviction).
 #
 # arg 0 is the file descriptor to write to.
-pwritev2: (eq (arg 0) accounts_fd)
+pwritev2: (or (eq (arg 0) accounts_fd)
+              (eq (arg 0) accounts_idx_fd))
+
+# accounts index: read pages to demote and compact
+preadv2: (eq (arg 0) accounts_idx_fd)
 
 # accounts database: allocate more space from the disk
 #

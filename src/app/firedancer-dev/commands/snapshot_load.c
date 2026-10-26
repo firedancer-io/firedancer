@@ -129,6 +129,7 @@ snapshot_load_topo( config_t * config ) {
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
       1UL+config->firedancer.layout.snapin_tile_count,
+      0UL,
       0UL );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
@@ -408,7 +409,7 @@ accounts_hist( accounts_hist_t * hist,
      layout in fd_accdb_shmem_new and fd_accdb_join_readonly. */
 
   ulong max_live_slots              = shmem->max_live_slots;
-  ulong max_accounts                = shmem->max_accounts;
+  ulong max_accounts                = shmem->pool_max;
   ulong chain_cnt                   = shmem->chain_cnt;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );

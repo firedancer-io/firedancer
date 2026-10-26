@@ -40,6 +40,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   layout.mode                                         );
 
   CFG_POP      ( ulong,  accounts.max_accounts                               );
+  CFG_POP      ( ulong,  accounts.index_ram_max                              );
   CFG_POP      ( ulong,  accounts.cache_size_gib                             );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );

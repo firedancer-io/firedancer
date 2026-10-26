@@ -17,6 +17,13 @@
 #define FD_ACCDB_FD_RW (123461)
 #define FD_ACCDB_FD_RO (123460)
 
+/* Well-known fds of the disk index file (accounts.db-index), used when
+   index_ram_max is non-zero.  fd_accdb_new joins use the RW fd and
+   readonly joins the RO fd; fd_accdb_set_index_fd overrides it. */
+
+#define FD_ACCDB_IDX_FD_RW (123453)
+#define FD_ACCDB_IDX_FD_RO (123452)
+
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
   uchar   owner[ 32UL ];
@@ -125,6 +132,42 @@ fd_accdb_join_readonly( void *             ljoin,
                         fd_accdb_shmem_t * shmem_ro,
                         ulong *            my_epoch_slot_rw,
                         int                fd_ro );
+
+void
+fd_accdb_set_index_fd( fd_accdb_t * accdb,
+                       int          idx_fd );
+
+/* fd_accdb_idx_query looks pubkey up in the disk index only.  On a hit
+   it stores the file offset of the record, lamports and packed size
+   (FD_ACCDB_SIZE_PACK) and returns 1, else returns 0.  Always 0 when
+   the disk index is disabled. */
+
+int
+fd_accdb_idx_query( fd_accdb_t *  accdb,
+                    uchar const * pubkey,
+                    ulong *       out_off,
+                    ulong *       out_lamports,
+                    uint *        out_size );
+
+/* fd_accdb_snapshot_index_build builds the disk index from the records
+   that fd_accdb_snapshot_write_batch spilled during a full snapshot
+   load.  Call it once after all writers stop, before any account
+   read.  For each pubkey the newest snapshot slot wins; the losers'
+   count and lamports are returned for capitalization checks.  No-op
+   (outputs zero) when the disk index is disabled. */
+
+void
+fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
+                               ulong *      out_dup_cnt,
+                               ulong *      out_dup_lamports );
+
+/* fd_accdb_snapshot_index_slot returns the snapshot slot of pubkey's
+   winning record after fd_accdb_snapshot_index_build, or ULONG_MAX if
+   the account does not exist. */
+
+ulong
+fd_accdb_snapshot_index_slot( fd_accdb_t *  accdb,
+                              uchar const * pubkey );
 
 /* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
    writers build the index.  New layer-0 partitions are tagged Cold;
