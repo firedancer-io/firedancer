@@ -17,9 +17,10 @@
    To reproduce the same behavior, we do not return FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED
    when cu == 0.
 
-   FD_VM_CU_MEM_UPDATE charges the vm the equivalent of sz bytes of
-   compute units.  Behavior is otherwise identical to FD_VM_CU_UPDATE.
-   FIXME: THIS API PROBABLY BELONGS IN SYSCALL CPI LAND. */
+   FD_VM_CU_MEM_OP_UPDATE charges the vm for a memory operation on sz
+   bytes: sz / FD_VM_CPI_BYTES_PER_UNIT compute units, but at least
+   FD_VM_MEM_OP_BASE_COST.  Behavior is otherwise identical to
+   FD_VM_CU_UPDATE. */
 
 #define FD_VM_CU_UPDATE( vm, cost ) (__extension__({ \
     fd_vm_t * _vm   = (vm);                          \
