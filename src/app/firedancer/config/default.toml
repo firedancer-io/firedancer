@@ -695,7 +695,7 @@ telemetry = true
     # components will be replaced with Alpenglow.
     #
     # You can also enable Alpenglow with the `--alpenglow` argument.
-    alpenglow = false
+    alpenglow = true
 
 # The primary state a validator is required to maintain is the accounts
 # database, a current listing of all "public key" identifiers on the
