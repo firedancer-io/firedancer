@@ -226,6 +226,7 @@ extern action_t fd_action_rotor;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
 extern action_t fd_action_gossip_dump;
+extern action_t fd_action_force_mismatch;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
@@ -267,6 +268,7 @@ action_t * ACTIONS[] = {
   &fd_action_shred_version,
   &fd_action_ipecho_server,
   &fd_action_gossip_dump,
+  &fd_action_force_mismatch,
   &fd_action_monitor_gossip,
   &fd_action_watch,
   &fd_action_add_authorized_voter,
