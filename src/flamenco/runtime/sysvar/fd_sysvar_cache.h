@@ -14,7 +14,7 @@
    In other words, sysvars backed by stored accounts are updated before
    and after transaction execution.  During transaction execution, they
    are constant.  Firedancer stores a copy of these sysvars in the
-   sysvar cache for performance (raw and typed forms).
+   sysvar cache for performance (in serialized form).
 
    During the slot boundary (outside of transaction execution), sysvars
    should be accessed using the accounts directly, and the sysvar cache
@@ -28,7 +28,7 @@
 /* fd_sysvar_cache_t is the header of a sysvar_cache object.
    A sysvar_cache object is position-independent and backed entirely by
    a single memory region.  Each sysvar is stored in serialized/raw form
-   and in a typed form.  fd_sysvar_cache_desc_t points either form.
+   only.  fd_sysvar_desc_t records the size and validity of each entry.
 
    It is safe to relocate a sysvar_cache object, or map it from multiple
    processes with different address spaces, or clone it via a shallow
@@ -113,8 +113,8 @@ fd_sysvar_cache_delete( void * mem );
 
 /* fd_sysvar_cache_restore rebuilds the sysvar cache from the account
    database.  Does blocking account database queries.  Returns 1 on
-   success, or 0 on failure (logs warnings).  Reasons for failure
-   include unexpected database error or sysvar deserialize failure. */
+   success (missing sysvars fine), or 0 if any present sysvar account
+   fails validation (logs details at DEBUG level). */
 
 int
 fd_sysvar_cache_restore( fd_bank_t *  bank,
@@ -122,8 +122,8 @@ fd_sysvar_cache_restore( fd_bank_t *  bank,
 
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
    with solfuzz/protosol conformance tooling.  This version works around
-   bugs in that tooling that create invalid sysvars and suppresses noisy
-   log warning. */
+   bugs in that tooling that create invalid sysvars and suppresses
+   missing-sysvar logs. */
 
 void
 fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,

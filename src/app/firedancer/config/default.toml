@@ -1657,12 +1657,9 @@ telemetry = true
         # portion.
         commission_bps = 0
 
-        # The validator keeps the gRPC connection to the bundle server
-        # alive indefinitely, even outside of leader slots.  This is
-        # done using HTTP/2 PING frames.  This option roughly configures
-        # the time between keepalives.  The actual timing is randomized
-        # to reduce burst loads on the network.  Must be within range
-        # [3e3,3600e3]
+        # This option roughly configures the time between pings to keep
+        # the bundle connection live when idle.  The actual timing is
+        # randomized.  Must be within range [3e3,3600e3]
         keepalive_interval_millis = 5000
 
         # By default, the TLS certificate of the bundle server is
