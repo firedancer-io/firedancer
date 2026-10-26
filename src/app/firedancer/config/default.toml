@@ -745,7 +745,8 @@ telemetry = true
     # memory (64 bytes per entry).  Otherwise rooted accounts that are
     # not in use move to an index file next to the accounts database
     # (`accounts.db-index`) and only this many entries stay in memory.
-    index_ram_max = 0
+    # The default of 32 million entries is 2 GiB.
+    index_ram_max = 33_554_432
 
     # The size of the in-memory cache for hit accounts, in GiB.  The
     # performance of the validator is surprisingly not sensitive to this
