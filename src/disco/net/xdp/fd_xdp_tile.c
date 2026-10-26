@@ -1175,8 +1175,6 @@ privileged_init( fd_topo_t const *      topo,
     .umem_addr = umem,
     .frame_sz  = umem_frame_sz,
     .umem_sz   = umem_sz,
-
-    .core_dump = tile->xdp.xsk_core_dump,
   };
 
   fd_cstr_ncpy( params0.poll_mode, tile->xdp.poll_mode, sizeof(params0.poll_mode) );
