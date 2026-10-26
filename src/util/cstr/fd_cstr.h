@@ -451,7 +451,8 @@ fd_cstr_tokenize( char ** tok,
 
 /* fd_cstr_append_utf8 appends the UTF-8 encoding of a Unicode code
    point into p.  Assumes p is valid (non-NULL and room for 1-4 chars
-   and a final terminating '\0'). */
+   and a final terminating '\0').  Surrogate code points and values
+   above U+10FFFF are replaced with U+FFFD. */
 
 static inline char *
 fd_cstr_append_utf8( char * p,
@@ -462,6 +463,7 @@ fd_cstr_append_utf8( char * p,
     *(p++) = (char)( 0xc0 |  (rune>>6)       );
     *(p++) = (char)( 0x80 | ((rune   )&0x3f) );
   } else if( rune<=0xffff ) {
+    if( FD_UNLIKELY( rune>=0xd800U && rune<=0xdfffU ) ) rune = 0xfffdU;
     *(p++) = (char)( 0xe0 |  (rune>>12)       );
     *(p++) = (char)( 0x80 | ((rune>> 6)&0x3f) );
     *(p++) = (char)( 0x80 | ((rune    )&0x3f) );
