@@ -1,7 +1,7 @@
 {
     "name": "alpenglow_cert",
     "id": 20,
-    "description": "An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we received the cert, or constructed it if our_cert; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48",
+    "description": "An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we finished processing the cert; the *_time columns are the phases before it, each running until the next. References: Table 6, Definition 12, Algorithm 1, Lemma 48",
     "fields": {
         "slot":                 { "type": "UInt64",        "compression": "Delta, ZSTD",       "description": "Which slot the cert is for." },
         "block_id":             { "type": "Hash",                                              "description": "Which block the cert is for (only for fast_final, notar and notar_fallback, all zeros otherwise)." },
@@ -19,7 +19,7 @@
         "voters":               { "type": "Bytes",                                             "description": "Which validators' primary votes the cert aggregates (NotarVote for notar, fast_final and notar_fallback; FinalVote for final; SkipVote for skip), as a bitmap over the voter's rank in the slot's epoch: rank r is bit r%8 of byte r/8, bytes through the highest signer.", "max_len": 250 },
         "fallback_voters":      { "type": "Bytes",                                             "description": "Fallback signer set (NotarFallbackVote for notar_fallback, SkipFallbackVote for skip), a bitmap by rank like voters. Empty for other kinds.", "max_len": 250 },
         "relayer_ip":           { "type": "IPv6",                                              "description": "IPv4 address of the peer that relayed the cert to us; ourselves if our_cert, stored as an IPv4-mapped IPv6 address (all zeros if unknown)." },
-        "relayer_identity":     { "type": "Pubkey",                                            "description": "Validator identity of the peer that relayed the cert to us (determined from the QUIC client-side TLS certificate); ourselves if our_cert (all zeros if unknown_peer). Not necessarily the creator of the cert: a node re-broadcasts the first valid cert it obtains (whether from self or others)." },
+        "relayer_identity":     { "type": "LowCardinality(Pubkey)",                            "description": "Validator identity of the peer that relayed the cert to us (determined from the QUIC client-side TLS certificate); ourselves if our_cert (all zeros if unknown_peer). Not necessarily the creator of the cert: a node re-broadcasts the first valid cert it obtains (whether from self or others)." },
         "our_cert":             { "type": "Bool",                                              "description": "Whether we constructed the cert ourselves from the votes we had received, rather than a peer delivering it first. Not every cert is self-made; when it is, we reached the threshold before any peer's copy arrived, i.e. we are running fast." },
         "broadcast_to": {
             "type": "Array",
@@ -30,7 +30,7 @@
                 "type": "Tuple",
                 "description": "The peer at this rank.",
                 "fields": {
-                    "identity": { "type": "Pubkey", "description": "Validator identity of the peer (all zeros if not sent)." },
+                    "identity": { "type": "LowCardinality(Pubkey)", "description": "Validator identity of the peer (all zeros if not sent)." },
                     "ip":       { "type": "IPv6",   "description": "IPv4 address of the peer as an IPv4-mapped IPv6 address (all zeros if not sent)." },
                     "port":     { "type": "UInt16", "description": "Port of the peer's Alpenglow QUIC endpoint (0 if not sent)." }
                 }
@@ -52,8 +52,8 @@
                 "accepted":               { "description": "BLS verified (stake threshold of Table 6 and aggregate BLS signature) and stored as the first cert of its kind for the slot, then broadcast to our peers (Definition 13); see broadcast_start_time and broadcast_to." }
             }
         },
-        "verify_start_time":    { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started BLS verifying the cert (unset if our_cert)." },
-        "broadcast_start_time": { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started broadcasting the cert to our peers, BLS verification having finished (only if our_cert, 0 otherwise)." },
-        "done_time":            { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages." }
+        "verify_start_time":    { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When we started BLS verifying the cert (unset if our_cert)." },
+        "broadcast_start_time": { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When we started broadcasting the cert to our peers, BLS verification having finished (only if our_cert, 0 otherwise)." },
+        "done_time":            { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages.", "deprecated": true }
     }
 }

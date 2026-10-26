@@ -1,12 +1,12 @@
 {
     "name": "alpenglow_vote",
     "id": 19,
-    "description": "An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we received the vote, or cast it if our_vote; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48",
+    "description": "An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we finished processing the vote; the *_time columns are the phases before it, each running until the next. References: Table 6, Definition 12, Algorithm 1, Lemma 48",
     "fields": {
         "slot":                               { "type": "UInt64",        "compression": "Delta, ZSTD",       "description": "Which slot the vote is for." },
         "block_id":                           { "type": "Hash",                                              "description": "Which block the vote is for (only for notar and notar_fallback, all zeros otherwise)." },
         "voter_rank":                         { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "Where the voter ranks in the slot's epoch (only if ranked, 65535 otherwise). Also marks their position in the Cert array" },
-        "voter_identity":                     { "type": "Pubkey",                                            "description": "Validator identity of the voter, looked up from voter_rank in the slot's epoch (all zeros if voter_rank is 65535)." },
+        "voter_identity":                     { "type": "Pubkey",                                            "description": "Validator identity of the voter, looked up from voter_rank in the slot's epoch (all zeros if voter_rank is 65535).", "deprecated": true },
         "kind": {
             "type": "LowCardinality(String)",
             "description": "What kind of vote is this.",
@@ -19,7 +19,7 @@
             }
         },
         "received_from_ip":                   { "type": "IPv6",                                              "description": "IPv4 address of the peer we received the vote from; ourselves if our_vote, stored as an IPv4-mapped IPv6 address (all zeros if unknown)." },
-        "received_from_identity":             { "type": "Pubkey",                                            "description": "Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). Not necessarily the voter; see voter_identity." },
+        "received_from_identity":             { "type": "LowCardinality(Pubkey)",                            "description": "Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). This is the voter whenever voter_rank is set, since votes are only accepted from their voter." },
         "our_vote":                           { "type": "Bool",                                              "description": "Whether this is our own vote, which we store like any other; received_from_identity is then our identity." },
         "reason": {
             "type": "LowCardinality(String)",
@@ -46,7 +46,7 @@
                 "type": "Tuple",
                 "description": "The peer at this rank.",
                 "fields": {
-                    "identity": { "type": "Pubkey", "description": "Validator identity of the peer (all zeros if not sent)." },
+                    "identity": { "type": "LowCardinality(Pubkey)", "description": "Validator identity of the peer (all zeros if not sent)." },
                     "ip":       { "type": "IPv6",   "description": "IPv4 address of the peer as an IPv4-mapped IPv6 address (all zeros if not sent)." },
                     "port":     { "type": "UInt16", "description": "Port of the peer's Alpenglow QUIC endpoint (0 if not sent)." }
                 }
@@ -75,9 +75,9 @@
         "quorum_reached_skip_cert":           { "type": "Bool",                                              "description": "Skip and skip-fallback votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
         "quorum_reached_safe_to_notar":       { "type": "Bool",                                              "description": "Notar votes for block_id reached 40% of stake, or 20% with skip votes bringing the total to 60% (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
         "quorum_reached_safe_to_skip":        { "type": "Bool",                                              "description": "Skip votes plus notar votes for every block but the most-voted one reached 40% of stake (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
-        "aggregation_start_time":             { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started aggregating the vote into the running BLS aggregate for its slot, kind and block (only if processing_result is accepted, 0 otherwise)." },
-        "verify_start_time":                  { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started BLS verifying the aggregate this vote completed (only if this vote brought a tally to a quorum of Table 6 or Definition 16, which is when we verify signatures, 0 otherwise)." },
-        "broadcast_start_time":               { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started broadcasting the vote to our peers (only if our_vote, 0 otherwise)." },
-        "done_time":                          { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we finished processing the vote, may be any of the above stages including short-circuiting at earlier stages." }
+        "aggregation_start_time":             { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When we started aggregating the vote into the running BLS aggregate for its slot, kind and block (only if processing_result is accepted, 0 otherwise)." },
+        "verify_start_time":                  { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When we started BLS verifying the aggregate this vote completed (only if this vote brought a tally to a quorum of Table 6 or Definition 16, which is when we verify signatures, 0 otherwise)." },
+        "broadcast_start_time":               { "type": "DateTime64(9)", "compression": "Delta, ZSTD",       "description": "When we started broadcasting the vote to our peers (only if our_vote, 0 otherwise)." },
+        "done_time":                          { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we finished processing the vote, may be any of the above stages including short-circuiting at earlier stages.", "deprecated": true }
     }
 }

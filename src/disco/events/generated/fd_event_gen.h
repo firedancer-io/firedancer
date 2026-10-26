@@ -831,15 +831,14 @@ struct fd_event_alpenglow_vote_broadcast_to {
 } __attribute__((aligned(8)));
 typedef struct fd_event_alpenglow_vote_broadcast_to fd_event_alpenglow_vote_broadcast_to_t;
 
-/* An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we received the vote, or cast it if our_vote; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
+/* An Alpenglow consensus vote we received from a peer or cast ourselves (see our_vote). Unparseable votes are not included. The row timestamp is when we finished processing the vote; the *_time columns are the phases before it, each running until the next. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
 struct fd_event_alpenglow_vote {
   ulong                                  slot;                               /* Which slot the vote is for. */
   uchar                                  block_id[ 32UL ];                   /* Which block the vote is for (only for notar and notar_fallback, all zeros otherwise). */
   ushort                                 voter_rank;                         /* Where the voter ranks in the slot's epoch (only if ranked, 65535 otherwise). Also marks their position in the Cert array */
-  uchar                                  voter_identity[ 32UL ];             /* Validator identity of the voter, looked up from voter_rank in the slot's epoch (all zeros if voter_rank is 65535). */
   int                                    kind;                               /* What kind of vote is this. */
   uchar                                  received_from_ip[ 16UL ];           /* IPv4 address of the peer we received the vote from; ourselves if our_vote, stored as an IPv4-mapped IPv6 address (all zeros if unknown). */
-  uchar                                  received_from_identity[ 32UL ];     /* Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). Not necessarily the voter; see voter_identity. */
+  uchar                                  received_from_identity[ 32UL ];     /* Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). This is the voter whenever voter_rank is set, since votes are only accepted from their voter. */
   int                                    our_vote;                           /* Whether this is our own vote, which we store like any other; received_from_identity is then our identity. */
   int                                    reason;                             /* Why we cast the vote, based on the Alpenglow voting algorithm (not_our_vote if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17. */
   ulong                                  broadcast_to_cnt;                   /* Number of broadcast_to entries (<= 2000) */
@@ -854,7 +853,6 @@ struct fd_event_alpenglow_vote {
   ulong                                  aggregation_start_time;             /* When we started aggregating the vote into the running BLS aggregate for its slot, kind and block (only if processing_result is accepted, 0 otherwise). */
   ulong                                  verify_start_time;                  /* When we started BLS verifying the aggregate this vote completed (only if this vote brought a tally to a quorum of Table 6 or Definition 16, which is when we verify signatures, 0 otherwise). */
   ulong                                  broadcast_start_time;               /* When we started broadcasting the vote to our peers (only if our_vote, 0 otherwise). */
-  ulong                                  done_time;                          /* When we finished processing the vote, may be any of the above stages including short-circuiting at earlier stages. */
   fd_event_alpenglow_vote_broadcast_to_t broadcast_to[ 2000UL ];             /* Who we sent the vote to, by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_vote, empty otherwise). (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_alpenglow_vote fd_event_alpenglow_vote_t;
@@ -877,7 +875,7 @@ fd_event_alpenglow_vote_footprint( fd_event_alpenglow_vote_t const * msg ) {
 
 /* Worst-case encoded size of a alpenglow_vote event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_ALPENGLOW_VOTE_BUF_MAX (176427UL)
+#define FD_EVENT_ALPENGLOW_VOTE_BUF_MAX (176370UL)
 
 /* What kind of cert is this. */
 #define FD_EVENT_ALPENGLOW_CERT_KIND_FINAL          (1) /* FinalVote aggregate that sums >= 60% of stake, for slot. There is guaranteed to be one unique notarized block_id Final corresponds to. */
@@ -906,7 +904,7 @@ struct fd_event_alpenglow_cert_broadcast_to {
 } __attribute__((aligned(8)));
 typedef struct fd_event_alpenglow_cert_broadcast_to fd_event_alpenglow_cert_broadcast_to_t;
 
-/* An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we received the cert, or constructed it if our_cert; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
+/* An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we finished processing the cert; the *_time columns are the phases before it, each running until the next. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
 struct fd_event_alpenglow_cert {
   ulong                                  slot;                     /* Which slot the cert is for. */
   uchar                                  block_id[ 32UL ];         /* Which block the cert is for (only for fast_final, notar and notar_fallback, all zeros otherwise). */
@@ -922,7 +920,6 @@ struct fd_event_alpenglow_cert {
   int                                    processing_result;        /* What we did with the cert. unknown_peer and banned_peer are decided on the connection before the cert is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific. */
   ulong                                  verify_start_time;        /* When we started BLS verifying the cert (unset if our_cert). */
   ulong                                  broadcast_start_time;     /* When we started broadcasting the cert to our peers, BLS verification having finished (only if our_cert, 0 otherwise). */
-  ulong                                  done_time;                /* When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages. */
   fd_event_alpenglow_cert_broadcast_to_t broadcast_to[ 2000UL ];   /* Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_cert, empty otherwise). (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_alpenglow_cert fd_event_alpenglow_cert_t;
@@ -945,7 +942,7 @@ fd_event_alpenglow_cert_footprint( fd_event_alpenglow_cert_t const * msg ) {
 
 /* Worst-case encoded size of a alpenglow_cert event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_ALPENGLOW_CERT_BUF_MAX (176828UL)
+#define FD_EVENT_ALPENGLOW_CERT_BUF_MAX (176813UL)
 
 /* The reason the block was no longer attempted to be repaired. */
 #define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOT_CANCELLED          (1) /* Not cancelled. */
