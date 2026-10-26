@@ -265,7 +265,7 @@ with this software. If not, see
 =======================================================================
 
 'src/third_party/nanopb' is currently a copy of the Nanopb library at
-https://jpa.kapsi.fi/nanopb/ (imported ca 2023-Nov).
+https://jpa.kapsi.fi/nanopb/ (tag nanopb-0.4.9.2, imported 2026-Oct).
 
 Copyright (c) 2011 Petteri Aimonen <jpa at nanopb.mail.kapsi.fi>
 
