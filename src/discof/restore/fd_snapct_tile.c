@@ -791,10 +791,15 @@ log_completion( fd_snapct_tile_t * ctx,
    if the peer is already blacklisted (dedup).  Warns if the pool is
    full (the ssping ban still provides temporary protection). */
 static void
-blacklist_peer( fd_snapct_tile_t * ctx ) {
-  fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
+drop_peer( fd_snapct_tile_t * ctx ) {
   fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
+}
+
+static void
+blacklist_peer( fd_snapct_tile_t * ctx ) {
+  fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
+  drop_peer( ctx );
   if( FD_UNLIKELY( blacklist_map_ele_query( ctx->blacklist_map, &ctx->peer.key, NULL, ctx->blacklist_pool ) ) ) return;
   if( FD_LIKELY( blacklist_pool_free( ctx->blacklist_pool ) ) ) {
     fd_sspeer_blacklist_entry_t * bl = blacklist_pool_ele_acquire( ctx->blacklist_pool );
@@ -1626,15 +1631,14 @@ after_credit( fd_snapct_tile_t *  ctx,
           ctx->absent = 0;
           FD_LOG_WARNING(( "peer http://" FD_IP4_ADDR_FMT ":%hu has no incremental snapshot for full snapshot slot %lu, selecting another peer",
                            FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->predicted_incremental.full_slot ));
-          fd_sspeer_selector_remove( ctx->selector, &ctx->peer.key );
-          fd_sspeer_selector_process_cluster_slot( ctx->selector );
-          break;
+          drop_peer( ctx );
+        } else {
+          FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
+                           "blacklisting peer due to download failure",
+                           ctx->predicted_incremental.slot,
+                           FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
+          blacklist_peer( ctx );
         }
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure",
-                         ctx->predicted_incremental.slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        blacklist_peer( ctx );
         break;
       }
       if( FD_UNLIKELY( ctx->flush_ack < ctx->flush_ack_cnt ) ) break;

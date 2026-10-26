@@ -56,21 +56,45 @@ static int test_epoll_fd = -1;
 #undef fd_sshttp_init
 #undef fd_stem_publish
 
+static fd_sshttp_t test_http[1];
+static uchar       test_input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static ulong       test_waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+
 static void
-test_start( int file,
-            int bad_target ) {
-  static fd_sshttp_t http[1];
-  static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
-  fd_snapld_tile_t ctx[1] = {0};
-  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
-  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+test_ctx_init( fd_snapld_tile_t * ctx ) {
+  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( test_waker_fseq, 0UL ) );
   fd_clock_tile_init( ctx->clock );
-  ctx->in_rd.base    = input;
+  ctx->in_rd.base    = test_input;
   ctx->out_dc.mem    = (fd_wksp_t *)output;
   ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
   ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
   ctx->local_full_fd = -1;
+}
+
+static int
+listen_loopback( fd_ip4_port_t * addr ) {
+  int server = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( server>=0 );
+  struct sockaddr_in sa = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
+  };
+  FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
+  socklen_t sa_sz = sizeof(sa);
+  FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
+  FD_TEST( !listen( server, 1 ) );
+  addr->addr = sa.sin_addr.s_addr;
+  addr->port = sa.sin_port;
+  return server;
+}
+
+static void
+test_start( int file,
+            int bad_target ) {
+  fd_snapld_tile_t ctx[1] = {0};
+  test_ctx_init( ctx );
+  fd_sshttp_t * http = ctx->sshttp;
 
   int           server = -1;
   fd_ip4_port_t addr   = {0};
@@ -81,20 +105,9 @@ test_start( int file,
     FD_TEST( !fd_io_write( ctx->local_full_fd, "snapshot", 8UL, 8UL, &wsz ) );
     FD_TEST( wsz==8UL );
   } else if( !bad_target ) {
-    server = socket( AF_INET, SOCK_STREAM, 0 );
-    FD_TEST( server>=0 );
-    struct sockaddr_in sa = {
-      .sin_family = AF_INET,
-      .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
-    };
-    FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
-    socklen_t sa_sz = sizeof(sa);
-    FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
-    FD_TEST( !listen( server, 1 ) );
-    addr.addr = sa.sin_addr.s_addr;
-    addr.port = sa.sin_port;
+    server = listen_loopback( &addr );
   }
-  fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)input;
+  fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)test_input;
   fd_memset( init, 0, sizeof(*init) );
   init->file    = file;
   init->slot    = 123UL;
@@ -108,7 +121,7 @@ test_start( int file,
   int busy = 0;
   for( int i=0; i<3; i++ ) after_credit( ctx, test_stem, NULL, &busy );
   FD_TEST( publish_cnt==1UL && !init_cnt && !ctx->sent_meta );
-  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
+  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)test_input;
   fd_memset( start, 0, sizeof(*start) );
   start->addr = addr;
   fd_cstr_ncpy( start->hostname, "localhost", sizeof(start->hostname) );
@@ -133,7 +146,7 @@ test_start( int file,
     FD_TEST( init_cnt==(file ? 0UL : 1UL) );
     if( !file ) {
       FD_TEST( http->deadline>=before+FD_SSHTTP_DEADLINE_NANOS );
-      fd_memset( input, 0xa5, sizeof(input) );
+      fd_memset( test_input, 0xa5, sizeof(test_input) );
       FD_TEST( !strcmp( http->hostname, "localhost" ) );
       FD_TEST( strstr( http->request, "GET /snapshot.tar.bz2 HTTP/1.1" ) );
     } else {
@@ -152,40 +165,22 @@ test_start( int file,
 
 static void
 test_absent( int absent ) {
-  static fd_sshttp_t http[1];
-  static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
   fd_snapld_tile_t ctx[1] = {0};
-  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
-  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
-  fd_clock_tile_init( ctx->clock );
-  ctx->in_rd.base    = input;
-  ctx->out_dc.mem    = (fd_wksp_t *)output;
-  ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
-  ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
-  ctx->local_full_fd = -1;
+  test_ctx_init( ctx );
+  fd_sshttp_t * http = ctx->sshttp;
 
-  int server = socket( AF_INET, SOCK_STREAM, 0 );
-  FD_TEST( server>=0 );
-  struct sockaddr_in sa = {
-    .sin_family = AF_INET,
-    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
-  };
-  FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
-  socklen_t sa_sz = sizeof(sa);
-  FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
-  FD_TEST( !listen( server, 1 ) );
+  fd_ip4_port_t addr;
+  int server = listen_loopback( &addr );
 
-  fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)input;
+  fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)test_input;
   fd_memset( init, 0, sizeof(*init) );
   init->slot = 123UL;
   publish_cnt = init_cnt = 0UL;
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
 
-  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
+  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)test_input;
   fd_memset( start, 0, sizeof(*start) );
-  start->addr.addr = sa.sin_addr.s_addr;
-  start->addr.port = sa.sin_port;
+  start->addr = addr;
   fd_cstr_ncpy( start->hostname, "localhost", sizeof(start->hostname) );
   fd_cstr_ncpy( start->path, "/incremental-snapshot.tar.bz2", sizeof(start->path) );
   start->path_len = strlen( start->path );
