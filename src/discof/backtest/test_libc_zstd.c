@@ -113,6 +113,33 @@ test_rstream_multi_frame( void ) {
   free( c );
 }
 
+static void
+test_rstream_truncated( void ) {
+  fd_rng_t rng_[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_, 1UL, 0UL ) );
+  static uchar p [ 65536 ];
+  static uchar p2[ 65536 ];
+  pattern_fill( p, sizeof(p), rng );
+  ulong   c_max = ZSTD_compressBound( sizeof(p) );
+  uchar * c     = malloc( c_max ); FD_TEST( c );
+  ulong   c_sz  = ZSTD_compress( c, c_max, p, sizeof(p), 1 );
+  FD_TEST( !ZSTD_isError( c_sz ) );
+
+  ulong const cuts[] = { 1UL, 4UL, 8UL, c_sz/2UL, c_sz-1UL };
+  for( ulong i=0UL; i<sizeof(cuts)/sizeof(cuts[0]); i++ ) {
+    FILE *         c_file  = fmemopen( c, cuts[i], "rb" ); FD_TEST( c_file );
+    ZSTD_DStream * dstream = ZSTD_createDStream();
+    FILE *         p_file  = fd_zstd_rstream_open( c_file, dstream, BUF_SZ ); FD_TEST( p_file );
+    ulong rd_sz = fread( p2, 1UL, sizeof(p2), p_file );
+    FD_TEST( rd_sz<sizeof(p2) );
+    FD_TEST( ferror( p_file ) );
+    FD_TEST( fclose( p_file )==0 );
+    ZSTD_freeDStream( dstream );
+  }
+
+  free( c );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -121,6 +148,7 @@ main( int     argc,
   test_rstream_empty();
   test_rstream_simple();
   test_rstream_multi_frame();
+  test_rstream_truncated();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
