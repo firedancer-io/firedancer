@@ -647,6 +647,14 @@ read_response( fd_sshttp_t * http,
     return follow_redirect( http, headers, header_cnt, now );
   }
 
+  int is_absent = (status==404) | (status==410);
+  if( FD_UNLIKELY( is_absent ) ) {
+    FD_LOG_INFO(( "no such snapshot (%d %.*s) at " FD_IP4_ADDR_FMT ":%hu", status, (int)message_len, message,
+                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ABSENT;
+  }
+
   if( FD_UNLIKELY( status!=200 ) ) {
     FD_LOG_WARNING(( "unexpected response status %d %.*s from " FD_IP4_ADDR_FMT ":%hu", status, (int)message_len, message,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));

@@ -1414,6 +1414,51 @@ test_log_download_peer_churn( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+/* A peer that answers 404 for the incremental has simply moved on to a
+   newer full.  It is dropped from the selector until gossip or the
+   resolver re-adds it, but not blacklisted.  Any other download
+   failure still blacklists. */
+
+static void
+test_incremental_absent_not_blacklisted( void ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  for( int absent=0; absent<2; absent++ ) {
+    fd_snapct_tile_t * ctx;
+    setup_full_snapct( scratch, NULL, &ctx, msg );
+    test_output      = output;
+    test_publish_cnt = 0UL;
+
+    fd_sspeer_key_t key  = test_key( 0x44 );
+    fd_ip4_port_t   addr = test_addr( 0x08080404U, 8899 );
+    FD_TEST( FD_SSPEER_SCORE_INVALID!=fd_sspeer_selector_add( ctx->selector, &key, addr, 5000UL, 100UL, 200UL, NULL, NULL ) );
+
+    ctx->peer.key         = key;
+    ctx->peer.addr        = addr;
+    ctx->predicted_incremental.full_slot = 100UL;
+    ctx->predicted_incremental.slot      = 200UL;
+    ctx->state            = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+    ctx->flush_ack_cnt    = 1;
+    ctx->out_ld.mem       = (fd_wksp_t *)output;
+    ctx->out_ld.wmark     = 128UL;
+    ctx->download_enabled = 1;
+
+    if( absent ) snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_ABSENT, 0UL, 0UL, NULL );
+    snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, NULL );
+    FD_TEST( ctx->malformed );
+
+    int busy = 0;
+    after_credit( ctx, NULL, NULL, &busy );
+    FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET );
+    FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+    FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+    FD_TEST( blacklist_pool_used( ctx->blacklist_pool )==(absent ? 0UL : 1UL) );
+    FD_TEST( !!blacklist_map_ele_query( ctx->blacklist_map, &key, NULL, ctx->blacklist_pool )==!absent );
+  }
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1460,6 +1505,7 @@ main( int     argc,
   test_blacklist_pool_exhaustion( ssping );
   test_predict_incremental_wfs_gate( ssping );
   test_log_download_peer_churn( ssping );
+  test_incremental_absent_not_blacklisted();
   test_wfs_init_no_download();
   test_flushing_full_file_done_incremental_source();
   test_flushing_full_file_done_wfs_floor();

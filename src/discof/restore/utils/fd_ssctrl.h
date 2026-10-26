@@ -126,6 +126,7 @@
 
 /* snapld -> snapct (via snapld_dc) */
 #define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (11UL) /* snapld finished reading/downloading all data */
+#define FD_SNAPSHOT_MSG_LOAD_ABSENT           (12UL) /* the server has no such snapshot, sent before CTRL_ERROR */
 
 /* Sigs passed from snapdc to snapin contain the frame index of the
    frag so snapin knows how to order frames as they arrive. */
@@ -236,6 +237,7 @@ fd_ssctrl_msg_ctrl_str( ulong sig ) {
     case FD_SNAPSHOT_MSG_CTRL_ERROR:            return "error";
     case FD_SNAPSHOT_MSG_CTRL_FINI:             return "fini";
     case FD_SNAPSHOT_MSG_LOAD_COMPLETE:         return "load_complete";
+    case FD_SNAPSHOT_MSG_LOAD_ABSENT:           return "load_absent";
     default:                                    return "unknown";
   }
 }

@@ -183,6 +183,7 @@ struct fd_snapct_tile {
 
   int           state;
   int           malformed;
+  int           absent;
   int           load_complete;
   long          deadline_nanos;
   long          io_due_nanos;
@@ -710,6 +711,7 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
   ctx->start_sent = 0;
+  ctx->absent = 0;
   ctx->load_complete = 0;
 
   if( !file ) {
@@ -1620,6 +1622,14 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET );
+        if( FD_UNLIKELY( ctx->absent ) ) {
+          ctx->absent = 0;
+          FD_LOG_WARNING(( "peer http://" FD_IP4_ADDR_FMT ":%hu has no incremental snapshot for full snapshot slot %lu, selecting another peer",
+                           FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->predicted_incremental.full_slot ));
+          fd_sspeer_selector_remove( ctx->selector, &ctx->peer.key );
+          fd_sspeer_selector_process_cluster_slot( ctx->selector );
+          break;
+        }
         FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
                          "blacklisting peer due to download failure",
                          ctx->predicted_incremental.slot,
@@ -1986,6 +1996,10 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       default:
         break;
     }
+    return;
+  }
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_ABSENT ) ) {
+    if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ) ) ctx->absent = 1;
     return;
   }
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) {

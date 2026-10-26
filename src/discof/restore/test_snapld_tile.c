@@ -9,6 +9,7 @@
 
 static ulong publish_cnt;
 static ulong publish_sig;
+static ulong publish_prev_sig;
 static ulong init_cnt;
 static uchar output[ 4UL*FD_SNAPSHOT_DATA_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
@@ -24,7 +25,8 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
                    ulong               tsorig  FD_PARAM_UNUSED,
                    ulong               tspub   FD_PARAM_UNUSED ) {
   publish_cnt++;
-  publish_sig = sig;
+  publish_prev_sig = publish_sig;
+  publish_sig      = sig;
   if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL || sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
     FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
     fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, chunk );
@@ -144,6 +146,78 @@ test_start( int file,
   if( file      ) FD_TEST( !close( ctx->local_full_fd ) );
 }
 
+/* A server answering 404 has no such snapshot: snapld says so with
+   LOAD_ABSENT before the usual CTRL_ERROR.  Other failures only send
+   CTRL_ERROR. */
+
+static void
+test_absent( int absent ) {
+  static fd_sshttp_t http[1];
+  static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  fd_snapld_tile_t ctx[1] = {0};
+  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
+  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  fd_clock_tile_init( ctx->clock );
+  ctx->in_rd.base    = input;
+  ctx->out_dc.mem    = (fd_wksp_t *)output;
+  ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
+  ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
+  ctx->local_full_fd = -1;
+
+  int server = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( server>=0 );
+  struct sockaddr_in sa = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
+  };
+  FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
+  socklen_t sa_sz = sizeof(sa);
+  FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
+  FD_TEST( !listen( server, 1 ) );
+
+  fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)input;
+  fd_memset( init, 0, sizeof(*init) );
+  init->slot = 123UL;
+  publish_cnt = init_cnt = 0UL;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
+
+  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
+  fd_memset( start, 0, sizeof(*start) );
+  start->addr.addr = sa.sin_addr.s_addr;
+  start->addr.port = sa.sin_port;
+  fd_cstr_ncpy( start->hostname, "localhost", sizeof(start->hostname) );
+  fd_cstr_ncpy( start->path, "/incremental-snapshot.tar.bz2", sizeof(start->path) );
+  start->path_len = strlen( start->path );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->pipeline_ready && publish_cnt==1UL );
+
+  int conn = accept( server, NULL, NULL );
+  FD_TEST( conn>=0 );
+  int  busy = 0;
+  char req[ 1024 ] = {0};
+  ulong req_len = 0UL;
+  for( int i=0; i<1000 && !strstr( req, "\r\n\r\n" ); i++ ) {
+    after_credit( ctx, test_stem, NULL, &busy );
+    long n = recv( conn, req+req_len, sizeof(req)-1UL-req_len, MSG_DONTWAIT );
+    if( n>0L ) req_len += (ulong)n;
+  }
+  FD_TEST( strstr( req, "GET /incremental-snapshot.tar.bz2 HTTP/1.1" ) );
+
+  char const * resp = absent ? "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+                             : "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+  FD_TEST( (long)strlen( resp )==send( conn, resp, strlen( resp ), MSG_NOSIGNAL ) );
+  for( int i=0; i<1000 && ctx->state!=FD_SNAPSHOT_STATE_ERROR; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR );
+  if( absent ) FD_TEST( publish_cnt==3UL && publish_prev_sig==FD_SNAPSHOT_MSG_LOAD_ABSENT );
+  else         FD_TEST( publish_cnt==2UL );
+
+  fd_sshttp_cancel( http );
+  FD_TEST( !close( conn ) );
+  FD_TEST( !close( server ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -153,6 +227,8 @@ main( int     argc,
   test_start( 0, 0 );
   test_start( 0, 1 );
   test_start( 1, 0 );
+  test_absent( 1 );
+  test_absent( 0 );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

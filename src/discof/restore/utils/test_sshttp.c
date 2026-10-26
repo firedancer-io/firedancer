@@ -149,6 +149,30 @@ test_headers_too_large( void ) {
   fd_sshttp_cancel( http );
 }
 
+/* A 404 or 410 means the server has no such snapshot, which is not a
+   download failure.  Any other non-200 status still is. */
+
+static void
+test_not_found( void ) {
+  struct { char const * resp; int res; } cases[] = {
+    { "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",             FD_SSHTTP_ADVANCE_ABSENT },
+    { "HTTP/1.1 410 Gone\r\nContent-Length: 0\r\n\r\n",                  FD_SSHTTP_ADVANCE_ABSENT },
+    { "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n", FD_SSHTTP_ADVANCE_ERROR  },
+  };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+    FD_TEST( http );
+
+    int server = connect_pair( http );
+    FD_TEST( (long)strlen( cases[ i ].resp )==send( server, cases[ i ].resp, strlen( cases[ i ].resp ), 0 ) );
+
+    FD_TEST( cases[ i ].res==advance_until_terminal( http ) );
+
+    FD_TEST( 0==close( server ) );
+    fd_sshttp_cancel( http );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -161,6 +185,7 @@ main( int     argc,
   test_eof_during_headers();
   test_eof_immediate();
   test_headers_too_large();
+  test_not_found();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

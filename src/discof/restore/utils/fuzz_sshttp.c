@@ -137,7 +137,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
         FD_COMPILER_FORGET( x );
       } else if( result == FD_SSHTTP_ADVANCE_DONE ) {
         read_done = 1;
-      } else if( result == FD_SSHTTP_ADVANCE_ERROR ) {
+      } else if( result == FD_SSHTTP_ADVANCE_ERROR || result == FD_SSHTTP_ADVANCE_ABSENT ) {
         read_done = 1;
       }
     }
