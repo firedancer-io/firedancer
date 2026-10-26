@@ -118,28 +118,34 @@ fd_txncache_join( void * ljoin ) {
 }
 
 static void
-spill_io( fd_txncache_t *         tc,
-          ulong                   page,
-          fd_txncache_txnpage_t * data,
-          int                     write ) {
+spill_rw( fd_txncache_t * tc,
+          ulong           off,
+          uchar *         buf,
+          ulong           sz,
+          int             write ) {
   FD_TEST( tc->spill_fd>=0 );
-  long  t0  = fd_tickcount();
-  ulong off = page*sizeof(*data);
-  ulong rem = sizeof(*data);
-  uchar * buf = (uchar *)data;
-  while( rem ) {
-    long n = write ? pwrite( tc->spill_fd, buf, rem, (off_t)off )
-                   : pread ( tc->spill_fd, buf, rem, (off_t)off );
+  while( sz ) {
+    long n = write ? pwrite( tc->spill_fd, buf, sz, (off_t)off )
+                   : pread ( tc->spill_fd, buf, sz, (off_t)off );
     if( FD_UNLIKELY( n<0L && errno==EINTR ) ) continue;
-    if( FD_UNLIKELY( n<0L ) ) FD_LOG_CRIT(( "txncache spill %s failed for page %lu at offset %lu (%ld, errno %d)", write ? "write" : "read", page, off, n, errno ));
-    if( FD_UNLIKELY( !n ) ) FD_LOG_CRIT(( "txncache spill %s for page %lu at offset %lu", write ? "write made no progress" : "read reached unexpected EOF", page, off ));
-    rem -= (ulong)n;
-    if( FD_UNLIKELY( rem && !fd_ulong_is_aligned( (ulong)n, FD_TXNCACHE_TXNPAGE_ALIGN ) ) ) {
-      FD_LOG_CRIT(( "txncache spill %s returned an unaligned short transfer for page %lu", write ? "write" : "read", page ));
+    if( FD_UNLIKELY( n<0L ) ) FD_LOG_CRIT(( "txncache spill %s failed at offset %lu (%ld, errno %d)", write ? "write" : "read", off, n, errno ));
+    if( FD_UNLIKELY( !n ) ) FD_LOG_CRIT(( "txncache spill %s at offset %lu", write ? "write made no progress" : "read reached unexpected EOF", off ));
+    sz -= (ulong)n;
+    if( FD_UNLIKELY( sz && !fd_ulong_is_aligned( (ulong)n, FD_TXNCACHE_TXNPAGE_ALIGN ) ) ) {
+      FD_LOG_CRIT(( "txncache spill %s returned an unaligned short transfer at offset %lu", write ? "write" : "read", off ));
     }
     buf += (ulong)n;
     off += (ulong)n;
   }
+}
+
+static void
+spill_io( fd_txncache_t *         tc,
+          ulong                   page,
+          fd_txncache_txnpage_t * data,
+          int                     write ) {
+  long t0 = fd_tickcount();
+  spill_rw( tc, page*sizeof(*data), (uchar *)data, sizeof(*data), write );
   if( write ) tc->shmem->page_spilled_cnt++;
   else        tc->shmem->page_spill_read_cnt++;
   tc->shmem->spill_ticks += (ulong)(fd_tickcount()-t0);
@@ -251,12 +257,31 @@ fd_txncache_metrics_snap( fd_txncache_t const *   tc,
   out->frame_used          = shmem->frames_max-fd_ulong_min( FD_VOLATILE_CONST( shmem->frames_free_cnt ), shmem->frames_max );
 }
 
-void *
-fd_txncache_snapin_scratch( fd_txncache_t * tc,
-                            ulong *         out_sz ) {
+FD_STATIC_ASSERT( !(sizeof(fd_txncache_txnpage_t)%FD_TXNCACHE_SNAPIN_STAGE_ALIGN), snapin_stage_align );
+
+void
+fd_txncache_snapin_stage( fd_txncache_t * tc,
+                          ulong           off,
+                          void *          buf,
+                          ulong           sz,
+                          int             write ) {
   FD_TEST_ERR( tc->shmem->txnpages_free_cnt==tc->shmem->txnpages_max );
-  *out_sz = tc->shmem->frames_max*sizeof(fd_txncache_txnpage_t);
-  return tc->txnpages;
+  FD_TEST( fd_ulong_is_aligned( off,        FD_TXNCACHE_SNAPIN_STAGE_ALIGN ) );
+  FD_TEST( fd_ulong_is_aligned( sz,         FD_TXNCACHE_SNAPIN_STAGE_ALIGN ) );
+  FD_TEST( fd_ulong_is_aligned( (ulong)buf, FD_TXNCACHE_SNAPIN_STAGE_ALIGN ) );
+
+  ulong   mem_sz = tc->shmem->frames_max*sizeof(fd_txncache_txnpage_t);
+  uchar * p      = (uchar *)buf;
+  if( off<mem_sz ) {
+    ulong   n   = fd_ulong_min( sz, mem_sz-off );
+    uchar * mem = (uchar *)tc->txnpages+off;
+    if( write ) fd_memcpy( mem, p, n );
+    else        fd_memcpy( p, mem, n );
+    off += n;
+    p   += n;
+    sz  -= n;
+  }
+  if( sz ) spill_rw( tc, off-mem_sz, p, sz, write );
 }
 
 FD_FN_PURE static inline ulong

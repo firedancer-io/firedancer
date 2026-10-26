@@ -195,35 +195,24 @@ void
 fd_txncache_metrics_snap( fd_txncache_t const *   tc,
                           fd_txncache_metrics_t * out );
 
-/* fd_txncache_snapin_scratch returns the txncache's transaction page
-   pool for use as scratch memory during snapshot loading, and sets
-   *out_sz to its size in bytes.
+/* FD_TXNCACHE_SNAPIN_STAGE_ALIGN is the alignment of the offsets,
+   sizes and buffers of fd_txncache_snapin_stage. */
 
-   Between a call to fd_txncache_reset and the first subsequent
-   fd_txncache_insert, the txncache neither reads nor writes page
-   contents.  A page is fully reinitialized when an insert allocates it.
-   A caller that has just reset the txncache may therefore use the
-   region freely until it performs the first insert, at which point the
-   contents should be assumed clobbered. */
+#define FD_TXNCACHE_SNAPIN_STAGE_ALIGN (4096UL)
 
-void *
-fd_txncache_snapin_scratch( fd_txncache_t * tc,
-                            ulong *         out_sz );
+/* fd_txncache_snapin_stage writes (write!=0) or reads sz bytes of buf
+   at byte offset off of a staging area for snapshot loading.  The area
+   is the txncache's frames, then its spill file, which are unused
+   between fd_txncache_reset and the first fd_txncache_insert.  The
+   first insert clobbers it.  off, sz and buf must be multiples of
+   FD_TXNCACHE_SNAPIN_STAGE_ALIGN. */
 
-/* FD_TXNCACHE_SNAPIN_GROUP_SZ is the size of one status cache blockhash
-   group that snapshot loading stages in the scratch region. */
-
-#define FD_TXNCACHE_SNAPIN_GROUP_SZ (40UL)
-
-/* fd_txncache_snapin_scratch_min_sz returns the scratch size snapshot
-   loading needs to stage the status cache, one group per transaction
-   for each slot delta.  max_txn_per_slot is the value passed to
-   fd_txncache_shmem_new, which counts each transaction twice. */
-
-FD_FN_CONST static inline ulong
-fd_txncache_snapin_scratch_min_sz( ulong max_txn_per_slot ) {
-  return FD_TXNCACHE_MAX_SLOT_DELTAS*(max_txn_per_slot/2UL)*FD_TXNCACHE_SNAPIN_GROUP_SZ;
-}
+void
+fd_txncache_snapin_stage( fd_txncache_t * tc,
+                          ulong           off,
+                          void *          buf,
+                          ulong           sz,
+                          int             write );
 
 /* fd_txncache_attach_child notifies the txncache that a new child bank
    has been created, off some parent.  This must be called before any
