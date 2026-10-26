@@ -1787,9 +1787,12 @@ replay_block_complete( fd_replay_tile_t *        ctx,
     /* A bank hash mismatch detected now is only considered a true BHM
        if the block_id also becomes finalized.  If the finalization
        already arrived, ahead of replay, check the parked
-       finalized_block_id_lo/hi. */
+       finalized_block_id_lo/hi.  Rotor may also have detected the block
+       is finalized, on its delivery or a redelivery, so check the
+       block_id_ele. */
     ag_block_id_t const * block_id = &ctx->block_id_arr[ bank->idx ].block_info;
-    if( FD_UNLIKELY( ag_block_id_eq( block_id, &ctx->finalized_block_id_lo ) || ag_block_id_eq( block_id, &ctx->finalized_block_id_hi ) ) ) {
+    if( FD_UNLIKELY( ag_block_id_eq( block_id, &ctx->finalized_block_id_lo ) || ag_block_id_eq( block_id, &ctx->finalized_block_id_hi )
+                     || ctx->block_id_arr[ bank->idx ].finalized ) ) {
       FD_BASE58_ENCODE_32_BYTES( block_id->hash, block_id_b58 );
       FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", block_id->slot, block_id_b58 ));
     }
@@ -3670,6 +3673,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     block_id_ele->slot           = fec->slot;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->fec_cnt        = 0U;
+    block_id_ele->finalized      = 0;
     block_id_ele->block_info     = fec->known_id ? ag_block_id( fec->slot, fec->block_id.uc ) : (ag_block_id_t){ .slot = fec->slot };
 
     /* If this fec 0 is rebuilding an evicted block (recovery redelivery),
@@ -3699,9 +3703,10 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
 
   if( FD_UNLIKELY( fec->slot_complete ) ) {
     FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
-    FD_LOG_INFO(( "slot %lu fec set idx %u slot_bid %s is complete, inserted to map", fec->slot, fec->fec_set_idx, block_id_b58 ));
+    FD_LOG_INFO(( "slot %lu fec set idx %u slot_bid %s is complete, inserted to map. finalized: %d", fec->slot, fec->fec_set_idx, block_id_b58, fec->finalized ));
     block_id_ele->block_id_seen = 1;
     block_id_ele->dmr           = fec->block_id;
+    block_id_ele->finalized     = !!fec->finalized;
 
     /* block is complete and DMR block id is now known so re-key.  The
        map does not support duplicate keys: rotor guarantees at most one
@@ -4157,6 +4162,18 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
       fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( !( ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader ) ) ) return 1; /* pace behind exec notifications, retry */
+
+      /* Rare case where we replayed a slot completely, but on re-delivery
+         we discover the FEC is finalized. */
+      if( FD_UNLIKELY( fec->finalized && fec->slot_complete ) ) {
+        ag_block_id_t key = ag_block_id( fec->slot, fec->block_id.uc );
+        if( FD_UNLIKELY( fd_bhm_map_ele_query( ctx->bhm_map, &key, NULL, ctx->bhm_pool ) ) ) {
+          FD_BASE58_ENCODE_32_BYTES( key.hash, block_id_b58 );
+          FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", key.slot, block_id_b58 ));
+        }
+        fd_block_id_ele_t * ele = live_block_id_ele( ctx, fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr ) );
+        if( FD_LIKELY( ele && ele->block_id_seen ) ) ele->finalized = 1;
+      }
 
       int evict_banks = 0;
       int res = can_process_rotor_fec( ctx, fec, &evict_banks );

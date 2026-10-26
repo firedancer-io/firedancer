@@ -52,11 +52,14 @@ struct fd_block_id_ele {
                                set. */
   ag_block_id_t block_info; /* key for the compound map */
   uint          latest_fec_idx;
-  int           block_id_seen;
   ulong         slot;
   ulong         bank_seq;
   ulong         next;
   uint          fec_cnt;
+  uint          block_id_seen : 1;
+  uint          finalized     : 1; /* set only on slot_complete (block_id_seen) and finalized block.
+                                      Is not consensus critical and does not affect replay order.
+                                      It is only used to detect hard forks. */
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
