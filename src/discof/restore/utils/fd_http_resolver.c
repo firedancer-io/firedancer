@@ -474,6 +474,8 @@ poll_resolve( fd_http_resolver_t *  resolver,
     } else if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_AGAIN ) ) {
       update_events( resolver, pfd, ssresolve );
       return -1;
+    } else if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_ABSENT ) ) {
+      /* Nothing to record, the slot is already FD_SSPEER_SLOT_UNKNOWN. */
     } else if( FD_LIKELY( res==FD_SSRESOLVE_ADVANCE_RESULT ) ) {
       FD_TEST( peer->deadline_nanos>now );
 
