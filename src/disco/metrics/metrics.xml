@@ -219,6 +219,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="6" name="NoNeighbor" label="Next-hop neighbor unresolved" />
     <int value="7" name="RingFull" label="TX ring full or no TX buffer available" />
     <int value="8" name="GreNoRoute" label="GRE tunnel addresses missing or outer route is itself tunnelled" />
+    <int value="9" name="SocketSendFailure" label="Socket send failed or failed to send the entire packet" />
 </enum>
 
 <tile name="net">
@@ -250,6 +251,9 @@ deliberate exception with lint-allow="<rule id>")
     <!-- GRE metrics -->
     <counter name="GrePktRx" summary="GRE packets decapsulated and published; subset of PktRx" />
     <counter name="GrePktTxSubmitted" summary="GRE packet transmit jobs submitted; subset of PktTxSubmitted" />
+
+    <!-- Socket metrics -->
+    <counter name="SocketPktTxSubmitted" summary="Packets sent via a kernel socket instead of the configured provider; subset of PktTxSubmitted" />
     <gauge name="RouteCount" enum="RouteTableType" summary="IPv4 routes installed in the forwarding table" />
 </tile>
 

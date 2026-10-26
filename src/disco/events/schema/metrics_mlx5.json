@@ -110,7 +110,7 @@
             "type": "Tuple",
             "description": "Transmit jobs dropped, by reason",
             "aliases": {
-                "all": ["invalid", "no_route", "unsupported_route", "interface_missing", "unsupported_interface", "source_ip_missing", "no_neighbor", "ring_full", "gre_no_route"]
+                "all": ["invalid", "no_route", "unsupported_route", "interface_missing", "unsupported_interface", "source_ip_missing", "no_neighbor", "ring_full", "gre_no_route", "socket_send_failure"]
             },
             "fields": {
                 "invalid":               { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Invalid packet headers, or GRE packet exceeding the MTU" },
@@ -121,7 +121,8 @@
                 "source_ip_missing":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No source IP address chosen" },
                 "no_neighbor":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Next-hop neighbor unresolved" },
                 "ring_full":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TX ring full or no TX buffer available" },
-                "gre_no_route":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GRE tunnel addresses missing or outer route is itself tunnelled" }
+                "gre_no_route":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GRE tunnel addresses missing or outer route is itself tunnelled" },
+                "socket_send_failure":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Socket send failed or failed to send the entire packet", "field_number": 482779610 }
             }
         },
         "gre_pkt_tx_submitted":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "GRE transmit jobs submitted to the NIC" },

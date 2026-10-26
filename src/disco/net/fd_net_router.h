@@ -105,8 +105,8 @@ fd_net_tx_route( fd_net_router_t *   ctx,
     return 0;
   }
 
-  /* VLAN packets will be Tx'd via a socket and the kernel so do not need to
-     reference the neighbor table. */
+  /* VLAN packets are sent on a socket and routed by the kernel, so
+     they do not need a neighbor table lookup. */
   if( FD_UNLIKELY( netdev->is_vlan ) ) {
     out->use_vlan = 1U;
     return 1;

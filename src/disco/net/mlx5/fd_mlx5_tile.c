@@ -868,7 +868,8 @@ before_frag( fd_mlx5_tile_t * ctx,
   if( route->use_loopback ) target_idx = 0UL;
   if( kind_id!=target_idx ) return 1;
 
-  /* VLAN support is in progress. Drop vlan packets until Tx support is finished.*/
+  /* VLAN TX is not supported yet.  Drop VLAN packets until socket TX
+     support is added to this tile. */
   if( FD_UNLIKELY( route->use_vlan ) ) {
     ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 1;

@@ -194,7 +194,7 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
               netdev->is_vlan = 1U;
             }
             break;
-          } /* INFLA_INFO_KIND */
+          } /* IFLA_INFO_KIND */
           case IFLA_INFO_DATA: {
             if( ifi->ifi_type!=ARPHRD_IPGRE ) continue;
             struct rtattr * gre_rat    = (struct rtattr *)info_rta;

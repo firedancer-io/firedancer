@@ -32,9 +32,10 @@ struct fd_netdev {
   uint   gre_dst_ip;
   uint   gre_src_ip;
 
-  /* 1 if the device is 802.1Q VLAN and 0 otherwise. Packets routed to a VLAN
-     device will be Tx'd via a socket rather than the configured provider.
-     This is inteneded only to be used for votes. */
+  /* is_vlan is 1 if the device is an 802.1Q VLAN and 0 otherwise.
+     Packets routed to a VLAN device are sent on a socket rather than
+     the configured provider.  This is intended only to be used for
+     votes. */
   uint   is_vlan;
 };
 
