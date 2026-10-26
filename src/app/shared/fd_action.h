@@ -78,6 +78,12 @@ union fdctl_args {
   } backtest;
 
   struct {
+    char  topo[ 64 ];
+    ulong at_slot;
+    ulong after;
+  } force_mismatch;
+
+  struct {
     char tile_name[ 7UL ];
     int  no_configure;
   } dev1;
