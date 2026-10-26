@@ -59,6 +59,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int idx_fd;
 
   int acquire_state;
+  int readonly;      /* joined with fd_accdb_join_readonly */
 
   /* Disk index regions in shmem (NULL when disabled) */
   uint *                 idx_seq;
@@ -324,6 +325,7 @@ fd_accdb_new( void *              ljoin,
   accdb->fd = fd;
   accdb->idx_fd = FD_ACCDB_IDX_FD_RW;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->readonly      = 0;
   accdb->sleep         = sleep;
   accdb->sleep_tile_id = sleep_tile_id;
   int idx = !!shmem->idx_page_cnt;
@@ -771,6 +773,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->fd    = fd_ro;
   accdb->idx_fd = FD_ACCDB_IDX_FD_RO;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->readonly      = 1;
   accdb->shmem = shmem;
   accdb->idx_seq    = shmem->idx_page_cnt ? (uint *)( (uchar *)shmem+shmem->idx_seq_off ) : NULL;
   accdb->idx_range  = NULL;
@@ -2746,6 +2749,24 @@ acc_promote( fd_accdb_t *          accdb,
   }
 }
 
+/* acc_find_promote is acc_find for the metadata-only readers.  On a
+   miss a writable join promotes the disk slot, so an account that is
+   read repeatedly stays in memory.  Returns NULL if the account is not
+   in memory and was not promoted (readonly join, not in the disk index,
+   or no room); the caller then reads the disk index directly instead
+   of waiting for eviction. */
+
+static inline fd_accdb_accmeta_t *
+acc_find_promote( fd_accdb_t *       accdb,
+                  fd_accdb_fork_id_t fork_id,
+                  uint               root_generation,
+                  uchar const        pubkey[ 32 ] ) {
+  ulong                map_idx = acc_chain( accdb, pubkey );
+  fd_accdb_accmeta_t * m       = acc_find( accdb, fork_id, root_generation, pubkey, map_idx );
+  if( FD_UNLIKELY( !m && idx_on( accdb ) && !accdb->readonly ) ) acc_promote( accdb, pubkey, map_idx, &m );
+  return m;
+}
+
 #define RESERVATION_TYPE_SIMPLE            (0)
 #define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1)
 #define RESERVATION_TYPE_ALREADY_RESERVED  (2)
@@ -4315,7 +4336,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   FD_HW_MFENCE();
 
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-  fd_accdb_accmeta_t const * m = acc_find( accdb, fork_id, root_generation, pubkey, acc_chain( accdb, pubkey ) );
+  fd_accdb_accmeta_t const * m = acc_find_promote( accdb, fork_id, root_generation, pubkey );
 
   ulong result = 0UL, off; uint size;
   if( FD_LIKELY( m ) )                   result = FD_VOLATILE_CONST( m->lamports );
@@ -4335,7 +4356,7 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
   FD_HW_MFENCE();
 
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-  fd_accdb_accmeta_t const * m = acc_find( accdb, fork_id, root_generation, pubkey, acc_chain( accdb, pubkey ) );
+  fd_accdb_accmeta_t const * m = acc_find_promote( accdb, fork_id, root_generation, pubkey );
 
   ulong result = 0UL, off, lamports = 0UL; uint size = 0U;
   if( FD_LIKELY( m ) ) {

@@ -2222,12 +2222,32 @@ test_idx_demote_promote( void ) {
   FD_TEST( test_shmem_mem->acc_used.val<56UL );
   for( ulong i=0UL; i<60UL; i++ ) FD_TEST( idx_lamports( accdb, pk[ i ] )==1000UL+i );
 
-  /* Read-only paths read through to disk. */
+  /* A readonly join reads through to disk without promoting. */
+  ulong used = test_shmem_mem->acc_used.val;
+  ulong ro_epoch = ULONG_MAX;
+  void * ro_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 8UL, 0 ) );
+  fd_accdb_t * ro = fd_accdb_join_readonly( ro_mem, test_shmem_mem, &ro_epoch, fd );
+  FD_TEST( ro );
+  fd_accdb_set_index_fd( ro, test_idx_fd );
+  FD_TEST( fd_accdb_lamports( ro, root, pk[ 5 ] )==1005UL );
+  FD_TEST( fd_accdb_exists( ro, root, pk[ 6 ] ) );
+  FD_TEST( test_shmem_mem->acc_used.val==used );
+  free( ro_mem );
+
+  /* Metadata reads on a writable join promote, so a repeat read stays
+     in memory. */
+  FD_TEST( fd_accdb_lamports( accdb, root, pk[ 5 ] )==1005UL );
+  FD_TEST( test_shmem_mem->acc_used.val==used+1UL );
   FD_TEST( fd_accdb_lamports( accdb, root, pk[ 5 ] )==1005UL );
   FD_TEST( fd_accdb_exists( accdb, root, pk[ 6 ] ) );
+  FD_TEST( fd_accdb_data_len( accdb, root, pk[ 8 ] )==8UL );
+  FD_TEST( test_shmem_mem->acc_used.val==used+3UL );
+
+  /* nocache reads stay read-through. */
   ulong lamports, data_len; int exec; uchar owner[ 32 ], out[ 64 ];
   FD_TEST( fd_accdb_read_one_nocache( accdb, root, pk[ 7 ], &lamports, &exec, owner, out, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_DISK );
   FD_TEST( lamports==1007UL && data_len==8UL && out[ 0 ]==7 && !memcmp( owner, owner2, 32UL ) );
+  FD_TEST( test_shmem_mem->acc_used.val==used+3UL );
 
   /* Acquire promotes. */
   for( ulong i=0UL; i<60UL; i++ ) {
