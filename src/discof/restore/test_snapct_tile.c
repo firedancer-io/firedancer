@@ -678,8 +678,8 @@ test_rpc_flap_to_invalidated_addr_evicts_selector( fd_ssping_t * ssping ) {
   FD_TEST( fd_ssping_is_invalidated( ctx->ssping, addr_b ) );
 
   /* Gossip flap: the peer now advertises addr_b (the invalidated
-     address).  The selector must evict the stale addr_a entry to stay
-     in sync with the CI table, otherwise log_download would abort. */
+     address).  The selector must evict the stale addr_a entry so the
+     peer cannot be selected at an address it no longer advertises. */
   send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_b );
 
   /* The CI table must reflect the new address. */
