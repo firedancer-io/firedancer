@@ -897,13 +897,13 @@ disk_metrics( fd_diag_tile_t * ctx ) {
   ms[ 1 ] += (uint)f[ 9  ]-(uint)ms[ 1 ];
   ms[ 2 ] += (uint)f[ 10 ]-(uint)ms[ 2 ];
 
-  FD_MCNT_SET  ( DIAG, DISK_READ_BYTES,                       f[ 2 ]*512UL                 );
-  FD_MCNT_SET  ( DIAG, DISK_WRITTEN_BYTES,                    f[ 6 ]*512UL                 );
-  FD_MCNT_SET  ( DIAG, DISK_WRITTEN,                          f[ 4 ]                       );
-  FD_MCNT_SET  ( DIAG, DISK_WRITE_DURATION_NANOS,             (ms[ 0 ]-base[ 0 ])*1000000UL );
-  FD_MCNT_SET  ( DIAG, DISK_BUSY_DURATION_NANOS,              (ms[ 1 ]-base[ 1 ])*1000000UL );
-  FD_MCNT_SET  ( DIAG, DISK_REQUEST_IN_FLIGHT_INTEGRAL_NANOS, (ms[ 2 ]-base[ 2 ])*1000000UL );
-  FD_MGAUGE_SET( DIAG, DISK_REQUEST_IN_FLIGHT,                f[ 8 ]                       );
+  FD_MCNT_SET  ( DIAG, ACCOUNTS_DISK_READ_BYTES,                       f[ 2 ]*512UL                 );
+  FD_MCNT_SET  ( DIAG, ACCOUNTS_DISK_WRITTEN_BYTES,                    f[ 6 ]*512UL                 );
+  FD_MCNT_SET  ( DIAG, ACCOUNTS_DISK_WRITTEN,                          f[ 4 ]                       );
+  FD_MCNT_SET  ( DIAG, ACCOUNTS_DISK_WRITE_DURATION_NANOS,             (ms[ 0 ]-base[ 0 ])*1000000UL );
+  FD_MCNT_SET  ( DIAG, ACCOUNTS_DISK_BUSY_DURATION_NANOS,              (ms[ 1 ]-base[ 1 ])*1000000UL );
+  FD_MCNT_SET  ( DIAG, ACCOUNTS_DISK_REQUEST_IN_FLIGHT_INTEGRAL_NANOS, (ms[ 2 ]-base[ 2 ])*1000000UL );
+  FD_MGAUGE_SET( DIAG, ACCOUNTS_DISK_REQUEST_IN_FLIGHT,                f[ 8 ]                       );
 }
 
 static void
