@@ -10,6 +10,10 @@
 /* Protocol version */
 #define FD_FAILOVER_VERSION (1U)
 
+/* The port a standby dials unless `failover promote --port` gives
+   another.  It is also the default [failover.listen_port]. */
+#define FD_FAILOVER_DEFAULT_PORT ((ushort)8010)
+
 /* Message types */
 #define FD_FAILOVER_MSG_HELLO            (0U)
 #define FD_FAILOVER_MSG_HANDOFF_REQUEST  (1U)

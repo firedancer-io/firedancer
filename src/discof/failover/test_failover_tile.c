@@ -492,7 +492,6 @@ operator_cmd( fd_failover_tile_ctx_t * ctx,
 static void
 test_request_address( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
-  ctx->port        = 8010;
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,3);

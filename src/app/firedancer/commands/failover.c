@@ -427,9 +427,8 @@ failover_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--address",        "<address>", "Only without --force.  The active to ask, an IPv4\n"
                                                              "address or host name, instead of the address gossip shows for it,\n"
                                                              "for example when the active listens on a private network" );
-  fd_action_help_arg( help, "--port",           "<port>",    "Only without --force.  The active's failover port.\n"
-                                                             "Without it we dial our own [failover.listen_port], so both machines\n"
-                                                             "normally use the same port" );
+  fd_action_help_arg( help, "--port",           "<port>",    "Only without --force.  The active's failover port, 8010 by\n"
+                                                             "default" );
 }
 
 static void

@@ -395,7 +395,7 @@ struct fd_votor_tile {
   /* Failover, on when the failover links are in the topology */
 
   int         failover_enabled;         /* the topology has the failover links */
-  int         normal_startup;           /* ordinary voting until the first failover adoption */
+  int         failover_engaged;         /* failover voting rules apply, from boot on a standby, from the first adoption on a client */
   fd_pubkey_t boot_id_key;              /* the identity we booted with, the junk key under failover */
   int         failover_hist_adopted;    /* a history, possibly empty, was adopted since the last switch */
   int         vote_authority;           /* our rank may be installed, 0 keeps us unranked */
@@ -1185,7 +1185,7 @@ update_own_bls_key( fd_votor_tile_t * ctx ) {
     for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
       if( FD_UNLIKELY( !memcmp( epoch_info->validators[ rank ].id_key, ctx->id_key.uc, sizeof(ag_id_key_t) ) ) ) own_rank = (ushort)rank;
     }
-    if( FD_UNLIKELY( ctx->failover_enabled && !ctx->vote_authority ) ) own_rank = USHORT_MAX; /* under failover we stay unranked while we may not vote */
+    if( FD_UNLIKELY( ctx->failover_enabled && !ctx->vote_authority ) ) own_rank = USHORT_MAX; /* with failover we stay unranked while we may not vote */
     uchar const * own_bls_key = NULL; /* NULL if we are not ranked or cannot sign with our key, in which case we do not vote */
     if( FD_LIKELY( own_rank!=USHORT_MAX ) ) {
       ag_validator_info_t const * validator = &epoch_info->validators[ own_rank ];
@@ -1376,12 +1376,23 @@ publish_hist( fd_votor_tile_t *   ctx,
   msg->replay_slot = ctx->highest_completed_slot ? ctx->highest_completed_slot : ULONG_MAX;
   msg->root_slot   = ctx->root_slot;
   msg->has_vote    = has_vote;
-  /* Preserve the identity switch floor for the next adopter. */
-  if( FD_UNLIKELY( ctx->vote_history_slot ) ) ag_votor_set_vote_bound( ctx->votor, ctx->vote_history_slot-1UL );
-  msg->truncated   = ag_votor_hist_export( ctx->votor, leader_floor( ctx ), &msg->hist );
+  if( FD_LIKELY( !ctx->failover_engaged ) ) {
+    /* Until failover engages we hand off nothing and the failover tile
+       only reads our replay slots, so we skip the export and keep the
+       plain voting rules. */
+    msg->hist.anchor           = 0UL;
+    msg->hist.last_leader_slot = ULONG_MAX;
+    msg->hist.vote_bound       = ULONG_MAX;
+    msg->hist.rec_cnt          = 0UL;
+    msg->truncated             = 0;
+  } else {
+    /* Preserve the identity switch floor for the next adopter. */
+    if( FD_UNLIKELY( ctx->vote_history_slot ) ) ag_votor_set_vote_bound( ctx->votor, ctx->vote_history_slot-1UL );
+    msg->truncated = ag_votor_hist_export( ctx->votor, leader_floor( ctx ), &msg->hist );
+    if( FD_UNLIKELY( msg->truncated && !ctx->hist_was_truncated ) ) FD_LOG_WARNING(( "vote history export dropped windows below slot %lu, finality is far behind our votes", ag_hist_first_slot( msg->hist.anchor ) ));
+    ctx->hist_was_truncated = msg->truncated;
+  }
   msg->vote_slot   = ag_hist_tip( &msg->hist ); /* the failover tile checks the history ends here */
-  if( FD_UNLIKELY( msg->truncated && !ctx->hist_was_truncated ) ) FD_LOG_WARNING(( "vote history export dropped windows below slot %lu, finality is far behind our votes", ag_hist_first_slot( msg->hist.anchor ) ));
-  ctx->hist_was_truncated = msg->truncated;
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->hist_out_idx, FD_VOTOR_HIST_SIG, ctx->hist_out_chunk, sizeof(fd_votor_hist_msg_t), 0UL, tspub, tspub );
   ctx->hist_out_chunk = fd_dcache_compact_next( ctx->hist_out_chunk, sizeof(fd_votor_hist_msg_t), ctx->hist_out_chunk0, ctx->hist_out_wmark );
@@ -1448,7 +1459,7 @@ failover_adopt_hist( fd_votor_tile_t * ctx,
 
   /* Reject a history older than the votes we sent as the staked identity. */
   result.result = FD_VOTOR_ADOPT_ERR_STALE;
-  if( FD_UNLIKELY( !ctx->normal_startup && ctx->last_vote_slot!=ULONG_MAX && tip<ctx->last_vote_slot ) ) {
+  if( FD_UNLIKELY( ctx->failover_engaged && ctx->last_vote_slot!=ULONG_MAX && tip<ctx->last_vote_slot ) ) {
     FD_LOG_WARNING(( "failover: refusing a vote history through slot %lu, this machine already voted as this identity through slot %lu", tip, ctx->last_vote_slot ));
     return result;
   }
@@ -1482,22 +1493,25 @@ failover_adopt_hist( fd_votor_tile_t * ctx,
 /* Applies the failover voting rule at the end of an identity switch. */
 static void
 failover_switched( fd_votor_tile_t * ctx ) {
-  /* Skip leader windows this identity may already have led. */
+  /* Skip leader windows this identity may already have led.  Until
+     failover engages, set-identity keeps its plain rules. */
   ulong floor = leader_floor( ctx );
-  if( FD_UNLIKELY( floor!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( ctx->failover_engaged && floor!=ULONG_MAX ) ) {
     ulong next_window  = ag_first_slot_in_window( ctx->highest_parent_ready_slot )+AG_SLOTS_PER_WINDOW;
     ulong floor_window = ag_first_slot_in_window( floor )+AG_SLOTS_PER_WINDOW;
     if( FD_UNLIKELY( floor_window>next_window ) ) {
       ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, floor_window ), ctx->vote_history_slot ), &ctx->id_key );
     }
   }
-  FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
   int operator = !!FD_VOLATILE_CONST( ctx->id_keyswitch->operator );
   int standby  = fd_pubkey_eq( &ctx->id_key, &ctx->boot_id_key );
-  ctx->vote_authority = ( ctx->normal_startup && operator ) || ( !standby && ( operator || ctx->failover_hist_adopted ) );
-  FD_LOG_NOTICE(( "failover: switched to identity `%s`%s, this machine is now %s", id_key_b58, operator ? " by set-identity" : "",
-                  ctx->vote_authority ? "the active voter" : "a standby" ));
-  if( FD_UNLIKELY( !operator && !standby && !ctx->failover_hist_adopted ) ) FD_LOG_WARNING(( "failover: the staked identity was installed without an adopted vote history, refusing to vote until an adoption precedes an identity switch" ));
+  ctx->vote_authority = ( !ctx->failover_engaged && operator ) || ( !standby && ( operator || ctx->failover_hist_adopted ) );
+  if( FD_UNLIKELY( ctx->failover_engaged ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
+    FD_LOG_NOTICE(( "failover: switched to identity `%s`%s, this machine is now %s", id_key_b58, operator ? " by set-identity" : "",
+                    ctx->vote_authority ? "the active voter" : "a standby" ));
+    if( FD_UNLIKELY( !operator && !standby && !ctx->failover_hist_adopted ) ) FD_LOG_WARNING(( "failover: the staked identity was installed without an adopted vote history, refusing to vote until an adoption precedes an identity switch" ));
+  }
   ctx->failover_hist_adopted = 0;
   ctx->id_keyswitch->result  = ctx->hist_seq;
 }
@@ -1510,23 +1524,28 @@ failover_slot_completed( fd_votor_tile_t *                  ctx,
   if( FD_LIKELY( slot_completed->root_slot!=ULONG_MAX ) ) ctx->root_slot = slot_completed->root_slot;
 }
 
-/* Records a vote we cast and publishes the history, marking the vote
-   unsent if it never left the machine. */
+/* Records a vote we cast.  Once failover engages it also marks a vote
+   that never left the machine unsent and publishes the history.  Until
+   then the plain voting rules apply and nothing is published here, our
+   replay slots go out as replay completes. */
 static void
 failover_after_vote( fd_votor_tile_t *   ctx,
                      fd_stem_context_t * stem,
                      ulong               vote_slot,
                      int                 sent ) {
   if( FD_LIKELY( sent && ( ctx->last_vote_slot==ULONG_MAX || vote_slot>ctx->last_vote_slot ) ) ) ctx->last_vote_slot = vote_slot;
+  if( FD_LIKELY( !ctx->failover_engaged ) ) return;
   if( FD_UNLIKELY( !sent ) ) ag_votor_mark_unsent( ctx->votor, &ctx->scratch.vote );
   publish_hist( ctx, stem, sent );
 }
 
-/* Records our LEADER and publishes the history. */
+/* Records our LEADER.  Once failover engages it also publishes the
+   history. */
 static void
 failover_after_leader( fd_votor_tile_t *   ctx,
                        fd_stem_context_t * stem ) {
   ctx->last_leader_slot = ctx->next_leader_slot;
+  if( FD_LIKELY( !ctx->failover_engaged ) ) return;
   publish_hist( ctx, stem, 0 );
 }
 
@@ -1560,7 +1579,7 @@ failover_init( fd_votor_tile_t *      ctx,
   /* A configured standby waits for a switch.  An outgoing client keeps
      ordinary voting until its first successful adoption. */
   ctx->boot_id_key              = ctx->id_key;
-  ctx->normal_startup           = !tile->votor.failover_standby;
+  ctx->failover_engaged         = !!tile->votor.failover_standby;
   ctx->vote_authority           = !tile->votor.failover_standby;
   ctx->failover_hist_adopted    = 0;
   ctx->hist_was_truncated       = 0;
@@ -1590,7 +1609,7 @@ failover_adopt_answer( fd_votor_tile_t *   ctx,
                        ulong               sig,
                        fd_stem_context_t * stem ) {
   fd_votor_adopt_result_t result;
-  if( FD_UNLIKELY( !fd_pubkey_eq( &ctx->id_key, &ctx->boot_id_key ) || ( ctx->vote_authority && !ctx->normal_startup ) ) ) {
+  if( FD_UNLIKELY( !fd_pubkey_eq( &ctx->id_key, &ctx->boot_id_key ) || ( ctx->vote_authority && ctx->failover_engaged ) ) ) {
     FD_LOG_WARNING(( "failover: refusing a vote history adoption outside standby or client startup" ));
     result = (fd_votor_adopt_result_t){ .result=FD_VOTOR_ADOPT_ERR_INVALID, .root=ULONG_MAX, .vote_slot=ULONG_MAX, .vote_bound=ULONG_MAX };
   } else {
@@ -1598,7 +1617,7 @@ failover_adopt_answer( fd_votor_tile_t *   ctx,
        their whole windows so the target cannot finalize them.  Export
        the bound with future histories so another machine preserves it. */
     ulong client_bound = ULONG_MAX;
-    if( FD_UNLIKELY( ctx->normal_startup ) ) {
+    if( FD_UNLIKELY( !ctx->failover_engaged ) ) {
       ag_hist_t local;
       ag_votor_hist_export( ctx->votor, ULONG_MAX, &local );
       ulong tip = ag_hist_tip( &local );
@@ -1606,7 +1625,7 @@ failover_adopt_answer( fd_votor_tile_t *   ctx,
     }
     result = failover_adopt_hist( ctx, ctx->adopt_req, ctx->adopt_req_sz );
     if( FD_LIKELY( result.result==FD_VOTOR_ADOPT_SUCCESS ) ) {
-      if( FD_UNLIKELY( ctx->normal_startup ) ) {
+      if( FD_UNLIKELY( !ctx->failover_engaged ) ) {
         if( client_bound!=ULONG_MAX ) {
           ag_votor_set_vote_bound( ctx->votor, client_bound );
           raise_leader_floor( ctx, client_bound );
@@ -1614,7 +1633,7 @@ failover_adopt_answer( fd_votor_tile_t *   ctx,
         }
         ctx->last_vote_slot = ULONG_MAX;
       }
-      ctx->normal_startup = 0;
+      ctx->failover_engaged = 1;
       ctx->vote_authority = 0;
       update_own_rank( ctx );
       update_own_bls_key( ctx );
@@ -2690,7 +2709,7 @@ before_frag( fd_votor_tile_t * ctx,
   case IN_KIND_FAILOV:
     /* Drain votes and pool events produced under the boot identity
        before changing the history or removing its rank. */
-    if( FD_UNLIKELY( ctx->normal_startup && ctx->init &&
+    if( FD_UNLIKELY( !ctx->failover_engaged && ctx->init &&
                      ( ag_votor_metrics( ctx->votor ).vote_events_cnt || ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) ) return -1;
     return 0;
   default:

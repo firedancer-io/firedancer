@@ -561,7 +561,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",   "sign_repair",   256UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   if( FD_UNLIKELY( failover_enabled ) ) {
-    /**/               fd_topob_link( topo, "failov_sign",   "failov_sign",   128UL,                                    130UL,                         1UL ); /* member certificate or TLS 1.3 CertificateVerify payload */
+    /**/               fd_topob_link( topo, "failov_sign",   "failov_sign",   128UL,                                    130UL,                         1UL );
     /**/               fd_topob_link( topo, "sign_failov",   "sign_failov",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
   }
 
@@ -667,7 +667,6 @@ fd_topo_initialize( config_t * config ) {
   }
 
   fd_topo_tile_t * admin_tile = fd_topob_tile( topo, "admin", "admin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
-  if( FD_UNLIKELY( failover_enabled ) ) fd_topob_tile( topo, "failov", "failov", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
   FOR(gossvf_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
@@ -783,18 +782,8 @@ fd_topo_initialize( config_t * config ) {
     if( !config->tiles.gui.enabled ) {
                        fd_topob_tile_out(   topo, "gossip",  0UL,                       "gossip_ciseen", 0UL                                                );
     }
-    /* Failover cannot backpressure validator work.  An input overrun
-       disables failover until restart instead of trusting stale state. */
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "gossip_ciseen", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* contact infos for the peer's address */
     /**/               fd_topob_tile_out(   topo, "admin",   0UL,                       "admin_failov",  0UL                                                );
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "admin_failov",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_admin",  0UL                                                );
     /**/               fd_topob_tile_in (   topo, "admin",   0UL,          "metric_in", "failov_admin",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  }
-  if( FD_UNLIKELY( failover_enabled ) ) {
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_hist",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_votor",  0UL                                                );
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_failov",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
 
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "execrp",  i,            "metric_in", "replay_execrp", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -947,8 +936,6 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_UNLIKELY( failover_enabled ) ) {
     /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "failov_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_sign",  0UL                                                  );
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "sign_failov",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_failov",  0UL                                                  );
   }
 
@@ -1103,17 +1090,31 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
+  if( FD_UNLIKELY( failover_enabled ) ) {
+    /**/               fd_topob_tile(       topo, "failov",  "failov",  "metric_in",  ULONG_MAX, 0, 0, 0 );
+
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "gossip_ciseen", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "admin_failov",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_admin",  0UL                                                );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_hist",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_votor",  0UL                                                );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_failov",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_sign",   0UL                                                );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "sign_failov",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  }
+  ulong pinned_tile_cnt = topo->tile_cnt - (ulong)!!failover_enabled;
+
   if( FD_LIKELY( !is_auto_affinity ) ) {
-    if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
+    if( FD_UNLIKELY( affinity_tile_cnt<pinned_tile_cnt ) )
       FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
                    "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
                    "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
-                   topo->tile_cnt, affinity_tile_cnt ));
-    if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
+                   pinned_tile_cnt, affinity_tile_cnt ));
+    if( FD_UNLIKELY( affinity_tile_cnt>pinned_tile_cnt ) )
       FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
                        "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
                        "individual tile counts in the [layout] section of the configuration file.",
-                       topo->tile_cnt, affinity_tile_cnt ));
+                       pinned_tile_cnt, affinity_tile_cnt ));
   } else {
     ushort blocklist_cores[ FD_TILE_MAX ];
     topo->blocklist_cores_cnt = fd_topob_parse_affinity_cstr( config->layout.blocklist_cores, blocklist_cores, 0, 0 );
@@ -1162,8 +1163,6 @@ fd_topo_initialize( config_t * config ) {
     /**/             fd_topob_tile_in (   topo, "rpc",    0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   }
 
-  /* failov_votor has to come before the unpolled sign_votor, the votor looks
-     up in_kind by polled input index. */
   if( FD_UNLIKELY( failover_enabled ) ) {
     /**/             fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "failov_votor",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     /**/             fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_hist",    0UL                                                  );
@@ -1435,10 +1434,6 @@ wfs_decode_bank_hash( fd_config_t const * config,
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
-  /* Failover machines boot under the junk identity, only a promotion or
-     set-identity installs a voting key.  A demoted machine rebooting under the
-     staked key would make the doppelganger rule shut down the promoted
-     peer instead. */
   char const * identity_key_path = config->firedancer.failover.enabled && fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX
                                  ? FD_KEYLOAD_FAILOVER_JUNK
                                  : config->paths.identity_key;

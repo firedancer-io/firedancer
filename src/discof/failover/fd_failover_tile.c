@@ -197,8 +197,7 @@ struct fd_failover_tile_ctx {
   fd_failover_hello_t     hello;       /* the HELLO we send */
   ulong                   role;        /* FD_FAILOVER_ROLE_* */
   uint                    cmd_addr;    /* from `failover promote --address`, 0 when gossip finds the active */
-  ushort                  cmd_port;    /* from `failover promote --port`, 0 for our own port */
-  ushort                  port;        /* our failover listen port */
+  ushort                  cmd_port;    /* from `failover promote --port`, 0 for the default port */
   fd_failover_channel_t * channel;     /* the TLS channel to the peer */
   fd_failover_session_t   session;     /* the session we last saw on the channel */
   long                    poll_at;     /* next idle socket poll */
@@ -392,7 +391,6 @@ privileged_init( fd_topo_t const *      topo,
                  fd_hex_decode( ctx->hello.commit, fd_commit_ref_cstr, sizeof(ctx->hello.commit) )!=sizeof(ctx->hello.commit) ) ) {
     fd_memset( ctx->hello.commit, 0, sizeof(ctx->hello.commit) );
   }
-  ctx->port = tile->failov.port;
 
   ctx->own_gossip = tile->failov.gossip_addr;
   if( FD_UNLIKELY( tile->failov.gossip_host[ 0 ]!='\0' ) ) {
@@ -537,10 +535,10 @@ sync_session( fd_failover_tile_ctx_t * ctx ) {
 }
 
 /* Returns the port a handoff dials, from `failover promote --port` if
-   given, else our own. */
+   given, else the default port. */
 static inline ushort
 dial_port( fd_failover_tile_ctx_t const * ctx ) {
-  return ctx->cmd_port ? ctx->cmd_port : ctx->port;
+  return ctx->cmd_port ? ctx->cmd_port : FD_FAILOVER_DEFAULT_PORT;
 }
 
 static void
@@ -1942,7 +1940,7 @@ preconnect( fd_failover_tile_ctx_t * ctx,
               now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS;
   if( !ready ) fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
   else if( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED )
-    fd_failover_channel_init_dialer( ctx->channel, ctx->staked_addr, ctx->port );
+    fd_failover_channel_init_dialer( ctx->channel, ctx->staked_addr, FD_FAILOVER_DEFAULT_PORT );
 }
 
 /* An operator command is required before sending a handoff request. */
@@ -2217,7 +2215,7 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
   resp->peer_boot_id   = ctx->session.peer_boot_id;
   resp->peer_addr      = ctx->request.id ? ctx->request.addr : ctx->staked_addr;
   resp->peer_addr_cmd  = (uchar)( ctx->request.id && ctx->cmd_addr );
-  resp->peer_port      = ctx->request.id ? dial_port( ctx ) : ctx->port;
+  resp->peer_port      = ctx->request.id ? dial_port( ctx ) : FD_FAILOVER_DEFAULT_PORT;
   resp->handoff_id     = ctx->last_requested ? ctx->request.last_id : ctx->handoff.id;
   resp->handoff_result = (uchar)( ctx->last_requested ? ctx->request.result : ctx->handoff.result );
   resp->promote_source = (uchar)promote_source( ctx );

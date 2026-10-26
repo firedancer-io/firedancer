@@ -1755,6 +1755,7 @@ hist_setup( fd_votor_tile_t * ctx ) {
   ctx->boot_id_key              = ctx->id_key;
   ctx->curr_epoch_info          = epoch_info;
   ctx->failover_enabled         = 1;
+  ctx->failover_engaged         = 1;
   ctx->hist_out_idx             = ULONG_MAX;
   ctx->failov_out_idx           = ULONG_MAX;
   ctx->last_leader_slot         = ULONG_MAX;
@@ -2805,7 +2806,7 @@ test_failover_off( void ) {
   hist_teardown( &ctx );
 }
 
-/* Test that under failover the staked key votes only after an adoption or
+/* Test that with failover the staked key votes only after an adoption or
    set-identity, and the junk key never does. */
 
 static void
@@ -2920,7 +2921,7 @@ test_adopt_refused_while_voting( void ) {
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
 
   /* A client retains its old authority if the imported slots cannot fit. */
-  ctx.normal_startup = 1;
+  ctx.failover_engaged = 0;
   ag_hist_t hist = { .anchor = 12UL, .last_leader_slot = 80UL, .vote_bound = 83UL, .rec_cnt = AG_HIST_MAX };
   for( ulong i=0UL; i<hist.rec_cnt; i++ ) {
     hist.rec[ i ].slot  = 32UL+i;
@@ -2932,13 +2933,13 @@ test_adopt_refused_while_voting( void ) {
   reply = fd_chunk_to_laddr_const( reply_mem, mcache[1].chunk );
   FD_TEST( seqs[0]==2UL && mcache[1].sig==902UL );
   FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_CAPACITY && !ctx.failover_hist_adopted );
-  FD_TEST( ctx.normal_startup && ctx.vote_authority );
+  FD_TEST( !ctx.failover_engaged && ctx.vote_authority );
   FD_TEST( ctx.adopted_last_leader_slot==ULONG_MAX );
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
   FD_TEST( ag_votor_metrics( ctx.votor ).highest_final_cert_slot==0UL );
   FD_TEST( ag_votor_metrics( ctx.votor ).slot_state_pool_free==free );
 
-  ctx.normal_startup = 0;
+  ctx.failover_engaged = 1;
   ctx.vote_authority = 0;
   FD_STORE( ulong, ctx.adopt_req, 9UL );
   ctx.adopt_req_sz = FD_VOTOR_ADOPT_EMPTY_SZ;
