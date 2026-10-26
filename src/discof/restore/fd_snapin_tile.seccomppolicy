@@ -5,7 +5,10 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd
+#
+# accounts_idx_fd: The accounts index file (accounts.db-index), read
+#                  to find rooted accounts that are not in memory.
+uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint accounts_idx_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -30,14 +33,21 @@ exit: (eq (arg 0) 0)
 # Tile 0 reads SlotHistory and feature accounts from the database.
 #
 # arg 0 is the file descriptor to read from.
-preadv2: (eq (arg 0) accounts_fd)
+preadv2: (or (eq (arg 0) accounts_fd)
+             (eq (arg 0) accounts_idx_fd))
+
+# accounts index: spill and build the index of a full snapshot
+pwritev2: (eq (arg 0) accounts_idx_fd)
 
 # accounts database: allocate more space from the disk
 #
 # The accounts database allocates more space from the underlying storage
-# device in chunks, as it runs out.
-fallocate: (and (eq (arg 0) accounts_fd)
-                (eq (arg 1) 0))
+# device in chunks, as it runs out.  The index build punches out its
+# spill (FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
+fallocate: (or (and (eq (arg 0) accounts_fd)
+                    (eq (arg 1) 0))
+               (and (eq (arg 0) accounts_idx_fd)
+                    (eq (arg 1) 3)))
 
 # stake delegations: full root and fork-delta records spilled beyond
 # the in-memory delegation pools.

@@ -622,7 +622,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   uint accounts_fd = !tile->genesi.entrypoints_cnt ? (uint)FD_ACCDB_FD_RW : (uint)-1;
   uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
   uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
-  populate_sock_filter_policy_fd_genesi_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), in_fd, out_fd, out_dir_fd, accounts_fd, epoll_inner_fd, epoll_outer_fd );
+  populate_sock_filter_policy_fd_genesi_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), in_fd, out_fd, out_dir_fd, accounts_fd, epoll_inner_fd, epoll_outer_fd, FD_ACCDB_IDX_FD_RW );
   return sock_filter_policy_fd_genesi_tile_instr_cnt;
 }
 
@@ -636,7 +636,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<tile->genesi.entrypoints_cnt+8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<tile->genesi.entrypoints_cnt+9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -646,6 +646,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
   if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) )
     out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+  if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) )
+    out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW; /* accounts index */
 
   if( FD_UNLIKELY( -1==ctx->in_fd ) ) {
     FD_TEST( -1!=ctx->out_dir_fd );

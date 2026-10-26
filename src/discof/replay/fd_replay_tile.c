@@ -4757,7 +4757,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD, FD_EPOCH_CREDITS_FD, FD_COST_TRACKER_FD, FD_VOTE_STAKES_FD );
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD, FD_EPOCH_CREDITS_FD, FD_COST_TRACKER_FD, FD_VOTE_STAKES_FD, FD_ACCDB_IDX_FD_RW );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
@@ -4769,13 +4769,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW; /* accounts index */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = FD_EPOCH_CREDITS_FD; /* epoch credits disk spill */
   out_fds[ out_cnt++ ] = FD_COST_TRACKER_FD; /* cost tracker disk spill */

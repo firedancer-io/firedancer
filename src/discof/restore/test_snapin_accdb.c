@@ -117,13 +117,13 @@ test_env_init( test_env_t * env,
 
   ulong shmem_fp = fd_accdb_shmem_footprint( TEST_MAX_ACCOUNTS, 16UL, 128UL, 32UL,
                                              TEST_CACHE_FOOTPRINT, 2UL,
-                                             worker_cnt, 0UL );
+                                             worker_cnt, 0UL, 0UL );
   env->shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( env->shmem_mem );
   env->shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( env->shmem_mem, TEST_MAX_ACCOUNTS, 16UL, 128UL, 32UL,
                           TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 2UL,
-                          0, 42UL, worker_cnt, 0UL ) );
+                          0, 42UL, worker_cnt, 0UL, 0UL ) );
   FD_TEST( env->shmem );
 
   env->snapin_shmem_mem = aligned_alloc( alignof(fd_snapin_shmem_t), sizeof(fd_snapin_shmem_t) );

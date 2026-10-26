@@ -338,7 +338,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<5UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
@@ -346,6 +346,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = ctx->snap_dir_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
   out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
+  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RO; /* accounts index */
   for( uint i=0U; i<ctx->snap_max; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_FD( i ); /* snapshot pool */
   return out_cnt;
@@ -363,7 +364,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)ctx->snap_dir_fd,
       (uint)FD_SNAP_FD( 0 ), (uint)FD_SNAP_FD( ctx->snap_max-1U ),
       (uint)FD_ACCDB_FD_RO,
-      (uint)FD_VOTE_STAKES_FD );
+      (uint)FD_VOTE_STAKES_FD,
+      (uint)FD_ACCDB_IDX_FD_RO );
   return sock_filter_policy_fd_snapmk_tile_instr_cnt;
 }
 
@@ -435,6 +437,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
   fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq );
+  if( accdb_shmem_ro->idx_page_cnt ) ctx->acc_cache->idx.accdb = ctx->accdb;
   {
     FD_SCRATCH_ALLOC_INIT( l, accdb_shmem_ro );
     FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN, sizeof(fd_accdb_shmem_t) );
@@ -1986,8 +1989,9 @@ snaprd_frag( fd_snapmk_t *       ctx,
       fd_backup_disk_msg_t * frag = zp_alloc( ctx, out_idx, sizeof(fd_backup_disk_msg_t), &out_chunk );
       memcpy( frag->pubkey.uc, parse->meta.pubkey, sizeof(fd_pubkey_t) );
       memcpy( frag->owner.uc,  parse->meta.owner,  sizeof(fd_pubkey_t) );
-      frag->size    = parse->meta.size;
+      frag->size    = parse->acc_size;
       frag->acc_idx = parse->acc_idx;
+      frag->lamports = parse->acc_lamports;
       frag->snap_sz = parse->acc_snap_sz;
       frag->data_sz = (uint)meta->tspub;
       out_sz = sizeof(fd_backup_disk_msg_t);

@@ -9,6 +9,7 @@
    or UINT_MAX for "end of chain". */
 
 #include "../../flamenco/accdb/fd_accdb_private.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 #include "../../util/fd_hash32.h"
 
 struct fd_backup_accidx {
@@ -22,6 +23,8 @@ struct fd_backup_accidx {
   ulong const * epoch;      /* accdb global epoch */
 
   uint root_generation;     /* newest generation in the snapshot */
+
+  fd_accdb_t * accdb;       /* readonly join for disk index queries, NULL if disabled */
 };
 
 typedef struct fd_backup_accidx fd_backup_accidx_t;

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /* test_backup_disk.c exercises fd_snapmk_accparse_lookup, the accdb
    index lookup that decides which on-disk account records make it into
    a snapshot.  Drives it against a hand-built acc_map/acc_pool rather
@@ -5,6 +6,10 @@
    to provoke in situ can be set up directly. */
 
 #include "fd_backup_disk.h"
+
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/mman.h>
 
 #define MAX_ACCOUNTS  256UL
 #define CHAIN_CNT      64UL /* power of 2 */
@@ -82,8 +87,11 @@ index_add( uint          ele,
 static uint
 lookup1( ulong chain,
          ulong file_off ) {
-  uint acc_idx[ 2 ] = { 0xdeadbeefU, 0xfeedfaceU };
-  fd_snapmk_accparse_lookup( parse, &chain, &file_off, acc_idx, 1UL );
+  uint          acc_idx[ 2 ] = { 0xdeadbeefU, 0xfeedfaceU };
+  ulong         lamports[ 2 ];
+  uint          size[ 2 ];
+  uchar const * pubkey = NULL; /* only read with a disk index */
+  fd_snapmk_accparse_lookup( parse, &pubkey, &chain, &file_off, acc_idx, lamports, size, 1UL );
   FD_TEST( acc_idx[ 1 ]==0xfeedfaceU ); /* must not write past cnt */
   return acc_idx[ 0 ];
 }
@@ -194,12 +202,15 @@ test_full_batch( void ) {
   }
 
   /* same records, one batch, fresh visited set */
+  uchar const * pubkeys [ FD_BACKUP_DISK_PARA ] = {0};
+  ulong         lamports[ FD_BACKUP_DISK_PARA ];
+  uint          sizes   [ FD_BACKUP_DISK_PARA ];
   visited_set_null( parse->visited_set );
-  fd_snapmk_accparse_lookup( parse, chain, file_off, batched, FD_BACKUP_DISK_PARA );
+  fd_snapmk_accparse_lookup( parse, pubkeys, chain, file_off, batched, lamports, sizes, FD_BACKUP_DISK_PARA );
   for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) FD_TEST( batched[ i ]==expected[ i ] );
 
   /* replaying the batch must now find everything already claimed */
-  fd_snapmk_accparse_lookup( parse, chain, file_off, batched, FD_BACKUP_DISK_PARA );
+  fd_snapmk_accparse_lookup( parse, pubkeys, chain, file_off, batched, lamports, sizes, FD_BACKUP_DISK_PARA );
   for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) FD_TEST( batched[ i ]==UINT_MAX );
 }
 
@@ -484,6 +495,72 @@ test_padding_record_skipped( void ) {
   FD_TEST( !parse->data_sz );
 }
 
+/* test_disk_index: records found only in the accdb disk index are
+   claimed by offset, unless a rooted RAM version supersedes them.
+   Promoted copies never claim a record. */
+
+static void
+test_disk_index( void ) {
+  int fd     = memfd_create( "accdb", 0 );
+  int idx_fd = memfd_create( "accdb_idx", 0 );
+  FD_TEST( fd>=0 && idx_fd>=0 );
+  ulong cache_fp = 32UL<<20;
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), fd_accdb_shmem_footprint( 1024UL, 8UL, 64UL, 8UL, cache_fp, 2UL, 1UL, 0UL, 64UL ) );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, 1024UL, 8UL, 64UL, 8UL, 11UL<<20, cache_fp, 2UL, 0, 1UL, 1UL, 0UL, 64UL ) );
+  FD_TEST( shmem );
+  void * join_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 8UL, 0 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( join_mem, shmem, fd, 0UL, NULL, NULL, 0UL, 0 ) );
+  FD_TEST( accdb );
+  fd_accdb_set_index_fd( accdb, idx_fd );
+  fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
+
+  uchar pk[ 2 ][ 32 ] = { { 0x71 }, { 0x72 } };
+  ulong off[ 2 ];
+  fd_accdb_snapshot_load_begin( accdb );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_accdb_disk_meta_t meta = {0};
+    memcpy( meta.pubkey, pk[ i ], 32UL );
+    off[ i ] = fd_accdb_snapshot_reserve_write( accdb, sizeof(meta), 0UL );
+    FD_TEST( pwrite( fd, &meta, sizeof(meta), (long)off[ i ] )==(long)sizeof(meta) );
+    uchar const * pks[ 1 ] = { pk[ i ] };
+    ulong slot = 1UL, lamports = 50UL+i, data_len = 0UL, ign, rep, load, rl, il;
+    int   exec = (int)i;
+    uchar result;
+    FD_TEST( !fd_accdb_snapshot_write_batch( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX }, 1UL, pks, &slot, &lamports, &data_len, &exec,
+                                             &off[ i ], &ign, &rep, &load, &rl, &il, &result ) );
+  }
+  ulong dup_cnt, dup_lamports;
+  fd_accdb_snapshot_index_build( accdb, &dup_cnt, &dup_lamports );
+  fd_accdb_snapshot_load_end( accdb );
+
+  env_reset();
+  parse->idx.accdb = accdb;
+  uchar const * pks[ 2 ] = { pk[ 0 ], pk[ 1 ] };
+  ulong chain[ 2 ]  = { fd_backup_accidx_chain( &parse->idx, pk[ 0 ] ), fd_backup_accidx_chain( &parse->idx, pk[ 1 ] ) };
+  ulong wrong[ 2 ]  = { off[ 0 ]+1UL, off[ 1 ]+1UL };
+  uint  acc_idx[ 2 ];
+  ulong lamports[ 2 ];
+  uint  size[ 2 ];
+
+  fd_snapmk_accparse_lookup( parse, pks, chain, wrong, acc_idx, lamports, size, 2UL );
+  FD_TEST( acc_idx[ 0 ]==UINT_MAX && acc_idx[ 1 ]==UINT_MAX );
+
+  /* pk0 has a newer rooted RAM version, pk1 a promoted copy. */
+  index_add( 0U, chain[ 0 ], pk[ 0 ], ROOT_GEN, 9UL, 0x9000UL );
+  uint copy = index_add( 1U, chain[ 1 ], pk[ 1 ], ROOT_GEN, 51UL, off[ 1 ] );
+  acc_pool[ copy ].offset_fork = fd_accdb_acc_pack_offset_fork( off[ 1 ], FD_ACCDB_FORK_ID_DISK );
+  fd_snapmk_accparse_lookup( parse, pks, chain, off, acc_idx, lamports, size, 2UL );
+  FD_TEST( acc_idx[ 0 ]==UINT_MAX );
+  FD_TEST( acc_idx[ 1 ]==FD_BACKUP_ACC_IDX_DISK && lamports[ 1 ]==51UL && FD_ACCDB_SIZE_EXEC( size[ 1 ] ) );
+  FD_TEST( !visited_set_test( parse->visited_set, copy ) );
+
+  parse->idx.accdb = NULL;
+  free( join_mem );
+  free( shmem_mem );
+  close( fd );
+  close( idx_fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -520,6 +597,7 @@ main( int     argc,
   test_prestage_skips_too_new();
   test_scalar_skip_yields_to_batch();
   test_padding_record_skipped();
+  test_disk_index();
 
   /* every lookup must have released its epoch announcement */
   FD_TEST( epoch_slot==ULONG_MAX );

@@ -33,11 +33,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_rpc_tile_instr_cnt = 101;
+static const uint sock_filter_policy_fd_rpc_tile_instr_cnt = 103;
 
-static void populate_sock_filter_policy_fd_rpc_tile( ulong out_cnt, struct sock_filter out[ static 101 ], uint logfile_fd, uint rpc_socket_fd, uint accdb_ro_fd, uint epoll_inner_fd, uint epoll_outer_fd ) {
-  FD_TEST( out_cnt >= 101 );
-  struct sock_filter filter[101] = {
+static void populate_sock_filter_policy_fd_rpc_tile( ulong out_cnt, struct sock_filter out[ static 103 ], uint logfile_fd, uint rpc_socket_fd, uint accdb_ro_fd, uint epoll_inner_fd, uint epoll_outer_fd, uint accdb_idx_ro_fd ) {
+  FD_TEST( out_cnt >= 103 );
+  struct sock_filter filter[103] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 13 ),
@@ -64,7 +64,7 @@ static void populate_sock_filter_policy_fd_rpc_tile( ulong out_cnt, struct sock_
     /* check preadv2 */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_preadv2, /* check_preadv2 */ 78, 0 ),
     /* check futex */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 81, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 83, 0 ),
     /* allow restart_syscall */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_restart_syscall, /* RET_ALLOW */ 1, 0 ),
 //  RET_KILL_PROCESS:
@@ -224,7 +224,11 @@ static void populate_sock_filter_policy_fd_rpc_tile( ulong out_cnt, struct sock_
 //  check_preadv2:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_ro_fd)), /* preadv2_ALLOW */ 1, /* preadv2_KILL */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_ro_fd)), /* preadv2_ALLOW */ 3, /* or_20 */ 0 ),
+//  or_20:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(accdb_idx_ro_fd)), /* preadv2_ALLOW */ 1, /* preadv2_KILL */ 0 ),
 //  preadv2_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  preadv2_ALLOW:
@@ -232,8 +236,8 @@ static void populate_sock_filter_policy_fd_rpc_tile( ulong out_cnt, struct sock_
 //  check_futex:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_20 */ 0, /* futex_KILL */ 2 ),
-//  and_20:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_21 */ 0, /* futex_KILL */ 2 ),
+//  and_21:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* futex_ALLOW */ 1, /* futex_KILL */ 0 ),

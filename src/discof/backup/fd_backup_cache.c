@@ -27,7 +27,7 @@ fd_backup_cache_join( fd_backup_cache_t * backup,
                       fd_accdb_shmem_t *  accdb,
                       ulong *             epoch_fseq ) {
   ulong max_live_slots = accdb->max_live_slots;
-  ulong max_accounts   = accdb->max_accounts;
+  ulong max_accounts   = accdb->pool_max;
 
   ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
 
@@ -88,7 +88,8 @@ filter_batch( fd_backup_cache_t * backup,
     fd_accdb_accmeta_t const * m = acc_idx!=UINT_MAX ? &acc_pool[ acc_idx ] : &dead_meta;
     int keep = fd_backup_accidx_rooted( idx,
                                         FD_VOLATILE_CONST( m->key.generation ),
-                                        FD_VOLATILE_CONST( m->lamports       ) );
+                                        FD_VOLATILE_CONST( m->lamports       ) )
+             & ( ( FD_VOLATILE_CONST( m->offset_fork )>>FD_ACCDB_OFF_BITS )<FD_ACCDB_FORK_ID_DEAD ); /* copies go via disk */
     fd_uint_store_if( !keep, &frag->acc_idx[ i ], UINT_MAX );
   }
 

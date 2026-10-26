@@ -55,7 +55,7 @@ bench_setup( ulong writes_per_slot ) {
                                               BENCH_CACHE_FOOTPRINT,
                                               BENCH_CACHE_MIN_RESERVED,
                                               2UL,
-                                              0UL );
+                                              0UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
@@ -71,7 +71,7 @@ bench_setup( ulong writes_per_slot ) {
                           0,
                           42UL,
                           2UL,
-                          0UL ) );
+                          0UL, 0UL ) );
   FD_TEST( shmem );
 
   ulong accdb_fp = fd_accdb_footprint( BENCH_MAX_LIVE_SLOTS, 1 );

@@ -164,6 +164,69 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 #include "../../util/tmpl/fd_dlist.c"
 
+/* Disk index.  When index_ram_max is non-zero, acc_pool holds at most
+   index_ram_max entries and the rooted index lives in a file of
+   idx_page_cnt 4 KiB pages of 64 byte slots (linear probing, load
+   factor at most 0.5), accessed with explicit pread/pwrite.  acc_map
+   keeps unrooted versions, rooted versions not yet demoted, and
+   promoted copies of disk slots.
+
+   A promoted copy has fork_id FD_ACCDB_FORK_ID_DISK and the original
+   generation, which is never above the root generation.  It is older
+   than every normal entry a fork can see, so readers take the first
+   visible normal entry and fall back to the first visible copy.  A
+   copy that may be stale is retagged FD_ACCDB_FORK_ID_DEAD and skipped.
+
+   Only T2 and the snapshot loader write the file.  After T2 rewrites
+   the slot of a pubkey it kills that pubkey's copies, and a promoter
+   rechecks the page seqlock after it links its copy, so no stale copy
+   survives. */
+
+#define FD_ACCDB_FORK_ID_DISK     ((ushort)(USHORT_MAX-1U))
+#define FD_ACCDB_FORK_ID_DEAD     ((ushort)(USHORT_MAX-2U))
+#define FD_ACCDB_IDX_SLOT_CNT     (64UL)      /* slots per page */
+#define FD_ACCDB_IDX_SEQ_LG       (3)         /* pages per seqlock (lg) */
+#define FD_ACCDB_IDX_WINDOW_PAGES (65536UL)   /* 256 MiB placement window */
+#define FD_ACCDB_IDX_STAGE_CNT    (1024UL)    /* 64 KiB spill stage per range */
+#define FD_ACCDB_IDX_CARRY_MAX    (8192UL)
+#define FD_ACCDB_IDX_BLOOM_BITS   (6UL)       /* bloom filter bits per account */
+#define FD_ACCDB_IDX_TOMB         (ULONG_MAX)
+#define FD_ACCDB_DEMOTE_AGE       (64U)
+#define FD_ACCDB_DEFER_MIGRATED   (0x80000000U)
+
+struct fd_accdb_idx_slot {
+  uchar pubkey[ 32UL ];
+  ulong off_plus1;       /* 0 empty, FD_ACCDB_IDX_TOMB deleted, else file offset+1 */
+  ulong lamports;
+  uint  executable_size; /* FD_ACCDB_SIZE_PACK, no in-memory bits */
+  uint  generation;
+  ulong slot;            /* snapshot slot (full snapshot loading only) */
+};
+
+typedef struct fd_accdb_idx_slot fd_accdb_idx_slot_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_idx_slot_t)==64UL, idx_slot_layout );
+
+struct fd_accdb_idx_range {
+  int   lock;
+  uint  stage_cnt;
+  ulong spill_cnt;
+};
+
+typedef struct fd_accdb_idx_range fd_accdb_idx_range_t;
+
+static inline ulong
+fd_accdb_pool_max( ulong max_accounts,
+                   ulong index_ram_max ) {
+  return index_ram_max ? fd_ulong_min( index_ram_max, max_accounts ) : max_accounts;
+}
+
+static inline ulong
+fd_accdb_idx_page_cnt( ulong max_accounts,
+                       ulong index_ram_max ) {
+  return index_ram_max ? ( 2UL*max_accounts+FD_ACCDB_IDX_SLOT_CNT-1UL )/FD_ACCDB_IDX_SLOT_CNT : 0UL;
+}
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -559,6 +622,22 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_buf_cnt;
   ulong deferred_acc_buf_max;
   ulong deferred_acc_epoch;
+
+  /* Disk index (see the comment above fd_accdb_idx_slot_t).  The
+     region offsets are from the shmem base. */
+  ulong pool_max;         /* acc_pool capacity */
+  ulong idx_page_cnt;     /* 0 when the disk index is disabled */
+  ulong idx_range_cnt;    /* placement windows */
+  ulong idx_spill_cap;    /* records per range spill extent */
+  ulong idx_seq_off;      /* uint seqlock per 2^FD_ACCDB_IDX_SEQ_LG pages */
+  ulong idx_range_off;    /* fd_accdb_idx_range_t per range */
+  ulong idx_stage_off;    /* FD_ACCDB_IDX_STAGE_CNT slots per range */
+  ulong idx_window_off;   /* placement window */
+  ulong idx_carry_off;    /* FD_ACCDB_IDX_CARRY_MAX slots */
+  ulong idx_bloom_off;    /* bloom filter, idx_bloom_cnt 64 byte blocks */
+  ulong idx_bloom_cnt;
+  ulong idx_sweep_cursor; /* T2 demotion sweep position in acc_map */
+  struct __attribute__((aligned(64))) { ulong val; } acc_used;
 
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];

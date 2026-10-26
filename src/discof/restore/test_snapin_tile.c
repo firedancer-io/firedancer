@@ -162,6 +162,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_accdb_advance_root                        mock_accdb_advance_root
 #define fd_accdb_snapshot_load_begin                 mock_accdb_snapshot_load_begin
 #define fd_accdb_snapshot_load_end                   mock_accdb_snapshot_load_end
+#define fd_accdb_snapshot_index_build                mock_accdb_snapshot_index_build
 #define fd_accdb_flush_metrics                       mock_accdb_flush_metrics
 #define fd_accdb_snapshot_recover_delta              mock_accdb_snapshot_recover_delta
 #define fd_accdb_snapshot_save_whead                 mock_accdb_snapshot_save_whead
@@ -214,6 +215,7 @@ test_padded_sz( ulong used ) {
 #undef fd_accdb_snapshot_save_whead
 #undef fd_accdb_snapshot_recover_delta
 #undef fd_accdb_flush_metrics
+#undef fd_accdb_snapshot_index_build
 #undef fd_accdb_snapshot_load_end
 #undef fd_accdb_snapshot_load_begin
 #undef fd_accdb_advance_root
@@ -268,6 +270,7 @@ record_txncache_attach_child( fd_txncache_t *       txncache,
 void mock_accdb_reset                            ( fd_accdb_t * accdb ) { (void)accdb; test_file_off=0UL; test_accdb_reset_cnt++; }
 void mock_accdb_snapshot_load_end                ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_load_end_cnt++;      }
 void mock_accdb_flush_metrics                    ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_flush_metrics_cnt++; }
+void mock_accdb_snapshot_index_build( fd_accdb_t * accdb, ulong * dup_cnt, ulong * dup_lamports ) { (void)accdb; *dup_cnt = *dup_lamports = 0UL; }
 
 fd_accdb_fork_id_t
 mock_accdb_attach_child( fd_accdb_t *       accdb,

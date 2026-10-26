@@ -1858,6 +1858,37 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
   return 0;
 }
 
+/* index_build builds the accdb disk index after a full snapshot (no-op
+   without one) and books the duplicate records it resolved.  The spill
+   could not tell which version of a duplicated account wins, so every
+   snooped delegation was kept: drop those a newer record replaced. */
+
+static void
+index_build( fd_snapin_tile_t * ctx ) {
+  ulong dup_cnt, dup_lamports;
+  fd_accdb_snapshot_index_build( ctx->accdb, &dup_cnt, &dup_lamports );
+  if( FD_LIKELY( !dup_cnt ) ) return;
+
+  ctx->shmem->values[ 0 ].loaded     -= dup_cnt;
+  ctx->shmem->values[ 0 ].duplicates += dup_cnt;
+  fd_uwide_add( &ctx->shmem->values[ 0 ].duplicate_lamports_hi, &ctx->shmem->values[ 0 ].duplicate_lamports,
+                ctx->shmem->values[ 0 ].duplicate_lamports_hi,  ctx->shmem->values[ 0 ].duplicate_lamports, 0UL, dup_lamports, 0UL );
+
+  for(;;) {
+    fd_pubkey_t stale[ 64 ];
+    ulong       stale_cnt = 0UL;
+    fd_stake_delegations_iter_t iter_[1];
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, ctx->stake_delegations );
+         !fd_stake_delegations_iter_done( iter ) && stale_cnt<64UL;
+         fd_stake_delegations_iter_next( iter ) ) {
+      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+      if( d->lamports && fd_accdb_snapshot_index_slot( ctx->accdb, d->stake_account.uc )!=(ulong)d->slot ) stale[ stale_cnt++ ] = d->stake_account;
+    }
+    for( ulong i=0UL; i<stale_cnt; i++ ) fd_stake_delegations_fork_remove( ctx->stake_delegations, USHORT_MAX, UINT_MAX, &stale[ i ], 0 );
+    if( stale_cnt<64UL ) break;
+  }
+}
+
 static void
 fold_account_counts( fd_snapin_tile_t * ctx ) {
   for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
@@ -2030,6 +2061,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
       /* FINI acks make shared data stable. */
+      if( ctx->full ) index_build( ctx );
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         transition_malformed( ctx, stem );
@@ -2055,6 +2087,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
+      if( ctx->full ) index_build( ctx );
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         if( ctx->full ) FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         else            FD_LOG_WARNING(( "sysvar verification failed for incremental snapshot" ));
@@ -2275,7 +2308,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong out_cnt = 0;
@@ -2284,6 +2317,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RW; /* accounts index */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
 
@@ -2296,7 +2330,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD, FD_ACCDB_IDX_FD_RW );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
