@@ -75,6 +75,12 @@ struct fd_execrp_tile {
 
   fd_runtime_t runtime[1];
 
+  /* Sysvars of the bank with sysvar_bank_seq, read from accdb because
+     the bank holds no sysvar cache.  sysvar_bank_seq is 0 if there are
+     none. */
+  ulong             sysvar_bank_seq;
+  fd_sysvar_cache_t sysvar_cache[1];
+
   struct {
     ulong sigverify_cnt;
     ulong poh_hash_cnt;
@@ -99,6 +105,21 @@ struct fd_execrp_tile {
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
+
+/* bank_sysvar_cache returns the sysvar cache of bank, reading it from
+   accdb once per bank if bank holds none. */
+
+static fd_sysvar_cache_t const *
+bank_sysvar_cache( fd_execrp_tile_t * ctx,
+                   fd_bank_t const *  bank ) {
+  fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( bank );
+  if( FD_LIKELY( cache ) ) return cache;
+  if( ctx->sysvar_bank_seq!=bank->bank_seq ) {
+    fd_sysvar_cache_restore( ctx->sysvar_cache, ctx->accdb, bank->accdb_fork_id );
+    ctx->sysvar_bank_seq = bank->bank_seq;
+  }
+  return ctx->sysvar_cache;
+}
 
 /* Signer precomputation cache entries (vote authorities and frequent
    fee payers) */
@@ -246,6 +267,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         fd_execrp_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
+        ctx->runtime->sysvar_cache = bank_sysvar_cache( ctx, ctx->bank );
         ctx->txn_in.txn = msg->txn;
         memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
         ctx->txn_in.index_in_slot = msg->index_in_slot;
@@ -502,7 +524,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
-  ctx->runtime->sysvars.bank_seq         = 0UL;
+  ctx->sysvar_bank_seq                   = 0UL;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = &ctx->log_collector;
   ctx->runtime->log.dumping_mem          = _dumping;

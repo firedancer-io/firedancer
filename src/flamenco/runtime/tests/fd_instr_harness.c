@@ -289,6 +289,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   ctx->runtime = runtime;
+  runtime->sysvar_cache = sysvar_cache;
 
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, clock_ );

@@ -57,6 +57,7 @@ setup_test( test_env_t * env, fd_svm_mini_t * mini ) {
 
   ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 10UL );
   env->bank    = fd_svm_mini_bank( mini, child_idx );
+  mini->runtime->sysvar_cache = fd_bank_sysvar_cache( env->bank );
   env->fork_id = fd_svm_mini_fork_id( mini, child_idx );
 }
 

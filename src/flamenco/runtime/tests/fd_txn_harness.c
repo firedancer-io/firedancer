@@ -386,6 +386,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
   runtime->log.txn_dump_ctx      = NULL;
   runtime->fuzz.enabled          = 1;
   runtime->fuzz.reclaim_accounts = reclaim_accounts;
+  runtime->sysvar_cache          = fd_bank_sysvar_cache( runner->bank );
 
   fd_runtime_prepare_and_execute_txn( runtime, runner->bank, txn_in, txn_out );
   *exec_res = txn_out->err.txn_err;

@@ -84,6 +84,7 @@ setup_test( test_env_t * env, fd_svm_mini_t * mini ) {
   fd_banks_mark_bank_frozen( fd_svm_mini_bank( mini, inter_idx ) );
   ulong child_idx = fd_svm_mini_attach_child( mini, inter_idx, TEST_GRANDCHILD_SLOT );
   env->bank = fd_svm_mini_bank( mini, child_idx );
+  mini->runtime->sysvar_cache = fd_bank_sysvar_cache( env->bank );
 
   fd_features_enable_cleaned_up( &env->bank->f.features );
 

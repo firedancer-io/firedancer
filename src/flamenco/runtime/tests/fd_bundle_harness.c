@@ -204,7 +204,8 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
      empty bundle likewise acquires nothing and must skip fini. */
   int bundle_prep_ok = 1;
   if( is_bundle ) {
-    runtime->accdb = runner->accdb;
+    runtime->accdb        = runner->accdb;
+    runtime->sysvar_cache = fd_bank_sysvar_cache( runner->bank );
     if( FD_LIKELY( txn_cnt ) ) {
       int prepare_err = fd_runtime_prepare_bundle_accounts( runtime, runner->bank, txn_ins, txn_outs, txn_cnt );
       if( FD_UNLIKELY( prepare_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {

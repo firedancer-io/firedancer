@@ -224,12 +224,9 @@ struct fd_runtime {
     int reclaim_accounts;
   } fuzz;
 
-  /* Sysvars of the bank with bank_seq, read from accdb because the bank
-     holds no sysvar cache.  bank_seq is 0 if there are none. */
-  struct {
-    ulong             bank_seq;
-    fd_sysvar_cache_t cache[1];
-  } sysvars;
+  /* Sysvars of the bank the transaction executes against.  Set by the
+     caller before executing a transaction. */
+  fd_sysvar_cache_t const * sysvar_cache;
 };
 typedef struct fd_runtime fd_runtime_t;
 
@@ -353,14 +350,6 @@ struct fd_txn_out {
 typedef struct fd_txn_out fd_txn_out_t;
 
 FD_PROTOTYPES_BEGIN
-
-/* fd_runtime_sysvar_cache returns the sysvar cache of bank.  If bank
-   holds none, its sysvars are read from accdb into runtime once per
-   bank. */
-
-fd_sysvar_cache_t const *
-fd_runtime_sysvar_cache( fd_runtime_t *    runtime,
-                         fd_bank_t const * bank );
 
 /* fd_runtime_block_execute_prepare kicks off the execution of a block.
    After this function is called, transactions can be executed and

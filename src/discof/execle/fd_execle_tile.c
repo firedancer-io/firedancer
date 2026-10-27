@@ -74,6 +74,12 @@ struct fd_execle_tile {
 
   fd_runtime_t runtime[1];
 
+  /* Sysvars of the bank with sysvar_bank_seq, read from accdb because
+     the bank holds no sysvar cache.  sysvar_bank_seq is 0 if there are
+     none. */
+  ulong             sysvar_bank_seq;
+  fd_sysvar_cache_t sysvar_cache[1];
+
   /* For bundle execution, we need to execute each transaction against
      a separate transaction context and a set of accounts, but the exec
      stack can be reused.  We will also use these same memory regions
@@ -102,6 +108,21 @@ struct fd_execle_tile {
 };
 
 typedef struct fd_execle_tile fd_execle_tile_t;
+
+/* bank_sysvar_cache returns the sysvar cache of bank, reading it from
+   accdb once per bank if bank holds none. */
+
+static fd_sysvar_cache_t const *
+bank_sysvar_cache( fd_execle_tile_t * ctx,
+                   fd_bank_t const *  bank ) {
+  fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( bank );
+  if( FD_LIKELY( cache ) ) return cache;
+  if( ctx->sysvar_bank_seq!=bank->bank_seq ) {
+    fd_sysvar_cache_restore( ctx->sysvar_cache, ctx->accdb, bank->accdb_fork_id );
+    ctx->sysvar_bank_seq = bank->bank_seq;
+  }
+  return ctx->sysvar_cache;
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -290,6 +311,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
   FD_TEST( bank );
   ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
+  ctx->runtime->sysvar_cache = bank_sysvar_cache( ctx, bank );
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt        = (fd_txn_ns_dt_t){0};
@@ -515,6 +537,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   FD_TEST( bank );
   ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
+  ctx->runtime->sysvar_cache = bank_sysvar_cache( ctx, bank );
 
   fd_acct_addr_t const * writable_alt [ MAX_TXN_PER_MICROBLOCK ];
   ulong                  tips         [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
@@ -824,7 +847,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = txncache;
-  ctx->runtime->sysvars.bank_seq         = 0UL;
+  ctx->sysvar_bank_seq                   = 0UL;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->fuzz.enabled             = 0;

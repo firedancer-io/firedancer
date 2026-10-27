@@ -921,18 +921,6 @@ fd_features_prepopulate_upcoming( fd_bank_t *  bank,
   fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, slot, epoch_schedule );
 }
 
-fd_sysvar_cache_t const *
-fd_runtime_sysvar_cache( fd_runtime_t *    runtime,
-                         fd_bank_t const * bank ) {
-  fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( bank );
-  if( FD_LIKELY( cache ) ) return cache;
-  if( runtime->sysvars.bank_seq!=bank->bank_seq ) {
-    fd_sysvar_cache_restore( runtime->sysvars.cache, runtime->accdb, bank->accdb_fork_id );
-    runtime->sysvars.bank_seq = bank->bank_seq;
-  }
-  return runtime->sysvars.cache;
-}
-
 void
 fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_bank_t *          bank,
@@ -1273,7 +1261,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
         fd_stake_history_t stake_history[1];
-        fd_stakes_update_stake_delegation( pubkey, account, bank, fd_sysvar_cache_stake_history_view( fd_runtime_sysvar_cache( runtime, bank ), stake_history ), txn_in );
+        fd_stakes_update_stake_delegation( pubkey, account, bank, fd_sysvar_cache_stake_history_view( runtime->sysvar_cache, stake_history ), txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {
