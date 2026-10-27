@@ -124,6 +124,7 @@ run_firedancer_threaded( config_t * config,
   initialize_vote_stakes_fd( config );
   initialize_stake_delegations_fd( config );
   initialize_txncache_fd( config );
+  initialize_votor_spill_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );
 

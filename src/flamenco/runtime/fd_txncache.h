@@ -114,9 +114,10 @@
 
 #define FD_TXNCACHE_ALIGN (128UL)
 
-/* 123454 is vote stakes, 123455 is cost tracker, 123456 is epoch
-   credits, 123457 is stake delegations, 123458/123459 are store,
-   123460/123461 are accdb, and 123462+ are reserved by XDP. */
+/* 123449 is votor spill, 123454 is vote stakes, 123455 is cost
+   tracker, 123456 is epoch credits, 123457 is stake delegations,
+   123458/123459 are store, 123460/123461 are accdb, and 123462+ are
+   reserved by XDP. */
 
 #define FD_TXNCACHE_FD (123453)
 
