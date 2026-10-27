@@ -2067,7 +2067,8 @@ fd_feature_id_t const ids[] = {
                                  /* AnAP9zPV4KL7czAPQbFhpDKV2tx7g4UGNbK9wvXwjaRo */
     .name                      = "bls_pubkey_management_in_vote_account",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, relax_programdata_account_check_migration)>>3,
     .id                        = {"\x0c\xb8\x61\x19\x93\x8f\xce\xa5\xf4\x30\x8b\x2d\x20\xe5\xf6\xdf\xe7\x66\x90\x8a\x06\xb4\x57\xaa\xa9\x0d\x88\xb6\x2f\xd6\x4b\xa2"},
@@ -2307,7 +2308,8 @@ fd_feature_id_t const ids[] = {
                                  /* A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS */
     .name                      = "alpenglow",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, relax_fee_payer_constraint)>>3,
     .id                        = {"\xd3\x67\x76\x96\x3e\x25\x7f\x1e\x4e\xa2\x79\xb4\x3b\xf4\xe5\xf1\x35\xea\xf4\xd9\xf9\xd7\xf1\xfa\x82\x59\x8a\xfb\xa8\xfb\x03\xab"},
