@@ -675,41 +675,51 @@ SORT_(private_quick)( SORT_KEY_T * key,
          at least 1 key ended up in another partition.  We push all
          three partitions onto the partition stack for recursion.  The
          order of the pushes is important to bound the maximum stack
-         usage.  Below, we push the center partition followed by the
-         larger of the left and right partitions then followed by the
-         smaller of the left and right partitions (such that we process
-         the smallest next iteration).  For this, the same O(log_2 cnt)
-         max recursion depth applies as quicksort even this does a three
-         way partitioning.  That is, let fl/fc/fr be the fraction of
-         keys in the left, center, right partitions.  At this point, fl
-         is in [0,1), fc is in (0,1) and fr is in [0,1) and fl+fc+fr=1.
-         The smaller of the left or right partition is what process next
-         and, as the smaller of the left or right, it fraction of the
-         keys is at most 0.5(1-fc)<=0.5.  We do push up to two
-         partitions onto the stack (four SORT_IDX_T) each level of
-         recursion though instead of one like normal quick sort though. */
+         usage.  Below, we push the partitions in descending order of
+         their size, such that we process the smallest next iteration.
+         For this, the same O(log_2 cnt) max recursion depth applies as
+         quicksort even though this does a three way partitioning.
+         That is, let fl/fc/fr be the fraction of keys in the left,
+         center, right partitions.  At this point, fl is in [0,1), fc
+         is in (0,1) and fr is in [0,1) and fl+fc+fr=1.  The smallest
+         partition is what we process next and, as the smallest, its
+         fraction of the keys is at most 0.5(1-fc)<=0.5.  This means
+         that at each level, the size of the list we are sorting is
+         no greater than half the size of the previous level.  We do
+         push up to two partitions onto the stack (four SORT_IDX_T)
+         each level of recursion though instead of one like normal
+         quick sort though. */
 
-      int left_larger = (i-l) > (h-j); /* True if the left partition should go on the stack */
-      SORT_IDX_T l_larger  = SORT_IDX_IF( left_larger, l, j );
-      SORT_IDX_T h_larger  = SORT_IDX_IF( left_larger, i, h );
-      SORT_IDX_T l_smaller = SORT_IDX_IF( left_larger, j, l );
-      SORT_IDX_T h_smaller = SORT_IDX_IF( left_larger, h, i );
+      /* Create an array representing the lower, center and upper
+         partitions.  Then sort this in order of the size of the
+         partition, so that we can then push them onto the stack in
+         order of their size.  */
 
-      /* Immediately process empty partitions */
-      ulong push_smaller = (ulong)(l_smaller<h_smaller); FD_COMPILER_FORGET( push_smaller );
+      struct { SORT_IDX_T l; SORT_IDX_T h; SORT_IDX_T n; } part[3];
 
-      /* Immediately process partitions where all keys are the same */
-      ulong push_center  = (ulong)(SORT_BEFORE( p1, p2 )); FD_COMPILER_FORGET( push_center );
+      part[0].l = l; part[0].h = i; part[0].n =                                     i-l;
+      part[1].l = i; part[1].h = j; part[1].n = SORT_IDX_IF( SORT_BEFORE( p1, p2 ), j-i, (SORT_IDX_T)0 );
+      part[2].l = j; part[2].h = h; part[2].n =                                     h-j;
 
-      /* Guaranteed non-empty (larger of left or right have at least 1 key) */
-      ulong push_larger  = 1UL;
+#     define ORDER(i,j) fd_swap_if( part[j].n > part[i].n, part[i], part[j] )
 
-      stack[ stack_cnt ] = l_larger;  stack_cnt += push_larger;
-      stack[ stack_cnt ] = h_larger;  stack_cnt += push_larger;
-      stack[ stack_cnt ] = i;         stack_cnt += push_center;
-      stack[ stack_cnt ] = j;         stack_cnt += push_center;
-      stack[ stack_cnt ] = l_smaller; stack_cnt += push_smaller;
-      stack[ stack_cnt ] = h_smaller; stack_cnt += push_smaller;
+      ORDER(0,2); ORDER(0,1); ORDER(1,2);
+
+#     undef ORDER
+
+      /* Branchlessly push the partitions onto the stack, from largest
+         to smallest.  Skip empty partitions.  */
+
+      ulong push0 = (ulong)(!!part[0].n); FD_COMPILER_FORGET( push0 );
+      ulong push1 = (ulong)(!!part[1].n); FD_COMPILER_FORGET( push1 );
+      ulong push2 = (ulong)(!!part[2].n); FD_COMPILER_FORGET( push2 );
+
+      stack[ stack_cnt ] = part[0].l; stack_cnt += push0;
+      stack[ stack_cnt ] = part[0].h; stack_cnt += push0;
+      stack[ stack_cnt ] = part[1].l; stack_cnt += push1;
+      stack[ stack_cnt ] = part[1].h; stack_cnt += push1;
+      stack[ stack_cnt ] = part[2].l; stack_cnt += push2;
+      stack[ stack_cnt ] = part[2].h; stack_cnt += push2;
     }
   }
   /* never get here */
