@@ -529,6 +529,9 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbAccountWaited" summary="Accounts that had to wait for another reader to finish loading them into the cache" />
     <counter name="AccdbDiskReadBytes" summary="Bytes read from the account database file" />
     <counter name="AccdbDiskRead" summary="Reads from the account database file" />
+    <histogram name="AccdbDiskReadDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one read from the account database file</summary>
+    </histogram>
     <counter name="AccdbCopiedBytes" summary="Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" />
 </tile>
 
@@ -782,6 +785,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbDiskRead" summary="Reads from the account database file" />
     <counter name="AccdbDiskWrittenBytes" summary="Bytes written to the account database file" />
     <counter name="AccdbDiskWritten" summary="Writes to the account database file" />
+    <histogram name="AccdbDiskReadDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one read from the account database file</summary>
+    </histogram>
+    <histogram name="AccdbDiskWriteDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one write to the account database file</summary>
+    </histogram>
     <counter name="AccdbCopiedBytes" summary="Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" />
 </tile>
 
@@ -855,6 +864,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DiskWrittenBytes" summary="Bytes written to the account database file by compaction and writeback" />
     <counter name="WritebackWritten" summary="Write syscalls that wrote evicted cache lines back to the account database file" />
     <counter name="CompactionWritten" summary="Writes that relocated a batch of records during compaction" />
+    <histogram name="DiskReadDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one read from the account database file by compaction</summary>
+    </histogram>
+    <histogram name="DiskWriteDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one write to the account database file by compaction and writeback</summary>
+    </histogram>
     <counter name="AccountVersionRemoved" summary="Account versions removed from the account database index" />
 
     <gauge name="CacheClassUsed" enum="AccdbCacheClass" summary="Cache lines in use, by size class" />
@@ -1017,6 +1032,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbDiskRead" summary="Reads from the account database file" />
     <counter name="AccdbDiskWrittenBytes" summary="Bytes written to the account database file" />
     <counter name="AccdbDiskWritten" summary="Writes to the account database file" />
+    <histogram name="AccdbDiskReadDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one read from the account database file</summary>
+    </histogram>
+    <histogram name="AccdbDiskWriteDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one write to the account database file</summary>
+    </histogram>
     <counter name="AccdbCopiedBytes" summary="Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" />
 
     <bool name="IsRuntimeLoaded" summary="Whether the runtime has loaded a bank and can replay" />
@@ -1529,6 +1550,9 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbAccountWaited" summary="Accounts that had to wait for another reader to finish loading them into the cache" />
     <counter name="AccdbDiskReadBytes" summary="Bytes read from the account database file" />
     <counter name="AccdbDiskRead" summary="Reads from the account database file" />
+    <histogram name="AccdbDiskReadDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one read from the account database file</summary>
+    </histogram>
     <counter name="AccdbCopiedBytes" summary="Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" />
 </tile>
 
@@ -1749,6 +1773,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbDiskRead" summary="Reads from the account database file" />
     <counter name="AccdbDiskWrittenBytes" summary="Bytes written to the account database file" />
     <counter name="AccdbDiskWritten" summary="Writes to the account database file" />
+    <histogram name="AccdbDiskReadDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one read from the account database file</summary>
+    </histogram>
+    <histogram name="AccdbDiskWriteDurationNanos" min="1000" max="1000000000">
+        <summary>Duration of one write to the account database file</summary>
+    </histogram>
     <counter name="AccdbCopiedBytes" summary="Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" />
 </tile>
 

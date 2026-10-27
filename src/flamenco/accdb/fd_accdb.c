@@ -12,6 +12,7 @@
 
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/sleep/fd_sleep.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../runtime/fd_runtime_const.h" /* FD_RUNTIME_ACC_SZ_MAX */
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
@@ -367,6 +368,10 @@ fd_accdb_new( void *              ljoin,
 
   memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
+  /* Every tile that publishes these histograms declares the same
+     range as the accdb tile in metrics.xml. */
+  fd_histf_new( accdb->metrics->disk_read_duration,  FD_MHIST_MIN( ACCDB, DISK_READ_DURATION_NANOS  ), FD_MHIST_MAX( ACCDB, DISK_READ_DURATION_NANOS  ) );
+  fd_histf_new( accdb->metrics->disk_write_duration, FD_MHIST_MIN( ACCDB, DISK_WRITE_DURATION_NANOS ), FD_MHIST_MAX( ACCDB, DISK_WRITE_DURATION_NANOS ) );
 
   return accdb;
 }
@@ -795,6 +800,7 @@ fd_accdb_join_readonly( void *             ljoin,
 
   memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
+  fd_histf_new( accdb->metrics->disk_read_duration,  FD_MHIST_MIN( ACCDB, DISK_READ_DURATION_NANOS  ), FD_MHIST_MAX( ACCDB, DISK_READ_DURATION_NANOS  ) );
 
   return accdb;
 }
@@ -2127,7 +2133,9 @@ background_compact( fd_accdb_t * accdb,
   accdb->carry_sz = 0UL;
   ulong bytes_read = carry;
   while( bytes_read<want ) {
+    long before = fd_log_wallclock();
     long result = pread( accdb->fd, accdb->bounce+bytes_read, want-bytes_read, (long)(compact_base+compact->compaction_offset+bytes_read) );
+    fd_histf_sample( accdb->metrics->disk_read_duration, (ulong)fd_long_max( fd_log_wallclock()-before, 0L ) );
     if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
     else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pread() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
@@ -2199,7 +2207,9 @@ background_compact( fd_accdb_t * accdb,
     for( ulong i=0UL; i<live_cnt; i++ ) iov[ i ] = (struct iovec){ .iov_base = accdb->bounce+live_src[ i ], .iov_len = live_sz[ i ] };
     ulong written = 0UL; ulong iov_idx = 0UL;
     while( written<live_bytes ) {
+      long before = fd_log_wallclock();
       long result = pwritev2( accdb->fd, iov+iov_idx, (int)(live_cnt-iov_idx), (long)(dest_base+written), 0 );
+      fd_histf_sample( accdb->metrics->disk_write_duration, (ulong)fd_long_max( fd_log_wallclock()-before, 0L ) );
       if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
       else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, pwritev2() returned 0 at offset %lu", dest_base+written ));
@@ -2983,7 +2993,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     ulong bytes_written = 0UL;
     struct iovec * write_ptr = write_ops;
     while( FD_LIKELY( bytes_written<total_write_sz ) ) {
+      long before = fd_log_wallclock();
       long result = pwritev2( accdb->fd, write_ptr, fd_int_min( write_ops_cnt, IOV_MAX ), (long)(file_offset+bytes_written), 0 );
+      fd_histf_sample( accdb->metrics->disk_write_duration, (ulong)fd_long_max( fd_log_wallclock()-before, 0L ) );
       if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
       else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, pwritev2() returned 0 at offset %lu with %lu bytes remaining",
@@ -3016,7 +3028,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
       ulong written = 0UL;
       while( FD_LIKELY( written<entry_sz ) ) {
+        long before = fd_log_wallclock();
         long result = pwritev2( accdb->fd, entry_iovs, 2, (long)(entry_off+written), 0 );
+        fd_histf_sample( accdb->metrics->disk_write_duration, (ulong)fd_long_max( fd_log_wallclock()-before, 0L ) );
         if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
         else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
         else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, pwritev2() returned 0 at offset %lu with %lu bytes remaining", entry_off+written, entry_sz-written ));
@@ -3127,7 +3141,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   for( ulong i=0UL; i<read_ops_cnt; i++ ) {
     ulong bytes_read = 0UL;
     while( FD_LIKELY( bytes_read<read_sizes[ i ] ) ) {
+      long before = fd_log_wallclock();
       long result = preadv2( accdb->fd, &read_ops[ i ], 1, (long)(read_offsets[ i ]+bytes_read), 0 );
+      fd_histf_sample( accdb->metrics->disk_read_duration, (ulong)fd_long_max( fd_log_wallclock()-before, 0L ) );
       if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
       else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
@@ -3913,7 +3929,9 @@ miss:;
   ulong got   = 0UL;
   int   nio   = data_len ? 2 : 1;
   while( FD_LIKELY( got<total ) ) {
+    long before = fd_log_wallclock();
     long result = preadv2( accdb->fd, iovs, nio, (long)(start+got), 0 );
+    fd_histf_sample( accdb->metrics->disk_read_duration, (ulong)fd_long_max( fd_log_wallclock()-before, 0L ) );
     if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
     else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents", start+got, total ));
@@ -4152,7 +4170,9 @@ preevict_flush( fd_accdb_t *             accdb,
   ulong written  = 0UL;
   while( written<stage_sz ) {
     struct iovec iov = { .iov_base = accdb->stage+written, .iov_len = stage_sz-written };
+    long before = fd_log_wallclock();
     long result = pwritev2( accdb->fd, &iov, 1, (long)(file_off+written), 0 );
+    fd_histf_sample( accdb->metrics->disk_write_duration, (ulong)fd_long_max( fd_log_wallclock()-before, 0L ) );
     if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
     else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     written += (ulong)result;

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h
 
 #include "fd_accdb_cache.h"
+#include "../../util/hist/fd_histf.h"
 #include <stddef.h> /* offsetof */
 
 #define FD_ACCDB_SHMEM_ALIGN (128UL)
@@ -58,6 +59,11 @@ struct fd_accdb_metrics {
   ulong copy_ops;
 
   ulong bytes_copied;
+
+  /* Duration of each read and write syscall on the accounts database
+     file, in nanoseconds. */
+  fd_histf_t disk_read_duration[1];
+  fd_histf_t disk_write_duration[1];
 };
 
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;
