@@ -73,6 +73,19 @@ test_spill( void ) {
     fd_txncache_snapin_stage( tc, 0UL, stage_in,  sizeof(stage_in),  1 );
     fd_txncache_snapin_stage( tc, 0UL, stage_out, sizeof(stage_out), 0 );
     FD_TEST( !memcmp( stage_in, stage_out, sizeof(stage_in) ) );
+
+    /* Staged entries survive spilling the top pages, which sit just
+       below them in the file. */
+    fd_txncache_snapin_stage_entries( tc, 0UL, stage_in, sizeof(stage_in), 1 );
+    root = fd_txncache_attach_child( tc, NULL_FORK );
+    fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+    a = fd_txncache_attach_child( tc, root );
+    for( ulong i=0UL; i<4UL*FD_TXNCACHE_TXNS_PER_PAGE; i++ ) fd_txncache_insert( tc, a, BLOCKHASH(1UL), TXNHASH(200000UL+i) );
+    fd_memset( stage_out, 0, sizeof(stage_out) );
+    FD_TEST( sh->page_spilled_cnt );
+    fd_txncache_snapin_stage_entries( tc, 0UL, stage_out, sizeof(stage_out), 0 );
+    FD_TEST( !memcmp( stage_in, stage_out, sizeof(stage_in) ) );
+    fd_txncache_reset( tc );
   }
   FD_TEST( lseek( fd, 0, SEEK_END )>0 );
   FD_TEST( !close( fd ) );
