@@ -8,9 +8,11 @@
    private to that translation unit. */
 #define TEST_BIG_MOD_EXP_BASE_CU (50UL)
 
-/* Two tests for the sol_big_mod_exp syscall (SIMD-0529):
+/* Tests for the sol_big_mod_exp syscall (SIMD-0529):
      1. feature disabled -> syscall is not registered
-     2. feature enabled  -> syscall is registered and computes correctly
+     2. feature enabled  -> syscall is registered and computes correctly,
+        charges the SIMD-0529 cost, and charges and validates in agave's
+        order on every abort path
    The math itself is covered exhaustively by ballet's test_big_mod_exp. */
 
 static int
@@ -163,6 +165,7 @@ test_feature_enabled( fd_vm_t * vm ) {
   params[5] = 2UL;                                    /* modulus_len  */
   FD_TEST( RUN( PV, RV )==FD_VM_SUCCESS );
   FD_TEST( vm->heap[ RES_OFF ]==1 && vm->heap[ RES_OFF+1 ]==0 );
+  FD_TEST( CHARGED()==TEST_BIG_MOD_EXP_BASE_CU+OP_CU ); /* adjusted length 0 -> exponent_words=1 */
   params[3] = 1UL;
   params[5] = 1UL;
 
@@ -252,8 +255,48 @@ test_feature_enabled( fd_vm_t * vm ) {
     FD_TEST( RUN( PV, BRV )==FD_VM_SUCCESS );
     FD_TEST( CHARGED()==120UL );
 
-    /* 512B operands with a 512B dense exponent exceed the transaction budget */
+    /* exponent_len boundary at 32 bytes, buffer holding 2: at 32 and 39
+       bytes the adjusted length is 1 and 56, one exponent word either
+       way; at 40 bytes it is 64, so two words: 50+ceil(1046*172/4) = 45028 */
+    be[0] = 2;
+    p[3] = 32UL;
+    FD_TEST( RUN( PV, BRV )==FD_VM_SUCCESS );
+    FD_TEST( CHARGED()==24108UL );
+    p[3] = 39UL;
+    FD_TEST( RUN( PV, BRV )==FD_VM_SUCCESS );
+    FD_TEST( CHARGED()==24108UL );
+    p[3] = 40UL;
+    FD_TEST( RUN( PV, BRV )==FD_VM_SUCCESS );
+    FD_TEST( CHARGED()==45028UL );
+
+    /* a one byte zero exponent costs the same as 257: adjusted length 0
+       and 8 are both one word */
+    be[0] = 0;
+    p[3] = 1UL;
+    FD_TEST( RUN( PV, BRV )==FD_VM_SUCCESS );
+    FD_TEST( CHARGED()==24108UL );
+    be[0] = 1; be[1] = 1;
+    p[3] = 2UL;
+    FD_TEST( RUN( PV, BRV )==FD_VM_SUCCESS );
+    FD_TEST( CHARGED()==24108UL );
+    be[1] = 0;
+
+    /* 512B operands, 128B dense exponent: adjusted length 1023 ->
+       exponent_words=16, multiplications=1292,
+       50+ceil(4118*1292/4) = 1330164 */
+    memset( be, 0xff, 128UL );
+    p[1] = 512UL; p[3] = 128UL; p[5] = 512UL;
+    FD_TEST( RUN( PV, BRV )==FD_VM_SUCCESS );
+    FD_TEST( CHARGED()==1330164UL );
+
+    /* 8B operands, 512B dense exponent: adjusted length 8*480+255=4095 ->
+       exponent_words=64, multiplications=5132, 50+ceil(23*5132/4) = 29559 */
     memset( be, 0xff, 512UL );
+    p[1] = 8UL; p[3] = 512UL; p[5] = 8UL;
+    FD_TEST( RUN( PV, BRV )==FD_VM_SUCCESS );
+    FD_TEST( CHARGED()==29559UL );
+
+    /* 512B operands with a 512B dense exponent exceed the transaction budget */
     p[1] = 512UL; p[3] = 512UL; p[5] = 512UL;
     FD_TEST( RUN( PV, BRV )==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED );
 

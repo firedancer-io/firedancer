@@ -137,7 +137,7 @@
   {"name":"keep_merkle_shreds","implemented":0,"pubkey":"HyNQzc7TMNmRhpVHXqDGjpsHzeQie82mDQXSF9hj7nAH","reverted":1},
   {"name":"move_serialized_len_ptr_in_cpi","implemented":1,"pubkey":"74CoWuBmt3rUVUrCb2JiSTvh6nXyBWUsK4SaMj3CtE3T","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"update_hashes_per_tick","implemented":1,"pubkey":"3uFHb9oKdGfgZGJK9EHaAXN4USvnQtAFC13Fh5gGFS5B","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"enable_big_mod_exp_syscall","implemented":0,"pubkey":"expH2ppKPW2ANEdEmAjfhSEcnBQJfmoX4FjuNpe9ttg"},
+  {"name":"enable_big_mod_exp_syscall","implemented":1,"pubkey":"expH2ppKPW2ANEdEmAjfhSEcnBQJfmoX4FjuNpe9ttg"},
   {"name":"disable_builtin_loader_ownership_chains","implemented":1,"pubkey":"4UDcAfQ6EcA6bdcadkeHpkarkhZGJ7Bpq7wTAiRMjkoi","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"cap_transaction_accounts_data_size","implemented":1,"pubkey":"DdLwVYuvDz26JohmgSbA7mjpJFgX5zP2dkp8qsF2C33V","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"remove_congestion_multiplier_from_fee_calculation","implemented":1,"pubkey":"A8xyMHZovGXFkorFqEmVH2PKGLiBip5JD7jt4zsUWo4H","cleaned_up":1,"hardcode_for_fuzzing":1},
