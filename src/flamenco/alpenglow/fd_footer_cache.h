@@ -28,6 +28,14 @@ struct __attribute__((aligned(64))) fd_footer_cache_memo {
   ulong             data_len;
   int               executable;
   uchar             data[ FD_FOOTER_CACHE_MEMO_DATA_MAX ];
+
+  /* blake3 cv of input bytes [2048,) for this pubkey, owner,
+     executable and data_len, with data zero past offset 2040 */
+  uchar             cv_pubkey[ 32 ];
+  uchar             cv_owner [ 32 ];
+  ulong             cv_data_len; /* 0 if none */
+  int               cv_executable;
+  uchar             cv[ 32 ];
 };
 typedef struct fd_footer_cache_memo fd_footer_cache_memo_t;
 

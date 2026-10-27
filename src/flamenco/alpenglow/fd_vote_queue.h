@@ -9,7 +9,7 @@
 #include "../accdb/fd_accdb.h"
 
 #define FD_VOTE_QUEUE_ALIGN     (64UL)
-#define FD_VOTE_QUEUE_FOOTPRINT (10560UL)
+#define FD_VOTE_QUEUE_FOOTPRINT (35456UL)
 
 struct fd_vote_queue;
 typedef struct fd_vote_queue fd_vote_queue_t;
