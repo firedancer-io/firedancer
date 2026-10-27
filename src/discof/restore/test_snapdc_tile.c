@@ -764,6 +764,8 @@ test_control_publication_counts( void ) {
 
   send_control( env, FD_SNAPSHOT_MSG_LOAD_COMPLETE );
   FD_TEST( !test_pub_cnt );
+  send_control( env, FD_SNAPSHOT_MSG_LOAD_ABSENT );
+  FD_TEST( !test_pub_cnt && env->ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
 
   fd_memset( env->meta, 0, sizeof(fd_ssctrl_meta_t) );
   fd_memcpy( env->in, env->meta, sizeof(fd_ssctrl_meta_t) );

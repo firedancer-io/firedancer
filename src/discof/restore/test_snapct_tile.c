@@ -1416,15 +1416,23 @@ test_log_download_peer_churn( fd_ssping_t * ssping ) {
 
 /* A peer that answers 404 for the incremental has simply moved on to a
    newer full.  It is dropped from the selector until gossip or the
-   resolver re-adds it, but not blacklisted.  Any other download
-   failure still blacklists. */
+   resolver re-adds it, but not blacklisted.  The verdict waits for
+   snapld's FAIL ack, so it holds even when the error reaches snapct
+   through a snapin ack link before LOAD_ABSENT does.  Any other
+   failure, and a 404 on the full, still blacklist. */
 
 static void
 test_incremental_absent_not_blacklisted( fd_ssping_t * ssping ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
   static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  for( int absent=0; absent<2; absent++ ) {
+  struct { int full; int absent; int absent_late; int blacklisted; } cases[] = {
+    { 0, 0, 0, 1 }, /* plain download failure */
+    { 0, 1, 0, 0 }, /* LOAD_ABSENT, then the error from snapld */
+    { 0, 1, 1, 0 }, /* error forwarded by a snapin first, LOAD_ABSENT after */
+    { 1, 1, 0, 1 }, /* a 404 on the full still blacklists */
+  };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
     fd_snapct_tile_t * ctx;
     setup_full_snapct( scratch, ssping, &ctx, msg );
     test_output      = output;
@@ -1439,26 +1447,33 @@ test_incremental_absent_not_blacklisted( fd_ssping_t * ssping ) {
     ctx->peer.addr        = addr;
     ctx->predicted_incremental.full_slot = 100UL;
     ctx->predicted_incremental.slot      = 200UL;
-    ctx->state            = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+    ctx->state            = cases[ i ].full ? FD_SNAPCT_STATE_READING_FULL_HTTP : FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
     ctx->flush_ack_cnt    = 1;
     ctx->out_ld.mem       = (fd_wksp_t *)output;
     ctx->out_ld.wmark     = 128UL;
     ctx->download_enabled = 1;
+    ctx->config.max_retry_abort = 8U;
     ctx->io_due_nanos     = LONG_MAX; /* keep after_credit from pinging the test address */
 
-    if( absent ) snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_ABSENT, 0UL, 0UL, NULL );
-    snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, NULL );
-    FD_TEST( ctx->malformed );
-
     int busy = 0;
+    if( cases[ i ].absent && !cases[ i ].absent_late ) snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_ABSENT, 0UL, 0UL, NULL );
+    if( cases[ i ].absent_late ) ctrl_ack_frag( ctx, FD_SNAPSHOT_MSG_CTRL_ERROR );
+    else                         snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, NULL );
+    FD_TEST( ctx->malformed );
     after_credit( ctx, NULL, NULL, &busy );
-    FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET );
+    FD_TEST( ctx->state==(cases[ i ].full ? FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET : FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET) );
     FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+    if( cases[ i ].absent_late ) snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_ABSENT, 0UL, 0UL, NULL );
+
+    snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, NULL ); /* snapld's ack */
+    after_credit( ctx, NULL, NULL, &busy );
+    FD_TEST( ctx->state==(cases[ i ].full ? FD_SNAPCT_STATE_COLLECTING_PEERS : FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL) );
     FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
-    int blacklisted = !absent;
+    int blacklisted = cases[ i ].blacklisted;
     FD_TEST( blacklist_pool_used( ctx->blacklist_pool )==(ulong)blacklisted );
     FD_TEST( (NULL!=blacklist_map_ele_query( ctx->blacklist_map, &key, NULL, ctx->blacklist_pool ))==blacklisted );
     FD_TEST( fd_ssping_is_invalidated( ctx->ssping, addr )==blacklisted );
+    FD_TEST( !ctx->absent );
 
     fd_ssping_remove( ctx->ssping, addr );
   }
