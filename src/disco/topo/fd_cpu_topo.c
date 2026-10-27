@@ -191,6 +191,7 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
     char path[ PATH_MAX ];
     fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/physical_package_id", i );
     package_ids[ i ] = read_topology_id( path );
+    cpus->cpu[ i ].package_idx = package_ids[ i ]<0 ? ULONG_MAX : (ulong)package_ids[ i ];
     fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/die_id", i );
     die_ids[ i ] = read_topology_id( path );
     l3_ids[ i ] = cpus->cpu[ i ].online ? read_l3_id( i ) : -1;
@@ -218,7 +219,7 @@ fd_topo_cpus_l3_complete( fd_topo_cpus_t const * cpus ) {
 void
 fd_topo_cpus_printf( fd_topo_cpus_t * cpus ) {
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
-    FD_LOG_NOTICE(( "cpu%lu: online=%i sibling=%lu numa_node=%lu die_idx=%lu l3_idx=%lu isolated=%i nohz_full=%i", i, cpus->cpu[ i ].online, cpus->cpu[ i ].sibling, cpus->cpu[ i ].numa_node, cpus->cpu[ i ].die_idx, cpus->cpu[ i ].l3_idx, cpus->cpu[ i ].isolated, cpus->cpu[ i ].nohz_full ));
+    FD_LOG_NOTICE(( "cpu%lu: online=%i sibling=%lu numa_node=%lu package_idx=%lu die_idx=%lu l3_idx=%lu isolated=%i nohz_full=%i", i, cpus->cpu[ i ].online, cpus->cpu[ i ].sibling, cpus->cpu[ i ].numa_node, cpus->cpu[ i ].package_idx, cpus->cpu[ i ].die_idx, cpus->cpu[ i ].l3_idx, cpus->cpu[ i ].isolated, cpus->cpu[ i ].nohz_full ));
   }
 }
 

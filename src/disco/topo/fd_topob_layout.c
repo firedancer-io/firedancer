@@ -998,6 +998,13 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
       for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
         if( cpus->cpu[ i ].numa_node>=node_cnt && !cpu_bv_test( cpu_assigned, i ) ) cpu_bv_insert( numa_fence, i );
       }
+      /* Never fence part of a package, its NUMA nodes share the cores */
+      for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+        if( !cpu_bv_test( numa_fence, i ) || cpus->cpu[ i ].package_idx==ULONG_MAX ) continue;
+        for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
+          if( cpus->cpu[ j ].numa_node<node_cnt && cpus->cpu[ j ].package_idx==cpus->cpu[ i ].package_idx ) { cpu_bv_remove( numa_fence, i ); break; }
+        }
+      }
       cpu_bv_union( cpu_assigned, cpu_assigned, numa_fence );
       graded = smt_plan( topo, cpus, cpu_assigned, steady_idx, steady_cnt, spare_siblings, efficient, steady_mode, steady_partner );
       if( !graded ) {

@@ -1375,12 +1375,13 @@ make_cpus_shape( fd_topo_cpus_t * cpus,
     ulong sock = core/phys;
     ulong loc  = core%phys;
     fd_topo_cpu_t * cpu = &cpus->cpu[ i ];
-    cpu->idx       = i;
-    cpu->online    = 1;
-    cpu->numa_node = sock*numa_per_socket + fd_ulong_min( loc/per, numa_per_socket-1UL );
-    cpu->die_idx   = sock;
-    cpu->l3_idx    = cores_per_l3 ? sock*l3_ps + loc/cores_per_l3 : ULONG_MAX;
-    cpu->sibling   = smt==SMT_ABSENT ? ULONG_MAX : smt==SMT_ADJACENT ? i^1UL : ( i<n ? i+n : i-n );
+    cpu->idx         = i;
+    cpu->online      = 1;
+    cpu->numa_node   = sock*numa_per_socket + fd_ulong_min( loc/per, numa_per_socket-1UL );
+    cpu->package_idx = sock;
+    cpu->die_idx     = sock;
+    cpu->l3_idx      = cores_per_l3 ? sock*l3_ps + loc/cores_per_l3 : ULONG_MAX;
+    cpu->sibling     = smt==SMT_ABSENT ? ULONG_MAX : smt==SMT_ADJACENT ? i^1UL : ( i<n ? i+n : i-n );
   }
   if( smt==SMT_RUNTIME ) {
     for( ulong i=n; i<2UL*n; i++ ) {
@@ -1470,8 +1471,10 @@ check_layout_invariants( fd_topo_t const *      topo,
   FD_TEST( execrp_whole>=execrp_whole_min );
 
   /* No idle whole core while any steady core is shared.  Efficient mode
-     floats most tiles, and multi-NUMA hosts may keep a node free. */
-  if( efficient || cpus->numa_node_cnt>1UL ) return;
+     floats most tiles, and multi-socket hosts may keep a socket free. */
+  int multi_package = 0;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) multi_package |= cpus->cpu[ i ].package_idx!=cpus->cpu[ 0 ].package_idx;
+  if( efficient || multi_package ) return;
   int shared = 0, idle = 0;
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
     ulong s = cpus->cpu[ i ].sibling;
