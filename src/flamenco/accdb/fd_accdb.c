@@ -68,6 +68,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   fd_accdb_idx_slot_t *  idx_window;
   fd_accdb_idx_slot_t *  idx_carry;
   ulong *                idx_bloom;
+  ulong *                idx_zmap;
 
   fd_accdb_shmem_t * shmem;
 
@@ -335,6 +336,7 @@ fd_accdb_new( void *              ljoin,
   accdb->idx_window = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_window_off ) : NULL;
   accdb->idx_carry  = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_carry_off  ) : NULL;
   accdb->idx_bloom  = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_bloom_off  ) : NULL;
+  accdb->idx_zmap   = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_zmap_off   ) : NULL;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -781,6 +783,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->idx_window = NULL;
   accdb->idx_carry  = NULL;
   accdb->idx_bloom  = shmem->idx_page_cnt ? (ulong *)( (uchar *)shmem+shmem->idx_bloom_off ) : NULL;
+  accdb->idx_zmap   = NULL;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
@@ -4934,10 +4937,12 @@ fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
   fd_accdb_shmem_t *    shmem = accdb->shmem;
   fd_accdb_idx_slot_t * win   = accdb->idx_window;
   fd_accdb_idx_slot_t * carry = accdb->idx_carry;
+  ulong *               zmap  = accdb->idx_zmap;
   ulong carry_cnt = 0UL;
   ulong winners   = 0UL;
   fd_accdb_flush_metrics( accdb );
   fd_memset( accdb->idx_bloom, 0, shmem->idx_bloom_cnt*64UL );
+  fd_memset( zmap, 0, fd_ulong_min( shmem->idx_page_cnt, FD_ACCDB_IDX_WINDOW_PAGES )*FD_ACCDB_IDX_SLOT_CNT/8UL );
 
   for( ulong r=0UL; r<shmem->idx_range_cnt; r++ ) {
     idx_spill_flush( accdb, r );
@@ -4965,25 +4970,33 @@ fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
         if( s==wslot ) {
           if( FD_UNLIKELY( carry_cnt==FD_ACCDB_IDX_CARRY_MAX ) ) FD_LOG_ERR(( "accounts index placement overflow" ));
           carry[ carry_cnt++ ] = rec;
+          continue;
         }
-        else if( !win[ s ].off_plus1 ) win[ s ] = rec;
-        else idx_dup( accdb, &win[ s ], &rec, out_dup_cnt, out_dup_lamports );
+        if( !win[ s ].off_plus1 ) {
+          win[ s ] = rec;
+          idx_bloom( accdb, rec.pubkey, 1 );
+          winners++;
+        } else {
+          idx_dup( accdb, &win[ s ], &rec, out_dup_cnt, out_dup_lamports );
+        }
+        if( FD_UNLIKELY( !win[ s ].lamports ) ) zmap[ s>>6 ] |= 1UL<<(s&63UL);
       }
       n = 0UL;
     }
 
-    /* A zero-lamport winner means the account does not exist. */
-    for( ulong s=0UL; s<wslot; s++ ) {
-      if( !win[ s ].off_plus1 ) continue;
-      if( FD_UNLIKELY( !win[ s ].lamports ) ) {
+    /* A zero-lamport winner means the account does not exist.  Its
+       bloom bits stay set, which only costs a wasted probe. */
+    for( ulong w=0UL; w<wslot/64UL; w++ ) {
+      for( ulong m=zmap[ w ]; m; m=fd_ulong_pop_lsb( m ) ) {
+        ulong s = w*64UL+(ulong)fd_ulong_find_lsb( m );
+        if( win[ s ].lamports ) continue;
         ulong sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( win[ s ].executable_size );
         fd_accdb_shmem_bytes_freed( shmem, win[ s ].off_plus1-1UL, sz );
         shmem->shmetrics->disk_used_bytes -= sz;
         win[ s ].off_plus1 = FD_ACCDB_IDX_TOMB;
-        continue;
+        winners--;
       }
-      idx_bloom( accdb, win[ s ].pubkey, 1 );
-      winners++;
+      zmap[ w ] = 0UL;
     }
     idx_io( accdb, 1, win, wslot*sizeof(fd_accdb_idx_slot_t), base*4096UL );
     accdb->idx_range[ r ].spill_cnt = 0UL;

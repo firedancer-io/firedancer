@@ -65,11 +65,12 @@ main( int     argc,
   ulong        slot_wr   = fd_env_strip_cmdline_ulong( &argc, &argv, "--slot-writes",   NULL,    2000UL );
   char const * dir       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dir",           NULL,    "/tmp" );
   ulong        hot_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--hot",           NULL, 2000000UL );
+  ulong        max_accts = fd_env_strip_cmdline_ulong( &argc, &argv, "--max-accounts",  NULL,       0UL );
 #ifndef FD_ACCDB_IDX_FD_RW
   if( ram_max ) FD_LOG_ERR(( "this tree has no disk index" ));
 #endif
 
-  ulong max_accounts = n+n/8UL;
+  ulong max_accounts = max_accts ? max_accts : n+n/8UL;
   ulong cache_fp     = 512UL<<20;
   ulong min_res      = 4UL;
 
