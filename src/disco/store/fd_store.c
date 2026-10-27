@@ -493,7 +493,8 @@ fd_store_join( void * shstore ) {
 int
 fd_store_file_create( char const * path,
                       ulong        wire_off,
-                      ulong        disk_max_shreds ) {
+                      ulong        disk_max_shreds,
+                      ulong        tail_sz ) {
   if( FD_UNLIKELY( !path ) ) {
     errno = EINVAL;
     return -1;
@@ -503,6 +504,7 @@ fd_store_file_create( char const * path,
   ulong file_sz;
   if( FD_UNLIKELY( __builtin_umull_overflow( disk_max_shreds, sizeof(fd_shredb_entry_t), &wire_sz ) ||
                    __builtin_uaddl_overflow( wire_off, wire_sz, &file_sz ) ||
+                   __builtin_uaddl_overflow( file_sz, tail_sz, &file_sz ) ||
                    file_sz>(ulong)LONG_MAX ) ) {
     errno = EOVERFLOW;
     return -1;
