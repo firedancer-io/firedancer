@@ -457,7 +457,7 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
 
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
-                          ulong                    fork_id,
+                          ushort                   fork_id,
                           int                      iter_kind,
                           fd_vote_stake_weight_t * weights ) {
 
@@ -557,7 +557,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ushort             fork_id     = bank->vote_stakes_fork_id;
 
   fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
   ulong epoch                      = bank->f.epoch;
@@ -695,7 +695,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* The t-1 set is fixed from here on: rank it for Alpenglow. */
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1 );
 
-  /* Seed status for the t-2 top votes set for clock calculation. */
+  /* Seed validity for the t-2 top votes set. */
   fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
 
   /* Populate the vote rewards map with the final set of filtered vote
@@ -767,7 +767,7 @@ fd_stakes_burn_vat( fd_bank_t *         bank,
   if( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) return;
 
   fd_vote_stakes_t * vote_stakes    = fd_bank_vote_stakes( bank );
-  ulong              fork_id        = bank->vote_stakes_fork_id;
+  ushort             fork_id        = bank->vote_stakes_fork_id;
   ulong              burn_per_epoch = fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
   ulong              total_vat      = 0UL;
 

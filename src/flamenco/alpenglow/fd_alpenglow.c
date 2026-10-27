@@ -12,9 +12,9 @@
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
 
 static int
-vote_stakes_iter_kind_for_epoch( ulong fork_id,
-                                 ulong epoch ) {
-  ulong t_1_epoch = (ulong)fd_vote_stakes_fork_epoch( fork_id )+1UL;
+vote_stakes_iter_kind_for_epoch( fd_bank_t const * bank,
+                                 ulong             epoch ) {
+  ulong t_1_epoch = fd_vote_stakes_fork_epoch( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )+1UL;
   if( FD_UNLIKELY( epoch>t_1_epoch || t_1_epoch-epoch>(ulong)(FD_VOTE_STAKES_ITER_T_5-FD_VOTE_STAKES_ITER_T_1) ) ) return 0;
   return FD_VOTE_STAKES_ITER_T_1+(int)(t_1_epoch-epoch);
 }
@@ -67,9 +67,9 @@ static int
 validator_set_for_slot( validator_set_t * set,
                         fd_bank_t const * bank,
                         ulong             slot ) {
-  ulong epoch     = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
-  ulong fork_id   = bank->vote_stakes_fork_id;
-  int   iter_kind = vote_stakes_iter_kind_for_epoch( fork_id, epoch );
+  ulong  epoch     = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
+  ushort fork_id   = bank->vote_stakes_fork_id;
+  int    iter_kind = vote_stakes_iter_kind_for_epoch( bank, epoch );
   if( FD_UNLIKELY( !iter_kind ) ) {
     FD_LOG_WARNING(( "slot %lu: cert epoch %lu is not t-1 through t-5", bank->f.slot, epoch ));
     return 0;
@@ -666,7 +666,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
     }
 
     reward_ts_ns = slot_timestamp( bank, reward_slot, footer_time_nanos );
-    reward_kind  = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, reward_epoch );
+    reward_kind  = vote_stakes_iter_kind_for_epoch( bank, reward_epoch );
     if( FD_UNLIKELY( !reward_kind ) ) {
       FD_LOG_WARNING(( "slot %lu: reward epoch %lu is not t-1 through t-5", bank_slot, reward_epoch ));
       return -1;
@@ -685,7 +685,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
     }
     final_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, final_slot, NULL );
     final_ts_ns = slot_timestamp( bank, final_slot, footer_time_nanos );
-    final_kind  = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, final_epoch );
+    final_kind  = vote_stakes_iter_kind_for_epoch( bank, final_epoch );
     if( FD_UNLIKELY( !final_kind ) ) {
       FD_LOG_WARNING(( "slot %lu: finalization epoch %lu is not t-1 through t-5", bank_slot, final_epoch ));
       return -1;
@@ -701,7 +701,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
   fd_pubkey_t const * leader_vote_pubkey = fd_epoch_leaders_get_vote( fd_bank_epoch_leaders_query( bank, current_epoch ), bank_slot );
   FD_TEST( leader_vote_pubkey );
 
-  int   memo_kind   = vote_stakes_iter_kind_for_epoch( bank->vote_stakes_fork_id, current_epoch );
+  int   memo_kind   = vote_stakes_iter_kind_for_epoch( bank, current_epoch );
   ulong leader_rank = memo_rank( bank, memo_kind, leader_vote_pubkey );
 
   int fused = has_reward && final_kind==reward_kind;

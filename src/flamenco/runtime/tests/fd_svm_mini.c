@@ -317,7 +317,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   ulong const vote_bal      = fd_ulong_max( vote_min_bal, uniform_stake );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ushort             fork_id     = bank->vote_stakes_fork_id;
 
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( mini->banks );
 
@@ -425,7 +425,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
                                     params->mock_block_revenue_commission_bps, 0UL, NULL, block_collector, &no_loc );
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls,
                                     params->mock_block_revenue_commission_bps, 0UL, NULL, block_collector, &no_loc );
-    fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_key, 0UL, 0L, 1 );
+    fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_key, 1 );
 
     fd_epoch_credits_t * epoch_credits = &epoch_credits_view->credits[ i ];
     fd_memcpy( epoch_credits->pubkey, &vote_key, sizeof(fd_pubkey_t) );

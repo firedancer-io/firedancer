@@ -47,7 +47,7 @@ fd_solfuzz_epoch_credit_is_alpenglow_marker( fd_exec_test_epoch_credit_t const *
 
 static void
 fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vote_stakes,
-                                           ulong                              vote_stakes_fork_id,
+                                           ushort                             vote_stakes_fork_id,
                                            int                                use_t_1,
                                            fd_exec_test_prev_vote_account_t * vote_accounts,
                                            pb_size_t                          vote_accounts_cnt ) {

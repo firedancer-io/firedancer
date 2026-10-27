@@ -166,7 +166,7 @@ ENCODE_FN {
     ulong epoch_key = epoch_stakes_key      ( bank, enc->epoch_idx );
     int   iter_kind = epoch_stakes_iter_kind( bank, enc->epoch_idx );
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-    ulong              fork_id     = bank->vote_stakes_fork_id;
+    ushort             fork_id     = bank->vote_stakes_fork_id;
 
     uint vote_cnt = 0U;
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, enc->vote_stakes_iter_mem );
@@ -191,7 +191,7 @@ ENCODE_FN {
     fd_epoch_credits_t const * ec = NULL;
 
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-    ulong              fork_id     = bank->vote_stakes_fork_id;
+    ushort             fork_id     = bank->vote_stakes_fork_id;
 
     fd_vote_stakes_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
     FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter ) );

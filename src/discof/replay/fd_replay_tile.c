@@ -373,8 +373,8 @@ static ushort
 replay_voter_rank( fd_replay_tile_t * ctx,
                    fd_bank_t *        bank,
                    ulong              epoch ) {
-  ulong fork_id    = bank->vote_stakes_fork_id;
-  ulong fork_epoch = fd_vote_stakes_fork_epoch( fork_id );
+  ushort fork_id    = bank->vote_stakes_fork_id;
+  ulong  fork_epoch = fd_vote_stakes_fork_epoch( fd_bank_vote_stakes( bank ), fork_id );
   int   iter_kind  = FD_VOTE_STAKES_ITER_T_2;
   if( FD_UNLIKELY( epoch!=fork_epoch ) ) {
     if( FD_UNLIKELY( !fork_epoch || epoch!=fork_epoch-1UL ) ) return USHORT_MAX;
@@ -433,8 +433,8 @@ ag_update_delinquent( fd_replay_tile_t *   ctx,
                       fd_bls_set_t const * reward_set ) {
   if( FD_UNLIKELY( !ctx->wait_info ) ) return; /* not in this topology */
 
-  ulong fork_id    = bank->vote_stakes_fork_id;
-  ulong fork_epoch = fd_vote_stakes_fork_epoch( fork_id );
+  ushort fork_id    = bank->vote_stakes_fork_id;
+  ulong  fork_epoch = fd_vote_stakes_fork_epoch( fd_bank_vote_stakes( bank ), fork_id );
 
   /* Roll on the fork's epoch, not the cert's: the cert trails the bank
      by FD_NUM_SLOTS_FOR_REWARD slots, so it still names the old epoch

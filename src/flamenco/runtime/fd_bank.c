@@ -187,9 +187,9 @@ fd_banks_stake_delegations_evict_bank_fork( fd_banks_t * banks,
 static void
 fd_banks_vote_stakes_evict_bank_fork( fd_banks_t * banks,
                                       fd_bank_t *  bank ) {
-  if( bank->vote_stakes_fork_id!=ULONG_MAX ) {
+  if( bank->vote_stakes_fork_id!=USHORT_MAX ) {
     fd_vote_stakes_purge_fork( fd_banks_get_vote_stakes( banks ), bank->vote_stakes_fork_id );
-    bank->vote_stakes_fork_id = ULONG_MAX;
+    bank->vote_stakes_fork_id = USHORT_MAX;
   }
 }
 
@@ -341,7 +341,7 @@ fd_banks_new( void * shmem,
     bank->banks_data_offset = (ulong)bank - (ulong)banks_data;
 
     bank->cost_tracker_fork_id = USHORT_MAX;
-    bank->vote_stakes_fork_id  = ULONG_MAX;
+    bank->vote_stakes_fork_id  = USHORT_MAX;
   }
 
   banks_data->report_runtime_diffs = 0;
@@ -819,7 +819,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->stake_rewards_fork_id       = USHORT_MAX;
   child_bank->epoch_credits_fork_id       = USHORT_MAX;
   child_bank->stake_delegations_fork_id   = USHORT_MAX;
-  child_bank->vote_stakes_fork_id         = ULONG_MAX;
+  child_bank->vote_stakes_fork_id         = USHORT_MAX;
   child_bank->parent_accdb_fork_id.val    = USHORT_MAX;
 
   /* Then make sure that the parent bank is valid.  PRUNABLE parents are
@@ -1113,7 +1113,7 @@ fd_banks_clear( fd_banks_t * banks ) {
     fd_bank_t * bank = fd_banks_pool_ele( bank_pool, i );
     bank->state                 = FD_BANK_STATE_INACTIVE;
     bank->cost_tracker_fork_id = USHORT_MAX;
-    bank->vote_stakes_fork_id   = ULONG_MAX;
+    bank->vote_stakes_fork_id   = USHORT_MAX;
     bank->epoch_credits_fork_id = USHORT_MAX;
   }
 

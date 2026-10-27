@@ -12,8 +12,8 @@
 
 /* fd_vote_stakes is the Firedancer equivalent of the Agave epoch stakes
    data structure.  It is a fork aware data structure that maintains the
-   vote account state that is used for clock and VM syscall calculations
-   during execution.
+   vote account state that is used for VM syscall calculations during
+   execution.
 
    The underlying data structure is a tiered set of caches:
    - t-2..t-5: these are caches used for the vote account states at
@@ -22,10 +22,8 @@
    - t-1: computed at the most recent epoch boundary.  These sets are
      ref-counted and fork specific, up to max_live_slots of them;
      cache_cnt are kept in memory and the rest spill to disk.
-   - state: each bank has its own view of the t-2 state of vote
-     accounts.  This is what is actually used for clock calculations
-     which is a stake weighted median of the last vote slot and
-     timestamp.
+   - state: each bank has its own view of which t-2 vote accounts are
+     still valid, stored as a bitset.
 
    fd_vote_stakes also handles the creation of new vote stakes caches.
    The creation of new vote stakes caches happens at the epoch boundary
@@ -63,9 +61,7 @@ struct fd_vote_stakes_ele {
   uchar                   bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ];
   fd_validator_location_t location;
 
-  /* The fork's vote state, only set for t-2 (zero otherwise). */
-  ulong                   last_vote_slot;
-  long                    last_vote_ts;
+  /* The fork's validity, only set for t-2 (zero otherwise). */
   uchar                   is_valid;
 };
 typedef struct fd_vote_stakes_ele fd_vote_stakes_ele_t;
@@ -93,12 +89,13 @@ fd_vote_stakes_join( void * mem,
 /* fd_vote_stakes_fork_epoch returns the epoch of the fork. */
 
 ulong
-fd_vote_stakes_fork_epoch( ulong fork_id );
+fd_vote_stakes_fork_epoch( fd_vote_stakes_t const * vote_stakes,
+                           ushort                   fork_id );
 
 /* fd_vote_stakes_init initializes the vote stakes data structure for a
-   given epoch. */
+   given epoch and returns the root fork's id, in [0,max_live_slots). */
 
-ulong
+ushort
 fd_vote_stakes_init( fd_vote_stakes_t * vote_stakes,
                      ulong              epoch );
 
@@ -113,7 +110,7 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes );
 
 void
 fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *              vote_stakes,
-                                ulong                           fork_id,
+                                ushort                          fork_id,
                                 fd_pubkey_t const *             pubkey,
                                 fd_pubkey_t const *             node_account,
                                 ulong                           stake,
@@ -131,7 +128,7 @@ fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *              vote_stakes,
 
 void
 fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *              vote_stakes,
-                                ulong                           fork_id,
+                                ushort                          fork_id,
                                 fd_pubkey_t const *             pubkey,
                                 fd_pubkey_t const *             node_account,
                                 ulong                           stake,
@@ -150,7 +147,7 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *              vote_stakes,
 
 void
 fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *              vote_stakes,
-                                ulong                           fork_id,
+                                ushort                          fork_id,
                                 ulong                           n,
                                 fd_pubkey_t const *             pubkey,
                                 fd_pubkey_t const *             node_account,
@@ -171,7 +168,7 @@ fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *              vote_stakes,
 
 void
 fd_vote_stakes_insert( fd_vote_stakes_t *              vote_stakes,
-                       ulong                           fork_id,
+                       ushort                          fork_id,
                        fd_pubkey_t const *             pubkey,
                        fd_pubkey_t const *             node_account,
                        ulong                           stake,
@@ -191,7 +188,7 @@ fd_vote_stakes_insert( fd_vote_stakes_t *              vote_stakes,
 
 void
 fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
-                         ulong              fork_id,
+                         ushort             fork_id,
                          int                iter_kind );
 
 /* fd_vote_stakes_purge_fork removes a t-1 set.  This should be called
@@ -199,34 +196,31 @@ fd_vote_stakes_finalize( fd_vote_stakes_t * vote_stakes,
 
 void
 fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
-                           ulong              fork_id );
+                           ushort             fork_id );
 
 /* fd_vote_stakes_new_fork creates a child of the given parent fork.
    Within an epoch, the child shares the parent's t-1 set and receives a
-   copy of its t-2 state.  At an epoch boundary, it rotates t-1 into
-   t-2 and acquires fresh t-1 and t-2 state. */
+   copy of its t-2 validity.  At an epoch boundary, it rotates t-1 into
+   t-2 and acquires a fresh t-1 set and t-2 validity. */
 
-ulong
+ushort
 fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
-                         ulong              parent_fork_id,
+                         ushort             parent_fork_id,
                          ulong              epoch );
 
-/* fd_vote_stakes_update updates the vote account state for a given
-   fork id.  It is a no-op if the pubkey corresponds to an account not
-   in the t-2 set.  If is_valid==0, the last vote arguments will be
-   ignored. */
+/* fd_vote_stakes_update_state sets whether a t-2 vote account is valid
+   for a given fork id.  It is a no-op if the pubkey corresponds to an
+   account not in the t-2 set. */
 
 void
 fd_vote_stakes_update_state( fd_vote_stakes_t *  vote_stakes,
-                             ulong               fork_id,
+                             ushort              fork_id,
                              fd_pubkey_t const * pubkey,
-                             ulong               last_vote_slot,
-                             long                last_vote_ts,
-                             uchar               is_valid );
+                             int                 is_valid );
 
 void
 fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
-                        ulong              fork_id,
+                        ushort             fork_id,
                         fd_accdb_t *        accdb,
                         fd_accdb_fork_id_t  accdb_fork_id );
 
@@ -237,19 +231,19 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
 
 int
 fd_vote_stakes_query_t_1( fd_vote_stakes_t *     vote_stakes,
-                          ulong                  fork_id,
+                          ushort                 fork_id,
                           fd_pubkey_t const *    pubkey,
                           fd_vote_stakes_ele_t * ele_out_opt );
 
 int
 fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
-                          ulong                    fork_id,
+                          ushort                   fork_id,
                           fd_pubkey_t const *      pubkey,
                           fd_vote_stakes_ele_t *   ele_out_opt );
 
 int
 fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
-                          ulong                    fork_id,
+                          ushort                   fork_id,
                           fd_pubkey_t const *      pubkey,
                           fd_vote_stakes_ele_t *   ele_out_opt );
 
@@ -258,18 +252,11 @@ fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
 
 ulong
 fd_vote_stakes_cnt_t_1( fd_vote_stakes_t * vote_stakes,
-                        ulong              fork_id );
+                        ushort             fork_id );
 
 ulong
 fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
-                        ulong                    fork_id );
-
-ulong
-fd_vote_stakes_t_2_votes( fd_vote_stakes_t const * vote_stakes,
-                          ulong                    fork_id,
-                          ulong *                  stake,
-                          ulong *                  last_vote_slot,
-                          long *                   last_vote_ts );
+                        ushort                   fork_id );
 
 /* fd_vote_stakes_total_stake returns the total stake of the epoch
    stakes set for epoch.
@@ -301,25 +288,25 @@ typedef struct vacc_map_iter fd_vote_stakes_iter_t;
 
 fd_vote_stakes_iter_t *
 fd_vote_stakes_iter_init( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id,
+                          ushort             fork_id,
                           int                iter_kind,
                           uchar              iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] );
 
 int
 fd_vote_stakes_iter_done( fd_vote_stakes_t *      vote_stakes,
-                          ulong                   fork_id,
+                          ushort                  fork_id,
                           int                     iter_kind,
                           fd_vote_stakes_iter_t * iter );
 
 void
 fd_vote_stakes_iter_next( fd_vote_stakes_t *      vote_stakes,
-                          ulong                   fork_id,
+                          ushort                  fork_id,
                           int                     iter_kind,
                           fd_vote_stakes_iter_t * iter );
 
 void
 fd_vote_stakes_iter_ele( fd_vote_stakes_t *      vote_stakes,
-                         ulong                   fork_id,
+                         ushort                  fork_id,
                          int                     iter_kind,
                          fd_vote_stakes_iter_t * iter,
                          fd_vote_stakes_ele_t *  ele_out );

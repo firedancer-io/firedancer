@@ -839,10 +839,9 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_bank_t *          bank,
 
 
 static void
-fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *          bank,
-                                            fd_accdb_t *         accdb,
-                                            fd_runtime_stack_t * runtime_stack,
-                                            fd_capture_ctx_t *   capture_ctx ) {
+fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *        bank,
+                                            fd_accdb_t *       accdb,
+                                            fd_capture_ctx_t * capture_ctx ) {
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
@@ -850,13 +849,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *          bank,
 
   fd_runtime_new_fee_rate_governor_derived( bank, bank->f.parent_signature_cnt );
 
-  if( bank->f.alpenglow_migration_slot!=ULONG_MAX ) {
-    fd_sysvar_clock_update_slot_alpenglow( bank, accdb, capture_ctx );
-  } else {
-    fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-    ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, bank->f.parent_slot, NULL );
-    fd_sysvar_clock_update( bank, accdb, capture_ctx, runtime_stack, &parent_epoch );
-  }
+  fd_sysvar_clock_update_slot( bank, accdb, capture_ctx );
 
   // It has to go into the current txn previous info but is not in slot 0
   if( bank->f.slot != 0 ) {
@@ -943,8 +936,8 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
     fd_bank_t * parent = fd_banks_bank_query( banks, bank->parent_idx );
     FD_TEST( parent );
     ulong child_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
-    if( FD_UNLIKELY( child_epoch!=fd_vote_stakes_fork_epoch( bank->vote_stakes_fork_id ) ) ) {
-      fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    if( FD_UNLIKELY( child_epoch!=fd_vote_stakes_fork_epoch( vote_stakes, bank->vote_stakes_fork_id ) ) ) {
       fd_vote_stakes_purge_fork( vote_stakes, bank->vote_stakes_fork_id );
       bank->vote_stakes_fork_id = fd_vote_stakes_new_fork( vote_stakes, parent->vote_stakes_fork_id, child_epoch );
     }
@@ -960,7 +953,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   }
 
   fd_features_prepopulate_upcoming( bank, accdb );
-  fd_runtime_block_sysvar_update_pre_execute( bank, accdb, runtime_stack, capture_ctx );
+  fd_runtime_block_sysvar_update_pre_execute( bank, accdb, capture_ctx );
   FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
 }
 
@@ -1266,14 +1259,9 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       }
 
       if( txn_out->accounts.vote_update[i] ) {
-        fd_vote_block_timestamp_t last_vote;
-        if( FD_UNLIKELY( !account->lamports ||
-                         !fd_vsv_is_correct_size_owner_and_init( account->owner, account->data, account->data_len ) ||
-                         fd_vote_account_last_timestamp( account->data, account->data_len, &last_vote ) ) ) {
-          fd_vote_stakes_update_state( vote_stakes, bank->vote_stakes_fork_id, pubkey, 0UL, 0L, 0 );
-        } else {
-          fd_vote_stakes_update_state( vote_stakes, bank->vote_stakes_fork_id, pubkey, last_vote.slot, last_vote.timestamp, 1 );
-        }
+        int is_valid = account->lamports &&
+                       fd_vsv_is_correct_size_owner_and_init( account->owner, account->data, account->data_len );
+        fd_vote_stakes_update_state( vote_stakes, bank->vote_stakes_fork_id, pubkey, is_valid );
       }
 
       fd_runtime_lthash_account( runtime, bank, pubkey, account, runtime->log.capture_ctx );
@@ -1713,7 +1701,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
   {
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-    ulong              fork_id     = bank->vote_stakes_fork_id;
+    ushort             fork_id     = bank->vote_stakes_fork_id;
     uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
          !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
