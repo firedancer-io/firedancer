@@ -242,6 +242,17 @@ fd_txncache_snapin_stage( fd_txncache_t * tc,
                           ulong           sz,
                           int             write );
 
+/* fd_txncache_snapin_stage_entries is like fd_txncache_snapin_stage,
+   but for an area of the spill file past every txnpage slot, so
+   inserts never clobber it.  Requires a spill file. */
+
+void
+fd_txncache_snapin_stage_entries( fd_txncache_t * tc,
+                                  ulong           off,
+                                  void *          buf,
+                                  ulong           sz,
+                                  int             write );
+
 /* fd_txncache_attach_child notifies the txncache that a new child bank
    has been created, off some parent.  This must be called before any
    transaction executed on this child fork is inserted.  The parent fork
