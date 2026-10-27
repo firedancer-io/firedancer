@@ -1059,6 +1059,14 @@ enum RepairRequestRole {
   REPAIR_REQUEST_ROLE_FINAL = 3;  // The slot's finalized block.
 }
 
+// Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+enum MetricsStrmkState {
+  METRICS_STRMK_STATE_UNSPECIFIED = 0;
+  METRICS_STRMK_STATE_BOOTING = 1;  // Booting
+  METRICS_STRMK_STATE_RUNNING = 2;  // Running
+  METRICS_STRMK_STATE_SHUTDOWN = 3;  // Shutdown
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -12381,6 +12389,76 @@ message RepairRequest {
   RepairRequestRole role = 15;
 }
 
+// Metrics of one strmk tile instance, one row per sweep
+message MetricsStrmk {
+  // Identifier shared by every row of one sweep
+  uint64 sample_id = 1;
+  // Why a metrics sweep was taken
+  MetricsSampleReason sample_reason = 2;
+  // Slot that triggered the sweep, 0 for periodic sweeps
+  uint64 sample_slot = 3;
+  // Snapshot load state
+  MetricsSnapctLoadState sample_snapct_state = 4;
+  // Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared
+  bool sample_caught_up = 5;
+  // Tile instances in the sweep, to detect partial sweeps
+  uint64 sample_tile_cnt = 6;
+  // Index of this tile instance among tiles of its kind
+  uint64 kind_id = 7;
+  // Process ID of the tile
+  uint64 pid = 8;
+  // Thread ID of the tile. Same as Pid in production, but might differ in development
+  uint64 tid = 9;
+  // CPU the tile last ran on
+  uint64 last_cpu_index = 10;
+  // counter: cumulative since tile start, query deltas. Involuntary context switches
+  uint64 context_switch_involuntary = 11;
+  // counter: cumulative since tile start, query deltas. Voluntary context switches
+  uint64 context_switch_voluntary = 12;
+  // counter: cumulative since tile start, query deltas. Major page faults
+  uint64 page_fault_major = 13;
+  // counter: cumulative since tile start, query deltas. Minor page faults
+  uint64 page_fault_minor = 14;
+  // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+  MetricsStrmkState state = 15;
+  // Last wall-clock time the tile heartbeated
+  uint64 heartbeat_time = 16;
+  // Whether the tile is currently backpressured
+  bool is_backpressured = 17;
+  // counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing
+  uint64 backpressure = 18;
+  // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+  MetricsStrmkRegimeDurationNanos regime_duration_nanos = 19;
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+  MetricsStrmkThreadDurationNanos thread_duration_nanos = 20;
+  // Times the tile tried to park while idle (efficient mode), by result
+  MetricsStrmkParkAttempted park_attempted = 21;
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 device_irq = 22;
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 tlb_shootdown = 23;
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 timer_irq = 24;
+  // Account keys received from the exec tiles
+  uint64 key_received = 25;
+  // Account keys stored, the first time a block touched them since the last stream start
+  uint64 key_stored = 26;
+  // Account keys not stored because the key pool was full
+  uint64 key_dropped = 27;
+  // Account keys not written because the stream already sent them
+  uint64 key_skipped = 28;
+  // Appendvec entries written to the stream, one per transaction
+  uint64 appendvec_written = 29;
+  // Account records written to the stream
+  uint64 account_written = 30;
+  // Account records read from disk rather than the cache
+  uint64 account_disk_read = 31;
+  // Records written for accounts that do not exist
+  uint64 tombstone_written = 32;
+  // Account keys stored
+  uint64 key_count = 33;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -12447,5 +12525,6 @@ message Event {
     MetricsLink metrics_link = 61;
     MetricsMotor metrics_motor = 62;
     RepairRequest repair_request = 63;
+    MetricsStrmk metrics_strmk = 64;
   }
 }

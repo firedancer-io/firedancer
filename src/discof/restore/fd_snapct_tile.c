@@ -1019,7 +1019,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_NOTICE(( "downloading the fast boot stream from %s://" FD_IP4_ADDR_FMT ":%hu", out->is_https ? "https" : "http",
                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
       } else {
-        log_download( ctx, full, ctx->peer.addr, full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot );
+        log_download( ctx, full, out->is_https );
       }
     }
     ulong sz = file ? 0UL : sizeof(fd_ssctrl_start_t);
@@ -1049,6 +1049,10 @@ after_credit( fd_snapct_tile_t *  ctx,
           break;
         }
         ctx->peer.addr = ctx->resolved_servers[ i ].addr;
+        memset( &ctx->peer.key.url, 0, sizeof(ctx->peer.key.url) );
+        strncpy( ctx->peer.key.url.hostname, ctx->resolved_servers[ i ].hostname, sizeof(ctx->peer.key.url.hostname)-1UL );
+        ctx->peer.key.url.resolved_addr = ctx->peer.addr;
+        ctx->peer.key.is_url            = 1;
 
         /* The full behind the stream is read from disk when it is the
            one the server has.  Wait for the server's answer until the

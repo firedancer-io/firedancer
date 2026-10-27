@@ -4138,7 +4138,7 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  uint acc = chain_head( &accdb->acc_map[ hash ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );

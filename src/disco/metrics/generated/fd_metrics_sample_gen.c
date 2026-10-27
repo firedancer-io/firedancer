@@ -1009,7 +1009,7 @@ static fd_metrics_sample_field_t const fields_pack[ 283 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_execle[ 205 ] = {
+static fd_metrics_sample_field_t const fields_execle[ 207 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1208,6 +1208,8 @@ static fd_metrics_sample_field_t const fields_execle[ 205 ] = {
   { FD_METRICS_COUNTER_EXECLE_ACCDB_ACCOUNT_CACHE_MISSED_LE10_MIB_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_ACCDB_ACCOUNT_WAITED_OFF, 54U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_EXECLE_ACCDB_FAST_BOOT_WAITED_OFF, 531869510U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_EXECLE_ACCDB_FAST_BOOT_WAIT_DURATION_NANOS_OFF, 274944463U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_ACCDB_BATCH_ACQUIRED_OFF, 55U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_ACCDB_CACHE_RESERVE_RETRIED_OFF, 56U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_ACCDB_DISK_READ_BYTES_OFF, 57U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1532,7 +1534,7 @@ static fd_metrics_sample_field_t const fields_accdb[ 132 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_replay[ 239 ] = {
+static fd_metrics_sample_field_t const fields_replay[ 241 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1764,6 +1766,8 @@ static fd_metrics_sample_field_t const fields_replay[ 239 ] = {
   { FD_METRICS_COUNTER_REPLAY_ACCDB_ACCOUNT_CACHE_MISSED_LE10_MIB_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_REPLAY_ACCDB_ACCOUNT_WAITED_OFF, 108U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_REPLAY_ACCDB_FAST_BOOT_WAITED_OFF, 485185375U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_REPLAY_ACCDB_FAST_BOOT_WAIT_DURATION_NANOS_OFF, 452751186U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { FD_METRICS_COUNTER_REPLAY_ACCDB_BATCH_ACQUIRED_OFF, 109U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_REPLAY_ACCDB_CACHE_RESERVE_RETRIED_OFF, 110U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_REPLAY_ACCDB_DISK_READ_BYTES_OFF, 111U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -3214,7 +3218,7 @@ static fd_metrics_sample_field_t const fields_ipecho[ 55 ] = {
   { FD_METRICS_GAUGE_IPECHO_PORT_CHECK_TCP_IN_FLIGHT_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_execrp[ 202 ] = {
+static fd_metrics_sample_field_t const fields_execrp[ 204 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -3410,6 +3414,8 @@ static fd_metrics_sample_field_t const fields_execrp[ 202 ] = {
   { FD_METRICS_COUNTER_EXECRP_ACCDB_ACCOUNT_CACHE_MISSED_LE10_MIB_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_ACCDB_ACCOUNT_WAITED_OFF, 56U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_EXECRP_ACCDB_FAST_BOOT_WAITED_OFF, 323331159U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_EXECRP_ACCDB_FAST_BOOT_WAIT_DURATION_NANOS_OFF, 437216431U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_ACCDB_BATCH_ACQUIRED_OFF, 57U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_ACCDB_CACHE_RESERVE_RETRIED_OFF, 58U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_ACCDB_DISK_READ_BYTES_OFF, 59U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4421,10 +4427,10 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "dedup", 28U, fields_dedup, 43UL, 552UL },
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
   { "pack", 30U, fields_pack, 283UL, 3013UL },
-  { "execle", 31U, fields_execle, 205UL, 2159UL },
+  { "execle", 31U, fields_execle, 207UL, 2189UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
-  { "replay", 34U, fields_replay, 239UL, 2568UL },
+  { "replay", 34U, fields_replay, 241UL, 2598UL },
   { "rotor", 35U, fields_rotor, 158UL, 1769UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
   { "gossip", 37U, fields_gossip, 184UL, 1952UL },
@@ -4443,7 +4449,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "waker", 50U, fields_waker, 40UL, 536UL },
   { "mwaitx", 51U, fields_mwaitx, 44UL, 564UL },
   { "ipecho", 52U, fields_ipecho, 55UL, 674UL },
-  { "execrp", 53U, fields_execrp, 202UL, 2135UL },
+  { "execrp", 53U, fields_execrp, 204UL, 2165UL },
   { "votor", 54U, fields_votor, 357UL, 3719UL },
   { "gui", 55U, fields_gui, 256UL, 2708UL },
   { "event", 56U, fields_event, 54UL, 699UL },
@@ -4452,7 +4458,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "snaprd", 59U, fields_snaprd, 42UL, 560UL },
   { "snapsv", 60U, fields_snapsv, 49UL, 625UL },
   { "motor", 62U, fields_motor, 38UL, 512UL },
-  { "strmk", 63U, fields_strmk, 47UL, 620UL },
+  { "strmk", 64U, fields_strmk, 47UL, 620UL },
   { NULL, 0U, NULL, 0UL, 0UL }
 };
 
