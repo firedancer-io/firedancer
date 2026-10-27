@@ -4,6 +4,8 @@
 
 #include <stdlib.h>
 
+static int g_spill_fd = -1;
+
 #define TEST_VOTER_MAX (4UL)
 
 /* An fd_epoch_info_t is nearly 300 KiB, too big for the stack. */
@@ -67,7 +69,7 @@ test_epoch( fd_vote_stake_weight_t const * stakes,
     epoch_ctx.peers            = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
     epoch_ctx.contact_infos    = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
     epoch_ctx.mleaders         = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
-    epoch_ctx.pool             = fd_votor_pool_join( fd_votor_pool_new( pool_mem, pool_slot_max, QUIC_DGRAM_BURST, 42UL ) );
+    epoch_ctx.pool             = fd_votor_pool_join( fd_votor_pool_new( pool_mem, pool_slot_max, QUIC_DGRAM_BURST, 42UL, g_spill_fd ) );
     epoch_ctx.votor            = fd_votor_loop_join( fd_votor_loop_new( votor_mem, 64UL, 42UL ) );
     epoch_ctx.next_epoch_slot  = ULONG_MAX;
     epoch_ctx.next_leader_slot = ULONG_MAX;
@@ -312,7 +314,7 @@ test_pool( fd_epoch_info_t const * epoch_info,
            ulong                   rank ) {
   FD_TEST( fd_votor_pool_footprint( TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST )<=sizeof(pool_scratch) );
   FD_TEST( fd_ulong_is_aligned( (ulong)pool_scratch, fd_votor_pool_align() ) );
-  fd_votor_pool_t * pool = fd_votor_pool_join( fd_votor_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  fd_votor_pool_t * pool = fd_votor_pool_join( fd_votor_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST, 42UL, g_spill_fd ) );
   FD_TEST( pool );
   fd_votor_pool_from_genesis( pool, &(fd_block_id_t){ .slot = 0UL } );
   fd_votor_pool_advance_epoch( pool, epoch_info, rank, 0UL );
@@ -652,7 +654,7 @@ votor_wfs_test_ctx_new( fd_votor_tile_t * ctx,
   /* Not fd_votor_pool_from_*: the boot SLOT_COMPLETED is what calls
      that. */
   FD_TEST( fd_votor_pool_footprint( TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST )<=sizeof(pool_scratch) );
-  ctx->pool = fd_votor_pool_join( fd_votor_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->pool = fd_votor_pool_join( fd_votor_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, QUIC_DGRAM_BURST, 42UL, g_spill_fd ) );
   FD_TEST( ctx->pool );
 
   /* The epoch always lands before the boot slot, so both advance_epoch
@@ -1491,7 +1493,7 @@ test_ctx_new( fd_votor_tile_t * ctx,
   FD_TEST( reconn_prq_footprint( RECONN_MAX )<=sizeof(reconn_prq_mem) );
   ctx->reconn_prq    = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   FD_TEST( fd_votor_pool_footprint( FD_VOTOR_SLOTS_PER_WINDOW+FD_VOTOR_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST )<=sizeof(pool_scratch) );
-  ctx->pool          = fd_votor_pool_join( fd_votor_pool_new( pool_scratch, FD_VOTOR_SLOTS_PER_WINDOW+FD_VOTOR_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->pool          = fd_votor_pool_join( fd_votor_pool_new( pool_scratch, FD_VOTOR_SLOTS_PER_WINDOW+FD_VOTOR_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL, g_spill_fd ) );
   FD_TEST( ctx->peers && ctx->contact_infos && ctx->reconn_prq && ctx->pool );
   fd_votor_pool_from_genesis( ctx->pool, &(fd_block_id_t){ .slot = 0UL } );
   fd_clock_tile_init( ctx->clock );
@@ -1553,7 +1555,7 @@ test_connect_peer( void ) {
   };
   for( ulong i=0UL; i<sizeof(win)/sizeof(win[0]); i++ ) {
     self->prev_rank = win[i].prev; self->next_rank = win[i].next;
-    if( win[i].root==ULONG_MAX ) ctx.pool = fd_votor_pool_join( fd_votor_pool_new( fd_votor_pool_delete( fd_votor_pool_leave( ctx.pool ) ), FD_VOTOR_SLOTS_PER_WINDOW+FD_VOTOR_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL ) );
+    if( win[i].root==ULONG_MAX ) ctx.pool = fd_votor_pool_join( fd_votor_pool_new( fd_votor_pool_delete( fd_votor_pool_leave( ctx.pool ) ), FD_VOTOR_SLOTS_PER_WINDOW+FD_VOTOR_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL, g_spill_fd ) );
     else                         fd_votor_pool_from_snapshot( ctx.pool, &(fd_block_id_t){ .slot = win[i].root } );
     quic_client_connect( &ctx, other, ci, now );
     FD_TEST( !!other->tx_conn==win[i].ok );
@@ -2002,7 +2004,7 @@ test_park( void ) {
   FD_TEST( park_pool_mem );
   FD_TEST( fd_votor_loop_footprint( PARK_SLOT_MAX )<=sizeof(park_votor_mem) );
   FD_TEST( peers_footprint( PEERS_LG_SLOT_CNT )<=sizeof(park_peers_mem)     );
-  ctx->pool        = fd_votor_pool_join( fd_votor_pool_new( park_pool_mem,  PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->pool        = fd_votor_pool_join( fd_votor_pool_new( park_pool_mem,  PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL, g_spill_fd ) );
   ctx->votor       = fd_votor_loop_join( fd_votor_loop_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -2180,7 +2182,7 @@ test_standstill( void ) {
 
   void * pool_mem = aligned_alloc( fd_votor_pool_align(), fd_ulong_align_up( fd_votor_pool_footprint( PARK_SLOT_MAX, QUIC_DGRAM_BURST ), fd_votor_pool_align() ) );
   FD_TEST( pool_mem );
-  ctx->pool        = fd_votor_pool_join( fd_votor_pool_new( pool_mem,       PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->pool        = fd_votor_pool_join( fd_votor_pool_new( pool_mem,       PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL, g_spill_fd ) );
   ctx->votor       = fd_votor_loop_join( fd_votor_loop_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -2561,7 +2563,7 @@ test_leader_window_superseded( void ) {
   void * pool_mem  = aligned_alloc( fd_votor_pool_align(), fd_ulong_align_up( fd_votor_pool_footprint( slot_max, QUIC_DGRAM_BURST ), fd_votor_pool_align() ) );
   void * votor_mem = aligned_alloc( fd_votor_loop_align(), fd_ulong_align_up( fd_votor_loop_footprint( slot_max                   ), fd_votor_loop_align() ) );
   FD_TEST( pool_mem && votor_mem );
-  ctx->pool        = fd_votor_pool_join( fd_votor_pool_new( pool_mem,  slot_max, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->pool        = fd_votor_pool_join( fd_votor_pool_new( pool_mem,  slot_max, QUIC_DGRAM_BURST, 42UL, g_spill_fd ) );
   ctx->votor       = fd_votor_loop_join( fd_votor_loop_new( votor_mem, slot_max, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -3135,6 +3137,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  g_spill_fd = memfd_create( "votor_spill", 0 );
+  FD_TEST( g_spill_fd>=0 );
   FD_TEST( contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )<=sizeof(contact_infos_mem) && peers_footprint( PEERS_LG_SLOT_CNT )<=sizeof(peers_mem) );
 
   test_epoch_resets_total_stake();
