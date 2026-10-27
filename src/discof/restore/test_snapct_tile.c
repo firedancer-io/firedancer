@@ -415,9 +415,9 @@ test_background_snapshot_instance( void ) {
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_META, 0UL, sizeof(*meta), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->fast_boot.slot==150UL && ctx->fast_boot.hash[ 0 ]==0x11 && ctx->fast_boot.hash[ 31 ]==0x11 );
 
-  /* Replay catches up: the full download starts. */
+  /* Replay holds at an epoch boundary: the full download starts. */
   fd_wait_info_write_begin( ctx->wait_info );
-  ctx->wait_info->info.caught_up = 1;
+  ctx->wait_info->info.epoch_boundary_hold = 1;
   fd_wait_info_write_end( ctx->wait_info );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP && ctx->load_incremental );

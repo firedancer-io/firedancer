@@ -328,6 +328,25 @@ test_stream( void ) {
   FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "fast-boot-stream-124-%s.tar.zst", hash_b58 ) );
   FD_TEST( fd_cstr_printf_check( redirect, sizeof(redirect), NULL, "HTTP/1.1 302 Found\r\nLocation: /%s\r\nContent-Length: 0\r\n\r\n", name ) );
   FD_TEST( fd_cstr_printf_check( get, sizeof(get), NULL, "GET /%s HTTP/1.1", name ) );
+
+  /* Replay is still below the newer stream's start: not followed,
+     asked again later. */
+  static fd_wait_info_box_t box[ 1 ];
+  ctx->wait_info = fd_wait_info_box_join( fd_wait_info_box_new( box ) );
+  ctx->wait_info->info.reset_slot = 123UL;
+  serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", redirect );
+  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
+  drive_until( ctx, &ctx->fast_boot_stream.next_stream_slot, 124UL );
+  FD_TEST( ctx->fast_boot_stream.next_stream && ctx->fast_boot_stream.slot==123UL && ctx->fast_boot_stream.off==0UL );
+  FD_TEST( publish_cnt==5UL && ctx->fast_boot_stream.wait!=LONG_MAX && http->state==FD_SSHTTP_STATE_INIT );
+
+  /* Not even asked for until replay gets there. */
+  ctx->fast_boot_stream.wait = 0L;
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( http->state==FD_SSHTTP_STATE_INIT && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->wait_info->info.reset_slot = 124UL;
+  ctx->fast_boot_stream.wait = 0L;
+
   serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", redirect );
   serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
   drive_until( ctx, &ctx->fast_boot_stream.off, 4UL );
@@ -359,6 +378,22 @@ test_stream( void ) {
   start->path_len = strlen( start->path );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && init_cnt==2UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
+
+  /* A stream that ends before replay caught up on it is complete as
+     of its start: caught up is reported once, then the newest stream
+     is asked for. */
+  serve_one( ctx, server, "GET /fast-boot-stream.tar.zst HTTP/1.1", redirect );
+  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnapshot" );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
+  FD_TEST( !ctx->fast_boot_stream.caught_up );
+  ulong published = publish_cnt;
+  serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
+  drive_until( ctx, &publish_cnt, published+1UL );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP && ctx->fast_boot_stream.caught_up );
+  FD_TEST( ctx->fast_boot_stream.next_stream && ctx->fast_boot_stream.off==0UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( publish_cnt==published+1UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );

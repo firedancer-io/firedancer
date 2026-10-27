@@ -559,14 +559,14 @@ strmk_store_keys( fd_strmk_t *                ctx,
    snapshot start message: an incremental snapshot starts a stream in
    the next pool file, with the version entry, the manifest and the
    keys of the blocks above the snapshot slot.  Replay keeps the
-   published root at that slot until the stream ends.  A full snapshot
-   starts no stream. */
+   published root at that slot until the stream ends, and says which
+   snapshots start a stream. */
 
 static void
 strmk_stream_start( fd_strmk_t *                   ctx,
                     fd_stem_context_t *            stem,
                     fd_replay_snap_start_t const * msg ) {
-  if( FD_UNLIKELY( msg->slot==msg->base_slot ) ) return;
+  if( FD_UNLIKELY( !msg->should_open_stream ) ) return;
 
   strmk_stream_close( ctx, stem );
 

@@ -21,6 +21,7 @@
 struct fd_wait_info {
   /* Health */
   int   caught_up;
+  int   epoch_boundary_hold;
 
   /* Leader gap */
   ulong reset_slot;
