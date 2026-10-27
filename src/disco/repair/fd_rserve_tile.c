@@ -178,7 +178,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_rserve_align(), fd_rserve_footprint( tile->rserve.ping_cache_entries) );
   l = FD_LAYOUT_APPEND( l, sign_pool_align(), sign_pool_footprint( tile->rserve.sign_depth ) );
   if( FD_LIKELY( tile->rserve.blockdb_max ) ) {
-    l = FD_LAYOUT_APPEND( l, fd_blockdb_align(), fd_blockdb_footprint( tile->rserve.blockdb_max ) );
+    l = FD_LAYOUT_APPEND( l, fd_blockdb_align(), fd_blockdb_footprint( tile->rserve.blockdb_max, tile->rserve.blockdb_win_max ) );
   }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -490,7 +490,8 @@ handle_net_request( ctx_t             * ctx,
         }
 
         uchar proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ];
-        int proof_len = fd_blockdb_proof( ctx->blockdb, blk, blk->fec_set_cnt, proof );
+        uchar const * roots = fd_blockdb_roots( ctx->blockdb, blk, 0UL, blk->fec_set_cnt );
+        int proof_len = fd_blockdb_proof( ctx->blockdb, blk, roots, blk->fec_set_cnt, proof );
         FD_TEST( proof_len>=0 );
 
         uchar buf[ FD_REPAIR_RES_DE_MAX ];
@@ -519,11 +520,12 @@ handle_net_request( ctx_t             * ctx,
         ulong leaf_idx = msg->fec_set_idx/FD_FEC_SHRED_CNT;
 
         uchar proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ];
-        int proof_len = fd_blockdb_proof( ctx->blockdb, blk, leaf_idx, proof );
+        uchar const * roots = fd_blockdb_roots( ctx->blockdb, blk, 0UL, blk->fec_set_cnt );
+        int proof_len = fd_blockdb_proof( ctx->blockdb, blk, roots, leaf_idx, proof );
         FD_TEST( proof_len>=0 );
 
         uchar buf[ FD_REPAIR_RES_DE_MAX ];
-        ulong sz = fd_repair_res_fec_set_root_ser( blk->merkle_roots[ leaf_idx ], proof, (ulong)proof_len*FD_SHRED_MERKLE_NODE_SZ, nonce, buf, sizeof(buf) );
+        ulong sz = fd_repair_res_fec_set_root_ser( roots + leaf_idx*FD_SHRED_MERKLE_NODE_SZ, proof, (ulong)proof_len*FD_SHRED_MERKLE_NODE_SZ, nonce, buf, sizeof(buf) );
         FD_TEST( sz );
 
         send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, buf, sz, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -545,7 +547,7 @@ handle_net_request( ctx_t             * ctx,
           return;
         }
 
-        uchar const * root = blk->merkle_roots[ msg->shred_idx/FD_FEC_SHRED_CNT ];
+        uchar const * root = fd_blockdb_roots( ctx->blockdb, blk, msg->shred_idx/FD_FEC_SHRED_CNT, 1UL );
         uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
         int len;
         for( ulong retry=0UL;; retry++ ) {
@@ -920,15 +922,9 @@ unprivileged_init( fd_topo_t      const * topo,
   void * sign_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, sign_pool_align(), sign_pool_footprint( tile->rserve.sign_depth ) );
   void * blockdb_mem = NULL;
   if( FD_LIKELY( tile->rserve.blockdb_max ) ) {
-    blockdb_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_blockdb_align(), fd_blockdb_footprint( tile->rserve.blockdb_max ) );
+    blockdb_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_blockdb_align(), fd_blockdb_footprint( tile->rserve.blockdb_max, tile->rserve.blockdb_win_max ) );
   }
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch + scratch_footprint( tile ) );
-
-  ctx->blockdb = NULL;
-  if( FD_LIKELY( blockdb_mem ) ) {
-    ctx->blockdb = fd_blockdb_join( fd_blockdb_new( blockdb_mem, tile->rserve.blockdb_max, ctx->seed ) );
-    FD_TEST( ctx->blockdb );
-  }
 
   ctx->store = NULL;
   ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
@@ -941,6 +937,13 @@ unprivileged_init( fd_topo_t      const * topo,
   }
   if( FD_UNLIKELY( ctx->disk_fd<0 ) ) {
     FD_LOG_ERR(( "rserve could not open the store disk file" ));
+  }
+
+  ctx->blockdb = NULL;
+  if( FD_LIKELY( blockdb_mem ) ) {
+    ctx->blockdb = fd_blockdb_join( fd_blockdb_new( blockdb_mem, tile->rserve.blockdb_max, tile->rserve.blockdb_win_max, ctx->seed,
+                                                    ctx->disk_fd, fd_store_tail_off( ctx->store ) ) );
+    FD_TEST( ctx->blockdb );
   }
 
   ctx->max_shreds_per_block = tile->rserve.max_shreds_per_block;

@@ -2,7 +2,13 @@
 #include "fd_repair_serde.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #define ELE_MAX (4UL)
+#define WIN_MAX (2UL)
+#define DISK_PATH "/tmp/test_blockdb_roots.db"
+#define DISK_OFF  (4096UL)
 
 static uchar mem[ 1UL<<20 ] __attribute__((aligned(FD_BLOCKDB_ALIGN)));
 static uchar roots[ FD_FEC_BLK_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
@@ -20,7 +26,7 @@ fill_roots( uchar b ) {
 }
 
 static void
-check_blk( fd_blockdb_t const * db,
+check_blk( fd_blockdb_t *       db,
            ulong                slot,
            uchar                bid,
            ulong                parent_slot,
@@ -36,9 +42,12 @@ check_blk( fd_blockdb_t const * db,
   FD_TEST( blk->parent_slot==parent_slot );
   FD_TEST( !memcmp( &blk->parent_block_id, &parent_id, sizeof(fd_hash_t) ) );
   FD_TEST( blk->fec_set_cnt==fec_set_cnt );
+  uchar const * r = fd_blockdb_roots( db, blk, 0UL, fec_set_cnt );
   for( ulong i=0UL; i<fec_set_cnt; i++ ) {
-    for( ulong j=0UL; j<FD_SHRED_MERKLE_NODE_SZ; j++ ) FD_TEST( blk->merkle_roots[ i ][ j ]==(uchar)(root_b+i) );
+    for( ulong j=0UL; j<FD_SHRED_MERKLE_NODE_SZ; j++ ) FD_TEST( r[ i*FD_SHRED_MERKLE_NODE_SZ+j ]==(uchar)(root_b+i) );
   }
+  ulong last = fec_set_cnt-1UL;
+  FD_TEST( fd_blockdb_roots( db, blk, last, 1UL )[ 0 ]==(uchar)(root_b+last) );
 }
 
 static fd_blockdb_blk_t *
@@ -124,7 +133,8 @@ test_proofs( fd_blockdb_t * db,
   ulong     expected_len = fd_bmtree_depth( fec_set_cnt+1UL )-1UL;
 
   /* Parent-info leaf */
-  int len = fd_blockdb_proof( db, blk, fec_set_cnt, proof );
+  uchar const * blk_roots = fd_blockdb_roots( db, blk, 0UL, fec_set_cnt );
+  int len = fd_blockdb_proof( db, blk, blk_roots, fec_set_cnt, proof );
   FD_TEST( len==(int)expected_len );
   ulong sz = fd_repair_res_parent_fec_set_count_ser( fec_set_cnt, parent, &parent_id, proof, (ulong)len*FD_SHRED_MERKLE_NODE_SZ, 0xABCD1234U, buf, sizeof(buf) );
   FD_TEST( sz );
@@ -143,9 +153,9 @@ test_proofs( fd_blockdb_t * db,
 
   /* Every FEC root leaf */
   for( uint k=0U; k<fec_set_cnt; k++ ) {
-    len = fd_blockdb_proof( db, blk, k, proof );
+    len = fd_blockdb_proof( db, blk, blk_roots, k, proof );
     FD_TEST( len==(int)expected_len );
-    sz = fd_repair_res_fec_set_root_ser( blk->merkle_roots[ k ], proof, (ulong)len*FD_SHRED_MERKLE_NODE_SZ, k, buf, sizeof(buf) );
+    sz = fd_repair_res_fec_set_root_ser( blk_roots + k*FD_SHRED_MERKLE_NODE_SZ, proof, (ulong)len*FD_SHRED_MERKLE_NODE_SZ, k, buf, sizeof(buf) );
     FD_TEST( sz );
     FD_TEST( fd_repair_res_fec_set_root_de( buf, sz, res_root, res_proof, &res_proof_sz, &res_nonce )==sz );
     FD_TEST( res_nonce==k );
@@ -155,25 +165,14 @@ test_proofs( fd_blockdb_t * db,
   }
 
   /* Past the parent-info leaf */
-  FD_TEST( fd_blockdb_proof( db, blk, fec_set_cnt+1UL, proof )==-1 );
+  FD_TEST( fd_blockdb_proof( db, blk, blk_roots, fec_set_cnt+1UL, proof )==-1 );
 
   /* Serializers refuse a short buffer */
-  FD_TEST( !fd_repair_res_fec_set_root_ser( blk->merkle_roots[ 0 ], proof, expected_len*FD_SHRED_MERKLE_NODE_SZ, 0U, buf, 8UL ) );
+  FD_TEST( !fd_repair_res_fec_set_root_ser( blk_roots, proof, expected_len*FD_SHRED_MERKLE_NODE_SZ, 0U, buf, 8UL ) );
 }
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-
-  FD_TEST( !fd_blockdb_footprint( 0UL      ) );
-  FD_TEST( !fd_blockdb_footprint( UINT_MAX ) );
-  ulong footprint = fd_blockdb_footprint( ELE_MAX );
-  FD_TEST( footprint && footprint<=sizeof(mem) );
-
-  fd_blockdb_t * db = fd_blockdb_join( fd_blockdb_new( mem, ELE_MAX, 1234UL ) );
-  FD_TEST( db );
-
+static void
+test_db( fd_blockdb_t * db ) {
   /* Empty */
   FD_TEST( !has( db, 10UL, 1 ) );
 
@@ -231,8 +230,57 @@ main( int     argc,
   uint const cnts[] = { 1U, 2U, 3U, 4U, 5U, 7U, 8U, 31U, 32U, 33U, 63U, 64U, 255U, 511U, FD_FEC_BLK_MAX };
   for( ulong i=0UL; i<sizeof(cnts)/sizeof(cnts[0]); i++ ) test_proofs( db, rng, cnts[ i ] );
   fd_rng_delete( fd_rng_leave( rng ) );
+}
 
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+
+  FD_TEST( !fd_blockdb_footprint( 0UL,      1UL ) );
+  FD_TEST( !fd_blockdb_footprint( UINT_MAX, 1UL ) );
+  FD_TEST( !fd_blockdb_footprint( ELE_MAX,  0UL ) );
+  FD_TEST( fd_blockdb_footprint( ELE_MAX, WIN_MAX )<fd_blockdb_footprint( ELE_MAX, ELE_MAX ) );
+  ulong footprint = fd_blockdb_footprint( ELE_MAX, ELE_MAX );
+  FD_TEST( footprint && footprint<=sizeof(mem) );
+
+  /* All roots in RAM */
+  fd_blockdb_t * db = fd_blockdb_join( fd_blockdb_new( mem, ELE_MAX, ELE_MAX, 1234UL, -1, 0UL ) );
+  FD_TEST( db );
+  test_db( db );
   FD_TEST( fd_blockdb_delete( fd_blockdb_leave( db ) )==mem );
+
+  /* A window smaller than ele_max needs a file */
+  FD_TEST( !fd_blockdb_new( mem, ELE_MAX, WIN_MAX, 1234UL, -1, 0UL ) );
+
+  /* Roots older than the window are read from the file */
+  int fd = open( DISK_PATH, O_RDWR|O_CREAT|O_TRUNC, (mode_t)0600 );
+  FD_TEST( fd>=0 );
+  FD_TEST( !unlink( DISK_PATH ) );
+  FD_TEST( !ftruncate( fd, (off_t)(DISK_OFF+ELE_MAX*FD_BLOCKDB_ROOTS_SZ) ) );
+  db = fd_blockdb_join( fd_blockdb_new( mem, ELE_MAX, WIN_MAX, 1234UL, fd, DISK_OFF ) );
+  FD_TEST( db );
+  FD_TEST( insert( db, 20UL, 1, 19UL, 1, 3U, 10 ) );
+  FD_TEST( insert( db, 21UL, 2, 20UL, 1, 2U, 20 ) );
+  FD_TEST( insert( db, 22UL, 3, 21UL, 2, 4U, 30 ) );
+  ulong wseq = db->wseq;
+  check_blk( db, 20UL, 1, 19UL, 1, 3U, 10 ); /* out of the window */
+  check_blk( db, 22UL, 3, 21UL, 2, 4U, 30 );
+  FD_TEST( insert( db, 20UL, 1, 19UL, 1, 3U, 40 ) ); /* re-insert rewrites window and file */
+  check_blk( db, 20UL, 1, 19UL, 1, 3U, 40 );
+  FD_TEST( insert( db, 21UL, 2, 20UL, 1, 2U, 50 ) ); /* in-place updates push it out again */
+  FD_TEST( insert( db, 22UL, 3, 21UL, 2, 4U, 60 ) );
+  FD_TEST( db->wseq==wseq+1UL+WIN_MAX );
+  check_blk( db, 20UL, 1, 19UL, 1, 3U, 40 );
+  check_blk( db, 21UL, 2, 20UL, 1, 2U, 50 );
+  FD_TEST( fd_blockdb_delete( fd_blockdb_leave( db ) )==mem );
+
+  db = fd_blockdb_join( fd_blockdb_new( mem, ELE_MAX, WIN_MAX, 1234UL, fd, DISK_OFF ) );
+  FD_TEST( db );
+  test_db( db );
+  FD_TEST( fd_blockdb_delete( fd_blockdb_leave( db ) )==mem );
+  FD_TEST( !close( fd ) );
+
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
