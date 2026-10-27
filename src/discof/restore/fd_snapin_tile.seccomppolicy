@@ -44,6 +44,11 @@ preadv2: (or (eq (arg 0) accounts_fd)
 pwritev2: (or (eq (arg 0) accounts_idx_fd)
               (eq (arg 0) accounts_spill_fd))
 
+# accounts index: start writeback of each index build window
+# (SYNC_FILE_RANGE_WRITE)
+sync_file_range: (and (eq (arg 0) accounts_idx_fd)
+                      (eq (arg 3) 2))
+
 # accounts database: allocate more space from the disk
 #
 # The accounts database allocates more space from the underlying storage
