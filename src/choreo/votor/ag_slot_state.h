@@ -22,31 +22,32 @@
 
 #define AG_NOTAR_FALLBACK_HASH_MAX (AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX)
 
-struct __attribute__((aligned(64UL))) ag_vote_stake_ele {
-  ag_block_id_t block_id;
-  uint          next;
-  uint          prev;
-  ulong         stake;
+/* Stake per block hash.  The first AG_HASH_STAKE_INLINE_MAX hashes of
+   a slot live inline; the rest (only reachable with garbage hashes from
+   staked voters) go to the slot's region of the spill file, read and
+   written with pread/pwrite.  A free spill record has stake ULONG_MAX.
+   Ids are stable: id<AG_HASH_STAKE_INLINE_MAX is inline, else spill
+   record id-AG_HASH_STAKE_INLINE_MAX. */
+
+#define AG_HASH_STAKE_INLINE_MAX (32UL)
+#define AG_NOTAR_SPILL_MAX       (AG_VAT_MAX                -AG_HASH_STAKE_INLINE_MAX)
+#define AG_NF_SPILL_MAX          (AG_NOTAR_FALLBACK_HASH_MAX-AG_HASH_STAKE_INLINE_MAX)
+
+struct ag_hash_stake {
+  ag_block_hash_t hash;
+  ulong           stake;
 };
-typedef struct ag_vote_stake_ele ag_vote_stake_ele_t;
-FD_STATIC_ASSERT( sizeof(ag_vote_stake_ele_t)==64UL, ag_vote_stake_ele );
+typedef struct ag_hash_stake ag_hash_stake_t;
 
-#define POOL_NAME  ag_vote_stake_pool
-#define POOL_T     ag_vote_stake_ele_t
-#define POOL_NEXT  next
-#define POOL_IDX_T uint
-#define POOL_LAZY  1
-#include "../../util/tmpl/fd_pool.c"
+#define AG_SLOT_STATE_SPILL_SZ ((AG_NOTAR_SPILL_MAX+AG_NF_SPILL_MAX)*sizeof(ag_hash_stake_t))
 
-#define MAP_NAME               ag_vote_stake_map
-#define MAP_ELE_T              ag_vote_stake_ele_t
-#define MAP_KEY                block_id
-#define MAP_KEY_T              ag_block_id_t
-#define MAP_IDX_T              uint
-#define MAP_NEXT               next
-#define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq( (k0), (k1) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_block_id_t) ))
-#include "../../util/tmpl/fd_map_chain.c"
+struct ag_hash_stakes {
+  ag_hash_stake_t ele[ AG_HASH_STAKE_INLINE_MAX ];
+  uint            used;      /* inline occupancy */
+  ushort          spill_cnt; /* live spill records */
+  ushort          spill_hwm; /* spill records [0,hwm) were written */
+};
+typedef struct ag_hash_stakes ag_hash_stakes_t;
 
 struct ag_parent_status {
   ag_block_hash_t hash;
@@ -74,13 +75,11 @@ FD_STATIC_ASSERT( sizeof(fd_bls_sig_ele_t)==sizeof(fd_bls_sig_t), fd_bls_sig_ele
 struct ag_slot_votes {
   fd_bls_set_t    notar_set                    [ fd_bls_set_word_cnt ];
   uint            notar_sig_idx                [ AG_VAT_MAX ];
-  uint            notar_hash_stake_idx         [ AG_VAT_MAX ];
-  uint            notar_hash_stake_head;
-  ulong           notar_hash_stake_cnt;
+  ushort          notar_hash_stake_idx         [ AG_VAT_MAX ];
+  ag_hash_stakes_t notar_hash_stake;
   uint            notar_fallback_sig_idx       [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
-  uint            notar_fallback_hash_stake_idx[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
-  uint            notar_fallback_hash_stake_head;
-  ulong           notar_fallback_hash_stake_cnt;
+  ushort          notar_fallback_hash_stake_idx[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
+  ag_hash_stakes_t notar_fallback_hash_stake;
   uchar           notar_fallback_sig_cnt       [ AG_VAT_MAX ];
   ulong           skip_stake;
   uint            skip_sig_idx                 [ AG_VAT_MAX ];
@@ -121,16 +120,14 @@ struct ag_slot_state {
 
   ulong  slot;
   ulong  own_rank;
+  ulong  spill_off; /* this slot's spill file region */
   ushort shred_version;
 };
 typedef struct ag_slot_state ag_slot_state_t;
 
 struct ag_slot_states {
   fd_bls_sig_ele_t *      bls_sig_pool;
-  ag_vote_stake_ele_t *   notar_hash_stake_pool;
-  ag_vote_stake_map_t *   notar_hash_stake_map;
-  ag_vote_stake_ele_t *   notar_fallback_hash_stake_pool;
-  ag_vote_stake_map_t *   notar_fallback_hash_stake_map;
+  int                     spill_fd;
   ag_epoch_info_t const * prev_epoch_info;
   ulong                   prev_epoch_rank;
   ulong                   prev_epoch_slot;
@@ -200,14 +197,14 @@ ag_slot_state_notify_parent_certified( ag_slot_state_t *     self,
 
 /* SlotState::check_slashable_offence */
 
-FD_FN_PURE int
+int
 ag_slot_state_check_slashable_offence( ag_slot_state_t const *  self,
                                        ag_slot_states_t const * states,
                                        ag_vote_t const *        vote );
 
 /* Definition 12. SlotState::should_ignore_vote */
 
-FD_FN_PURE int
+int
 ag_slot_state_should_ignore_vote( ag_slot_state_t const *  self,
                                   ag_slot_states_t const * states,
                                   ag_vote_t const *        vote );
@@ -233,6 +230,17 @@ ag_slot_state_notar_reward_agg( ag_slot_state_t const *  self,
 
 FD_FN_PURE fd_bls_agg_t const *
 ag_slot_state_skip_reward_agg( ag_slot_state_t const * self );
+
+/* Copies into out the block hash of rank's notar vote (kind NOTAR) or
+   its j-th notar fallback vote. */
+
+uchar *
+ag_slot_state_vote_hash( ag_slot_state_t const *  self,
+                         ag_slot_states_t const * states,
+                         uint                     kind,
+                         ulong                    rank,
+                         ulong                    j,
+                         ag_block_hash_t          out );
 
 /* Copies the kind vote sigs of the ranks in set into out[ rank ].
    block_hash selects the sig for notar fallback; for notar the caller

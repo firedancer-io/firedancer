@@ -119,10 +119,6 @@ ag_pool_footprint( ulong slot_max,
 
   ulong slot_chain_cnt  = slot_state_map_chain_cnt_est( slot_max );
   ulong sig_max         = slot_max*AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX;
-  ulong notar_max       = slot_max*AG_VAT_MAX;
-  ulong notar_chain_cnt = ag_vote_stake_map_chain_cnt_est( notar_max );
-  ulong nf_max          = slot_max*AG_NOTAR_FALLBACK_HASH_MAX;
-  ulong nf_chain_cnt    = ag_vote_stake_map_chain_cnt_est( nf_max );
   ulong s2n_max         = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
   ulong s2n_chain_cnt   = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
   ulong ready_max       = slot_max + AG_SLOTS_PER_WINDOW + 1UL; /* [root-AG_REWARD_SLOT_DELTA-AG_SLOTS_PER_WINDOW, root+slot_max-AG_REWARD_SLOT_DELTA] */
@@ -145,20 +141,12 @@ ag_pool_footprint( ulong slot_max,
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(ag_pool_t),                   sizeof(ag_pool_t)                                       ),
       alignof(slot_states_t),               sizeof(slot_states_t)                                   ),
       slot_state_pool_align(),              slot_state_pool_footprint( slot_max )                   ),
       slot_state_map_align(),               slot_state_map_footprint ( slot_chain_cnt )             ),
       fd_bls_sig_pool_align(),              fd_bls_sig_pool_footprint( sig_max )                    ),
-      ag_vote_stake_pool_align(),           ag_vote_stake_pool_footprint( notar_max )               ),
-      ag_vote_stake_map_align(),            ag_vote_stake_map_footprint ( notar_chain_cnt )         ),
-      ag_vote_stake_pool_align(),           ag_vote_stake_pool_footprint( nf_max )                  ),
-      ag_vote_stake_map_align(),            ag_vote_stake_map_footprint ( nf_chain_cnt )            ),
       ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( ready_max )          ),
       ag_finality_tracker_align(),          ag_finality_tracker_footprint( slot_max )               ),
       alignof(s2n_waiting_parent_cert_t),   sizeof(s2n_waiting_parent_cert_t)                       ),
@@ -176,7 +164,8 @@ void *
 ag_pool_new( void * mem,
              ulong  slot_max,
              ulong  burst,
-             ulong  seed ) {
+             ulong  seed,
+             int    spill_fd ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -195,10 +184,6 @@ ag_pool_new( void * mem,
   ulong s2n_max         = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
   ulong slot_chain_cnt  = slot_state_map_chain_cnt_est( slot_max );
   ulong sig_max         = slot_max*AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX;
-  ulong notar_max       = slot_max*AG_VAT_MAX;
-  ulong notar_chain_cnt = ag_vote_stake_map_chain_cnt_est( notar_max );
-  ulong nf_max          = slot_max*AG_NOTAR_FALLBACK_HASH_MAX;
-  ulong nf_chain_cnt    = ag_vote_stake_map_chain_cnt_est( nf_max );
   ulong s2n_chain_cnt   = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
   ulong ready_max       = slot_max + AG_SLOTS_PER_WINDOW + 1UL;
   ulong event_max       = POOL_EVENT_MAX( slot_max, burst );
@@ -211,10 +196,6 @@ ag_pool_new( void * mem,
   void *      slot_state_pool              = FD_SCRATCH_ALLOC_APPEND( l, slot_state_pool_align(),              slot_state_pool_footprint( slot_max )                   );
   void *      slot_state_map               = FD_SCRATCH_ALLOC_APPEND( l, slot_state_map_align(),               slot_state_map_footprint ( slot_chain_cnt )             );
   void *      bls_sig_pool                 = FD_SCRATCH_ALLOC_APPEND( l, fd_bls_sig_pool_align(),              fd_bls_sig_pool_footprint( sig_max )                    );
-  void *      notar_hash_stake_pool        = FD_SCRATCH_ALLOC_APPEND( l, ag_vote_stake_pool_align(),           ag_vote_stake_pool_footprint( notar_max )               );
-  void *      notar_hash_stake_map         = FD_SCRATCH_ALLOC_APPEND( l, ag_vote_stake_map_align(),            ag_vote_stake_map_footprint ( notar_chain_cnt )         );
-  void *      nf_hash_stake_pool           = FD_SCRATCH_ALLOC_APPEND( l, ag_vote_stake_pool_align(),           ag_vote_stake_pool_footprint( nf_max )                  );
-  void *      nf_hash_stake_map            = FD_SCRATCH_ALLOC_APPEND( l, ag_vote_stake_map_align(),            ag_vote_stake_map_footprint ( nf_chain_cnt )            );
   void *      parent_ready_tracker         = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( ready_max )          );
   void *      finality_tracker             = FD_SCRATCH_ALLOC_APPEND( l, ag_finality_tracker_align(),          ag_finality_tracker_footprint( slot_max )               );
   void *      s2n_waiting_parent_cert      = FD_SCRATCH_ALLOC_APPEND( l, alignof(s2n_waiting_parent_cert_t),   sizeof(s2n_waiting_parent_cert_t)                       );
@@ -231,10 +212,7 @@ ag_pool_new( void * mem,
   pool->slot_states->pool                                  = slot_state_pool_join   ( slot_state_pool_new   ( slot_state_pool,       slot_max              ) );
   pool->slot_states->map                                   = slot_state_map_join    ( slot_state_map_new    ( slot_state_map,        slot_chain_cnt, seed  ) );
   pool->slot_states->shared.bls_sig_pool                   = fd_bls_sig_pool_join   ( fd_bls_sig_pool_new   ( bls_sig_pool,          sig_max               ) );
-  pool->slot_states->shared.notar_hash_stake_pool          = ag_vote_stake_pool_join( ag_vote_stake_pool_new( notar_hash_stake_pool, notar_max             ) );
-  pool->slot_states->shared.notar_hash_stake_map           = ag_vote_stake_map_join ( ag_vote_stake_map_new ( notar_hash_stake_map,  notar_chain_cnt, seed ) );
-  pool->slot_states->shared.notar_fallback_hash_stake_pool = ag_vote_stake_pool_join( ag_vote_stake_pool_new( nf_hash_stake_pool,    nf_max                ) );
-  pool->slot_states->shared.notar_fallback_hash_stake_map  = ag_vote_stake_map_join ( ag_vote_stake_map_new ( nf_hash_stake_map,     nf_chain_cnt, seed    ) );
+  pool->slot_states->shared.spill_fd                       = spill_fd;
   pool->slot_states->shared.prev_epoch_info                = NULL;
   pool->slot_states->shared.prev_epoch_rank                = USHORT_MAX;
   pool->slot_states->shared.prev_epoch_slot                = ULONG_MAX;
@@ -366,8 +344,9 @@ slot_state( ag_pool_t * self,
   ele       = slot_state_pool_ele_acquire( self->slot_states->pool );
   ele->slot = slot;
   ag_slot_state_null( &ele->slot_state, states );
-  ele->slot_state.slot     = slot;
-  ele->slot_state.own_rank = rank;
+  ele->slot_state.slot      = slot;
+  ele->slot_state.own_rank  = rank;
+  ele->slot_state.spill_off = slot_state_pool_idx( self->slot_states->pool, ele )*AG_SLOT_STATE_SPILL_SZ;
   slot_state_map_ele_insert( self->slot_states->map, ele, self->slot_states->pool );
   return &ele->slot_state;
 }
@@ -726,7 +705,7 @@ ag_pool_standstill_iter_next( ag_pool_standstill_iter_t * iter,
     if( FD_UNLIKELY( idx<9UL && fd_bls_set_test( votes->notar_set, own_rank ) ) ) {
       iter->idx  = 9UL;
       iter->vote = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR, .notar = { .slot = slot, .sig = fd_bls_sig_pool_ele_const( self->slot_states->shared.bls_sig_pool, votes->notar_sig_idx[ own_rank ] )->sig, .rank = (ushort)own_rank, .shred_version = shred_version } };
-      memcpy( iter->vote.notar.block_hash, ag_vote_stake_pool_ele_const( self->slot_states->shared.notar_hash_stake_pool, votes->notar_hash_stake_idx[ own_rank ] )->block_id.hash, sizeof(ag_block_hash_t) );
+      ag_slot_state_vote_hash( &slot_state_->slot_state, &self->slot_states->shared, AG_VOTE_KIND_NOTAR, own_rank, 0UL, iter->vote.notar.block_hash );
       return iter;
     }
     if( FD_LIKELY  ( idx<10UL && fd_bls_set_test( votes->finalize_agg.set, own_rank ) ) ) { iter->idx = 10UL; iter->vote = (ag_vote_t){ .kind = AG_VOTE_KIND_FINAL, .final = { .slot = slot, .sig = fd_bls_sig_pool_ele_const( self->slot_states->shared.bls_sig_pool, votes->finalize_sig_idx[ own_rank ] )->sig, .rank = (ushort)own_rank, .shred_version = shred_version } }; return iter; }
@@ -734,7 +713,7 @@ ag_pool_standstill_iter_next( ag_pool_standstill_iter_t * iter,
     if( FD_UNLIKELY( nf_vote<votes->notar_fallback_sig_cnt[ own_rank ] ) ) {
       iter->idx  = 12UL+nf_vote;
       iter->vote = (ag_vote_t){ .kind = AG_VOTE_KIND_NOTAR_FALLBACK, .notar_fallback = { .slot = slot, .sig = fd_bls_sig_pool_ele_const( self->slot_states->shared.bls_sig_pool, votes->notar_fallback_sig_idx[ own_rank ][ nf_vote ] )->sig, .rank = (ushort)own_rank, .shred_version = shred_version } };
-      memcpy( iter->vote.notar_fallback.block_hash, ag_vote_stake_pool_ele_const( self->slot_states->shared.notar_fallback_hash_stake_pool, votes->notar_fallback_hash_stake_idx[ own_rank ][ nf_vote ] )->block_id.hash, sizeof(ag_block_hash_t) );
+      ag_slot_state_vote_hash( &slot_state_->slot_state, &self->slot_states->shared, AG_VOTE_KIND_NOTAR_FALLBACK, own_rank, nf_vote, iter->vote.notar_fallback.block_hash );
       return iter;
     }
     if( FD_UNLIKELY( idx<15UL && fd_bls_set_test( votes->skip_fallback_agg.set, own_rank ) ) ) { iter->idx = 15UL; iter->vote = (ag_vote_t){ .kind = AG_VOTE_KIND_SKIP_FALLBACK, .skip_fallback = { .slot = slot, .sig = fd_bls_sig_pool_ele_const( self->slot_states->shared.bls_sig_pool, votes->skip_fallback_sig_idx[ own_rank ] )->sig, .rank = (ushort)own_rank, .shred_version = shred_version } }; return iter; }

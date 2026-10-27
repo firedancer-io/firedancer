@@ -2983,7 +2983,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
 
-  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, QUIC_DGRAM_BURST, seed ) );
+  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, QUIC_DGRAM_BURST, seed, FD_VOTOR_SPILL_FD ) );
   FD_TEST( ctx->pool );
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
@@ -3189,7 +3189,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
 
-  populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->vote_history_fd_dir, (uint)ctx->vote_history_fd_swp, (uint)ctx->vote_history_fd, (uint)ctx->vote_history_fd_bak );
+  populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->vote_history_fd_dir, (uint)ctx->vote_history_fd_swp, (uint)ctx->vote_history_fd, (uint)ctx->vote_history_fd_bak, (uint)FD_VOTOR_SPILL_FD );
   return sock_filter_policy_fd_votor_tile_instr_cnt;
 }
 
@@ -3202,10 +3202,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
+  out_fds[ out_cnt++ ] = FD_VOTOR_SPILL_FD;
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   if( FD_LIKELY( -1!=ctx->vote_history_fd_dir ) ) {

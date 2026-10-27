@@ -1,29 +1,35 @@
+#define _GNU_SOURCE
 #include "ag_pool.c"
 #include "ag_slot_state.c"
 #include "test_ag_cert_builder.h"
 #include "ag_cert_serde.h"
 #include "ag_vote_serde.h"
 
+#include <sys/mman.h>
+
+static int g_spill_fd = -1;
+
 static ulong
 notar_cnt( ag_slot_state_t const *  state,
            ag_slot_states_t const * states ) {
-  ag_vote_stake_map_t const * map  = states->notar_hash_stake_map;
-  ag_vote_stake_ele_t const * pool = states->notar_hash_stake_pool;
-  ulong                       i    = state->votes.notar_hash_stake_head;
-  for( ulong j=0UL; j<state->votes.notar_hash_stake_cnt; j++ ) {
-    ag_block_id_t key = ag_vote_stake_pool_ele_const( pool, i )->block_id;
-    FD_TEST( key.slot==state->slot && ag_vote_stake_map_idx_query_const( map, &key, ULONG_MAX, pool )==i );
-    i = ag_vote_stake_pool_ele_const( pool, i )->prev;
+  ulong           cnt = 0UL;
+  ag_block_hash_t hash;
+  for( ulong id = hash_stake_next( state, states->spill_fd, 0, 0UL, hash );
+             id!=ULONG_MAX;
+             id = hash_stake_next( state, states->spill_fd, 0, id+1UL, hash ) ) {
+    FD_TEST( hash_stake_query( state, states->spill_fd, 0, hash )==id );
+    cnt++;
   }
-  FD_TEST( !state->votes.notar_hash_stake_cnt || i==ag_vote_stake_pool_idx_null( pool ) );
-  return state->votes.notar_hash_stake_cnt;
+  FD_TEST( cnt==(ulong)fd_uint_popcnt( state->votes.notar_hash_stake.used )+state->votes.notar_hash_stake.spill_cnt );
+  return cnt;
 }
 
 static uchar const *
 own_notar_hash( ag_slot_state_t const *  state,
                 ag_slot_states_t const * states ) {
+  static ag_block_hash_t hash;
   if( FD_UNLIKELY( state->own_rank==USHORT_MAX || !fd_bls_set_test( state->votes.notar_set, state->own_rank ) ) ) return ag_block_hash_null;
-  return ag_vote_stake_pool_ele_const( states->notar_hash_stake_pool, state->votes.notar_hash_stake_idx[ state->own_rank ] )->block_id.hash;
+  return ag_slot_state_vote_hash( state, states, AG_VOTE_KIND_NOTAR, state->own_rank, 0UL, hash );
 }
 
 static fd_bls_agg_t *
@@ -34,7 +40,7 @@ notar_agg( ag_slot_state_t const *  state,
   fd_bls_set_t set[ fd_bls_set_word_cnt ];
   fd_bls_set_null( set );
   for( ulong rank=0UL; rank<AG_VAT_MAX; rank++ ) {
-    if( FD_LIKELY( fd_bls_set_test( state->votes.notar_set, rank ) && !memcmp( ag_vote_stake_pool_ele_const( states->notar_hash_stake_pool, state->votes.notar_hash_stake_idx[ rank ] )->block_id.hash, hash, sizeof(ag_block_hash_t) ) ) ) fd_bls_set_insert( set, rank );
+    if( FD_LIKELY( fd_bls_set_test( state->votes.notar_set, rank ) && hash_stake_eq( state, states->spill_fd, 0, state->votes.notar_hash_stake_idx[ rank ], hash ) ) ) fd_bls_set_insert( set, rank );
   }
   fd_bls_sig_t sigs[ AG_VAT_MAX ];
   ag_slot_state_sigs( state, states, AG_VOTE_KIND_NOTAR, hash, set, sigs );
@@ -149,7 +155,7 @@ drain_events( ag_pool_t * pool ) {
 static fd_bls_set_t bad[ fd_bls_set_word_cnt ];
 static uchar        quorum_reached;
 
-#define SCRATCH_MAX (TEST_SLOT_MAX*(sizeof(ag_slot_state_t)+AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX*sizeof(fd_bls_sig_ele_t)+(AG_VAT_MAX+AG_NOTAR_FALLBACK_HASH_MAX)*(sizeof(ag_vote_stake_ele_t)+sizeof(ulong))+1024UL)+(4UL<<20)) /* ~168 MiB */
+#define SCRATCH_MAX (TEST_SLOT_MAX*(sizeof(ag_slot_state_t)+AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX*sizeof(fd_bls_sig_ele_t)+1024UL)+(4UL<<20)) /* ~133 MiB */
 
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
@@ -248,7 +254,7 @@ setup_pool( void ) {
   create_validators();
   ulong slot_max = TEST_SLOT_MAX;
   FD_TEST( ag_pool_footprint( slot_max, TEST_BURST )<=sizeof(scratch) );
-  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, TEST_BURST, 42UL ) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, TEST_BURST, 42UL, g_spill_fd ) );
   FD_TEST( pool );
   ag_pool_from_genesis( pool, &(ag_block_id_t){ .slot = 0UL } );
 
@@ -947,16 +953,10 @@ test_pruning( void ) {
 
 static void
 test_bls_sig_pool_released_on_prune( void ) {
-  ag_pool_t *           pool                           = setup_pool();
-  fd_bls_sig_ele_t *    bls_sig_pool                   = pool->slot_states->shared.bls_sig_pool;
-  ulong                 sig_max                        = fd_bls_sig_pool_max( bls_sig_pool );
-  ag_vote_stake_ele_t * notar_hash_stake_pool          = pool->slot_states->shared.notar_hash_stake_pool;
-  ag_vote_stake_map_t * notar_hash_stake_map           = pool->slot_states->shared.notar_hash_stake_map;
-  ag_vote_stake_ele_t * notar_fallback_hash_stake_pool = pool->slot_states->shared.notar_fallback_hash_stake_pool;
-  ag_vote_stake_map_t * notar_fallback_hash_stake_map  = pool->slot_states->shared.notar_fallback_hash_stake_map;
+  ag_pool_t *        pool         = setup_pool();
+  fd_bls_sig_ele_t * bls_sig_pool = pool->slot_states->shared.bls_sig_pool;
+  ulong              sig_max      = fd_bls_sig_pool_max( bls_sig_pool );
   FD_TEST( sig_max==TEST_SLOT_MAX*AG_VAT_MAX*AG_SLOT_VOTE_SIG_MAX && fd_bls_sig_pool_free( bls_sig_pool )==sig_max );
-  FD_TEST( ag_vote_stake_pool_free( notar_hash_stake_pool          )==TEST_SLOT_MAX*AG_VAT_MAX                 );
-  FD_TEST( ag_vote_stake_pool_free( notar_fallback_hash_stake_pool )==TEST_SLOT_MAX*AG_NOTAR_FALLBACK_HASH_MAX );
 
   ulong           slot   = 1UL;
   ulong           voters = 6UL; /* below quorum, so no cert is created */
@@ -975,9 +975,7 @@ test_bls_sig_pool_released_on_prune( void ) {
   FD_TEST( fd_bls_set_cnt( state->votes.notar_set )==voters && fd_bls_set_cnt( state->votes.skip_fallback_agg.set )==voters );
   for( ulong v=0UL; v<voters; v++ ) FD_TEST( state->votes.notar_fallback_sig_cnt[ v ]==AG_NOTAR_FALLBACK_VOTE_MAX );
   FD_TEST( fd_bls_sig_pool_free( bls_sig_pool )==sig_max-voters*AG_SLOT_VOTE_SIG_MAX );
-  FD_TEST( ag_vote_stake_pool_free( notar_hash_stake_pool          )==TEST_SLOT_MAX*AG_VAT_MAX-1UL                                        );
-  FD_TEST( ag_vote_stake_pool_free( notar_fallback_hash_stake_pool )==TEST_SLOT_MAX*AG_NOTAR_FALLBACK_HASH_MAX-AG_NOTAR_FALLBACK_VOTE_MAX );
-  FD_TEST( state->votes.notar_hash_stake_cnt==1UL && state->votes.notar_fallback_hash_stake_cnt==AG_NOTAR_FALLBACK_VOTE_MAX );
+  FD_TEST( fd_uint_popcnt( state->votes.notar_hash_stake.used )==1 && fd_uint_popcnt( state->votes.notar_fallback_hash_stake.used )==(int)AG_NOTAR_FALLBACK_VOTE_MAX );
 
   ag_block_hash_t other; random_hash( other );
   for( ulong v=0UL; v<voters; v++ ) {
@@ -999,14 +997,6 @@ test_bls_sig_pool_released_on_prune( void ) {
   for( ulong s=slot+1UL; s<=slot+AG_REWARD_SLOT_DELTA+1UL; s++ ) { ag_block_hash_t h; random_hash( h ); fast_finalize( pool, s, h ); }
   FD_TEST( !contains_slot( pool, slot ) );
   FD_TEST( fd_bls_sig_pool_free( bls_sig_pool )==sig_max );
-  FD_TEST( ag_vote_stake_pool_free( notar_hash_stake_pool          )==TEST_SLOT_MAX*AG_VAT_MAX                 );
-  FD_TEST( ag_vote_stake_pool_free( notar_fallback_hash_stake_pool )==TEST_SLOT_MAX*AG_NOTAR_FALLBACK_HASH_MAX );
-  ag_block_id_t key = ag_block_id( slot, hash[ 0 ] );
-  FD_TEST( ag_vote_stake_map_idx_query_const( notar_hash_stake_map, &key, ULONG_MAX, notar_hash_stake_pool )==ULONG_MAX );
-  for( ulong i=1UL; i<1UL+AG_NOTAR_FALLBACK_VOTE_MAX; i++ ) {
-    key = ag_block_id( slot, hash[ i ] );
-    FD_TEST( ag_vote_stake_map_idx_query_const( notar_fallback_hash_stake_map, &key, ULONG_MAX, notar_fallback_hash_stake_pool )==ULONG_MAX );
-  }
 
   teardown_pool( pool );
 }
@@ -1780,7 +1770,7 @@ setup_two_epoch_pool( ag_epoch_info_t ** out_a,
   ulong slot_max = TEST_SLOT_MAX;
 
   FD_TEST( ag_pool_footprint( slot_max, TEST_BURST )<=sizeof(scratch) );
-  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, TEST_BURST, 42UL ) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, TEST_BURST, 42UL, g_spill_fd ) );
   FD_TEST( pool );
   ag_pool_from_genesis( pool, &(ag_block_id_t){ .slot = 0UL } );
 
@@ -2260,6 +2250,9 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  g_spill_fd = memfd_create( "votor_spill", 0 );
+  FD_TEST( g_spill_fd>=0 );
 
   test_notarize_block();
   test_skip_block();
