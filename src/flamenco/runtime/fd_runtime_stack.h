@@ -131,8 +131,7 @@ struct fd_runtime_stack {
     ulong                  next_id_weights_cnt;
   } epoch_weights;
 
-  /* Sysvars of the parent bank while preparing a block, or of a bank
-     that holds no sysvar cache. */
+  /* Sysvars of a bank that holds no sysvar cache. */
   fd_sysvar_cache_t sysvar_cache[1];
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;

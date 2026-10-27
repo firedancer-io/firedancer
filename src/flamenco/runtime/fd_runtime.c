@@ -725,8 +725,12 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
+  /* Read before fd_stakes_activate_epoch updates the sysvar.  The stake
+     delegations view and the stake history entry for the ended epoch
+     both use the stake history from before this boundary. */
+  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_delegations_history_[1];
-  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( runtime_stack->sysvar_cache, stake_delegations_history_ );
+  fd_stake_history_t * stake_delegations_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
@@ -758,7 +762,7 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
     fd_stake_delegations_invalidate_warmed( stake_delegations, 0 );
   }
 
-  fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,
+  fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations, stake_delegations_history,
                             &bank->f.warmup_cooldown_rate_epoch );
 
   /* Distribute rewards.  This involves calculating the rewards for
@@ -928,10 +932,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_runtime_stack_t * runtime_stack,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
-  /* Nothing has written to the bank's fork yet, so its sysvars are
-     still the parent's.  The epoch boundary reads them from here. */
-  fd_sysvar_cache_restore( runtime_stack->sysvar_cache, accdb, bank->accdb_fork_id );
-
   /* Cache the Alpenglow migration slot inside the bank so that we can
      read it inside transaction execution. */
   bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( bank, accdb );
@@ -1688,16 +1688,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
        across an inner acquire. */
     uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
     fd_stake_history_t   stake_history_[1];
-    fd_stake_history_t * stake_history = NULL;
-    fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-    if( FD_LIKELY( ro.lamports ) ) {
-      ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-      fd_memcpy( stake_history_data, ro.data, copy_sz );
-      fd_accdb_unread_one( accdb, &ro );
-      stake_history = fd_sysvar_stake_history_view( stake_history_, stake_history_data, copy_sz );
-    } else {
-      fd_accdb_unread_one( accdb, &ro );
-    }
+    fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
 
     fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, ULONG_MAX, &new_rate_activation_epoch );
   }

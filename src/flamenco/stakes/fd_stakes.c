@@ -800,6 +800,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_accdb_t *                   accdb,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t *       stake_delegations,
+                          fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
   /* We can update our stake history sysvar based on the bank stake values.
      Afterward, we can refresh the stake values for the vote accounts. */
@@ -818,8 +819,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477
   */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
-    fd_stake_history_t history[1];
-    if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( runtime_stack->sysvar_cache, history ) ) ) {
+    if( FD_UNLIKELY( !history ) ) {
       FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));
     }
     ulong effective    = 0UL;

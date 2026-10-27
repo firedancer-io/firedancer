@@ -113,12 +113,17 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
                           int                      iter_kind,
                           fd_vote_stake_weight_t * weights );
 
+/* fd_stakes_activate_epoch updates the stake history sysvar and the
+   vote account stakes at an epoch boundary.  history is the stake
+   history from before this boundary. */
+
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_accdb_t *                   accdb,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t *       stake_delegations,
+                          fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch );
 
 /* fd_stakes_vote_account_is_admissible returns 1 if a vote account
