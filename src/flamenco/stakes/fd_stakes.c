@@ -889,11 +889,11 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
-                                   fd_acc_t const *          acc,
-                                   fd_bank_t *               bank,
-                                   fd_sysvar_cache_t const * sysvar_cache,
-                                   fd_txn_in_t const *       txn_in ) {
+fd_stakes_update_stake_delegation( fd_pubkey_t const *        pubkey,
+                                   fd_acc_t const *           acc,
+                                   fd_bank_t *                bank,
+                                   fd_stake_history_t const * stake_history,
+                                   fd_txn_in_t const *        txn_in ) {
 
   fd_stake_state_t const * stake_state       = fd_stakes_get_state( acc );
   fd_stake_state_t const * prior_stake_state = NULL;
@@ -929,10 +929,8 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) ) {
-    fd_stake_history_t         stake_history_[1];
-    fd_stake_history_t const * stake_history     = fd_sysvar_cache_stake_history_view( sysvar_cache, stake_history_ );
-    int                        use_fp_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
-    fd_delegation_t const *    delegation        = &stake_state->stake.stake.delegation;
+    int                     use_fp_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
+    fd_delegation_t const * delegation        = &stake_state->stake.stake.delegation;
     if( FD_UNLIKELY( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) &&
                      fd_delegation_is_inactive( delegation, fd_ulong_sat_sub( bank->f.epoch, 1UL ), stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) ) ) {
       fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, 0UL, pubkey, 0 );

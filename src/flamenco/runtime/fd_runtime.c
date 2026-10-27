@@ -1272,7 +1272,8 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
-        fd_stakes_update_stake_delegation( pubkey, account, bank, fd_runtime_sysvar_cache( runtime, bank ), txn_in );
+        fd_stake_history_t stake_history[1];
+        fd_stakes_update_stake_delegation( pubkey, account, bank, fd_sysvar_cache_stake_history_view( fd_runtime_sysvar_cache( runtime, bank ), stake_history ), txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {

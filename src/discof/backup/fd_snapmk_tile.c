@@ -723,10 +723,8 @@ snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
     ulong data_len;
     uchar owner[ 32UL ];
     fd_accdb_read_one_nocache( ctx->accdb, bank->accdb_fork_id, fd_sysvar_slot_history_id.uc, &lamports, &executable, owner, ctx->raw, &data_len );
-    if( FD_LIKELY( lamports ) ) {
-      slot_history_sz = fd_ulong_min( data_len, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
-      slot_history    = fd_memcpy( ctx->slot_history, ctx->raw, slot_history_sz );
-    }
+    slot_history_sz = fd_ulong_min( data_len, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+    slot_history    = fd_memcpy( ctx->slot_history, ctx->raw, slot_history_sz );
   }
   if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id, bank->f.slot, slot_history, slot_history_sz, ctx->status_cache_writer_arena, ctx->status_cache_writer_arena_sz ) ) ) {
     FD_LOG_CRIT(( "cannot serialize txncache fork %hu of snapshot bank at slot %lu because the root moved or SlotHistory lacks execution slots", bank->txncache_fork_id.val, bank->f.slot ));

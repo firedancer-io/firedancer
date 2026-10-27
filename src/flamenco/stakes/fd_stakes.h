@@ -6,7 +6,6 @@
 #include "fd_stake_weight.h"
 #include "fd_vote_stakes.h"
 #include "../types/fd_cast.h"
-#include "../runtime/sysvar/fd_sysvar_cache.h"
 
 /* The warmup cooldown rate can only be one of two values: 0.25 or 0.09. */
 #define FD_STAKE_WARMUP_COOLDOWN_RATE_ENUM_025 (0)
@@ -147,15 +146,15 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 /* fd_stakes_update_delegation is used to maintain the in-memory cache
    of the stake delegations that is used at the epoch boundary.  Entries
    in the cache will be inserted/updated/removed based on the state of
-   the stake account.  sysvar_cache holds the bank's sysvars.  It may be
-   NULL if acc is not owned by the stake program. */
+   the stake account.  stake_history is the bank's stake history.  It
+   is only read if acc is owned by the stake program. */
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
-                                   fd_acc_t const *          acc,
-                                   fd_bank_t *               bank,
-                                   fd_sysvar_cache_t const * sysvar_cache,
-                                   fd_txn_in_t const *       txn_in );
+fd_stakes_update_stake_delegation( fd_pubkey_t const *        pubkey,
+                                   fd_acc_t const *           acc,
+                                   fd_bank_t *                bank,
+                                   fd_stake_history_t const * stake_history,
+                                   fd_txn_in_t const *        txn_in );
 
 FD_PROTOTYPES_END
 
