@@ -116,7 +116,10 @@ fd_rserve_maybe_rotate( fd_rserve_t * rserve,
 
 /* fd_blockdb stores metadata of completed blocks, keyed by
    (slot, block_id), for serving Alpenglow block id repair requests.
-   Entries live in a fixed array and are overwritten oldest-first. */
+   Entries live in a fixed array and are overwritten oldest-first.
+   Headers stay in RAM.  The FEC roots of the win_max most recent writes
+   stay in a RAM window; with win_max<ele_max every entry's roots are
+   also written to a fixed slot of an explicit-I/O file region. */
 
 #define FD_BLOCKDB_ALIGN (128UL)
 
@@ -134,26 +137,33 @@ typedef struct fd_blockdb_key fd_blockdb_key_t;
 
 FD_STATIC_ASSERT( sizeof(fd_blockdb_key_t)==40UL, fd_blockdb_key_t );
 
-/* merkle_roots holds the first FD_SHRED_MERKLE_NODE_SZ bytes of each FEC
-   set's merkle root, the only bytes the block id commits to.  Only the
-   first fec_set_cnt entries are meaningful. */
+/* Roots are the first FD_SHRED_MERKLE_NODE_SZ bytes of each FEC set's
+   merkle root, the only bytes the block id commits to. */
+
+#define FD_BLOCKDB_ROOTS_SZ (FD_FEC_BLK_MAX*FD_SHRED_MERKLE_NODE_SZ)
 
 struct fd_blockdb_blk {
   fd_blockdb_key_t key;
   ulong            parent_slot;
   fd_hash_t        parent_block_id;
+  ulong            wseq;  /* write seq of the roots, see win_max */
   uint             fec_set_cnt;
   uint             next; /* map chain */
   uint             prev; /* map chain */
-  uchar            merkle_roots[ FD_FEC_BLK_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
 };
 typedef struct fd_blockdb_blk fd_blockdb_blk_t;
 
 struct fd_blockdb {
   ulong              ele_max;
+  ulong              win_max;
   ulong              seq;     /* total inserts, next slot is seq%ele_max */
+  ulong              wseq;    /* total root writes */
+  int                disk_fd; /* -1 if win_max>=ele_max */
+  ulong              disk_off;
   fd_blockdb_blk_t * ele;
   void *             map;
+  uchar *            win;     /* win_max roots records */
+  uchar *            rd;      /* scratch for disk reads */
   void *             tree;    /* scratch for building proofs */
 };
 typedef struct fd_blockdb fd_blockdb_t;
@@ -165,16 +175,25 @@ fd_blockdb_align( void ) {
   return FD_BLOCKDB_ALIGN;
 }
 
-/* fd_blockdb_footprint returns the footprint for ele_max entries, or 0
-   if ele_max is zero or not less than UINT_MAX. */
+/* fd_blockdb_footprint returns the footprint for ele_max entries with a
+   win_max roots window, or 0 if ele_max is zero or not less than
+   UINT_MAX, or win_max is zero. */
 
 ulong
-fd_blockdb_footprint( ulong ele_max );
+fd_blockdb_footprint( ulong ele_max,
+                      ulong win_max );
+
+/* With win_max<ele_max, roots of entry i live at disk_off +
+   i*FD_BLOCKDB_ROOTS_SZ of disk_fd, which must be sized for ele_max
+   records. */
 
 void *
 fd_blockdb_new( void * shmem,
                 ulong  ele_max,
-                ulong  seed );
+                ulong  win_max,
+                ulong  seed,
+                int    disk_fd,
+                ulong  disk_off );
 
 fd_blockdb_t *
 fd_blockdb_join( void * shblockdb );
@@ -207,14 +226,26 @@ fd_blockdb_query( fd_blockdb_t const * blockdb,
                   ulong                slot,
                   fd_hash_t const *    block_id );
 
+/* fd_blockdb_roots returns cnt 20B roots of blk starting at FEC set
+   idx, idx+cnt<=fec_set_cnt.  Reads from disk outside the window.  The
+   pointer is invalidated by the next insert or roots call. */
+
+uchar const *
+fd_blockdb_roots( fd_blockdb_t *           blockdb,
+                  fd_blockdb_blk_t const * blk,
+                  ulong                    idx,
+                  ulong                    cnt );
+
 /* fd_blockdb_proof writes blk's double-merkle inclusion proof for leaf
    leaf_idx to proof, as 20B nodes from leaf to root.  Leaves are the FEC
-   roots, then the parent-info leaf at fec_set_cnt.  Returns the node
-   count, or -1 if leaf_idx>fec_set_cnt. */
+   roots (all fec_set_cnt of them from fd_blockdb_roots), then the
+   parent-info leaf at fec_set_cnt.  Returns the node count, or -1 if
+   leaf_idx>fec_set_cnt. */
 
 int
 fd_blockdb_proof( fd_blockdb_t *           blockdb,
                   fd_blockdb_blk_t const * blk,
+                  uchar const *            roots,
                   ulong                    leaf_idx,
                   uchar                    proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ] );
 
