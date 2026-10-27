@@ -487,7 +487,11 @@ fd_topo_initialize( config_t * config ) {
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  ulong shred_depth = 65536UL;
+  /* shred_out carries at most one frag per received/reconstructed
+     shred plus one per FEC completion: ~6k frags/s at mainnet load, so
+     4096 is ~0.7s of buffer against consumers (rserve, rotor, gui) that
+     drain frags in well under a microsecond. */
+  ulong shred_depth = 4096UL;
 
   /* Under Alpenglow, rotor redelivers every FEC set replay can hold when
      replay loses a parent bank, and polls nothing until that is
