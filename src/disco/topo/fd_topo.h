@@ -614,6 +614,7 @@ struct fd_topo_tile {
       ulong  max_shreds_per_block;
       ulong  blockdb_max; /* 0 disables the block metadata db */
       ulong  sign_depth;
+      ulong  blockdb_win_max; /* blocks whose FEC roots stay in RAM */
     } rserve;
 
     struct {
