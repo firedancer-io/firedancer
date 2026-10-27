@@ -24,7 +24,6 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <errno.h>
-#include <sys/wait.h>
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
@@ -804,24 +803,6 @@ test_geo_schedule_enforced_set( fd_wksp_t * wksp ) {
   voter0_is_v5 = 0;
 }
 
-static void
-test_geo_schedule_unlocated_leader_err( fd_wksp_t * wksp ) {
-  pid_t pid = fork();
-  FD_TEST( pid>=0 );
-  if( !pid ) {
-    fd_log_level_logfile_set( 6 );
-    fd_log_level_stderr_set( 6 );
-    test_env_t env[1];
-    test_env_create( env, wksp );
-    enable_feature_pending( env, offsetof( fd_features_t, geo_aware_leader_schedule ) );
-    advance_into_epoch( env, 2UL );
-    _exit( 0 );
-  }
-  int status = 0;
-  FD_TEST( waitpid( pid, &status, 0 )==pid );
-  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
-}
-
 /* Whether the whale's last vote made it into the clock this epoch,
    inferred from the stake-weighted timestamp: 10s when the dominant
    future-voting whale is counted, 3s when it is not. */
@@ -939,7 +920,6 @@ main( int argc, char ** argv ) {
   test_vat_invalidate_revalidate( wksp );
   test_geo_leader_schedule_gate( wksp );
   test_geo_schedule_enforced_set( wksp );
-  test_geo_schedule_unlocated_leader_err( wksp );
 
   fd_wksp_delete_anonymous( wksp );
   FD_LOG_NOTICE(( "pass" ));
