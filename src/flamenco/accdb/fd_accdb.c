@@ -1139,6 +1139,17 @@ idx_on( fd_accdb_t const * accdb ) {
 
 #define idx_home fd_accdb_idx_home
 
+/* idx_bloom_block returns the bloom filter block of a pubkey homed at
+   slot home.  Blocks follow home slots, so the pubkeys of a placement
+   window share a few cache resident blocks. */
+
+static inline ulong *
+idx_bloom_block( fd_accdb_t const * accdb,
+                 ulong              home ) {
+  ulong slot_cnt = accdb->shmem->idx_page_cnt*FD_ACCDB_IDX_SLOT_CNT;
+  return accdb->idx_bloom+8UL*(ulong)( ( (uint128)home*(uint128)accdb->shmem->idx_bloom_cnt )/slot_cnt );
+}
+
 /* idx_bloom tests (insert==0) or sets (insert==1) pubkey in the disk
    index bloom filter: 4 bits in one 64 byte block.  A test miss proves
    pubkey is not in the disk index.  Deletes leave their bits until the
@@ -1150,7 +1161,7 @@ idx_bloom( fd_accdb_t const * accdb,
            uchar const        pubkey[ 32 ],
            int                insert ) {
   ulong   h     = fd_hash32( pubkey, accdb->shmem->seed^0x9e3779b97f4a7c15UL );
-  ulong * block = accdb->idx_bloom+8UL*(ulong)( ( (uint128)h*(uint128)accdb->shmem->idx_bloom_cnt )>>64 );
+  ulong * block = idx_bloom_block( accdb, idx_home( accdb->shmem, pubkey ) );
   ulong   g     = fd_ulong_hash( h );
   int     hit   = 1;
   for( ulong j=0UL; j<4UL; j++, g>>=9 ) {
@@ -5033,9 +5044,15 @@ idx_build_range( fd_accdb_t *          accdb,
     fd_accdb_idx_chunk_hdr_t const * hdr = (fd_accdb_idx_chunk_hdr_t const *)stage;
     ulong cnt = hdr->cnt;
     tail = hdr->prev_plus1;
+    ulong home[ FD_ACCDB_IDX_STAGE_CNT ];
+    for( ulong i=1UL; i<=cnt; i++ ) {
+      home[ i ] = idx_home( shmem, stage[ i ].pubkey );
+      __builtin_prefetch( &win[ home[ i ]-base*FD_ACCDB_IDX_SLOT_CNT ] );
+      __builtin_prefetch( idx_bloom_block( accdb, home[ i ] ), 1 );
+    }
     for( ulong i=1UL; i<=cnt; i++ ) {
       fd_accdb_idx_slot_t rec = stage[ i ];
-      ulong s = idx_home( shmem, rec.pubkey )-base*FD_ACCDB_IDX_SLOT_CNT;
+      ulong s = home[ i ]-base*FD_ACCDB_IDX_SLOT_CNT;
       for( ; s<wslot && win[ s ].off_plus1 && memcmp( win[ s ].pubkey, rec.pubkey, 32UL ); s++ ) {}
       if( s==wslot ) {
         ulong c = FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.carry_cnt, 1UL );
