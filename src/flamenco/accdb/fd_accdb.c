@@ -5105,7 +5105,14 @@ idx_build_range( fd_accdb_t *          accdb,
     }
     zmap[ w ] = 0UL;
   }
-  idx_io( accdb, 1, win, wslot*sizeof(fd_accdb_idx_slot_t), base*4096UL );
+  ulong wsz = wslot*sizeof(fd_accdb_idx_slot_t);
+  idx_io( accdb, 1, win, wsz, base*4096UL );
+  /* Start writeback now: windows left to the flusher pile up as dirty
+     pages and throttle the build.  The pages stay cached for the first
+     reads after the load. */
+  if( FD_UNLIKELY( -1==sync_file_range( accdb->idx_fd, (long)( base*4096UL ), (long)wsz, SYNC_FILE_RANGE_WRITE ) ) ) {
+    FD_LOG_WARNING(( "sync_file_range of the accounts index failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
   accdb->idx_range[ r ].spill_tail = 0UL;
 
   ulong lo = FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.dup_lamports, dup_lamports );
