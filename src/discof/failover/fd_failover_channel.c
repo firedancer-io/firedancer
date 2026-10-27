@@ -65,7 +65,6 @@ struct candidate {
   uchar                             transcript[ 32 ];
   uchar                             client_proof[ 64 ];
   fd_failover_tls_t                 tls;
-  fd_failover_wire_session_t        wire;
   fd_failover_hello_t               hello;
   uchar                             rx[ FD_FAILOVER_FRAME_MAX ];
   uchar                             tx[ FD_FAILOVER_FRAME_MAX ];
@@ -88,6 +87,7 @@ struct known_source {
 };
 
 struct fd_failover_channel {
+  /* Session */
   ulong                          magic;              /* FD_FAILOVER_CHANNEL_MAGIC once initialized */
   int                            dial_peer;          /* the session machine runs as the dialer */
   ulong                          state;              /* session state, stepped by fd_failover_session_step */
@@ -95,41 +95,57 @@ struct fd_failover_channel {
   ushort                         peer_port;          /* the dial destination port */
   int                            listen_fd;          /* listening socket, -1 until it is open */
   int                            paired_idx;         /* the paired candidate, -1 while none is paired */
-  ulong                          cursor;             /* the next candidate to service, round robin */
-  ulong                          proof_cursor;       /* the next complete proof to verify, round robin */
+
+  /* Connection pool, serviced round robin */
+  ulong                          cursor;             /* the next candidate to service */
+  ulong                          proof_cursor;       /* the next complete proof to verify */
+
+  /* Credentials */
   fd_failover_tls_ctx_t          tls_ctx;            /* TLS template every connection starts from */
   fd_failover_hello_t            self_hello;         /* the HELLO we send */
   fd_failover_hello_t            peer_hello;         /* the paired peer's HELLO, zero while unpaired */
-  fd_failover_proof_signer_t     proof_signer;
-  long                           verify_updated;
-  ulong                          verify_credit;
+  fd_failover_proof_signer_t     proof_signer;       /* signs our admission proofs in the sign tile */
+
+  /* Proof verification rate limits, credit is in nanoseconds of rate */
+  long                           verify_updated;     /* when verify_credit was last refilled */
+  ulong                          verify_credit;      /* proof checks per second across all addresses */
   long                           priority_verify_updated;
-  ulong                          priority_verify_credit;
-  int                            verify_budget;
+  ulong                          priority_verify_credit; /* the same for addresses that authenticated before */
+  int                            verify_budget;      /* proof checks left this poll, at most one */
   fd_sha512_t                    sha[ 1 ];           /* scratch for checking admission proofs */
+
+  /* Connections and the addresses they come from */
   struct candidate               candidates[ FD_FAILOVER_CHANNEL_CANDIDATE_MAX ]; /* connections that are handshaking or paired */
   struct source                  sources[ SOURCE_CNT ]; /* accept rate limit per source address */
   struct known_source            known_sources[ KNOWN_SOURCE_CNT ]; /* authenticated addresses, expiring */
+
+  /* Accept and admission rate limits, credit is in nanoseconds of rate */
   long                           rate_updated;       /* when rate_credit was last refilled */
   ulong                          rate_credit;        /* accept syscall limit across all addresses */
   long                           admit_updated;      /* when admit_credit was last refilled */
   ulong                          admit_credit;       /* new candidate limit across all addresses */
-  long                           reconnect_updated;
-  ulong                          reconnect_credit;
+  long                           reconnect_updated;  /* when reconnect_credit was last refilled */
+  ulong                          reconnect_credit;   /* new candidate limit for addresses that authenticated before */
+
+  /* Timers */
   long                           hello_timeout;      /* how long a candidate has to pair */
   long                           silence_timeout;    /* a paired session silent for this long is dropped */
   long                           last_rx;            /* when the paired session last received a frame */
-  long                           keepalive_at;
+  long                           keepalive_at;       /* when the paired session sends its next KEEPALIVE */
   long                           retry_at;           /* when the dialer dials again */
   long                           paired_at;          /* when the current session paired */
   long                           backoff;            /* the current dial backoff, doubles up to backoff_max */
   long                           backoff_min;        /* the shortest dial backoff, also the jitter range */
   long                           backoff_max;        /* the longest dial backoff */
+
+  /* Log throttles, when each reason may be logged again */
   long                           dial_log_at[ 3 ];   /* connect, early close, handshake timeout */
   long                           tls_log_at[ 4 ];    /* transport, ALPN, authentication, other */
   long                           hello_log_at[ 14 ]; /* one bounded bucket per HELLO refusal */
   long                           loss_log_at[ 6 ];   /* transport, silence, TLS, protocol, framing, local encode */
   long                           pair_log_at;        /* when a pairing may be logged again */
+
+  /* The paired session */
   int                            expected_close;     /* RESULT was sent, peer may close normally */
   ulong                          generation;         /* identifies the current authenticated session */
 };
@@ -177,7 +193,6 @@ close_candidate( struct candidate * c ) {
   c->fd      = -1;
   c->dialed  = 0;
   c->rx_used = c->tx_used = c->tx_sent = 0UL;
-  fd_memzero_explicit( &c->wire, sizeof(c->wire) );
 }
 
 static void
@@ -189,7 +204,7 @@ reset( fd_failover_channel_t * ch ) {
   fd_memset( &ch->peer_hello, 0, sizeof(ch->peer_hello) );
 }
 
-/* A standby may authenticate before its operator requests a handoff. */
+/* A machine may authenticate before its operator requests a handoff. */
 static int
 want_dial( fd_failover_channel_t const * ch ) {
   return !!ch->peer_addr;
@@ -267,10 +282,10 @@ fd_failover_channel_fini( fd_failover_channel_t * ch ) {
 }
 
 void
-fd_failover_channel_set_role( fd_failover_channel_t * ch,
-                              ulong                   role ) {
-  if( ch->self_hello.role==(uchar)role ) return;
-  ch->self_hello.role = (uchar)role;
+fd_failover_channel_set_holds( fd_failover_channel_t * ch,
+                               int                     holds ) {
+  if( ch->self_hello.holds==(uchar)!!holds ) return;
+  ch->self_hello.holds = (uchar)!!holds;
   for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ )
     if( (int)i!=ch->paired_idx ) close_candidate( &ch->candidates[i] );
   if( ch->paired_idx<0 ) rest( ch );
@@ -304,7 +319,7 @@ fd_failover_channel_listen_port( fd_failover_channel_t const * ch ) {
   return fd_ushort_bswap( addr.sin_port );
 }
 
-/* Spreads a redial over up to one minimum backoff, so standbys that
+/* Spreads a redial over up to one minimum backoff, so machines that
    dial each other do not keep colliding in step. */
 static long
 jitter( fd_failover_channel_t const * ch ) {
@@ -511,7 +526,6 @@ start( fd_failover_channel_t * ch,
   c->local_hello = ch->self_hello;
   c->rx_used = c->tx_used = c->tx_sent = 0UL;
   c->tls_started = 0;
-  fd_failover_wire_session_init( &c->wire );
   return 0;
 }
 
@@ -591,7 +605,7 @@ decode( fd_failover_channel_t * ch,
   struct candidate * c   = &ch->candidates[idx];
   uchar const *      data;
   ulong              frame_sz;
-  int                err = fd_failover_wire_decode( &c->wire, c->rx, c->rx_used, type, &data, payload_sz, &frame_sz );
+  int                err = fd_failover_wire_decode( c->rx, c->rx_used, type, &data, payload_sz, &frame_sz );
   if( err==FD_FAILOVER_WIRE_ERR_AGAIN ) return 0;
   if( err ) { lose( ch, idx, now, FD_FAILOVER_EV_LINK_LOST, LOSS_FRAME, "it sent a malformed frame, check that both machines run the same Firedancer version" ); return -1; }
   fd_memcpy( payload, data, *payload_sz );
@@ -607,12 +621,12 @@ hello_err_name( int err ) {
   switch( err ) {
   case HELLO_ERR_TLS_KEY:                return "its junk key is not the key TLS authenticated, check who can reach the failover port";
   case FD_FAILOVER_HELLO_ERR_VERSION:    return "the protocol version differs, run the same Firedancer version on both machines";
-  case FD_FAILOVER_HELLO_ERR_STAKED:     return "the failover identity differs, both machines need the same handoff target, from [paths.identity_key] or their last `set-identity`";
+  case FD_FAILOVER_HELLO_ERR_STAKED:     return "the failover identity differs, both machines need the same handoff target, from [paths.identity_key], their last `set-identity` or `failover promote <keypair>`";
   case FD_FAILOVER_HELLO_ERR_VOTE_ACCT:  return "the vote account differs, check that [paths.vote_account] is the same on both machines";
   case FD_FAILOVER_HELLO_ERR_JUNK_EQ:    return "its junk key is ours, check that the address is the other validator";
-  case FD_FAILOVER_HELLO_ERR_JUNK_STAKE: return "a boot identity is the staked key, the standby must use a different identity";
-  case FD_FAILOVER_HELLO_ERR_BOTH_ACT:   return "both members are active, only one machine may run the staked identity, stop the validator that should not vote, a failover-enabled validator restarts as standby";
-  case FD_FAILOVER_HELLO_ERR_ROLE:       return "the role is unknown, run the same Firedancer version on both machines";
+  case FD_FAILOVER_HELLO_ERR_JUNK_STAKE: return "a junk key is the identity being handed off, run the same Firedancer version on both machines";
+  case FD_FAILOVER_HELLO_ERR_BOTH_HOLD:  return "both machines run the identity, only one machine may run it, stop the validator that should not vote and set its [paths.identity_key] to a junk key before restarting it";
+  case FD_FAILOVER_HELLO_ERR_HOLDS:      return "it sent an unknown value, run the same Firedancer version on both machines";
   case FD_FAILOVER_HELLO_ERR_BOOT_ID:    return "the boot id is zero, run the same Firedancer version on both machines";
   case FD_FAILOVER_HELLO_ERR_MODE:       return "the consensus mode differs, run both machines in the same consensus mode";
   case FD_FAILOVER_HELLO_ERR_PROOF:      return "its admission proof is not signed by the failover identity, check that both machines hold the same keypair for it";
@@ -738,7 +752,7 @@ handshake_candidate( fd_failover_channel_t * ch,
   c->phase = PHASE_HELLO;
   /* The dialer sends first.  On the listener we respond only to a HELLO
      that passed the checks below. */
-  if( c->dialed ) c->tx_used = fd_failover_wire_encode( &c->wire, c->tx, FD_FAILOVER_MSG_HELLO,
+  if( c->dialed ) c->tx_used = fd_failover_wire_encode( c->tx, FD_FAILOVER_MSG_HELLO,
                                                         (uchar const *)&c->local_hello, sizeof(c->local_hello) );
   return 1;
 }
@@ -775,7 +789,7 @@ read_candidate_hello( fd_failover_channel_t * ch,
   /* The peer is authenticated, finish any HELLO output before pairing. */
   c->phase = PHASE_READY;
   if( !c->dialed ) {
-    c->tx_used = fd_failover_wire_encode( &c->wire, c->tx, FD_FAILOVER_MSG_HELLO,
+    c->tx_used = fd_failover_wire_encode( c->tx, FD_FAILOVER_MSG_HELLO,
                                           (uchar const *)&c->local_hello, sizeof(c->local_hello) );
     if( flush( ch, idx, now, busy )!=0 ) return 0; /* Remain READY until output drains, unless the write fails. */
   }
@@ -812,9 +826,9 @@ pair_candidate( fd_failover_channel_t * ch,
     ch->pair_log_at = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
     char member[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( c->hello.junk_pubkey, NULL, member );
-    FD_LOG_NOTICE(( "paired with the failover peer at `" FD_IP4_ADDR_FMT "` via %s, authenticated member %s, role %s, boot id %016lx",
+    FD_LOG_NOTICE(( "paired with the failover peer at `" FD_IP4_ADDR_FMT "` via %s, authenticated member %s, %s, boot id %016lx",
                     FD_IP4_ADDR_FMT_ARGS( c->address ), c->dialed ? "outbound dial" : "listener", member,
-                    c->hello.role==FD_FAILOVER_ROLE_ACTIVE ? "active" : "standby", c->hello.boot_id ));
+                    c->hello.holds ? "it runs the identity" : "it does not run the identity", c->hello.boot_id ));
   }
 }
 
@@ -1179,7 +1193,7 @@ fd_failover_channel_send( fd_failover_channel_t * ch,
   ulong              idx = (ulong)ch->paired_idx;
   struct candidate * c   = &ch->candidates[idx];
   if( c->tx_used ) return -1;
-  c->tx_used = fd_failover_wire_encode( &c->wire, c->tx, type, payload, sz );
+  c->tx_used = fd_failover_wire_encode( c->tx, type, payload, sz );
   if( !c->tx_used ) { lose( ch, idx, now, FD_FAILOVER_EV_LINK_LOST, LOSS_LOCAL_ENCODE, "we could not encode a frame for it" ); return -1; }
   int busy = 0;
   int rc   = flush( ch, idx, now, &busy )<0 ? -1 : 0;

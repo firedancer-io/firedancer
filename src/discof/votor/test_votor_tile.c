@@ -1752,7 +1752,7 @@ hist_setup( fd_votor_tile_t * ctx ) {
   build_stakes( stakes, 3UL, 10UL );
   ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
   memcpy( ctx->id_key.uc, epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
-  ctx->boot_id_key              = ctx->id_key;
+  ctx->junk_key                 = ctx->id_key;
   ctx->curr_epoch_info          = epoch_info;
   ctx->failover_enabled         = 1;
   ctx->failover_engaged         = 1;
@@ -2669,7 +2669,7 @@ test_history_raises_the_leader_floor( void ) {
   uchar req[ AG_HIST_SER_MAX ];
   ulong req_sz;
   FD_TEST( !ag_hist_ser( &hist, req, sizeof(req), &req_sz ) );
-  fd_votor_adopt_result_t result = failover_adopt_hist( &ctx, req, req_sz );
+  fd_votor_adopt_result_t result = failover_adopt_hist( &ctx, &ctx.id_key, req, req_sz );
   FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_slot==1UL && result.vote_bound==17UL );
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==17UL );
   FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
@@ -2678,20 +2678,25 @@ test_history_raises_the_leader_floor( void ) {
   hist.last_leader_slot = 4UL;
   hist.vote_bound       = 6UL;
   FD_TEST( !ag_hist_ser( &hist, req, sizeof(req), &req_sz ) );
-  result = failover_adopt_hist( &ctx, req, req_sz );
+  result = failover_adopt_hist( &ctx, &ctx.id_key, req, req_sz );
   FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_bound==17UL );
   FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
 
   uchar empty[ FD_VOTOR_ADOPT_EMPTY_SZ ];
   FD_STORE( ulong, empty, 2UL );
-  result = failover_adopt_hist( &ctx, empty, sizeof(empty) );
+  result = failover_adopt_hist( &ctx, &ctx.id_key, empty, sizeof(empty) );
   FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_bound==17UL );
   FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
 
-  /* A history older than the votes this machine sent is rejected. */
+  /* A history older than the votes this machine sent as that identity
+     is rejected, one for another identity is not. */
   ctx.last_vote_slot = 3UL;
-  result = failover_adopt_hist( &ctx, req, req_sz );
+  ctx.last_vote_key  = ctx.id_key;
+  result = failover_adopt_hist( &ctx, &ctx.id_key, req, req_sz );
   FD_TEST( result.result==FD_VOTOR_ADOPT_ERR_STALE );
+  fd_pubkey_t other; fd_memset( other.uc, 0x77, 32UL );
+  result = failover_adopt_hist( &ctx, &other, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS );
 
   hist_teardown( &ctx );
 }
@@ -2806,8 +2811,9 @@ test_failover_off( void ) {
   hist_teardown( &ctx );
 }
 
-/* Test that with failover the staked key votes only after an adoption or
-   set-identity, and the junk key never does. */
+/* Test that with failover a failover identity switch starts voting only
+   after adoption, and that set-identity votes as on main, even to the junk
+   key. */
 
 static void
 operator_switch( int    operator,
@@ -2820,7 +2826,7 @@ operator_switch( int    operator,
   init_keys( &ctx, auth_vtr_mem, &bls_key, 1UL ); /* the new identity's key, as the resume loads it */
   ctx.id_keyswitch = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_SWITCH_PENDING ) );
   FD_TEST( ctx.id_keyswitch );
-  ctx.id_keyswitch->operator = (ulong)operator;
+  ctx.id_keyswitch->failover = (ulong)!operator;
   ctx.hist_seq               = 77UL;
 
   memcpy( ctx.id_key.uc, epoch_info->validators[ new_rank ].id_key, sizeof(fd_pubkey_t) );
@@ -2869,7 +2875,8 @@ test_switch_runs_the_failover_rule( void ) {
   fd_clock_tile_init( ctx.clock );
 
   /* A failover switch to the junk key we booted under, no adoption. */
-  memcpy( ctx.id_keyswitch->bytes, ctx.boot_id_key.uc, sizeof(fd_pubkey_t) );
+  memcpy( ctx.id_keyswitch->bytes, ctx.junk_key.uc, sizeof(fd_pubkey_t) );
+  ctx.id_keyswitch->failover = 1UL;
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
   during_housekeeping( &ctx );
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
@@ -2882,7 +2889,7 @@ static void
 test_operator_switch_votes( void ) {
   operator_switch( 0, 1UL, 0 ); /* staked, no adoption */
   operator_switch( 1, 1UL, 1 ); /* staked, by set-identity */
-  operator_switch( 1, 0UL, 0 ); /* back to the junk key, by set-identity */
+  operator_switch( 1, 0UL, 1 ); /* to the junk key, by set-identity */
 }
 
 /* Test that an adoption is rejected while this machine votes and taken
@@ -2911,10 +2918,11 @@ test_adopt_refused_while_voting( void ) {
   ctx.failov_out_wmark  = 4UL;
   ctx.failov_out_chunk  = 0UL;
   ctx.in_kind[ 0 ]      = IN_KIND_FAILOV;
-  FD_STORE( ulong, ctx.adopt_req, 9UL ); /* empty history, no vote at or below slot 9 */
-  ctx.adopt_req_sz = FD_VOTOR_ADOPT_EMPTY_SZ;
+  fd_memcpy( ctx.adopt_req, ctx.id_key.uc, FD_VOTOR_ADOPT_REQ_HDR_SZ );
+  FD_STORE( ulong, ctx.adopt_req+FD_VOTOR_ADOPT_REQ_HDR_SZ, 9UL ); /* empty history, no vote at or below slot 9 */
+  ctx.adopt_req_sz = FD_VOTOR_ADOPT_REQ_HDR_SZ+FD_VOTOR_ADOPT_EMPTY_SZ;
 
-  after_frag( &ctx, 0UL, 0UL, 901UL, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL, 0UL, stem );
+  after_frag( &ctx, 0UL, 0UL, 901UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
   fd_votor_adopt_result_t const * reply = fd_chunk_to_laddr_const( reply_mem, mcache[0].chunk );
   FD_TEST( seqs[0]==1UL && mcache[0].sig==901UL );
   FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx.failover_hist_adopted );
@@ -2927,7 +2935,8 @@ test_adopt_refused_while_voting( void ) {
     hist.rec[ i ].slot  = 32UL+i;
     hist.rec[ i ].flags = AG_HIST_FLAG_VOTED;
   }
-  FD_TEST( !ag_hist_ser( &hist, ctx.adopt_req, sizeof(ctx.adopt_req), &ctx.adopt_req_sz ) );
+  FD_TEST( !ag_hist_ser( &hist, ctx.adopt_req+FD_VOTOR_ADOPT_REQ_HDR_SZ, AG_HIST_SER_MAX, &ctx.adopt_req_sz ) );
+  ctx.adopt_req_sz += FD_VOTOR_ADOPT_REQ_HDR_SZ;
   ulong free = ag_votor_metrics( ctx.votor ).slot_state_pool_free;
   after_frag( &ctx, 0UL, 1UL, 902UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
   reply = fd_chunk_to_laddr_const( reply_mem, mcache[1].chunk );
@@ -2941,13 +2950,25 @@ test_adopt_refused_while_voting( void ) {
 
   ctx.failover_engaged = 1;
   ctx.vote_authority = 0;
-  FD_STORE( ulong, ctx.adopt_req, 9UL );
-  ctx.adopt_req_sz = FD_VOTOR_ADOPT_EMPTY_SZ;
-  after_frag( &ctx, 0UL, 2UL, 903UL, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL, 0UL, stem );
+  FD_STORE( ulong, ctx.adopt_req+FD_VOTOR_ADOPT_REQ_HDR_SZ, 9UL );
+  ctx.adopt_req_sz = FD_VOTOR_ADOPT_REQ_HDR_SZ+FD_VOTOR_ADOPT_EMPTY_SZ;
+  after_frag( &ctx, 0UL, 2UL, 903UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
   reply = fd_chunk_to_laddr_const( reply_mem, mcache[2].chunk );
   FD_TEST( seqs[0]==3UL && mcache[2].sig==903UL );
   FD_TEST( reply->result==FD_VOTOR_ADOPT_SUCCESS && ctx.failover_hist_adopted );
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==9UL );
+
+  /* An engage frame (empty) engages the latch for using the failover votor rules idempotently. */
+  ctx.failover_engaged     = 0;
+  ctx.highest_unsent_slot  = 21UL; /* its window ends at 23 */
+  ctx.adopt_req_sz         = FD_VOTOR_ADOPT_ENGAGE_SZ;
+  after_frag( &ctx, 0UL, 3UL, 0UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
+  FD_TEST( seqs[0]==3UL && ctx.failover_engaged && !ctx.vote_authority );
+  FD_TEST( ag_votor_get_vote_bound( ctx.votor )==23UL );
+  ctx.highest_unsent_slot  = 40UL;
+  after_frag( &ctx, 0UL, 4UL, 0UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
+  FD_TEST( seqs[0]==3UL && ctx.failover_engaged );
+  FD_TEST( ag_votor_get_vote_bound( ctx.votor )==23UL );
 
   hist_teardown( &ctx );
 }

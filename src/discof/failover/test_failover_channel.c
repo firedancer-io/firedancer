@@ -27,7 +27,7 @@ member( ulong idx, ulong staked_idx ) {
   fd_failover_channel_t * ch = fd_failover_channel_join( fd_failover_channel_new( scratch[idx] ) );
   FD_TEST( ch );
   fd_failover_hello_t hello = { .version=FD_FAILOVER_VERSION, .boot_id=idx+1UL,
-                                .role=(uchar)(idx ? FD_FAILOVER_ROLE_STANDBY : FD_FAILOVER_ROLE_ACTIVE),
+                                .holds=(uchar)(idx ? 0 : 1),
                                 .mode=FD_FAILOVER_MODE_ALPENGLOW };
   fd_memcpy( hello.junk_pubkey, keys[idx]+32UL, 32UL );
   fd_memcpy( hello.staked_pubkey, keys[staked_idx]+32UL, 32UL );

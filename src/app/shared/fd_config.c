@@ -343,12 +343,6 @@ fd_config_fill( fd_config_t * config,
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
 
-  /* With failover, [paths.identity_key] is the staked key both machines
-     share. */
-  if( FD_UNLIKELY( config->firedancer.failover.enabled && !strcmp( config->paths.identity_key, "" ) ) ) {
-    FD_LOG_ERR(( "[failover.enabled] is true, so [paths.identity_key] must specify the staked identity keypair both machines share" ));
-  }
-
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
     /* Development binaries generate an identity key on boot. */
     if( FD_UNLIKELY( config->is_live_cluster && !dev ) ) FD_LOG_ERR(( "configuration file must specify [paths.identity_key] when joining a live cluster" ));
@@ -536,9 +530,6 @@ fd_config_validate_failover( fd_config_t const * config ) {
   uint listen_addr;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( f->failover.listen_address, &listen_addr ) ) ) {
     FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", f->failover.listen_address ));
-  }
-  if( FD_UNLIKELY( !strcmp( config->paths.vote_account, "" ) ) ) {
-    FD_LOG_ERR(( "[failover.enabled] is true, so [paths.vote_account] must be set to the vote account both machines vote for" ));
   }
 }
 

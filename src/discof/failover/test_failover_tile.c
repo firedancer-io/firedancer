@@ -38,16 +38,17 @@ static fd_failover_tile_ctx_t ctl[ 1 ];
 #define OUR_BOOT_ID (1000UL)
 
 static fd_failover_tile_ctx_t *
-controller_init( ulong role ) {
+controller_init( int holds ) {
   stem_init();
   fd_failover_tile_ctx_t * ctx = ctl;
   fd_memset( ctx, 0, sizeof(fd_failover_tile_ctx_t) );
-  ctx->role          = role;
-  ctx->hello.role    = (uchar)role;
+  ctx->holds         = holds;
+  ctx->hello.holds   = (uchar)holds;
   ctx->hello.mode    = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
   ctx->hello.boot_id = OUR_BOOT_ID;
   fd_memset( ctx->hello.junk_pubkey,   0x11, 32UL );
   fd_memset( ctx->hello.staked_pubkey, 0x5A, 32UL );
+  fd_memcpy( ctx->installed, holds ? ctx->hello.staked_pubkey : ctx->hello.junk_pubkey, 32UL );
   ctx->replay_slot           = 100UL;
   ctx->root_slot             = 90UL;
   ctx->last_vote_slot        = 99UL;
@@ -84,11 +85,11 @@ controller_fini( fd_failover_tile_ctx_t * ctx ) {
 static void
 pair( fd_failover_tile_ctx_t * ctx,
       ulong                    boot_id,
-      ulong                    peer_role,
+      ulong                    peer_holds,
       long                     now ) {
   ctx->channel->state              = FD_FAILOVER_SESSION_PAIRED;
   ctx->channel->peer_hello.boot_id = boot_id;
-  ctx->channel->peer_hello.role    = (uchar)peer_role;
+  ctx->channel->peer_hello.holds    = (uchar)peer_holds;
   sync_session( ctx );
   (void)now;
   fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x22, 32UL );
@@ -148,7 +149,7 @@ switch_ok( fd_failover_tile_ctx_t * ctx,
            ulong                    watermark ) {
   ctx->id_switch.result.result            = FD_FAILOVER_SWITCH_OK;
   ctx->id_switch.result.history_watermark = watermark;
-  FD_TEST( switch_answer( ctx, ctx->id_switch.request_id ) );
+  FD_TEST( on_switch_resp_msg( ctx, ctx->id_switch.request_id ) );
 }
 
 static fd_failover_demoted_t
@@ -161,19 +162,24 @@ pending_demoted( fd_failover_tile_ctx_t const * ctx ) {
 
 static void
 test_handoff( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  pair( ctx, 77UL, 0, 1000L );
   make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=42UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
+  FD_TEST( ctx->holds==1 && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
   step_controller( ctx, stem );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_JUNK && !ctx->tx.valid );
   switch_ok( ctx, 0UL );
   step_controller( ctx, stem );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY );
+  FD_TEST( ctx->holds==0 && fd_memeq( ctx->installed, ctx->hello.junk_pubkey, 32UL ) );
   fd_failover_demoted_t demoted = pending_demoted( ctx );
   FD_TEST( demoted.handoff_id==42UL && demoted.mode==FD_FAILOVER_MODE_ALPENGLOW && demoted.last_vote_slot==99UL );
+  fd_adminctl_failover_status_resp_t status;
+  status_snapshot( ctx, 1000L, &status );
+  FD_TEST( status.version==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION && !status.holds );
+  FD_TEST( fd_memeq( status.target, ctx->hello.staked_pubkey, 32UL ) && fd_memeq( status.installed, ctx->hello.junk_pubkey, 32UL ) &&
+           fd_memeq( status.junk, ctx->hello.junk_pubkey, 32UL ) );
   ctx->tx.valid         = 0;
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_SENT;
   deliver_ack( ctx, 42UL );
@@ -183,32 +189,67 @@ test_handoff( void ) {
 
 static void
 test_no_final_state( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
   ctx->last_vote_slot = FD_FAILOVER_SLOT_NULL;
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  fd_failover_handoff_request_t req = { .handoff_id=43UL, .target_boot_id=OUR_BOOT_ID };
+  pair( ctx, 77UL, 0, 1000L );
+  /* Pairing while we run the identity engages votor's failover rules. */
+  FD_TEST( ctx->engage_pending );
+  step_controller( ctx, stem );
+  FD_TEST( !ctx->engage_pending && stem->seqs[ 0 ]==1UL && pub_mcache[ 0 ].sig==0UL && pub_mcache[ 0 ].sz==FD_VOTOR_ADOPT_ENGAGE_SZ );
+  /* Before votor streams a full history a request is refused. */
+  fd_failover_handoff_request_t req = { .handoff_id=43UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=100UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   fd_failover_handoff_result_t result;
   FD_TEST( ctx->tx.valid && ctx->tx.type==FD_FAILOVER_MSG_HANDOFF_RESULT );
   FD_TEST( fd_failover_handoff_result_decode( &result, ctx->tx.payload, ctx->tx.sz ) );
   FD_TEST( result.handoff_id==43UL && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
+  FD_TEST( ctx->holds==1 && ctx->action==FD_FAILOVER_ACTION_IDLE );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.request_id && !ctx->promotion.adopt_id );
   char const * hint;
   FD_TEST( !strcmp( control_refusal( result.result, &hint ), "NO_FINAL_HISTORY" ) );
-  FD_TEST( strstr( hint, "the active" ) );
+  FD_TEST( strstr( hint, "the other machine" ) );
   /* The requester logs the relayed rejection under the same name. */
-  FD_TEST( !strcmp( relayed_refusal( result.result, &hint ), "NO_FINAL_HISTORY" ) );
+  FD_TEST( !strcmp( control_result( result.result, &hint ), "NO_FINAL_HISTORY" ) );
+  ctx->tx.valid                 = 0;
+  ctx->session.close_after_send = 0;
+  /* A frame still in plain mode has no history. */
+  static fd_votor_hist_msg_t hist;
+  fd_memset( &hist, 0, sizeof(hist) );
+  fd_memcpy( hist.identity.uc, ctx->hello.staked_pubkey, 32UL );
+  hist.replay_slot            = 100UL;
+  hist.root_slot              = 90UL;
+  hist.vote_slot              = FD_FAILOVER_SLOT_NULL;
+  hist.hist.last_leader_slot  = FD_FAILOVER_SLOT_NULL;
+  hist.hist.vote_bound        = FD_FAILOVER_SLOT_NULL;
+  on_votor_hist_msg( ctx, &hist );
+  FD_TEST( ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL && !ctx->current_history.valid );
+  /* The first full frame after engagement comes from a completed slot,
+     not a vote, and still becomes our final history. */
+  hist.hist.anchor         = 99UL;
+  hist.hist.rec_cnt        = 1UL;
+  hist.hist.rec[ 0 ].slot  = 99UL;
+  hist.hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
+  hist.vote_slot           = 99UL;
+  on_votor_hist_msg( ctx, &hist );
+  FD_TEST( ctx->last_vote_slot==99UL && ctx->own_floor==99UL && ctx->current_history.valid && ctx->current_history.tip==99UL );
+  req.handoff_id = 44UL;
+  deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+  FD_TEST( !ctx->tx.valid && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH && ctx->handoff.id==44UL );
+  /* A second pairing edge publishes the engage frame again. */
+  ctx->channel->state = FD_FAILOVER_SESSION_BACKOFF;
+  sync_session( ctx );
+  pair( ctx, 78UL, 0, 1000L );
+  FD_TEST( ctx->engage_pending );
   controller_fini( ctx );
 }
 
-/* test_request_replay_behind: a standby more than 64 slots behind our
+/* test_request_replay_behind: a peer more than 64 slots behind our
    last vote, or one with no replay slot yet, gets REPLAY_BEHIND and we
    keep the identity, one exactly 64 behind is served. */
 static void
 test_request_replay_behind( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  pair( ctx, 77UL, 0, 1000L );
   ctx->last_vote_slot = 200UL;
   make_history( &ctx->current_history, 200UL );
   ulong behind[ 2 ] = { 200UL-FD_FAILOVER_DEADLINE_SLOTS-1UL, FD_FAILOVER_SLOT_NULL };
@@ -219,7 +260,7 @@ test_request_replay_behind( void ) {
     FD_TEST( ctx->tx.valid && ctx->tx.type==FD_FAILOVER_MSG_HANDOFF_RESULT );
     FD_TEST( fd_failover_handoff_result_decode( &result, ctx->tx.payload, ctx->tx.sz ) );
     FD_TEST( result.handoff_id==49UL+i && result.result==FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND );
-    FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->handoff.id );
+    FD_TEST( ctx->holds==1 && ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->handoff.id );
     FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.request_id );
     ctx->tx.valid                 = 0;
     ctx->session.close_after_send = 0;
@@ -234,8 +275,8 @@ test_request_replay_behind( void ) {
    status reports it, and an ACK or the same request during it is ignored. */
 static void
 test_demote_drain( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  pair( ctx, 77UL, 0, 1000L );
   make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=44UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
@@ -243,7 +284,7 @@ test_demote_drain( void ) {
   ctx->hist_seen_seq = 796UL;
   switch_ok( ctx, 800UL );
   step_controller( ctx, stem );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN );
+  FD_TEST( ctx->holds==1 && ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN );
   fd_adminctl_failover_status_resp_t status;
   status_snapshot( ctx, 1000L, &status );
   FD_TEST( status.action==(uchar)FD_FAILOVER_ACTION_DEMOTE_DRAIN );
@@ -252,7 +293,7 @@ test_demote_drain( void ) {
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN && !ctx->taken && !ctx->tx.valid );
   ctx->hist_seen_seq = 799UL;
   step_controller( ctx, stem );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && pending_demoted( ctx ).handoff_id==44UL );
+  FD_TEST( ctx->holds==0 && pending_demoted( ctx ).handoff_id==44UL );
   controller_fini( ctx );
 }
 
@@ -274,9 +315,9 @@ operator_frame( fd_failover_tile_ctx_t * ctx,
   fd_memset( operator.identity,          key,          32UL );
   fd_memset( operator.failover_identity, failover_key, 32UL );
   fd_memcpy( msg->payload, &operator, sizeof(operator) );
-  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR ) );
-  during_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR, 0UL, sizeof(*msg), 0UL );
-  after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR, sizeof(*msg), 0UL, 0UL, stem );
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR_ACTION ) );
+  during_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR_ACTION, 0UL, sizeof(*msg), 0UL );
+  after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR_ACTION, sizeof(*msg), 0UL, 0UL, stem );
 }
 
 /* test_operator_switch: set-identity during a demotion.  We restart on
@@ -285,8 +326,8 @@ operator_frame( fd_failover_tile_ctx_t * ctx,
    failover epoch, and a request bound to our old boot cannot demote us. */
 static void
 test_operator_switch( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  pair( ctx, 77UL, 0, 1000L );
   make_history( &ctx->current_history, 99UL );
   ctx->own_floor = 99UL;
   fd_failover_handoff_request_t req = { .handoff_id=47UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
@@ -297,7 +338,7 @@ test_operator_switch( void ) {
 
   /* set-identity installs the junk key. */
   operator_frame( ctx, 1UL, 0x11, 0x5A );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->hello.role==FD_FAILOVER_ROLE_STANDBY );
+  FD_TEST( ctx->holds==0 && ctx->hello.holds==0 && fd_memeq( ctx->installed, ctx->hello.junk_pubkey, 32UL ) );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck && !ctx->tx.valid && !ctx->handoff.id && !ctx->request.id );
   FD_TEST( ctx->hello.boot_id!=OUR_BOOT_ID && ctx->channel->self_hello.boot_id==ctx->hello.boot_id );
   FD_TEST( !ctx->current_history.valid && ctx->own_floor==99UL );
@@ -306,13 +347,13 @@ test_operator_switch( void ) {
 
   /* The late answer ends the old switch and is dropped. */
   ctx->id_switch.result.result = FD_FAILOVER_SWITCH_OK;
-  FD_TEST( !switch_answer( ctx, nonce ) );
+  FD_TEST( !on_switch_resp_msg( ctx, nonce ) );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.fresh && !ctx->id_switch.discard );
 
   /* The same or an older frame changes nothing. */
   ulong boot_id = ctx->hello.boot_id;
   operator_frame( ctx, 1UL, 0x5A, 0x5A );
-  FD_TEST( ctx->hello.boot_id==boot_id && ctx->role==FD_FAILOVER_ROLE_STANDBY );
+  FD_TEST( ctx->hello.boot_id==boot_id && ctx->holds==0 );
 
   /* The next switch request has the new failover epoch. */
   FD_TEST( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_STAKED )!=ULONG_MAX );
@@ -329,12 +370,12 @@ test_operator_switch( void ) {
   fd_memset( ctx->id_switch.response.operator.failover_identity, 0x5A, 32UL );
   ctx->id_switch.response_nonce = ctx->id_switch.request_id;
   after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_RESP, sizeof(fd_failover_bus_msg_t), 0UL, 0UL, stem );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->id_switch.epoch==2UL && ctx->hello.boot_id!=boot_id );
+  FD_TEST( ctx->holds==1 && ctx->id_switch.epoch==2UL && ctx->hello.boot_id!=boot_id && fd_memeq( ctx->installed, ctx->hello.staked_pubkey, 32UL ) );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.fresh && ctx->action==FD_FAILOVER_ACTION_IDLE );
 
   /* A request bound to our first boot is refused, one to this boot is
      served once we have a final history. */
-  pair( ctx, 78UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  pair( ctx, 78UL, 0, 1000L );
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
   ctx->tx.valid = 0;
@@ -348,32 +389,34 @@ test_operator_switch( void ) {
 }
 
 /* test_operator_failover_identity: HELLO has the failover identity
-   OPERATOR gives, and the role follows the installed key. */
+   OPERATOR gives, and we run it when the installed key is that
+   identity. */
 static void
 test_operator_failover_identity( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->staked_addr    = FD_IP4_ADDR(10,0,0,2);
   ctx->staked_seen_at = 900L;
   operator_frame( ctx, 1UL, 0x77, 0x77 );
   uchar third[ 32 ]; fd_memset( third, 0x77, 32UL );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->hello.role==FD_FAILOVER_ROLE_ACTIVE );
+  FD_TEST( ctx->holds==1 && ctx->hello.holds==1 && fd_memeq( ctx->installed, third, 32UL ) );
   FD_TEST( fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) && fd_memeq( ctx->channel->self_hello.staked_pubkey, third, 32UL ) );
   FD_TEST( !ctx->staked_addr && !ctx->staked_seen_at );
 
   /* A junk set-identity keeps the failover identity, the configured key does not come back. */
   operator_frame( ctx, 2UL, 0x11, 0x77 );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) );
+  FD_TEST( ctx->holds==0 && fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) );
 
-  /* Any key but junk makes us the active, also one that is not the
-     failover identity in the frame. */
+  /* Another installed key, as after failover promote <keypair> prepared
+     the identity, means we do not run it. */
   operator_frame( ctx, 3UL, 0x5A, 0x77 );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) );
+  uchar other[ 32 ]; fd_memset( other, 0x5A, 32UL );
+  FD_TEST( ctx->holds==0 && fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) && fd_memeq( ctx->installed, other, 32UL ) );
 
   /* A new target must be reflected in both admission and HELLO. */
   operator_frame( ctx, 4UL, 0x11, 0x77 );
   uchar public[ 32 ]; fd_memset( public, 0x5A, 32UL );
   fd_failover_hello_t peer = ctx->channel->self_hello;
-  peer.role    = FD_FAILOVER_ROLE_ACTIVE;
+  peer.holds    = 1;
   peer.boot_id = 77UL;
   fd_memset( peer.junk_pubkey, 0x22, 32UL );
   FD_TEST( fd_failover_hello_check( &ctx->channel->self_hello, &peer )==FD_FAILOVER_HELLO_OK );
@@ -387,7 +430,7 @@ test_operator_failover_identity( void ) {
    before we hear of it. */
 static void
 test_standby_vote_counts( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   fd_votor_hist_msg_t hist;
   fd_memset( &hist, 0, sizeof(hist) );
   fd_memcpy( hist.identity.uc, ctx->hello.staked_pubkey, 32UL );
@@ -395,13 +438,14 @@ test_standby_vote_counts( void ) {
   hist.root_slot   = FD_FAILOVER_SLOT_NULL;
   hist.has_vote    = 1;
   hist.vote_slot   = 129UL;
-  consume_hist( ctx, &hist );
+  on_votor_hist_msg( ctx, &hist );
   FD_TEST( ctx->own_floor==129UL && ctx->last_vote_slot==129UL );
   controller_fini( ctx );
 }
 
-/* A request of ours bound to boot 77 of the member whose junk key is
-   0x22, as the tests' pair() makes it. */
+/* A request of ours bound to boot 77 of the member whose junk key was
+   0x22, as the tests' pair() makes it.  A new boot generates a new junk
+   key, so the restart tests pair with another one. */
 static void
 open_request( fd_failover_tile_ctx_t * ctx,
               ulong                    action ) {
@@ -416,32 +460,79 @@ open_request( fd_failover_tile_ctx_t * ctx,
   ctx->action               = action;
 }
 
-/* test_result_wait_peer_restart: the old active restarts before it
-   confirms our ACK.  Its new boot cannot, so the wait ends and we stay
-   active.  A standby waiting to have its refusal confirmed ends the
-   same way and stays standby. */
+/* test_result_wait_peer_restart: the peer that ran the identity
+   restarts before it confirms our ACK.  Its new boot cannot, so the wait
+   ends and we keep the identity.  A request waiting to have its refusal
+   confirmed ends the same way, without the identity.  A request paused
+   at its deadline ends the same way when the new boot pairs, so the old
+   holder's next request is not refused as in progress forever. */
 static void
 test_result_wait_peer_restart( void ) {
-  for( ulong active=0UL; active<2UL; active++ ) {
-    fd_failover_tile_ctx_t * ctx = controller_init( active ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY );
-    open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
-    pair( ctx, 78UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-    int busy = 0;
-    peer_poll( ctx, 1000L, &busy );
-    FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id );
-    FD_TEST( ctx->request.result==( active ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED ) );
-    FD_TEST( ctx->role==( active ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY ) );
-    FD_TEST( ctx->stuck==!active );
-    controller_fini( ctx );
+  for( int paused=0; paused<2; paused++ ) {
+    for( int holds=0; holds<2; holds++ ) {
+      fd_failover_tile_ctx_t * ctx = controller_init( holds );
+      open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
+      if( paused ) ctx->request.until = 0L;
+      pair( ctx, 78UL, 0, 1000L );
+      fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
+      int busy = 0;
+      peer_poll( ctx, stem, 1000L, &busy );
+      FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.last_id==900UL );
+      FD_TEST( ctx->request.result==( holds ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED ) );
+      FD_TEST( ctx->holds==holds );
+      FD_TEST( ctx->stuck==!holds );
+      controller_fini( ctx );
+    }
   }
 
-  /* While we wait for final state a restart still pauses the request. */
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
-  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
-  pair( ctx, 78UL, FD_FAILOVER_ROLE_ACTIVE, 1000L );
+  /* A key switch in flight keeps the paused wait. */
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
+  ctx->request.until         = 0L;
+  ctx->id_switch.pending_key = FD_FAILOVER_SWITCH_KEY_STAKED;
+  pair( ctx, 78UL, 0, 1000L );
+  fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
   int busy = 0;
-  peer_poll( ctx, 1000L, &busy );
+  peer_poll( ctx, stem, 1000L, &busy );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->request.id==900UL && !ctx->request.until );
+  controller_fini( ctx );
+
+  /* A paused request for final state keeps waiting for the operator. */
+  ctx = controller_init( 0 );
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
+  ctx->request.until = 0L;
+  pair( ctx, 78UL, 1, 1000L );
+  fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
+  busy = 0;
+  peer_poll( ctx, stem, 1000L, &busy );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.id==900UL && !ctx->request.until && !ctx->request.peer_restarted );
+  controller_fini( ctx );
+
+  /* While we wait for final state a restart still pauses the request. */
+  ctx = controller_init( 0 );
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
+  pair( ctx, 78UL, 1, 1000L );
+  fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
+  busy = 0;
+  peer_poll( ctx, stem, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.id && !ctx->request.until && ctx->stuck );
+  controller_fini( ctx );
+
+  /* `failover promote` that only ends a paused confirmation wait answers
+     with the id of the handoff it ended, not 0. */
+  ctx = controller_init( 1 );
+  open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
+  ctx->request.until          = 0L;
+  ctx->request.peer_restarted = 1;
+  fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF };
+  ctx->bus_req.nonce = 8UL;
+  fd_memcpy( ctx->bus_req.payload, &req, sizeof(req) );
+  serve_bus_request( ctx, stem, 1000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.last_id==900UL && ctx->request.result==FD_FAILOVER_HANDOFF_TAKEN );
+  fd_failover_bus_msg_t const * out = (fd_failover_bus_msg_t const *)bus_mem;
+  fd_adminctl_failover_control_resp_t response;
+  fd_memcpy( &response, out->payload, sizeof(response) );
+  FD_TEST( out->nonce==8UL && out->result==FD_ADMINCTL_RESULT_SUCCESS && response.handoff_id==900UL && response.holds );
   controller_fini( ctx );
 }
 
@@ -450,18 +541,18 @@ test_result_wait_peer_restart( void ) {
    queued DEMOTED stays for the handoff target. */
 static void
 test_session_change_drops_result( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  pair( ctx, 77UL, 0, 1000L );
   fd_failover_handoff_request_t req = { .handoff_id=46UL, .target_boot_id=OUR_BOOT_ID+1UL, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->tx.valid && ctx->tx.type==FD_FAILOVER_MSG_HANDOFF_RESULT && ctx->session.close_after_send );
   ctx->channel->generation++;
-  pair( ctx, 79UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  pair( ctx, 79UL, 0, 1000L );
   FD_TEST( !ctx->tx.valid && !ctx->session.close_after_send );
   controller_fini( ctx );
 
-  ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  ctx = controller_init( 1 );
+  pair( ctx, 77UL, 0, 1000L );
   make_history( &ctx->current_history, 99UL );
   req.target_boot_id = OUR_BOOT_ID;
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
@@ -470,7 +561,7 @@ test_session_change_drops_result( void ) {
   step_controller( ctx, stem );
   FD_TEST( pending_demoted( ctx ).handoff_id==46UL );
   ctx->channel->generation++;
-  pair( ctx, 80UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  pair( ctx, 80UL, 0, 1000L );
   FD_TEST( pending_demoted( ctx ).handoff_id==46UL );
   controller_fini( ctx );
 }
@@ -491,7 +582,7 @@ operator_cmd( fd_failover_tile_ctx_t * ctx,
    address too. */
 static void
 test_request_address( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,3);
@@ -532,16 +623,16 @@ test_request_address( void ) {
    fails keeps the identity and tells the requester at once. */
 static void
 test_abort_answers_requester( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  pair( ctx, 77UL, 0, 1000L );
   make_history( &ctx->current_history, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=47UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   step_controller( ctx, stem );
   ctx->id_switch.result.result = FD_FAILOVER_SWITCH_ERR_DISABLED;
-  FD_TEST( switch_answer( ctx, ctx->id_switch.request_id ) );
+  FD_TEST( on_switch_resp_msg( ctx, ctx->id_switch.request_id ) );
   step_controller( ctx, stem );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->stuck );
+  FD_TEST( ctx->holds==1 && ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->stuck );
   fd_failover_handoff_result_t result;
   FD_TEST( ctx->tx.valid && ctx->tx.type==FD_FAILOVER_MSG_HANDOFF_RESULT && ctx->tx.to.boot_id==77UL && ctx->session.close_after_send );
   FD_TEST( fd_failover_handoff_result_decode( &result, ctx->tx.payload, ctx->tx.sz ) );
@@ -554,7 +645,7 @@ test_abort_answers_requester( void ) {
    and a restarted one ends the request. */
 static void
 test_wait_result_redials( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   open_request( ctx, FD_FAILOVER_ACTION_PROMOTE_SWITCH );
   ctx->request.until         = 0L;
   ctx->promotion.from_peer   = 1;
@@ -564,49 +655,75 @@ test_wait_result_redials( void ) {
   ctx->id_switch.request_id  = 1UL;
   switch_ok( ctx, 0UL );
   step_controller( ctx, stem );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
+  FD_TEST( ctx->holds==1 && ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && fd_memeq( ctx->installed, ctx->hello.staked_pubkey, 32UL ) );
   FD_TEST( ctx->request.until && ctx->channel->peer_addr==FD_IP4_ADDR(10,0,0,2) );
   controller_fini( ctx );
 }
 
 /* test_refused_command_keeps_stuck: only an accepted command clears
-   stuck. */
+   stuck, and the takeover checks behind a refusal report what they
+   find. */
 static void
 test_refused_command_keeps_stuck( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->stuck = 1;
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS && ctx->stuck );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS && ctx->stuck );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS && !ctx->stuck );
+  request_end( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
+  controller_fini( ctx );
+
+  /* Without --force the takeover checks report SUCCESS when none finds
+     another machine running the identity, and the refusal otherwise. */
+  ctx = controller_init( 0 );
+  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  fd_adminctl_failover_status_resp_t status;
+  status_snapshot( ctx, 1000L, &status );
+  FD_TEST( status.promote_result==FD_ADMINCTL_RESULT_SUCCESS && !status.holds );
+  FD_TEST( fd_memeq( status.installed, ctx->hello.junk_pubkey, 32UL ) && fd_memeq( status.target, ctx->hello.staked_pubkey, 32UL ) );
+  ctx->taken = 1;
+  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_TAKEN );
+  FD_TEST( promote_guard( ctx, 1000L, 1 )==FD_ADMINCTL_RESULT_SUCCESS );
+  ctx->taken = 0;
+  ctx->staked_seen_at = 1000L;
+  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN );
+  FD_TEST( promote_guard( ctx, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  ctx->staked_seen_at = 0L;
+  pair( ctx, 77UL, 1, 1000L );
+  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS );
+  ctx->channel->peer_hello.holds = 0;
+  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  ctx->holds = 1;
+  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER );
   controller_fini( ctx );
 }
 
-/* test_dialed_standby: a request that pairs with a standby ends as its
-   own outcome, not as declined. */
+/* test_dialed_non_holder: a request that pairs with a peer that does not
+   run the identity ends as its own outcome, not as declined. */
 static void
-test_dialed_standby( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+test_dialed_non_holder( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
-  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  pair( ctx, 77UL, 0, 1000L );
   int busy = 0;
-  peer_poll( ctx, 1000L, &busy );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.result==FD_FAILOVER_HANDOFF_NOT_ACTIVE );
+  peer_poll( ctx, stem, 1000L, &busy );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.result==FD_FAILOVER_HANDOFF_NOT_HOLDER );
   controller_fini( ctx );
 }
 
-/* test_restarted_peer_new_request: once the active boot a request is
+/* test_restarted_peer_new_request: once the peer boot a request is
    bound to restarted, `failover promote` starts a new request instead of
    resuming one that can never finish, and the accepted command answers
    with its id. */
 static void
 test_restarted_peer_new_request( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
   open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
-  pair( ctx, 78UL, FD_FAILOVER_ROLE_ACTIVE, 1000L );
+  pair( ctx, 78UL, 1, 1000L );
   int busy = 0;
-  peer_poll( ctx, 1000L, &busy );
+  peer_poll( ctx, stem, 1000L, &busy );
   FD_TEST( ctx->request.id==900UL && ctx->request.peer_restarted && !ctx->request.until );
 
   fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF };
@@ -627,7 +744,7 @@ test_restarted_peer_new_request( void ) {
    higher. */
 static void
 test_force_empty_bound( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   fd_cstr_ncpy( ctx->promotion.label, "promotion 1", sizeof(ctx->promotion.label) );
   ctx->promotion.source = FD_FAILOVER_SOURCE_EMPTY;
   ctx->promotion.force  = 1;
@@ -645,7 +762,7 @@ test_force_empty_bound( void ) {
 
 static void
 test_adopt_capacity_retry( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   make_peer_history( &ctx->peer_history, 90UL, 99UL, 6UL );
   fd_failover_peer_t peer = { .boot_id = 77UL };
   start_promotion( ctx, FD_FAILOVER_SOURCE_PEER, &peer, 42UL, 0 );
@@ -657,7 +774,7 @@ test_adopt_capacity_retry( void ) {
   after_frag( ctx, 0UL, 0UL, id, sizeof(ctx->adopt_result), 0UL, 0UL, stem );
   step_promote_wait_adopt( ctx, stem );
   FD_TEST( ctx->promotion.retry && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
-  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && !ctx->stuck && !ctx->tx.valid );
+  FD_TEST( ctx->holds==0 && !ctx->stuck && !ctx->tx.valid );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
   FD_TEST( ctx->peer_history.valid && fd_memeq( &saved, &ctx->promotion.adopt, sizeof(saved) ) );
   step_promote_wait_adopt( ctx, stem );
@@ -666,7 +783,7 @@ test_adopt_capacity_retry( void ) {
   ctx->replay_slot++;
   step_promote_wait_adopt( ctx, stem );
   FD_TEST( !ctx->promotion.retry && ctx->promotion.adopt_id!=id );
-  FD_TEST( fd_memeq( bus_mem, saved.state, saved.sz ) );
+  FD_TEST( fd_memeq( bus_mem, ctx->hello.staked_pubkey, FD_VOTOR_ADOPT_REQ_HDR_SZ ) && fd_memeq( bus_mem+FD_VOTOR_ADOPT_REQ_HDR_SZ, saved.state, saved.sz ) );
   ctx->adopt_result = (fd_votor_adopt_result_t){ .result=FD_VOTOR_ADOPT_SUCCESS, .root=90UL, .vote_slot=99UL, .vote_bound=ULONG_MAX };
   after_frag( ctx, 0UL, 1UL, ctx->promotion.adopt_id, sizeof(ctx->adopt_result), 0UL, 0UL, stem );
   step_promote_wait_adopt( ctx, stem );
@@ -694,8 +811,8 @@ fill( fd_failover_channel_t * ch,
 
 static void
 test_listen_slot( void ) {
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
-  fd_failover_channel_t *  ch  = ctx->channel;
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  fd_failover_channel_t  * ch  = ctx->channel;
   long now = FD_FAILOVER_ADMISSION_START_NANOS;
   FD_TEST( listen_slot( ch, now )==UNAUTHENTICATED_IDX );
   for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) fill( ch, i, FD_IP4_ADDR(10,1,0,(uint)i), now+100L+(long)i );
@@ -729,7 +846,7 @@ main( int argc, char ** argv ) {
   test_abort_answers_requester();
   test_wait_result_redials();
   test_refused_command_keeps_stuck();
-  test_dialed_standby();
+  test_dialed_non_holder();
   test_restarted_peer_new_request();
   test_force_empty_bound();
   test_adopt_capacity_retry();

@@ -226,7 +226,7 @@ bus_setup( ulong credits ) {
 
 static fd_failover_operator_t
 bus_operator( void ) {
-  FD_TEST( bus_seq && bus_mcache[ bus_seq-1UL ].sig==FD_FAILOVER_BUS_OPERATOR );
+  FD_TEST( bus_seq && bus_mcache[ bus_seq-1UL ].sig==FD_FAILOVER_BUS_OPERATOR_ACTION );
   fd_failover_operator_t operator;
   fd_memcpy( &operator, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(operator) );
   return operator;
@@ -276,7 +276,7 @@ test_failover_command( ulong cmd_id,
       fd_adminctl_failover_req_t forwarded;
       fd_memcpy( &forwarded, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(forwarded) );
       FD_TEST( forwarded.cmd==payload_cmd && forwarded.flags==flags );
-      result       = i ? FD_FAILOVER_CONTROL_RESULT_BAD_ROLE : FD_ADMINCTL_RESULT_SUCCESS;
+      result       = i ? FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER : FD_ADMINCTL_RESULT_SUCCESS;
       event_result = i ? FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM : FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS;
       ctx.failov_in.nonce  = ctx.failover_nonce;
       ctx.failov_in.result = result;
@@ -319,7 +319,7 @@ test_failover_identity( void ) {
      nothing goes to the failover tile until every tile switched. */
   failover_operator_begin( &ctx, third );
   FD_TEST( ctx.failover_epoch==1UL && fd_memeq( ctx.failover_pubkey, third, 32UL ) && ctx.failover_pending && !bus_seq );
-  FD_TEST( sign_ks->param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR && votor_ks->operator==1UL );
+  FD_TEST( sign_ks->param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR && votor_ks->failover==0UL );
   fd_memcpy( ctx.identity_pubkey, third, 32UL );
   failover_operator_notify( &ctx, bus_stem );
   fd_failover_operator_t operator = bus_operator();
@@ -367,6 +367,33 @@ test_failover_identity( void ) {
   fd_memcpy( &answer, ((fd_failover_bus_msg_t const *)bus_out)->payload, sizeof(answer) );
   FD_TEST( answer.result==FD_FAILOVER_SWITCH_ERR_STALE && answer.operator.epoch==2UL );
   FD_TEST( fd_memeq( answer.operator.identity, ctx.junk_pubkey, 32UL ) && fd_memeq( answer.operator.failover_identity, third, 32UL ) );
+
+  /* Another key becomes the target, also while this machine runs the
+     current one, the CLI warns about that case. */
+  uchar keypair[ 64 ]; fd_memset( keypair, 0x77, 32UL );
+  fd_ed25519_public_from_private( keypair+32UL, keypair, ctx.sha512 );
+  fd_memcpy( ctx.identity_pubkey, third, 32UL );
+  ctx.failover_pending = 0;
+  FD_TEST( fd_topob_new( test_topo, "admin-test" ) );
+  fd_topob_wksp( test_topo, "wksp" )->wksp = NULL;
+  (void)mock_tile( "votor" );
+  FD_TEST( failover_prepare( &ctx, keypair )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx.failover_epoch==3UL && ctx.failover_pending && ctx.failover_retargeted );
+  FD_TEST( fd_memeq( ctx.failover_pubkey, keypair+32UL, 32UL ) && fd_memeq( ctx.identity_pubkey, third, 32UL ) );
+
+  /* Same key is a no-op, a mismatched keypair and the junk key are refused. */
+  uchar other[ 64 ]; fd_memset( other, 0x78, 32UL );
+  fd_ed25519_public_from_private( other+32UL, other, ctx.sha512 );
+  FD_TEST( failover_prepare( &ctx, other )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx.failover_epoch==4UL && fd_memeq( ctx.failover_pubkey, other+32UL, 32UL ) );
+  FD_TEST( failover_prepare( &ctx, other )==FD_ADMINCTL_RESULT_SUCCESS && ctx.failover_epoch==4UL );
+  uchar bad[ 64 ]; fd_memcpy( bad, other, 64UL ); bad[ 32 ]^=1;
+  FD_TEST( failover_prepare( &ctx, bad )==FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH );
+  uchar junk[ 64 ]; fd_memset( junk, 0x79, 32UL );
+  fd_ed25519_public_from_private( junk+32UL, junk, ctx.sha512 );
+  fd_memcpy( ctx.junk_pubkey, junk+32UL, 32UL );
+  FD_TEST( failover_prepare( &ctx, junk )==FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT );
+  FD_TEST( ctx.failover_epoch==4UL && fd_memeq( ctx.failover_pubkey, other+32UL, 32UL ) );
   ctx.topo = NULL;
 }
 

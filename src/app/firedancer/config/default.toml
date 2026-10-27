@@ -103,6 +103,11 @@ telemetry = true
     # if one is not provided (or has not already been generated) and
     # place it in this path.  If no path is provided, it is defaulted
     # to inside the base directory, under path `identity.json`.
+    #
+    # The validator boots under this identity.  For failover, a standby
+    # machine that waits to take over another validator's identity
+    # should boot under an unstaked randomized key, created using
+    # `firedancer keys new`.
     identity_key = ""
 
     # Absolute path to a `keypair.json` containing the voting account
@@ -1991,16 +1996,16 @@ telemetry = true
 # history files are only for handing off an identity from a validator that
 # does not run failover, such as Agave.
 [failover]
-    # Whether to enable failover.  When true, the validator boots as
-    # standby under a fresh junk identity generated in memory.  Its
-    # private key is not written to a file.  When false, it boots
-    # normally under [paths.identity_key].
-    enabled = false
+    # Whether to enable failover.  The validator boots under
+    # [paths.identity_key], and when `failover promote <keypair>` is
+    # run on a standby host, it takes over the identity in that keypair
+    # from the machine that is actively running it.
+    enabled = true
 
     # The address to listen on.  If enabled, by default the listener is
     # exposed to the network.  This is safe as possession of the private
-    # key is required to demote the node, but could be a vector for
-    # a targeted denial of service.  For added reliability, restrict
+    # key is required to take over the identity, but could be a vector
+    # for a targeted denial of service.  For added reliability, restrict
     # the listener to a private network.
     listen_address = "0.0.0.0"
 

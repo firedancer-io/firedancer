@@ -1,20 +1,17 @@
 #include "fd_failover_proto.h"
 
-#include "../../choreo/votor/ag_hist.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 
 FD_STATIC_ASSERT( sizeof(FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN)-1UL==FD_KEYGUARD_FAILOVER_DOMAIN_SZ, client_proof_domain );
 FD_STATIC_ASSERT( sizeof(FD_KEYGUARD_FAILOVER_SERVER_DOMAIN)-1UL==FD_KEYGUARD_FAILOVER_DOMAIN_SZ, server_proof_domain );
-FD_STATIC_ASSERT( AG_HIST_SER_MAX<=FD_FAILOVER_ALPENGLOW_STATE_MAX, alpenglow_state_max );
 
 int
 fd_failover_hello_check( fd_failover_hello_t const * self,
                          fd_failover_hello_t const * peer ) {
   if( FD_UNLIKELY( self->version!=peer->version ) )                                return FD_FAILOVER_HELLO_ERR_VERSION;
-  if( FD_UNLIKELY( self->role>FD_FAILOVER_ROLE_ACTIVE ||
-                   peer->role>FD_FAILOVER_ROLE_ACTIVE ) )                          return FD_FAILOVER_HELLO_ERR_ROLE;
+  if( FD_UNLIKELY( self->holds>1 || peer->holds>1 ) )                              return FD_FAILOVER_HELLO_ERR_HOLDS;
   if( FD_UNLIKELY( self->mode!=FD_FAILOVER_MODE_ALPENGLOW ||
                    self->mode!=peer->mode ) )                                      return FD_FAILOVER_HELLO_ERR_MODE;
   if( FD_UNLIKELY( !self->boot_id || !peer->boot_id ) )                            return FD_FAILOVER_HELLO_ERR_BOOT_ID;
@@ -23,8 +20,7 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
   if( FD_UNLIKELY(  fd_memeq( self->junk_pubkey,   peer->junk_pubkey,   32UL ) ) ) return FD_FAILOVER_HELLO_ERR_JUNK_EQ;
   if( FD_UNLIKELY(  fd_memeq( self->junk_pubkey,   self->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_JUNK_STAKE;
   if( FD_UNLIKELY(  fd_memeq( peer->junk_pubkey,   peer->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_JUNK_STAKE;
-  if( FD_UNLIKELY( self->role==FD_FAILOVER_ROLE_ACTIVE &&
-                   peer->role==FD_FAILOVER_ROLE_ACTIVE ) )                         return FD_FAILOVER_HELLO_ERR_BOTH_ACT;
+  if( FD_UNLIKELY( self->holds && peer->holds ) )                                  return FD_FAILOVER_HELLO_ERR_BOTH_HOLD;
   return FD_FAILOVER_HELLO_OK;
 }
 
@@ -169,17 +165,6 @@ fd_failover_demoted_encode( uchar *       out,
   return sizeof(demoted)+state_sz;
 }
 
-/* Checks that the vote history decodes exactly and ends at the slot the
-   DEMOTED claims. */
-static int
-alpenglow_state_check( uchar const * state,
-                       ulong         state_sz,
-                       ulong         vote_slot ) {
-  if( FD_UNLIKELY( state_sz>FD_FAILOVER_ALPENGLOW_STATE_MAX ) ) return 0;
-  ag_hist_t hist[1];
-  return !ag_hist_de( state, state_sz, hist ) && ag_hist_tip( hist )==vote_slot;
-}
-
 int
 fd_failover_demoted_decode( fd_failover_demoted_t * out,
                             uchar const *           payload,
@@ -191,12 +176,12 @@ fd_failover_demoted_decode( fd_failover_demoted_t * out,
   fd_memcpy( &demoted, payload, sizeof(demoted) );
 
   ulong state_sz = payload_sz-sizeof(fd_failover_demoted_t);
+  /* The history itself is votor's to decode, the controller checks that
+     the adopted history ends at last_vote_slot. */
   if( FD_UNLIKELY( (ulong)demoted.state_len!=state_sz ||
-                   !state_sz ||
+                   !state_sz || state_sz>FD_FAILOVER_ALPENGLOW_STATE_MAX ||
                    demoted.mode!=(uchar)FD_FAILOVER_MODE_ALPENGLOW ||
                    demoted.last_vote_slot==FD_FAILOVER_SLOT_NULL ) ) return 0;
-
-  if( FD_UNLIKELY( !alpenglow_state_check( payload+sizeof(fd_failover_demoted_t), state_sz, demoted.last_vote_slot ) ) ) return 0;
 
   *out = demoted;
   return 1;

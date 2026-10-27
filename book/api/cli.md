@@ -344,48 +344,61 @@ than 16).
 <<< @/snippets/commands/add-authorized-voter.ansi
 
 ## `failover promote`
-This command asks a remote active validator to hand off its identity and
-vote history to the local running standby. Run this command on the
-standby. The remote validator must have `[failover.enabled]` set to
-`true` to accept the request. Both validators must use the same vote
-account.
+This command takes an identity key, with its vote history, from the
+remote validator currently running it and installs it on this local
+validator. Run this command on the machine that should take over,
+with the target keypair of the identity to take. The machine that
+originally ran it will switch to a random junk key that it generated
+at boot. The validators must use the same vote account and have
+failover enabled, which is on by default.
 
 ```sh
 firedancer failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
 ```
+
+The `<keypair>` argument is the path to an Agave style `identity.json`
+keypair file of the identity to take. If the path is specified as `-`
+the key will instead be read from `stdin`. Without `<keypair>`, the
+command takes the identity in `[paths.identity_key]`, or the last
+keypair passed into `failover promote` or `set-identity` since the
+validator started.
 
 The command attaches to the local running validator and discovers it
 automatically. If more than one is running, pass `--name <name>` to
 select one (see [`ps`](#ps)). It asks for confirmation when run from a
 terminal unless `--yes` is given.
 
-The local validator finds the active's address through gossip. Use
-`--address` to give the remote validator's IPv4 address or host name
-instead, for example when connecting over a private network. Use
+The local validator finds the address of the machine running the
+identity through gossip. Use `--address` to give its IPv4 address or host
+name instead, for example when connecting over a private network. Use
 `--port` if its failover listener does not use the default port 8010.
 
 For example, to connect to a known failover listener over a private
-network, run the following on the local standby.
+network, run the following on the machine that should take over.
 
 ```sh
-firedancer failover promote --address 192.0.2.10 --port 8010
+firedancer failover promote /path/to/identity.json --address 192.0.2.10 --port 8010
 ```
 
 ### Setup
 
-Set `[failover.enabled]` to `true` on both validators. Configure the same
-staked identity in `[paths.identity_key]` and the same vote account in
-`[paths.vote_account]`. Firedancer generates a fresh junk identity in memory
-on each startup. Both validators boot under a junk identity without voting
-and listen for handoff requests.
-
-Once one validator is active, run the following on the standby to request
-a handoff. The staked identity keypair is already loaded from the
-configuration, so no keypair argument is needed.
+Failover runs on every validator with `[failover.enabled]` set to `true`.
+Each validator boots under its own `[paths.identity_key]`, and all must
+use the same vote account. The validator that should vote keeps the
+identity's keypair there. On every other machine, create a random placeholder
+keypair of its own and point `[paths.identity_key]` at it, so it replays
+without voting until it takes over.
 
 ```sh
-firedancer failover promote --name standby
-firedancer failover status --name standby
+firedancer keys new /home/firedancer/junk.json --config config.toml
+```
+
+To hand the identity over, run the following on the machine that should
+take it, with the keypair of the identity to take.
+
+```sh
+firedancer failover promote /path/to/identity.json
+firedancer failover status
 ```
 
 For example, an accepted request prints the handoff ID and the status
@@ -393,16 +406,34 @@ needed to confirm completion.
 
 <<< @/snippets/commands/failover-promote.ansi
 
-After the handoff, the old active can request the identity back with
-`failover promote`. If both validators are still standbys, first promote
-one with `--force` as described below. An optional keypair argument must
-match the standby's current failover target.
+The machine that gave it up then runs its junk key. To take the identity
+back, run `failover promote` again on the demoted machine.
+
+### Restarts
+
+A validator always boots under its `[paths.identity_key]`. Before
+restarting the machine that gave the identity up, point its
+`[paths.identity_key]` at a junk key of its own. If it boots under the
+identity while the other machine runs it, the duplicate instance check
+stops the other machine.
+
+Leaving an identity renames its vote history file in
+`[paths.vote_history]` to `vote_history-<pubkey>.bin.bak`, and a
+validator refuses to boot under a key whose vote history file is missing
+while other vote history files are there.
+
+- To restart a machine that took the identity under its junk key, first
+  rename `vote_history-<junk>.bin.bak` back to `vote_history-<junk>.bin`.
+- To restart the machine that gave the identity up under a junk key,
+  first move the `vote_history-*` files out of `[paths.vote_history]`.
+  The identity's vote history now lives on the other machine.
 
 ### Forced promotion
 
-With `--force`, the local standby takes the identity without contacting
-the remote validator. This is also needed for first use when both
-machines are standbys.
+With `--force`, the local validator takes the identity without
+contacting the machine running it. Use it when no machine runs the
+identity, for example after both restarted, or when the other machine
+cannot sign.
 
 ::: warning WARNING
 
@@ -415,13 +446,13 @@ Never force promotion on both machines at once.
 
 | Arguments             | Description |
 |-----------------------|-------------|
-| `<keypair>`           | Optionally provide the target identity keypair file. It must match the standby's current failover target. |
+| `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin` |
 | `--name <name>`       | Select the validator instance to attach to if more than one is running on this host. |
 | `--config <path>`     | Optionally use the configuration TOML file the validator was started with. |
 | `--yes`               | Skip the confirmation prompt. |
-| `--force`             | Take the identity without cooperation from the remote validator, allowing incomplete or empty vote history. |
-| `--address <address>` | Use this IPv4 address or host name for the remote validator instead of the address found through gossip. |
-| `--port <port>`       | Set the remote validator's failover TCP port. The default is 8010. |
+| `--force`             | Forcibly take the identity without cooperation with the machine running it, allowing incomplete or empty vote history. |
+| `--address <address>` | Use this IPv4 address or host name for the machine running the identity instead of the address found through gossip. |
+| `--port <port>`       | Set the failover TCP port of the machine running the identity. The default is 8010. |
 
 ## `failover status`
 This command prints the local running validator's failover status. Use
@@ -439,9 +470,9 @@ reason to `stderr`.
 
 The following example shows a completed handoff. The last handoff ID
 matches the ID printed by `failover promote` above. The connection closes
-after completion, so `peer role` is unknown until another authenticated
-session is established. The new standby reconnects when it discovers the
-new active through gossip.
+after completion, so `peer runs identity` is unknown until another
+authenticated session is established. The machine that handed over its
+identity reconnects once it is discoverable through gossip.
 
 <<< @/snippets/commands/failover-status.ansi
 

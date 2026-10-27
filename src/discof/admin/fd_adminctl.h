@@ -69,21 +69,18 @@
 
 #define FD_FAILOVER_CONTROL_RESULT_BUSY              (0x4001UL) /* another failover command is waiting on the failover tile */
 #define FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE      (0x4002UL) /* the failover tile did not respond in time */
-#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE          (0x4003UL) /* promote on the active */
+#define FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER      (0x4003UL) /* this machine already runs the identity, or the one it asked does not */
 #define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS       (0x4004UL) /* a transition or key switch is running */
-#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY      (0x4006UL) /* the bound peer cannot complete this handoff */
-#define FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE       (0x4007UL) /* the authenticated peer holds the identity */
-#define FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING   (0x4008UL) /* the peer has not responded to our handoff */
-#define FD_FAILOVER_CONTROL_RESULT_TAKEN             (0x4009UL) /* the peer took our handoff, cleared once we hold the identity again or set-identity restarts failover */
-#define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN       (0x400AUL) /* gossip has a fresh contact info for the staked identity from another host */
-#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x400CUL) /* active has no eligible final vote state, see its local voting diagnostics */
-#define FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS (0x400EUL) /* gossip has no address for the active */
-#define FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED   (0x400FUL) /* no check found another holder, which does not prove the peer cannot sign */
-#define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x4010UL) /* this standby's replay is too far behind the active's last vote */
-#define FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED      (0x4011UL) /* client has no target identity */
-#define FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT      (0x4012UL) /* target differs from the prepared identity or is the boot identity */
-#define FD_FAILOVER_CONTROL_RESULT_NOT_BOOT_IDENTITY (0x4013UL) /* client must prepare while still on its boot identity */
-#define FD_FAILOVER_CONTROL_RESULT_INPUT_LOST        (0x4014UL) /* failover input overrun, restart required */
+#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY      (0x4005UL) /* the bound peer cannot complete this handoff */
+#define FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS        (0x4006UL) /* the authenticated peer runs the identity */
+#define FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING   (0x4007UL) /* the peer has not responded to our handoff */
+#define FD_FAILOVER_CONTROL_RESULT_TAKEN             (0x4008UL) /* the peer took our handoff, cleared once we hold the identity again or set-identity restarts failover */
+#define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN       (0x4009UL) /* gossip has a fresh contact info for the staked identity from another host */
+#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x400AUL) /* the machine running the identity has no eligible final vote state, see its local voting diagnostics */
+#define FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS (0x400BUL) /* gossip has no address for the machine running the identity */
+#define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x400CUL) /* this machine's replay is too far behind the last vote of the machine running the identity */
+#define FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT      (0x400DUL) /* the keypair is the junk key */
+#define FD_FAILOVER_CONTROL_RESULT_INPUT_LOST        (0x400EUL) /* failover input overrun, restart required */
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -141,7 +138,7 @@ fd_adminctl_failover_cmd_typed( ulong cmd ) {
     case FD_ADMINCTL_FAILOVER_CMD_HANDOFF:
     case FD_ADMINCTL_FAILOVER_CMD_PROMOTE: return "failover promote";
     case FD_ADMINCTL_FAILOVER_CMD_STATUS:  return "failover status";
-    default:                              return "unknown";
+    default:                               return "unknown";
   }
 }
 
@@ -152,9 +149,8 @@ struct fd_adminctl_failover_req_v1 {
   ulong  version; /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
   ulong  cmd;     /* FD_ADMINCTL_FAILOVER_CMD_* */
   ulong  flags;   /* FD_ADMINCTL_FAILOVER_FLAG_* */
-  uint   addr;    /* HANDOFF only, the active to dial in network byte order, 0 to find it in gossip */
-  ushort port;    /* HANDOFF only, the port to dial it on in host byte order, 0 for our own listen port */
-  uchar  reserved[ 2 ];
+  uint   addr;    /* HANDOFF only, the machine running the identity to dial in network byte order, 0 to find it in gossip */
+  ushort port;    /* HANDOFF only, the port to dial it on in host byte order, 0 for the default port */
 };
 typedef struct fd_adminctl_failover_req_v1 fd_adminctl_failover_req_t;
 
@@ -168,9 +164,8 @@ typedef struct fd_adminctl_failover_prepare_v1 fd_adminctl_failover_prepare_t;
 
 struct fd_adminctl_failover_control_resp_v1 {
   ulong version;    /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  uchar role;       /* FD_FAILOVER_ROLE_* after the command */
+  uchar holds;      /* this machine runs the identity after the command */
   uchar action;     /* controller action after the command */
-  uchar reserved[ 6 ];
   ulong handoff_id; /* the handoff an accepted promote opened or resumed, 0 none */
 };
 typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control_resp_t;
@@ -186,8 +181,8 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 #define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the finality anchor */
 #define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for votor to adopt */
 #define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
-#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the active's final history */
-#define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the old active to record our response */
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the final history from the machine running the identity */
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the machine that handed it over to record our response */
 #define FD_FAILOVER_ACTION_DEMOTE_DRAIN        (8UL) /* junk key installed, waiting for votor history to drain */
 #define FD_FAILOVER_ACTION_CNT                 (9UL)
 
@@ -199,39 +194,41 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 /* The outcome of the last handoff this machine requested or gave. */
 #define FD_FAILOVER_HANDOFF_NONE       (0UL) /* nothing requested or sent */
 #define FD_FAILOVER_HANDOFF_PENDING    (1UL) /* requested or sent, no answer yet */
-#define FD_FAILOVER_HANDOFF_TAKEN      (2UL) /* the standby took the identity */
-#define FD_FAILOVER_HANDOFF_DECLINED   (3UL) /* the standby did not take the identity, or the old active did not record that it did */
+#define FD_FAILOVER_HANDOFF_TAKEN      (2UL) /* the requesting machine took the identity */
+#define FD_FAILOVER_HANDOFF_DECLINED   (3UL) /* it did not take the identity, or the machine that handed it over did not record that it did */
 #define FD_FAILOVER_HANDOFF_RESTARTED  (4UL) /* the peer came back with a new boot_id */
 #define FD_FAILOVER_HANDOFF_CANCELLED  (5UL) /* `failover promote --force` stopped waiting for the peer */
-#define FD_FAILOVER_HANDOFF_NOT_ACTIVE (6UL) /* the machine we dialed was a standby */
+#define FD_FAILOVER_HANDOFF_NOT_HOLDER (6UL) /* the machine we dialed does not run the identity */
 #define FD_FAILOVER_HANDOFF_CNT        (7UL)
 
 /* `failover status`, provided by the failover tile. */
 struct fd_adminctl_failover_status_resp_v1 {
-  ulong  version;         /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  uchar  enabled;         /* 1 accepts handoffs, 2 is an outgoing client only */
-  uchar  role;            /* FD_FAILOVER_ROLE_* */
-  uchar  action;          /* FD_FAILOVER_ACTION_* */
-  uchar  stuck;           /* a transition failed or is overdue */
-  uchar  link_state;      /* FD_FAILOVER_SESSION_* */
-  uchar  peer_role_valid; /* a peer is authenticated on the current session */
-  uchar  peer_role;       /* FD_FAILOVER_ROLE_* from HELLO or the handoff result */
-  uchar  handoff_result;  /* FD_FAILOVER_HANDOFF_* of our last handoff */
-  ulong  peer_boot_id;    /* boot_id of the last peer we paired with, 0 none */
-  uint   peer_addr;       /* the address we dial, from `failover promote --address` or the active's from gossip, 0 none */
-  ushort peer_port;       /* the failover port we dial it on, in host byte order */
-  uchar  promote_source;  /* FD_FAILOVER_SOURCE_* `failover promote --force` would adopt now */
-  uchar  peer_addr_cmd;   /* peer_addr is from `failover promote --address`, else it came from gossip */
-  ulong  handoff_id;      /* id of our last handoff, 0 none */
-  ulong  promote_floor;   /* coverage floor a promote has to reach, ULONG_MAX none */
-  ulong  promote_result;  /* what the takeover checks report without --force now, PEER_UNVERIFIED when they find no other holder */
-  uchar  mode;            /* FD_FAILOVER_MODE_* the validator runs */
-  uchar  request_paused;  /* our handoff request stopped at its deadline, `failover promote` resumes it */
-  uchar  reserved[ 6 ];
+  ulong  version;          /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
+  uchar  enabled;          /* 1 when failover runs */
+  uchar  holds;            /* this machine runs the identity */
+  uchar  action;           /* FD_FAILOVER_ACTION_* */
+  uchar  stuck;            /* a transition failed or is overdue */
+  uchar  link_state;       /* FD_FAILOVER_SESSION_* */
+  uchar  peer_holds_valid; /* a peer is authenticated on the current session */
+  uchar  peer_holds;       /* the peer runs the identity, from HELLO or the handoff result */
+  uchar  handoff_result;   /* FD_FAILOVER_HANDOFF_* of our last handoff */
+  ulong  peer_boot_id;     /* boot_id of the last peer we paired with, 0 none */
+  uint   peer_addr;        /* the address we dial, from `failover promote --address` or from gossip, 0 none */
+  ushort peer_port;        /* the failover port we dial it on, in host byte order */
+  uchar  promote_source;   /* FD_FAILOVER_SOURCE_* `failover promote --force` would adopt now */
+  uchar  peer_addr_cmd;    /* peer_addr is from `failover promote --address`, else it came from gossip */
+  ulong  handoff_id;       /* id of our last handoff, 0 none */
+  ulong  promote_floor;    /* coverage floor a promote has to reach, ULONG_MAX none */
+  ulong  promote_result;   /* what the takeover checks report without --force now, SUCCESS when they find no other holder */
+  uchar  mode;             /* FD_FAILOVER_MODE_* the validator runs */
+  uchar  request_paused;   /* our handoff request stopped at its deadline, `failover promote` resumes it */
+  uchar  target[ 32 ];     /* the identity failover hands off, from [paths.identity_key], set-identity or `failover promote <keypair>` */
+  uchar  installed[ 32 ];  /* the identity this machine signs with now */
+  uchar  junk[ 32 ];       /* this boot's junk key, installed when the identity is handed off */
 };
 typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_resp_t;
 
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==64UL, failover_status_resp_v1_layout );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==160UL, failover_status_resp_v1_layout );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_resp_fits );
 
 /* fd_adminctl_failover_status_resp_init clears a status response and

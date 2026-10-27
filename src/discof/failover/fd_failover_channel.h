@@ -99,11 +99,10 @@ fd_failover_channel_fini( fd_failover_channel_t * channel );
 FD_FN_PURE ulong
 fd_failover_channel_pending( fd_failover_channel_t const * channel );
 
-/* Updates the role in the next HELLO and leaves a paired session up, so
-   an open handoff can finish after the roles change. */
+/* Updates whether the next HELLO says we run the handed off identity. */
 void
-fd_failover_channel_set_role( fd_failover_channel_t * channel,
-                              ulong                   role );
+fd_failover_channel_set_holds( fd_failover_channel_t * channel,
+                               int                     holds );
 
 /* Drives the channel, now is the caller's clock in nanos.  Sets
    *charge_busy when it made progress.  Returns 1 with *out_type,

@@ -244,8 +244,7 @@ struct fd_topo_tile {
     } admin;
 
     struct {
-      char   identity_key_path[ PATH_MAX ];   /* the boot identity, the junk key generated at boot with failover */
-      char   staked_key_path[ PATH_MAX ];     /* we read only its public half */
+      char   identity_key_path[ PATH_MAX ];   /* the boot identity, the initial handoff target */
       char   vote_account_path[ PATH_MAX ];
       uint   listen_addr;                     /* network byte order */
       ushort port;
@@ -413,9 +412,8 @@ struct fd_topo_tile {
 
     struct {
       char  identity_key_path[ PATH_MAX ];
-      int   identity_key_fd; /* private startup pipe when the boot identity is generated */
+      int   failover_junk_fd; /* private startup pipe for the failover junk key, -1 without failover */
       int   failover_enabled;
-      char  failover_staked_key_path[ PATH_MAX ];
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       struct {
@@ -623,7 +621,6 @@ struct fd_topo_tile {
     struct {
       char   identity_key_path[ PATH_MAX ];
       char   vote_history_path[ PATH_MAX ];
-      int    failover_standby;
       uint   target_gid;
       uint   target_uid;
       ulong  authorized_voter_paths_cnt;
@@ -820,7 +817,7 @@ typedef struct {
    between them. */
 struct fd_topo {
   char           app_name[ 256UL ];
-  uchar          boot_identity[ 32 ]; /* generated public key, zero for a file-backed identity */
+  uchar          failover_junk[ 32 ]; /* public half of the junk key generated at boot for failover, zero without failover */
   uchar          props[ 32768UL ];
 
   ulong          sleep_obj_id;

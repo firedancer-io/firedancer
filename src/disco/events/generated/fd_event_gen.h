@@ -517,7 +517,7 @@ typedef struct fd_event_snapshot_created fd_event_snapshot_created_t;
 #define FD_EVENT_ADMIN_COMMAND_TYPE_ADD_AUTHORIZED_VOTER         (3) /* Add an authorized voter key. */
 #define FD_EVENT_ADMIN_COMMAND_TYPE_REMOVE_ALL_AUTHORIZED_VOTERS (4) /* Remove every authorized voter key. */
 #define FD_EVENT_ADMIN_COMMAND_TYPE_SNAPSHOT_CREATE              (5) /* Request creation of a snapshot. */
-#define FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE             (6) /* Promote the running standby validator to active. */
+#define FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE             (6) /* Take over the identity specified by the given keypair from the machine currently running it. */
 #define FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS              (7) /* Read the running validator's failover state. */
 
 /* The result of processing the admin command. */

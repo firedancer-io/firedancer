@@ -17,7 +17,7 @@
 #define FD_FAILOVER_BUS_SWITCH_RESP (2UL) /* admin to failov, fd_failover_switch_resp_t */
 #define FD_FAILOVER_BUS_REQUEST     (3UL) /* admin to failov, fd_adminctl_failover_req_t */
 #define FD_FAILOVER_BUS_RESPONSE    (4UL) /* failov to admin, the requested command's response */
-#define FD_FAILOVER_BUS_OPERATOR    (5UL) /* admin to failov, fd_failover_operator_t, set-identity ran */
+#define FD_FAILOVER_BUS_OPERATOR_ACTION    (5UL) /* admin to failov, fd_failover_operator_t, set-identity ran */
 
 /* Only the public key goes over the bus, and the sign tile selects its
    junk key or the failover identity.  epoch is the failover epoch the
@@ -30,14 +30,15 @@ struct fd_failover_switch_req {
 
 typedef struct fd_failover_switch_req fd_failover_switch_req_t;
 
-#define FD_FAILOVER_SWITCH_OK           (0UL)
-#define FD_FAILOVER_SWITCH_ERR_DISABLED (1UL) /* failover is off here */
-#define FD_FAILOVER_SWITCH_ERR_STALE    (2UL) /* set-identity ran since the request, nothing switched */
+#define FD_FAILOVER_SWITCH_OK                   (0UL)
+#define FD_FAILOVER_SWITCH_ERR_DISABLED         (1UL) /* failover is off here */
+#define FD_FAILOVER_SWITCH_ERR_STALE            (2UL) /* set-identity ran since the request, nothing switched */
+#define FD_FAILOVER_SWITCH_ERR_AUTHORIZED_VOTER (3UL) /* the target is an authorized voter, nothing switched */
 
-/* set-identity ran, and every set-identity bumps the failover epoch.
-   identity is the public key it installed, and failover_identity is the
-   key failover hands off, which set-identity changes to identity unless
-   that is the junk key. */
+/* set-identity or failover promote <keypair> ran, and each bumps the
+   failover epoch.  identity is the installed public key, and
+   failover_identity is the key failover hands off, which set-identity
+   changes to identity unless that is the junk key. */
 struct fd_failover_operator {
   ulong epoch;
   uchar identity[ 32 ];
