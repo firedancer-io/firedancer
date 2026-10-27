@@ -12,7 +12,9 @@
 #                      boot.  A switch hands it to the new identity as
 #                      its staging file.  The three files rotate roles
 #                      at a switch.
-uint logfile_fd, uint vote_history_fd_dir, uint vote_history_fd_swp, uint vote_history_fd, uint vote_history_fd_bak
+#
+# spill_fd: The block hash stake spill file, FD_VOTOR_SPILL_FD.
+uint logfile_fd, uint vote_history_fd_dir, uint vote_history_fd_swp, uint vote_history_fd, uint vote_history_fd_bak, uint spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -65,6 +67,13 @@ pwritev2: (or (eq (arg 0) vote_history_fd_swp)
 ftruncate: (or (eq (arg 0) vote_history_fd_swp)
                (eq (arg 0) vote_history_fd)
                (eq (arg 0) vote_history_fd_bak))
+
+# block hash stakes: a slot's hashes past the inline ones are read
+# and written in its region of the spill file
+#
+# arg 0 is the file descriptor to read or write.
+pread64: (eq (arg 0) spill_fd)
+pwrite64: (eq (arg 0) spill_fd)
 
 # QUIC uses getrandom for cryptographically secure randomness.
 getrandom
