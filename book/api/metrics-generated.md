@@ -1800,6 +1800,7 @@
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;no_&#8203;route</span>"} | counter | Transmit jobs dropped, by reason (GRE tunnel addresses missing or outer route is itself tunnelled) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">socket_&#8203;send_&#8203;failure</span>"} | counter | Transmit jobs dropped, by reason (Socket send failed or failed to send the entire packet) |
 | <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | GRE transmit jobs submitted to the NIC |
+| <span class="metrics-name">mlx5_&#8203;socket_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Packets sent via a kernel socket instead of the NIC; subset of PktTxCompleted |
 | <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;used</span> | gauge | TX buffers pending or submitted to the NIC |
 | <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;free</span> | gauge | TX buffers available for a new transmit job |
 

@@ -7,15 +7,32 @@
 #
 # lo_tx_fd: Send-only raw IPv4 socket bound to lo, owned by mlx5:0.
 #
+# net_sock_fd: This is the file descriptor for a raw IPPROTO_RAW socket
+#              used to send packets routed to VLAN devices.  The packet is
+#              sent starting at the IPv4 header and the kernel constructs
+#              the L2 header (including the VLAN tag).
+#
 # rx_comp_channel_fd: Uverbs completion channel for this tile's RX CQ.
 #
 # epoll_fd: This tile's private epoll fd, present only in efficient mode.
-uint logfile_fd, uint async_fd, uint lo_tx_fd, uint rx_comp_channel_fd, uint epoll_fd
+uint logfile_fd, uint async_fd, uint lo_tx_fd, uint net_sock_fd, uint rx_comp_channel_fd, uint epoll_fd
 
 # mlx5: send loopback packets through the raw IPv4 socket
 sendmmsg: (and (eq (arg 0) lo_tx_fd)
                (<= (arg 2) 64)
                (eq (arg 3) MSG_DONTWAIT))
+
+# VLAN: transmit packets routed to a VLAN device through a raw socket
+#
+# The kernel resolves the route and neighbor and constructs the L2
+# header.  fd_net_sock_send always issues a blocking sendto with a
+# struct sockaddr_in destination.
+#
+# arg 0 is the raw socket file descriptor.  arg 3 (flags) is always 0
+# and arg 5 is the size of struct sockaddr_in.
+sendto: (and (eq (arg 0) net_sock_fd)
+             (eq (arg 3) 0)
+             (eq (arg 5) FD_SOCKADDR_IN_SZ))
 
 # logging: all log messages are written to a file and/or pipe
 #

@@ -8954,6 +8954,8 @@ message MetricsMlx5 {
   uint64 tx_buffer_free = 36;
   // VLAN-tagged packets with the tag stripped and published; subset of PktRx
   uint64 vlan_pkt_rx = 37;
+  // Packets sent via a kernel socket instead of the NIC; subset of PktTxCompleted
+  uint64 socket_pkt_tx_submitted = 38;
 }
 
 // Metrics of one sock tile instance, one row per sweep

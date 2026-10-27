@@ -128,6 +128,7 @@
         "gre_pkt_tx_submitted":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "GRE transmit jobs submitted to the NIC" },
         "tx_buffer_used":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "TX buffers pending or submitted to the NIC" },
         "tx_buffer_free":             { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "TX buffers available for a new transmit job" },
-        "vlan_pkt_rx":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "VLAN-tagged packets with the tag stripped and published; subset of PktRx" }
+        "vlan_pkt_rx":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "VLAN-tagged packets with the tag stripped and published; subset of PktRx" },
+        "socket_pkt_tx_submitted":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Packets sent via a kernel socket instead of the NIC; subset of PktTxCompleted" }
     }
 }

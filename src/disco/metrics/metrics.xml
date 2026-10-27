@@ -272,6 +272,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktTxCompletedBytes" summary="Bytes of packets completed by the NIC" />
     <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
     <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the NIC" />
+    <counter name="SocketPktTxSubmitted" summary="Packets sent via a kernel socket instead of the NIC; subset of PktTxCompleted" />
     <gauge name="TxBufferUsed" summary="TX buffers pending or submitted to the NIC" />
     <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
 </tile>

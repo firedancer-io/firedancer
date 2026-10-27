@@ -9,6 +9,7 @@
 
 #include "../fd_net_tile.h"
 #include "../fd_net_tile_private.h"
+#include "../fd_net_sock.h"
 #include "fd_mlx5_private.h"
 
 #include <errno.h>
@@ -38,11 +39,16 @@
 #include <linux/rtnetlink.h>
 #include <rdma/ib_user_verbs.h>
 
+#define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
 #include "generated/fd_mlx5_tile_seccomp.h"
 
 
 #define FD_MLX5_TX_FLUSH_TIMEOUT_NS (20000L)  /* 20us */
 #define FD_MLX5_LO_TX_TIMEOUT_NS    (500000L) /* 500us */
+
+/* FD_VLAN_TAG_SZ is the size of the 802.1Q tag the kernel inserts into
+   packets sent on net_sock to a VLAN device. */
+#define FD_VLAN_TAG_SZ (4UL)
 
 /* Recent RX packets or TX submissions defer RX CQ rearming and cause
    a timed repoll before the tile returns to epoll. */
@@ -178,6 +184,9 @@ struct __attribute__((aligned(64UL))) fd_mlx5_tile {
   struct iovec       lo_tx_iov [ FD_MLX5_BATCH_SIZE ];
   struct sockaddr_in lo_tx_addr[ FD_MLX5_BATCH_SIZE ];
   uchar              lo_tx_buf [ FD_MLX5_BATCH_SIZE ][ FD_NET_MTU ];
+
+  /* Raw socket for kernel-routed (VLAN) TX */
+  fd_net_sock_t net_sock;
 
   /* Efficient mode only */
   int  epoll_fd;
@@ -868,14 +877,8 @@ before_frag( fd_mlx5_tile_t * ctx,
   if( route->use_loopback ) target_idx = 0UL;
   if( kind_id!=target_idx ) return 1;
 
-  /* VLAN TX is not supported yet.  Drop VLAN packets until socket TX
-     support is added to this tile. */
-  if( FD_UNLIKELY( route->use_vlan ) ) {
-    ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]++;
-    return 1;
-  }
-
-  /* Drop the packet if no SQ WQE is available. */
+  /* Drop the packet if no SQ WQE is available.  VLAN packets are sent
+     on net_sock, but share the SQ's TX buffer accounting. */
   fd_mlx5_tx_qp_t const * tx_qp       = &ctx->tx_qp;
   uint const              outstanding = tx_qp->sq_prod-tx_qp->sq_cons;
   if( FD_UNLIKELY( outstanding>=tx_qp->tx_depth ) ) {
@@ -944,6 +947,22 @@ after_frag( fd_mlx5_tile_t *    ctx,
   uchar * frame = fd_chunk_to_laddr( ctx->net.pkt_buf_wksp_base, chunk );
 
   if( FD_UNLIKELY( !fd_net_tx_pkt_prep( &ctx->net, frame, &frame_sz, in_idx ) ) ) return;
+
+  /* VLAN packets are sent on net_sock starting at the IPv4 header, and
+     the kernel constructs the L2 header.  Socket send is synchronous
+     so no WQE gets posted and we can leave the buffer to be reused. */
+  if( FD_UNLIKELY( ctx->net.tx_route.use_vlan ) ) {
+    fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( frame+sizeof(fd_eth_hdr_t) );
+    if( FD_LIKELY( fd_net_sock_send( &ctx->net_sock, ip4, frame_sz-sizeof(fd_eth_hdr_t) ) ) ) {
+      ctx->net.metrics.tx_pkt_cnt++;
+      /* frame_sz includes an ethernet frame but not the VLAN tag. */
+      ctx->net.metrics.tx_bytes_total += frame_sz+FD_VLAN_TAG_SZ;
+      ctx->net.metrics.tx_sock_cnt++;
+    } else {
+      ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]++;
+    }
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->net.tx_route.use_loopback ) ) {
     fd_eth_hdr_t const * eth_hdr = (fd_eth_hdr_t const *)frame;
@@ -1024,6 +1043,7 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
   ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_RING_FULL_IDX   ] = ctx->metrics.tx_no_buffer_cnt;
   FD_MCNT_ENUM_COPY( MLX5, PKT_TX_DROPPED,     ctx->net.metrics.tx_drop_cnt           );
   FD_MCNT_SET(   MLX5, GRE_PKT_TX_SUBMITTED,   ctx->net.metrics.tx_gre_cnt            );
+  FD_MCNT_SET(   MLX5, SOCKET_PKT_TX_SUBMITTED, ctx->net.metrics.tx_sock_cnt          );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_USED,         tx_buffer_busy_cnt                     );
   FD_MGAUGE_SET( MLX5, TX_BUFFER_FREE,         tx_buffer_idle_cnt                     );
 }
@@ -1313,6 +1333,9 @@ privileged_init( fd_topo_t const *      topo,
   ctx->router.if_virt         = interface_idx;
   ctx->router.default_address = fd_mlx5_tile_if_ip4_addr( tile->mlx5.if_name );
   ctx->lo_tx_sock = tile->kind_id==0UL ? fd_mlx5_tile_lo_tx_socket() : -1;
+  if( FD_UNLIKELY( !fd_net_sock_init( &ctx->net_sock ) ) ) {
+    FD_LOG_ERR(( "failed to initialize net_sock (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
     if( FD_UNLIKELY( ctx->rx_comp_channel_fd<0 ) ) {
@@ -1458,7 +1481,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   populate_sock_filter_policy_fd_mlx5_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(),
                                             (uint)ctx->uverbs.async_fd, (uint)ctx->lo_tx_sock,
-                                            (uint)ctx->rx_comp_channel_fd, (uint)ctx->epoll_fd );
+                                            (uint)ctx->net_sock.sock, (uint)ctx->rx_comp_channel_fd,
+                                            (uint)ctx->epoll_fd );
   return sock_filter_policy_fd_mlx5_tile_instr_cnt;
 }
 
@@ -1468,12 +1492,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->uverbs.cmd_fd;
   out_fds[ out_cnt++ ] = ctx->uverbs.async_fd;
+  out_fds[ out_cnt++ ] = ctx->net_sock.sock; /* VLAN TX socket */
   if( ctx->lo_tx_sock>=0 ) out_fds[ out_cnt++ ] = ctx->lo_tx_sock;
   if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
     out_fds[ out_cnt++ ] = ctx->rx_comp_channel_fd;
