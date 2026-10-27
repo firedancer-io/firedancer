@@ -32,6 +32,11 @@
 #define FD_VOTOR_POOL_EVENT_IMPLICITLY_SKIPPED   (5) /* Firedancer only: for other tiles, never routed to fd_votor_loop */
 #define FD_VOTOR_POOL_EVENT_IMPLICITLY_FINALIZED (6) /* Firedancer only: for other tiles, never routed to fd_votor_loop */
 
+/* Spill file for a slot's block hash stakes past the inline ones,
+   opened at boot.  123450-123461 are other fixed fds, 123462+ XDP. */
+
+#define FD_VOTOR_SPILL_FD (123449)
+
 typedef struct fd_votor_pool fd_votor_pool_t;
 
 struct fd_votor_pool_event {
@@ -78,11 +83,16 @@ FD_FN_CONST ulong
 fd_votor_pool_footprint( ulong slot_max,
                          ulong burst );
 
+/* spill_fd is read/written with pread/pwrite at offsets below
+   slot_max*SLOT_STATE_SPILL_SZ, only when a slot sees more than
+   HASH_STAKE_INLINE_MAX distinct notar or notar fallback hashes. */
+
 void *
 fd_votor_pool_new( void * mem,
                    ulong  slot_max,
                    ulong  burst,
-                   ulong  seed );
+                   ulong  seed,
+                   int    spill_fd );
 
 fd_votor_pool_t *
 fd_votor_pool_join( void * mem );
