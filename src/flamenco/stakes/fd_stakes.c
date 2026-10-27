@@ -603,6 +603,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     total_stake        += new_acc.effective;
     total_activating   += new_acc.activating;
     total_deactivating += new_acc.deactivating;
+    if( FD_UNLIKELY( !new_acc.effective && !reward_stake ) ) continue;
 
     fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, &stake_delegation->vote_account, NULL, stake_accum_pool );
     if( FD_UNLIKELY( !stake_accum ) ) {
