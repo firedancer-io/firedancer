@@ -1,5 +1,4 @@
 #include "fd_vm_syscall.h"
-#include "../../runtime/fd_bank.h"
 #include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../../ballet/ed25519/fd_ristretto255.h"
 #include "../../../ballet/bls/fd_bls12_381.h"
@@ -14,22 +13,6 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L871 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
-
-  /* BLS12-381 syscalls are under feature gate enable_bls12_381_syscall.
-     To clean up the feature gate after activation, just remove this block
-     (the rest of the function will behave correctly). */
-  {
-    if( FD_UNLIKELY(
-      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, enable_bls12_381_syscall )
-      && ( curve_id==FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE
-        || curve_id==FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE
-        || curve_id==FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE
-        || curve_id==FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE )
-    ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
-      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
-    }
-  }
 
   uchar const * point = NULL;
   switch( curve_id ) {
@@ -86,22 +69,6 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L928 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
-
-  /* BLS12-381 syscalls are under feature gate enable_bls12_381_syscall.
-     To clean up the feature gate after activation, just remove this block
-     (the rest of the function will behave correctly). */
-  {
-    if( FD_UNLIKELY(
-      !FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, enable_bls12_381_syscall )
-      && ( curve_id==FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE
-        || curve_id==FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE
-        || curve_id==FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE
-        || curve_id==FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE )
-    ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
-      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
-    }
-  }
 
   /* Note: we don't strictly follow the Rust implementation, but instead combine
      common code across switch cases. Similar to fd_vm_syscall_sol_alt_bn128_group_op. */

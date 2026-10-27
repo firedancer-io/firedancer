@@ -2043,7 +2043,7 @@ fd_feature_id_t const ids[] = {
                                  /* b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ */
     .name                      = "enable_bls12_381_syscall",
     .implemented               = 1,
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_alt_bn128_g2_syscalls)>>3,
