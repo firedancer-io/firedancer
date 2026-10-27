@@ -445,7 +445,6 @@ backtest_topo( config_t * config ) {
     }
 
     if( !strcmp( tile->name, "replay" ) ) {
-      tile->replay.fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot;
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {
         fd_cstr_ncpy( tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(tile->replay.enable_features[i]) );

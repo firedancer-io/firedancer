@@ -480,15 +480,10 @@ struct fd_topo_tile {
     } diag;
 
     struct {
-      ulong fec_max;
-
       ulong accdb_obj_id;
       ulong txncache_obj_id;
 
-      char  shred_cap[ PATH_MAX ];
-
       char  identity_key_path[ PATH_MAX ];
-      uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
       fd_hash_t wait_for_supermajority_with_bank_hash;
@@ -496,7 +491,6 @@ struct fd_topo_tile {
       ushort expected_shred_version;
       int    wait_for_vote_to_start_leader;
 
-      ulong heap_size_gib;
       ulong sched_depth;
       ulong max_live_slots;
       ulong genesis_max_message_size;

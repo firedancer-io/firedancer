@@ -1575,9 +1575,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* Please maintain same field order as fd_topo.h */
 
-    tile->replay.fec_max = config->firedancer.runtime.max_live_slots *
-                           fd_ulong_if( config->firedancer.development.fixed_fec_sets,
-                                        config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
     tile->replay.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
     tile->replay.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
@@ -1586,7 +1583,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( tile->replay.txncache_obj_id !=ULONG_MAX );
 
     fd_cstr_ncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
-    tile->replay.ip_addr = config->net.ip_addr;
     fd_cstr_ncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
 
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
