@@ -461,6 +461,10 @@ struct fd_replay_tile {
   /* Whether or not the full+incremental snapshot is still loading. */
   int snapshots_loading;
 
+  /* Replay holds at an epoch boundary until the snapshots behind the
+     stream are done loading. */
+  int epoch_boundary_hold;
+
   fd_multi_epoch_leaders_t * mleaders;
 
   ulong max_txn_per_slot;

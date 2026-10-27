@@ -9,6 +9,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/waker/fd_waker.h"
 #include "../../disco/fd_clock_tile.h"
+#include "../../disco/wait_info/fd_wait_info.h"
 
 #include <sys/mman.h> /* memfd_create */
 #include <errno.h>
@@ -60,11 +61,14 @@ typedef struct fd_snapld_tile {
   struct {
     int   active;
     int   caught_up;
-    int   next_stream; /* the stream ended, the next request asks for the newest one */
-    ulong slot;        /* open slot of the stream being read */
-    ulong off;         /* bytes of the stream read so far */
-    long  wait;        /* when to ask for more, LONG_MAX while a request runs */
+    int   next_stream;      /* the stream ended, the next request asks for the newest one */
+    ulong slot;             /* open slot of the stream being read */
+    ulong off;              /* bytes of the stream read so far */
+    long  wait;             /* when to ask for more, LONG_MAX while a request runs */
+    ulong next_stream_slot; /* start of the next stream, ULONG_MAX until its redirect resolves */
   } fast_boot_stream;
+
+  fd_wait_info_box_t * wait_info; /* NULL unless this tile reads the fast boot stream */
 
   ulong  bytes_in_batch;
   double download_speed_mibs;
@@ -239,6 +243,13 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->waker_fseq );
   fd_clock_tile_init( ctx->clock );
 
+  ctx->wait_info = NULL;
+  fd_topo_obj_t const * wait_info_obj = fd_topo_find_tile_obj( topo, tile, "wait_info" );
+  if( wait_info_obj ) {
+    ctx->wait_info = fd_wait_info_box_join( fd_topo_obj_laddr( topo, wait_info_obj->id ) );
+    FD_TEST( ctx->wait_info );
+  }
+
   ctx->download_speed_mibs = 0.0;
   ctx->bytes_in_batch      = 0UL;
   ctx->start_batch         = 0L;
@@ -408,6 +419,17 @@ after_credit( fd_snapld_tile_t *  ctx,
 
     if( FD_UNLIKELY( ctx->fast_boot_stream.wait!=LONG_MAX ) ) {
       if( FD_LIKELY( now<ctx->fast_boot_stream.wait ) ) return;
+
+      /* Replay must be caught up to where the next stream begins
+         before we can start consuming the next stream. */
+      if( FD_UNLIKELY( ctx->fast_boot_stream.next_stream && ctx->fast_boot_stream.next_stream_slot!=ULONG_MAX ) ) {
+        fd_wait_info_t wi;
+        if( FD_LIKELY( !fd_wait_info_try_read( &wi, ctx->wait_info ) || wi.reset_slot<ctx->fast_boot_stream.next_stream_slot ) ) {
+          ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
+          return;
+        }
+      }
+
       if( FD_UNLIKELY( fd_sshttp_resume( ctx->sshttp, now, ctx->fast_boot_stream.off ) ) ) {
         if( FD_UNLIKELY( !handle_connection_failure( ctx, now ) ) ) transition_malformed( ctx, stem );
         return;
@@ -510,8 +532,22 @@ after_credit( fd_snapld_tile_t *  ctx,
             fd_sshttp_cancel( ctx->sshttp );
             break;
           }
+          ctx->fast_boot_stream.next_stream_slot = slot;
+
+          /* Before we process the next stream, make sure replay has
+             caught up first. */
+          FD_TEST( ctx->wait_info );
+          fd_wait_info_t wi;
+          ulong replay_slot = fd_wait_info_try_read( &wi, ctx->wait_info ) ? wi.reset_slot : 0UL;
+          if( FD_UNLIKELY( slot>replay_slot ) ) {
+            FD_LOG_NOTICE(( "the next fast boot stream starts at slot %lu, ahead of replay at slot %lu, waiting", slot, replay_slot ));
+            fd_sshttp_cancel( ctx->sshttp );
+            ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
+            break;
+          }
+
           FD_LOG_INFO(( "following the fast boot stream at slot %lu", slot ));
-          ctx->fast_boot_stream.slot = slot;
+          ctx->fast_boot_stream.slot        = slot;
           ctx->fast_boot_stream.next_stream = 0;
         }
 
@@ -582,10 +618,17 @@ after_credit( fd_snapld_tile_t *  ctx,
           break;
         }
 
-        /* Finished the current stream but snapshot loading is still
-           in progress. Ask for the newest stream. */
+        /* If fast boot is enabled, this state indicates we've consumed
+           everything in the current stream.  We are now ready for the
+           next stream. */
+        if( FD_UNLIKELY( !ctx->fast_boot_stream.caught_up ) ) {
+          ctx->fast_boot_stream.caught_up = 1;
+          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, 0UL, 0UL, 0UL );
+        }
+
         FD_LOG_INFO(( "the fast boot stream ended after %lu bytes, following the next one", ctx->fast_boot_stream.off ));
-        ctx->fast_boot_stream.next_stream = 1;
+        ctx->fast_boot_stream.next_stream      = 1;
+        ctx->fast_boot_stream.next_stream_slot = ULONG_MAX;
         ctx->fast_boot_stream.off  = 0UL;
         ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
         break;
@@ -640,12 +683,13 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->is_redirect = msg_in->is_redirect;
       ctx->file_sz     = msg_in->file_sz;
 
-      ctx->fast_boot_stream.active      = msg_in->fast_boot_stream;
-      ctx->fast_boot_stream.caught_up   = 0;
-      ctx->fast_boot_stream.next_stream = 0;
-      ctx->fast_boot_stream.slot        = 0UL;
-      ctx->fast_boot_stream.off         = 0UL;
-      ctx->fast_boot_stream.wait        = LONG_MAX;
+      ctx->fast_boot_stream.active           = msg_in->fast_boot_stream;
+      ctx->fast_boot_stream.caught_up        = 0;
+      ctx->fast_boot_stream.next_stream      = 0;
+      ctx->fast_boot_stream.slot             = 0UL;
+      ctx->fast_boot_stream.off              = 0UL;
+      ctx->fast_boot_stream.wait             = LONG_MAX;
+      ctx->fast_boot_stream.next_stream_slot = ULONG_MAX;
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;

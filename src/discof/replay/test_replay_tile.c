@@ -17,6 +17,7 @@
 #include "../../flamenco/runtime/fd_runtime_helpers.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h" /* IWYU pragma: keep */
 #include "../../flamenco/rewards/fd_rewards.h" /* IWYU pragma: keep */
@@ -270,6 +271,15 @@ static int   mock_accdb_still_loading;
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
 #define fd_rewards_recalculate_partitioned_rewards(k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(k,a,s,c); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
+/* The epoch rewards sysvar says whether a payout is running. */
+static int mock_epoch_rewards_active;
+static fd_sysvar_epoch_rewards_t *
+mock_epoch_rewards_read_fn( fd_sysvar_epoch_rewards_t * out ) {
+  if( !mock_epoch_rewards_active ) return NULL;
+  out->active = 1;
+  return out;
+}
+#define fd_sysvar_epoch_rewards_read(a,f,o) ( (a) ? (fd_sysvar_epoch_rewards_read)(a,f,o) : mock_epoch_rewards_read_fn(o) )
 static ulong mock_migration_slot = ULONG_MAX;
 #define fd_alpenglow_migration_slot(b,a) (mock_snapshot_boot || mock_footer_finalize ? mock_migration_slot : (fd_alpenglow_migration_slot)(b,a))
 #define fd_runtime_block_execute_prepare     mock_runtime_block_execute_prepare_fn
@@ -823,6 +833,38 @@ test_snapmk_start_leader_after_epoch_rollover( fd_wksp_t * wksp ) {
   FD_TEST( ctx->snapmk.active );
 
   FD_LOG_NOTICE(( "pass: test_snapmk_start_leader_after_epoch_rollover" ));
+}
+
+/* No stream for an incremental made during a rewards payout. */
+
+static void
+test_snapmk_start_no_stream_in_payout( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  FD_TEST( bank );
+  bank->f.slot                 = 127UL;
+  ctx->published_root_bank_idx = bank->idx;
+  ctx->snapmk.supported        = 1;
+  ctx->snapmk.base_slot        = 100UL;
+  ctx->strmk.supported         = 1;
+  *ctx->snapmk_out = *ctx->slot_out;
+
+  mock_epoch_rewards_active = 1;
+  ulong chunk = ctx->snapmk_out->chunk;
+  snapmk_start( ctx, test_stem, 1 );
+  fd_replay_snap_start_t const * msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
+  FD_TEST( !msg->should_open_stream && !ctx->strmk.active );
+  snapmk_done( ctx, test_stem, 1 );
+
+  mock_epoch_rewards_active = 0;
+  chunk = ctx->snapmk_out->chunk;
+  snapmk_start( ctx, test_stem, 1 );
+  msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
+  FD_TEST( msg->should_open_stream && ctx->strmk.active );
+
+  FD_LOG_NOTICE(( "pass: test_snapmk_start_no_stream_in_payout" ));
 }
 
 static void
@@ -2709,6 +2751,47 @@ test_rotor_fec_merged_copies( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_rotor_fec_merged_copies" ));
 }
 
+/* A fast boot replays while the snapshots behind the stream load.  A
+   block that starts a new epoch waits for them to finish, a block in
+   the same epoch does not, and the hold is published so the load can
+   start. */
+
+static void
+test_rotor_fec_holds_at_epoch_boundary( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[ 1 ];
+  static fd_wait_info_box_t box[ 1 ];
+  fd_wait_info_t info;
+  setup_ctx( ctx, wksp );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_ag_root( ctx, &parent_bid );
+  ctx->wait_info = fd_wait_info_box_join( fd_wait_info_box_new( box ) );
+  FD_TEST( ctx->wait_info );
+  ctx->snapshots_loading = 1;
+  ctx->epoch_end_slot    = 127UL;
+
+  /* Slot 5 stays in epoch 0: not held.  Its bank is never started. */
+  ulong     ing0 = mock_sched_fec_ingest_cnt;
+  fd_hash_t B    = { .ul = { 0xB5UL } };
+  fd_hash_t mr5  = { .ul = { 501 } };
+  FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 0U, 0UL, &parent_bid, &B, &mr5, 1, 0 )==0 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL && !ctx->epoch_boundary_hold );
+
+  /* Slot 128 starts epoch 1 on the unstarted parent: held. */
+  fd_hash_t mr128 = { .ul = { 601 } };
+  FD_TEST( deliver_rotor_fec( ctx, 128UL, 0U, 5UL, &B, &mr128, 0, 0 )==1 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL && ctx->epoch_boundary_hold );
+  publish( ctx, &info );
+  FD_TEST( info.epoch_boundary_hold && !info.caught_up );
+
+  /* The snapshots are done loading: the block goes through. */
+  finish_snapshot_load( ctx );
+  FD_TEST( !ctx->snapshots_loading && !ctx->epoch_boundary_hold );
+  FD_TEST( deliver_rotor_fec( ctx, 128UL, 0U, 5UL, &B, &mr128, 0, 0 )==0 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+2UL );
+
+  FD_LOG_NOTICE(( "pass: test_rotor_fec_holds_at_epoch_boundary" ));
+}
+
 /* test_dead_block_children_drop: what replay does around a block it
    ruled dead, as observed live with a block whose footer cert failed
    verification.  mark_bank_dead publishes SLOT_DEAD; the dead bank is
@@ -3862,6 +3945,7 @@ main( int     argc,
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
   test_rotor_fec_rooted_past( wksp );               fd_wksp_reset( wksp, 42U );
   test_rotor_fec_merged_copies( wksp );             fd_wksp_reset( wksp, 42U );
+  test_rotor_fec_holds_at_epoch_boundary( wksp );   fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 1 );      fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
@@ -3872,6 +3956,7 @@ main( int     argc,
   test_ag_leader_fec_not_gated( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );
+  test_snapmk_start_no_stream_in_payout( wksp );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 

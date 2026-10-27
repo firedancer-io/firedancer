@@ -51,6 +51,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
@@ -244,7 +245,8 @@ wait_info_publish( fd_replay_tile_t * ctx ) {
   int   healthy           = wait_info_healthy( ctx->caught_up, ctx->catch_up_max_fec_slot, ctx->reset_slot );
 
   fd_wait_info_write_begin( ctx->wait_info );
-  ctx->wait_info->info.caught_up                  = healthy;
+  ctx->wait_info->info.caught_up                  = healthy && !ctx->epoch_boundary_hold;
+  ctx->wait_info->info.epoch_boundary_hold        = ctx->epoch_boundary_hold;
   ctx->wait_info->info.reset_slot                 = ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot;
   ctx->wait_info->info.tip_slot                   = ctx->catch_up_max_fec_slot==ULONG_MAX ? 0UL : ctx->catch_up_max_fec_slot;
   ctx->wait_info->info.leader_highwater_slot      = highwater;
@@ -3028,6 +3030,15 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     return PROCESS_FEC_SKIP; // context for slot exists, but this is an earlier or non-contiguous FEC. Safe to skip.
   }
 
+  /* Since fast boot streams do not serve all stake accounts, we must
+     wait on the snapshot to finish loading before processing an epoch
+     boundary. */
+  if( FD_UNLIKELY( ctx->snapshots_loading && fec->fec_set_idx==0U && fec->slot>ctx->epoch_end_slot ) ) {
+    if( FD_UNLIKELY( !ctx->epoch_boundary_hold ) ) FD_LOG_NOTICE(( "holding replay at slot %lu until the snapshots are done loading", fec->slot ));
+    ctx->epoch_boundary_hold = 1;
+    return PROCESS_FEC_WAIT;
+  }
+
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
     int is_new_block = fec->fec_set_idx==0U && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
@@ -3357,7 +3368,8 @@ finish_snapshot_load( fd_replay_tile_t * ctx ) {
     }
   }
 
-  ctx->snapshots_loading = 0;
+  ctx->snapshots_loading   = 0;
+  ctx->epoch_boundary_hold = 0;
   FD_LOG_INFO(( "snapshots finished loading at root slot %lu", bank->f.slot ));
 }
 
@@ -3881,13 +3893,20 @@ snapmk_start( fd_replay_tile_t *  ctx,
      pinned in memory until snapmk_done. */
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
 
+  /* strmk cannot open a new stream during the rewards distribution
+     period as the stream does not serve all stake accounts. */
+  fd_sysvar_epoch_rewards_t epoch_rewards[1];
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( ctx->accdb, bank->accdb_fork_id, epoch_rewards ) ) ) epoch_rewards->active = 0;
+  int should_open_stream = incremental && !epoch_rewards->active;
+
   /* Send SNAP_START message to snapmk. */
   fd_replay_snap_start_t * msg = fd_chunk_to_laddr( ctx->snapmk_out->mem, ctx->snapmk_out->chunk );
   *msg = (fd_replay_snap_start_t) {
-    .bank_idx  = ctx->published_root_bank_idx,
-    .base_slot = incremental ? ctx->snapmk.base_slot : bank->f.slot,
-    .slot      = bank->f.slot,
-    .leader    = bank->leader
+    .bank_idx           = ctx->published_root_bank_idx,
+    .base_slot          = incremental ? ctx->snapmk.base_slot : bank->f.slot,
+    .slot               = bank->f.slot,
+    .leader             = bank->leader,
+    .should_open_stream = should_open_stream
   };
   ulong out_idx = ctx->snapmk_out->idx;
   ulong sig     = REPLAY_SIG_SNAP_START;
@@ -3909,9 +3928,9 @@ snapmk_start( fd_replay_tile_t *  ctx,
   /* update internal state */
   ctx->snapmk.active = 1;
 
-  /* An incremental snapshot starts a stream, which keeps the bank and
-     its epoch credits too, for its manifest. */
-  if( incremental && ctx->strmk.supported ) {
+  /* A stream keeps the bank and its epoch credits too, for its
+     manifest. */
+  if( should_open_stream && ctx->strmk.supported ) {
     FD_CHECK_CRIT( !ctx->strmk.active, "stream start while a stream is open" );
     bank->refcnt++;
     FD_TEST( fd_epoch_credits_view_init( ctx->strmk.epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
@@ -4588,8 +4607,9 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->block_dump_ctx = NULL;
   }
 
-  ctx->is_booted         = 0;
-  ctx->snapshots_loading = 0;
+  ctx->is_booted           = 0;
+  ctx->snapshots_loading   = 0;
+  ctx->epoch_boundary_hold = 0;
 
   fd_clock_tile_init( ctx->clock );
 

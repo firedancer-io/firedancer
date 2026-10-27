@@ -1303,6 +1303,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_obj_t * dc_ticket_obj = fd_topob_obj_named( topo, "fseq", "snapdc", "frame_ticket" );
     if( fast_boot ) {
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapct", 1UL ) ], wait_info_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapld", 0UL ) ], wait_info_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
       fd_topo_obj_t * str_ticket_obj = fd_topob_obj_named( topo, "fseq", "snapdc", "str_ticket" );
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", 0UL ) ], str_ticket_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
       for( ulong i=1UL; i<snapdc_tile_cnt; i++ ) {

@@ -1055,9 +1055,11 @@ after_credit( fd_snapct_tile_t *  ctx,
            deadline. */
         if( FD_LIKELY( !ctx->config.fast_boot_stream ) ) {
           /* The snapshots wait until replay has caught up on the
-             stream to reduce disk write contention. */
+             stream, or holds at an epoch boundary, to reduce disk
+             write contention. */
           fd_wait_info_t wait_info;
-          if( FD_UNLIKELY( !fd_wait_info_try_read( &wait_info, ctx->wait_info ) || !wait_info.caught_up ) ) break;
+          if( FD_UNLIKELY( !fd_wait_info_try_read( &wait_info, ctx->wait_info ) ) ) break;
+          if( FD_UNLIKELY( !wait_info.caught_up && !wait_info.epoch_boundary_hold ) ) break;
 
           if( FD_UNLIKELY( ctx->fast_boot.server_full_slot==ULONG_MAX && now<=ctx->deadline_nanos ) ) break;
 

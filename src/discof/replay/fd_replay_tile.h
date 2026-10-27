@@ -293,6 +293,7 @@ struct fd_replay_snap_start {
   ulong       base_slot;
   ulong       slot;   /* ==base_slot implies full snapshot, else incremental */
   fd_pubkey_t leader; /* leader of slot, written to the manifest for Agave */
+  int         should_open_stream; /* open a fast boot stream at slot */
 };
 typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 
