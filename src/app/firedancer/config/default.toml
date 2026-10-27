@@ -1935,7 +1935,11 @@ telemetry = true
         # physical disk use starts small and grows as ring entries and FEC
         # spill pages are written. This value is not a total disk limit;
         # FEC payload spills can consume additional space.
-        shred_storage_limit_gib = 50
+        #
+        # The in-RAM shred index costs ~16 MiB per GiB of ring.  32 GiB
+        # serves ~3.5 hours of history, several times the incremental
+        # snapshot cadence that far-behind nodes bootstrap from instead.
+        shred_storage_limit_gib = 32
 
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP
