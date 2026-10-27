@@ -7,6 +7,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/mman.h>
@@ -2445,8 +2446,9 @@ static void
 test_idx_parallel_build( void ) {
   ulong const max_accounts = 800000UL; /* 25000 pages, 4 windows */
   test_idx_fd = memfd_create( "accdb_idx_test", 0 );
-  int fd = memfd_create( "accdb_test", 0 );
-  FD_TEST( test_idx_fd>=0 && fd>=0 );
+  int fd       = memfd_create( "accdb_test", 0 );
+  int spill_fd = memfd_create( "accdb_spill_test", 0 );
+  FD_TEST( test_idx_fd>=0 && fd>=0 && spill_fd>=0 );
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 8UL, 1024UL, 64UL, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 3UL, 0UL, 64UL );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
@@ -2456,6 +2458,7 @@ test_idx_parallel_build( void ) {
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 8UL, 1 ) ), test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   fd_accdb_set_index_fd( accdb, test_idx_fd );
+  fd_accdb_set_spill_fd( accdb, spill_fd );
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
 
   /* Accounts i%7==0 have an older version, i%11==0 end at zero
@@ -2499,6 +2502,7 @@ test_idx_parallel_build( void ) {
     args[ t ].accdb   = test_join_writer( fd );
     args[ t ].scratch = scratch[ t+1UL ];
     fd_accdb_set_index_fd( args[ t ].accdb, test_idx_fd );
+    fd_accdb_set_spill_fd( args[ t ].accdb, spill_fd );
     FD_TEST( !pthread_create( &threads[ t ], NULL, idx_build_run, &args[ t ] ) );
   }
   ulong dup_cnt, dup_lamports;
@@ -2515,10 +2519,18 @@ test_idx_parallel_build( void ) {
     FD_TEST( fd_accdb_lamports( accdb, root, pk[ i ] )==( (i%11UL) ? 100UL+i : 0UL ) );
   }
 
+  /* The background punches out the spill. */
+  FD_TEST( lseek( spill_fd, 0L, SEEK_DATA )==0L );
+  FD_TEST( test_shmem_mem->idx_spill_state==FD_ACCDB_IDX_SPILL_PENDING );
+  for( ulong i=0UL; i<64UL && test_shmem_mem->idx_spill_state!=FD_ACCDB_IDX_SPILL_IDLE; i++ ) drain_background( accdb );
+  FD_TEST( test_shmem_mem->idx_spill_state==FD_ACCDB_IDX_SPILL_IDLE );
+  FD_TEST( lseek( spill_fd, 0L, SEEK_DATA )==-1L && errno==ENXIO );
+
   for( ulong t=0UL; t<2UL; t++ ) free( args[ t ].accdb );
   for( ulong t=0UL; t<3UL; t++ ) free( scratch[ t ] );
   test_teardown( accdb, fd );
   close( test_idx_fd );
+  close( spill_fd );
 }
 
 /* Verify a retry reuses entries moved to the free stack after lazy

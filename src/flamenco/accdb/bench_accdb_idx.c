@@ -78,6 +78,7 @@ main( int     argc,
   ulong        hot_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--hot",           NULL, 2000000UL );
   ulong        max_accts = fd_env_strip_cmdline_ulong( &argc, &argv, "--max-accounts",  NULL,       0UL );
   ulong        workers   = fd_env_strip_cmdline_ulong( &argc, &argv, "--workers",       NULL,       1UL );
+  int          spill_own = fd_env_strip_cmdline_int  ( &argc, &argv, "--spill-file",    NULL,         0 );
   FD_TEST( workers>=1UL && workers<=32UL );
 #ifndef FD_ACCDB_IDX_FD_RW
   if( ram_max ) FD_LOG_ERR(( "this tree has no disk index" ));
@@ -113,6 +114,14 @@ main( int     argc,
 #ifdef FD_ACCDB_IDX_FD_RW
   fd_accdb_set_index_fd( accdb, idx_fd );
   fd_accdb_set_index_fd( t2,    idx_fd );
+  int spill_fd = -1;
+  if( spill_own ) {
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/bench_accdb.db-spill", dir ) );
+    spill_fd = open( path, O_RDWR|O_CREAT|O_TRUNC, 0600 );
+    FD_TEST( spill_fd>=0 );
+    fd_accdb_set_spill_fd( accdb, spill_fd );
+    fd_accdb_set_spill_fd( t2,    spill_fd );
+  }
 #endif
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
 
@@ -151,6 +160,7 @@ main( int     argc,
     helpers[ w ].scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_ulong_max( scratch_sz, fd_accdb_snapshot_index_build_scratch_align() ) );
     FD_TEST( helpers[ w ].accdb && helpers[ w ].scratch );
     fd_accdb_set_index_fd( helpers[ w ].accdb, idx_fd );
+    if( spill_own ) fd_accdb_set_spill_fd( helpers[ w ].accdb, spill_fd );
     FD_TEST( !pthread_create( &helper_threads[ w ], NULL, build_run, &helpers[ w ] ) );
   }
   void * scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_ulong_max( scratch_sz, fd_accdb_snapshot_index_build_scratch_align() ) );

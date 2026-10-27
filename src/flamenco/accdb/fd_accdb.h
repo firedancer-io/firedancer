@@ -24,6 +24,11 @@
 #define FD_ACCDB_IDX_FD_RW (123453)
 #define FD_ACCDB_IDX_FD_RO (123452)
 
+/* Well-known fd of the full snapshot spill file (accounts.db-spill),
+   scratch for the disk index build.  fd_accdb_new joins use it. */
+
+#define FD_ACCDB_SPILL_FD (123451)
+
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
   uchar   owner[ 32UL ];
@@ -133,9 +138,17 @@ fd_accdb_join_readonly( void *             ljoin,
                         ulong *            my_epoch_slot_rw,
                         int                fd_ro );
 
+/* fd_accdb_set_index_fd makes accdb use idx_fd for the disk index,
+   with the spill stored after the index pages in the same file.
+   fd_accdb_set_spill_fd then moves the spill to its own file. */
+
 void
 fd_accdb_set_index_fd( fd_accdb_t * accdb,
                        int          idx_fd );
+
+void
+fd_accdb_set_spill_fd( fd_accdb_t * accdb,
+                       int          spill_fd );
 
 /* fd_accdb_idx_query looks pubkey up in the disk index only.  On a hit
    it stores the file offset of the record, lamports and packed size

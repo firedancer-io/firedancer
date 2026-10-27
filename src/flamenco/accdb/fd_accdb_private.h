@@ -189,6 +189,11 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 #define FD_ACCDB_IDX_WINDOW_PAGES (8192UL)    /* 32 MiB placement window */
 #define FD_ACCDB_IDX_STAGE_CNT    (512UL)     /* 32 KiB spill stage per range */
 #define FD_ACCDB_IDX_CARRY_MAX    (262144UL)
+#define FD_ACCDB_IDX_PUNCH_CHUNK  (1UL<<30)   /* spill bytes punched per background call */
+
+#define FD_ACCDB_IDX_SPILL_IDLE     (0UL)
+#define FD_ACCDB_IDX_SPILL_PENDING  (1UL)
+#define FD_ACCDB_IDX_SPILL_PUNCHING (2UL)
 #define FD_ACCDB_IDX_BLOOM_BITS   (6UL)       /* bloom filter bits per account */
 #define FD_ACCDB_IDX_TOMB         (ULONG_MAX)
 #define FD_ACCDB_DEMOTE_AGE       (64U)
@@ -649,6 +654,11 @@ struct fd_accdb_shmem_private {
     ulong dup_lamports;
     ulong freed;         /* bytes of losing and zero-lamport records */
   } idx_build;
+
+  /* The spill of a finished build is punched out in the background,
+     from idx_spill_punch_off on.  Holds one of FD_ACCDB_IDX_SPILL_*. */
+  ulong idx_spill_state __attribute__((aligned(64)));
+  ulong idx_spill_punch_off;
   struct __attribute__((aligned(64))) { ulong val; } acc_used;
 
   acc_pool_shmem_t  acc_pool [1];
