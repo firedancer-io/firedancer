@@ -369,7 +369,7 @@ fd_topo_initialize( config_t * config ) {
   if( rserve_enabled ) fd_topob_wksp( topo, "rserve" );
   fd_topob_wksp( topo, "replay" );
   fd_topob_wksp( topo, "accdb"  );
-  fd_topob_wksp( topo, "execrp" );
+  fd_topob_wksp( topo, "execrp" )->demote_ok = 1; /* sequential-fill serialization buffers */
   fd_topob_wksp( topo, "votor" );
   fd_topob_wksp( topo, "sign"   )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
   fd_topob_wksp( topo, "admin"  )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
@@ -383,7 +383,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "dedup"  );
     fd_topob_wksp( topo, "resolv" );
     fd_topob_wksp( topo, "pack"   );
-    fd_topob_wksp( topo, "execle" );
+    fd_topob_wksp( topo, "execle" )->demote_ok = 1; /* same layout as execrp, leader slots only */
     fd_topob_wksp( topo, "motor"  );
   } else {
     execle_tile_cnt = 0UL;
