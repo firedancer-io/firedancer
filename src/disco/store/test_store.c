@@ -63,7 +63,7 @@ static int
 store_file_open( fd_store_t * store,
                  int          flags ) {
   FD_TEST( flags==O_RDWR );
-  return fd_store_file_create( TEST_PAYLOAD_PATH, store->wire_off, store->disk_max_shreds );
+  return fd_store_file_create( TEST_PAYLOAD_PATH, store->wire_off, store->disk_max_shreds, 0UL );
 }
 
 /* fd_store_publish removes exactly the FECs of slots below the root
@@ -242,7 +242,7 @@ test_file_create( fd_wksp_t * wksp ) {
   store->disk_max_shreds = 16UL;
   FD_TEST( access( TEST_PAYLOAD_PATH, F_OK ) && errno==ENOENT );
 
-  int fd = fd_store_file_create( TEST_PAYLOAD_PATH, store->wire_off, store->disk_max_shreds );
+  int fd = fd_store_file_create( TEST_PAYLOAD_PATH, store->wire_off, store->disk_max_shreds, 0UL );
   FD_TEST( fd>=0 );
   struct stat st[1];
   FD_TEST( !fstat( fd, st ) );
@@ -264,12 +264,13 @@ test_file_create( fd_wksp_t * wksp ) {
   close( ro_fd );
   close( fd );
 
-  /* Reopening keeps the previous contents and resizes to the new ring. */
+  /* Reopening keeps the previous contents and resizes to the new ring
+     and tail. */
   store->disk_max_shreds = 32UL;
-  fd = fd_store_file_create( TEST_PAYLOAD_PATH, store->wire_off, store->disk_max_shreds );
+  fd = fd_store_file_create( TEST_PAYLOAD_PATH, store->wire_off, store->disk_max_shreds, 4096UL );
   FD_TEST( fd>=0 );
   FD_TEST( !fstat( fd, st ) );
-  FD_TEST( (ulong)st->st_size==store->wire_off + store->disk_max_shreds*sizeof(fd_shredb_entry_t) );
+  FD_TEST( (ulong)st->st_size==fd_store_tail_off( store )+4096UL );
   observed = 0U;
   FD_TEST( pread( fd, &observed, 1UL, 0 )==1L && observed==value );
   close( fd );

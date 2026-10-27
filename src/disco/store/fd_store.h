@@ -292,7 +292,7 @@ FD_PROTOTYPES_BEGIN
    blocks; a new slot is only used when none is free.  The file layout
    is:
 
-    [ sparse spill slots (payload_slot_sz*fec_max) ][ shred ring ]
+    [ sparse spill slots (payload_slot_sz*fec_max) ][ shred ring ][ tail ]
 
     wire_off is the fixed start of the shred ring.  Spill slots that
     were never used do not consume disk blocks.
@@ -386,12 +386,14 @@ fd_store_t * fd_store_join ( void * shstore );
 void *       fd_store_leave( fd_store_t const * store );
 void *       fd_store_delete( void * shstore );
 
-/* Creates and sizes the Store backing file */
+/* Creates and sizes the Store backing file, with tail_sz bytes after
+   the shred ring for other explicit-I/O users (rserve blockdb). */
 
 int
 fd_store_file_create( char const * path,
                       ulong        wire_off,
-                      ulong        disk_max_shreds );
+                      ulong        disk_max_shreds,
+                      ulong        tail_sz );
 
 
 FD_FN_PURE static inline fd_wksp_t *
@@ -520,6 +522,11 @@ fd_store_publish( fd_store_t *     store,
 FD_FN_PURE static inline int
 fd_store_has_disk( fd_store_t const * store ) {
   return store->disk_max_shreds > 0UL;
+}
+
+FD_FN_PURE static inline ulong
+fd_store_tail_off( fd_store_t const * store ) {
+  return store->wire_off + store->disk_max_shreds*sizeof(fd_shredb_entry_t);
 }
 
 #define FD_STORE_DISK_INSERT_ERR       (-1)

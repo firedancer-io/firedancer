@@ -1,6 +1,9 @@
 #include "fd_rserve.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
+#include <errno.h>
+#include <unistd.h>
+
 static void
 fd_rserve_rotation_secret( uchar       out[ 32 ],
                            uchar const master[ 32 ],
@@ -198,13 +201,17 @@ fd_rserve_maybe_rotate( fd_rserve_t * rserve,
 #include "../../util/tmpl/fd_map_chain.c"
 
 ulong
-fd_blockdb_footprint( ulong ele_max ) {
-  if( FD_UNLIKELY( !ele_max || ele_max>=UINT_MAX ) ) return 0UL;
+fd_blockdb_footprint( ulong ele_max,
+                      ulong win_max ) {
+  if( FD_UNLIKELY( !ele_max || ele_max>=UINT_MAX || !win_max ) ) return 0UL;
+  win_max = fd_ulong_min( win_max, ele_max );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_blockdb_t),     sizeof(fd_blockdb_t)                                          );
   l = FD_LAYOUT_APPEND( l, alignof(fd_blockdb_blk_t), ele_max*sizeof(fd_blockdb_blk_t)                              );
   l = FD_LAYOUT_APPEND( l, fd_blockdb_map_align(),    fd_blockdb_map_footprint( fd_blockdb_map_chain_cnt_est( ele_max ) ) );
+  l = FD_LAYOUT_APPEND( l, 64UL,                      win_max*FD_BLOCKDB_ROOTS_SZ                                   );
+  l = FD_LAYOUT_APPEND( l, 64UL,                      FD_BLOCKDB_ROOTS_SZ                                           );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,    FD_BMTREE_COMMIT_FOOTPRINT( FD_BLOCKDB_TREE_LAYER_MAX )       );
   return FD_LAYOUT_FINI( l, fd_blockdb_align() );
 }
@@ -212,7 +219,10 @@ fd_blockdb_footprint( ulong ele_max ) {
 void *
 fd_blockdb_new( void * shmem,
                 ulong  ele_max,
-                ulong  seed ) {
+                ulong  win_max,
+                ulong  seed,
+                int    disk_fd,
+                ulong  disk_off ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -223,9 +233,14 @@ fd_blockdb_new( void * shmem,
     return NULL;
   }
 
-  ulong footprint = fd_blockdb_footprint( ele_max );
+  ulong footprint = fd_blockdb_footprint( ele_max, win_max );
   if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "bad ele_max (%lu)", ele_max ));
+    FD_LOG_WARNING(( "bad ele_max (%lu) or win_max (%lu)", ele_max, win_max ));
+    return NULL;
+  }
+  win_max = fd_ulong_min( win_max, ele_max );
+  if( FD_UNLIKELY( win_max<ele_max && disk_fd<0 ) ) {
+    FD_LOG_WARNING(( "win_max (%lu) < ele_max (%lu) requires a disk_fd", win_max, ele_max ));
     return NULL;
   }
 
@@ -235,15 +250,23 @@ fd_blockdb_new( void * shmem,
   fd_blockdb_t *     blockdb = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_blockdb_t),     sizeof(fd_blockdb_t)                  );
   fd_blockdb_blk_t * ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_blockdb_blk_t), ele_max*sizeof(fd_blockdb_blk_t)      );
   void *             map     = FD_SCRATCH_ALLOC_APPEND( l, fd_blockdb_map_align(),    fd_blockdb_map_footprint( chain_cnt ) );
+  uchar *            win     = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                      win_max*FD_BLOCKDB_ROOTS_SZ           );
+  uchar *            rd      = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                      FD_BLOCKDB_ROOTS_SZ                   );
   void *             tree    = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,    FD_BMTREE_COMMIT_FOOTPRINT( FD_BLOCKDB_TREE_LAYER_MAX ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_blockdb_align() )==(ulong)shmem + footprint );
   FD_TEST( fd_bmtree_depth( FD_FEC_BLK_MAX+1UL )==FD_BLOCKDB_TREE_LAYER_MAX );
 
-  blockdb->ele_max = ele_max;
-  blockdb->seq     = 0UL;
-  blockdb->ele     = ele;
-  blockdb->tree    = tree;
-  blockdb->map     = fd_blockdb_map_new( map, chain_cnt, seed );
+  blockdb->ele_max  = ele_max;
+  blockdb->win_max  = win_max;
+  blockdb->seq      = 0UL;
+  blockdb->wseq     = 0UL;
+  blockdb->disk_fd  = win_max<ele_max ? disk_fd : -1;
+  blockdb->disk_off = disk_off;
+  blockdb->ele      = ele;
+  blockdb->win      = win;
+  blockdb->rd       = rd;
+  blockdb->tree     = tree;
+  blockdb->map      = fd_blockdb_map_new( map, chain_cnt, seed );
   if( FD_UNLIKELY( !blockdb->map ) ) return NULL;
 
   return shmem;
@@ -293,6 +316,21 @@ fd_blockdb_delete( void * shblockdb ) {
   return shblockdb;
 }
 
+/* Without a disk the window is indexed by entry, else by write seq. */
+
+static inline uchar *
+blockdb_win_roots( fd_blockdb_t const *     blockdb,
+                   fd_blockdb_blk_t const * blk ) {
+  ulong i = blockdb->disk_fd<0 ? (ulong)(blk-blockdb->ele) : blk->wseq % blockdb->win_max;
+  return blockdb->win + i*FD_BLOCKDB_ROOTS_SZ;
+}
+
+static inline off_t
+blockdb_disk_off( fd_blockdb_t const *     blockdb,
+                  fd_blockdb_blk_t const * blk ) {
+  return (off_t)(blockdb->disk_off + (ulong)(blk-blockdb->ele)*FD_BLOCKDB_ROOTS_SZ);
+}
+
 fd_blockdb_blk_t *
 fd_blockdb_insert( fd_blockdb_t *    blockdb,
                    ulong             slot,
@@ -317,10 +355,17 @@ fd_blockdb_insert( fd_blockdb_t *    blockdb,
     fd_blockdb_map_ele_insert( map, blk, blockdb->ele );
   }
 
+  ulong roots_sz = (ulong)fec_set_cnt*FD_SHRED_MERKLE_NODE_SZ;
   blk->parent_slot     = parent_slot;
   blk->parent_block_id = *parent_block_id;
   blk->fec_set_cnt     = fec_set_cnt;
-  fd_memcpy( blk->merkle_roots, merkle_roots, fec_set_cnt*FD_SHRED_MERKLE_NODE_SZ );
+  blk->wseq            = blockdb->wseq++;
+  fd_memcpy( blockdb_win_roots( blockdb, blk ), merkle_roots, roots_sz );
+  if( blockdb->disk_fd>=0 ) {
+    /* Short writes and errors are fatal so stale bytes are never served */
+    long res = pwrite( blockdb->disk_fd, merkle_roots, roots_sz, blockdb_disk_off( blockdb, blk ) );
+    if( FD_UNLIKELY( res!=(long)roots_sz ) ) FD_LOG_ERR(( "blockdb pwrite failed (%ld %i-%s)", res, errno, fd_io_strerror( errno ) ));
+  }
   return blk;
 }
 
@@ -332,9 +377,24 @@ fd_blockdb_query( fd_blockdb_t const * blockdb,
   return fd_blockdb_map_ele_query_const( (fd_blockdb_map_t const *)blockdb->map, &key, NULL, blockdb->ele );
 }
 
+uchar const *
+fd_blockdb_roots( fd_blockdb_t *           blockdb,
+                  fd_blockdb_blk_t const * blk,
+                  ulong                    idx,
+                  ulong                    cnt ) {
+  FD_TEST( idx+cnt<=blk->fec_set_cnt );
+  if( FD_LIKELY( blockdb->disk_fd<0 || blockdb->wseq-blk->wseq<=blockdb->win_max ) )
+    return blockdb_win_roots( blockdb, blk ) + idx*FD_SHRED_MERKLE_NODE_SZ;
+  ulong sz  = cnt*FD_SHRED_MERKLE_NODE_SZ;
+  long  res = pread( blockdb->disk_fd, blockdb->rd, sz, blockdb_disk_off( blockdb, blk )+(off_t)(idx*FD_SHRED_MERKLE_NODE_SZ) );
+  if( FD_UNLIKELY( res!=(long)sz ) ) FD_LOG_ERR(( "blockdb pread failed (%ld %i-%s)", res, errno, fd_io_strerror( errno ) ));
+  return blockdb->rd;
+}
+
 int
 fd_blockdb_proof( fd_blockdb_t *           blockdb,
                   fd_blockdb_blk_t const * blk,
+                  uchar const *            roots,
                   ulong                    leaf_idx,
                   uchar                    proof[ FD_BLOCKDB_PROOF_NODE_MAX*FD_SHRED_MERKLE_NODE_SZ ] ) {
   if( FD_UNLIKELY( leaf_idx>blk->fec_set_cnt ) ) return -1;
@@ -345,7 +405,7 @@ fd_blockdb_proof( fd_blockdb_t *           blockdb,
      so a zero-padded root prefix is an exact leaf. */
   fd_bmtree_node_t leaf[1] = {0};
   for( uint k=0U; k<blk->fec_set_cnt; k++ ) {
-    memcpy( leaf->hash, blk->merkle_roots[ k ], FD_SHRED_MERKLE_NODE_SZ );
+    memcpy( leaf->hash, roots + k*FD_SHRED_MERKLE_NODE_SZ, FD_SHRED_MERKLE_NODE_SZ );
     fd_bmtree_commit_append( tree, leaf, 1UL );
   }
 

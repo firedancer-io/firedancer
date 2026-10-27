@@ -21,6 +21,7 @@
 #include "../../disco/repair/fd_repair_tile.h"
 #include "../../disco/repair/fd_repair.h"
 #include "../../disco/repair/fd_repair_serde.h"
+#include "../../disco/repair/fd_rserve.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/backup/fd_backup.h"
 #include "../../discof/restore/fd_snapct_tile.h"
@@ -46,6 +47,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+
+/* rserve blockdb entries; FEC roots of all of them live in the store file tail */
+#define RSERVE_BLOCKDB_MAX (1UL<<15)
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 extern fd_topo_run_tile_t *      TILES[];
@@ -1304,6 +1308,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rotor", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* rotor */
   if( rserve_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rserve", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( rserve_enabled ) FD_TEST( fd_pod_insertf_ulong( topo->props, RSERVE_BLOCKDB_MAX*FD_BLOCKDB_ROOTS_SZ, "obj.%lu.tail_sz", store_obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, 2UL*config->limits.max_txn_per_slot /* sig + message hash */, config->firedancer.runtime.transaction_cache_size_mib<<20 );
@@ -1739,7 +1744,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;
     tile->rserve.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rserve.ping_cache_entries = 1UL<<16; /* TODO: Configure this from some global metric? */
-    tile->rserve.blockdb_max = 1UL<<15; /* ~20.6 KiB each. TODO: make configurable */
+    tile->rserve.blockdb_max = RSERVE_BLOCKDB_MAX;
+    tile->rserve.blockdb_win_max = 1UL<<10; /* ~7 min of blocks, older roots are on disk */
     fd_cstr_ncpy( tile->rserve.identity_key_path, identity_key_path, sizeof(tile->rserve.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
