@@ -189,6 +189,7 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 #define FD_ACCDB_IDX_WINDOW_PAGES (8192UL)    /* 32 MiB placement window */
 #define FD_ACCDB_IDX_STAGE_CNT    (512UL)     /* 32 KiB spill stage per range */
 #define FD_ACCDB_IDX_CARRY_MAX    (262144UL)
+#define FD_ACCDB_IDX_DUP_WORDS    (1UL<<21)   /* 16 MiB filter of pubkeys that lost a version */
 #define FD_ACCDB_IDX_PUNCH_CHUNK  (1UL<<30)   /* spill bytes punched per background call */
 
 #define FD_ACCDB_IDX_SPILL_IDLE     (0UL)
@@ -655,6 +656,7 @@ struct fd_accdb_shmem_private {
   ulong idx_carry_off;    /* FD_ACCDB_IDX_CARRY_MAX slots */
   ulong idx_bloom_off;    /* bloom filter, idx_bloom_cnt 64 byte blocks */
   ulong idx_bloom_cnt;
+  ulong idx_dup_off;      /* FD_ACCDB_IDX_DUP_WORDS bit words, see fd_accdb_snapshot_index_maybe_dup */
   ulong idx_sweep_cursor; /* T2 demotion sweep position in acc_map */
 
   /* Full snapshot index build, shared by the workers that place the

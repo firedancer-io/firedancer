@@ -1883,7 +1883,8 @@ index_build( fd_snapin_tile_t * ctx ) {
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
-    if( d->lamports && fd_accdb_snapshot_index_slot( ctx->accdb, d->stake_account.uc )!=(ulong)d->slot ) {
+    if( d->lamports && fd_accdb_snapshot_index_maybe_dup( ctx->accdb, d->stake_account.uc ) &&
+        fd_accdb_snapshot_index_slot( ctx->accdb, d->stake_account.uc )!=(ulong)d->slot ) {
       fd_pubkey_t stake_account = d->stake_account;
       fd_stake_delegations_fork_remove( ctx->stake_delegations, USHORT_MAX, UINT_MAX, &stake_account, 0 );
     }

@@ -70,6 +70,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   fd_accdb_idx_slot_t *  idx_stage;
   fd_accdb_idx_slot_t *  idx_carry;
   ulong *                idx_bloom;
+  ulong *                idx_dup;
 
   fd_accdb_shmem_t * shmem;
 
@@ -338,6 +339,7 @@ fd_accdb_new( void *              ljoin,
   accdb->idx_stage  = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_stage_off  ) : NULL;
   accdb->idx_carry  = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_carry_off  ) : NULL;
   accdb->idx_bloom  = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_bloom_off  ) : NULL;
+  accdb->idx_dup    = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_dup_off    ) : NULL;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -490,6 +492,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   fd_memset( &shmem->idx_build, 0, sizeof(shmem->idx_build) );
   if( accdb->idx_range ) fd_memset( accdb->idx_range, 0, shmem->idx_range_cnt*sizeof(fd_accdb_idx_range_t) );
   if( accdb->idx_bloom ) fd_memset( accdb->idx_bloom, 0, shmem->idx_bloom_cnt*64UL );
+  if( accdb->idx_dup   ) fd_memset( accdb->idx_dup,   0, FD_ACCDB_IDX_DUP_WORDS*sizeof(ulong) );
 
   /* Shared metrics: zero gauges that reflect current state (now empty)
      but preserve counters and accounts_capacity. */
@@ -792,6 +795,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->idx_stage  = NULL;
   accdb->idx_carry  = NULL;
   accdb->idx_bloom  = shmem->idx_page_cnt ? (ulong *)( (uchar *)shmem+shmem->idx_bloom_off ) : NULL;
+  accdb->idx_dup    = shmem->idx_page_cnt ? (ulong *)( (uchar *)shmem+shmem->idx_dup_off   ) : NULL;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
@@ -4978,6 +4982,20 @@ fini:
 #undef CHAIN_LOCKED
 }
 
+static inline ulong
+idx_dup_bit( fd_accdb_t const * accdb,
+             uchar const        pubkey[ 32 ] ) {
+  return fd_hash32( pubkey, accdb->shmem->seed^0x2545f4914f6cdd1dUL )&( FD_ACCDB_IDX_DUP_WORDS*64UL-1UL );
+}
+
+int
+fd_accdb_snapshot_index_maybe_dup( fd_accdb_t *  accdb,
+                                   uchar const * pubkey ) {
+  if( FD_UNLIKELY( !idx_on( accdb ) ) ) return 0;
+  ulong b = idx_dup_bit( accdb, pubkey );
+  return !!( FD_VOLATILE_CONST( accdb->idx_dup[ b>>6 ] )&( 1UL<<(b&63UL) ) );
+}
+
 /* idx_dup resolves two snapshot records of one pubkey: the newest slot
    wins and the loser's bytes die.  Two records at one slot make the
    snapshot corrupt: flags it and keeps cur. */
@@ -5001,6 +5019,8 @@ idx_dup( fd_accdb_t *                accdb,
   *freed += sz;
   (*dup_cnt)++;
   fd_uwide_inc( dup_lamports_hi, dup_lamports, *dup_lamports_hi, *dup_lamports, loser.lamports );
+  ulong b = idx_dup_bit( accdb, loser.pubkey );
+  FD_ATOMIC_FETCH_AND_OR( accdb->idx_dup+(b>>6), 1UL<<(b&63UL) );
 }
 
 static inline ulong
@@ -5176,6 +5196,7 @@ fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
   if( FD_LIKELY( accdb && idx_on( accdb ) ) ) {
     fd_memset( &accdb->shmem->idx_build, 0, sizeof(accdb->shmem->idx_build) );
     fd_memset( accdb->idx_bloom, 0, accdb->shmem->idx_bloom_cnt*64UL );
+    fd_memset( accdb->idx_dup,   0, FD_ACCDB_IDX_DUP_WORDS*sizeof(ulong) );
   }
   return fd_accdb_snapshot_index_build_fini( accdb, scratch, out_dup_cnt, out_dup_lamports_hi, out_dup_lamports );
 }
