@@ -74,9 +74,6 @@ struct fd_execle_tile {
 
   fd_runtime_t runtime[1];
 
-  /* Sysvars of the bank with sysvar_bank_seq, read from accdb because
-     the bank holds no sysvar cache.  sysvar_bank_seq is 0 if there are
-     none. */
   ulong             sysvar_bank_seq;
   fd_sysvar_cache_t sysvar_cache[1];
 
@@ -109,12 +106,11 @@ struct fd_execle_tile {
 
 typedef struct fd_execle_tile fd_execle_tile_t;
 
-/* bank_sysvar_cache returns the sysvar cache of bank, reading it from
-   accdb once per bank if bank holds none. */
-
 static fd_sysvar_cache_t const *
 bank_sysvar_cache( fd_execle_tile_t * ctx,
                    fd_bank_t const *  bank ) {
+  /* Return the sysvar cache of the bank.  If it's not available, reuse
+     or load one from the accdb. */
   fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( bank );
   if( FD_LIKELY( cache ) ) return cache;
   if( ctx->sysvar_bank_seq!=bank->bank_seq ) {

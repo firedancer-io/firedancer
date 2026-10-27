@@ -454,15 +454,6 @@ fd_bank_cost_tracker( fd_bank_t const * bank );
 fd_sysvar_cache_t *
 fd_bank_sysvar_cache( fd_bank_t const * bank );
 
-/* fd_bank_sysvar_cache_query returns the sysvar cache held by bank.  If
-   bank holds none, its sysvar accounts are read from accdb into
-   scratch, which is returned. */
-
-fd_sysvar_cache_t const *
-fd_bank_sysvar_cache_query( fd_bank_t const *   bank,
-                            fd_accdb_t *        accdb,
-                            fd_sysvar_cache_t * scratch );
-
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );
 

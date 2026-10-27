@@ -181,16 +181,6 @@ fd_bank_sysvar_cache( fd_bank_t const * bank ) {
   return &fd_banks_get_sysvar_cache_pool( banks_data )[ bank->sysvar_cache_idx ].cache;
 }
 
-fd_sysvar_cache_t const *
-fd_bank_sysvar_cache_query( fd_bank_t const *   bank,
-                            fd_accdb_t *        accdb,
-                            fd_sysvar_cache_t * scratch ) {
-  fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( bank );
-  if( FD_LIKELY( cache ) ) return cache;
-  fd_sysvar_cache_restore( scratch, accdb, bank->accdb_fork_id );
-  return scratch;
-}
-
 fd_bank_t *
 fd_banks_root( fd_banks_t * banks ) {
   return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), banks->root_idx );

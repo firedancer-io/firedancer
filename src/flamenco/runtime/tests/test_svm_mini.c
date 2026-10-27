@@ -195,7 +195,7 @@ main( int     argc,
     if( !fd_bank_sysvar_cache( fd_svm_mini_bank( mini, child_idx ) ) ) break;
   }
   bank = fd_svm_mini_bank( mini, child_idx );
-  FD_TEST( fd_bank_sysvar_cache_query( bank, mini->runtime->accdb, mini->runtime_stack->sysvar_cache )==mini->runtime_stack->sysvar_cache );
+  FD_TEST( fd_sysvar_cache_restore( mini->runtime_stack->sysvar_cache, mini->runtime->accdb, bank->accdb_fork_id ) );
   fd_sol_sysvar_clock_t clock[1];
   FD_TEST( fd_sysvar_cache_clock_read( mini->runtime_stack->sysvar_cache, clock ) && clock->slot==bank->f.slot );
 

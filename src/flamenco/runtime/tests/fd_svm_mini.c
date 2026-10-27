@@ -13,6 +13,7 @@
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../runtime/program/fd_vote_program.h"
 #include "../../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../../stakes/fd_stake_types.h"
@@ -493,7 +494,8 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   /* Re-initialize accdb join in place */
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mini->accdb_join_mem, shmem, accdb_fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
-  mini->runtime->accdb = accdb;
+  mini->runtime->accdb        = accdb;
+  mini->runtime->sysvar_cache = NULL;
 
   fd_progcache_reset( mini->progcache->join );
   fd_txncache_reset( mini->txncache );
@@ -787,8 +789,9 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
 
+  uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t         stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache_query( bank, mini->runtime->accdb, mini->runtime_stack->sysvar_cache ), stake_history_ );
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( mini->runtime->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   fd_progcache_advance_root( mini->progcache->join, bank->progcache_fork_id );
   fd_txncache_advance_root ( mini->txncache,        bank->txncache_fork_id  );
   fd_accdb_advance_root( mini->runtime->accdb, bank->accdb_fork_id );

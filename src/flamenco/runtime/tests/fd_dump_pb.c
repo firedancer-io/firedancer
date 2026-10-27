@@ -8,6 +8,7 @@
 #include "../fd_bank.h"
 #include "../fd_runtime.h"
 #include "../fd_alut.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
 #include "../program/fd_precompiles.h"
 #include "../../../third_party/nanopb/pb_encode.h"
 #include "../fd_runtime_stack_tmpl.h"
@@ -585,8 +586,9 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   ulong vote_account_t_2_cnt = fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
   uchar vote_stakes_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN)));
 
+  uchar                stake_delegations_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_delegations_history_[1];
-  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache_query( parent_bank, accdb, runtime_stack->sysvar_cache ), stake_delegations_history_ );
+  fd_stake_history_t * stake_delegations_history = fd_sysvar_stake_history_read( accdb, parent_bank->accdb_fork_id, stake_delegations_history_data, stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( parent_bank );
   fd_stake_delegations_view_begin( stake_delegations,

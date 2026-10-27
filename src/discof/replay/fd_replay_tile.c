@@ -2137,8 +2137,9 @@ refresh_vote_account_staked( fd_replay_tile_t * ctx,
   ctx->vote_account_staked = admitted;
   if( FD_LIKELY( admitted || !has_vote_key ) ) return;
 
+  uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t         stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache_query( bank, ctx->accdb, ctx->runtime_stack->sysvar_cache ), stake_history_ );
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( ctx->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   fd_stake_history_entry_t   status        = fd_stake_delegations_vote_account_status(
       fd_banks_stake_delegations_root_query( ctx->banks ), vote_key, bank->f.epoch, stake_history,
       &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
@@ -2192,8 +2193,9 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
 
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
-  fd_stake_history_t stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache_query( bank, ctx->accdb, ctx->runtime_stack->sysvar_cache ), stake_history_ );
+  uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_stake_history_t         stake_history_[1];
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( ctx->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   /* Despite claims like https://github.com/solana-program/stake/pull/81
      that the stake history sysvar is contiguous, testnet has in fact
      had a gap at epoch 386. */
@@ -3251,8 +3253,9 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   ulong advanceable_root_slot = bank->f.slot;
   int   root_epoch_changed    = bank->f.epoch!=published_root_bank->f.epoch;
+  uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t         stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache_query( bank, ctx->accdb, ctx->runtime_stack->sysvar_cache ), stake_history_ );
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( ctx->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_progcache_advance_root( ctx->progcache, bank->progcache_fork_id );
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
