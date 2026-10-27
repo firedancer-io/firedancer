@@ -130,7 +130,7 @@ snapshot_load_topo( config_t * config ) {
       config->tiles.bundle.enabled,
       1UL+config->firedancer.layout.snapin_tile_count,
       0UL,
-      0UL );
+      config->firedancer.accounts.index_ram_max );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   fd_topob_wksp( topo, "banks" );
