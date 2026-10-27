@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 
 #include "sysvar/fd_sysvar_base.h"
+#include "sysvar/fd_sysvar_cache.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../accdb/fd_accdb.h"
 #include "sysvar/fd_sysvar_base.h"
@@ -192,6 +193,32 @@ fd_runtime_account_check_fee_payer_writable( fd_txn_in_t const * txn_in,
 int
 fd_account_meta_checked_sub_lamports( fd_acc_t * acc,
                                       ulong      lamports );
+
+/* fd_runtime_sysvar_cache returns the sysvar cache of bank.  If bank
+   holds none, bank's sysvars are restored from accdb into scratch,
+   unless *scratch_bank_seq shows scratch already holds them. */
+
+fd_sysvar_cache_t const *
+fd_runtime_sysvar_cache( fd_bank_t const *   bank,
+                         fd_accdb_t *        accdb,
+                         fd_sysvar_cache_t * scratch,
+                         ulong *             scratch_bank_seq );
+
+/* fd_runtime_sysvar_data returns the data of the sysvar at address as
+   of bank and sets *sz, or returns NULL and sets *sz to 0 if it does
+   not exist.  The data comes from bank's sysvar cache if bank holds
+   one.  Otherwise it is read from accdb into raw, which must hold
+   FD_RUNTIME_ACC_SZ_MAX bytes, and up to out_max bytes of it are
+   copied to out.  Safe on a readonly accdb join. */
+
+uchar const *
+fd_runtime_sysvar_data( fd_bank_t const * bank,
+                        fd_accdb_t *      accdb,
+                        uchar const *     address,
+                        uchar *           raw,
+                        uchar *           out,
+                        ulong             out_max,
+                        ulong *           sz );
 
 FD_PROTOTYPES_END
 

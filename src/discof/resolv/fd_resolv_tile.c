@@ -10,6 +10,7 @@
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_runtime_helpers.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -472,18 +473,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
 
-        fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache( ctx->bank );
-        if( FD_LIKELY( sysvar_cache ) ) {
-          ctx->slot_hashes = fd_sysvar_cache_data_query( sysvar_cache, fd_sysvar_slot_hashes_id.uc, &ctx->slot_hashes_sz );
-        } else {
-          ulong lamports;
-          int   executable;
-          ulong data_len;
-          fd_accdb_read_one_nocache( ctx->accdb, ctx->bank->accdb_fork_id, fd_sysvar_slot_hashes_id.uc,
-                                     &lamports, &executable, ctx->alut_owner, ctx->alut_data, &data_len );
-          ctx->slot_hashes_sz = lamports ? fd_ulong_min( data_len, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) : 0UL;
-          ctx->slot_hashes    = fd_memcpy( ctx->slot_hashes_buf, ctx->alut_data, ctx->slot_hashes_sz );
-        }
+        ctx->slot_hashes = fd_runtime_sysvar_data( ctx->bank, ctx->accdb, fd_sysvar_slot_hashes_id.uc, ctx->alut_data,
+                                                   ctx->slot_hashes_buf, sizeof(ctx->slot_hashes_buf), &ctx->slot_hashes_sz );
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */

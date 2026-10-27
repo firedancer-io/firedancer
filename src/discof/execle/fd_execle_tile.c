@@ -106,20 +106,6 @@ struct fd_execle_tile {
 
 typedef struct fd_execle_tile fd_execle_tile_t;
 
-static fd_sysvar_cache_t const *
-bank_sysvar_cache( fd_execle_tile_t * ctx,
-                   fd_bank_t const *  bank ) {
-  /* Return the sysvar cache of the bank.  If it's not available, reuse
-     or load one from the accdb. */
-  fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( bank );
-  if( FD_LIKELY( cache ) ) return cache;
-  if( ctx->sysvar_bank_seq!=bank->bank_seq ) {
-    fd_sysvar_cache_restore( ctx->sysvar_cache, ctx->accdb, bank->accdb_fork_id );
-    ctx->sysvar_bank_seq = bank->bank_seq;
-  }
-  return ctx->sysvar_cache;
-}
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -307,7 +293,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
   FD_TEST( bank );
   ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
-  ctx->runtime->sysvar_cache = bank_sysvar_cache( ctx, bank );
+  ctx->runtime->sysvar_cache = fd_runtime_sysvar_cache( bank, ctx->accdb, ctx->sysvar_cache, &ctx->sysvar_bank_seq );
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt        = (fd_txn_ns_dt_t){0};
@@ -533,7 +519,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   FD_TEST( bank );
   ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
-  ctx->runtime->sysvar_cache = bank_sysvar_cache( ctx, bank );
+  ctx->runtime->sysvar_cache = fd_runtime_sysvar_cache( bank, ctx->accdb, ctx->sysvar_cache, &ctx->sysvar_bank_seq );
 
   fd_acct_addr_t const * writable_alt [ MAX_TXN_PER_MICROBLOCK ];
   ulong                  tips         [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
