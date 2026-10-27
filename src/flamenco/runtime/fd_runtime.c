@@ -213,6 +213,12 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
                          fd_pubkey_t const * collector_id,
                          fd_pubkey_t const * leader_vote,
                          ulong               fees ) {
+  /* Read before the collector is opened, since its handle must not be
+     held across another account database read. */
+  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_stake_history_t   stake_history_[1];
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
+
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
   int burn;
@@ -232,7 +238,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
       acc.lamports += fees; /* guaranteed to not overflow, checked above */
     }
   }
-  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, NULL, NULL );
+  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, stake_history, NULL );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   return burn;
 }
