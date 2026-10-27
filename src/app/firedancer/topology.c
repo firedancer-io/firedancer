@@ -606,7 +606,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_rotor",   "shred_rotor",   1024UL,                                   FD_REPAIR_NET_FRAME_MAX,        1UL                 );
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    repair_out_depth,                         sizeof(fd_repair_replay_fec_t), 1UL );
 
-  FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
+  FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 4096UL,                                   sizeof(fd_execrp_task_done_msg_t), 1UL ); /* sized for gui (reliable) lag, ~630ms/link at 65k TPS catchup */
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_link( topo, "diag_gui", "diag_gui", 4UL, sizeof(fd_diag_system_resources_t), 1UL );
     /**/                 fd_topob_link( topo, "gossip_gui",  "gossip_gui",    256UL,                                    FD_GUI_GOSSIP_BW_MTU,          1UL );
