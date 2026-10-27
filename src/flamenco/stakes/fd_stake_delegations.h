@@ -511,7 +511,10 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
    fd_stake_delegations_iter_ele() to get the current stake delegation
    or fd_stake_delegations_iter_idx() to get the index of the current
    stake delegation.  It is not safe to modify the stake delegation
-   while iterating through it.
+   while iterating through it, except that outside a view, a root
+   fd_stake_delegations_fork_remove (fork_idx USHORT_MAX) of the
+   current element overwrites it in place and keeps the iterator
+   valid.
 
    Under the hood, the iterator walks in-memory roots followed by dense
    disk roots, redirecting through tagged in-memory/disk delta references

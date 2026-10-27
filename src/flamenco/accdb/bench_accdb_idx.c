@@ -165,9 +165,9 @@ main( int     argc,
   }
   void * scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_ulong_max( scratch_sz, fd_accdb_snapshot_index_build_scratch_align() ) );
   FD_TEST( scratch );
-  ulong dup_cnt, dup_lamports;
+  ulong dup_cnt, dup_lamports_hi, dup_lamports;
   double tb = now_s();
-  fd_accdb_snapshot_index_build_fini( accdb, scratch, &dup_cnt, &dup_lamports );
+  FD_TEST( !fd_accdb_snapshot_index_build_fini( accdb, scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports ) );
   FD_LOG_NOTICE(( "index build: %lu workers in %.2f s", workers, now_s()-tb ));
   for( ulong w=1UL; w<workers; w++ ) FD_TEST( !pthread_join( helper_threads[ w ], NULL ) );
 #endif

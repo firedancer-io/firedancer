@@ -272,7 +272,7 @@ record_txncache_attach_child( fd_txncache_t *       txncache,
 void mock_accdb_reset                            ( fd_accdb_t * accdb ) { (void)accdb; test_file_off=0UL; test_accdb_reset_cnt++; }
 void mock_accdb_snapshot_load_end                ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_load_end_cnt++;      }
 void mock_accdb_flush_metrics                    ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_flush_metrics_cnt++; }
-void mock_accdb_snapshot_index_build_fini( fd_accdb_t * accdb, void * scratch, ulong * dup_cnt, ulong * dup_lamports ) { (void)accdb; (void)scratch; *dup_cnt = *dup_lamports = 0UL; }
+int  mock_accdb_snapshot_index_build_fini( fd_accdb_t * accdb, void * scratch, ulong * dup_cnt, ulong * dup_lamports_hi, ulong * dup_lamports ) { (void)accdb; (void)scratch; *dup_cnt = *dup_lamports_hi = *dup_lamports = 0UL; return 0; }
 void mock_accdb_snapshot_index_build_work( fd_accdb_t * accdb, void * scratch ) { (void)accdb; (void)scratch; }
 
 fd_accdb_fork_id_t

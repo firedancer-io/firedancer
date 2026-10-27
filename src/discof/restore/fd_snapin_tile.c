@@ -1864,32 +1864,31 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
    (no-op without one), placing windows alongside the other tiles, and
    books the duplicate records it resolved.  The spill could not tell
    which version of a duplicated account wins, so every snooped
-   delegation was kept: drop those a newer record replaced. */
+   delegation was kept: drop those a newer record replaced.  Returns
+   non-zero if the snapshot is corrupt. */
 
-static void
+static int
 index_build( fd_snapin_tile_t * ctx ) {
-  ulong dup_cnt, dup_lamports;
-  fd_accdb_snapshot_index_build_fini( ctx->accdb, ctx->idx_scratch, &dup_cnt, &dup_lamports );
-  if( FD_LIKELY( !dup_cnt ) ) return;
+  ulong dup_cnt, dup_lamports_hi, dup_lamports;
+  if( FD_UNLIKELY( fd_accdb_snapshot_index_build_fini( ctx->accdb, ctx->idx_scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports ) ) ) return -1;
+  if( FD_LIKELY( !dup_cnt ) ) return 0;
 
   ctx->shmem->values[ 0 ].loaded     -= dup_cnt;
   ctx->shmem->values[ 0 ].duplicates += dup_cnt;
-  fd_uwide_add( &ctx->shmem->values[ 0 ].duplicate_lamports_hi, &ctx->shmem->values[ 0 ].duplicate_lamports,
-                ctx->shmem->values[ 0 ].duplicate_lamports_hi,  ctx->shmem->values[ 0 ].duplicate_lamports, 0UL, dup_lamports, 0UL );
+  ulong * dup_hi = &ctx->shmem->values[ 0 ].duplicate_lamports_hi; ulong * dup_lo = &ctx->shmem->values[ 0 ].duplicate_lamports;
+  fd_uwide_add( dup_hi, dup_lo, *dup_hi, *dup_lo, dup_lamports_hi, dup_lamports, 0UL );
 
-  for(;;) {
-    fd_pubkey_t stale[ 64 ];
-    ulong       stale_cnt = 0UL;
-    fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, ctx->stake_delegations );
-         !fd_stake_delegations_iter_done( iter ) && stale_cnt<64UL;
-         fd_stake_delegations_iter_next( iter ) ) {
-      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
-      if( d->lamports && fd_accdb_snapshot_index_slot( ctx->accdb, d->stake_account.uc )!=(ulong)d->slot ) stale[ stale_cnt++ ] = d->stake_account;
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, ctx->stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+    if( d->lamports && fd_accdb_snapshot_index_slot( ctx->accdb, d->stake_account.uc )!=(ulong)d->slot ) {
+      fd_pubkey_t stake_account = d->stake_account;
+      fd_stake_delegations_fork_remove( ctx->stake_delegations, USHORT_MAX, UINT_MAX, &stake_account, 0 );
     }
-    for( ulong i=0UL; i<stale_cnt; i++ ) fd_stake_delegations_fork_remove( ctx->stake_delegations, USHORT_MAX, UINT_MAX, &stale[ i ], 0 );
-    if( stale_cnt<64UL ) break;
   }
+  return 0;
 }
 
 static void
@@ -2067,7 +2066,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( ctx->full ) index_build( ctx );
+      if( FD_UNLIKELY( ctx->full && index_build( ctx ) ) ) {
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         transition_malformed( ctx, stem );
@@ -2096,7 +2099,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( ctx->full ) index_build( ctx );
+      if( FD_UNLIKELY( ctx->full && index_build( ctx ) ) ) {
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         if( ctx->full ) FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         else            FD_LOG_WARNING(( "sysvar verification failed for incremental snapshot" ));

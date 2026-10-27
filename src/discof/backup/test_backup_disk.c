@@ -529,9 +529,9 @@ test_disk_index( void ) {
     FD_TEST( !fd_accdb_snapshot_write_batch( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX }, 1UL, pks, &slot, &lamports, &data_len, &exec,
                                              &off[ i ], &ign, &rep, &load, &rl, &il, &result ) );
   }
-  ulong dup_cnt, dup_lamports;
+  ulong dup_cnt, dup_lamports_hi, dup_lamports;
   void * build_scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( 1024UL, 64UL ) );
-  fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports );
+  FD_TEST( !fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports ) );
   free( build_scratch );
   fd_accdb_snapshot_load_end( accdb );
 
