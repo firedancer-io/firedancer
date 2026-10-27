@@ -8,6 +8,15 @@
 #define FD_ED25519_S2N 0
 #endif
 
+/* FD_ED25519_CRC=1 (crc/Local.mk, the default) takes the signers, verifies
+   and signer cache from the generated ed25519 (crc/) in place of the ones
+   below; FD_ED25519_CRC=0 keeps the ones below. */
+#ifndef FD_ED25519_CRC
+#define FD_ED25519_CRC 1
+#endif
+
+#if !FD_ED25519_CRC
+
 #if FD_ED25519_S2N
 #include "fd_ed25519_s2n.c"
 #else
@@ -432,6 +441,8 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
 #endif
 #undef MAX
 }
+
+#endif /* !FD_ED25519_CRC */
 
 char const *
 fd_ed25519_strerror( int err ) {
