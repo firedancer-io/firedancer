@@ -703,13 +703,18 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
 
+  /* Each RX link pins depth UMEM frames per net tile.  net_rserve
+     carries inbound repair-serve requests (~5-20k pps aggregate,
+     best-effort QoS where a dropped request just retries against
+     another validator), so 2048 is 100ms+ of consumer stall
+     tolerance.  Unreliable, drop-by-design. */
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_gossvf", i, config->net.ingress_buffer_size );
   /* One net_shred link per (net, shred) pair: net tiles steer each
      shred to the tile owning its FEC set (fd_net_shred_steer), so a
      shred tile no longer reads and drops the others' packets.  Link
      net_shred:i*shred_tile_cnt+k is read by shred:k. */
   FOR(net_tile_cnt) for( ulong k=0UL; k<shred_tile_cnt; k++ ) fd_topos_net_rx_link( topo, "net_shred", i, config->net.ingress_buffer_size );
-  if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, config->net.ingress_buffer_size );
+  if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, 2048UL );
   if( leader_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       uses_id_keyswitch, uses_av_keyswitch, is_waker_client */
