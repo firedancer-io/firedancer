@@ -414,7 +414,22 @@ fd_txncache_snapin_stage( fd_txncache_t * tc,
     p   += n;
     sz  -= n;
   }
-  if( sz ) spill_rw( tc, off-mem_sz, p, sz, write );
+  if( sz ) {
+    FD_TEST( off-mem_sz+sz<=tc->shmem->txnpages_max*sizeof(fd_txncache_txnpage_t) ); /* below the entries area */
+    spill_rw( tc, off-mem_sz, p, sz, write );
+  }
+}
+
+void
+fd_txncache_snapin_stage_entries( fd_txncache_t * tc,
+                                  ulong           off,
+                                  void *          buf,
+                                  ulong           sz,
+                                  int             write ) {
+  FD_TEST( fd_ulong_is_aligned( off,        FD_TXNCACHE_SNAPIN_STAGE_ALIGN ) );
+  FD_TEST( fd_ulong_is_aligned( sz,         FD_TXNCACHE_SNAPIN_STAGE_ALIGN ) );
+  FD_TEST( fd_ulong_is_aligned( (ulong)buf, FD_TXNCACHE_SNAPIN_STAGE_ALIGN ) );
+  spill_rw( tc, tc->shmem->txnpages_max*sizeof(fd_txncache_txnpage_t)+off, buf, sz, write );
 }
 
 FD_FN_PURE static inline ulong
