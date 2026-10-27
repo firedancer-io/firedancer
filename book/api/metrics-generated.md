@@ -1853,6 +1853,7 @@
 | <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;progress</span> | gauge | Accounts changed since the base snapshot that have been written so far for the incremental snapshot being created. Resets when a snapshot starts, and stays zero for a full snapshot, which has no changed account walk |
 | <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;expected</span> | gauge | Accounts changed since the base snapshot, sampled when the incremental snapshot started; 0 for a full snapshot. Replay may record more changes while the job runs, so progress can exceed this |
 | <span class="metrics-name">snapmk_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;nanos</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapmk_&#8203;disk_&#8203;write_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one write to the snapshot file |
 | <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;nanos</span> | counter | Cumulative time spent compressing data |
 | <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;used</span> | gauge | Distinct accounts changed in rooted slots since the last full snapshot job started; saturates at IncrementalAccountCapacity |
 | <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;capacity</span> | gauge | Maximum changed accounts that can be tracked; once reached, no incremental snapshot can be created until the next full snapshot |
@@ -1870,6 +1871,7 @@
 | <span class="metrics-name">snapzp_&#8203;compress_&#8203;consumed_&#8203;bytes</span> | counter | Uncompressed bytes fed to the compressor |
 | <span class="metrics-name">snapzp_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Compressed bytes written to snapshot files |
 | <span class="metrics-name">snapzp_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;nanos</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapzp_&#8203;disk_&#8203;write_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one write to the snapshot file |
 | <span class="metrics-name">snapzp_&#8203;compress_&#8203;duration_&#8203;nanos</span> | counter | Cumulative time spent compressing accounts |
 | <span class="metrics-name">snapzp_&#8203;cache_&#8203;read_&#8203;torn</span> | counter | Cached account reads torn by eviction, handed back to snapmk to un-claim |
 
@@ -1885,6 +1887,7 @@
 | <span class="metrics-name">snaprd_&#8203;export_&#8203;progress_&#8203;bytes</span> | gauge | Account database bytes read so far for the current snapshot creation job |
 | <span class="metrics-name">snaprd_&#8203;export_&#8203;expected_&#8203;bytes</span> | gauge | Account database bytes to read for the current snapshot creation job |
 | <span class="metrics-name">snaprd_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;nanos</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snaprd_&#8203;disk_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one read from the account database file |
 
 </div>
 
@@ -1900,6 +1903,8 @@
 | <span class="metrics-name">snapsv_&#8203;conn_&#8203;open</span> | gauge | Open HTTP connections to the snapshot service |
 | <span class="metrics-name">snapsv_&#8203;http_&#8203;rx_&#8203;bytes</span> | counter | Bytes received in requests to the snapshot service |
 | <span class="metrics-name">snapsv_&#8203;http_&#8203;tx_&#8203;bytes</span> | counter | Bytes sent in responses from the snapshot service |
+| <span class="metrics-name">snapsv_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Bytes read from snapshot files to serve requests |
+| <span class="metrics-name">snapsv_&#8203;disk_&#8203;read_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one read from a snapshot file, from queueing the read until the tile sees it complete |
 
 </div>
 

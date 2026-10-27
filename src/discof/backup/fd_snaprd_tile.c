@@ -64,6 +64,7 @@ struct fd_snaprd {
     ulong export_progress_bytes;
     ulong export_total_bytes;
     ulong io_blocked_ticks;
+    fd_histf_t disk_read_hist[1];
   } metrics;
 
   int accdb_direct_fd;
@@ -129,6 +130,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->in_ctl_seq = 0UL;
   ctx->idle_cnt   = 0UL;
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics.disk_read_hist, FD_MHIST_EDGES_NS( SNAPRD, DISK_READ_DURATION_NANOS ) ) );
 
   /* snaprd queries accdb partition info to figure out where to read */
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snaprd.accdb_obj_id );
@@ -314,7 +316,10 @@ after_credit( fd_snaprd_t *       ctx,
     long t1 = fd_tickcount();
     ctx->metrics.bytes_read            += read_sz;
     ctx->metrics.export_progress_bytes += frag_sz;
-    if( FD_LIKELY( frag_sz ) ) ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
+    if( FD_LIKELY( frag_sz ) ) {
+      ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
+      fd_histf_sample( ctx->metrics.disk_read_hist, (ulong)( t1-t0 ) );
+    }
 
     ctx->part_cur += frag_sz;
 
@@ -342,6 +347,7 @@ metrics_write( fd_snaprd_t * ctx ) {
   FD_MGAUGE_SET( SNAPRD, EXPORT_PROGRESS_BYTES,       ctx->metrics.export_progress_bytes );
   FD_MGAUGE_SET( SNAPRD, EXPORT_EXPECTED_BYTES,       ctx->metrics.export_total_bytes    );
   FD_MCNT_SET  ( SNAPRD, IO_BLOCKED_DURATION_NANOS,   ctx->metrics.io_blocked_ticks      );
+  FD_MHIST_COPY( SNAPRD, DISK_READ_DURATION_NANOS,    ctx->metrics.disk_read_hist        );
 }
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snaprd_t

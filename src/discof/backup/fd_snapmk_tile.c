@@ -280,6 +280,7 @@ struct fd_snapmk {
     ulong bytes_written;
     ulong io_blocked_ticks;
     ulong compress_ticks;
+    fd_histf_t disk_write_hist[1];
   } metrics;
 };
 
@@ -435,6 +436,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
   fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics.disk_write_hist, FD_MHIST_EDGES_NS( SNAPMK, DISK_WRITE_DURATION_NANOS ) ) );
   {
     FD_SCRATCH_ALLOC_INIT( l, accdb_shmem_ro );
     FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN, sizeof(fd_accdb_shmem_t) );
@@ -631,6 +633,7 @@ zip_flush( fd_snapmk_t *     ctx,
   }
   ctx->metrics.bytes_written    += comp_wr_;
   ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
+  fd_histf_sample( ctx->metrics.disk_write_hist, (ulong)( t1-t0 ) );
   ctx->pool_sz[ ctx->snap_idx ] += comp_wr_;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
@@ -681,6 +684,7 @@ zip_align( fd_snapmk_t * ctx ) {
     long t1 = fd_tickcount();
     ctx->metrics.bytes_written    += pad_sz;
     ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
+    fd_histf_sample( ctx->metrics.disk_write_hist, (ulong)( t1-t0 ) );
     ctx->pool_sz[ ctx->snap_idx ] += pad_sz;
     ctx->zstd_padding_sz          += pad_sz;
   }
@@ -2071,6 +2075,7 @@ metrics_write( fd_snapmk_t * ctx ) {
   FD_MGAUGE_SET    ( SNAPMK, INCREMENTAL_ACCOUNT_EXPECTED,   ctx->delta.ele_total                                           );
 
   FD_MCNT_SET  ( SNAPMK, IO_BLOCKED_DURATION_NANOS,      ctx->metrics.io_blocked_ticks );
+  FD_MHIST_COPY( SNAPMK, DISK_WRITE_DURATION_NANOS,      ctx->metrics.disk_write_hist  );
   FD_MCNT_SET  ( SNAPMK, COMPRESS_DURATION_NANOS,        ctx->metrics.compress_ticks   );
   FD_MGAUGE_SET    ( SNAPMK, DISK_ALLOCATED_BYTES,           disk_alloc_bytes                                               );
 

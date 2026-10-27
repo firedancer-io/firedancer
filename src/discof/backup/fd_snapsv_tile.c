@@ -132,6 +132,7 @@ struct snapsv_conn {
   uint disk_inflight:1; /* file read pending completion */
   uint net_inflight:1;  /* tcp send pending completion */
   uint closing:1;       /* close once shovel operations drain? */
+  long disk_ts;         /* unix nanos when the file read was submitted */
 
   struct {
     ulong req_seq;  /* seq no of this HTTP request */
@@ -186,6 +187,8 @@ struct fd_snapsv {
   uint *  iobuf_free;
   uint    iobuf_free_cnt;
   uint    iobuf_sz;
+
+  fd_histf_t disk_read_hist[1];
 
   /* TCP sockets */
   int             listen_fd;
@@ -576,6 +579,8 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<iobuf_cnt; i++ ) {
     iobuf_free[ i ] = (uint)iobuf_cnt-1U-(uint)i;
   }
+
+  fd_histf_join( fd_histf_new( ctx->disk_read_hist, FD_MHIST_MIN( SNAPSV, DISK_READ_DURATION_NANOS ), FD_MHIST_MAX( SNAPSV, DISK_READ_DURATION_NANOS ) ) );
 
   /* kick off main async op */
 
@@ -1093,6 +1098,7 @@ shovel( fd_snapsv_t *       ctx,
     snapsv_udata_t udata = { .op = UDATA_OP_SHOVEL_DISK, .conn_idx = conn_idx };
     sqe->user_data = udata.user_data;
     conn->disk_inflight = 1U;
+    conn->disk_ts       = now;
   }
 
   /* everything done */
@@ -1120,6 +1126,7 @@ shovel_comp_disk( fd_snapsv_t *       ctx,
   FD_CHECK_CRIT( conn->state==CONN_STATE_RES_SHOVEL && conn->disk_inflight,
                  "unexpected shovel disk completion" );
   conn->disk_inflight = 0U;
+  fd_histf_sample( ctx->disk_read_hist, (ulong)fd_long_max( now-conn->disk_ts, 0L ) );
 
   /* snapshot file recycled between submission and completion? */
   if( FD_UNLIKELY( !conn_snap_entry( ctx, conn ) ) ) {
@@ -1147,6 +1154,7 @@ shovel_comp_disk( fd_snapsv_t *       ctx,
 
   conn->snap.req_cur += (ulong)res;
   conn->rdbuf_len     = (uint)res;
+  FD_MCNT_INC( SNAPSV, DISK_READ_BYTES, (ulong)res );
   shovel( ctx, stem, conn_idx, now );
 }
 
@@ -2198,9 +2206,10 @@ during_housekeeping( fd_snapsv_t * ctx ) {
 
 static void
 metrics_write( fd_snapsv_t * ctx ) {
-  FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_FULL,         ctx->snap_cnt_full );
-  FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_INCREMENTAL,  ctx->snap_cnt_incr );
-  FD_MGAUGE_SET( SNAPSV, CONN_OPEN,                       ctx->conn_cnt      );
+  FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_FULL,        ctx->snap_cnt_full  );
+  FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_INCREMENTAL, ctx->snap_cnt_incr  );
+  FD_MGAUGE_SET( SNAPSV, CONN_OPEN,                      ctx->conn_cnt       );
+  FD_MHIST_COPY( SNAPSV, DISK_READ_DURATION_NANOS,       ctx->disk_read_hist );
 }
 
 /* snapsv uses a custom sleep with io_uring_enter and doesn't currently
