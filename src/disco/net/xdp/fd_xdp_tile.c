@@ -685,7 +685,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   /* Allocate buffer for receive */
   ulong                alloc_seq = free->cons;
-  void *               frame     = (void *)free->queue[ alloc_seq % free->depth ];
+  void *               frame     = (void *)free->queue[ alloc_seq & (free->depth-1UL) ];
   free->cons = fd_seq_inc( alloc_seq, 1UL );
 
   ctx->tx_op.frame = frame;
@@ -1003,7 +1003,7 @@ before_credit( fd_net_ctx_t *      ctx,
     *charge_busy = 1;
     fd_net_free_ring_t * free      = &ctx->free_tx;
     ulong                alloc_seq = free->prod;
-    free->queue[ alloc_seq % free->depth ] = (ulong)ctx->tx_op.frame;
+    free->queue[ alloc_seq & (free->depth-1UL) ] = (ulong)ctx->tx_op.frame;
     free->prod = fd_seq_inc( alloc_seq, 1UL );
     ctx->tx_op.frame = NULL;
   }
@@ -1145,6 +1145,9 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->free_tx.queue = free_tx;
   ctx->free_tx.depth = tile->xdp.free_ring_depth;
+
+  /* Firedancer requires the ring be a power of two. */
+  FD_TEST( fd_ulong_is_pow2( tile->xdp.free_ring_depth ) );
 
   /* Create and install XSKs */
 
