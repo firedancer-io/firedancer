@@ -1312,6 +1312,7 @@ fd_uverbs_create_rx_wq( fd_uverbs_ctx_t * uverbs,
   req->core.cq_handle    = rx_cq_handle;
   req->core.max_wr       = rx_wq->rx_depth;
   req->core.max_sge      = 1U;
+  req->core.create_flags = IB_UVERBS_WQ_FLAGS_CVLAN_STRIPPING;
   req->mlx5.buf_addr     = (ulong)rx_wq->rq;
   req->mlx5.db_addr      = (ulong)rx_wq->control;
   req->mlx5.rq_wqe_count = rx_wq->rx_depth;

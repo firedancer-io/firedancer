@@ -87,6 +87,7 @@ struct fd_net_tile {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
     ulong rx_gre_cnt;
+    ulong rx_vlan_cnt;
     ulong rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT ];
 
     ulong tx_pkt_cnt;
@@ -354,6 +355,21 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   uchar * frame = (uchar *)fd_chunk_to_laddr( ctx->pkt_buf_wksp_base, chunk ) + ctl;
   fd_eth_hdr_t * eth_hdr = (fd_eth_hdr_t *)frame;
+  int is_vlan = fd_ushort_bswap( eth_hdr->net_type )==FD_ETH_HDR_TYPE_VLAN;
+  if( FD_UNLIKELY( is_vlan ) ) {
+    fd_vlan_tag_t const * vlan_tag = (fd_vlan_tag_t const *)(eth_hdr+1);
+    /* Move the ethernet header so that it abuts the IP header. It uses
+       a temporary ethernet header because the memory regions will
+       overlap precluding the use of memcpy. */
+    fd_eth_hdr_t tmp_eth_hdr = *eth_hdr;
+    /* Take the net_type from the vlan tag so the ethernet header is valid. */
+    tmp_eth_hdr.net_type = vlan_tag->net_type;
+    FD_STORE( fd_eth_hdr_t, frame+sizeof(fd_vlan_tag_t), tmp_eth_hdr );
+    frame    += sizeof(fd_vlan_tag_t);
+    ctl      += sizeof(fd_vlan_tag_t);
+    byte_len -= sizeof(fd_vlan_tag_t);
+    eth_hdr   = (fd_eth_hdr_t *)frame;
+  }
   if( FD_UNLIKELY( fd_ushort_bswap( eth_hdr->net_type )!=FD_ETH_HDR_TYPE_IP ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]++;
     return 0;
@@ -453,7 +469,8 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
 
   fd_stem_publish( stem, out_idx, sig, chunk, byte_len, ctl, tsorig, tspub );
 
-  ctx->metrics.rx_gre_cnt += (ulong)is_gre;
+  ctx->metrics.rx_gre_cnt  += (ulong)is_gre;
+  ctx->metrics.rx_vlan_cnt += (ulong)is_vlan;
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += byte_len;
 

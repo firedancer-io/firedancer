@@ -34,16 +34,15 @@ struct __attribute__((aligned(8))) bpf_link_create {
 
 
 /*
-
   ┌─────────────────────────────────────────┐
   │   Packet Classification Control Flow    │
   |                                         |
-  │       ┌────────┐                        │
-  │       │Ethernet│                        │
-  │       └───┬────┘                        │
-  │           │                             │
-  │       ┌───▼────┐                        │
-  │       │ IPV4   │                        │
+  │       ┌────────┐   ┌────┐               │
+  │       │Ethernet│-->│VLAN│               │
+  │       └───┬────┘   └─┬──┘               │
+  │           │          |                  │
+  │       ┌───▼────┐     |                  │
+  │       │ IPV4   │◄────┘                  │
   │       └──┬───┬─┘                        │
   │          │   │                          │
   │          │   └────►──────┐              │
@@ -67,7 +66,10 @@ struct __attribute__((aligned(8))) bpf_link_create {
   classify incoming network packets in an XDP context. Each box in the above
   diagram represents a phase during the classification. NON-GRE packets follow
   the path of Ethernet-->IPV4-->UDP. GRE packets follow the path of
-  Ethernet-->IPV4-->GRE-->Inner IPV4-->UDP. Based on the packet's protocol and
+  Ethernet-->IPV4-->GRE-->Inner IPV4-->UDP. Packets carrying a single
+  802.1Q tag (any VLAN ID) whose inner Ethertype is IPV4 take the VLAN
+  phase between Ethernet and IPV4, then follow the same paths.
+  Double-tagged packets are passed to the kernel. Based on the packet's protocol and
   specific header values, the function decides whether to redirect the packet
   to the firedancer net tile (LBL_REDIRECT) or pass the packet to the
   kernel (LBL_PASS).
@@ -85,6 +87,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
 
   #define LBL_GRE_CHECK     3   // Ethernet-->IPV4-->GRE-->Inner IPV4-->UDP
   #define LBL_UDP_CHECK     4   // Ethernet-->IPV4-->UDP
+  #define LBL_ETH_IP4       5   // Advance past the Ethernet hdr to the first ip4_hdr
 
   if( FD_UNLIKELY( ports_cnt>16UL ) ) {
     FD_LOG_ERR(( "Too many XDP UDP ports (%lu)", ports_cnt ));
@@ -98,10 +101,26 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( add64_imm, r5, 34                        );  // Bound check accessing the eth_hdr (14 bytes) and the ip4_hdr (20 bytes)
   *(code++) = FD_EBPF( jgt_reg, r5, r3, LBL_PASS                );  // if r2+34 > r3 goto LBL_PASS
 
-  *(code++) = FD_EBPF( ldxh, r5, r2, 12                         );
-  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, LBL_PASS            );  // if eth_hdr->net_type != IP4 goto LBL_PASS
+  *(code++) = FD_EBPF( ldxh, r5, r2, 12                         );  // r5 = eth_hdr->net_type
+  *(code++) = FD_EBPF( jeq_imm, r5, 0x0008, LBL_ETH_IP4         );  // if eth_hdr->net_type == IP4 goto eth_ip4
+  *(code++) = FD_EBPF( jne_imm, r5, 0x0081, LBL_PASS            );  // if eth_hdr->net_type != VLAN goto LBL_PASS
+
+  /* next hdr is a single 802.1Q vlan_tag */
+
+  /* Bound check accessing the eth_hdr, vlan_tag and ip4_hdr */
+  *(code++) = FD_EBPF( mov64_reg, r5, r2                        );
+  *(code++) = FD_EBPF( add64_imm, r5, 38                        );  // sizeof(eth_hdr) + sizeof(vlan_tag) + sizeof(ip4_hdr) = 14 + 4 + 20
+  *(code++) = FD_EBPF( jgt_reg, r5, r3, LBL_PASS                );  // if r2+38 > r3 goto LBL_PASS
+
+  *(code++) = FD_EBPF( ldxh, r5, r2, 16                         );  // r5 = vlan_tag->net_type
+  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, LBL_PASS            );  // if vlan_tag->net_type != IP4 goto LBL_PASS
+
+  /* Advance r2 past the vlan_tag.  eth_ip4 then advances it past the
+     eth_hdr, so r2 points at the first ip4_hdr on both paths. */
+  *(code++) = FD_EBPF( add64_imm, r2, 4                         );  // r2 += sizeof(vlan_tag)
 
   /* Advance r2 to the start of first ip4_hdr */
+  ulong * eth_ip4 = code;
   *(code++) = FD_EBPF( add64_imm, r2, 14                        );
 
   /* Calculate the start of next hdr and store in r4 */
@@ -226,6 +245,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
       case LBL_REDIRECT:  jmp_target = lbl_redirect; break;
       case LBL_GRE_CHECK: jmp_target = gre_check;    break;
       case LBL_UDP_CHECK: jmp_target = udp_check;    break;
+      case LBL_ETH_IP4:   jmp_target = eth_ip4;      break;
       default: FD_LOG_ERR(( "Invalid jump instruction (%016lx)", fd_ulong_bswap( code_buf[ i ] ) ));
       }
       long   off   = jmp_target-code_buf-(long)i-1;
@@ -242,6 +262,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
 
   #undef LBL_GRE_CHECK
   #undef LBL_UDP_CHECK
+  #undef LBL_ETH_IP4
   return code_cnt;
 }
 

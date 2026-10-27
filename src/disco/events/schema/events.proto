@@ -1432,6 +1432,8 @@ message MetricsNetPktTxDropped {
   uint64 ring_full = 8;
   // GRE tunnel addresses missing or outer route is itself tunnelled
   uint64 gre_no_route = 9;
+  // Socket send failed or failed to send the entire packet
+  uint64 socket_send_failure = 10;
 }
 
 // Received packets dropped, by reason
@@ -1516,6 +1518,8 @@ message MetricsMlx5PktTxDropped {
   uint64 ring_full = 8;
   // GRE tunnel addresses missing or outer route is itself tunnelled
   uint64 gre_no_route = 9;
+  // Socket send failed or failed to send the entire packet
+  uint64 socket_send_failure = 10;
 }
 
 // Received packets dropped, by reason
@@ -8868,6 +8872,10 @@ message MetricsNet {
   uint64 gre_pkt_tx_submitted = 46;
   // IPv4 routes installed in the forwarding table
   MetricsNetRouteCount route_count = 47;
+  // VLAN-tagged packets with the tag stripped and published; subset of PktRx
+  uint64 vlan_pkt_rx = 48;
+  // Packets sent via a kernel socket instead of the configured provider; subset of PktTxSubmitted
+  uint64 socket_pkt_tx_submitted = 49;
 }
 
 // Metrics of one mlx5 tile instance, one row per sweep
@@ -8944,6 +8952,8 @@ message MetricsMlx5 {
   uint64 tx_buffer_used = 35;
   // TX buffers available for a new transmit job
   uint64 tx_buffer_free = 36;
+  // VLAN-tagged packets with the tag stripped and published; subset of PktRx
+  uint64 vlan_pkt_rx = 37;
 }
 
 // Metrics of one sock tile instance, one row per sweep

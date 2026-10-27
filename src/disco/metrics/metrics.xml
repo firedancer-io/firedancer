@@ -252,6 +252,9 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="GrePktRx" summary="GRE packets decapsulated and published; subset of PktRx" />
     <counter name="GrePktTxSubmitted" summary="GRE packet transmit jobs submitted; subset of PktTxSubmitted" />
 
+    <!-- VLAN metrics -->
+    <counter name="VlanPktRx" summary="VLAN-tagged packets with the tag stripped and published; subset of PktRx" />
+
     <!-- Socket metrics -->
     <counter name="SocketPktTxSubmitted" summary="Packets sent via a kernel socket instead of the configured provider; subset of PktTxSubmitted" />
     <gauge name="RouteCount" enum="RouteTableType" summary="IPv4 routes installed in the forwarding table" />
@@ -262,6 +265,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PktRxBytes" summary="Bytes of packets successfully published to output links" />
     <counter name="PktRxDropped" enum="PktRxDropReason" summary="Received packets dropped, by reason" />
     <counter name="GrePktRx" summary="GRE packets decapsulated and published; subset of PktRx" />
+    <counter name="VlanPktRx" summary="VLAN-tagged packets with the tag stripped and published; subset of PktRx" />
     <gauge name="RxBufferUsed" summary="RX buffers not currently posted to the NIC" />
     <gauge name="RxBufferFree" summary="RX buffers currently posted to the NIC" />
     <counter name="PktTxCompleted" summary="Packets completed by the NIC for transmission" />

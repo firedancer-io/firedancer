@@ -303,6 +303,7 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET(   NET, PKT_RX_BYTES,          ctx->net.metrics.rx_bytes_total     );
   FD_MCNT_ENUM_COPY( NET, PKT_RX_DROPPED,  ctx->net.metrics.rx_drop_cnt        );
   FD_MCNT_SET(   NET, GRE_PKT_RX,            ctx->net.metrics.rx_gre_cnt         );
+  FD_MCNT_SET(   NET, VLAN_PKT_RX,           ctx->net.metrics.rx_vlan_cnt        );
   FD_MCNT_SET(   NET, RX_FILL_RING_STALLED,  ctx->metrics.rx_fill_blocked_cnt    );
   FD_MGAUGE_SET( NET, RX_BUFFER_USED, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
   FD_MGAUGE_SET( NET, RX_BUFFER_FREE, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );

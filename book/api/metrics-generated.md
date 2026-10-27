@@ -224,7 +224,8 @@
 | <span class="metrics-name">net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty</span> | counter | Times the kernel found the TX ring empty (xdp_statistics_v1.tx_ring_empty_descs) |
 | <span class="metrics-name">net_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | GRE packets decapsulated and published; subset of PktRx |
 | <span class="metrics-name">net_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | GRE packet transmit jobs submitted; subset of PktTxSubmitted |
-| <span class="metrics-name">net_&#8203;socket_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Packets sent via a kernel socket instead of the provider TX ring; subset of PktTxSubmitted |
+| <span class="metrics-name">net_&#8203;vlan_&#8203;pkt_&#8203;rx</span> | counter | VLAN-tagged packets with the tag stripped and published; subset of PktRx |
+| <span class="metrics-name">net_&#8203;socket_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Packets sent via a kernel socket instead of the configured provider; subset of PktTxSubmitted |
 | <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table_&#8203;type="<span class="metrics-enum">local</span>"} | gauge | IPv4 routes installed in the forwarding table (Local) |
 | <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table_&#8203;type="<span class="metrics-enum">main</span>"} | gauge | IPv4 routes installed in the forwarding table (Main) |
 
@@ -1783,6 +1784,7 @@
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;unconfigured</span>"} | counter | Received packets dropped, by reason (GRE packet with no GRE tunnel configured) |
 | <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | GRE packets decapsulated and published; subset of PktRx |
+| <span class="metrics-name">mlx5_&#8203;vlan_&#8203;pkt_&#8203;rx</span> | counter | VLAN-tagged packets with the tag stripped and published; subset of PktRx |
 | <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;used</span> | gauge | RX buffers not currently posted to the NIC |
 | <span class="metrics-name">mlx5_&#8203;rx_&#8203;buffer_&#8203;free</span> | gauge | RX buffers currently posted to the NIC |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Packets completed by the NIC for transmission |

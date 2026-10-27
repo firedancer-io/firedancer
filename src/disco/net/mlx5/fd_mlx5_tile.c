@@ -1014,6 +1014,7 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
   FD_MCNT_SET(   MLX5, PKT_RX_BYTES,       ctx->net.metrics.rx_bytes_total       );
   FD_MCNT_ENUM_COPY( MLX5, PKT_RX_DROPPED, ctx->net.metrics.rx_drop_cnt        );
   FD_MCNT_SET(   MLX5, GRE_PKT_RX,         ctx->net.metrics.rx_gre_cnt           );
+  FD_MCNT_SET(   MLX5, VLAN_PKT_RX,        ctx->net.metrics.rx_vlan_cnt          );
   FD_MGAUGE_SET( MLX5, RX_BUFFER_USED,     rx_buffer_busy_cnt                    );
   FD_MGAUGE_SET( MLX5, RX_BUFFER_FREE,     rx_buffer_idle_cnt                    );
 
