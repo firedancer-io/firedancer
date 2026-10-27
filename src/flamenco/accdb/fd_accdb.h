@@ -175,12 +175,14 @@ fd_accdb_idx_query( fd_accdb_t *  accdb,
 
    fd_accdb_snapshot_index_build_fini places windows too, waits for the
    ones other joins claimed, and finishes the index.  Exactly one join
-   calls it.  The losers' count and lamports are returned for
-   capitalization checks.
+   calls it.  The losers' count and 128-bit lamports are returned for
+   capitalization checks.  Returns 0 on success, -1 (outputs zero) if
+   the snapshot is corrupt: a pubkey has two records at one slot.
 
    fd_accdb_snapshot_index_build is a single join build (rearm + fini).
 
-   All are no-ops (outputs zero) when the disk index is disabled. */
+   All are no-ops (outputs zero, return 0) when the disk index is
+   disabled. */
 
 FD_FN_CONST ulong
 fd_accdb_snapshot_index_build_scratch_align( void );
@@ -193,16 +195,18 @@ void
 fd_accdb_snapshot_index_build_work( fd_accdb_t * accdb,
                                     void *       scratch );
 
-void
+int
 fd_accdb_snapshot_index_build_fini( fd_accdb_t * accdb,
                                     void *       scratch,
                                     ulong *      out_dup_cnt,
+                                    ulong *      out_dup_lamports_hi,
                                     ulong *      out_dup_lamports );
 
-void
+int
 fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
                                void *       scratch,
                                ulong *      out_dup_cnt,
+                               ulong *      out_dup_lamports_hi,
                                ulong *      out_dup_lamports );
 
 /* fd_accdb_snapshot_index_slot returns the snapshot slot of pubkey's

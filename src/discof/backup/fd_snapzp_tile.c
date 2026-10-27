@@ -235,7 +235,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   (void)topo;
   ulong snap_fd_cnt = tile->snapzp.snap_fd_cnt;
-  FD_CHECK_ERR( out_fds_cnt>=3UL+snap_fd_cnt, "out_fds[] too small" );
+  FD_CHECK_ERR( out_fds_cnt>=4UL+snap_fd_cnt, "out_fds[] too small" );
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )

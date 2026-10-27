@@ -215,10 +215,26 @@ FD_STATIC_ASSERT( sizeof(fd_accdb_idx_slot_t)==64UL, idx_slot_layout );
 struct fd_accdb_idx_range {
   int   lock;
   uint  stage_cnt;
-  ulong spill_cnt;
+  ulong spill_tail; /* spill offset+1 of the newest chunk, 0 if none */
 };
 
 typedef struct fd_accdb_idx_range fd_accdb_idx_range_t;
+
+/* A spill chunk is FD_ACCDB_IDX_STAGE_CNT slots: this header, then up
+   to FD_ACCDB_IDX_STAGE_CNT-1 records.  A range's chunks are linked
+   newest first. */
+
+struct fd_accdb_idx_chunk_hdr {
+  ulong prev_plus1; /* 0 for the oldest chunk of a range */
+  ulong cnt;
+  uchar pad[ 48UL ];
+};
+
+typedef struct fd_accdb_idx_chunk_hdr fd_accdb_idx_chunk_hdr_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_idx_chunk_hdr_t)==sizeof(fd_accdb_idx_slot_t), idx_chunk_hdr_layout );
+
+#define FD_ACCDB_IDX_CHUNK_SZ (FD_ACCDB_IDX_STAGE_CNT*sizeof(fd_accdb_idx_slot_t))
 
 static inline ulong
 fd_accdb_pool_max( ulong max_accounts,
@@ -633,7 +649,6 @@ struct fd_accdb_shmem_private {
   ulong pool_max;         /* acc_pool capacity */
   ulong idx_page_cnt;     /* 0 when the disk index is disabled */
   ulong idx_range_cnt;    /* placement windows */
-  ulong idx_spill_cap;    /* records per range spill extent */
   ulong idx_seq_off;      /* uint seqlock per 2^FD_ACCDB_IDX_SEQ_LG pages */
   ulong idx_range_off;    /* fd_accdb_idx_range_t per range */
   ulong idx_stage_off;    /* FD_ACCDB_IDX_STAGE_CNT slots per range */
@@ -651,14 +666,18 @@ struct fd_accdb_shmem_private {
     ulong carry_cnt;     /* records that probed past their window */
     ulong winners;
     ulong dup_cnt;
-    ulong dup_lamports;
+    ulong dup_lamports;  /* low word */
+    ulong dup_lamports_hi;
     ulong freed;         /* bytes of losing and zero-lamport records */
+    ulong corrupt_slot;  /* slot+1 of a pubkey seen twice at one slot, 0 if none */
   } idx_build;
 
   /* The spill of a finished build is punched out in the background,
-     from idx_spill_punch_off on.  Holds one of FD_ACCDB_IDX_SPILL_*. */
+     from idx_spill_punch_off up to idx_spill_end, the bytes of chunks
+     allocated.  Holds one of FD_ACCDB_IDX_SPILL_*. */
   ulong idx_spill_state __attribute__((aligned(64)));
   ulong idx_spill_punch_off;
+  ulong idx_spill_end;
   struct __attribute__((aligned(64))) { ulong val; } acc_used;
 
   acc_pool_shmem_t  acc_pool [1];

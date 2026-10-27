@@ -341,7 +341,6 @@ fd_accdb_shmem_new( void * shmem,
   accdb->pool_max         = pool_max;
   accdb->idx_page_cnt     = idx_page_cnt;
   accdb->idx_range_cnt    = ( idx_page_cnt+FD_ACCDB_IDX_WINDOW_PAGES-1UL )/FD_ACCDB_IDX_WINDOW_PAGES;
-  accdb->idx_spill_cap    = idx_page_cnt ? (max_accounts/accdb->idx_range_cnt)*5UL/4UL+FD_ACCDB_IDX_STAGE_CNT : 0UL;
   accdb->idx_seq_off      = idx_off[ 0 ];
   accdb->idx_range_off    = idx_off[ 1 ];
   accdb->idx_stage_off    = idx_off[ 2 ];
@@ -352,6 +351,7 @@ fd_accdb_shmem_new( void * shmem,
   fd_memset( &accdb->idx_build, 0, sizeof(accdb->idx_build) );
   accdb->idx_spill_state     = FD_ACCDB_IDX_SPILL_IDLE;
   accdb->idx_spill_punch_off = 0UL;
+  accdb->idx_spill_end       = 0UL;
   accdb->acc_used.val     = 0UL;
   if( idx_page_cnt ) {
     fd_memset( (uchar *)shmem+idx_off[ 0 ], 0, ( ( idx_page_cnt+(1UL<<FD_ACCDB_IDX_SEQ_LG)-1UL )>>FD_ACCDB_IDX_SEQ_LG )*sizeof(uint) );

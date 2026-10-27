@@ -4,6 +4,7 @@
 #include "fd_accdb_cache.h"
 #include "fd_accdb_private.h"
 #include "../../util/fd_util.h"
+#include "../../util/bits/fd_uwide.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -2329,11 +2330,11 @@ test_idx_snapshot( void ) {
   idx_snap_write( accdb, fd, SENTINEL, pk[ 0 ], 20UL,   0UL, 0UL, 0x00, &r, NULL );
   idx_snap_write( accdb, fd, SENTINEL, pk[ 1 ],  5UL,   7UL, 8UL, 0x21, &r, NULL );
   idx_snap_write( accdb, fd, SENTINEL, pk[ 3 ],  1UL,   3UL, 8UL, 0x13, &r, NULL );
-  ulong dup_cnt, dup_lamports;
+  ulong dup_cnt, dup_lamports_hi, dup_lamports;
   void * build_scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( 1024UL, 64UL ) );
-  fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports );
+  FD_TEST( !fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports ) );
   free( build_scratch );
-  FD_TEST( dup_cnt==2UL && dup_lamports==107UL );
+  FD_TEST( dup_cnt==2UL && !dup_lamports_hi && dup_lamports==107UL );
   fd_accdb_snapshot_load_end( accdb );
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL );
 
@@ -2362,6 +2363,46 @@ test_idx_snapshot( void ) {
   close( test_idx_fd );
 }
 
+/* More versions of one pubkey than max_accounts fit the spill and the
+   losers' lamports keep their high word.  Two records of a pubkey at
+   one slot, in different batches, fail the build. */
+
+static void
+test_idx_snapshot_dups( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_idx( &fd );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  uchar pk[ 32 ] = { 0xE0 };
+  uchar r;
+  ulong const lamports = 2000000000000000000UL;
+  void * build_scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( 1024UL, 64UL ) );
+
+  fd_accdb_snapshot_load_begin( accdb );
+  for( ulong i=0UL; i<3000UL; i++ ) idx_snap_write( accdb, fd, SENTINEL, pk, 1UL+i, lamports, 8UL, (uchar)i, &r, NULL );
+  ulong dup_cnt, dup_lamports_hi, dup_lamports, want_hi, want_lo;
+  FD_TEST( !fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports ) );
+  fd_accdb_snapshot_load_end( accdb );
+  fd_uwide_mul( &want_hi, &want_lo, 2999UL, lamports );
+  FD_TEST( dup_cnt==2999UL && dup_lamports_hi==want_hi && dup_lamports==want_lo && want_hi );
+  FD_TEST( fd_accdb_snapshot_index_slot( accdb, pk )==3000UL );
+  ulong got; uchar out[ 8 ];
+  FD_TEST( accdb_read( accdb, root, pk, &got, out, NULL, NULL ) && got==lamports && out[ 0 ]==(uchar)2999UL );
+  test_teardown( accdb, fd );
+  close( test_idx_fd );
+
+  accdb = test_setup_idx( &fd );
+  fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  idx_snap_write( accdb, fd, SENTINEL, pk, 5UL, 1UL, 8UL, 0x01, &r, NULL );
+  idx_snap_write( accdb, fd, SENTINEL, pk, 5UL, 2UL, 8UL, 0x02, &r, NULL );
+  FD_TEST( fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports )==-1 );
+  FD_TEST( !dup_cnt && !dup_lamports_hi && !dup_lamports );
+  test_teardown( accdb, fd );
+  close( test_idx_fd );
+
+  free( build_scratch );
+}
+
 /* Compaction relocates records only the disk index references, and
    readers holding promoted copies see the new location. */
 
@@ -2386,9 +2427,9 @@ test_idx_compaction( void ) {
     uchar filler[ 32 ] = { 0xD0, (uchar)i };
     idx_snap_write( accdb, fd, SENTINEL, filler, 2UL, 1UL, 128UL<<10, 0xDD, &r, NULL );
   }
-  ulong dup_cnt, dup_lamports;
+  ulong dup_cnt, dup_lamports_hi, dup_lamports;
   void * build_scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( 1024UL, 64UL ) );
-  fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports );
+  FD_TEST( !fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports_hi, &dup_lamports ) );
   free( build_scratch );
   FD_TEST( dup_cnt==40UL );
   fd_accdb_snapshot_load_end( accdb );
@@ -2505,14 +2546,14 @@ test_idx_parallel_build( void ) {
     fd_accdb_set_spill_fd( args[ t ].accdb, spill_fd );
     FD_TEST( !pthread_create( &threads[ t ], NULL, idx_build_run, &args[ t ] ) );
   }
-  ulong dup_cnt, dup_lamports;
-  fd_accdb_snapshot_index_build_fini( accdb, scratch[ 0 ], &dup_cnt, &dup_lamports );
+  ulong dup_cnt, dup_lamports_hi, dup_lamports;
+  FD_TEST( !fd_accdb_snapshot_index_build_fini( accdb, scratch[ 0 ], &dup_cnt, &dup_lamports_hi, &dup_lamports ) );
   for( ulong t=0UL; t<2UL; t++ ) FD_TEST( !pthread_join( threads[ t ], NULL ) );
   fd_accdb_snapshot_load_end( accdb );
 
   FD_TEST( test_shmem_mem->idx_build.done==test_shmem_mem->idx_range_cnt );
   FD_TEST( test_shmem_mem->idx_build.carry_cnt>=8UL*test_shmem_mem->idx_range_cnt );
-  FD_TEST( dup_cnt==want_dups && dup_lamports==5UL*want_dups );
+  FD_TEST( dup_cnt==want_dups && !dup_lamports_hi && dup_lamports==5UL*want_dups );
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==want_winners );
   for( ulong i=0UL; i<n; i++ ) {
     FD_TEST( idx_lamports( accdb, pk[ i ] )==( (i%11UL) ? 100UL+i : 0UL ) );
@@ -2817,6 +2858,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_snapshot ..." ));
   test_idx_snapshot();
+
+  FD_LOG_NOTICE(( "test_idx_snapshot_dups ..." ));
+  test_idx_snapshot_dups();
 
   FD_LOG_NOTICE(( "test_idx_compaction ..." ));
   test_idx_compaction();
