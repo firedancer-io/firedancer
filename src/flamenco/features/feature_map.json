@@ -256,7 +256,7 @@
   {"name":"static_instruction_limit","implemented":1,"pubkey":"64ixypL1HPu8WtJhNSMb9mSgfFaJvsANuRkTbHyuLfnx","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"vote_state_v4","implemented":1,"pubkey":"Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"alt_bn128_little_endian","implemented":1,"pubkey":"bn2oPgpkzQPT3tohMaAsMVGjhDmmDa4jCaVPqCFmtxM","hardcode_for_fuzzing":1},
-  {"name":"enable_bls12_381_syscall","implemented":1,"pubkey":"b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ","hardcode_for_fuzzing":1},
+  {"name":"enable_bls12_381_syscall","implemented":1,"pubkey":"b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"enable_alt_bn128_g2_syscalls","implemented":1,"pubkey":"bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH","hardcode_for_fuzzing":1},
   {"name":"switch_to_chacha8_turbine","implemented":1,"pubkey":"CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"bls_pubkey_management_in_vote_account","implemented":1,"pubkey":"AnAP9zPV4KL7czAPQbFhpDKV2tx7g4UGNbK9wvXwjaRo","old":"2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq"},
