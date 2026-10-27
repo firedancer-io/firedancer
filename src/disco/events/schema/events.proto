@@ -3643,7 +3643,7 @@ message MetricsShredRegimeDurationNanos {
 }
 
 // Duration of one write to the account database file by compaction and writeback
-message MetricsAccdbDiskWriteDurationNanos {
+message MetricsAccdbAccountsDiskWriteDurationNanos {
   // [0, 1000) nanos
   uint64 b0 = 1;
   // [1000, 2683) nanos
@@ -3681,7 +3681,7 @@ message MetricsAccdbDiskWriteDurationNanos {
 }
 
 // Duration of one read from the account database file by compaction
-message MetricsAccdbDiskReadDurationNanos {
+message MetricsAccdbAccountsDiskReadDurationNanos {
   // [0, 1000) nanos
   uint64 b0 = 1;
   // [1000, 2683) nanos
@@ -10229,9 +10229,9 @@ message MetricsAccdb {
   // Program cache slots reclaimed by the background preevict pass, by size class
   MetricsAccdbProgcachePreevicted progcache_preevicted = 48;
   // Duration of one read from the account database file by compaction
-  MetricsAccdbDiskReadDurationNanos disk_read_duration_nanos = 49;
+  MetricsAccdbAccountsDiskReadDurationNanos accounts_disk_read_duration_nanos = 49;
   // Duration of one write to the account database file by compaction and writeback
-  MetricsAccdbDiskWriteDurationNanos disk_write_duration_nanos = 50;
+  MetricsAccdbAccountsDiskWriteDurationNanos accounts_disk_write_duration_nanos = 50;
 }
 
 // Metrics of one replay tile instance, one row per sweep

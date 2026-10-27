@@ -217,7 +217,7 @@
                 "le11_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "4-11 MiB" }
             }
         },
-        "disk_read_duration_nanos": {
+        "accounts_disk_read_duration_nanos": {
             "type": "Tuple",
             "description": "Duration of one read from the account database file by compaction",
             "fields": {
@@ -240,7 +240,7 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
-        "disk_write_duration_nanos": {
+        "accounts_disk_write_duration_nanos": {
             "type": "Tuple",
             "description": "Duration of one write to the account database file by compaction and writeback",
             "fields": {

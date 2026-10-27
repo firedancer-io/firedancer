@@ -370,8 +370,8 @@ fd_accdb_new( void *              ljoin,
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
   /* Every tile that publishes these histograms declares the same
      range as the accdb tile in metrics.xml. */
-  fd_histf_new( accdb->metrics->disk_read_duration,  FD_MHIST_MIN( ACCDB, DISK_READ_DURATION_NANOS  ), FD_MHIST_MAX( ACCDB, DISK_READ_DURATION_NANOS  ) );
-  fd_histf_new( accdb->metrics->disk_write_duration, FD_MHIST_MIN( ACCDB, DISK_WRITE_DURATION_NANOS ), FD_MHIST_MAX( ACCDB, DISK_WRITE_DURATION_NANOS ) );
+  fd_histf_new( accdb->metrics->disk_read_duration,  FD_MHIST_MIN( ACCDB, ACCOUNTS_DISK_READ_DURATION_NANOS  ), FD_MHIST_MAX( ACCDB, ACCOUNTS_DISK_READ_DURATION_NANOS  ) );
+  fd_histf_new( accdb->metrics->disk_write_duration, FD_MHIST_MIN( ACCDB, ACCOUNTS_DISK_WRITE_DURATION_NANOS ), FD_MHIST_MAX( ACCDB, ACCOUNTS_DISK_WRITE_DURATION_NANOS ) );
 
   return accdb;
 }
@@ -800,7 +800,7 @@ fd_accdb_join_readonly( void *             ljoin,
 
   memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
   memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
-  fd_histf_new( accdb->metrics->disk_read_duration,  FD_MHIST_MIN( ACCDB, DISK_READ_DURATION_NANOS  ), FD_MHIST_MAX( ACCDB, DISK_READ_DURATION_NANOS  ) );
+  fd_histf_new( accdb->metrics->disk_read_duration,  FD_MHIST_MIN( ACCDB, ACCOUNTS_DISK_READ_DURATION_NANOS  ), FD_MHIST_MAX( ACCDB, ACCOUNTS_DISK_READ_DURATION_NANOS  ) );
 
   return accdb;
 }

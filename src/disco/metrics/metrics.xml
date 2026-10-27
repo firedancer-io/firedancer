@@ -864,10 +864,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="DiskWrittenBytes" summary="Bytes written to the account database file by compaction and writeback" />
     <counter name="WritebackWritten" summary="Write syscalls that wrote evicted cache lines back to the account database file" />
     <counter name="CompactionWritten" summary="Writes that relocated a batch of records during compaction" />
-    <histogram name="DiskReadDurationNanos" min="1000" max="1000000000">
+    <histogram name="AccountsDiskReadDurationNanos" min="1000" max="1000000000" lint-allow="plural">
         <summary>Duration of one read from the account database file by compaction</summary>
     </histogram>
-    <histogram name="DiskWriteDurationNanos" min="1000" max="1000000000">
+    <histogram name="AccountsDiskWriteDurationNanos" min="1000" max="1000000000" lint-allow="plural">
         <summary>Duration of one write to the account database file by compaction and writeback</summary>
     </histogram>
     <counter name="AccountVersionRemoved" summary="Account versions removed from the account database index" />
