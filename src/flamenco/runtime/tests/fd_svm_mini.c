@@ -244,6 +244,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   runtime->accdb        = accdb;
   runtime->status_cache = mini->txncache;
   runtime->progcache    = mini->progcache;
+  runtime->sysvars.bank_seq = 0UL;
 
   runtime->instr.stack_sz          = 0;
   runtime->instr.trace_length      = 0;
@@ -667,7 +668,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
     free( slot_history_enc );
 
-    FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
+    FD_TEST( fd_sysvar_cache_restore( fd_bank_sysvar_cache( bank ), accdb, bank->accdb_fork_id ) );
   }
 
   fd_epoch_credits_view_t epoch_credits_view[1];
@@ -787,11 +788,13 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
 
+  fd_stake_history_t         stake_history_[1];
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache_query( bank, mini->runtime->accdb, mini->runtime_stack->sysvar_cache ), stake_history_ );
   fd_progcache_advance_root( mini->progcache->join, bank->progcache_fork_id );
   fd_txncache_advance_root ( mini->txncache,        bank->txncache_fork_id  );
   fd_accdb_advance_root( mini->runtime->accdb, bank->accdb_fork_id );
   drain_background( mini->runtime->accdb );
-  fd_banks_advance_root( mini->banks, bank_idx );
+  fd_banks_advance_root( mini->banks, bank_idx, stake_history );
 }
 
 fd_bank_t *

@@ -21,13 +21,10 @@
 
 static fd_stake_delegations_t *
 test_bank_stake_delegations_frontier_mark( fd_bank_t * bank ) {
-  fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
-
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_view_begin( stake_delegations,
                                    bank->f.epoch,
-                                   stake_history,
+                                   NULL,
                                    &bank->f.warmup_cooldown_rate_epoch,
                                    FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                    bank->stake_delegations_fork_id );
@@ -36,11 +33,8 @@ test_bank_stake_delegations_frontier_mark( fd_bank_t * bank ) {
 
 static void
 test_bank_stake_delegations_frontier_unmark( fd_bank_t * bank ) {
-  fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
-
   fd_stake_delegations_view_end( fd_bank_stake_delegations_modify( bank ),
-                                 stake_history,
+                                 NULL,
                                  &bank->f.warmup_cooldown_rate_epoch,
                                  FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
 }
@@ -252,7 +246,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( result == 1 );
   FD_TEST( advanceable_bank_idx == bank_idx_A ); /* Should be able to publish up to A */
 
-  fd_banks_advance_root( banks, bank_idx_A );
+  fd_banks_advance_root( banks, bank_idx_A, NULL );
   fd_bank_t * new_root = fd_banks_root( banks );
   FD_TEST( new_root );
   FD_TEST( new_root == bank_A );
@@ -262,7 +256,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( result == 1 );
   FD_TEST( advanceable_bank_idx == bank_idx_B ); /* Should be able to publish up to B */
 
-  fd_banks_advance_root( banks, bank_idx_B );
+  fd_banks_advance_root( banks, bank_idx_B, NULL );
   new_root = fd_banks_root( banks );
   FD_TEST( new_root );
   FD_TEST( new_root == bank_B );
@@ -273,7 +267,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( advanceable_bank_idx == bank_idx_M ); /* Should be able to publish up to M */
 
   /* Actually publish up to M. */
-  fd_banks_advance_root( banks, bank_idx_M );
+  fd_banks_advance_root( banks, bank_idx_M, NULL );
   new_root = fd_banks_root( banks );
   FD_TEST( new_root );
   FD_TEST( new_root == bank_M );
@@ -322,7 +316,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( advanceable_bank_idx == bank_idx_T ); /* Should be able to publish up to T */
 
   /* Actually publish up to T. */
-  fd_banks_advance_root( banks, bank_idx_T );
+  fd_banks_advance_root( banks, bank_idx_T, NULL );
   new_root = fd_banks_root( banks );
   FD_TEST( new_root );
   FD_TEST( new_root == bank_T );
@@ -496,7 +490,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==7UL );
   fd_banks_mark_bank_dead( banks, bank_Z->idx, NULL, NULL );
 
-  fd_banks_advance_root( banks, bank_C->idx );
+  fd_banks_advance_root( banks, bank_C->idx, NULL );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
   FD_TEST( fd_banks_bank_query( banks, bank_C->idx ) );
   FD_TEST( fd_banks_bank_query( banks, bank_G->idx ) );
@@ -528,7 +522,7 @@ test_bank_dead_eviction( void * mem ) {
   /* Case: dead bank is the left-most child of the parent. */
   bank_D = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
 
-  fd_banks_advance_root( banks, bank_G->idx );
+  fd_banks_advance_root( banks, bank_G->idx, NULL );
 
   bank_W = fd_banks_new_bank( banks, bank_G->idx, 0L, 0 );
   bank_I = fd_banks_new_bank( banks, bank_G->idx, 0L, 0 );
@@ -602,7 +596,7 @@ test_bank_dead_advance_root( void * mem ) {
      first. */
   fd_banks_mark_bank_dead( banks, bank_B_idx, NULL, NULL );
   fd_banks_mark_bank_dead( banks, bank_X_idx, NULL, NULL );
-  fd_banks_advance_root( banks, bank_A->idx );
+  fd_banks_advance_root( banks, bank_A->idx, NULL );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
 
   fd_banks_prune_cancel_info_t cancel[ 1 ];
@@ -885,7 +879,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   FD_TEST( !test_stake_delegations_contains( root_stake_delegations, &stake_1 ) );
 
   fd_banks_mark_bank_frozen( child_bank );
-  fd_banks_advance_root( banks_small, child_bank_idx );
+  fd_banks_advance_root( banks_small, child_bank_idx, NULL );
   root_stake_delegations = fd_banks_stake_delegations_root_query( banks_small );
   FD_TEST( test_stake_delegations_find_copy( root_stake_delegations, &stake_0, stake_delegation ) );
   FD_TEST( stake_delegation->stake==33UL );
@@ -948,7 +942,7 @@ test_bank_advance_root_preserves_inherited_stake_rewards( void * mem ) {
   FD_TEST( bank_B->stake_rewards_fork_id==fork_idx );
   fd_banks_mark_bank_frozen( bank_B );
 
-  fd_banks_advance_root( banks, bank_B->idx );
+  fd_banks_advance_root( banks, bank_B->idx, NULL );
 
   fd_bank_t * new_root = fd_banks_root( banks );
   FD_TEST( new_root==bank_B );
@@ -1095,7 +1089,7 @@ test_bank_clear( void * mem ) {
   FD_TEST( new_child->f.slot == 201UL );
   fd_banks_mark_bank_frozen( new_child );
 
-  fd_banks_advance_root( banks, new_child_idx );
+  fd_banks_advance_root( banks, new_child_idx, NULL );
   FD_TEST( banks->root_idx == new_child_idx );
 
   fd_banks_clear( banks );
@@ -1156,6 +1150,39 @@ test_bank_epoch_credits_init_bank_set( void * mem ) {
 /* Logical epoch-credit capacity follows max_total_banks, and
    TEST_BANK_CACHE_CNT sets stay in memory.  More live sets spill and
    reload without evicting a pinned reader. */
+
+/* Up to cache_cnt banks hold a sysvar cache.  Banks cloned while the
+   pool is exhausted hold none, and pruning a bank or advancing the
+   root past it returns its sysvar cache to the pool. */
+
+static void
+test_bank_sysvar_cache_pool( void * mem ) {
+  ulong const max_total_banks = 2UL*TEST_BANK_CACHE_CNT;
+  fd_banks_t * banks = fd_banks_join(
+      fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, TEST_BANK_CACHE_CNT, 16UL, 256UL, 4UL, 0, 7779UL ) );
+  FD_TEST( banks );
+
+  fd_bank_t * root = fd_banks_init_bank( banks );
+  FD_TEST( fd_bank_sysvar_cache( root ) );
+
+  fd_bank_t * child[ TEST_BANK_CACHE_CNT+1UL ];
+  for( ulong i=0UL; i<TEST_BANK_CACHE_CNT+1UL; i++ ) {
+    child[ i ] = fd_banks_clone_from_parent( banks, fd_banks_new_bank( banks, root->idx, 0L, 0 )->idx );
+    FD_TEST( !!fd_bank_sysvar_cache( child[ i ] )==(i<TEST_BANK_CACHE_CNT-1UL) );
+  }
+
+  fd_banks_mark_bank_dead( banks, child[ 0 ]->idx, NULL, NULL );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+  fd_bank_t * reuse = fd_banks_clone_from_parent( banks, fd_banks_new_bank( banks, root->idx, 0L, 0 )->idx );
+  FD_TEST( fd_bank_sysvar_cache( reuse ) );
+  FD_TEST( !fd_sysvar_cache_clock_is_valid( fd_bank_sysvar_cache( reuse ) ) );
+
+  fd_banks_mark_bank_frozen( child[ 1 ] );
+  fd_banks_advance_root( banks, child[ 1 ]->idx, NULL );
+  for( ulong i=0UL; i<TEST_BANK_CACHE_CNT-1UL; i++ ) {
+    FD_TEST( fd_bank_sysvar_cache( fd_banks_clone_from_parent( banks, fd_banks_new_bank( banks, child[ 1 ]->idx, 0L, 0 )->idx ) ) );
+  }
+}
 
 static void
 test_bank_epoch_credits_disk_cache( void * mem ) {
@@ -1328,7 +1355,7 @@ test_bank_advance_root_prunes_inactive_stakes( void * mem ) {
     FD_TEST( stake_delegation->deactivation_epoch==USHORT_MAX );
     test_bank_stake_delegations_frontier_unmark( sibling );
 
-    fd_banks_advance_root( banks, child->idx );
+    fd_banks_advance_root( banks, child->idx, NULL );
     FD_TEST( !!test_stake_delegations_contains(
         stake_delegations, &stake_account )==!feature_active );
   }
@@ -1612,19 +1639,19 @@ main( int argc, char ** argv ) {
      Also, verify that the stake delegations have been correctly
      applied to the new root. */
 
-  fd_banks_advance_root( banks, bank2->idx );
+  fd_banks_advance_root( banks, bank2->idx, NULL );
   fd_bank_t * new_root = fd_banks_root( banks );
   FD_TEST( new_root );
   FD_TEST( new_root->f.slot == 2UL );
   FD_TEST( new_root == bank2 );
 
-  fd_banks_advance_root( banks, bank6->idx );
+  fd_banks_advance_root( banks, bank6->idx, NULL );
   new_root = fd_banks_root( banks );
   FD_TEST( new_root );
   FD_TEST( new_root->f.slot == 6UL );
   FD_TEST( new_root == bank6 );
 
-  fd_banks_advance_root( banks, bank7->idx );
+  fd_banks_advance_root( banks, bank7->idx, NULL );
   new_root = fd_banks_root( banks );
   FD_TEST( new_root );
   FD_TEST( new_root->f.slot == 7UL );
@@ -1741,6 +1768,7 @@ main( int argc, char ** argv ) {
   test_bank_epoch_credits_init_bank_set( mem );
   test_bank_epoch_credits_disk_cache( mem );
   test_bank_epoch_credits_fork_id_width();
+  test_bank_sysvar_cache_pool( mem );
 
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )==fd_vote_stakes_footprint( 1UL, 1UL ) );
   FD_TEST( fd_vote_stakes_footprint( 1UL, 0UL )==0UL );

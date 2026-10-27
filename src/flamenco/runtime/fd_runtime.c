@@ -232,7 +232,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
       acc.lamports += fees; /* guaranteed to not overflow, checked above */
     }
   }
-  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, NULL );
+  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, NULL, NULL );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   return burn;
 }
@@ -726,7 +726,7 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
      stake delegations for vote accounts. */
 
   fd_stake_history_t   stake_delegations_history_[1];
-  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_delegations_history_ );
+  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( runtime_stack->sysvar_cache, stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
@@ -921,6 +921,18 @@ fd_features_prepopulate_upcoming( fd_bank_t *  bank,
   fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, slot, epoch_schedule );
 }
 
+fd_sysvar_cache_t const *
+fd_runtime_sysvar_cache( fd_runtime_t *    runtime,
+                         fd_bank_t const * bank ) {
+  fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( bank );
+  if( FD_LIKELY( cache ) ) return cache;
+  if( runtime->sysvars.bank_seq!=bank->bank_seq ) {
+    fd_sysvar_cache_restore( runtime->sysvars.cache, runtime->accdb, bank->accdb_fork_id );
+    runtime->sysvars.bank_seq = bank->bank_seq;
+  }
+  return runtime->sysvars.cache;
+}
+
 void
 fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_bank_t *          bank,
@@ -928,6 +940,10 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_runtime_stack_t * runtime_stack,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
+  /* Nothing has written to the bank's fork yet, so its sysvars are
+     still the parent's.  The epoch boundary reads them from here. */
+  fd_sysvar_cache_restore( runtime_stack->sysvar_cache, accdb, bank->accdb_fork_id );
+
   /* Cache the Alpenglow migration slot inside the bank so that we can
      read it inside transaction execution. */
   bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( bank, accdb );
@@ -954,7 +970,8 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
   fd_features_prepopulate_upcoming( bank, accdb );
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, capture_ctx );
-  FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
+  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache( bank );
+  FD_TEST( fd_sysvar_cache_restore( sysvar_cache ? sysvar_cache : runtime_stack->sysvar_cache, accdb, bank->accdb_fork_id ) );
 }
 
 static void
@@ -1255,7 +1272,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
-        fd_stakes_update_stake_delegation( pubkey, account, bank, txn_in );
+        fd_stakes_update_stake_delegation( pubkey, account, bank, fd_runtime_sysvar_cache( runtime, bank ), txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {

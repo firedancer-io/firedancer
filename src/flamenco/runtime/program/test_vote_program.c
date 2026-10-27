@@ -1327,9 +1327,9 @@ static void
 set_clock_epoch( test_env_t * env,
                  ulong        epoch ) {
   fd_sol_sysvar_clock_t clock[1];
-  FD_TEST( fd_sysvar_cache_clock_read( &env->bank->f.sysvar_cache, clock ) );
+  FD_TEST( fd_sysvar_cache_clock_read( fd_bank_sysvar_cache( env->bank ), clock ) );
   clock->epoch = epoch;
-  fd_sysvar_cache_restore_one( &env->bank->f.sysvar_cache, &fd_sysvar_clock_id, 1UL, (uchar const *)clock, sizeof(fd_sol_sysvar_clock_t) );
+  fd_sysvar_cache_restore_one( fd_bank_sysvar_cache( env->bank ), &fd_sysvar_clock_id, 1UL, (uchar const *)clock, sizeof(fd_sol_sysvar_clock_t) );
 }
 
 static void

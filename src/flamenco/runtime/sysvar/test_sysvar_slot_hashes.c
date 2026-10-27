@@ -40,7 +40,7 @@ test_sysvar_slot_hashes_init( fd_wksp_t * wksp ) {
   env->bank->f.rent = rent;
 
   fd_sysvar_slot_hashes_init( env->bank, env->accdb, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb );
+  fd_sysvar_cache_restore( env->sysvar_cache, env->accdb, env->bank->accdb_fork_id );
   FD_TEST( fd_sysvar_cache_slot_hashes_is_valid( env->sysvar_cache ) );
 
   ulong sz = 0UL;
@@ -68,7 +68,7 @@ test_sysvar_slot_hashes_update( fd_wksp_t * wksp ) {
   env->bank->f.parent_slot = 100UL;
   env->bank->f.bank_hash   = hash0;
   fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb );
+  fd_sysvar_cache_restore( env->sysvar_cache, env->accdb, env->bank->accdb_fork_id );
 
   {
     ulong sz = 0UL;
@@ -86,7 +86,7 @@ test_sysvar_slot_hashes_update( fd_wksp_t * wksp ) {
   env->bank->f.parent_slot = 101UL;
   env->bank->f.bank_hash   = hash1;
   fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb );
+  fd_sysvar_cache_restore( env->sysvar_cache, env->accdb, env->bank->accdb_fork_id );
 
   {
     ulong sz = 0UL;
@@ -106,7 +106,7 @@ test_sysvar_slot_hashes_update( fd_wksp_t * wksp ) {
   env->bank->f.parent_slot = 101UL;
   env->bank->f.bank_hash   = hash0_new;
   fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb );
+  fd_sysvar_cache_restore( env->sysvar_cache, env->accdb, env->bank->accdb_fork_id );
 
   {
     ulong sz = 0UL;
@@ -144,7 +144,7 @@ test_sysvar_slot_hashes_eviction( fd_wksp_t * wksp ) {
     fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
   }
 
-  fd_sysvar_cache_restore( env->bank, env->accdb );
+  fd_sysvar_cache_restore( env->sysvar_cache, env->accdb, env->bank->accdb_fork_id );
   {
     ulong sz = 0UL;
     uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_hashes_id, &sz );
@@ -160,7 +160,7 @@ test_sysvar_slot_hashes_eviction( fd_wksp_t * wksp ) {
   env->bank->f.parent_slot      = 999UL;
   env->bank->f.bank_hash.ul[0]  = 0xdeadUL;
   fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb );
+  fd_sysvar_cache_restore( env->sysvar_cache, env->accdb, env->bank->accdb_fork_id );
 
   {
     ulong sz = 0UL;

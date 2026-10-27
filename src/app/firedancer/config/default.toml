@@ -815,7 +815,7 @@ telemetry = true
     #
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage or test edge cases.
-    bank_cache_cnt = 16
+    bank_cache_cnt = 8
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to

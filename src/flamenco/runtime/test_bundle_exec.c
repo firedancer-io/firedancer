@@ -52,7 +52,7 @@ create_test_account( fd_accdb_t *        accdb,
 static fd_stake_delegations_t *
 test_stake_delegations_frontier_mark( fd_bank_t * bank ) {
   fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache( bank ), stake_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_view_begin( stake_delegations,
@@ -67,7 +67,7 @@ test_stake_delegations_frontier_mark( fd_bank_t * bank ) {
 static void
 test_stake_delegations_frontier_unmark( fd_bank_t * bank ) {
   fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache( bank ), stake_history_ );
 
   fd_stake_delegations_view_end( fd_bank_stake_delegations_modify( bank ),
                                  stake_history,
@@ -1003,7 +1003,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     ulong sh_sz = sizeof(ulong) + sh_cnt * sizeof(fd_slot_hash_t);
     fd_sysvar_account_update( env->bank, env->runtime->accdb, NULL, &fd_sysvar_slot_hashes_id, slot_hashes_data, sh_sz );
 
-    fd_sysvar_cache_restore( env->bank, env->mini->runtime->accdb );
+    fd_sysvar_cache_restore( fd_bank_sysvar_cache( env->bank ), env->mini->runtime->accdb, env->bank->accdb_fork_id );
 
     fd_pubkey_t alut_key = { .ul[0] = 0xA107UL };
     ulong num_alut_addrs = 4UL;
@@ -1308,7 +1308,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
     fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
 
-    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, fd_bank_sysvar_cache( env->bank ), NULL );
 
     fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->bank );
     fd_stake_delegation_t updated_delegation[1];
@@ -1353,7 +1353,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
     fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
 
-    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, fd_bank_sysvar_cache( env->bank ), NULL );
 
     /* Distinguish the base from the cache-equivalent fork delta. */
     fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 1UL,
@@ -1392,7 +1392,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
     FD_TEST( !test_stake_delegations_contains( root, &stake_acct ) );
 
-    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, fd_bank_sysvar_cache( env->bank ), NULL );
 
     fd_stake_delegations_t * frontier = test_stake_delegations_frontier_mark( env->bank );
     FD_TEST( frontier );
@@ -1520,7 +1520,7 @@ test_inactive_stake_update( fd_svm_mini_t * mini ) {
     fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
     fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
 
-    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, NULL );
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank, fd_bank_sysvar_cache( env->bank ), NULL );
 
     fd_stake_delegations_t * frontier =
         test_stake_delegations_frontier_mark( env->bank );

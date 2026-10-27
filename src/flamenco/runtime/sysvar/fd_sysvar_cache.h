@@ -111,14 +111,16 @@ fd_sysvar_cache_leave_const( fd_sysvar_cache_t const * sysvar_cache );
 void *
 fd_sysvar_cache_delete( void * mem );
 
-/* fd_sysvar_cache_restore rebuilds the sysvar cache from the account
-   database.  Does blocking account database queries.  Returns 1 on
-   success (missing sysvars fine), or 0 if any present sysvar account
-   fails validation (logs details at DEBUG level). */
+/* fd_sysvar_cache_restore rebuilds cache from the sysvar accounts of
+   fork_id in the account database.  Does blocking account database
+   queries.  Returns 1 on success (missing sysvars fine), or 0 if any
+   present sysvar account fails validation (logs details at DEBUG
+   level). */
 
 int
-fd_sysvar_cache_restore( fd_bank_t *  bank,
-                         fd_accdb_t * accdb );
+fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
+                         fd_accdb_t *        accdb,
+                         fd_accdb_fork_id_t  fork_id );
 
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
    with solfuzz/protosol conformance tooling.  This version works around
@@ -126,8 +128,9 @@ fd_sysvar_cache_restore( fd_bank_t *  bank,
    missing-sysvar logs. */
 
 void
-fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
-                              fd_accdb_t * accdb );
+fd_sysvar_cache_restore_fuzz( fd_sysvar_cache_t * cache,
+                              fd_accdb_t *        accdb,
+                              fd_accdb_fork_id_t  fork_id );
 
 /* fd_sysvar_cache_restore_one restores a single sysvar cache entry from
    raw account fields (as opposed to a full fd_acc_t).  If pubkey is not

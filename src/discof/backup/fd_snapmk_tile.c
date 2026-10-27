@@ -265,6 +265,9 @@ struct fd_snapmk {
   uchar raw [ RAW_BUF_SZ  ];
   uchar comp[ COMP_BUF_SZ ];
 
+  /* SlotHistory of a bank that holds no sysvar cache */
+  uchar slot_history[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+
   /* startup related */
   fd_startup_gate_t startup_gate[1];
   ulong             startup_pool_idx;
@@ -708,10 +711,23 @@ snapmk_status_cache_tar_hdr( fd_tar_meta_t * meta,
 
 static void
 snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
-  fd_bank_t * bank = ctx->bank;
-  ulong         slot_history_sz = 0UL;
-  uchar const * slot_history    =
-      fd_sysvar_cache_data_query( &bank->f.sysvar_cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
+  fd_bank_t *               bank            = ctx->bank;
+  fd_sysvar_cache_t const * sysvar_cache    = fd_bank_sysvar_cache( bank );
+  ulong                     slot_history_sz = 0UL;
+  uchar const *             slot_history    = NULL;
+  if( FD_LIKELY( sysvar_cache ) ) {
+    slot_history = fd_sysvar_cache_data_query( sysvar_cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
+  } else {
+    ulong lamports;
+    int   executable;
+    ulong data_len;
+    uchar owner[ 32UL ];
+    fd_accdb_read_one_nocache( ctx->accdb, bank->accdb_fork_id, fd_sysvar_slot_history_id.uc, &lamports, &executable, owner, ctx->raw, &data_len );
+    if( FD_LIKELY( lamports ) ) {
+      slot_history_sz = fd_ulong_min( data_len, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+      slot_history    = fd_memcpy( ctx->slot_history, ctx->raw, slot_history_sz );
+    }
+  }
   if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id, bank->f.slot, slot_history, slot_history_sz, ctx->status_cache_writer_arena, ctx->status_cache_writer_arena_sz ) ) ) {
     FD_LOG_CRIT(( "cannot serialize txncache fork %hu of snapshot bank at slot %lu because the root moved or SlotHistory lacks execution slots", bank->txncache_fork_id.val, bank->f.slot ));
   }

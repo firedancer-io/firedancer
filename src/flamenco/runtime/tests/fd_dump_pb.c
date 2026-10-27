@@ -586,7 +586,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   uchar vote_stakes_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN)));
 
   fd_stake_history_t   stake_delegations_history_[1];
-  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( &parent_bank->f.sysvar_cache, stake_delegations_history_ );
+  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache_query( parent_bank, accdb, runtime_stack->sysvar_cache ), stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( parent_bank );
   fd_stake_delegations_view_begin( stake_delegations,

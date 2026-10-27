@@ -113,8 +113,11 @@ FD_PROTOTYPES_BEGIN
   The memory for the banks is bounded by the max number of unrooted
   blocks at any given time.  Large per-fork state (vote stakes t-1
   sets, epoch credits, cost trackers) is backed by a file with an
-  in-memory cache of cache_cnt entries.  See fd_banks_footprint() for
-  more details.
+  in-memory cache of cache_cnt entries.  Up to cache_cnt banks hold a
+  sysvar cache, taken when the bank is cloned from its parent and
+  returned when the bank is pruned.  Banks without one read their
+  sysvars from the account database instead.  See fd_banks_footprint()
+  for more details.
 
   There are also some important states that a bank can be in:
   - Initialized: This bank has been created and linked to a parent bank
@@ -170,7 +173,7 @@ FD_PROTOTYPES_BEGIN
    To advance the root bank.  This assumes that the bank index is "safe"
    to advance to.  This means that none of the ancestors of the bank
    index have a non-zero reference count.
-   fd_banks_advance_root( banks, bank_index );
+   fd_banks_advance_root( banks, bank_index, stake_history );
 
    To query some arbitrary bank:
    fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
@@ -265,6 +268,7 @@ struct fd_bank {
   ushort                 stake_delegations_fork_id;
   ushort                 epoch_credits_fork_id;
   ushort                 cost_tracker_fork_id;
+  ushort                 sysvar_cache_idx; /* USHORT_MAX if the bank holds no sysvar cache */
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
@@ -319,7 +323,6 @@ struct fd_bank {
     fd_hash_t              prev_bank_hash;
     fd_epoch_schedule_t    epoch_schedule;
     fd_rent_t              rent;
-    fd_sysvar_cache_t      sysvar_cache;
     fd_features_t          features;
     ulong                  txn_count;
     ulong                  nonvote_txn_count;
@@ -390,6 +393,8 @@ struct fd_banks {
 
   ulong epoch_credits_offset;
 
+  ulong sysvar_cache_pool_offset;
+
   /* The set of epoch leaders for the current and previous epochs is
      allocated out-of-line and tracked by epoch_leaders_offset.  Only
      two need to be stored because in the worst case we will have a root
@@ -442,6 +447,21 @@ fd_bank_vote_stakes( fd_bank_t const * bank );
 
 fd_cost_tracker_store_t *
 fd_bank_cost_tracker( fd_bank_t const * bank );
+
+/* fd_bank_sysvar_cache returns the sysvar cache held by bank, or NULL
+   if bank holds none. */
+
+fd_sysvar_cache_t *
+fd_bank_sysvar_cache( fd_bank_t const * bank );
+
+/* fd_bank_sysvar_cache_query returns the sysvar cache held by bank.  If
+   bank holds none, its sysvar accounts are read from accdb into
+   scratch, which is returned. */
+
+fd_sysvar_cache_t const *
+fd_bank_sysvar_cache_query( fd_bank_t const *   bank,
+                            fd_accdb_t *        accdb,
+                            fd_sysvar_cache_t * scratch );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );
@@ -499,8 +519,8 @@ fd_banks_align( void );
    of banks that the bank manages.  This is an analog for the max number
    of unrooted blocks the bank can manage at any given time.  Large
    per-fork structs (cost trackers, epoch credits and t-1 vote stakes)
-   keep cache_cnt entries in memory and spill the rest to disk.  Returns
-   0 if cache_cnt is 0. */
+   keep cache_cnt entries in memory and spill the rest to disk.  There
+   are cache_cnt sysvar caches.  Returns 0 if cache_cnt is 0. */
 
 ulong
 fd_banks_footprint( ulong max_total_banks,
@@ -573,11 +593,15 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
    the new root bank should be a child of the current root bank.
 
    All banks that are ancestors or siblings of the new root bank will be
-   cancelled and their resources will be released back to the pool. */
+   cancelled and their resources will be released back to the pool.
+
+   stake_history is the stake history of the new root bank, or NULL if
+   it has none. */
 
 void
-fd_banks_advance_root( fd_banks_t * banks,
-                       ulong        bank_idx );
+fd_banks_advance_root( fd_banks_t *               banks,
+                       ulong                      bank_idx,
+                       fd_stake_history_t const * stake_history );
 
 /* fd_banks_clear releases all banks back to the pool and resets the
    banks manager to its post-new state.  Assumes no active references to

@@ -477,9 +477,11 @@ step_slot( test_env_t * env, ulong prep_epoch ) {
   }
 
   fd_banks_mark_bank_frozen( new_bank );
+  fd_stake_history_t         stake_history_[1];
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache_query( new_bank, env->accdb, env->runtime_stack->sysvar_cache ), stake_history_ );
   fd_accdb_advance_root( env->accdb, new_bank->accdb_fork_id );
   drain_background( env->accdb );
-  fd_banks_advance_root( env->banks, new_bank_idx );
+  fd_banks_advance_root( env->banks, new_bank_idx, stake_history );
 }
 
 static ulong

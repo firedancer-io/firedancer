@@ -1,7 +1,6 @@
 /* fd_sysvar_cache_db.c contains database interactions between the
    sysvar cache and the account database. */
 
-#include "../fd_bank.h"
 #include "fd_sysvar_cache_private.h"
 
 static int
@@ -34,15 +33,15 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
 }
 
 static int
-fd_sysvar_cache_restore1( fd_bank_t *  bank,
-                          fd_accdb_t * accdb,
-                          int          log_fails ) {
-  fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new(
-      &bank->f.sysvar_cache ) );
+fd_sysvar_cache_restore1( fd_sysvar_cache_t * mem,
+                          fd_accdb_t *        accdb,
+                          fd_accdb_fork_id_t  fork_id,
+                          int                 log_fails ) {
+  fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new( mem ) );
 
   int saw_err = 0;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
-    int err = sysvar_data_fill( cache, accdb, bank->accdb_fork_id, i, log_fails );
+    int err = sysvar_data_fill( cache, accdb, fork_id, i, log_fails );
     if( err ) saw_err = 1;
   }
 
@@ -52,15 +51,17 @@ fd_sysvar_cache_restore1( fd_bank_t *  bank,
 }
 
 int
-fd_sysvar_cache_restore( fd_bank_t *  bank,
-                         fd_accdb_t * accdb ) {
-  return fd_sysvar_cache_restore1( bank, accdb, 1 );
+fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
+                         fd_accdb_t *        accdb,
+                         fd_accdb_fork_id_t  fork_id ) {
+  return fd_sysvar_cache_restore1( cache, accdb, fork_id, 1 );
 }
 
 void
-fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
-                              fd_accdb_t * accdb ) {
-  (void)fd_sysvar_cache_restore1( bank, accdb, 0 );
+fd_sysvar_cache_restore_fuzz( fd_sysvar_cache_t * cache,
+                              fd_accdb_t *        accdb,
+                              fd_accdb_fork_id_t  fork_id ) {
+  (void)fd_sysvar_cache_restore1( cache, accdb, fork_id, 0 );
 }
 
 void

@@ -185,6 +185,23 @@ main( int     argc,
 
   FD_TEST( fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )==4UL );
 
+  /* Banks cloned once the sysvar cache pool is exhausted read their
+     sysvars from accdb. */
+  ulong root_slot = bank->f.slot;
+  ulong child_idx;
+  for( ulong i=1UL;; i++ ) {
+    FD_TEST( i<limits->max_live_slots );
+    child_idx = fd_svm_mini_attach_child( mini, root_idx, root_slot+i );
+    if( !fd_bank_sysvar_cache( fd_svm_mini_bank( mini, child_idx ) ) ) break;
+  }
+  bank = fd_svm_mini_bank( mini, child_idx );
+  fd_sysvar_cache_t const * sysvar_cache = fd_runtime_sysvar_cache( mini->runtime, bank );
+  FD_TEST( sysvar_cache==fd_runtime_sysvar_cache( mini->runtime, bank ) );
+  FD_TEST( fd_bank_sysvar_cache_query( bank, mini->runtime->accdb, mini->runtime_stack->sysvar_cache )==mini->runtime_stack->sysvar_cache );
+  fd_sol_sysvar_clock_t clock[1];
+  FD_TEST( fd_sysvar_cache_clock_read( sysvar_cache,                        clock ) && clock->slot==bank->f.slot );
+  FD_TEST( fd_sysvar_cache_clock_read( mini->runtime_stack->sysvar_cache, clock ) && clock->slot==bank->f.slot );
+
   /* Mock validators must fit the vote-account/epoch-credit capacity. */
   params->mock_validator_cnt = limits->max_vote_accounts + 1UL;
   FD_TEST( fd_svm_mini_reset( mini, params )==ULONG_MAX );
