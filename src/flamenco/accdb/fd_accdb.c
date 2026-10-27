@@ -65,10 +65,8 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   uint *                 idx_seq;
   fd_accdb_idx_range_t * idx_range;
   fd_accdb_idx_slot_t *  idx_stage;
-  fd_accdb_idx_slot_t *  idx_window;
   fd_accdb_idx_slot_t *  idx_carry;
   ulong *                idx_bloom;
-  ulong *                idx_zmap;
 
   fd_accdb_shmem_t * shmem;
 
@@ -333,10 +331,8 @@ fd_accdb_new( void *              ljoin,
   accdb->idx_seq    = idx ? (uint *)                ( (uchar *)shmem+shmem->idx_seq_off    ) : NULL;
   accdb->idx_range  = idx ? (fd_accdb_idx_range_t *)( (uchar *)shmem+shmem->idx_range_off  ) : NULL;
   accdb->idx_stage  = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_stage_off  ) : NULL;
-  accdb->idx_window = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_window_off ) : NULL;
   accdb->idx_carry  = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_carry_off  ) : NULL;
   accdb->idx_bloom  = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_bloom_off  ) : NULL;
-  accdb->idx_zmap   = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_zmap_off   ) : NULL;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -482,7 +478,9 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
      snapshot index build rewrites every page. */
   shmem->acc_used.val     = 0UL;
   shmem->idx_sweep_cursor = 0UL;
+  fd_memset( &shmem->idx_build, 0, sizeof(shmem->idx_build) );
   if( accdb->idx_range ) fd_memset( accdb->idx_range, 0, shmem->idx_range_cnt*sizeof(fd_accdb_idx_range_t) );
+  if( accdb->idx_bloom ) fd_memset( accdb->idx_bloom, 0, shmem->idx_bloom_cnt*64UL );
 
   /* Shared metrics: zero gauges that reflect current state (now empty)
      but preserve counters and accounts_capacity. */
@@ -780,10 +778,8 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->idx_seq    = shmem->idx_page_cnt ? (uint *)( (uchar *)shmem+shmem->idx_seq_off ) : NULL;
   accdb->idx_range  = NULL;
   accdb->idx_stage  = NULL;
-  accdb->idx_window = NULL;
   accdb->idx_carry  = NULL;
   accdb->idx_bloom  = shmem->idx_page_cnt ? (ulong *)( (uchar *)shmem+shmem->idx_bloom_off ) : NULL;
-  accdb->idx_zmap   = NULL;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
@@ -1129,12 +1125,7 @@ idx_on( fd_accdb_t const * accdb ) {
   return !!accdb->shmem->idx_page_cnt;
 }
 
-static inline ulong
-idx_home( fd_accdb_shmem_t const * shmem,
-          uchar const              pubkey[ 32 ] ) {
-  ulong h = fd_hash32( pubkey, shmem->seed^0x5bd1e9955bd1e995UL );
-  return (ulong)( ( (uint128)h*(uint128)( shmem->idx_page_cnt*FD_ACCDB_IDX_SLOT_CNT ) )>>64 );
-}
+#define idx_home fd_accdb_idx_home
 
 /* idx_bloom tests (insert==0) or sets (insert==1) pubkey in the disk
    index bloom filter: 4 bits in one 64 byte block.  A test miss proves
@@ -4918,104 +4909,172 @@ idx_dup( fd_accdb_t *                accdb,
          fd_accdb_idx_slot_t *       cur,
          fd_accdb_idx_slot_t const * rec,
          ulong *                     dup_cnt,
-         ulong *                     dup_lamports ) {
+         ulong *                     dup_lamports,
+         ulong *                     freed ) {
   fd_accdb_idx_slot_t loser = rec->slot>=cur->slot ? *cur : *rec;
   if( rec->slot>=cur->slot ) *cur = *rec;
   ulong sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( loser.executable_size );
   fd_accdb_shmem_bytes_freed( accdb->shmem, loser.off_plus1-1UL, sz );
-  accdb->shmem->shmetrics->disk_used_bytes -= sz;
+  *freed += sz;
   (*dup_cnt)++;
   *dup_lamports += loser.lamports;
 }
 
-void
-fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
-                               ulong *      out_dup_cnt,
-                               ulong *      out_dup_lamports ) {
-  *out_dup_cnt = *out_dup_lamports = 0UL;
-  if( FD_UNLIKELY( !accdb || !idx_on( accdb ) ) ) return;
+static inline ulong
+idx_build_window_pages( fd_accdb_shmem_t const * shmem ) {
+  return fd_ulong_min( shmem->idx_page_cnt, FD_ACCDB_IDX_WINDOW_PAGES );
+}
+
+FD_FN_CONST ulong
+fd_accdb_snapshot_index_build_scratch_align( void ) {
+  return 4096UL;
+}
+
+FD_FN_CONST ulong
+fd_accdb_snapshot_index_build_scratch_footprint( ulong max_accounts,
+                                                 ulong index_ram_max ) {
+  ulong wpage = fd_ulong_min( fd_accdb_idx_page_cnt( max_accounts, index_ram_max ), FD_ACCDB_IDX_WINDOW_PAGES );
+  return fd_ulong_align_up( wpage*4096UL + wpage*FD_ACCDB_IDX_SLOT_CNT/8UL, fd_accdb_snapshot_index_build_scratch_align() );
+}
+
+/* idx_build_range places the spilled records of range r into a zeroed
+   window and writes it.  A record that probes past the window end goes
+   to the shared carry list, placed by fd_accdb_snapshot_index_build_fini
+   once every window is written. */
+
+static void
+idx_build_range( fd_accdb_t *          accdb,
+                 ulong                 r,
+                 fd_accdb_idx_slot_t * win,
+                 ulong *               zmap ) {
   fd_accdb_shmem_t *    shmem = accdb->shmem;
-  fd_accdb_idx_slot_t * win   = accdb->idx_window;
-  fd_accdb_idx_slot_t * carry = accdb->idx_carry;
-  ulong *               zmap  = accdb->idx_zmap;
-  ulong carry_cnt = 0UL;
-  ulong winners   = 0UL;
-  fd_accdb_flush_metrics( accdb );
-  fd_memset( accdb->idx_bloom, 0, shmem->idx_bloom_cnt*64UL );
-  fd_memset( zmap, 0, fd_ulong_min( shmem->idx_page_cnt, FD_ACCDB_IDX_WINDOW_PAGES )*FD_ACCDB_IDX_SLOT_CNT/8UL );
+  fd_accdb_idx_slot_t * stage = accdb->idx_stage+r*FD_ACCDB_IDX_STAGE_CNT;
+  idx_spill_flush( accdb, r );
 
-  for( ulong r=0UL; r<shmem->idx_range_cnt; r++ ) {
-    idx_spill_flush( accdb, r );
-    ulong base  = r*FD_ACCDB_IDX_WINDOW_PAGES;
-    ulong wslot = fd_ulong_min( FD_ACCDB_IDX_WINDOW_PAGES, shmem->idx_page_cnt-base )*FD_ACCDB_IDX_SLOT_CNT;
-    fd_memset( win, 0, wslot*sizeof(fd_accdb_idx_slot_t) );
+  ulong base  = r*FD_ACCDB_IDX_WINDOW_PAGES;
+  ulong wslot = fd_ulong_min( FD_ACCDB_IDX_WINDOW_PAGES, shmem->idx_page_cnt-base )*FD_ACCDB_IDX_SLOT_CNT;
+  fd_memset( win, 0, wslot*sizeof(fd_accdb_idx_slot_t) );
 
-    /* Carries from the previous window probe from this window's start,
-       then this range's spill probes from each home slot.  A record
-       that probes past the window end carries to the next one. */
-    ulong n = carry_cnt;
-    carry_cnt = 0UL;
-    fd_accdb_idx_slot_t * stage = accdb->idx_stage+r*FD_ACCDB_IDX_STAGE_CNT;
-    for( ulong pos=0UL, spill_cnt=accdb->idx_range[ r ].spill_cnt; n || pos<spill_cnt; ) {
-      ulong take = 0UL;
-      if( !n ) {
-        take = fd_ulong_min( FD_ACCDB_IDX_STAGE_CNT, spill_cnt-pos );
-        idx_io( accdb, 0, stage, take*sizeof(fd_accdb_idx_slot_t), idx_spill_off( shmem, r )+pos*sizeof(fd_accdb_idx_slot_t) );
-        pos += take;
+  ulong winners = 0UL, dup_cnt = 0UL, dup_lamports = 0UL, freed = 0UL;
+  ulong spill_cnt = accdb->idx_range[ r ].spill_cnt;
+  for( ulong pos=0UL; pos<spill_cnt; ) {
+    ulong take = fd_ulong_min( FD_ACCDB_IDX_STAGE_CNT, spill_cnt-pos );
+    idx_io( accdb, 0, stage, take*sizeof(fd_accdb_idx_slot_t), idx_spill_off( shmem, r )+pos*sizeof(fd_accdb_idx_slot_t) );
+    pos += take;
+    for( ulong i=0UL; i<take; i++ ) {
+      fd_accdb_idx_slot_t rec = stage[ i ];
+      ulong s = idx_home( shmem, rec.pubkey )-base*FD_ACCDB_IDX_SLOT_CNT;
+      for( ; s<wslot && win[ s ].off_plus1 && memcmp( win[ s ].pubkey, rec.pubkey, 32UL ); s++ ) {}
+      if( s==wslot ) {
+        ulong c = FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.carry_cnt, 1UL );
+        if( FD_UNLIKELY( c>=FD_ACCDB_IDX_CARRY_MAX ) ) FD_LOG_ERR(( "accounts index placement overflow" ));
+        accdb->idx_carry[ c ] = rec;
+        continue;
       }
-      for( ulong i=0UL; i<( n ? n : take ); i++ ) {
-        fd_accdb_idx_slot_t rec = n ? carry[ i ] : stage[ i ];
-        ulong s = n ? 0UL : idx_home( shmem, rec.pubkey )-base*FD_ACCDB_IDX_SLOT_CNT;
-        for( ; s<wslot && win[ s ].off_plus1 && memcmp( win[ s ].pubkey, rec.pubkey, 32UL ); s++ ) {}
-        if( s==wslot ) {
-          if( FD_UNLIKELY( carry_cnt==FD_ACCDB_IDX_CARRY_MAX ) ) FD_LOG_ERR(( "accounts index placement overflow" ));
-          carry[ carry_cnt++ ] = rec;
-          continue;
-        }
-        if( !win[ s ].off_plus1 ) {
-          win[ s ] = rec;
-          idx_bloom( accdb, rec.pubkey, 1 );
-          winners++;
-        } else {
-          idx_dup( accdb, &win[ s ], &rec, out_dup_cnt, out_dup_lamports );
-        }
-        if( FD_UNLIKELY( !win[ s ].lamports ) ) zmap[ s>>6 ] |= 1UL<<(s&63UL);
+      if( !win[ s ].off_plus1 ) {
+        win[ s ] = rec;
+        idx_bloom( accdb, rec.pubkey, 1 );
+        winners++;
+      } else {
+        idx_dup( accdb, &win[ s ], &rec, &dup_cnt, &dup_lamports, &freed );
       }
-      n = 0UL;
+      if( FD_UNLIKELY( !win[ s ].lamports ) ) zmap[ s>>6 ] |= 1UL<<(s&63UL);
     }
-
-    /* A zero-lamport winner means the account does not exist.  Its
-       bloom bits stay set, which only costs a wasted probe. */
-    for( ulong w=0UL; w<wslot/64UL; w++ ) {
-      for( ulong m=zmap[ w ]; m; m=fd_ulong_pop_lsb( m ) ) {
-        ulong s = w*64UL+(ulong)fd_ulong_find_lsb( m );
-        if( win[ s ].lamports ) continue;
-        ulong sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( win[ s ].executable_size );
-        fd_accdb_shmem_bytes_freed( shmem, win[ s ].off_plus1-1UL, sz );
-        shmem->shmetrics->disk_used_bytes -= sz;
-        win[ s ].off_plus1 = FD_ACCDB_IDX_TOMB;
-        winners--;
-      }
-      zmap[ w ] = 0UL;
-    }
-    idx_io( accdb, 1, win, wslot*sizeof(fd_accdb_idx_slot_t), base*4096UL );
-    accdb->idx_range[ r ].spill_cnt = 0UL;
   }
 
-  /* Carries past the last window wrap to the file start. */
+  /* A zero-lamport winner means the account does not exist.  Its
+     bloom bits stay set, which only costs a wasted probe. */
+  for( ulong w=0UL; w<wslot/64UL; w++ ) {
+    for( ulong m=zmap[ w ]; m; m=fd_ulong_pop_lsb( m ) ) {
+      ulong s = w*64UL+(ulong)fd_ulong_find_lsb( m );
+      if( win[ s ].lamports ) continue;
+      ulong sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( win[ s ].executable_size );
+      fd_accdb_shmem_bytes_freed( shmem, win[ s ].off_plus1-1UL, sz );
+      freed += sz;
+      win[ s ].off_plus1 = FD_ACCDB_IDX_TOMB;
+      winners--;
+    }
+    zmap[ w ] = 0UL;
+  }
+  idx_io( accdb, 1, win, wslot*sizeof(fd_accdb_idx_slot_t), base*4096UL );
+  accdb->idx_range[ r ].spill_cnt = 0UL;
+
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.winners,      winners      );
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.dup_cnt,      dup_cnt      );
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.dup_lamports, dup_lamports );
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.freed,        freed        );
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.done,         1UL          );
+}
+
+void
+fd_accdb_snapshot_index_build_work( fd_accdb_t * accdb,
+                                    void *       scratch ) {
+  if( FD_UNLIKELY( !accdb || !idx_on( accdb ) ) ) return;
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  fd_accdb_flush_metrics( accdb );
+
+  fd_accdb_idx_slot_t * win  = (fd_accdb_idx_slot_t *)scratch;
+  ulong *               zmap = (ulong *)( (uchar *)scratch+idx_build_window_pages( shmem )*4096UL );
+  fd_memset( zmap, 0, idx_build_window_pages( shmem )*FD_ACCDB_IDX_SLOT_CNT/8UL );
+  for(;;) {
+    ulong r = FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.next, 1UL );
+    if( r>=shmem->idx_range_cnt ) break;
+    idx_build_range( accdb, r, win, zmap );
+  }
+}
+
+void
+fd_accdb_snapshot_index_build_fini( fd_accdb_t * accdb,
+                                    void *       scratch,
+                                    ulong *      out_dup_cnt,
+                                    ulong *      out_dup_lamports ) {
+  *out_dup_cnt = *out_dup_lamports = 0UL;
+  if( FD_UNLIKELY( !accdb || !idx_on( accdb ) ) ) return;
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+
+  /* Help with the remaining ranges, then wait for the ones other
+     workers claimed. */
+  fd_accdb_snapshot_index_build_work( accdb, scratch );
+  while( FD_VOLATILE_CONST( shmem->idx_build.done )<shmem->idx_range_cnt ) FD_SPIN_PAUSE();
+  FD_COMPILER_MFENCE();
+
+  ulong winners      = shmem->idx_build.winners;
+  ulong dup_cnt      = shmem->idx_build.dup_cnt;
+  ulong dup_lamports = shmem->idx_build.dup_lamports;
+  ulong freed        = shmem->idx_build.freed;
+
+  /* Carries probe on from their window end, past the last window to
+     the file start. */
+  ulong carry_cnt = shmem->idx_build.carry_cnt;
   for( ulong i=0UL; i<carry_cnt; i++ ) {
-    fd_accdb_idx_slot_t old;
-    idx_bloom( accdb, carry[ i ].pubkey, 1 );
-    if( !idx_upsert( accdb, &carry[ i ], &old ) ) { winners += !!carry[ i ].lamports; continue; }
-    idx_dup( accdb, &old, &carry[ i ], out_dup_cnt, out_dup_lamports );
+    fd_accdb_idx_slot_t * carry = &accdb->idx_carry[ i ];
+    fd_accdb_idx_slot_t   old;
+    idx_bloom( accdb, carry->pubkey, 1 );
+    if( !idx_upsert( accdb, carry, &old ) ) { winners += !!carry->lamports; continue; }
+    idx_dup( accdb, &old, carry, &dup_cnt, &dup_lamports, &freed );
     idx_upsert( accdb, &old, &old );
   }
 
-  shmem->shmetrics->accounts_total = winners;
+  shmem->shmetrics->accounts_total   = winners;
+  shmem->shmetrics->disk_used_bytes -= freed;
   if( FD_UNLIKELY( -1==fallocate( accdb->idx_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, (long)idx_spill_off( shmem, 0UL ),
                                   (long)( shmem->idx_range_cnt*shmem->idx_spill_cap*sizeof(fd_accdb_idx_slot_t) ) ) ) ) {
     FD_LOG_WARNING(( "fallocate(PUNCH_HOLE) of the accounts index spill failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
+  *out_dup_cnt      = dup_cnt;
+  *out_dup_lamports = dup_lamports;
+}
+
+void
+fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
+                               void *       scratch,
+                               ulong *      out_dup_cnt,
+                               ulong *      out_dup_lamports ) {
+  if( FD_LIKELY( accdb && idx_on( accdb ) ) ) {
+    fd_memset( &accdb->shmem->idx_build, 0, sizeof(accdb->shmem->idx_build) );
+    fd_memset( accdb->idx_bloom, 0, accdb->shmem->idx_bloom_cnt*64UL );
+  }
+  fd_accdb_snapshot_index_build_fini( accdb, scratch, out_dup_cnt, out_dup_lamports );
 }
 
 ulong

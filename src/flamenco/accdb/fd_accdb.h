@@ -149,15 +149,46 @@ fd_accdb_idx_query( fd_accdb_t *  accdb,
                     ulong *       out_lamports,
                     uint *        out_size );
 
-/* fd_accdb_snapshot_index_build builds the disk index from the records
-   that fd_accdb_snapshot_write_batch spilled during a full snapshot
-   load.  Call it once after all writers stop, before any account
-   read.  For each pubkey the newest snapshot slot wins; the losers'
-   count and lamports are returned for capitalization checks.  No-op
-   (outputs zero) when the disk index is disabled. */
+/* The disk index is built from the records that
+   fd_accdb_snapshot_write_batch spilled during a full snapshot load,
+   after all writers stop and before any account read.  For each pubkey
+   the newest snapshot slot wins.  The build is split into placement
+   windows that any number of joins place concurrently, each with its
+   own scratch of fd_accdb_snapshot_index_build_scratch_footprint bytes
+   (0 when the disk index is disabled).  fd_accdb_reset rearms it.
+
+   fd_accdb_snapshot_index_build_work places windows until none are left
+   unclaimed.
+
+   fd_accdb_snapshot_index_build_fini places windows too, waits for the
+   ones other joins claimed, and finishes the index.  Exactly one join
+   calls it.  The losers' count and lamports are returned for
+   capitalization checks.
+
+   fd_accdb_snapshot_index_build is a single join build (rearm + fini).
+
+   All are no-ops (outputs zero) when the disk index is disabled. */
+
+FD_FN_CONST ulong
+fd_accdb_snapshot_index_build_scratch_align( void );
+
+FD_FN_CONST ulong
+fd_accdb_snapshot_index_build_scratch_footprint( ulong max_accounts,
+                                                 ulong index_ram_max );
+
+void
+fd_accdb_snapshot_index_build_work( fd_accdb_t * accdb,
+                                    void *       scratch );
+
+void
+fd_accdb_snapshot_index_build_fini( fd_accdb_t * accdb,
+                                    void *       scratch,
+                                    ulong *      out_dup_cnt,
+                                    ulong *      out_dup_lamports );
 
 void
 fd_accdb_snapshot_index_build( fd_accdb_t * accdb,
+                               void *       scratch,
                                ulong *      out_dup_cnt,
                                ulong *      out_dup_lamports );
 

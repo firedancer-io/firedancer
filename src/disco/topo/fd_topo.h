@@ -697,6 +697,8 @@ struct fd_topo_tile {
       ulong     banks_obj_id;
       ulong     shmem_obj_id; /* shared parallel snapin state */
       ulong     max_txn_per_slot;
+      ulong     max_accounts;
+      ulong     index_ram_max;
     } snapin;
 
     struct {

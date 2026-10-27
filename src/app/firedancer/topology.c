@@ -1547,6 +1547,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.expected_shred_version = config->consensus.expected_shred_version;
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.max_txn_per_slot = config->limits.max_txn_per_slot;
+    tile->snapin.max_accounts     = config->firedancer.accounts.max_accounts;
+    tile->snapin.index_ram_max    = config->firedancer.accounts.index_ram_max;
     tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
     tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );

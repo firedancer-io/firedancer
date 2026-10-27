@@ -292,6 +292,7 @@ struct fd_snapin_tile {
   uchar control_seen[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   fd_accdb_t * accdb;
+  void *       idx_scratch; /* disk index build window */
 
   /* Shared stake data updated by every tile. */
   fd_stake_delegations_t * stake_delegations;
@@ -400,6 +401,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),         sizeof(fd_snapin_tile_t)                                          );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->snapin.max_live_slots, 0 ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( tile->snapin.max_accounts, tile->snapin.index_ram_max ) );
 
   /* Only tile 0 publishes the manifest */
   if( FD_LIKELY( !tile->kind_id ) ) {
@@ -1858,15 +1860,16 @@ validate_capitalization( fd_snapin_tile_t * ctx ) {
   return 0;
 }
 
-/* index_build builds the accdb disk index after a full snapshot (no-op
-   without one) and books the duplicate records it resolved.  The spill
-   could not tell which version of a duplicated account wins, so every
-   snooped delegation was kept: drop those a newer record replaced. */
+/* index_build finishes the accdb disk index after a full snapshot
+   (no-op without one), placing windows alongside the other tiles, and
+   books the duplicate records it resolved.  The spill could not tell
+   which version of a duplicated account wins, so every snooped
+   delegation was kept: drop those a newer record replaced. */
 
 static void
 index_build( fd_snapin_tile_t * ctx ) {
   ulong dup_cnt, dup_lamports;
-  fd_accdb_snapshot_index_build( ctx->accdb, &dup_cnt, &dup_lamports );
+  fd_accdb_snapshot_index_build_fini( ctx->accdb, ctx->idx_scratch, &dup_cnt, &dup_lamports );
   if( FD_LIKELY( !dup_cnt ) ) return;
 
   ctx->shmem->values[ 0 ].loaded     -= dup_cnt;
@@ -2057,10 +2060,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
 
-      /* Tile 0 only. */
-      if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+      /* FINI acks make shared data stable.  Every tile helps build the
+         disk index, tile 0 finishes it. */
+      if( FD_LIKELY( !is_lead( ctx ) ) ) {
+        if( ctx->full ) fd_accdb_snapshot_index_build_work( ctx->accdb, ctx->idx_scratch );
+        break;
+      }
 
-      /* FINI acks make shared data stable. */
       if( ctx->full ) index_build( ctx );
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
@@ -2085,7 +2091,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+      if( FD_LIKELY( !is_lead( ctx ) ) ) {
+        if( ctx->full ) fd_accdb_snapshot_index_build_work( ctx->accdb, ctx->idx_scratch );
+        break;
+      }
 
       if( ctx->full ) index_build( ctx );
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
@@ -2373,6 +2382,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapin.max_live_slots, 0 ) );
+  ctx->idx_scratch       = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( tile->snapin.max_accounts, tile->snapin.index_ram_max ) );
 
   ctx->tile_idx = tile->kind_id;
   if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));
