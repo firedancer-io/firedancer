@@ -145,7 +145,13 @@ typedef struct fd_votor_hist_msg fd_votor_hist_msg_t;
 
 /* Adoption of a peer's vote history. */
 
-#define FD_VOTOR_ADOPT_EMPTY_SZ (8UL) /* an empty request, a slot as a ulong */
+/* Frame sizes */
+
+#define FD_VOTOR_ADOPT_REQ_HDR_SZ (32UL) /* the identity the adoption is for, before the payload */
+#define FD_VOTOR_ADOPT_EMPTY_SZ   (8UL)  /* an empty payload, a slot as a ulong */
+#define FD_VOTOR_ADOPT_ENGAGE_SZ  (0UL)  /* no header or payload, engages failover voting rules */
+
+/* Result codes */
 
 #define FD_VOTOR_ADOPT_SUCCESS             (0UL)
 #define FD_VOTOR_ADOPT_ERR_DECODE          (1UL)

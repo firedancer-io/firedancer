@@ -79,7 +79,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   fd_topo_join_tile_workspaces( topo, tile, core_dump_level );
   fd_topo_mlock_code();
 
-  fd_keyload_set_boot_identity( topo->boot_identity, strcmp( tile->name, "sign" ) ? -1 : tile->sign.identity_key_fd );
+  fd_keyload_set_failover_junk( topo->failover_junk, strcmp( tile->name, "sign" ) ? -1 : tile->sign.failover_junk_fd );
 
   if( FD_UNLIKELY( tile_run->privileged_init ) )
     tile_run->privileged_init( topo, tile );

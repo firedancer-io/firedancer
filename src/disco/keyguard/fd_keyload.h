@@ -3,7 +3,7 @@
 
 #include "../fd_disco_base.h"
 
-/* Internal identity source selected by failover startup. */
+/* Internal identity source selected by failover after hand-off. */
 #define FD_KEYLOAD_FAILOVER_JUNK "@failover-junk"
 
 /* fd_keyload_read() reads a JSON encoded keypair from the provided file
@@ -34,7 +34,7 @@ fd_keyload_read( int          key_fd,
    is the path on disk of the key file.  The key file must exist, be
    readable, and have the form of a Solana keypair (64 element JSON
    array of bytes).  FD_KEYLOAD_FAILOVER_JUNK instead selects the
-   generated identity installed by fd_keyload_set_boot_identity.
+   failover junk key installed by fd_keyload_set_failover_junk.
    If public_key_only is non-zero, zeros out the
    private part of the key and returns a pointer to the first byte (of
    32) of the public part of the key in binary format.  If
@@ -56,12 +56,12 @@ uchar const * FD_FN_SENSITIVE
 fd_keyload_load( char const * key_path,
                  int          public_key_only );
 
-/* Set this tile thread's generated boot public key and private startup
+/* Set this tile thread's failover junk public key and private startup
    pipe before loading FD_KEYLOAD_FAILOVER_JUNK.  Only Sign gets a pipe,
    other tiles pass -1 and can load only the public key. */
 
 void
-fd_keyload_set_boot_identity( uchar const public_key[ 32 ],
+fd_keyload_set_failover_junk( uchar const public_key[ 32 ],
                               int         key_fd );
 
 /* Generate a fresh Ed25519 keypair in protected memory.  The returned

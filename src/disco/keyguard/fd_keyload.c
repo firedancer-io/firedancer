@@ -11,14 +11,14 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-static FD_TL uchar boot_public_key[ 32 ];
-static FD_TL int   boot_key_fd = -1;
+static FD_TL uchar junk_public_key[ 32 ];
+static FD_TL int   junk_key_fd = -1;
 
 void
-fd_keyload_set_boot_identity( uchar const public_key[ 32 ],
+fd_keyload_set_failover_junk( uchar const public_key[ 32 ],
                               int         key_fd ) {
-  fd_memcpy( boot_public_key, public_key, 32UL );
-  boot_key_fd = key_fd;
+  fd_memcpy( junk_public_key, public_key, 32UL );
+  junk_key_fd = key_fd;
 }
 
 uchar * FD_FN_SENSITIVE
@@ -92,28 +92,28 @@ read_key( char const * key_path,
 }
 
 static void FD_FN_SENSITIVE
-read_boot_key( uchar * key ) {
-  int key_fd = boot_key_fd;
-  boot_key_fd = -1;
+read_junk_key( uchar * key ) {
+  int key_fd = junk_key_fd;
+  junk_key_fd = -1;
   struct stat st;
   if( FD_UNLIKELY( fstat( key_fd, &st ) || !S_ISFIFO( st.st_mode ) ) )
-    FD_LOG_ERR(( "the generated boot identity requires a startup pipe" ));
+    FD_LOG_ERR(( "the failover junk key requires a startup pipe" ));
   for( ulong off=0UL; off<64UL; ) {
     long n = read( key_fd, key+off, 64UL-off );
     if( FD_UNLIKELY( n==-1L && errno==EINTR ) ) continue;
-    if( FD_UNLIKELY( n<=0L ) ) FD_LOG_ERR(( "could not read the generated boot identity" ));
+    if( FD_UNLIKELY( n<=0L ) ) FD_LOG_ERR(( "could not read the failover junk key" ));
     off += (ulong)n;
   }
   long n;
   do n = read( key_fd, key+64UL, 1UL ); while( FD_UNLIKELY( n==-1L && errno==EINTR ) );
-  if( FD_UNLIKELY( n ) ) FD_LOG_ERR(( "unexpected data after the generated boot identity" ));
-  if( FD_UNLIKELY( close( key_fd ) ) ) FD_LOG_ERR(( "closing the boot identity pipe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( n ) ) FD_LOG_ERR(( "unexpected data after the failover junk key" ));
+  if( FD_UNLIKELY( close( key_fd ) ) ) FD_LOG_ERR(( "closing the failover junk key pipe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( key+FD_SHA512_ALIGN ) );
   FD_TEST( sha );
   fd_ed25519_public_from_private( key+64UL, key, sha );
   if( FD_UNLIKELY( !fd_memeq( key+32UL, key+64UL, 32UL ) ||
-                   !fd_memeq( key+32UL, boot_public_key, 32UL ) ) )
-    FD_LOG_ERR(( "the generated boot identity does not match its public key" ));
+                   !fd_memeq( key+32UL, junk_public_key, 32UL ) ) )
+    FD_LOG_ERR(( "the failover junk key does not match its public key" ));
   fd_memzero_explicit( key+64UL, 4096UL-64UL );
 }
 
@@ -130,22 +130,27 @@ fd_keyload_load( char const * key_path,
   uchar * key_page = fd_keyload_alloc_protected_pages( 1UL, 2UL );
 
   if( FD_UNLIKELY( !strcmp( key_path, FD_KEYLOAD_FAILOVER_JUNK ) ) ) {
-    if( FD_UNLIKELY( fd_memeq( boot_public_key, (uchar[ 32 ]){0}, 32UL ) ) ) FD_LOG_ERR(( "missing generated boot identity" ));
-    if( public_key_only ) fd_memcpy( key_page+32UL, boot_public_key, 32UL );
-    else                  read_boot_key( key_page );
+    if( FD_UNLIKELY( fd_memeq( junk_public_key, (uchar[ 32 ]){0}, 32UL ) ) ) FD_LOG_ERR(( "missing failover junk key" ));
+    if( public_key_only ) fd_memcpy( key_page+32UL, junk_public_key, 32UL );
+    else                  read_junk_key( key_page );
   } else {
     read_key( key_path, key_page );
   }
 
   if( public_key_only ) fd_memzero_explicit( key_page, 32UL );
 
-  return fd_keyload_mprotect_ro( public_key_only ? key_page+32UL : key_page, public_key_only );
+  /* Make the key page read-only now that the key has been loaded. */
+  if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( public_key_only ) return key_page+32UL;
+  else                  return key_page;
 }
 
 uchar const * FD_FN_SENSITIVE
 fd_keyload_generate( void ) {
   uchar * key = fd_keyload_alloc_protected_pages( 1UL, 2UL );
-  if( FD_UNLIKELY( !fd_rng_secure( key, 32UL ) ) ) FD_LOG_ERR(( "could not generate the boot identity" ));
+  if( FD_UNLIKELY( !fd_rng_secure( key, 32UL ) ) ) FD_LOG_ERR(( "could not generate a keypair" ));
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( key+FD_SHA512_ALIGN ) );
   FD_TEST( sha );
   fd_ed25519_public_from_private( key+32UL, key, sha );
@@ -176,7 +181,7 @@ void FD_FN_SENSITIVE
 fd_keyload_unload( uchar const * key,
                    int           public_key_only ) {
   void * key_page = public_key_only ? (uchar *)key-32UL : (uchar *)key;
-  ulong sz = (2UL*2UL+1UL)*4096UL;
+  ulong sz = (2UL*1UL+2UL)*4096UL;
 
   if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ | PROT_WRITE ) ) )
     FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));

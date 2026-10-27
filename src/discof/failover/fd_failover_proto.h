@@ -10,7 +10,7 @@
 /* Protocol version */
 #define FD_FAILOVER_VERSION (1U)
 
-/* The port a standby dials unless `failover promote --port` gives
+/* The port a handoff dials unless `failover promote --port` gives
    another.  It is also the default [failover.listen_port]. */
 #define FD_FAILOVER_DEFAULT_PORT ((ushort)8010)
 
@@ -22,17 +22,13 @@
 #define FD_FAILOVER_MSG_PROMOTE_REJECTED (4U)
 #define FD_FAILOVER_MSG_HANDOFF_RESULT   (5U)
 #define FD_FAILOVER_MSG_KEEPALIVE        (6U)
-#define FD_FAILOVER_MSG_RESERVED         (7U)
+#define FD_FAILOVER_MSG_CNT         (7U)
 
 /* Sentinel for a slot field with no value */
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
 
 /* Consensus payload formats */
 #define FD_FAILOVER_MODE_ALPENGLOW (1U)
-
-/* Roles for each endpoint */
-#define FD_FAILOVER_ROLE_STANDBY (0UL) /* Run under the junk identity. */
-#define FD_FAILOVER_ROLE_ACTIVE  (1UL) /* Run under the staked identity. */
 
 /* Session states for one authenticated TCP session per pair.  The
    listener only ever shows LISTENING or PAIRED, its candidates are
@@ -62,8 +58,8 @@
 #define FD_FAILOVER_HELLO_ERR_VOTE_ACCT  (3)
 #define FD_FAILOVER_HELLO_ERR_JUNK_EQ    (4)
 #define FD_FAILOVER_HELLO_ERR_JUNK_STAKE (5)
-#define FD_FAILOVER_HELLO_ERR_BOTH_ACT   (6)
-#define FD_FAILOVER_HELLO_ERR_ROLE       (7)
+#define FD_FAILOVER_HELLO_ERR_BOTH_HOLD  (6)
+#define FD_FAILOVER_HELLO_ERR_HOLDS      (7)
 #define FD_FAILOVER_HELLO_ERR_BOOT_ID    (8)
 #define FD_FAILOVER_HELLO_ERR_MODE       (9)
 #define FD_FAILOVER_HELLO_ERR_PROOF      (10)
@@ -76,10 +72,10 @@
 /* Wire protocol message bodies. Little endian, packed, fixed layout. */
 struct __attribute__((packed)) fd_failover_hello {
   ushort version;             /* FD_FAILOVER_VERSION */
-  uchar  junk_pubkey[ 32 ];   /* this host's junk identity */
-  uchar  staked_pubkey[ 32 ]; /* the active identity for this pair */
+  uchar  junk_pubkey[ 32 ];   /* this host's junk key, generated at boot */
+  uchar  staked_pubkey[ 32 ]; /* the identity this pair hands off */
   uchar  vote_account[ 32 ];  /* the vote account for this pair */
-  uchar  role;                /* FD_FAILOVER_ROLE_* role at pairing */
+  uchar  holds;               /* 1 when this host runs staked_pubkey at pairing, else 0 */
   uchar  mode;                /* FD_FAILOVER_MODE_* consensus */
   ulong  boot_id;             /* random nonzero value per boot to distinguish restarts */
   uchar  commit[ 20 ];        /* FD commit hash */
@@ -125,7 +121,7 @@ FD_STATIC_ASSERT( sizeof(fd_failover_admission_response_t)==66UL, admission_resp
 /* Sent by the demoter once it runs the junk key, the final history
    follows it. */
 struct __attribute__((packed)) fd_failover_demoted {
-  ulong  handoff_id;     /* the handoff id from the standby's HANDOFF_REQUEST */
+  ulong  handoff_id;     /* the handoff id from the HANDOFF_REQUEST */
   ulong  target_boot_id; /* peer boot_id the handoff is for */
   ulong  last_vote_slot; /* tip of the final history */
   uchar  mode;           /* FD_FAILOVER_MODE_* encoding */
@@ -149,11 +145,10 @@ struct __attribute__((packed)) fd_failover_promote_rejected {
 typedef struct fd_failover_promote_rejected fd_failover_promote_rejected_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_promote_rejected_t)==9UL, wire_layout );
 
-/* The standby asks the active it authenticated to hand over. */
 struct __attribute__((packed)) fd_failover_handoff_request {
   ulong handoff_id;
   ulong target_boot_id;
-  ulong replay_slot; /* standby's replay slot, FD_FAILOVER_SLOT_NULL before replay starts */
+  ulong replay_slot; /* replay slot of the machine asking for the identity, FD_FAILOVER_SLOT_NULL before replay starts */
 };
 typedef struct fd_failover_handoff_request fd_failover_handoff_request_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_handoff_request_t)==24UL, wire_layout );
@@ -250,10 +245,9 @@ fd_failover_demoted_encode( uchar *       out,
                             uchar const * state,
                             ulong         state_sz );
 
-/* Validates a DEMOTED payload.  The Alpenglow history must decode
-   exactly and end at last_vote_slot.  Returns 1 on success, with the
-   history at payload+sizeof(fd_failover_demoted_t).  Otherwise returns 0
-   and leaves out unchanged. */
+/* Validates a DEMOTED header, not the history itself, which votor
+   decodes on adoption.  Returns 1 on success, else 0 with out
+   unchanged. */
 int
 fd_failover_demoted_decode( fd_failover_demoted_t * out,
                             uchar const *           payload,

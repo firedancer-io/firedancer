@@ -627,8 +627,8 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
     if( FD_UNLIKELY( their_creation_nanos>our_creation_nanos &&
                      !memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) {
       FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns. "
-                   "If the newer instance is a failover peer booted without `[failover.enabled]`, stop it and enable failover "
-                   "there, then run `firedancer failover promote --force` on the machine that should hold the identity.",
+                   "If the newer instance is a failover machine that restarted with this identity in [paths.identity_key], stop it, "
+                   "set its [paths.identity_key] to a random junk key and restart it, then check `failover status` on both machines.",
                    our_creation_nanos, their_creation_nanos ));
     }
   }

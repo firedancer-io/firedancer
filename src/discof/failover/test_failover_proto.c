@@ -13,30 +13,36 @@ fill_hello( fd_failover_hello_t * h,
   fd_memset( h->junk_pubkey,   junk,   32UL );
   fd_memset( h->staked_pubkey, staked, 32UL );
   fd_memset( h->vote_account,  vote,   32UL );
-  h->role    = role;
+  h->holds    = role;
   h->mode    = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
   h->boot_id = 0x1000UL+junk;
 }
 
 static void
 test_hello( void ) {
-  fd_failover_hello_t active, standby;
-  fill_hello( &active,  1U, 0xAA, 0xBB, FD_FAILOVER_ROLE_ACTIVE );
-  fill_hello( &standby, 2U, 0xAA, 0xBB, FD_FAILOVER_ROLE_STANDBY );
-  FD_TEST( fd_failover_hello_check( &active, &standby )==FD_FAILOVER_HELLO_OK );
-  FD_TEST( fd_failover_hello_check( &standby, &active )==FD_FAILOVER_HELLO_OK );
+  fd_failover_hello_t holder, other;
+  fill_hello( &holder, 1U, 0xAA, 0xBB, 1 );
+  fill_hello( &other,  2U, 0xAA, 0xBB, 0 );
+  FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_OK );
+  FD_TEST( fd_failover_hello_check( &other, &holder )==FD_FAILOVER_HELLO_OK );
   uchar unsupported[] = { 0U, 2U, 255U };
   for( ulong i=0UL; i<sizeof(unsupported); i++ ) {
-    standby.mode = unsupported[ i ];
-    FD_TEST( fd_failover_hello_check( &active, &standby )==FD_FAILOVER_HELLO_ERR_MODE );
-    active.mode = standby.mode;
-    FD_TEST( fd_failover_hello_check( &active, &standby )==FD_FAILOVER_HELLO_ERR_MODE );
-    active.mode = FD_FAILOVER_MODE_ALPENGLOW;
+    other.mode = unsupported[ i ];
+    FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_ERR_MODE );
+    holder.mode = other.mode;
+    FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_ERR_MODE );
+    holder.mode = FD_FAILOVER_MODE_ALPENGLOW;
   }
   /* A different staked key is refused. */
-  fill_hello( &active,  1U, 0xAA, 0xBB, FD_FAILOVER_ROLE_ACTIVE );
-  fill_hello( &standby, 2U, 0xAC, 0xBB, FD_FAILOVER_ROLE_STANDBY );
-  FD_TEST( fd_failover_hello_check( &active, &standby )==FD_FAILOVER_HELLO_ERR_STAKED );
+  fill_hello( &holder, 1U, 0xAA, 0xBB, 1 );
+  fill_hello( &other,  2U, 0xAC, 0xBB, 0 );
+  FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_ERR_STAKED );
+  /* A zero vote account, none configured, pairs only with another zero. */
+  fill_hello( &holder, 1U, 0xAA, 0x00, 1 );
+  fill_hello( &other,  2U, 0xAA, 0x00, 0 );
+  FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_OK );
+  fill_hello( &other,  2U, 0xAA, 0xBB, 0 );
+  FD_TEST( fd_failover_hello_check( &holder, &other )==FD_FAILOVER_HELLO_ERR_VOTE_ACCT );
 }
 
 static void
@@ -59,7 +65,9 @@ test_demoted_decode( void ) {
   FD_TEST( !fd_failover_demoted_decode( &decoded, payload, sz ) );
   header->mode           = FD_FAILOVER_MODE_ALPENGLOW;
   header->last_vote_slot = 102UL;
-  FD_TEST( !fd_failover_demoted_decode( &decoded, payload, sz ) );
+  /* The wire layer does not read the history, the controller compares
+     the adopted tip with last_vote_slot. */
+  FD_TEST( fd_failover_demoted_decode( &decoded, payload, sz ) && decoded.last_vote_slot==102UL );
 }
 
 /* test_handoff_decode: requests and results need their exact size and

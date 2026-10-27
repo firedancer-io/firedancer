@@ -223,8 +223,8 @@ FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
   if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) && tile->sign.failover_enabled ) ) {
-    /* The read only junk and staked key pages, the set-identity key
-       page, and their guards, next to the identity key. */
+    /* The junk key, the read only copy of the boot key and the failover
+       target key, each with its guard pages, next to the identity key. */
     key_pages += 15UL;
   }
   if( FD_UNLIKELY( tile->id_keyswitch_obj_id!=ULONG_MAX ) ) {
@@ -238,9 +238,9 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
     key_pages += 5UL;
   }
   if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
-    /* The failover tile loads the junk and staked public keys at boot,
-       both at the same time. */
-    key_pages += 10UL;
+    /* The failover tile loads one public key at a time at boot and
+       unloads it before the next. */
+    key_pages += 5UL;
   }
 
   if( !strcmp( tile->name, "net" ) ) {

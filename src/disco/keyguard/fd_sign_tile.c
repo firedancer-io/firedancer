@@ -64,9 +64,9 @@ typedef struct {
   uchar *           private_key;
 
   uchar const *     failover_junk_key;     /* read only copies loaded at boot under failover */
-  uchar const *     failover_staked_key;
-  uchar *           failover_operator_key; /* a set-identity key other than junk and staked, zero while there is none */
-  uchar const *     failover_key;          /* the failover identity, failover_staked_key or failover_operator_key */
+  uchar const *     failover_boot_key;
+  uchar *           failover_target_key;   /* a target key other than the junk and boot keys, zero while there is none */
+  uchar const *     failover_key;          /* the failover target, either failover_boot_key or failover_target_key */
 
   fd_keyguard_bls_key_t * bls_keys;
 
@@ -136,43 +136,38 @@ failover_identity_allowed( fd_sign_ctx_t const * ctx,
   return 1;
 }
 
-/* failover_housekeeping runs the keyswitches the failover way before
+/* failover_keyswitch runs the keyswitches the failover way before
    the normal keyswitch code sees them.  A failover switch selects the junk key
-   or the failover identity.  set-identity also makes the new key the one
-   failover hands off, unless it is our junk key.  The staked key keeps its
-   read only page from boot, another key is copied into its own, and the
-   normal switch installs it.  Return 0 only when the normal switch must
-   install this request.  Once acknowledged, the keyswitch belongs to
-   Admin and must not be read again in this housekeeping call. */
+   or the failover target.  A prepare loads a new target without installing
+   it.  set-identity also makes the new key the target, unless it is our junk
+   key.  The boot key keeps its read only page from boot, another key is
+   copied into its own, and the normal switch installs it.  Return 0 only
+   when the normal switch must install this request.  Once acknowledged, the
+   keyswitch belongs to Admin and must not be read again in this
+   housekeeping call. */
 
 static int FD_FN_SENSITIVE
-failover_housekeeping( fd_sign_ctx_t * ctx ) {
+failover_keyswitch( fd_sign_ctx_t * ctx ) {
   if( FD_LIKELY( fd_keyswitch_state_query( ctx->keyswitch )!=FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) return 1;
   ulong param = fd_keyswitch_param_query( ctx->keyswitch );
   if( FD_UNLIKELY( param==FD_KEYSWITCH_PARAM_IDENTITY_PREPARE ) ) {
     int allowed = failover_identity_allowed( ctx, ctx->keyswitch->bytes+32UL ) &&
                   !fd_memeq( ctx->keyswitch->bytes+32UL, ctx->failover_junk_key+32UL, 32UL );
     if( FD_LIKELY( allowed ) ) {
-      fd_memcpy( ctx->failover_operator_key, ctx->keyswitch->bytes, 64UL );
-      ctx->failover_key = ctx->failover_operator_key;
+      fd_memcpy( ctx->failover_target_key, ctx->keyswitch->bytes, 64UL );
+      ctx->failover_key = ctx->failover_target_key;
     }
     fd_memzero_explicit( ctx->keyswitch->bytes, 64UL );
     ctx->keyswitch->result = allowed ? FD_ADMINCTL_RESULT_SUCCESS : FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER;
     fd_keyswitch_state( ctx->keyswitch, allowed ? FD_KEYSWITCH_STATE_COMPLETED : FD_KEYSWITCH_STATE_FAILED );
     return 1;
   }
-  /* Before a client prepares a target, set-identity retains its normal
-     behavior and does not select an identity for failover. */
-  if( param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR && !ctx->failover_key ) return 0;
-  if( FD_UNLIKELY( param==FD_KEYSWITCH_PARAM_IDENTITY_CHECK || param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR ) ) {
-    uchar const * pubkey = ctx->keyswitch->bytes + (param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR ? 32UL : 0UL);
-    int           allowed = failover_identity_allowed( ctx, pubkey );
-    if( FD_UNLIKELY( !allowed || param==FD_KEYSWITCH_PARAM_IDENTITY_CHECK ) ) {
-      fd_memzero_explicit( ctx->keyswitch->bytes, 64UL );
-      ctx->keyswitch->result = allowed ? FD_ADMINCTL_RESULT_SUCCESS : FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER;
-      fd_keyswitch_state( ctx->keyswitch, allowed ? FD_KEYSWITCH_STATE_COMPLETED : FD_KEYSWITCH_STATE_FAILED );
-      return 1;
-    }
+  if( FD_UNLIKELY( param==FD_KEYSWITCH_PARAM_IDENTITY_CHECK ) ) {
+    int allowed = failover_identity_allowed( ctx, ctx->keyswitch->bytes );
+    fd_memzero_explicit( ctx->keyswitch->bytes, 64UL );
+    ctx->keyswitch->result = allowed ? FD_ADMINCTL_RESULT_SUCCESS : FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER;
+    fd_keyswitch_state( ctx->keyswitch, allowed ? FD_KEYSWITCH_STATE_COMPLETED : FD_KEYSWITCH_STATE_FAILED );
+    return 1;
   }
   if( FD_UNLIKELY( param==FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY ) ) {
     failover_select( ctx );
@@ -180,12 +175,12 @@ failover_housekeeping( fd_sign_ctx_t * ctx ) {
   }
   FD_TEST( param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR );
   if( FD_UNLIKELY( !fd_memeq( ctx->keyswitch->bytes+32UL, ctx->failover_junk_key+32UL, 32UL ) ) ) {
-    if( ctx->failover_staked_key && fd_memeq( ctx->keyswitch->bytes+32UL, ctx->failover_staked_key+32UL, 32UL ) ) {
-      ctx->failover_key = ctx->failover_staked_key;
-      fd_memzero_explicit( ctx->failover_operator_key, 64UL );
+    if( fd_memeq( ctx->keyswitch->bytes+32UL, ctx->failover_boot_key+32UL, 32UL ) ) {
+      ctx->failover_key = ctx->failover_boot_key;
+      fd_memzero_explicit( ctx->failover_target_key, 64UL );
     } else {
-      fd_memcpy( ctx->failover_operator_key, ctx->keyswitch->bytes, 64UL );
-      ctx->failover_key = ctx->failover_operator_key;
+      fd_memcpy( ctx->failover_target_key, ctx->keyswitch->bytes, 64UL );
+      ctx->failover_key = ctx->failover_target_key;
     }
   }
   return 0;
@@ -193,7 +188,7 @@ failover_housekeeping( fd_sign_ctx_t * ctx ) {
 
 static void FD_FN_SENSITIVE
 during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
-  int identity_handled = ctx->failover_junk_key && failover_housekeeping( ctx );
+  int identity_handled = ctx->failover_junk_key && failover_keyswitch( ctx );
 
   if( FD_UNLIKELY( !identity_handled && fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( ctx->private_key, ctx->keyswitch->bytes, 32UL );
@@ -210,13 +205,6 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ulong param = fd_keyswitch_param_query( ctx->av_keyswitch );
     if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
-      if( FD_UNLIKELY( ctx->failover_key && fd_memeq( ctx->av_keyswitch->bytes+32UL, ctx->failover_key+32UL, 32UL ) ) ) {
-        FD_LOG_WARNING(( "keyswitch failed: the failover identity cannot be an authorized voter" ));
-        fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
-        ctx->av_keyswitch->result = FD_ADMINCTL_RESULT_UNSUPPORTED;
-        fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
-        return;
-      }
       if( FD_UNLIKELY( ctx->authorized_voters_cnt==FD_KEYGUARD_AUTH_VOTERS_MAX ) ) {
         FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
         fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
@@ -462,32 +450,19 @@ static void FD_FN_SENSITIVE
 failover_load_keys( fd_sign_ctx_t *        ctx,
                     fd_topo_tile_t const * tile ) {
   ctx->failover_junk_key     = NULL;
-  ctx->failover_staked_key   = NULL;
-  ctx->failover_operator_key = NULL;
+  ctx->failover_boot_key     = NULL;
+  ctx->failover_target_key   = NULL;
   ctx->failover_key          = NULL;
   if( FD_LIKELY( !tile->sign.failover_enabled ) ) return;
 
-  uchar * junk_key = fd_keyload_alloc_protected_pages( 1UL, 2UL );
-  fd_memcpy( junk_key, ctx->private_key, 64UL );
-  ctx->failover_junk_key     = fd_keyload_mprotect_ro( junk_key, /* public_key_only: */ 0 );
-  ctx->failover_operator_key = fd_keyload_alloc_protected_pages( 1UL, 2UL );
-  if( !tile->sign.failover_staked_key_path[ 0 ] ) return;
-  ctx->failover_staked_key   = fd_keyload_load( tile->sign.failover_staked_key_path, /* pubkey only: */ 0 );
-  ctx->failover_key          = ctx->failover_staked_key;
-  if( FD_UNLIKELY( fd_memeq( ctx->failover_junk_key+32UL, ctx->failover_staked_key+32UL, 32UL ) ) ) {
-    FD_LOG_ERR(( "the failover junk identity must differ from the [paths.identity_key] key, which is the staked identity under failover" ));
-  }
-  fd_sha512_t sha[ 1 ];
-  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
-  uchar public_key[ 32 ];
-  fd_ed25519_public_from_private( public_key, ctx->failover_staked_key, sha );
-  if( FD_UNLIKELY( !fd_memeq( public_key, ctx->failover_staked_key+32UL, 32UL ) ) ) {
-    FD_LOG_ERR(( "the public key in [paths.identity_key] does not match its private key" ));
-  }
-  for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
-    if( FD_UNLIKELY( fd_memeq( ctx->authorized_voter_pubkeys[ i ], ctx->failover_staked_key+32UL, 32UL ) ) ) {
-      FD_LOG_ERR(( "the staked [paths.identity_key] key cannot be one of the [paths.authorized_voter_paths] under failover" ));
-    }
+  ctx->failover_junk_key     = fd_keyload_load( FD_KEYLOAD_FAILOVER_JUNK, /* pubkey only: */ 0 );
+  uchar * boot_key           = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+  fd_memcpy( boot_key, ctx->private_key, 64UL );
+  ctx->failover_boot_key     = fd_keyload_mprotect_ro( boot_key, /* public_key_only: */ 0 );
+  ctx->failover_target_key   = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+  ctx->failover_key          = ctx->failover_boot_key;
+  if( FD_UNLIKELY( fd_memeq( ctx->failover_junk_key+32UL, ctx->failover_boot_key+32UL, 32UL ) ) ) {
+    FD_LOG_ERR(( "the failover junk key must differ from the [paths.identity_key] key" ));
   }
 }
 
