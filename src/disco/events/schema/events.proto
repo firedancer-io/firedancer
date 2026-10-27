@@ -6988,6 +6988,10 @@ message MetricsGuiDbForcedEvictWriteCompleted {
   uint64 replay_slot_state = 336290660;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 342485110;
+  // votes
+  uint64 votes = 470569167;
+  // vote_events
+  uint64 vote_events = 456545346;
 }
 
 // Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database
@@ -7034,6 +7038,10 @@ message MetricsGuiDbRecordDropped {
   uint64 replay_slot_state = 398382173;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 533910041;
+  // votes
+  uint64 votes = 395245798;
+  // vote_events
+  uint64 vote_events = 452389892;
 }
 
 // Regions returned to the free list, by database
@@ -7080,6 +7088,10 @@ message MetricsGuiDbRegionReleased {
   uint64 replay_slot_state = 329305522;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 405825859;
+  // votes
+  uint64 votes = 509591564;
+  // vote_events
+  uint64 vote_events = 400569843;
 }
 
 // Regions claimed from the free list, by database
@@ -7126,6 +7138,10 @@ message MetricsGuiDbRegionClaimed {
   uint64 replay_slot_state = 419048398;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 507407103;
+  // votes
+  uint64 votes = 335226746;
+  // vote_events
+  uint64 vote_events = 301994052;
 }
 
 // Eviction passes that removed at least one record, by database
@@ -7172,6 +7188,10 @@ message MetricsGuiDbEvictionPassCompleted {
   uint64 replay_slot_state = 385082965;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 355743204;
+  // votes
+  uint64 votes = 293818360;
+  // vote_events
+  uint64 vote_events = 398020774;
 }
 
 // Records evicted from the database, by database
@@ -7218,6 +7238,10 @@ message MetricsGuiDbRecordEvicted {
   uint64 replay_slot_state = 310085390;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 315958571;
+  // votes
+  uint64 votes = 272288949;
+  // vote_events
+  uint64 vote_events = 441815466;
 }
 
 // Time-series records returned by scans, by database
@@ -7264,6 +7288,10 @@ message MetricsGuiDbTimeSeriesRecordRead {
   uint64 replay_slot_state = 321884243;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 447725783;
+  // votes
+  uint64 votes = 274489242;
+  // vote_events
+  uint64 vote_events = 491821582;
 }
 
 // Time-series scans, by database
@@ -7310,6 +7338,10 @@ message MetricsGuiDbTimeSeriesScanned {
   uint64 replay_slot_state = 398209769;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 362844138;
+  // votes
+  uint64 votes = 460468680;
+  // vote_events
+  uint64 vote_events = 345979548;
 }
 
 // Time-series records appended, by database
@@ -7356,6 +7388,10 @@ message MetricsGuiDbTimeSeriesRecordAppended {
   uint64 replay_slot_state = 288618370;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 414893146;
+  // votes
+  uint64 votes = 296016993;
+  // vote_events
+  uint64 vote_events = 510849452;
 }
 
 // Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database
@@ -7402,6 +7438,10 @@ message MetricsGuiDbKvQueried {
   uint64 replay_slot_state = 281698271;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 339639707;
+  // votes
+  uint64 votes = 442916806;
+  // vote_events
+  uint64 vote_events = 461793653;
 }
 
 // Record capacity of regions owned by each database ring; grows on demand
@@ -7448,6 +7488,10 @@ message MetricsGuiDbRecordAllocated {
   uint64 replay_slot_state = 494559053;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 536188419;
+  // votes
+  uint64 votes = 318592996;
+  // vote_events
+  uint64 vote_events = 357416988;
 }
 
 // Records present in the store ring
@@ -7494,6 +7538,10 @@ message MetricsGuiDbRecordUsed {
   uint64 replay_slot_state = 383242216;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 273045878;
+  // votes
+  uint64 votes = 488511084;
+  // vote_events
+  uint64 vote_events = 361623073;
 }
 
 // Bytes of regions owned by each database ring; grows on demand
@@ -7540,6 +7588,10 @@ message MetricsGuiDbAllocatedBytes {
   uint64 replay_slot_state = 425550602;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 429555008;
+  // votes
+  uint64 votes = 305491293;
+  // vote_events
+  uint64 vote_events = 382048343;
 }
 
 // Bytes occupied by records present in the store ring
@@ -7586,6 +7638,10 @@ message MetricsGuiDbUsedBytes {
   uint64 replay_slot_state = 303280759;
   // timeline_tile_state_day
   uint64 timeline_tile_state_day = 520441961;
+  // votes
+  uint64 votes = 491205299;
+  // vote_events
+  uint64 vote_events = 518497421;
 }
 
 // Times the tile tried to park while idle (efficient mode), by result
@@ -11958,6 +12014,8 @@ message MetricsVotor {
   MetricsVotorServerPktRxDurationNanos server_pkt_rx_duration_nanos = 101;
   // Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects
   uint64 server_conn_retry_expired_rejected = 102;
+  // Vote activity records for the GUI dropped because the votor_gui batch was full
+  uint64 gui_record_dropped = 344909437;
 }
 
 // Metrics of one gui tile instance, one row per sweep
@@ -12054,6 +12112,8 @@ message MetricsGui {
   MetricsGuiDbRecordDropped db_record_dropped = 45;
   // Writes that evicted records before succeeding, by database
   MetricsGuiDbForcedEvictWriteCompleted db_forced_evict_write_completed = 46;
+  // Votes track records dropped because they were malformed, or markers for a slot older than the recently tracked slots
+  uint64 vote_record_dropped = 286774468;
 }
 
 // Metrics of one event tile instance, one row per sweep

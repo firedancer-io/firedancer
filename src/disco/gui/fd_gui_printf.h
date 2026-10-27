@@ -108,6 +108,12 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
    aggregate buckets return -1. */
 
 int
+fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
+                                    long       start,
+                                    long       end,
+                                    ulong      id );
+
+int
 fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
                                     long       start_ns,
                                     long       end_ns,

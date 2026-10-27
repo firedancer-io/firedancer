@@ -60,7 +60,9 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_FEC_EVENT_ARCHIVE       (17) /* immutable event batches */
 #define FD_GUI_HIST_REPLAY_SLOT_STATE       (18) /* (ts, ...)            */
 #define FD_GUI_HIST_TIMELINE_TILE_STATE_DAY (19) /* (day_idx, tile_idx) */
-#define FD_GUI_HIST_CNT                     (20)
+#define FD_GUI_HIST_VOTES                   (20) /* (ts, ...)            */
+#define FD_GUI_HIST_VOTE_EVENTS             (21) /* (ts, ...)            */
+#define FD_GUI_HIST_CNT                     (22)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */

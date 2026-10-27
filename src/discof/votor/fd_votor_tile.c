@@ -363,6 +363,18 @@ struct fd_votor_tile {
 
   fd_stem_context_t * stem; /* for publishing from the quic callbacks */
 
+  /* votor_gui, optional (NULL gui_out_mem when the GUI is disabled).
+     Records are batched in gui_rec and published by gui_flush. */
+
+  ulong              gui_out_idx;
+  void *             gui_out_mem;
+  ulong              gui_out_chunk0;
+  ulong              gui_out_wmark;
+  ulong              gui_out_chunk;
+  ulong              gui_rec_cnt;
+  long               gui_rec_ts;  /* fd_clock_tile_now when gui_rec[0] was pushed */
+  fd_votor_gui_rec_t gui_rec[ FD_VOTOR_GUI_REC_MAX ];
+
   /* Scratch */
 
   struct {
@@ -390,9 +402,59 @@ struct fd_votor_tile {
     ulong vote_history_write;
     ulong leader_window_superseded;
     ulong cert_tx_unstaked;
+    ulong gui_rec_dropped;
   } metrics;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
+
+/* gui_push buffers a votor_gui record (see fd_votor_tile.h), stake and
+   total_stake taken from the epoch of slot.  A no-op without the GUI.
+   gui_flush publishes it within FD_VOTOR_GUI_FLUSH_NS, and at most
+   GUI_PUSH_MAX records are pushed between consecutive gui_flush calls
+   (a net frag's datagrams and ACKs, or one after_credit), so the buffer
+   only fills if that bound is wrong; the overflow is counted. */
+
+#define GUI_PUSH_MAX (QUIC_DGRAM_BURST+REWARD_VOTE_MAX+4UL)
+FD_STATIC_ASSERT( 2UL*GUI_PUSH_MAX<=FD_VOTOR_GUI_REC_MAX, gui_rec_max );
+
+static void
+gui_push( fd_votor_tile_t * ctx,
+          uchar             kind,
+          uchar             sub,
+          ulong             slot,
+          ushort            rank,
+          long              ts_ns ) {
+  if( FD_LIKELY( !ctx->gui_out_mem ) ) return;
+  if( FD_UNLIKELY( ctx->gui_rec_cnt==FD_VOTOR_GUI_REC_MAX ) ) { ctx->metrics.gui_rec_dropped++; return; }
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
+  if( FD_UNLIKELY( !ctx->gui_rec_cnt ) ) ctx->gui_rec_ts = ts_ns;
+  ctx->gui_rec[ ctx->gui_rec_cnt++ ] = (fd_votor_gui_rec_t){
+    .slot        = slot,
+    .ts_ns       = ts_ns,
+    .stake       = epoch_info && rank<epoch_info->validator_cnt ? epoch_info->validators[ rank ].stake : 0UL,
+    .total_stake = epoch_info ? epoch_info->total_stake : 0UL,
+    .rank        = rank,
+    .kind        = kind,
+    .sub         = sub
+  };
+}
+
+/* gui_flush publishes the buffered records if half the buffer is used
+   or the oldest is FD_VOTOR_GUI_FLUSH_NS old.  Called once per
+   after_credit, where stem guarantees votor_gui credit for one frag. */
+
+static void
+gui_flush( fd_votor_tile_t *   ctx,
+           fd_stem_context_t * stem,
+           long                now ) {
+  if( FD_LIKELY( !ctx->gui_rec_cnt ) ) return;
+  if( FD_LIKELY( ctx->gui_rec_cnt<FD_VOTOR_GUI_REC_MAX/2UL && now<ctx->gui_rec_ts+FD_VOTOR_GUI_FLUSH_NS ) ) return;
+  ulong sz = ctx->gui_rec_cnt*sizeof(fd_votor_gui_rec_t);
+  fd_memcpy( fd_chunk_to_laddr( ctx->gui_out_mem, ctx->gui_out_chunk ), ctx->gui_rec, sz );
+  fd_stem_publish( stem, ctx->gui_out_idx, 0UL, ctx->gui_out_chunk, sz, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->gui_out_chunk = fd_dcache_compact_next( ctx->gui_out_chunk, sz, ctx->gui_out_chunk0, ctx->gui_out_wmark );
+  ctx->gui_rec_cnt   = 0UL;
+}
 
 static void
 report_alpenglow_vote( fd_votor_tile_t * ctx,
@@ -890,6 +952,7 @@ quic_client_ack_range( fd_quic_conn_t * conn,
       if( FD_LIKELY(    rv->pkt_num[ j ]<pkt_num_lo
                      || rv->pkt_num[ j ]>pkt_num_hi ) ) continue;
       report_alpenglow_vote( ctx, NULL, &rv->vote, (uchar)( AG_VOTE_SERDE_TAG_NOTAR+rv->vote.kind ), FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED, 0L, 0L, NULL );
+      gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE_ACK, (uchar)rv->vote.kind, rv->slot, ag_vote_rank( &rv->vote ), fd_clock_tile_now( ctx->clock ) );
       rv->slot = ULONG_MAX;
       break;
     }
@@ -1011,6 +1074,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       FD_LOG_CRIT(( "unhandled kind" ));
     }
     report_alpenglow_vote( ctx, conn, vote, kind, result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE, aggregation_start_time, 0L, NULL );
+    if( FD_LIKELY( err==AG_POOL_SUCCESS && !fd_bls_set_test( ctx->scratch.bad, rank ) ) ) gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE, (uchar)ctx->scratch.vote.kind, vote_slot, rank, aggregation_start_time );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
     reward_cert_t * rc = &ctx->reward_certs[ vote_slot%AG_SLOTS_PER_WINDOW ];
     if( FD_UNLIKELY( err==AG_POOL_SUCCESS && rc->slot==vote_slot && ( vote->kind==AG_VOTE_KIND_NOTAR || vote->kind==AG_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
@@ -1906,6 +1970,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_SET  ( VOTOR, BLS_SIGNATURE_CHECKED,             pool_metrics.bls_verify_cnt+ctx->metrics.bls_verify );
   FD_MCNT_SET  ( VOTOR, LEADER_WINDOW_SUPERSEDED,          ctx->metrics.leader_window_superseded );
   FD_MCNT_SET  ( VOTOR, CERT_TX_UNSTAKED_SKIPPED,          ctx->metrics.cert_tx_unstaked );
+  FD_MCNT_SET  ( VOTOR, GUI_RECORD_DROPPED,                 ctx->metrics.gui_rec_dropped  );
 
   peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   ulong rank = self && self->curr_rank!=USHORT_MAX ? self->curr_rank : ULONG_MAX;
@@ -2055,6 +2120,11 @@ after_credit( fd_votor_tile_t *   ctx,
   *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
   for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_tx_cnt = 0UL;
+
+  /* Publish batched votor_gui records (before the pool event and vote
+     steps below push more, which the next call publishes). */
+
+  gui_flush( ctx, stem, now );
 
   /* Not initialized. */
 
@@ -2312,6 +2382,8 @@ after_credit( fd_votor_tile_t *   ctx,
         FD_LOG_CRIT(( "unhandled kind" ));
       }
       report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, reward_leader );
+      /**/                              gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE_CAST, (uchar)kind, vote_slot, (ushort)rank, broadcast_start_time   );
+      if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE,      (uchar)kind, vote_slot, (ushort)rank, aggregation_start_time );
       if( FD_UNLIKELY( reward_leader && ( !reward_leader->tx_conn || reward_leader->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION, 0L, 0L, reward_leader );
     }
     *opt_poll_in = 0;
@@ -2684,6 +2756,19 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->votor_out_wmark  = fd_dcache_compact_wmark ( ctx->votor_out_mem, votor_out->dcache, votor_out->mtu );
   ctx->votor_out_chunk  = ctx->votor_out_chunk0;
 
+  ctx->gui_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_gui", tile->kind_id );
+  ctx->gui_out_mem = NULL;
+  ctx->gui_rec_cnt = 0UL;
+  ctx->gui_rec_ts  = 0L;
+  if( FD_LIKELY( ctx->gui_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * gui_out = &topo->links[ tile->out_link_id[ ctx->gui_out_idx ] ];
+    FD_TEST( gui_out->mtu>=FD_VOTOR_GUI_MTU );
+    ctx->gui_out_mem    = topo->workspaces[ topo->objs[ gui_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->gui_out_chunk0 = fd_dcache_compact_chunk0( ctx->gui_out_mem, gui_out->dcache );
+    ctx->gui_out_wmark  = fd_dcache_compact_wmark ( ctx->gui_out_mem, gui_out->dcache, gui_out->mtu );
+    ctx->gui_out_chunk  = ctx->gui_out_chunk0;
+  }
+
   fd_topo_link_t const * net_out = &topo->links[ tile->out_link_id[ OUT_IDX_NET ] ];
   FD_TEST( !strcmp( net_out->name, "votor_net" ) );
   FD_TEST( net_out->burst>=FD_VOTOR_NET_BURST );
@@ -2822,7 +2907,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST FD_VOTOR_OUT_BURST /* votor_out only; EXCLUDES VOTOR_NET (has no reliable consumers) */
+#define STEM_BURST FD_VOTOR_OUT_BURST /* votor_out; covers votor_gui (1 frag per loop, see gui_flush); EXCLUDES VOTOR_NET (has no reliable consumers) */
 #define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_votor_tile_t

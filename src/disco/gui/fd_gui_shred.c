@@ -461,6 +461,24 @@ fd_gui_event_bounds( fd_gui_t * gui,
     *hi = have ? fd_long_min( LONG_MAX-1L, fd_long_sat_add( last, FD_GUI_FEC_EVENT_LAG_MAX_NS+1L ) ) : LONG_MIN;
     return have;
   }
+  if( dbi==FD_GUI_HIST_VOTES || dbi==FD_GUI_HIST_VOTE_EVENTS ) {
+    /* Both vote databases, with the margins of fd_gui_timeline_scan:
+       rows are inserted up to FD_GUI_TXN_BATCH_QUERY_MARGIN_NS after
+       their votor timestamp, or 1s before it. */
+    long first = LONG_MAX;
+    long last  = LONG_MIN;
+    int  dbs[ 2 ] = { FD_GUI_HIST_VOTES, FD_GUI_HIST_VOTE_EVENTS };
+    for( int i=0; i<2; i++ ) {
+      long f, l;
+      if( !gui->db || !fd_gui_store_ts_live_timestamp_bounds( gui->db, (ulong)dbs[ i ], &f, &l ) ) continue;
+      first = fd_long_min( first, f );
+      last  = fd_long_max( last,  l );
+    }
+    int have = first!=LONG_MAX;
+    *lo = have ? fd_long_max( 0L, fd_long_sat_sub( first, FD_GUI_TXN_BATCH_QUERY_MARGIN_NS ) ) : LONG_MAX;
+    *hi = have ? fd_long_min( LONG_MAX-1L, fd_long_sat_add( last, FD_GUI_HIST_RES_1S_NS+1L ) ) : LONG_MIN;
+    return have;
+  }
   long first;
   long last;
   int have = gui->db && fd_gui_store_ts_live_timestamp_bounds( gui->db, (ulong)dbi, &first, &last );

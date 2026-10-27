@@ -286,6 +286,9 @@ fd_gui_new( void *                   shmem,
   gui->cpu_util.last_slot = ULONG_MAX;
   gui->cpu_util.cur_day   = ULONG_MAX;
 
+  for( ulong i=0UL; i<FD_GUI_VOTE_SLOT_CNT; i++ ) gui->votes.slot[ i ].slot = ULONG_MAX;
+  gui->votes.dropped_cnt = 0UL;
+
   gui->tile_state.exec_cnt = fd_ulong_min( gui->summary.execrp_tile_cnt, FD_SCHED_MAX_EXEC_TILE_CNT );
   gui->tile_state.pos_cnt  = gui->tile_state.exec_cnt;
   gui->tile_state.cur_day  = ULONG_MAX;
@@ -2215,6 +2218,8 @@ fd_gui_request_timeline( fd_gui_t *   gui,
   int err;
   if( !strcmp( key, "query_slots" ) ) {
     err = fd_gui_printf_timeline_query_slots( gui, start_ns, end_ns, id );
+  } else if( !strcmp( key, "query_votes" ) ) {
+    err = fd_gui_printf_timeline_query_votes( gui, start_ns, end_ns, id );
   } else if( !strcmp( key, "query_events" ) ) {
     err = fd_gui_printf_timeline_query_events( gui, start_ns, end_ns, id );
   } else if( !strcmp( key, "query_txn_meta" ) ) {
@@ -2288,6 +2293,8 @@ fd_gui_ws_message( fd_gui_t *    gui,
   } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) &&
       (fd_jtok_str_eq( &key, "query_shreds" ) ||
        fd_jtok_str_eq( &key, "query_slots" ) ||
+       fd_jtok_str_eq( &key, "query_votes" ) ||
+       fd_jtok_str_eq( &key, "query_agg_votes" ) ||
        fd_jtok_str_eq( &key, "query_events" ) ||
        fd_jtok_str_eq( &key, "query_tile_states" ) ||
        fd_jtok_str_eq( &key, "query_txn_meta" ) ||
@@ -2859,11 +2866,17 @@ fd_gui_ag_slot_is_skip_notarized( fd_gui_t const * gui,
   return ent->slot==slot && ent->skip>=FD_GUI_SKIP_STATUS_NOTARIZED;
 }
 
+static int
+fd_gui_timeline_missed_vote_add( fd_gui_t * gui,
+                                 long       timestamp_ns,
+                                 long       now );
+
 static void
 fd_gui_handle_ag_reward( fd_gui_t * gui,
                          ulong      slot,
                          int        voted,
-                         ushort     voted_rank ) {
+                         ushort     voted_rank,
+                         long       now ) {
 
   uchar vote_rewarded = fd_uchar_if( !!voted, FD_GUI_VOTE_REWARDED_YES, FD_GUI_VOTE_REWARDED_NO );
   uchar is_voter = fd_uchar_if( voted_rank!=USHORT_MAX, FD_GUI_IS_VOTER_YES, FD_GUI_IS_VOTER_NO );
@@ -2880,6 +2893,9 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
       int is_missed = vote_rewarded==FD_GUI_VOTE_REWARDED_NO && is_voter==FD_GUI_IS_VOTER_YES;
 
       if( FD_UNLIKELY( was_missed!=is_missed ) ) gui->epoch.missed_vote_history_dirty = epoch->epoch; /* coalesced into one broadcast per poll */
+      /* Counted when the outcome becomes known (~FD_NUM_SLOTS_FOR_REWARD
+         slots after the slot); a later flip back is not uncounted. */
+      if( FD_UNLIKELY( is_missed && !was_missed ) ) fd_gui_timeline_missed_vote_add( gui, now, now );
     }
   }
 
@@ -2960,7 +2976,8 @@ fd_gui_timeline_tiers( char const * key ) {
       !strcmp( key, "query_agg_revenue" ) ) return FD_GUI_TIMELINE_TIERS_DAY | (1UL<<FD_GUI_TIMELINE_GRANULARITY_100MS);
   if( !strcmp( key, "query_agg_shreds" ) ||
       !strcmp( key, "query_agg_slots"  ) ||
-      !strcmp( key, "query_agg_txn"    ) ) return FD_GUI_TIMELINE_TIERS_DAY;
+      !strcmp( key, "query_agg_txn"    ) ||
+      !strcmp( key, "query_agg_votes"  ) ) return FD_GUI_TIMELINE_TIERS_DAY;
   return 0UL;
 }
 
@@ -3154,6 +3171,21 @@ fd_gui_timeline_mine_add( fd_gui_t * gui,
   ulong day_ns = (ulong)timestamp_ns % (ulong)FD_GUI_TIMELINE_DAY_NS;
   for( int g=FD_GUI_TIMELINE_GRANULARITY_250MS; g<(int)FD_GUI_TIMELINE_STORED_GRANULARITY_CNT; g++ ) {
     fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_MINE,
+                               day_ns/fd_gui_timeline_stored_granularity_ns[ g ], 1UL );
+  }
+  return 1;
+}
+
+static int
+fd_gui_timeline_missed_vote_add( fd_gui_t * gui,
+                                 long       timestamp_ns,
+                                 long       now ) {
+  if( FD_UNLIKELY( timestamp_ns<0L || timestamp_ns==LONG_MAX ) ) return 0;
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, (ulong)timestamp_ns/(ulong)FD_GUI_TIMELINE_DAY_NS, now );
+  if( FD_UNLIKELY( !day ) ) return 0;
+  ulong day_ns = (ulong)timestamp_ns % (ulong)FD_GUI_TIMELINE_DAY_NS;
+  for( int g=FD_GUI_TIMELINE_GRANULARITY_250MS; g<(int)FD_GUI_TIMELINE_STORED_GRANULARITY_CNT; g++ ) {
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_MISSED_VOTE,
                                day_ns/fd_gui_timeline_stored_granularity_ns[ g ], 1UL );
   }
   return 1;
@@ -3862,6 +3894,66 @@ fd_gui_handle_replay_slot_states( fd_gui_t *                      gui,
   }
 }
 
+void
+fd_gui_handle_vote_event( fd_gui_t * gui,
+                          ulong      slot,
+                          uint       event,
+                          long       ts_ns,
+                          long       now ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
+  if( FD_UNLIKELY( event<FD_GUI_VOTE_EVENT_CERT || event>=FD_GUI_VOTE_EVENT_CNT || slot==ULONG_MAX || ts_ns<0L ) ) {
+    gui->votes.dropped_cnt++;
+    return;
+  }
+  /* Only the first of each marker per slot is kept (votor can create
+     and then accept the same cert, or retransmit). */
+  __typeof__(gui->votes.slot[0]) * e = &gui->votes.slot[ slot%FD_GUI_VOTE_SLOT_CNT ];
+  if( FD_UNLIKELY( e->slot!=slot ) ) {
+    if( FD_UNLIKELY( e->slot!=ULONG_MAX && e->slot>slot ) ) {
+      gui->votes.dropped_cnt++;
+      return;
+    }
+    e->slot   = slot;
+    e->events = 0U;
+  }
+  if( e->events & (1U<<event) ) return;
+  e->events |= 1U<<event;
+  fd_gui_store_vote_t row = { .insert_time_ns = now, .ts_ns = ts_ns, .slot = slot, .event = (uchar)event };
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTE_EVENTS, &row );
+}
+
+void
+fd_gui_handle_votor_gui( fd_gui_t *                 gui,
+                         fd_votor_gui_rec_t const * recs,
+                         ulong                      rec_cnt,
+                         long                       now ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
+  for( ulong i=0UL; i<rec_cnt; i++ ) {
+    fd_votor_gui_rec_t const * r = &recs[ i ];
+    if( FD_UNLIKELY( r->kind>FD_VOTOR_GUI_REC_KIND_VOTE_ACK || r->sub>=FD_GUI_VOTE_KIND_CNT || r->slot==ULONG_MAX || r->ts_ns<0L ) ) {
+      gui->votes.dropped_cnt++;
+      continue;
+    }
+    if( r->kind==FD_VOTOR_GUI_REC_KIND_VOTE_CAST ) { fd_gui_handle_vote_event( gui, r->slot, FD_GUI_VOTE_EVENT_CAST+r->sub, r->ts_ns, now ); continue; }
+    if( r->kind==FD_VOTOR_GUI_REC_KIND_VOTE_ACK  ) { fd_gui_handle_vote_event( gui, r->slot, FD_GUI_VOTE_EVENT_ACK +r->sub, r->ts_ns, now ); continue; }
+    /* shortcut: votor counts a vote before its batched BLS check and
+       drops only votes rejected in the same call.  A bad vote removed by
+       a later check stays here, overstating the slot's stake by at most
+       the voter's stake.  shortcut: a voter's notar fallback votes for
+       up to three block hashes in a slot each add its stake, and the
+       block hash is not kept, so per-kind sums can double count. */
+    fd_gui_store_vote_t row = {
+      .insert_time_ns = now,
+      .ts_ns          = r->ts_ns,
+      .slot           = r->slot,
+      .stake          = r->stake,
+      .total_stake    = r->total_stake,
+      .event          = (uchar)(FD_GUI_VOTE_EVENT_VOTE+r->sub)
+    };
+    fd_gui_hist_ts_append( gui, FD_GUI_HIST_VOTES, &row );
+  }
+}
+
 static inline int
 fd_gui_batch_txn_before( fd_gui_batch_txn_ptr_t a,
                          fd_gui_batch_txn_ptr_t b,
@@ -4349,7 +4441,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   }
 
   if( FD_LIKELY( slot_completed->slot>=FD_NUM_SLOTS_FOR_REWARD ) ) {
-    fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank );
+    fd_gui_handle_ag_reward( gui, slot_completed->slot-FD_NUM_SLOTS_FOR_REWARD, slot_completed->voted, slot_completed->voted_rank, now );
   }
 
   int frontier_updated = handle_tower_slot( gui, slot_completed->slot, slot_completed->bank_seq, now );

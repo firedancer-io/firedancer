@@ -334,6 +334,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "metric_in"    );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "diag_gui" );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "gossip_gui" );
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "votor_gui"  );
 
   fd_topob_wksp( topo, "net_gossip"   );
   fd_topob_wksp( topo, "net_shred"    );
@@ -1096,6 +1097,9 @@ fd_topo_initialize( config_t * config ) {
   /**/               fd_topob_tile_in (   topo, "replay", 0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   if( config->tiles.gui.enabled ) {
     /**/             fd_topob_tile_in (   topo, "gui",    0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/             fd_topob_link(       topo, "votor_gui",     "votor_gui",     1024UL,                                   FD_VOTOR_GUI_MTU,                              1UL );
+    /**/             fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_gui",     0UL                                                  );
+    /**/             fd_topob_tile_in (   topo, "gui",    0UL,          "metric_in", "votor_gui",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   ); /* vote activity for the Votes track */
   }
   if( rpc_enabled ) {
     /**/             fd_topob_tile_in (   topo, "rpc",    0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );

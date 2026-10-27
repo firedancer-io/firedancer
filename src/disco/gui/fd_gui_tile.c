@@ -66,6 +66,8 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_FEC_EVENT_ARCHIVE ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENT_ARCHIVE_IDX,
   [ FD_GUI_HIST_REPLAY_SLOT_STATE ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_SLOT_STATE_IDX,
   [ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_TILE_STATE_DAY_IDX,
+  [ FD_GUI_HIST_VOTES                   ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_VOTES_IDX,
+  [ FD_GUI_HIST_VOTE_EVENTS             ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_VOTE_EVENTS_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -87,6 +89,7 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
 #define IN_KIND_SNAPSV_OUT    (19UL) /* firedancer only */
 #define IN_KIND_DIAG          (20UL) /* firedancer only */
 #define IN_KIND_VOTOR_OUT     (21UL) /* firedancer only */
+#define IN_KIND_VOTOR_GUI     (22UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -110,6 +113,9 @@ FD_STATIC_ASSERT( (2UL*FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX+FD_GUI_TILE_STATE_P
                   4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, tile_states_response_bound );
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SLOT_MAX*128UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, slot_response_bound );
+/* query_votes: per row slot_delta 21, event 3, event_ts_delta string 22,
+   stake string 23 bytes including commas. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_VOTE_MAX*69UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, vote_response_bound );
 /* Agg shreds has five numeric arrays including slot_duration, agg txn
    has four numeric arrays, and agg revenue has three ulong-string
    arrays: at most 5*21=105, 4*21=84 or 3*23=69 bytes per bucket
@@ -271,6 +277,7 @@ metrics_write( fd_gui_ctx_t * ctx ) {
   FD_MCNT_SET( GUI, CONN_RX_BYTES, ctx->gui_server->metrics.bytes_read    );
 
   FD_MGAUGE_SET( GUI, DISK_ALLOCATED_BYTES, fd_gui_store_file_sz( ctx->db ) );
+  FD_MCNT_SET( GUI, VOTE_RECORD_DROPPED, ctx->gui->votes.dropped_cnt );
 
   ulong db_cnt = fd_gui_store_cnt( ctx->db );
 
@@ -485,9 +492,12 @@ after_frag( fd_gui_ctx_t *      ctx,
 
       fd_votor_msg_t const * msg = &ctx->parsed.votor_out;
 
+      long now      = fd_clock_tile_now( ctx->clock );
+      long tspub_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
       switch( sig ) {
         case FD_VOTOR_SIG_CERTED: {
           fd_votor_certed_t const * certed = &msg->certed;
+          if( FD_LIKELY( certed->kind<=AG_CERT_KIND_SKIP ) ) fd_gui_handle_vote_event( ctx->gui, certed->slot, FD_GUI_VOTE_EVENT_CERT+(uint)certed->kind, tspub_ns, now );
           switch( certed->kind ) {
             case AG_CERT_KIND_FINAL:          fd_gui_handle_ag_finalized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_FINAL_SLOW     ); break;
             case AG_CERT_KIND_FAST_FINAL:     fd_gui_handle_ag_finalized( ctx->gui, certed->slot, &certed->block_id, FD_GUI_AG_FINAL_FAST     ); break;
@@ -498,9 +508,15 @@ after_frag( fd_gui_ctx_t *      ctx,
           }
           break;
         }
-        case FD_VOTOR_SIG_LEADER: fd_gui_handle_ag_leader( ctx->gui, msg->leader.parent_slot ); break;
-        default:                  break;
+        case FD_VOTOR_SIG_LEADER:       fd_gui_handle_ag_leader( ctx->gui, msg->leader.parent_slot ); break;
+        case FD_VOTOR_SIG_PARENT_READY: fd_gui_handle_vote_event( ctx->gui, msg->parent_ready.slot, FD_GUI_VOTE_EVENT_PARENT_READY, tspub_ns, now ); break;
+        default:                        break;
       }
+      break;
+    }
+    case IN_KIND_VOTOR_GUI: {
+      if( FD_UNLIKELY( !sz || sz>FD_VOTOR_GUI_MTU || sz%sizeof(fd_votor_gui_rec_t) ) ) FD_LOG_ERR(( "invalid votor_gui message size %lu", sz ));
+      fd_gui_handle_votor_gui( ctx->gui, (fd_votor_gui_rec_t const *)src, sz/sizeof(fd_votor_gui_rec_t), fd_clock_tile_now( ctx->clock ) );
       break;
     }
     case IN_KIND_REPLAY_OUT: {
@@ -1029,6 +1045,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( FD_LIKELY( !strcmp( link->name, "diag_gui"       ) ) ) ctx->in_kind[ i ] = IN_KIND_DIAG;
     else if( FD_LIKELY( !strcmp( link->name, "votor_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "votor_gui"      ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR_GUI;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "execle_poh" ) ) ) {

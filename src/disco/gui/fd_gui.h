@@ -17,6 +17,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_wfs.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h" /* fd_slot_to_epoch */
 #include "../../util/fd_util_base.h"
@@ -184,6 +185,7 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_TIMELINE_QUERY_TXN_MAX          (65536UL)
 #define FD_GUI_TIMELINE_QUERY_SLOT_MAX         (65536UL)
 #define FD_GUI_TIMELINE_QUERY_EVENT_MAX        (65536UL)
+#define FD_GUI_TIMELINE_QUERY_VOTE_MAX         (262144UL)
 /* query_tile_states: slot state rows, and intervals (up to four stages
    and a sigverify per txn, one per slot state). */
 #define FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX   (65536UL)
@@ -277,6 +279,7 @@ fd_gui_timeline_tier( char const * key,
   X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
   X( MINE,            mine,             uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
   X( MINE_SKIPPED,    mine_skipped,     uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
+  X( MISSED_VOTE,     missed_vote,      ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
   X( DURATION_SUM,    duration_sum,     ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
   X( DURATION_CNT,    duration_cnt,     uint,   uint,   uint,   uint,   uint,   uint,   uint   )
 
@@ -381,6 +384,40 @@ struct fd_gui_store_replay_slot_state {
   ulong state; /* FD_GUI_TILE_STATE_{BLOCKED_ON_TILES,...,SLOT_FINISH} */
 };
 typedef struct fd_gui_store_replay_slot_state fd_gui_store_replay_slot_state_t;
+
+/* Votes track records.  Two time-series DBs share one row type:
+
+   FD_GUI_HIST_VOTES        every vote the votor counted.
+   FD_GUI_HIST_VOTE_EVENTS  per-slot markers (certs, our casts and acks,
+                            ParentReady), first of each per slot.
+
+   ts_ns is the votor's wallclock at the vote or marker.  stake is the
+   voter's stake and total_stake the votor's total stake for the slot's
+   epoch, in lamports (0 for markers). */
+
+#define FD_GUI_VOTE_KIND_CNT (5UL)  /* AG_VOTE_KIND_* */
+#define FD_GUI_VOTE_SLOT_CNT (64UL) /* recent slots tracked for marker dedup */
+
+/* FD_GUI_VOTE_EVENT_VOTE+AG_VOTE_KIND_* (vote rows, the only ones with
+   stake), FD_GUI_VOTE_EVENT_CERT+AG_CERT_KIND_*, FD_GUI_VOTE_EVENT_CAST+
+   AG_VOTE_KIND_*, FD_GUI_VOTE_EVENT_ACK+AG_VOTE_KIND_* and
+   FD_GUI_VOTE_EVENT_PARENT_READY. */
+#define FD_GUI_VOTE_EVENT_VOTE         (0U)
+#define FD_GUI_VOTE_EVENT_CERT         (5U)
+#define FD_GUI_VOTE_EVENT_CAST         (10U)
+#define FD_GUI_VOTE_EVENT_ACK          (15U)
+#define FD_GUI_VOTE_EVENT_PARENT_READY (20U)
+#define FD_GUI_VOTE_EVENT_CNT          (21U)
+
+struct fd_gui_store_vote {
+  long  insert_time_ns;
+  long  ts_ns;
+  ulong slot;
+  ulong stake;
+  ulong total_stake;
+  uchar event; /* FD_GUI_VOTE_EVENT_* */
+};
+typedef struct fd_gui_store_vote fd_gui_store_vote_t;
 
 /* fd_gui_timeline_tile_state_day holds one tile's time per stored
    state, bucketed per tier like the CPU records.  The 2s tier is exact
@@ -1514,6 +1551,7 @@ union fd_gui_timeline_scratch {
   fd_gui_timeline_event_row_t             event_rows[ FD_GUI_TIMELINE_QUERY_EVENT_MAX ];
   fd_gui_timeline_query_bucket_t          buckets[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
   struct { uint sum; uint cnt; }          cpu[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  fd_gui_store_vote_t                     votes[ FD_GUI_TIMELINE_QUERY_VOTE_MAX ];
   struct { ulong ns[ FD_GUI_TILE_STATE_CNT ]; int have; } agg_tile_states[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
   struct {
     void const *                  rows[ FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX ];
@@ -1578,6 +1616,16 @@ struct fd_gui {
     ulong topo_idx[ FD_GUI_TILE_STATE_POS_CNT ];
     ulong cur_day;   /* newest day with a tile state record, ULONG_MAX if unknown */
   } tile_state;
+
+  /* Markers already recorded for recent slots, indexed by
+     slot%FD_GUI_VOTE_SLOT_CNT. */
+  struct {
+    struct {
+      ulong slot;   /* ULONG_MAX if unused */
+      uint  events; /* FD_GUI_VOTE_EVENT_* markers already recorded */
+    } slot[ FD_GUI_VOTE_SLOT_CNT ];
+    ulong dropped_cnt; /* malformed, or markers for a slot older than the tracked ones */
+  } votes;
 
   ulong leader_begin_slot;
   ulong leader_end_slot;
@@ -1746,6 +1794,24 @@ void
 fd_gui_handle_replay_slot_states( fd_gui_t *                      gui,
                                   fd_replay_slot_states_t const * msg,
                                   long                            now );
+
+/* fd_gui_handle_votor_gui records a votor_gui frag of rec_cnt records
+   for the Votes track (see fd_gui_store_vote_t).  fd_gui_handle_vote_event
+   records marker event (FD_GUI_VOTE_EVENT_*) of slot at votor time
+   ts_ns. */
+
+void
+fd_gui_handle_votor_gui( fd_gui_t *                 gui,
+                         fd_votor_gui_rec_t const * recs,
+                         ulong                      rec_cnt,
+                         long                       now );
+
+void
+fd_gui_handle_vote_event( fd_gui_t * gui,
+                          ulong      slot,
+                          uint       event,
+                          long       ts_ns,
+                          long       now );
 
 /* fd_gui_timeline_handle_fec records a completion and, if admitted, adds
    its counts to the retained calendar-day aggregates. */

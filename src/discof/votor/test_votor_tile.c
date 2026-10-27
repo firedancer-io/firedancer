@@ -2619,6 +2619,67 @@ test_reward_certs( void ) {
   FD_LOG_NOTICE(( "pass: test_reward_certs" ));
 }
 
+/* test_gui_batching: gui_push is a no-op without a votor_gui link,
+   records carry the voter's stake from the slot's epoch, and gui_flush
+   publishes a batch only when half full or FD_VOTOR_GUI_FLUSH_NS old. */
+
+static void
+test_gui_batching( void ) {
+  static fd_votor_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
+  ctx->prev_epoch_info = ctx->curr_epoch_info = ctx->next_epoch_info = epoch_info;
+  ctx->next_epoch_slot = ULONG_MAX;
+
+  gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE, AG_VOTE_KIND_NOTAR, 5UL, 0, 1L );
+  FD_TEST( !ctx->gui_rec_cnt ); /* no votor_gui link */
+
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( reward_mcache_mem, 128UL, 0UL, 0UL ) );
+  FD_TEST( mcache );
+  ctx->gui_out_idx    = 0UL;
+  ctx->gui_out_mem    = reward_out_mem;
+  ctx->gui_out_chunk0 = 0UL;
+  ctx->gui_out_chunk  = 0UL;
+  ctx->gui_out_wmark  = ( sizeof(reward_out_mem) - fd_ulong_align_up( FD_VOTOR_GUI_MTU, 2UL*FD_CHUNK_SZ ) ) >> FD_CHUNK_LG_SZ;
+  fd_frag_meta_t *  mcaches[1]      = { mcache };
+  ulong             seqs[1]         = { 0UL };
+  ulong             depths[1]       = { 128UL };
+  ulong             cr_avail[1]     = { ULONG_MAX };
+  ulong             min_cr_avail[1] = { ULONG_MAX };
+  int               reliable[1]     = { 1 };
+  fd_stem_context_t stem[1]         = {{ .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = min_cr_avail, .out_reliable = reliable }};
+
+  long t0 = 1000L;
+  gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE, AG_VOTE_KIND_NOTAR, 5UL, 2, t0 );
+  gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE_CAST, AG_VOTE_KIND_FINAL, 5UL, 2, t0+1L );
+  FD_TEST( ctx->gui_rec_cnt==2UL );
+  FD_TEST( ctx->gui_rec[ 0 ].stake==epoch_info->validators[ 2 ].stake && ctx->gui_rec[ 0 ].stake && ctx->gui_rec[ 0 ].total_stake==33UL && ctx->gui_rec[ 0 ].rank==2 );
+  FD_TEST( ctx->gui_rec[ 1 ].stake==ctx->gui_rec[ 0 ].stake && ctx->gui_rec[ 1 ].total_stake==33UL );
+
+  gui_flush( ctx, stem, t0+FD_VOTOR_GUI_FLUSH_NS-1L );
+  FD_TEST( !seqs[ 0 ] && ctx->gui_rec_cnt==2UL ); /* too young */
+  gui_flush( ctx, stem, t0+FD_VOTOR_GUI_FLUSH_NS );
+  FD_TEST( seqs[ 0 ]==1UL && !ctx->gui_rec_cnt );
+  fd_frag_meta_t const * meta = mcache + fd_mcache_line_idx( 0UL, 128UL );
+  FD_TEST( meta->sz==2UL*sizeof(fd_votor_gui_rec_t) );
+  fd_votor_gui_rec_t const * recs = fd_chunk_to_laddr_const( reward_out_mem, meta->chunk );
+  FD_TEST( recs[ 0 ].kind==FD_VOTOR_GUI_REC_KIND_VOTE && recs[ 0 ].ts_ns==t0 );
+  FD_TEST( recs[ 1 ].kind==FD_VOTOR_GUI_REC_KIND_VOTE_CAST && recs[ 1 ].sub==AG_VOTE_KIND_FINAL );
+
+  /* Half full publishes regardless of age. */
+  for( ulong i=0UL; i<FD_VOTOR_GUI_REC_MAX/2UL; i++ ) gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE, AG_VOTE_KIND_SKIP, 6UL, 1, t0+2L );
+  gui_flush( ctx, stem, t0+2L );
+  FD_TEST( seqs[ 0 ]==2UL && !ctx->gui_rec_cnt );
+
+  /* Overflow is counted, not written. */
+  for( ulong i=0UL; i<FD_VOTOR_GUI_REC_MAX+3UL; i++ ) gui_push( ctx, FD_VOTOR_GUI_REC_KIND_VOTE, AG_VOTE_KIND_SKIP, 6UL, 1, t0+3L );
+  FD_TEST( ctx->gui_rec_cnt==FD_VOTOR_GUI_REC_MAX && ctx->metrics.gui_rec_dropped==3UL );
+  gui_flush( ctx, stem, t0+3L );
+  FD_TEST( seqs[ 0 ]==3UL && fd_mcache_line_idx( 2UL, 128UL )[ mcache ].sz==FD_VOTOR_GUI_MTU );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2627,6 +2688,7 @@ main( int     argc,
 
   test_rank_voters_resets_total_stake();
   test_quic_client_ack_range();
+  test_gui_batching();
   test_rank_voters_bls_keys();
   test_load_keys( 0 );
   test_load_keys( 1 );
