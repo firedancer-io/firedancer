@@ -425,6 +425,47 @@ FD_UNIT_TEST( resolv_blockhash_expired ) {
   test_env_destroy( env );
 }
 
+FD_UNIT_TEST( resolv_root_advanced_slot_hashes ) {
+  test_env_t env[1];
+  test_env_create( env );
+  env->ctx->banks = mini->banks;
+  env->ctx->accdb = mini->runtime->accdb;
+
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  ulong root_idx  = fd_svm_mini_reset( mini, params );
+  ulong root_slot = fd_svm_mini_bank( mini, root_idx )->f.slot;
+
+  /* A root bank with a sysvar cache lends resolv its SlotHashes. */
+  ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, root_slot+1UL );
+  fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( fd_svm_mini_bank( mini, child_idx ) );
+  FD_TEST( cache );
+  ulong         sz;
+  uchar const * data = fd_sysvar_cache_data_query( cache, fd_sysvar_slot_hashes_id.uc, &sz );
+  FD_TEST( data );
+
+  env->ctx->_rooted_slot_msg.bank_idx = child_idx;
+  after_frag( env->ctx, 1UL, 0UL, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, env->stem );
+  FD_TEST( env->ctx->slot_hashes==data && env->ctx->slot_hashes_sz==sz );
+
+  /* A root bank without one has its SlotHashes copied from accdb. */
+  for( ulong i=2UL;; i++ ) {
+    FD_TEST( i<TEST_MAX_LIVE_SLOTS );
+    child_idx = fd_svm_mini_attach_child( mini, root_idx, root_slot+i );
+    if( !fd_bank_sysvar_cache( fd_svm_mini_bank( mini, child_idx ) ) ) break;
+  }
+
+  env->ctx->_rooted_slot_msg.bank_idx = child_idx;
+  after_frag( env->ctx, 1UL, 0UL, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, env->stem );
+  FD_TEST( env->ctx->slot_hashes==env->ctx->slot_hashes_buf && env->ctx->slot_hashes_sz==sz );
+  FD_TEST( fd_memeq( env->ctx->slot_hashes, data, sz ) );
+
+  fd_slot_hashes_t view[1];
+  FD_TEST( fd_sysvar_slot_hashes_view( view, env->ctx->slot_hashes, env->ctx->slot_hashes_sz ) );
+
+  test_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
