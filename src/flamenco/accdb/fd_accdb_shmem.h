@@ -60,8 +60,6 @@ struct fd_accdb_metrics {
 
   ulong bytes_copied;
 
-  /* Duration of each read and write syscall on the accounts database
-     file, in nanoseconds. */
   fd_histf_t disk_read_duration[1];
   fd_histf_t disk_write_duration[1];
 };

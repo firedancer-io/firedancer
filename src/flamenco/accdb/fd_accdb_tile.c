@@ -72,14 +72,14 @@ metrics_write( fd_accdb_tile_ctx_t * ctx ) {
   FD_MCNT_SET( ACCDB, ACCOUNT_RELOCATED_BYTES,  metrics->accounts_relocated_bytes );
 
   fd_accdb_metrics_t const * rt = fd_accdb_metrics( ctx->accdb );
-  FD_MCNT_ENUM_COPY( ACCDB, ACCOUNT_PREEVICTED, rt->accounts_preevicted_per_class );
-  FD_MCNT_SET( ACCDB, DISK_READ_BYTES,           rt->bytes_read        );
-  FD_MCNT_SET( ACCDB, DISK_WRITTEN_BYTES,        rt->bytes_written     );
-  FD_MCNT_SET( ACCDB, WRITEBACK_WRITTEN,         rt->write_ops         );
-  FD_MCNT_SET( ACCDB, COMPACTION_WRITTEN,        rt->copy_ops          );
-  FD_MCNT_SET( ACCDB, ACCOUNT_VERSION_REMOVED,   rt->accounts_deleted  );
-  FD_MHIST_COPY( ACCDB, ACCOUNTS_DISK_READ_DURATION_NANOS,  rt->disk_read_duration  );
-  FD_MHIST_COPY( ACCDB, ACCOUNTS_DISK_WRITE_DURATION_NANOS, rt->disk_write_duration );
+  FD_MCNT_ENUM_COPY( ACCDB, ACCOUNT_PREEVICTED,             rt->accounts_preevicted_per_class );
+  FD_MCNT_SET( ACCDB, DISK_READ_BYTES,                      rt->bytes_read                    );
+  FD_MCNT_SET( ACCDB, DISK_WRITTEN_BYTES,                   rt->bytes_written                 );
+  FD_MCNT_SET( ACCDB, WRITEBACK_WRITTEN,                    rt->write_ops                     );
+  FD_MCNT_SET( ACCDB, COMPACTION_WRITTEN,                   rt->copy_ops                      );
+  FD_MCNT_SET( ACCDB, ACCOUNT_VERSION_REMOVED,              rt->accounts_deleted              );
+  FD_MHIST_COPY( ACCDB, ACCOUNTS_DISK_READ_DURATION_NANOS,  rt->disk_read_duration            );
+  FD_MHIST_COPY( ACCDB, ACCOUNTS_DISK_WRITE_DURATION_NANOS, rt->disk_write_duration           );
 
   ulong cache_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_max     [ FD_ACCDB_CACHE_CLASS_CNT ];
