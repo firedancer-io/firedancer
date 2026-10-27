@@ -67,12 +67,6 @@ struct fd_runtime_stack {
   ulong max_stake_accounts;
 
   struct {
-    /* Staging memory to sort vote accounts by last vote timestamp for
-       clock sysvar calculation. */
-    ts_est_ele_t * staked_ts;
-  } clock_ts;
-
-  struct {
     /* Staging memory for bpf migration.  This is used to store and
        stage various accounts which is required for deploying a new BPF
        program at the epoch boundary.

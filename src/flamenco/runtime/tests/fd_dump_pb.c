@@ -580,7 +580,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* Get vote and stake delegation infos */
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( parent_bank );
-  ulong              fork_id     = parent_bank->vote_stakes_fork_id;
+  ushort             fork_id     = parent_bank->vote_stakes_fork_id;
   ulong vote_account_t_1_cnt = fd_vote_stakes_cnt_t_1( vote_stakes, fork_id );
   ulong vote_account_t_2_cnt = fd_vote_stakes_cnt_t_2( vote_stakes, fork_id );
   uchar vote_stakes_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN)));

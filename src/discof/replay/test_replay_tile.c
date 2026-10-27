@@ -700,13 +700,22 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
 }
 
 static void
-test_reward_cert_signer_count( void ) {
+test_reward_cert_signer_count( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
-  static fd_bank_t bank[ 1 ];
+  fd_memset( ctx, 0, sizeof(fd_replay_tile_t) );
+
+  ulong const bank_cnt = 4UL;
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, 8UL, 8UL, 8UL ), 1UL );
+  FD_TEST( banks_mem );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, 8UL, 8UL, 128UL, 8UL, 0, 43UL ) );
+  FD_TEST( ctx->banks );
+
+  fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
+  FD_TEST( bank );
   bank->f.slot = FD_NUM_SLOTS_FOR_REWARD;
   fd_epoch_schedule_derive( &bank->f.epoch_schedule, 128UL, 128UL, 0 );
-  /* Count signers even when our voter rank is unavailable. */
-  bank->vote_stakes_fork_id = ULONG_MAX;
+  /* Count signers even when our voter rank is unavailable: the bank's
+     t-2 vote stakes are empty. */
   mock_footer_finalize = 1;
   memset( mock_footer, 0, sizeof(fd_block_footer_t) );
 
@@ -1614,7 +1623,7 @@ test_bls_pubkey( uchar out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
 
 static ushort
 test_vote_rank( fd_vote_stakes_t *  vote_stakes,
-                ulong               fork_id,
+                ushort              fork_id,
                 fd_pubkey_t const * vote_key ) {
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
@@ -1639,8 +1648,8 @@ test_ag_update_delinquent( fd_wksp_t * wksp ) {
   FD_TEST( ctx->wait_info );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
-  ulong              epoch       = fd_vote_stakes_fork_epoch( fork_id );
+  ushort             fork_id     = bank->vote_stakes_fork_id;
+  ulong              epoch       = fd_vote_stakes_fork_epoch( vote_stakes, fork_id );
 
   /* 100+200+300+400 == 1000 lamports of ranked, valid stake. */
   ulong const stake[ TEST_AG_VOTERS ] = { 100UL, 200UL, 300UL, 400UL };
@@ -1652,7 +1661,7 @@ test_ag_update_delinquent( fd_wksp_t * wksp ) {
     uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
     test_bls_pubkey( bls, i );
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, stake[ i ], 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
-    fd_vote_stakes_update_state( vote_stakes, fork_id, &vote[ i ], 0UL, 0L, 1 );
+    fd_vote_stakes_update_state( vote_stakes, fork_id, &vote[ i ], 1 );
   }
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
   for( ulong i=0UL; i<TEST_AG_VOTERS; i++ ) {
@@ -2002,7 +2011,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
   FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( root );
-  ulong              fork_id     = root->vote_stakes_fork_id;
+  ushort             fork_id     = root->vote_stakes_fork_id;
   fd_pubkey_t        vote[ CERT_TEST_VAL_CNT ];
   for( ulong i=0UL; i<CERT_TEST_VAL_CNT; i++ ) {
     vote[ i ]        = (fd_pubkey_t){ .ul = { 3000UL+i } };
@@ -3766,7 +3775,7 @@ main( int     argc,
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) ); /* leader paths run metrics_write */
 
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
-  test_reward_cert_signer_count();
+  test_reward_cert_signer_count( wksp );            fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();
   test_snapshot_found_deleted_state( wksp );        fd_wksp_reset( wksp, 42U );
   test_next_leader_slot_cache();

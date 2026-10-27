@@ -40,7 +40,6 @@ fd_runtime_stack_footprint( ulong max_vote_accounts,
   ulong stake_chain_cnt = fd_stake_accum_map_chain_cnt_est( max_staked_vote_accounts );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_runtime_stack_t),           sizeof(fd_runtime_stack_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(ts_est_ele_t),                 sizeof(ts_est_ele_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),       sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),            sizeof(fd_stake_weight_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, 128UL,                                 sizeof(fd_vote_rewards_t) * max_vote_accounts );
@@ -63,7 +62,6 @@ fd_runtime_stack_new( void * shmem,
   ulong stake_chain_cnt = fd_stake_accum_map_chain_cnt_est( max_staked_vote_accounts );
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_runtime_stack_t *            runtime_stack        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_runtime_stack_t),            sizeof(fd_runtime_stack_t) );
-  ts_est_ele_t *                  staked_ts            = FD_SCRATCH_ALLOC_APPEND( l, alignof(ts_est_ele_t),                  sizeof(ts_est_ele_t) * max_vote_accounts );
   fd_vote_stake_weight_t *        stake_weights        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t),        sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
   fd_stake_weight_t *             id_weights           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),             sizeof(fd_stake_weight_t) * max_vote_accounts );
   fd_vote_rewards_t *             vote_ele             = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  sizeof(fd_vote_rewards_t) * max_vote_accounts );
@@ -80,7 +78,6 @@ fd_runtime_stack_new( void * shmem,
   runtime_stack->max_vote_accounts           = max_vote_accounts;
   runtime_stack->max_staked_vote_accounts    = max_staked_vote_accounts;
   runtime_stack->max_stake_accounts          = max_stake_accounts;
-  runtime_stack->clock_ts.staked_ts          = staked_ts;
   runtime_stack->stakes.stake_weights        = stake_weights;
   runtime_stack->stakes.id_weights           = id_weights;
   runtime_stack->stakes.vote_ele             = vote_ele;

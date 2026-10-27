@@ -260,7 +260,7 @@ struct fd_bank {
   fd_progcache_fork_id_t progcache_fork_id;
   fd_accdb_fork_id_t     accdb_fork_id;
   fd_accdb_fork_id_t     parent_accdb_fork_id;
-  ulong                  vote_stakes_fork_id;
+  ushort                 vote_stakes_fork_id;
   ushort                 stake_rewards_fork_id;
   ushort                 stake_delegations_fork_id;
   ushort                 epoch_credits_fork_id;

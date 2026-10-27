@@ -85,7 +85,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
   enc->total_stake = 0UL;
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ushort             fork_id     = bank->vote_stakes_fork_id;
   ulong              epoch_cnt   = fd_ulong_min( bank->f.epoch, 3UL ) + 2UL;
   for( ulong epoch_idx=0UL; epoch_idx<epoch_cnt; epoch_idx++ ) {
     fd_ssmanifest_epoch_map_t * map = &enc->epoch_map[ epoch_idx ];

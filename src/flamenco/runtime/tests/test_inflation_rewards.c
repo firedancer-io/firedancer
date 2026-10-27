@@ -644,7 +644,7 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
 
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank[0] );
     fd_vote_stakes_reset( vote_stakes );
-    ulong vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+    ushort vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
     for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) {
       double u = fd_rng_double_o( rng );
       fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
@@ -835,7 +835,7 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_reset( vote_stakes );
-  ulong vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+  ushort vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
   for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL*(i+1UL), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
   FD_FEATURE_SET_ACTIVE( &bank->f.features, alpenglow, 0UL );
@@ -922,7 +922,7 @@ test_finalize_verifies_footer( fd_svm_mini_t * mini ) {
   }
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank[ 0 ] );
   fd_vote_stakes_reset( vote_stakes );
-  ulong vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
+  ushort vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
   for( ulong i=0UL; i<2UL; i++ ) fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL*(i+1UL), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
 

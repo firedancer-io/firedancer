@@ -294,7 +294,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
      commission so each encoded key can be told apart. */
   FD_TEST( bank->f.epoch>3UL );
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ushort             fork_id     = bank->vote_stakes_fork_id;
   fd_pubkey_t votes     [ VALIDATOR_CNT ];
   fd_pubkey_t identities[ VALIDATOR_CNT ];
   ulong       vote_cnt = 0UL;

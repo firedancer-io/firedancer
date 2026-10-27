@@ -17,7 +17,7 @@ key( ulong x ) {
 
 static ushort
 epoch_rank( fd_vote_stakes_t *  vote_stakes,
-            ulong               fork_id,
+            ushort              fork_id,
             int                 iter_kind,
             fd_pubkey_t const * vote_key ) {
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
@@ -46,12 +46,12 @@ test_t_1_spill( int disk_fd ) {
   uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 1 };
   fd_pubkey_t node = key( 100UL );
 
-  ulong root = fd_vote_stakes_init( vote_stakes, 0UL );
+  ushort root = fd_vote_stakes_init( vote_stakes, 0UL );
   fd_pubkey_t root_vote = key( 200UL );
   fd_vote_stakes_snap_insert_t_1( vote_stakes, root, &root_vote, &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
 
   /* Three forks cross the same boundary, each with its own t-1 set. */
-  ulong forks[ 3 ];
+  ushort forks[ 3 ];
   for( ulong i=0UL; i<3UL; i++ ) {
     forks[ i ] = fd_vote_stakes_new_fork( vote_stakes, root, 1UL );
     fd_pubkey_t vote = key( 300UL+i );
@@ -98,7 +98,7 @@ test_t_1_spill( int disk_fd ) {
    through a two entry cache, and must always see the right set. */
 
 static fd_vote_stakes_t * conc_vs;
-static ulong              conc_forks[ 3 ];
+static ushort             conc_forks[ 3 ];
 static int                conc_stop;
 
 static int
@@ -134,7 +134,7 @@ test_t_1_concurrent( int disk_fd ) {
   uchar       bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 1 };
   fd_pubkey_t node      = key( 100UL );
   fd_pubkey_t root_vote = key( 200UL );
-  ulong       root      = fd_vote_stakes_init( conc_vs, 0UL );
+  ushort      root      = fd_vote_stakes_init( conc_vs, 0UL );
   fd_vote_stakes_snap_insert_t_1( conc_vs, root, &root_vote, &node, 1000UL, 1U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   for( ulong i=0UL; i<3UL; i++ ) {
     conc_forks[ i ] = fd_vote_stakes_new_fork( conc_vs, root, 1UL );
@@ -146,7 +146,7 @@ test_t_1_concurrent( int disk_fd ) {
   fd_tile_exec_t * exec = fd_tile_exec_new( 1UL, conc_reader, 0, NULL );
   FD_TEST( exec );
 
-  ulong forks[ 4 ] = { root, conc_forks[ 0 ], conc_forks[ 1 ], conc_forks[ 2 ] };
+  ushort forks[ 4 ] = { root, conc_forks[ 0 ], conc_forks[ 1 ], conc_forks[ 2 ] };
   for( ulong i=0UL; i<20000UL; i++ ) {
     FD_TEST( fd_vote_stakes_query_t_1( conc_vs, forks[ (i*7UL)%4UL ], &root_vote, NULL )==(i*7UL%4UL==0UL) );
   }
@@ -179,7 +179,7 @@ test_location( int disk_fd ) {
   fd_validator_location_t const tyo = { -3955214, 3355452,  3699409 };
   fd_validator_location_t const syd = { -4646180, 2553206, -3534375 };
 
-  ulong root = fd_vote_stakes_init( vote_stakes, 5UL );
+  ushort root = fd_vote_stakes_init( vote_stakes, 5UL );
   fd_pubkey_t t1_vote   = key( 200UL );
   fd_pubkey_t zero_vote = key( 201UL );
   fd_pubkey_t t2_vote   = key( 202UL );
@@ -195,7 +195,7 @@ test_location( int disk_fd ) {
   FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, root, &t2_vote,   q ) && loc_eq( q->location, tyo    ) );
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, root, &t3_vote,   q ) && loc_eq( q->location, syd    ) );
 
-  ulong forks[ 3 ];
+  ushort forks[ 3 ];
   for( ulong i=0UL; i<3UL; i++ ) {
     forks[ i ] = fd_vote_stakes_new_fork( vote_stakes, root, 6UL );
     fd_pubkey_t             vote = key( 300UL+i );
@@ -264,16 +264,16 @@ main( int argc, char ** argv ) {
   uchar bls_b[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 8UL };
   uchar bls_c[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 9UL };
 
-  ulong root = fd_vote_stakes_init( vote_stakes, 0UL );
+  ushort root = fd_vote_stakes_init( vote_stakes, 0UL );
   fd_vote_stakes_snap_insert_t_1( vote_stakes, root, &vote_a, &node_a, 100UL, 10U, bls_a, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
   fd_vote_stakes_snap_insert_t_2( vote_stakes, root, &vote_b, &node_b, 200UL, 20U, bls_b, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL, &no_loc );
-  fd_vote_stakes_update_state( vote_stakes, root, &vote_b, 7UL, 8L, 1 );
+  fd_vote_stakes_update_state( vote_stakes, root, &vote_b, 1 );
 
   fd_vote_stakes_ele_t q[1];
   FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, root, &vote_b, q ) );
-  FD_TEST( q->stake==200UL && q->last_vote_slot==7UL && q->last_vote_ts==8L && q->is_valid );
+  FD_TEST( q->stake==200UL && q->is_valid );
 
-  ulong child = fd_vote_stakes_new_fork( vote_stakes, root, 1UL );
+  ushort child = fd_vote_stakes_new_fork( vote_stakes, root, 1UL );
   FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, child, &vote_a, q ) );
   FD_TEST( q->stake==100UL && !q->is_valid );
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, child, &vote_b, q ) );
@@ -287,7 +287,7 @@ main( int argc, char ** argv ) {
     fd_vote_stakes_ele_t ele[1];
     fd_vote_stakes_iter_ele( vote_stakes, child, FD_VOTE_STAKES_ITER_T_2, iter, ele );
     FD_TEST( fd_pubkey_eq( &ele->pubkey, &vote_a ) && ele->stake==100UL );
-    FD_TEST( !ele->last_vote_slot && !ele->last_vote_ts && !ele->is_valid );
+    FD_TEST( !ele->is_valid );
     FD_TEST( ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL );
     FD_TEST( !memcmp( ele->bls_key, bls_a, FD_BLS_PUBKEY_COMPRESSED_SZ ) );
     epoch_iter_cnt++;
@@ -366,16 +366,16 @@ main( int argc, char ** argv ) {
 
     /* Crossing a boundary rotates t-1 into t-2 with the fields and
        collectors intact. */
-    ulong grandchild = fd_vote_stakes_new_fork( vote_stakes, child, 2UL );
+    ushort grandchild = fd_vote_stakes_new_fork( vote_stakes, child, 2UL );
     FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, grandchild, &vote_c, q ) );
     FD_TEST( q->block_revenue_commission_bps==2500U && q->pending_delegator_rewards==777UL );
     FD_TEST( fd_pubkey_eq( &q->inflation_collector, &infl_c ) && fd_pubkey_eq( &q->block_collector, &blk_c ) );
     fd_vote_stakes_purge_fork( vote_stakes, grandchild );
   }
 
-  fd_vote_stakes_update_state( vote_stakes, child, &vote_a, 9UL, 10L, 1 );
-  ulong sibling = fd_vote_stakes_new_fork( vote_stakes, child, 1UL );
-  fd_vote_stakes_update_state( vote_stakes, sibling, &vote_a, 0UL, 0L, 0 );
+  fd_vote_stakes_update_state( vote_stakes, child, &vote_a, 1 );
+  ushort sibling = fd_vote_stakes_new_fork( vote_stakes, child, 1UL );
+  fd_vote_stakes_update_state( vote_stakes, sibling, &vote_a, 0 );
   FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, child, &vote_a, q ) && q->is_valid );
   FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, sibling, &vote_a, q ) && !q->is_valid );
 
@@ -397,13 +397,13 @@ main( int argc, char ** argv ) {
   fd_vote_stakes_purge_fork( vote_stakes, root );
 
   fd_vote_stakes_reset( vote_stakes );
-  ulong reset_root = fd_vote_stakes_init( vote_stakes, 2UL );
+  ushort reset_root = fd_vote_stakes_init( vote_stakes, 2UL );
   FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, reset_root )==0UL );
   FD_TEST( fd_vote_stakes_cnt_t_2( vote_stakes, reset_root )==0UL );
   fd_vote_stakes_purge_fork( vote_stakes, reset_root );
 
   fd_vote_stakes_reset( vote_stakes );
-  ulong snapshot_root = fd_vote_stakes_init( vote_stakes, 2UL );
+  ushort snapshot_root = fd_vote_stakes_init( vote_stakes, 2UL );
   fd_vote_stakes_snap_insert_t_n( vote_stakes, snapshot_root, 3UL, &vote_b, &node_b, 200UL, 20U, bls_b, 4321U, 99UL, NULL, NULL, &no_loc );
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, snapshot_root, &vote_b, q ) );
   FD_TEST( fd_pubkey_eq( &q->node_account, &node_b ) && q->stake==200UL && q->commission==20U );
@@ -417,7 +417,7 @@ main( int argc, char ** argv ) {
   }
   /* Crossing into E+1 must not evict E-1 while an epoch-E fork is
      live. */
-  ulong next_epoch_child = fd_vote_stakes_new_fork( vote_stakes, snapshot_root, 3UL );
+  ushort next_epoch_child = fd_vote_stakes_new_fork( vote_stakes, snapshot_root, 3UL );
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, snapshot_root, &vote_b, NULL ) );
   fd_vote_stakes_purge_fork( vote_stakes, next_epoch_child );
   fd_vote_stakes_purge_fork( vote_stakes, snapshot_root );
@@ -425,7 +425,7 @@ main( int argc, char ** argv ) {
   /* An epoch-E fork addresses E-3..E as t-5..t-2; crossing into E+1
      evicts E-4, which no live fork addresses. */
   fd_vote_stakes_reset( vote_stakes );
-  ulong forks[ 6 ];
+  ushort forks[ 6 ];
   forks[0] = fd_vote_stakes_init( vote_stakes, 0UL );
   FD_TEST( fd_vote_stakes_iter_done( vote_stakes, forks[0], FD_VOTE_STAKES_ITER_T_5, fd_vote_stakes_iter_init( vote_stakes, forks[0], FD_VOTE_STAKES_ITER_T_5, epoch_iter_mem ) ) );
   for( ulong e=0UL; e<5UL; e++ ) {
@@ -450,7 +450,7 @@ main( int argc, char ** argv ) {
   }
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==100UL );
   fd_vote_stakes_purge_fork( vote_stakes, forks[4] );
-  ulong evicting_child = fd_vote_stakes_new_fork( vote_stakes, forks[5], 6UL );
+  ushort evicting_child = fd_vote_stakes_new_fork( vote_stakes, forks[5], 6UL );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==0UL );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 2UL )==200UL );
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, forks[5],       FD_VOTE_STAKES_ITER_T_5, fd_vote_stakes_iter_init( vote_stakes, forks[5],       FD_VOTE_STAKES_ITER_T_5, epoch_iter_mem ) ) );

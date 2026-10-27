@@ -466,7 +466,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_reset( vote_stakes );
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
-  ulong vote_stakes_fork_id = bank->vote_stakes_fork_id;
+  ushort vote_stakes_fork_id = bank->vote_stakes_fork_id;
 
   ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, manifest->slot );
   ulong epoch_stakes_base     = epoch > 3UL ? epoch - 3UL : 0UL;

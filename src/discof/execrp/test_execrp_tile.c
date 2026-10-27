@@ -494,7 +494,7 @@ FD_UNIT_TEST( execrp_cert_verify ) {
 
   /* rank CERT_VAL_CNT real BLS keys in the t-2 set, sum their secrets */
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ushort             fork_id     = bank->vote_stakes_fork_id;
   blst_scalar        sum         = { 0 };
   for( ulong i=0UL; i<CERT_VAL_CNT; i++ ) {
     uchar ikm[ 32 ] = { 0 };

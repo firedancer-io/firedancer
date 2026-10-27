@@ -55,7 +55,7 @@ fd_reward_epoch_stakes_set( fd_bank_t *                    bank,
   ulong                   entries_cnt = 0UL;
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong              fork_id     = bank->vote_stakes_fork_id;
+  ushort             fork_id     = bank->vote_stakes_fork_id;
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) vote_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, vote_iter_mem );
