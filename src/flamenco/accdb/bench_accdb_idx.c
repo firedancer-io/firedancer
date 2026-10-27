@@ -38,6 +38,17 @@ make_pubkey( uchar pk[ 32 ],
 
 typedef struct { fd_accdb_t * accdb; int stop; } bg_t;
 
+#ifdef FD_ACCDB_IDX_FD_RW
+typedef struct { fd_accdb_t * accdb; void * scratch; } build_t;
+
+static void *
+build_run( void * arg ) {
+  build_t * b = arg;
+  fd_accdb_snapshot_index_build_work( b->accdb, b->scratch );
+  return NULL;
+}
+#endif
+
 static void *
 bg_run( void * arg ) {
   bg_t * bg = arg;
@@ -66,6 +77,8 @@ main( int     argc,
   char const * dir       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--dir",           NULL,    "/tmp" );
   ulong        hot_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--hot",           NULL, 2000000UL );
   ulong        max_accts = fd_env_strip_cmdline_ulong( &argc, &argv, "--max-accounts",  NULL,       0UL );
+  ulong        workers   = fd_env_strip_cmdline_ulong( &argc, &argv, "--workers",       NULL,       1UL );
+  FD_TEST( workers>=1UL && workers<=32UL );
 #ifndef FD_ACCDB_IDX_FD_RW
   if( ram_max ) FD_LOG_ERR(( "this tree has no disk index" ));
 #endif
@@ -86,13 +99,13 @@ main( int     argc,
   int idx_fd = open( path, O_RDWR|O_CREAT|O_TRUNC, 0600 );
   FD_TEST( idx_fd>=0 );
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 64UL, 8192UL, 64UL, cache_fp, min_res, 2UL, 0UL IDX_ARG( ram_max ) );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 64UL, 8192UL, 64UL, cache_fp, min_res, 1UL+workers, 0UL IDX_ARG( ram_max ) );
   FD_TEST( shmem_fp );
   FD_LOG_NOTICE(( "accounts=%lu index_ram_max=%lu shmem footprint %.1f MiB", n, ram_max, (double)shmem_fp/(double)(1UL<<20) ));
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, max_accounts, 64UL, 8192UL, 64UL, 1UL<<30,
-                                                                      cache_fp, min_res, 0, 42UL, 2UL, 0UL IDX_ARG( ram_max ) ) );
+                                                                      cache_fp, min_res, 0, 42UL, 1UL+workers, 0UL IDX_ARG( ram_max ) ) );
   FD_TEST( shmem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), shmem, fd, 0UL, NULL, NULL, 0UL, 0 ) );
   fd_accdb_t * t2    = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 1 ) ), shmem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
@@ -129,8 +142,24 @@ main( int     argc,
                                              &ign, &rep, &ld, &rl, &il, res ) );
   }
 #ifdef FD_ACCDB_IDX_FD_RW
+  /* The main thread finishes the build, workers-1 threads help. */
+  ulong     scratch_sz = fd_accdb_snapshot_index_build_scratch_footprint( max_accounts, ram_max );
+  build_t   helpers[ 32 ];
+  pthread_t helper_threads[ 32 ];
+  for( ulong w=1UL; w<workers; w++ ) {
+    helpers[ w ].accdb   = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) ), shmem, fd, 0UL, NULL, NULL, 0UL, 0 ) );
+    helpers[ w ].scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_ulong_max( scratch_sz, fd_accdb_snapshot_index_build_scratch_align() ) );
+    FD_TEST( helpers[ w ].accdb && helpers[ w ].scratch );
+    fd_accdb_set_index_fd( helpers[ w ].accdb, idx_fd );
+    FD_TEST( !pthread_create( &helper_threads[ w ], NULL, build_run, &helpers[ w ] ) );
+  }
+  void * scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_ulong_max( scratch_sz, fd_accdb_snapshot_index_build_scratch_align() ) );
+  FD_TEST( scratch );
   ulong dup_cnt, dup_lamports;
-  fd_accdb_snapshot_index_build( accdb, &dup_cnt, &dup_lamports );
+  double tb = now_s();
+  fd_accdb_snapshot_index_build_fini( accdb, scratch, &dup_cnt, &dup_lamports );
+  FD_LOG_NOTICE(( "index build: %lu workers in %.2f s", workers, now_s()-tb ));
+  for( ulong w=1UL; w<workers; w++ ) FD_TEST( !pthread_join( helper_threads[ w ], NULL ) );
 #endif
   fd_accdb_snapshot_load_end( accdb );
   double dt = now_s()-t0;

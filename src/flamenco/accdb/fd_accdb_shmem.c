@@ -45,10 +45,8 @@ idx_layout( ulong   l,
   l = fd_ulong_align_up( l, alignof(uint)                ); off[0] = l; l += seq_cnt*sizeof(uint);
   l = fd_ulong_align_up( l, alignof(fd_accdb_idx_range_t) ); off[1] = l; l += range_cnt*sizeof(fd_accdb_idx_range_t);
   l = fd_ulong_align_up( l, 4096UL                       ); off[2] = l; l += range_cnt*FD_ACCDB_IDX_STAGE_CNT*sizeof(fd_accdb_idx_slot_t);
-  l = fd_ulong_align_up( l, 4096UL                       ); off[3] = l; l += fd_ulong_min( page_cnt, FD_ACCDB_IDX_WINDOW_PAGES )*4096UL;
-  l = fd_ulong_align_up( l, 4096UL                       ); off[4] = l; l += FD_ACCDB_IDX_CARRY_MAX*sizeof(fd_accdb_idx_slot_t);
-  l = fd_ulong_align_up( l, 64UL                         ); off[5] = l; l += bloom_cnt*64UL;
-  l = fd_ulong_align_up( l, alignof(ulong)               ); off[6] = l; l += fd_ulong_min( page_cnt, FD_ACCDB_IDX_WINDOW_PAGES )*FD_ACCDB_IDX_SLOT_CNT/8UL;
+  l = fd_ulong_align_up( l, 4096UL                       ); off[3] = l; l += FD_ACCDB_IDX_CARRY_MAX*sizeof(fd_accdb_idx_slot_t);
+  l = fd_ulong_align_up( l, 64UL                         ); off[4] = l; l += bloom_cnt*64UL;
   return l;
 }
 
@@ -141,7 +139,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   }
   l = FD_LAYOUT_APPEND( l, alignof(uint),            delta_chain_cnt*sizeof(uint)                            );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_delta_t),max_incremental_accounts*sizeof(fd_accdb_delta_t)       );
-  ulong idx_off[ 7 ];
+  ulong idx_off[ 5 ];
   l = idx_layout( l, fd_accdb_idx_page_cnt( max_accounts, index_ram_max ), ( max_accounts*FD_ACCDB_IDX_BLOOM_BITS+511UL )/512UL, idx_off );
   return FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
 }
@@ -337,7 +335,7 @@ fd_accdb_shmem_new( void * shmem,
   void * _delta_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_delta_t), max_incremental_accounts*sizeof(fd_accdb_delta_t) );
 
   ulong idx_page_cnt = fd_accdb_idx_page_cnt( max_accounts, index_ram_max );
-  ulong idx_off[ 7 ] = {0};
+  ulong idx_off[ 5 ] = {0};
   ulong bloom_cnt    = ( max_accounts*FD_ACCDB_IDX_BLOOM_BITS+511UL )/512UL;
   idx_layout( (ulong)_delta_pool+max_incremental_accounts*sizeof(fd_accdb_delta_t)-(ulong)shmem, idx_page_cnt, bloom_cnt, idx_off );
   accdb->pool_max         = pool_max;
@@ -347,17 +345,16 @@ fd_accdb_shmem_new( void * shmem,
   accdb->idx_seq_off      = idx_off[ 0 ];
   accdb->idx_range_off    = idx_off[ 1 ];
   accdb->idx_stage_off    = idx_off[ 2 ];
-  accdb->idx_window_off   = idx_off[ 3 ];
-  accdb->idx_carry_off    = idx_off[ 4 ];
-  accdb->idx_bloom_off    = idx_off[ 5 ];
-  accdb->idx_zmap_off     = idx_off[ 6 ];
+  accdb->idx_carry_off    = idx_off[ 3 ];
+  accdb->idx_bloom_off    = idx_off[ 4 ];
   accdb->idx_bloom_cnt    = bloom_cnt;
   accdb->idx_sweep_cursor = 0UL;
+  fd_memset( &accdb->idx_build, 0, sizeof(accdb->idx_build) );
   accdb->acc_used.val     = 0UL;
   if( idx_page_cnt ) {
     fd_memset( (uchar *)shmem+idx_off[ 0 ], 0, ( ( idx_page_cnt+(1UL<<FD_ACCDB_IDX_SEQ_LG)-1UL )>>FD_ACCDB_IDX_SEQ_LG )*sizeof(uint) );
     fd_memset( (uchar *)shmem+idx_off[ 1 ], 0, accdb->idx_range_cnt*sizeof(fd_accdb_idx_range_t) );
-    fd_memset( (uchar *)shmem+idx_off[ 5 ], 0, bloom_cnt*64UL );
+    fd_memset( (uchar *)shmem+idx_off[ 4 ], 0, bloom_cnt*64UL );
   }
 
   fd_memset( _acc_map, 0xFF, chain_cnt*sizeof(uint) );

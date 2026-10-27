@@ -530,7 +530,9 @@ test_disk_index( void ) {
                                              &off[ i ], &ign, &rep, &load, &rl, &il, &result ) );
   }
   ulong dup_cnt, dup_lamports;
-  fd_accdb_snapshot_index_build( accdb, &dup_cnt, &dup_lamports );
+  void * build_scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( 1024UL, 64UL ) );
+  fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports );
+  free( build_scratch );
   fd_accdb_snapshot_load_end( accdb );
 
   env_reset();

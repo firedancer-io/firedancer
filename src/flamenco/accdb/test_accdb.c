@@ -2329,7 +2329,9 @@ test_idx_snapshot( void ) {
   idx_snap_write( accdb, fd, SENTINEL, pk[ 1 ],  5UL,   7UL, 8UL, 0x21, &r, NULL );
   idx_snap_write( accdb, fd, SENTINEL, pk[ 3 ],  1UL,   3UL, 8UL, 0x13, &r, NULL );
   ulong dup_cnt, dup_lamports;
-  fd_accdb_snapshot_index_build( accdb, &dup_cnt, &dup_lamports );
+  void * build_scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( 1024UL, 64UL ) );
+  fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports );
+  free( build_scratch );
   FD_TEST( dup_cnt==2UL && dup_lamports==107UL );
   fd_accdb_snapshot_load_end( accdb );
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL );
@@ -2384,7 +2386,9 @@ test_idx_compaction( void ) {
     idx_snap_write( accdb, fd, SENTINEL, filler, 2UL, 1UL, 128UL<<10, 0xDD, &r, NULL );
   }
   ulong dup_cnt, dup_lamports;
-  fd_accdb_snapshot_index_build( accdb, &dup_cnt, &dup_lamports );
+  void * build_scratch = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( 1024UL, 64UL ) );
+  fd_accdb_snapshot_index_build( accdb, build_scratch, &dup_cnt, &dup_lamports );
+  free( build_scratch );
   FD_TEST( dup_cnt==40UL );
   fd_accdb_snapshot_load_end( accdb );
 
@@ -2419,6 +2423,100 @@ test_idx_compaction( void ) {
   FD_TEST( !pthread_join( thread, NULL ) );
   free( t2 );
 
+  test_teardown( accdb, fd );
+  close( test_idx_fd );
+}
+
+/* Windows placed by several joins at once give the same index as one
+   join: newest slot wins, zero-lamport winners vanish, and records
+   homed at a window end carry over it (the last one wraps to the file
+   start). */
+
+typedef struct { fd_accdb_t * accdb; void * scratch; } idx_build_arg_t;
+
+static void *
+idx_build_run( void * _arg ) {
+  idx_build_arg_t * arg = _arg;
+  fd_accdb_snapshot_index_build_work( arg->accdb, arg->scratch );
+  return NULL;
+}
+
+static void
+test_idx_parallel_build( void ) {
+  ulong const max_accounts = 800000UL; /* 25000 pages, 4 windows */
+  test_idx_fd = memfd_create( "accdb_idx_test", 0 );
+  int fd = memfd_create( "accdb_test", 0 );
+  FD_TEST( test_idx_fd>=0 && fd>=0 );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 8UL, 1024UL, 64UL, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 3UL, 0UL, 64UL );
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( shmem_mem );
+  test_shmem_mem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, max_accounts, 8UL, 1024UL, 64UL, 11UL<<20UL, TEST_CACHE_FOOTPRINT,
+                                                            TEST_CACHE_MIN_RESERVED, 0, 42UL, 3UL, 0UL, 64UL ) );
+  FD_TEST( test_shmem_mem && test_shmem_mem->idx_range_cnt==4UL );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 8UL, 1 ) ), test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
+  FD_TEST( accdb );
+  fd_accdb_set_index_fd( accdb, test_idx_fd );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* Accounts i%7==0 have an older version, i%11==0 end at zero
+     lamports.  The first 16 per window are homed in its last 8 slots,
+     so at least 8 carry over its end. */
+  ulong const n      = 4000UL;
+  ulong const wslots = FD_ACCDB_IDX_WINDOW_PAGES*FD_ACCDB_IDX_SLOT_CNT;
+  ulong const slots  = test_shmem_mem->idx_page_cnt*FD_ACCDB_IDX_SLOT_CNT;
+  static uchar pk[ 4000 ][ 32 ];
+  ulong seed = 1UL;
+  for( ulong i=0UL; i<n; i++ ) {
+    ulong w    = i/16UL;
+    ulong last = fd_ulong_min( (w+1UL)*wslots, slots )-1UL;
+    for(;;) {
+      fd_memset( pk[ i ], 0, 32UL );
+      FD_STORE( ulong, pk[ i ],    fd_ulong_hash( seed++ ) );
+      FD_STORE( ulong, pk[ i ]+8,  i                       );
+      if( w>=test_shmem_mem->idx_range_cnt ) break;
+      ulong home = fd_accdb_idx_home( test_shmem_mem, pk[ i ] );
+      if( home<=last && home+8UL>last ) break;
+    }
+  }
+
+  uchar r;
+  ulong want_winners = 0UL, want_dups = 0UL;
+  fd_accdb_snapshot_load_begin( accdb );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( !(i%7UL) ) { idx_snap_write( accdb, fd, SENTINEL, pk[ i ], 1UL, 5UL, 8UL, 0x01, &r, NULL ); want_dups++; }
+    idx_snap_write( accdb, fd, SENTINEL, pk[ i ], 2UL, (i%11UL) ? 100UL+i : 0UL, 8UL, (uchar)i, &r, NULL );
+    want_winners += !!(i%11UL);
+  }
+
+  void * scratch[ 3 ];
+  for( ulong t=0UL; t<3UL; t++ ) {
+    scratch[ t ] = aligned_alloc( fd_accdb_snapshot_index_build_scratch_align(), fd_accdb_snapshot_index_build_scratch_footprint( max_accounts, 64UL ) );
+    FD_TEST( scratch[ t ] );
+  }
+  idx_build_arg_t args[ 2 ];
+  pthread_t       threads[ 2 ];
+  for( ulong t=0UL; t<2UL; t++ ) {
+    args[ t ].accdb   = test_join_writer( fd );
+    args[ t ].scratch = scratch[ t+1UL ];
+    fd_accdb_set_index_fd( args[ t ].accdb, test_idx_fd );
+    FD_TEST( !pthread_create( &threads[ t ], NULL, idx_build_run, &args[ t ] ) );
+  }
+  ulong dup_cnt, dup_lamports;
+  fd_accdb_snapshot_index_build_fini( accdb, scratch[ 0 ], &dup_cnt, &dup_lamports );
+  for( ulong t=0UL; t<2UL; t++ ) FD_TEST( !pthread_join( threads[ t ], NULL ) );
+  fd_accdb_snapshot_load_end( accdb );
+
+  FD_TEST( test_shmem_mem->idx_build.done==test_shmem_mem->idx_range_cnt );
+  FD_TEST( test_shmem_mem->idx_build.carry_cnt>=8UL*test_shmem_mem->idx_range_cnt );
+  FD_TEST( dup_cnt==want_dups && dup_lamports==5UL*want_dups );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==want_winners );
+  for( ulong i=0UL; i<n; i++ ) {
+    FD_TEST( idx_lamports( accdb, pk[ i ] )==( (i%11UL) ? 100UL+i : 0UL ) );
+    FD_TEST( fd_accdb_lamports( accdb, root, pk[ i ] )==( (i%11UL) ? 100UL+i : 0UL ) );
+  }
+
+  for( ulong t=0UL; t<2UL; t++ ) free( args[ t ].accdb );
+  for( ulong t=0UL; t<3UL; t++ ) free( scratch[ t ] );
   test_teardown( accdb, fd );
   close( test_idx_fd );
 }
@@ -2710,6 +2808,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_compaction ..." ));
   test_idx_compaction();
+  FD_LOG_NOTICE(( "test_idx_parallel_build ..." ));
+  test_idx_parallel_build();
 
   FD_LOG_NOTICE(( "success" ));
 
