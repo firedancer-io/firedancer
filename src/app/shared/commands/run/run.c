@@ -454,6 +454,10 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RW, F_SETFD, tile_uses_accdb  ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RO, F_SETFD, tile_uses_idx_ro ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+        /* snapin builds the index from the spill, accdb punches it out. */
+        int tile_uses_spill = !strcmp( tile->name, "snapin" ) || !strcmp( tile->name, "accdb" );
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_SPILL_FD, F_SETFD, tile_uses_spill ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         if( FD_LIKELY( has_store ) ) {
           int tile_uses_store = 0;
           for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) tile_uses_store |= tile->uses_obj_id[ i ]==store_obj_id;
@@ -554,6 +558,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_SPILL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_LIKELY( has_store ) ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1128,6 +1133,15 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==idx_ro_fd ) ) FD_LOG_ERR(( "failed to open %s read-only (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( idx_ro_fd, FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( idx_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* The index spill is scratch for one boot: unlinked once open. */
+  char spill_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s-spill", config->paths.accounts ) );
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( spill_fd, FD_ACCDB_SPILL_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void

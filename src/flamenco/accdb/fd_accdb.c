@@ -55,8 +55,10 @@ typedef struct fd_accdb_fork fd_accdb_fork_t;
 #define FD_ACCDB_ACQUIRE_STATE_OPEN    (2)
 
 struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
-  int fd;
-  int idx_fd;
+  int   fd;
+  int   idx_fd;
+  int   spill_fd;
+  ulong spill_base; /* file offset of the spill in spill_fd */
 
   int acquire_state;
   int readonly;      /* joined with fd_accdb_join_readonly */
@@ -323,6 +325,8 @@ fd_accdb_new( void *              ljoin,
 
   accdb->fd = fd;
   accdb->idx_fd = FD_ACCDB_IDX_FD_RW;
+  accdb->spill_fd   = FD_ACCDB_SPILL_FD;
+  accdb->spill_base = 0UL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->readonly      = 0;
   accdb->sleep         = sleep;
@@ -390,6 +394,9 @@ fd_accdb_new( void *              ljoin,
 
 static inline void wait_cmd( fd_accdb_t * accdb );
 static inline void submit_cmd( fd_accdb_t * accdb, uint op, ushort fork_id );
+
+static void
+idx_spill_settle( fd_accdb_t * accdb );
 
 void
 fd_accdb_reset( fd_accdb_t * accdb ) {
@@ -478,6 +485,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
      snapshot index build rewrites every page. */
   shmem->acc_used.val     = 0UL;
   shmem->idx_sweep_cursor = 0UL;
+  if( shmem->idx_page_cnt ) idx_spill_settle( accdb );
   fd_memset( &shmem->idx_build, 0, sizeof(shmem->idx_build) );
   if( accdb->idx_range ) fd_memset( accdb->idx_range, 0, shmem->idx_range_cnt*sizeof(fd_accdb_idx_range_t) );
   if( accdb->idx_bloom ) fd_memset( accdb->idx_bloom, 0, shmem->idx_bloom_cnt*64UL );
@@ -517,6 +525,7 @@ void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE,
                  "snapshot load started while snapshot production active" );
+  if( FD_UNLIKELY( accdb->shmem->idx_page_cnt ) ) idx_spill_settle( accdb );
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
 }
 
@@ -772,6 +781,8 @@ fd_accdb_join_readonly( void *             ljoin,
 
   accdb->fd    = fd_ro;
   accdb->idx_fd = FD_ACCDB_IDX_FD_RO;
+  accdb->spill_fd   = -1;
+  accdb->spill_base = 0UL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->readonly      = 1;
   accdb->shmem = shmem;
@@ -1151,15 +1162,15 @@ idx_bloom( fd_accdb_t const * accdb,
 }
 
 static void
-idx_io( fd_accdb_t * accdb,
-        int          write,
-        void *       buf,
-        ulong        sz,
-        ulong        off ) {
+idx_io_fd( int    fd,
+           int    write,
+           void * buf,
+           ulong  sz,
+           ulong  off ) {
   for( ulong done=0UL; done<sz; ) {
     struct iovec iov = { .iov_base = (uchar *)buf+done, .iov_len = sz-done };
-    long r = write ? pwritev2( accdb->idx_fd, &iov, 1, (long)(off+done), 0 )
-                   : preadv2 ( accdb->idx_fd, &iov, 1, (long)(off+done), 0 );
+    long r = write ? pwritev2( fd, &iov, 1, (long)(off+done), 0 )
+                   : preadv2 ( fd, &iov, 1, (long)(off+done), 0 );
     if( FD_UNLIKELY( -1==r && errno==EINTR ) ) continue;
     if( FD_UNLIKELY( -1==r ) ) FD_LOG_ERR(( "accounts index I/O failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( !r ) ) { /* a hole past EOF reads as empty slots */
@@ -1169,6 +1180,15 @@ idx_io( fd_accdb_t * accdb,
     }
     done += (ulong)r;
   }
+}
+
+static inline void
+idx_io( fd_accdb_t * accdb,
+        int          write,
+        void *       buf,
+        ulong        sz,
+        ulong        off ) {
+  idx_io_fd( accdb->idx_fd, write, buf, sz, off );
 }
 
 static uint
@@ -1277,7 +1297,53 @@ idx_free_old( fd_accdb_t *                accdb,
 void
 fd_accdb_set_index_fd( fd_accdb_t * accdb,
                        int          idx_fd ) {
-  accdb->idx_fd = idx_fd;
+  accdb->idx_fd     = idx_fd;
+  accdb->spill_fd   = idx_fd;
+  accdb->spill_base = accdb->shmem->idx_page_cnt*4096UL;
+}
+
+void
+fd_accdb_set_spill_fd( fd_accdb_t * accdb,
+                       int          spill_fd ) {
+  accdb->spill_fd   = spill_fd;
+  accdb->spill_base = 0UL;
+}
+
+/* idx_spill_punch punches out up to max bytes of the spill from
+   idx_spill_punch_off on.  Returns 1 once the whole spill is punched. */
+
+static int
+idx_spill_punch( fd_accdb_t * accdb,
+                 ulong        max ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong end = shmem->idx_range_cnt*shmem->idx_spill_cap*sizeof(fd_accdb_idx_slot_t);
+  ulong off = shmem->idx_spill_punch_off;
+  ulong sz  = fd_ulong_min( end-off, max );
+  if( FD_UNLIKELY( sz && -1==fallocate( accdb->spill_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, (long)( accdb->spill_base+off ), (long)sz ) ) ) {
+    FD_LOG_WARNING(( "fallocate(PUNCH_HOLE) of the accounts index spill failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  shmem->idx_spill_punch_off = off+sz;
+  return off+sz==end;
+}
+
+/* idx_spill_settle finishes punching the spill of the last build
+   before another full snapshot load writes a new one. */
+
+static void
+idx_spill_settle( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  for(;;) {
+    ulong state = FD_VOLATILE_CONST( shmem->idx_spill_state );
+    if( FD_LIKELY( state==FD_ACCDB_IDX_SPILL_IDLE ) ) return;
+    if( state==FD_ACCDB_IDX_SPILL_PENDING &&
+        FD_ATOMIC_CAS( &shmem->idx_spill_state, FD_ACCDB_IDX_SPILL_PENDING, FD_ACCDB_IDX_SPILL_PUNCHING )==FD_ACCDB_IDX_SPILL_PENDING ) {
+      idx_spill_punch( accdb, ULONG_MAX );
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( shmem->idx_spill_state ) = FD_ACCDB_IDX_SPILL_IDLE;
+      return;
+    }
+    FD_SPIN_PAUSE();
+  }
 }
 
 int
@@ -4625,9 +4691,9 @@ background_preevict( fd_accdb_t * accdb,
    file. */
 
 static inline ulong
-idx_spill_off( fd_accdb_shmem_t const * shmem,
-               ulong                    range ) {
-  return shmem->idx_page_cnt*4096UL + range*shmem->idx_spill_cap*sizeof(fd_accdb_idx_slot_t);
+idx_spill_off( fd_accdb_t const * accdb,
+               ulong              range ) {
+  return accdb->spill_base + range*accdb->shmem->idx_spill_cap*sizeof(fd_accdb_idx_slot_t);
 }
 
 static void
@@ -4636,8 +4702,8 @@ idx_spill_flush( fd_accdb_t * accdb,
   fd_accdb_idx_range_t * r = &accdb->idx_range[ range ];
   if( !r->stage_cnt ) return;
   if( FD_UNLIKELY( r->spill_cnt+r->stage_cnt>accdb->shmem->idx_spill_cap ) ) FD_LOG_ERR(( "snapshot has more accounts than [accounts.max_accounts] allows" ));
-  idx_io( accdb, 1, accdb->idx_stage+range*FD_ACCDB_IDX_STAGE_CNT, r->stage_cnt*sizeof(fd_accdb_idx_slot_t),
-          idx_spill_off( accdb->shmem, range )+r->spill_cnt*sizeof(fd_accdb_idx_slot_t) );
+  idx_io_fd( accdb->spill_fd, 1, accdb->idx_stage+range*FD_ACCDB_IDX_STAGE_CNT, r->stage_cnt*sizeof(fd_accdb_idx_slot_t),
+             idx_spill_off( accdb, range )+r->spill_cnt*sizeof(fd_accdb_idx_slot_t) );
   r->spill_cnt += r->stage_cnt;
   r->stage_cnt  = 0U;
 }
@@ -4959,7 +5025,7 @@ idx_build_range( fd_accdb_t *          accdb,
   ulong spill_cnt = accdb->idx_range[ r ].spill_cnt;
   for( ulong pos=0UL; pos<spill_cnt; ) {
     ulong take = fd_ulong_min( FD_ACCDB_IDX_STAGE_CNT, spill_cnt-pos );
-    idx_io( accdb, 0, stage, take*sizeof(fd_accdb_idx_slot_t), idx_spill_off( shmem, r )+pos*sizeof(fd_accdb_idx_slot_t) );
+    idx_io_fd( accdb->spill_fd, 0, stage, take*sizeof(fd_accdb_idx_slot_t), idx_spill_off( accdb, r )+pos*sizeof(fd_accdb_idx_slot_t) );
     pos += take;
     for( ulong i=0UL; i<take; i++ ) {
       fd_accdb_idx_slot_t rec = stage[ i ];
@@ -5057,10 +5123,11 @@ fd_accdb_snapshot_index_build_fini( fd_accdb_t * accdb,
 
   shmem->shmetrics->accounts_total   = winners;
   shmem->shmetrics->disk_used_bytes -= freed;
-  if( FD_UNLIKELY( -1==fallocate( accdb->idx_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, (long)idx_spill_off( shmem, 0UL ),
-                                  (long)( shmem->idx_range_cnt*shmem->idx_spill_cap*sizeof(fd_accdb_idx_slot_t) ) ) ) ) {
-    FD_LOG_WARNING(( "fallocate(PUNCH_HOLE) of the accounts index spill failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-  }
+
+  /* The accdb tile punches out the spill in the background. */
+  shmem->idx_spill_punch_off = 0UL;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->idx_spill_state ) = FD_ACCDB_IDX_SPILL_PENDING;
   *out_dup_cnt      = dup_cnt;
   *out_dup_lamports = dup_lamports;
 }
@@ -5213,6 +5280,17 @@ fd_accdb_background( fd_accdb_t * accdb,
 
     FD_COMPILER_MFENCE();
     FD_VOLATILE( shmem->cmd_op ) = FD_ACCDB_CMD_IDLE;
+    *charge_busy = 1;
+    return;
+  }
+
+  /* Punch out the spill of a finished index build a chunk at a time,
+     so commands are not held up behind it. */
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->idx_spill_state )==FD_ACCDB_IDX_SPILL_PENDING ) &&
+      FD_ATOMIC_CAS( &shmem->idx_spill_state, FD_ACCDB_IDX_SPILL_PENDING, FD_ACCDB_IDX_SPILL_PUNCHING )==FD_ACCDB_IDX_SPILL_PENDING ) {
+    int done = idx_spill_punch( accdb, FD_ACCDB_IDX_PUNCH_CHUNK );
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( shmem->idx_spill_state ) = done ? FD_ACCDB_IDX_SPILL_IDLE : FD_ACCDB_IDX_SPILL_PENDING;
     *charge_busy = 1;
     return;
   }

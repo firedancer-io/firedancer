@@ -6,7 +6,11 @@
 #
 # accounts_idx_fd: The accounts index file (accounts.db-index), read
 #                  to find rooted accounts that are not in memory.
-uint logfile_fd, uint accounts_fd, uint accounts_idx_fd
+#
+# accounts_spill_fd: The accounts index spill (accounts.db-spill),
+#                    punched out once the index of a full snapshot is
+#                    built.
+uint logfile_fd, uint accounts_fd, uint accounts_idx_fd, uint accounts_spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -44,9 +48,12 @@ preadv2: (eq (arg 0) accounts_idx_fd)
 # accounts database: allocate more space from the disk
 #
 # The accounts database allocates more space from the underlying storage
-# device in 1GiB chunks, as it runs out.
-fallocate: (and (eq (arg 0) accounts_fd)
-                (eq (arg 1) 0))
+# device in 1GiB chunks, as it runs out.  The index spill is punched
+# out in the background (FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE).
+fallocate: (or (and (eq (arg 0) accounts_fd)
+                    (eq (arg 1) 0))
+               (and (eq (arg 0) accounts_spill_fd)
+                    (eq (arg 1) 3)))
 
 # startup: sleep until snapshot loaded
 clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)

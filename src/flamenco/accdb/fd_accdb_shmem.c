@@ -350,6 +350,8 @@ fd_accdb_shmem_new( void * shmem,
   accdb->idx_bloom_cnt    = bloom_cnt;
   accdb->idx_sweep_cursor = 0UL;
   fd_memset( &accdb->idx_build, 0, sizeof(accdb->idx_build) );
+  accdb->idx_spill_state     = FD_ACCDB_IDX_SPILL_IDLE;
+  accdb->idx_spill_punch_off = 0UL;
   accdb->acc_used.val     = 0UL;
   if( idx_page_cnt ) {
     fd_memset( (uchar *)shmem+idx_off[ 0 ], 0, ( ( idx_page_cnt+(1UL<<FD_ACCDB_IDX_SEQ_LG)-1UL )>>FD_ACCDB_IDX_SEQ_LG )*sizeof(uint) );
