@@ -2345,6 +2345,8 @@ test_idx_snapshot( void ) {
   FD_TEST( fd_accdb_snapshot_index_slot( accdb, pk[ 1 ] )==10UL );
   FD_TEST( fd_accdb_snapshot_index_slot( accdb, pk[ 3 ] )==1UL  );
   FD_TEST( fd_accdb_snapshot_index_slot( accdb, pk[ 0 ] )==ULONG_MAX );
+  FD_TEST( fd_accdb_snapshot_index_maybe_dup( accdb, pk[ 0 ] ) && fd_accdb_snapshot_index_maybe_dup( accdb, pk[ 1 ] ) );
+  FD_TEST( !fd_accdb_snapshot_index_maybe_dup( accdb, pk[ 2 ] ) && !fd_accdb_snapshot_index_maybe_dup( accdb, pk[ 3 ] ) );
 
   /* An incremental version replaces the disk version. */
   fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );

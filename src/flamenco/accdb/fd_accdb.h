@@ -217,6 +217,15 @@ ulong
 fd_accdb_snapshot_index_slot( fd_accdb_t *  accdb,
                               uchar const * pubkey );
 
+/* fd_accdb_snapshot_index_maybe_dup returns 1 if the last index build
+   may have resolved a losing record of pubkey, and 0 if it certainly
+   did not (always 0 when the disk index is disabled).  It needs no
+   disk access, so it screens fd_accdb_snapshot_index_slot queries. */
+
+int
+fd_accdb_snapshot_index_maybe_dup( fd_accdb_t *  accdb,
+                                   uchar const * pubkey );
+
 /* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
    writers build the index.  New layer-0 partitions are tagged Cold;
    load_end opens a fresh Hot partition for runtime writes.  Call begin

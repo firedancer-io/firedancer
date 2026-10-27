@@ -47,6 +47,7 @@ idx_layout( ulong   l,
   l = fd_ulong_align_up( l, 4096UL                       ); off[2] = l; l += range_cnt*FD_ACCDB_IDX_STAGE_CNT*sizeof(fd_accdb_idx_slot_t);
   l = fd_ulong_align_up( l, 4096UL                       ); off[3] = l; l += FD_ACCDB_IDX_CARRY_MAX*sizeof(fd_accdb_idx_slot_t);
   l = fd_ulong_align_up( l, 64UL                         ); off[4] = l; l += bloom_cnt*64UL;
+  l = fd_ulong_align_up( l, 64UL                         ); off[5] = l; l += FD_ACCDB_IDX_DUP_WORDS*sizeof(ulong);
   return l;
 }
 
@@ -139,7 +140,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   }
   l = FD_LAYOUT_APPEND( l, alignof(uint),            delta_chain_cnt*sizeof(uint)                            );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_delta_t),max_incremental_accounts*sizeof(fd_accdb_delta_t)       );
-  ulong idx_off[ 5 ];
+  ulong idx_off[ 6 ];
   l = idx_layout( l, fd_accdb_idx_page_cnt( max_accounts, index_ram_max ), ( max_accounts*FD_ACCDB_IDX_BLOOM_BITS+511UL )/512UL, idx_off );
   return FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
 }
@@ -335,7 +336,7 @@ fd_accdb_shmem_new( void * shmem,
   void * _delta_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_delta_t), max_incremental_accounts*sizeof(fd_accdb_delta_t) );
 
   ulong idx_page_cnt = fd_accdb_idx_page_cnt( max_accounts, index_ram_max );
-  ulong idx_off[ 5 ] = {0};
+  ulong idx_off[ 6 ] = {0};
   ulong bloom_cnt    = ( max_accounts*FD_ACCDB_IDX_BLOOM_BITS+511UL )/512UL;
   idx_layout( (ulong)_delta_pool+max_incremental_accounts*sizeof(fd_accdb_delta_t)-(ulong)shmem, idx_page_cnt, bloom_cnt, idx_off );
   accdb->pool_max         = pool_max;
@@ -346,6 +347,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->idx_stage_off    = idx_off[ 2 ];
   accdb->idx_carry_off    = idx_off[ 3 ];
   accdb->idx_bloom_off    = idx_off[ 4 ];
+  accdb->idx_dup_off      = idx_off[ 5 ];
   accdb->idx_bloom_cnt    = bloom_cnt;
   accdb->idx_sweep_cursor = 0UL;
   fd_memset( &accdb->idx_build, 0, sizeof(accdb->idx_build) );
@@ -357,6 +359,7 @@ fd_accdb_shmem_new( void * shmem,
     fd_memset( (uchar *)shmem+idx_off[ 0 ], 0, ( ( idx_page_cnt+(1UL<<FD_ACCDB_IDX_SEQ_LG)-1UL )>>FD_ACCDB_IDX_SEQ_LG )*sizeof(uint) );
     fd_memset( (uchar *)shmem+idx_off[ 1 ], 0, accdb->idx_range_cnt*sizeof(fd_accdb_idx_range_t) );
     fd_memset( (uchar *)shmem+idx_off[ 4 ], 0, bloom_cnt*64UL );
+    fd_memset( (uchar *)shmem+idx_off[ 5 ], 0, FD_ACCDB_IDX_DUP_WORDS*sizeof(ulong) );
   }
 
   fd_memset( _acc_map, 0xFF, chain_cnt*sizeof(uint) );
