@@ -78,8 +78,8 @@ setup( ctx_t * ctx,
   ctx->rserve = fd_rserve_join( fd_rserve_new( rserve_mem, PING_MAX, 1UL, secret ) );
   FD_TEST( ctx->rserve );
   if( with_blockdb ) {
-    FD_TEST( fd_blockdb_footprint( BLK_MAX )<=sizeof(blockdb_mem) );
-    ctx->blockdb = fd_blockdb_join( fd_blockdb_new( blockdb_mem, BLK_MAX, 2UL ) );
+    FD_TEST( fd_blockdb_footprint( BLK_MAX, BLK_MAX )<=sizeof(blockdb_mem) );
+    ctx->blockdb = fd_blockdb_join( fd_blockdb_new( blockdb_mem, BLK_MAX, BLK_MAX, 2UL, -1, 0UL ) );
     FD_TEST( ctx->blockdb );
   }
   ctx->store   = NULL; /* legacy lookups miss */
@@ -390,9 +390,8 @@ check_shred( ulong sz,
 static void
 test_shred_for_block_id( fd_wksp_t * wksp ) {
   static ctx_t ctx[1];
-  setup( ctx, 1 );
+  setup( ctx, 0 );
   ping_cache_add( ctx );
-  FD_TEST( fd_blockdb_insert( ctx->blockdb, blk_slot, &blk_id, blk_parent, &blk_parent_id, FEC_CNT, (uchar const *)blk_roots ) );
 
   ulong  footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL, 1UL );
   void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
@@ -400,8 +399,17 @@ test_shred_for_block_id( fd_wksp_t * wksp ) {
   ctx->store = fd_store_join( fd_store_new( store_mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL, 1UL ) );
   FD_TEST( ctx->store );
   ctx->store->disk_max_shreds = 16UL;
-  ctx->disk_fd = fd_store_file_create( TEST_STORE_PATH, ctx->store->wire_off, ctx->store->disk_max_shreds );
+  ctx->disk_fd = fd_store_file_create( TEST_STORE_PATH, ctx->store->wire_off, ctx->store->disk_max_shreds, BLK_MAX*FD_BLOCKDB_ROOTS_SZ );
   FD_TEST( ctx->disk_fd>=0 );
+
+  /* One-block roots window: the next insert leaves the block's roots
+     only in the store file tail. */
+  ctx->blockdb = fd_blockdb_join( fd_blockdb_new( blockdb_mem, BLK_MAX, 1UL, 2UL, ctx->disk_fd, fd_store_tail_off( ctx->store ) ) );
+  FD_TEST( ctx->blockdb );
+  FD_TEST( fd_blockdb_insert( ctx->blockdb, blk_slot, &blk_id, blk_parent, &blk_parent_id, FEC_CNT, (uchar const *)blk_roots ) );
+  fd_hash_t other_id = blk_id; other_id.uc[ 0 ] ^= 1;
+  FD_TEST( fd_blockdb_insert( ctx->blockdb, blk_slot+1UL, &other_id, blk_slot, &blk_id, 1U, (uchar const *)blk_roots ) );
+  FD_TEST( ctx->blockdb->wseq-fd_blockdb_query( ctx->blockdb, blk_slot, &blk_id )->wseq>ctx->blockdb->win_max );
 
   uchar buf[ FD_SHRED_MAX_SZ ];
   uchar alt_root[ FD_SHRED_MERKLE_NODE_SZ ];
@@ -420,6 +428,18 @@ test_shred_for_block_id( fd_wksp_t * wksp ) {
     check_shred( sz, blk_slot, idxs[ i ], marks[ i ], 200U+(uint)i );
   }
   FD_TEST( ctx->metrics->sent_pkt_types        [ FD_METRICS_ENUM_REPAIR_RESPONSE_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX ]==3UL );
+
+  /* Proofs from roots read off disk verify */
+  for( uint k=0U; k<FEC_CNT; k++ ) {
+    uchar root[ FD_SHRED_MERKLE_NODE_SZ ];
+    uchar proof[ FD_REPAIR_PROOF_MAX ];
+    ulong proof_sz;
+    uint  nonce;
+    ulong rsz = request( ctx, req, fec_set_root( now_ms(), 300U+k, blk_slot, &blk_id, k*FD_FEC_SHRED_CNT ) );
+    FD_TEST( fd_repair_res_fec_set_root_de( response(), rsz, root, proof, &proof_sz, &nonce )==rsz );
+    FD_TEST( !memcmp( root, blk_roots[ k ], FD_SHRED_MERKLE_NODE_SZ ) );
+    FD_TEST( !fd_repair_res_fec_set_root_verify( root, proof, proof_sz, &blk_id, k*FD_FEC_SHRED_CNT, FEC_CNT ) );
+  }
   FD_TEST( ctx->metrics->received_request_count[ FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_V_WINDOW_INDEX_FOR_BLOCK_ID_IDX  ]==3UL );
 
   /* The legacy request gets the alternate version */
