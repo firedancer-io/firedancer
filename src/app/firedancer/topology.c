@@ -590,7 +590,7 @@ fd_topo_initialize( config_t * config ) {
      they wake per batch rather than per transaction.  Without the gui
      replay_out then only stages messages; a short depth keeps the
      memory. */
-  /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    efficient_mode && !config->tiles.gui.enabled ? 64UL : 32768UL, sizeof(fd_replay_message_t),   1UL )->permit_no_consumers = 1; /* ~0.5s of per-txn msgs at 65k TPS catchup replay */
+  /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    efficient_mode && !config->tiles.gui.enabled ? 64UL : 16384UL, sizeof(fd_replay_message_t),   1UL )->permit_no_consumers = 1; /* ~0.25s of per-txn msgs at 65k TPS catchup replay; floor, do not cut further */
   /**/                 fd_topob_link( topo, "replay_slot",   "replay_slot",   4096UL,                                   sizeof(fd_replay_message_t),   1UL );
   if( efficient_mode ) fd_topob_link( topo, "replay_bat",    "replay_bat",    4096UL,                                   FD_REPLAY_BAT_MTU,             1UL )->permit_no_consumers = 1; /* ~330 MB like the old replay_out; 4096 batches are 4k-64k txns */
   /**/                 fd_topob_link( topo, "replay_repair", "replay_slot",   16UL,                                     sizeof(fd_replay_message_t),   1UL ); /* REPLAY_SIG_MISSING_FEC; depth >= replay's STEM_BURST */
