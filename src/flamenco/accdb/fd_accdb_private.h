@@ -636,6 +636,7 @@ struct fd_accdb_shmem_private {
   ulong idx_carry_off;    /* FD_ACCDB_IDX_CARRY_MAX slots */
   ulong idx_bloom_off;    /* bloom filter, idx_bloom_cnt 64 byte blocks */
   ulong idx_bloom_cnt;
+  ulong idx_zmap_off;     /* zero-lamport slots of the placement window, one bit each */
   ulong idx_sweep_cursor; /* T2 demotion sweep position in acc_map */
   struct __attribute__((aligned(64))) { ulong val; } acc_used;
 
