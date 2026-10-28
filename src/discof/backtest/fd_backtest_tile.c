@@ -6,6 +6,8 @@
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../discof/rotor/fd_rotor_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/backup/fd_snapmk_tile.h"
+#include "../../discof/admin/fd_adminctl.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../choreo/votor/ag_cert.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
@@ -23,6 +25,8 @@
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_SNAP   (1)
 #define IN_KIND_GENESI (2)
+#define IN_KIND_SNAPMK (3)
+#define IN_KIND_ADMIN  (4)
 
 #define DEQUE_NAME rooted_slots
 #define DEQUE_T    ulong
@@ -64,6 +68,12 @@ struct fd_backt_tile {
   fd_backt_src_t * src;
 
   ulong root_distance;
+
+  /* Snapshot minimize mode keeps the root below this slot until replay
+     reaches the last slot, then snapshots it.  Zero when the mode is
+     off. */
+  ulong minimize_slot;
+  int   minimize_ended;
 
   ulong prev_root;
   ulong prev_slot;
@@ -107,6 +117,7 @@ struct fd_backt_tile {
   fd_backt_out_t votor_out[ 1 ];
 
   ulong          ipecho_out_idx; /* ULONG if no event tile */
+  ulong          admin_out_idx;  /* ULONG_MAX unless minimizing */
   int            has_genesis_hash;
   fd_hash_t      genesis_hash;
   ulong          hard_fork_cnt;
@@ -161,7 +172,7 @@ before_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( ctx->idle_cnt<=1UL ) ) return; /* publishing fragments in after credit takes priority */
   if( FD_UNLIKELY( ctx->source_exhausted ) ) return; /* finished iterating */
   if( FD_UNLIKELY( ctx->shreds_cnt==SHRED_BUFFER_LEN ) ) return; /* out of space */
-  if( FD_UNLIKELY( *stem->min_cr_avail<128UL ) ) return; /* reserve some credits so replay can always publish back */
+  if( FD_UNLIKELY( stem->cr_avail[ ctx->repair_out->idx ]<128UL ) ) return; /* reserve some credits so replay can always publish back */
   if( FD_UNLIKELY( ctx->reading_slot_cnt-ctx->slot_cnt>=30UL ) ) return; /* too far ahead of replay */
 
   *charge_busy = 1;
@@ -363,6 +374,44 @@ finish( fd_backt_tile_t * ctx,
   exit(0);
 }
 
+/* The backtest tile stands in for votor and certifies the root slot
+   fast finalized so replay roots it. */
+
+static void
+certify_root( fd_backt_tile_t *   ctx,
+              fd_stem_context_t * stem,
+              ulong               root_slot,
+              ulong               tspub ) {
+  fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
+  memset( certed, 0, sizeof(fd_votor_certed_t) );
+  certed->kind     = AG_CERT_KIND_FAST_FINAL;
+  certed->slot     = root_slot;
+  certed->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+  fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_CERTED, ctx->votor_out->chunk, sizeof(fd_votor_msg_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_msg_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
+}
+
+/* End the minimize run.  Certify the minimized snapshot slot as the
+   root so the scheduled snapshot fires, or when that slot is the boot
+   slot ask replay to snapshot the root now. */
+
+static void
+minimize_end( fd_backt_tile_t *   ctx,
+              fd_stem_context_t * stem,
+              ulong               tspub ) {
+  ctx->minimize_ended = 1;
+  FD_LOG_NOTICE(( "writing minimized snapshot at slot %lu", ctx->minimize_slot ));
+  if( FD_UNLIKELY( ctx->minimize_slot==ctx->start_slot ) ) {
+    fd_stem_publish( stem, ctx->admin_out_idx, 0UL, 0UL, 0UL, fd_frag_meta_ctl( FD_ADMINCTL_CMD_SNAP_CREATE, 0, 0, 0 ), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    return;
+  }
+  fd_hash_t const * block_id = &ctx->rooted_slots_block_id[ ctx->minimize_slot%BANK_HASH_BUFFER_LEN ];
+  if( FD_UNLIKELY( !memcmp( block_id->uc, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) ) {
+    FD_LOG_ERR(( "replay never completed the minimized snapshot slot %lu", ctx->minimize_slot ));
+  }
+  certify_root( ctx, stem, ctx->minimize_slot, tspub );
+}
+
 static inline int
 returnable_frag( fd_backt_tile_t *   ctx,
                  ulong               in_idx,
@@ -415,6 +464,9 @@ returnable_frag( fd_backt_tile_t *   ctx,
       ctx->initialized = 1;
       ctx->reading_slot = manifest->slot;
       ctx->start_slot  = manifest->slot;
+      if( FD_UNLIKELY( ctx->minimize_slot && ctx->minimize_slot<ctx->start_slot ) ) {
+        FD_LOG_ERR(( "the minimized snapshot slot %lu is before the snapshot slot %lu", ctx->minimize_slot, ctx->start_slot ));
+      }
       FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
       FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
       break;
@@ -438,13 +490,18 @@ returnable_frag( fd_backt_tile_t *   ctx,
       break;
     }
     case IN_KIND_REPLAY: {
+      /* Only the minimized snapshot matters once the run has ended */
+      if( FD_UNLIKELY( ctx->minimize_ended ) ) return 0;
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
         fd_replay_slot_dead_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         /* In Alpenglow, dead blocks should never be in the ledger, so
            if Firedancer's replay marked a block as dead this should be
-           fatal. */
+           fatal.  The minimizer expects it: the bad slot ends the
+           run. */
         if( FD_UNLIKELY( memcmp( msg->block_id.uc, ((fd_hash_t){0}).uc, sizeof(fd_hash_t) ) ) ) {
-          FD_LOG_ERR(( "replay marked slot=%lu as dead", msg->slot ));
+          if( FD_LIKELY( !ctx->minimize_slot ) ) FD_LOG_ERR(( "replay marked slot=%lu as dead", msg->slot ));
+          if( FD_UNLIKELY( msg->slot<=ctx->minimize_slot ) ) FD_LOG_ERR(( "replay marked slot=%lu as dead, so the minimized snapshot slot %lu was never completed", msg->slot, ctx->minimize_slot ));
+          minimize_end( ctx, stem, tspub );
         }
         FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
         return 0;
@@ -459,6 +516,11 @@ returnable_frag( fd_backt_tile_t *   ctx,
         ctx->replay_ready_time     = fd_log_wallclock();
         ctx->prev_root             = msg->slot;
         if( FD_UNLIKELY( !ctx->src ) ) finish( ctx, msg->slot, msg->completion_time_nanos ); /* load-only: no ledger */
+        /* Ask replay to snapshot the first root at or after the
+           minimized snapshot slot. */
+        if( FD_UNLIKELY( ctx->minimize_slot>ctx->start_slot ) ) {
+          fd_stem_publish( stem, ctx->admin_out_idx, ctx->minimize_slot, 0UL, 0UL, fd_frag_meta_ctl( FD_ADMINCTL_CMD_SNAP_CREATE, 0, 0, 0 ), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        }
         return 0;
       }
 
@@ -479,15 +541,22 @@ returnable_frag( fd_backt_tile_t *   ctx,
       } else {
         /* Do not change this log as it is used in offline replay */
         FD_BASE58_ENCODE_32_BYTES( slot_info.bank_hash.uc, bh_exp_b58 );
-        FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
+        if( FD_UNLIKELY( !ctx->minimize_slot || msg->slot<=ctx->minimize_slot ) ) FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
+        /* The minimizer expects a bad slot after the minimized snapshot
+           slot and replays on to the last slot. */
+        FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
       }
       if( slot_info.rooted ) {
         FD_TEST( !rooted_slots_full( ctx->rooted_slots ) );
         rooted_slots_push_tail( ctx->rooted_slots, msg->slot );
       }
 
+      /* In minimize mode the root stays below the minimized snapshot
+         slot until the run ends. */
       ulong root_slot;
-      if( FD_LIKELY( msg->slot >= ctx->root_distance + *rooted_slots_peek_head_const( ctx->rooted_slots ) ) ) {
+      ulong head = *rooted_slots_peek_head_const( ctx->rooted_slots );
+      int   held = ctx->minimize_slot && head>=ctx->minimize_slot;
+      if( FD_LIKELY( !held && msg->slot >= ctx->root_distance + head ) ) {
         root_slot = rooted_slots_pop_head( ctx->rooted_slots );
       } else {
         root_slot = ctx->prev_root;
@@ -501,22 +570,30 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       int reached_end_slot  = msg->slot>=ctx->end_slot;
       int drained_exhausted = ctx->source_exhausted && !ctx->shreds_cnt && msg->slot>=ctx->prev_slot;
-      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) finish( ctx, msg->slot, msg->completion_time_nanos );
+      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) {
+        if( FD_UNLIKELY( ctx->minimize_slot ) ) {
+          minimize_end( ctx, stem, tspub );
+          return 0;
+        }
+        finish( ctx, msg->slot, msg->completion_time_nanos );
+      }
 
       int root_advanced = root_slot!=ctx->prev_root;
       ctx->prev_root    = root_slot;
 
-      /* The backtest tile stands in for votor and certifies the root
-         slot fast finalized so replay roots it. */
-      if( FD_LIKELY( root_advanced ) ) {
-        fd_votor_certed_t * certed = fd_chunk_to_laddr( ctx->votor_out->mem, ctx->votor_out->chunk );
-        memset( certed, 0, sizeof(fd_votor_certed_t) );
-        certed->kind     = AG_CERT_KIND_FAST_FINAL;
-        certed->slot     = root_slot;
-        certed->block_id = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
-        fd_stem_publish( stem, ctx->votor_out->idx, FD_VOTOR_SIG_CERTED, ctx->votor_out->chunk, sizeof(fd_votor_msg_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-        ctx->votor_out->chunk = fd_dcache_compact_next( ctx->votor_out->chunk, sizeof(fd_votor_msg_t), ctx->votor_out->chunk0, ctx->votor_out->wmark );
-      }
+      if( FD_LIKELY( root_advanced ) ) certify_root( ctx, stem, root_slot, tspub );
+      break;
+    }
+    case IN_KIND_SNAPMK: {
+      if( FD_UNLIKELY( sig==FD_SNAPMK_MSG_FAILED ) ) FD_LOG_ERR(( "minimized snapshot creation failed" ));
+      if( FD_LIKELY( sig!=FD_SNAPMK_MSG_CREATED ) ) break;
+      fd_snapmk_msg_created_t const * created = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      FD_LOG_NOTICE(( "wrote %s", created->name ));
+      finish( ctx, ctx->minimize_slot, fd_log_wallclock() );
+      break;
+    }
+    case IN_KIND_ADMIN: {
+      if( FD_UNLIKELY( sig ) ) FD_LOG_ERR(( "replay rejected snapshot request (result %lu)", sig ));
       break;
     }
     default: FD_LOG_ERR(( "unhandled in_kind: %d in_idx: %lu", ctx->in_kind[ in_idx ], in_idx ));
@@ -623,6 +700,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->root_distance = tile->backtest.root_distance;
   ctx->boot_time     = tile->backtest.boot_timestamp_nanos;
 
+  ctx->minimize_slot = tile->backtest.minimize_slot;
+  if( FD_UNLIKELY( ctx->minimize_slot && ctx->end_slot-ctx->minimize_slot>=BANK_HASH_BUFFER_LEN ) ) {
+    FD_LOG_ERR(( "end slot %lu must be within %lu slots of the minimized snapshot slot %lu (BANK_HASH_BUFFER_LEN)", ctx->end_slot, BANK_HASH_BUFFER_LEN-1UL, ctx->minimize_slot ));
+  }
+
   ctx->src = NULL;
   if( FD_LIKELY( tile->backtest.ledger_path[ 0 ] ) ) { /* empty path: load the snapshot, then exit */
     fd_backtest_src_opts_t opts = {
@@ -650,20 +732,26 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    ctx->in[ i ].mem    = link_wksp->wksp;
-    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
-    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-    ctx->in[ i ].mtu    = link->mtu;
+    /* The admin response link carries no payload */
+    if( FD_LIKELY( link->dcache ) ) {
+      ctx->in[ i ].mem    = link_wksp->wksp;
+      ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+      ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+      ctx->in[ i ].mtu    = link->mtu;
+    }
 
     if(      !strcmp( link->name, "replay_slot"  ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    else if( !strcmp( link->name, "snapmk_out"   ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
+    else if( !strcmp( link->name, "replay_admin" ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
     else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
   }
 
   *ctx->repair_out = out1( topo, tile, "repair_out" );
   *ctx->votor_out  = out1( topo, tile, "votor_out" );
-  ctx->ipecho_out_idx = fd_topo_find_tile_out_link( topo, tile, "ipecho_out", 0UL );
+  ctx->ipecho_out_idx = fd_topo_find_tile_out_link( topo, tile, "ipecho_out",   0UL );
+  ctx->admin_out_idx  = fd_topo_find_tile_out_link( topo, tile, "admin_replay", 0UL );
 
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
 

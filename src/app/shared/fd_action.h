@@ -170,6 +170,15 @@ union fdctl_args {
   } snapshot_load;
 
   struct {
+    char  ledger[ PATH_MAX ];
+    char  out[ PATH_MAX ];
+    ulong start_slot;
+    ulong end_slot;
+    ulong max_accounts;
+    int   no_watch;
+  } snapshot_minimize;
+
+  struct {
     ulong max_entries;
     ulong max_contact;
     int   compact_mode;

@@ -62,6 +62,7 @@
 #include "fd_backup_shmem.h"
 #include "fd_ssmanifest_writer.h"
 #include "fd_txncache_writer.h"
+#include "fd_snapmin.h"
 #include "../fd_startup.h"
 #include "../replay/fd_replay_tile.h"
 #include "../restore/utils/fd_ssarchive.h"
@@ -204,6 +205,13 @@ struct fd_snapmk {
   int   incremental;
   ulong base_slot;
 
+  /* Keep set of the snapshot minimizer, NULL when the mode is off */
+  fd_snapmin_t * snapmin;
+  ulong          snapmin_end_slot;
+  ulong          snapmin_cursor;
+  ulong          kept_lamports;
+  ulong          balance_lamports;
+
   struct {
     fd_accdb_delta_t const * pool;
     uint const *             chain;
@@ -306,6 +314,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                   zp_cnt*FD_SNAPMK_ZP_DEPTH*sizeof(ulong)                      );
   l = FD_LAYOUT_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->snapmk.max_txn_per_slot ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                 fd_accdb_footprint( max_live_slots, 0 )                      );
+  if( FD_UNLIKELY( tile->snapmk.snapmin_obj_id!=ULONG_MAX ) ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_snapmin_t), sizeof(fd_snapmin_t) );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -382,6 +393,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong *       _rd_shdw = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                   zp_cnt*FD_SNAPMK_ZP_DEPTH*sizeof(ulong) );
   void *        _arena   = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->snapmk.max_txn_per_slot ) );
   void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                 fd_accdb_footprint( max_live_slots, 0 ) );
+  void *        _snapmin = NULL;
+  if( FD_UNLIKELY( tile->snapmk.snapmin_obj_id!=ULONG_MAX ) ) {
+    _snapmin = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmin_t), sizeof(fd_snapmin_t) );
+  }
   ulong end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   ctx->status_cache_writer_arena    = _arena;
   ctx->status_cache_writer_arena_sz = fd_txncache_writer_arena_sz( tile->snapmk.max_txn_per_slot );
@@ -412,6 +427,13 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
+
+  ctx->snapmin = NULL;
+  if( FD_UNLIKELY( tile->snapmk.snapmin_obj_id!=ULONG_MAX ) ) {
+    ctx->snapmin = fd_snapmin_join( _snapmin, fd_topo_obj_laddr( topo, tile->snapmk.snapmin_obj_id ) );
+    FD_TEST( ctx->snapmin );
+    ctx->snapmin_end_slot = tile->snapmk.snapmin_end_slot;
+  }
 
   fd_txncache_shmem_t * tc_shmem = fd_txncache_shmem_join( fd_topo_obj_laddr( topo, tile->snapmk.txncache_obj_id ) );
   FD_TEST( tc_shmem );
@@ -1229,7 +1251,8 @@ snapmk_accdb_cache( fd_snapmk_t *       ctx,
 }
 
 /* snapmk_accdb_delta drains a batch of incremental snapshot accounts
-   and passes them to snapzp for a compression job. */
+   (keep set accounts in minimize mode) and passes them to snapzp for a
+   compression job. */
 
 static int
 snapmk_accdb_delta( fd_snapmk_t *       ctx,
@@ -1237,7 +1260,11 @@ snapmk_accdb_delta( fd_snapmk_t *       ctx,
   ulong out_idx = zp_rr_next( ctx );
 
   fd_backup_delta_msg_t batch = {0};
-  while( batch.cnt<FD_BACKUP_CACHE_PARA ) {
+  if( FD_UNLIKELY( ctx->snapmin ) ) {
+    batch.cnt = (uint)fd_snapmin_next( ctx->snapmin, &ctx->snapmin_cursor, batch.pubkey, FD_BACKUP_CACHE_PARA );
+    for( ulong i=0UL; i<batch.cnt; i++ ) ctx->kept_lamports += fd_accdb_lamports( ctx->accdb, ctx->bank->accdb_fork_id, batch.pubkey[ i ].uc );
+  }
+  while( !ctx->snapmin && batch.cnt<FD_BACKUP_CACHE_PARA ) {
     if( FD_UNLIKELY( ctx->delta.ele_idx==UINT_MAX ) ) {
       if( FD_UNLIKELY( ctx->delta.chain_idx>=ctx->delta.chain_cnt ) ) break;
       ctx->delta.ele_idx = __atomic_load_n( &ctx->delta.chain[ ctx->delta.chain_idx++ ], __ATOMIC_ACQUIRE );
@@ -1258,6 +1285,33 @@ snapmk_accdb_delta( fd_snapmk_t *       ctx,
   zp_publish( ctx, stem, out_idx, 0UL, chunk, sizeof(fd_backup_delta_msg_t), ctl, 0UL, 0UL );
 
   return 1;
+}
+
+/* snapmk_balance_record writes the balancing account of a minimized
+   snapshot as an appendvec of its own.  The account is system owned,
+   has no data, and holds the lamports that make the file sum to the
+   capitalization. */
+
+static void
+snapmk_balance_record( fd_snapmk_t * ctx ) {
+  ulong ticket = atomic_fetch_sub_explicit( ctx->appendvec_slot_ticket_p, 1UL, memory_order_relaxed );
+  fd_tar_meta_t meta;
+  fd_backup_tar_file_hdr( &meta, sizeof(snap_acc_hdr_t) );
+  fd_backup_appendvec_name( &meta, ticket, 0UL, ctx->bank->f.slot );
+  fd_tar_meta_set_chksum( &meta );
+
+  snap_acc_hdr_t hdr;
+  memset( &hdr, 0, sizeof(snap_acc_hdr_t) );
+  hdr.pubkey   = fd_snapmin_balance_key;
+  hdr.lamports = ctx->balance_lamports;
+  hdr.owner    = fd_solana_system_program_id;
+
+  static uchar const zero[ 512UL ] = {0};
+  zip_reset( ctx );
+  zip_append( ctx, &meta, sizeof(fd_tar_meta_t) );
+  zip_append( ctx, &hdr,  sizeof(snap_acc_hdr_t) );
+  zip_append( ctx, zero,  fd_ulong_align_up( sizeof(snap_acc_hdr_t), 512UL ) - sizeof(snap_acc_hdr_t) );
+  zip_flush( ctx, ZSTD_e_end );
 }
 
 /* snapmk_replay_sleep sleeps until the replay tile publishes a new
@@ -1424,7 +1478,7 @@ after_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_MANIFEST:
     *charge_busy = 1;
     if( FD_UNLIKELY( !snapmk_manifest_chunk( ctx ) ) ) {
-      ctx->state = ctx->incremental ? SNAPMK_STATE_ACCDB_DELTA : SNAPMK_STATE_ACCDB_CACHE;
+      ctx->state = ( ctx->incremental || ctx->snapmin ) ? SNAPMK_STATE_ACCDB_DELTA : SNAPMK_STATE_ACCDB_CACHE;
     }
     break;
   case SNAPMK_STATE_ACCDB_CACHE: {
@@ -1483,12 +1537,20 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_ACCDB_DISK_FINISH:
   case SNAPMK_STATE_ACCDB_DELTA_FINISH: {
-    /* accounts done, snapzp workers idle; now process status cache */
+    /* accounts done, snapzp workers idle; now the balancing account
+       of a minimized snapshot, then the status cache */
     long file_sz = lseek( ctx->snap_fd, 0L, SEEK_END );
     if( FD_UNLIKELY( file_sz<0L ) ) {
       FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
     }
     ctx->pool_sz[ ctx->snap_idx ] = (ulong)file_sz;
+    if( FD_UNLIKELY( ctx->snapmin ) ) {
+      FD_CHECK_ERR( ctx->kept_lamports<=ctx->bank->f.capitalization, "kept lamports exceed capitalization" );
+      ctx->balance_lamports = ctx->bank->f.capitalization - ctx->kept_lamports;
+      FD_LOG_NOTICE(( "minimized snapshot at slot %lu keeps %lu accounts, balancing account holds %lu lamports",
+                      ctx->bank->f.slot, ctx->delta.ele_cnt, ctx->balance_lamports ));
+      if( FD_LIKELY( ctx->balance_lamports ) ) snapmk_balance_record( ctx );
+    }
     snapmk_status_cache_prepare( ctx );
     ctx->state = SNAPMK_STATE_STATUS_CACHE;
     break;
@@ -1820,6 +1882,15 @@ snap_start( fd_snapmk_t *                  ctx,
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
     FD_LOG_ERR(( "ZSTD_CCtx_reset failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
+
+  /* Minimize mode: add the accounts the loader reads by name.  The
+     kept lamports are summed as the keep set streams out. */
+  if( FD_UNLIKELY( ctx->snapmin ) ) {
+    fd_snapmin_keep_boot_accounts( ctx->snapmin, bank, ctx->banks, ctx->snapmin_end_slot );
+    FD_CHECK_ERR( !fd_accdb_exists( ctx->accdb, root_fork_id, fd_snapmin_balance_key.uc ), "balancing account key already exists" );
+    ctx->snapmin_cursor = 0UL;
+    ctx->kept_lamports  = 0UL;
   }
 
   /* misc */

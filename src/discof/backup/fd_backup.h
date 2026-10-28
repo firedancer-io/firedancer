@@ -168,6 +168,30 @@ fd_backup_tar_file_hdr( fd_tar_meta_t * tar_meta,
   return tar_meta;
 }
 
+/* fd_backup_appendvec_name writes the tar entry name of an appendvec,
+   accounts/<slot>.<id>, from the slot ticket it was given.  The ticket
+   counts down from snapshot_slot; once it is below slot_lo (or wrapped
+   above snapshot_slot), slot_lo is reused with id 1, 2, ... */
+
+FD_FN_UNUSED static void
+fd_backup_appendvec_name( fd_tar_meta_t * tar_meta,
+                          ulong           ticket,
+                          ulong           slot_lo,
+                          ulong           snapshot_slot ) {
+  ulong slot = ticket;
+  ulong id   = 0UL;
+  if( FD_UNLIKELY( slot<slot_lo || slot>snapshot_slot ) ) {
+    id   = slot_lo - slot;
+    slot = slot_lo;
+  }
+  char * p = fd_cstr_init( tar_meta->name );
+  p = fd_cstr_append_cstr( p, "accounts/" );
+  p = fd_cstr_append_ulong_as_text( p, 0, 0, slot, fd_ulong_base10_dig_cnt( slot ) );
+  p = fd_cstr_append_char( p, '.' );
+  p = fd_cstr_append_ulong_as_text( p, 0, 0, id,   fd_ulong_base10_dig_cnt( id   ) );
+  fd_cstr_fini( p );
+}
+
 FD_FN_UNUSED static fd_tar_meta_t *
 fd_backup_tar_dir_hdr( fd_tar_meta_t * tar_meta ) {
   *tar_meta = (fd_tar_meta_t){

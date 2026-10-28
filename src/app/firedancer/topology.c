@@ -1632,6 +1632,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->execrp.txncache_obj_id !=ULONG_MAX );
     tile->execrp.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execrp.progcache_obj_id!=ULONG_MAX );
     tile->execrp.accdb_obj_id     = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execrp.accdb_obj_id    !=ULONG_MAX );
+    tile->execrp.snapmin_obj_id   = fd_pod_query_ulong( config->topo.props, "snapmin",   ULONG_MAX );
+    tile->execrp.snapmin_slot     = config->firedancer.development.backtest.snapshot_minimize.slot;
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
@@ -1870,6 +1872,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->backtest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
     tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;
     tile->backtest.boot_timestamp_nanos = config->boot_timestamp_nanos;
+    tile->backtest.minimize_slot = config->firedancer.development.backtest.snapshot_minimize.slot;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
     fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
@@ -1898,6 +1901,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapmk.banks_obj_id       = fd_pod_query_ulong( config->topo.props, "banks",              ULONG_MAX ); FD_TEST( tile->snapmk.banks_obj_id!=ULONG_MAX );
     tile->snapmk.zp_fseq_id         = fd_pod_query_ulong( config->topo.props, "snapzp.fseq",        ULONG_MAX ); FD_TEST( tile->snapmk.zp_fseq_id!=ULONG_MAX );
     tile->snapmk.txncache_obj_id    = fd_pod_query_ulong( config->topo.props, "txncache",           ULONG_MAX ); FD_TEST( tile->snapmk.txncache_obj_id!=ULONG_MAX );
+    tile->snapmk.snapmin_obj_id     = fd_pod_query_ulong( config->topo.props, "snapmin",            ULONG_MAX );
+    tile->snapmk.snapmin_end_slot   = config->firedancer.development.ledger_input.end_slot;
     tile->snapmk.max_accounts       = config->firedancer.accounts.max_accounts;
     tile->snapmk.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->snapmk.max_txn_per_slot   = config->limits.max_txn_per_slot;

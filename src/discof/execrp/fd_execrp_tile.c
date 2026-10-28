@@ -1,4 +1,5 @@
 #include "../execle/fd_execle_err.h"
+#include "../backup/fd_snapmin.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
 
@@ -64,6 +65,11 @@ struct fd_execrp_tile {
   fd_txncache_t * txncache;
   fd_progcache_t  progcache[1];
 
+  /* Keep set of the snapshot minimizer, NULL when the mode is off.
+     Transactions in slots after snapmin_slot add their accounts. */
+  fd_snapmin_t *  snapmin;
+  ulong           snapmin_slot;
+
   ulong txn_idx;
   ulong slot;
   ulong dispatch_time_comp;
@@ -117,6 +123,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
   l = FD_LAYOUT_APPEND(   l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
+
+  if( FD_UNLIKELY( tile->execrp.snapmin_obj_id!=ULONG_MAX ) ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_snapmin_t),        sizeof(fd_snapmin_t)                                 );
+  }
 
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
     l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
@@ -210,6 +220,24 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
 }
 
+/* Add the accounts the transaction loads to the keep set: the lookup
+   tables, the account keys and the program data.  Runs after execute
+   and before commit, while the program data accounts are still held. */
+
+static void
+record_txn_accounts( fd_execrp_tile_t * ctx ) {
+  fd_txn_t const * txn     = TXN( ctx->txn_in.txn );
+  uchar const *    payload = ctx->txn_in.txn->payload;
+
+  fd_txn_acct_addr_lut_t const * tables = fd_txn_get_address_tables_const( txn );
+  for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) fd_snapmin_insert( ctx->snapmin, payload + tables[ i ].addr_off );
+
+  fd_txn_out_t const * out = &ctx->txn_out;
+  for( ulong i=0UL; i<out->accounts.cnt;                    i++ ) fd_snapmin_insert( ctx->snapmin, out->accounts.keys[ i ].uc                );
+  for( ulong i=0UL; i<out->accounts.executable_cnt;         i++ ) fd_snapmin_insert( ctx->snapmin, out->accounts.executable[ i ]->pubkey      );
+  for( ulong i=0UL; i<out->accounts.executable_skipped_cnt; i++ ) fd_snapmin_insert( ctx->snapmin, out->accounts.executable_skipped_key[ i ].uc );
+}
+
 static inline void
 after_credit( fd_execrp_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -257,6 +285,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         }
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+
+        if( FD_UNLIKELY( ctx->snapmin && ctx->bank->f.slot>ctx->snapmin_slot ) ) record_txn_accounts( ctx );
 
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
         ctx->metrics.txn_version[ fd_execle_version_from_txn( TXN( ctx->txn_in.txn ) ) ]++;
@@ -357,6 +387,11 @@ unprivileged_init( fd_topo_t const *      topo,
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
   void * _ed25519_cache     = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
 
+  void * _snapmin = NULL;
+  if( FD_UNLIKELY( tile->execrp.snapmin_obj_id!=ULONG_MAX ) ) {
+    _snapmin                = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmin_t),        sizeof(fd_snapmin_t)                                 );
+  }
+
   void * _capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
     _capture_ctx            = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
@@ -405,6 +440,13 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
   FD_TEST( ctx->accdb );
+
+  ctx->snapmin = NULL;
+  if( FD_UNLIKELY( tile->execrp.snapmin_obj_id!=ULONG_MAX ) ) {
+    ctx->snapmin = fd_snapmin_join( _snapmin, fd_topo_obj_laddr( topo, tile->execrp.snapmin_obj_id ) );
+    FD_TEST( ctx->snapmin );
+    ctx->snapmin_slot = tile->execrp.snapmin_slot;
+  }
 
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", ctx->tile_idx );

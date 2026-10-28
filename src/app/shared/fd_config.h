@@ -114,6 +114,11 @@ struct fd_configf {
     struct {
       char  affinity[ AFFINITY_SZ ];
       ulong root_distance;
+      struct {
+        ulong slot;
+        ulong max_accounts;
+        char  boot_dir[ PATH_MAX ];
+      } snapshot_minimize;
     } backtest;
   } development;
 

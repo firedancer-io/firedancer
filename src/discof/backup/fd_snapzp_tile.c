@@ -380,31 +380,16 @@ zip_flush( fd_snapzp_t * ctx ) {
   ctx->raw_buf.pos  = 0UL;
   ctx->raw_buf.size = 0UL;
 
-  /* One appendvec per frame.  If, for some reason, we run out of slots
-     to use, start incrementing the file index. */
-  ulong appendvec_slot = __atomic_fetch_sub( ctx->appendvec_slot_ticket, 1UL, __ATOMIC_RELAXED );
-  ulong appendvec_id   = 0UL;
-  if( FD_UNLIKELY( appendvec_slot<ctx->slot_lo || appendvec_slot>ctx->snapshot_slot ) ) { /* out of slots (> means the counter wrapped below 0) */
-    appendvec_id   = ctx->slot_lo - appendvec_slot; /* modular: 1, 2, ... */
-    appendvec_slot = ctx->slot_lo;
-  }
+  /* One appendvec per frame */
+  ulong ticket = __atomic_fetch_sub( ctx->appendvec_slot_ticket, 1UL, __ATOMIC_RELAXED );
 
   /* Prepend compression frame with a TAR header
      (Zstandard frame with a 512 byte uncompressed block) */
   uchar * comp_head = (uchar *)ctx->comp_buf.dst - COMP_HEAD;
   memcpy( comp_head, (uchar[]){0x28,0xB5,0x2F,0xFD,0x60,0x00,0x01,0x01,0x10,0x00}, 10 );
   fd_tar_meta_t meta; fd_backup_tar_file_hdr( &meta, content_usz );
-
-  /* Generate a unique file name */
   ctx->frame_cnt++;
-  do {
-    char * p = fd_cstr_init( meta.name );
-    p = fd_cstr_append_cstr( p, "accounts/" );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, appendvec_slot, fd_ulong_base10_dig_cnt( appendvec_slot ) );
-    p = fd_cstr_append_char( p, '.' );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, appendvec_id,   fd_ulong_base10_dig_cnt( appendvec_id   ) );
-    fd_cstr_fini( p );
-  } while(0);
+  fd_backup_appendvec_name( &meta, ticket, ctx->slot_lo, ctx->snapshot_slot );
   fd_tar_meta_set_chksum( &meta );
   memcpy( comp_head+10, &meta, sizeof(fd_tar_meta_t) );
 

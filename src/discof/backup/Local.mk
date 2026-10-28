@@ -3,7 +3,7 @@ $(call add-objs,fd_ssmanifest_writer fd_txncache_writer,fd_discof)
 
 ifdef FD_HAS_ATOMIC
 $(call add-objs,fd_snapmk_tile fd_snapzp_tile fd_snaprd_tile,fd_discof)
-$(call add-objs,fd_backup_cache,fd_discof)
+$(call add-objs,fd_backup_cache fd_snapmin,fd_discof)
 ifdef FD_HAS_LINUX
 $(call add-objs,fd_snapsv_tile,fd_discof)
 $(call make-unit-test,test_snapsv,test_snapsv,fd_discof fd_disco fd_waltz fd_tango fd_ballet fd_util)
@@ -22,6 +22,8 @@ $(call make-unit-test,test_backup_disk,test_backup_disk,fd_discof fd_flamenco fd
 $(call run-unit-test,test_backup_disk)
 $(call make-unit-test,test_snapzp_tile,test_snapzp_tile,fd_discof fd_disco fd_flamenco fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_snapzp_tile)
+$(call make-unit-test,test_snapmin,test_snapmin,fd_discof fd_flamenco_test fd_flamenco fd_disco fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_snapmin)
 endif # FD_HAS_ATOMIC
 endif # FD_HAS_INT128
 endif # FD_HAS_HOSTED

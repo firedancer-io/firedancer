@@ -155,6 +155,12 @@ find_udp_payload( uchar const * pkt,
   return raw + ip4_hdr_len + sizeof(fd_udp_hdr_t);
 }
 
+uchar const *
+fd_backtest_src_pcap_udp_payload( fd_pcapng_frame_t const * frame,
+                                  ulong *                   out_sz ) {
+  return find_udp_payload( (uchar const *)frame, 0UL, FD_BACKT_SRC_FMT_PCAPNG, out_sz );
+}
+
 static ulong
 peek_first_shred_from_file( FILE * file,
                             uint   format,

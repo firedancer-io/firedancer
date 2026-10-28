@@ -13,8 +13,8 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
                           uint                          format,
                           uint                          flags );
 
-static uint
-detect_src_type( char const * path ) {
+uint
+fd_backtest_src_detect( char const * path ) {
 
   struct stat st;
   if( 0==stat( path, &st ) && S_ISDIR( st.st_mode ) ) {
@@ -113,7 +113,7 @@ fd_backtest_src_create( fd_backtest_src_opts_t const * opts ) {
     return NULL;
   }
 
-  uint src_type = detect_src_type( opts->path );
+  uint src_type = fd_backtest_src_detect( opts->path );
   uint fmt      = src_type & FD_BACKT_SRC_FMT_MASK;
   uint flags    = src_type & (uint)~FD_BACKT_SRC_FMT_MASK;
 

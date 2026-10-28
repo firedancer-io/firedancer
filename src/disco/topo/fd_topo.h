@@ -536,6 +536,8 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
+      ulong snapmin_obj_id;
+      ulong snapmin_slot;
 
       ulong max_live_slots;
 
@@ -614,6 +616,7 @@ struct fd_topo_tile {
       ulong end_slot;
       ulong root_distance;
       long  boot_timestamp_nanos;
+      ulong minimize_slot;
     } backtest;
 
     struct {
@@ -762,6 +765,8 @@ struct fd_topo_tile {
       ulong banks_obj_id;
       ulong zp_fseq_id;
       ulong txncache_obj_id;
+      ulong snapmin_obj_id;
+      ulong snapmin_end_slot;
       ulong max_accounts;
       ulong max_live_slots;
       ulong max_txn_per_slot;

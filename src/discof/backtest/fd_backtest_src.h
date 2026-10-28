@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_backtest_fd_backtest_src_h
 
 #include "../../flamenco/fd_flamenco_base.h"
+#include "../../util/net/fd_pcapng.h"
 
 /* Ledger source format IDs, shared between the format auto-detector
    (fd_backtest_src.c) and the pcap reader (fd_backtest_src_pcap.c). */
@@ -115,6 +116,22 @@ fd_backtest_src_seek( fd_backt_src_t * db,
                       ulong            slot ) {
   if( db->vt->seek ) db->vt->seek( db, slot );
 }
+
+/* fd_backtest_src_detect returns the format of the ledger file at
+   path: FD_BACKT_SRC_FMT_PCAP or FD_BACKT_SRC_FMT_PCAPNG, or'ed with
+   FD_BACKT_SRC_FLAG_ZSTD when compressed, or FD_BACKT_SRC_INVAL with a
+   warning when the file is not recognized. */
+
+uint
+fd_backtest_src_detect( char const * path );
+
+/* fd_backtest_src_pcap_udp_payload returns the UDP payload of a pcapng
+   frame and stores its size in out_sz.  Returns NULL if the frame is
+   not an IPv4 UDP packet. */
+
+uchar const *
+fd_backtest_src_pcap_udp_payload( fd_pcapng_frame_t const * frame,
+                                  ulong *                   out_sz );
 
 FD_PROTOTYPES_END
 

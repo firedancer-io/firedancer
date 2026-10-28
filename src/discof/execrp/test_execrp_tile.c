@@ -97,6 +97,7 @@ test_env_create( void ) {
   topo_wksp->wksp = env->mini->wksp;
   fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "execrp", "execrp", "execrp", 0UL, 0, 0, 0 );
   topo_tile->execrp.max_live_slots = MAX_LIVE_SLOTS;
+  topo_tile->execrp.snapmin_obj_id = ULONG_MAX;
 
   void * tile_mem = fd_wksp_alloc_laddr( env->mini->wksp, scratch_align(), scratch_footprint( topo_tile ), TOPO_TAG );
   FD_TEST( tile_mem );
