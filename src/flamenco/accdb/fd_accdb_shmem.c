@@ -54,6 +54,12 @@ fd_accdb_shmem_join( void * shtc ) {
 }
 
 ulong
+fd_accdb_scratch_sz( ulong max_live_slots,
+                     ulong max_account_writes_per_slot ) {
+  return max_live_slots*max_account_writes_per_slot*sizeof(uint);
+}
+
+ulong
 fd_accdb_shmem_footprint( ulong max_accounts,
                           ulong max_live_slots,
                           ulong max_account_writes_per_slot,
@@ -84,6 +90,10 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   if( FD_UNLIKELY( txn_max/max_account_writes_per_slot!=max_live_slots ) ) return 0UL;
   if( FD_UNLIKELY( txn_max>=UINT_MAX                        ) ) return 0UL;
 
+  int   defer_spill    = txn_max>FD_ACCDB_DEFER_WINDOW_ELE;
+  ulong defer_resident = defer_spill ? FD_ACCDB_DEFER_WINDOW_ELE-FD_ACCDB_DEFER_STAGE_ELE : txn_max;
+  ulong defer_stage    = defer_spill ? FD_ACCDB_DEFER_STAGE_ELE : 0UL;
+
   ulong descends_fp = descends_set_footprint( max_live_slots );
   if( FD_UNLIKELY( !descends_fp                          ) ) return 0UL;
   if( FD_UNLIKELY( max_live_slots>ULONG_MAX/descends_fp  ) ) return 0UL;
@@ -112,7 +122,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
     l = FD_LAYOUT_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                          );
   }
   l = FD_LAYOUT_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                      );
-  l = FD_LAYOUT_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                    );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),            (defer_resident+defer_stage)*sizeof(uint)               );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_cache_line_t), cache_class_max[c]*fd_accdb_cache_slot_sz[c]   );
   }
@@ -297,7 +307,10 @@ fd_accdb_shmem_new( void * shmem,
     _compaction_dlists[ k ] = FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                           );
   }
   void * _deferred_free_dlist = FD_SCRATCH_ALLOC_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                   );
-  void * _deferred_acc_buf    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                 );
+  int    defer_spill          = txn_max>FD_ACCDB_DEFER_WINDOW_ELE;
+  ulong  defer_resident       = defer_spill ? FD_ACCDB_DEFER_WINDOW_ELE-FD_ACCDB_DEFER_STAGE_ELE : txn_max;
+  ulong  defer_stage          = defer_spill ? FD_ACCDB_DEFER_STAGE_ELE : 0UL;
+  void * _deferred_acc_buf    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            (defer_resident+defer_stage)*sizeof(uint)            );
   void * _cache_regions[ FD_ACCDB_CACHE_CLASS_CNT ];
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     _cache_regions[ c ] = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_cache_line_t), cache_class_max[c]*fd_accdb_cache_slot_sz[c]        );
@@ -409,6 +422,8 @@ fd_accdb_shmem_new( void * shmem,
   accdb->deferred_acc_buf_cnt = 0UL;
   accdb->deferred_acc_buf_max = txn_max;
   accdb->deferred_acc_epoch   = 0UL;
+  accdb->deferred_acc_resident = defer_resident;
+  accdb->deferred_acc_stage    = defer_stage;
 
   accdb->epoch          = 1UL;
   accdb->snapshot_sync  = FD_ACCDB_SNAPSHOT_SYNC_IDLE;

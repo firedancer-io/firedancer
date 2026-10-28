@@ -17,6 +17,12 @@
 #define FD_ACCDB_FD_RW (123461)
 #define FD_ACCDB_FD_RO (123460)
 
+/* Well-known fd for the scratch spill file (deferred-free buffer
+   tail).  Opened, fallocated and unlinked at boot; only the joiner
+   running fd_accdb_background (T2) uses it. */
+
+#define FD_ACCDB_SCRATCH_FD (123450)
+
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
   uchar   owner[ 32UL ];
@@ -85,6 +91,10 @@ fd_accdb_footprint( ulong max_live_slots,
    the tile work (a command, or the cache free list crossing its low
    water mark).  NULL when the accdb tile spins.
 
+   scratch_fd is an O_RDWR fd of the scratch spill file
+   (fd_accdb_scratch_sz bytes, fallocated), required on the joiner
+   that runs fd_accdb_background; -1 on every other joiner.
+
    compaction must match the value given to fd_accdb_footprint. */
 
 struct fd_sleep_private;
@@ -93,6 +103,7 @@ void *
 fd_accdb_new( void *                    ljoin,
               fd_accdb_shmem_t *        shmem,
               int                       fd,
+              int                       scratch_fd,
               ulong                     external_epoch_cnt,
               ulong const **            external_epoch_slots,
               struct fd_sleep_private * sleep,
