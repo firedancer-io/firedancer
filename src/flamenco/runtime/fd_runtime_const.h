@@ -337,7 +337,10 @@ FD_PROTOTYPES_BEGIN
    - Leader (execle): FD_BPF_SER_WINDOW_CU_MAX_LE = 300k is the
      single-max-legal-CPI floor (one full 64 MiB deep CPI charges
      268,435 CU) plus ~12% slack, so NO legal single CPI ever promotes
-     and leader slot timing never touches the arena.
+     and leader slot timing never touches the arena.  execle shares
+     the replay bundle, so an adversarial leader whale (>300k CU of
+     pure CPI byte charges) FIFO-queues behind up to execrp_tile_cnt
+     replay whale tickets.
 
    - Replay (execrp): FD_BPF_SER_WINDOW_CU_MAX_RP = 100k trades that
      property for memory.  Mainnet p99.9 CPI serialize volume is

@@ -197,6 +197,68 @@ test_depth1_promote( void ) {
 }
 
 static void
+test_shared_bundle( void ) {
+  /* execle (full frame1) and execrp (windowed frame1) share one
+     5-frame bundle */
+  fd_runtime_t * le = (fd_runtime_t *)alloc_aligned( 4096UL, sizeof(fd_runtime_t) );
+  fd_runtime_t * rp = (fd_runtime_t *)alloc_aligned( 4096UL, sizeof(fd_runtime_t) );
+
+  ulong  le_window_cap = FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_LE );
+  void * le_window     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, le_window_cap );
+  void * le_frame1     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  ulong  rp_window_cap = FD_BPF_SER_WINDOW_FOOTPRINT( FD_BPF_SER_WINDOW_CU_MAX_RP );
+  void * rp_window     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, rp_window_cap );
+  void * rp_frame1     = alloc_aligned( FD_RUNTIME_EBPF_HOST_ALIGN, FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT );
+  ulong  slot_sz       = FD_BPF_SER_ARENA_BUNDLE_FOOTPRINT( FD_MAX_INSTRUCTION_STACK_DEPTH );
+  void * mem = alloc_aligned( fd_bpf_ser_arena_align(), fd_bpf_ser_arena_footprint( 1UL, slot_sz ) );
+  fd_bpf_ser_arena_t * arena = fd_bpf_ser_arena_join( fd_bpf_ser_arena_new( mem, 1UL, slot_sz ) );
+  fd_runtime_bpf_ser_init( le, arena, le_frame1, BPF_LOADER_SERIALIZATION_FOOTPRINT, le_window, le_window_cap );
+  fd_runtime_bpf_ser_init( rp, arena, rp_frame1, FD_BPF_SER_FRAME1_WINDOW_FOOTPRINT,  rp_window, rp_window_cap );
+  FD_TEST( le->bpf_loader_serialization.bundle_first_depth==1UL );
+  FD_TEST( rp->bpf_loader_serialization.bundle_first_depth==1UL );
+
+  uchar * buf; ulong cap;
+
+  /* Unpromoted execle depth 1 stays in its own full frame1 */
+  fd_runtime_bpf_ser_frame_begin( le, 1UL, &buf, &cap );
+  FD_TEST( buf==le->bpf_loader_serialization.frame1 );
+  FD_TEST( cap==BPF_LOADER_SERIALIZATION_FOOTPRINT );
+
+  /* execrp whale holds the bundle; an execle whale queues FIFO */
+  FD_TEST( fd_runtime_bpf_ser_frame_promote( rp, 1UL )==rp->bpf_loader_serialization.bundle );
+  ulong t = fd_bpf_ser_arena_ticket( arena );
+  FD_TEST( !fd_bpf_ser_arena_ready( arena, t ) );
+  fd_runtime_bpf_ser_reset( rp );
+  FD_TEST( fd_bpf_ser_arena_ready( arena, t ) );
+  fd_bpf_ser_arena_release( arena, fd_bpf_ser_arena_wait( arena, t ) );
+
+  /* execle depth-2 promotion lands in bundle frame 1 (depth-indexed) */
+  uchar * b2 = fd_runtime_bpf_ser_frame_promote( le, 2UL );
+  FD_TEST( b2==le->bpf_loader_serialization.bundle+1UL*BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  uchar * b5 = fd_runtime_bpf_ser_frame_promote( le, FD_MAX_INSTRUCTION_STACK_DEPTH );
+  FD_TEST( b5+BPF_LOADER_SERIALIZATION_FOOTPRINT==le->bpf_loader_serialization.bundle+slot_sz );
+
+  /* Held bundle hosts later execle depth-1 frames at full cap */
+  fd_runtime_bpf_ser_frame_begin( le, 1UL, &buf, &cap );
+  FD_TEST( buf==le->bpf_loader_serialization.bundle );
+  FD_TEST( cap==BPF_LOADER_SERIALIZATION_FOOTPRINT );
+
+  /* ...and an execrp whale now queues behind execle */
+  t = fd_bpf_ser_arena_ticket( arena );
+  FD_TEST( !fd_bpf_ser_arena_ready( arena, t ) );
+  fd_runtime_bpf_ser_reset( le );
+  FD_TEST( fd_bpf_ser_arena_ready( arena, t ) );
+  fd_bpf_ser_arena_release( arena, fd_bpf_ser_arena_wait( arena, t ) );
+  FD_TEST( le->bpf_loader_serialization.promote_cnt==1UL );
+
+  free( mem );
+  free( rp_frame1 ); free( rp_window );
+  free( le_frame1 ); free( le_window );
+  free( rp ); free( le );
+  FD_LOG_NOTICE(( "test_shared_bundle: pass" ));
+}
+
+static void
 test_serialize_full( void ) {
   /* Minimal 0-account instruction: serializer writes acct_cnt,
      instr_data_len, data, program id only.  An undersized frame must
@@ -255,6 +317,7 @@ main( int     argc,
   test_arena_fifo();
   test_window_promotion();
   test_depth1_promote();
+  test_shared_bundle();
   test_serialize_full();
 
   FD_LOG_NOTICE(( "pass" ));

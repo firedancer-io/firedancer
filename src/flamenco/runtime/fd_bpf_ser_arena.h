@@ -12,9 +12,10 @@
      ..FD_MAX_INSTRUCTION_STACK_DEPTH.  Tiles keep small per-tile
      windows for typical frames (see fd_runtime.h) and fall back to a
      bundle for the rare transaction whose frames exceed a window.
-     Tiles whose depth-1 frame is fully provisioned per tile pool
-     4-frame bundles (depths 2..5); tiles whose depth-1 frame is also
-     windowed pool 5-frame bundles (depths 1..5).
+     A tile whose depth-1 frame is windowed needs 5-frame bundles
+     (depths 1..5); one whose depth-1 frame is fully provisioned can
+     use 4-frame (depths 2..5) or share 5-frame bundles (a held bundle
+     then also hosts its depth 1).
 
    - Deploy ELF-load scratch: a slot backs one fd_sbpf_program_load
      scratch buffer (slot_sz = FD_RUNTIME_ACC_SZ_MAX), held only for
