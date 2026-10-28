@@ -712,12 +712,20 @@ struct fd_accdb_shmem_private {
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
 
+/* fd_accdb_idx_seed returns the seed of the disk index pubkey hash,
+   which picks a pubkey's home slot and its bloom filter bits. */
+
+static inline ulong
+fd_accdb_idx_seed( fd_accdb_shmem_t const * shmem ) {
+  return shmem->seed^0x5bd1e9955bd1e995UL;
+}
+
 /* fd_accdb_idx_home returns the disk index slot pubkey probes from. */
 
 static inline ulong
 fd_accdb_idx_home( fd_accdb_shmem_t const * shmem,
                    uchar const              pubkey[ 32 ] ) {
-  ulong h = fd_hash32( pubkey, shmem->seed^0x5bd1e9955bd1e995UL );
+  ulong h = fd_hash32( pubkey, fd_accdb_idx_seed( shmem ) );
   return (ulong)( ( (uint128)h*(uint128)( shmem->idx_page_cnt*FD_ACCDB_IDX_SLOT_CNT ) )>>64 );
 }
 
