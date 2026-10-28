@@ -312,11 +312,21 @@ test_poll_tx( fd_event_client_t * client,
   tx( client, now, &charge_busy );
 }
 
-/* Drain frame_tx as if the socket had taken it; returns bytes drained. */
+/* Drain frame_tx as if the socket had taken it, refilling it from a
+   partly written request like rxtx does; returns bytes drained. */
 static ulong
 test_drain( fd_grpc_client_t * grpc ) {
-  ulong sz = fd_h2_rbuf_used_sz( grpc->frame_tx );
-  fd_h2_rbuf_skip( grpc->frame_tx, sz );
+  ulong sz = 0UL;
+  for(;;) {
+    ulong used = fd_h2_rbuf_used_sz( grpc->frame_tx );
+    if( !used ) break;
+    fd_h2_rbuf_skip( grpc->frame_tx, used );
+    sz += used;
+    if( grpc->request_stream && grpc->request_tx_op->chunk_sz ) {
+      fd_h2_tx_op_copy( grpc->conn, &grpc->request_stream->s, grpc->frame_tx, grpc->request_tx_op );
+      if( !grpc->request_tx_op->chunk_sz ) grpc->request_stream = NULL;
+    }
+  }
   return sz;
 }
 
