@@ -203,8 +203,6 @@ typedef struct {
   uchar alut_owner[ 32UL ];
   uchar alut_data[ FD_RUNTIME_ACC_SZ_MAX ];
 
-  /* SlotHashes of bank, from its sysvar cache or, if it holds none,
-     copied from accdb into slot_hashes_buf. */
   uchar const * slot_hashes;
   ulong         slot_hashes_sz;
   uchar         slot_hashes_buf[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ];

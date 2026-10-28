@@ -75,9 +75,6 @@ struct fd_execrp_tile {
 
   fd_runtime_t runtime[1];
 
-  /* Sysvars of the bank with sysvar_bank_seq, read from accdb because
-     the bank holds no sysvar cache.  sysvar_bank_seq is 0 if there are
-     none. */
   ulong             sysvar_bank_seq;
   fd_sysvar_cache_t sysvar_cache[1];
 
