@@ -47,8 +47,8 @@ main( int     argc,
   topo->objs[0].offset = fd_wksp_gaddr( wksp, scratch );
 
   char const * names[5] = { "execle_poh", "pack_poh", "replay_slot", "poh_shred", "poh_replay" };
-  ulong const mtus[5] = { FD_EXECLE_POH_MTU, sizeof(fd_done_packing_t), sizeof(fd_replay_message_t),
-                         FD_POH_SHRED_MTU, sizeof(fd_poh_leader_slot_ended_t) };
+  ulong const mtus[5] = { FD_EXECLE_POH_MTU_TXN( 1UL ), sizeof(fd_done_packing_t), sizeof(fd_replay_message_t),
+                         FD_POH_SHRED_MTU_TXN( 1UL ), sizeof(fd_poh_leader_slot_ended_t) }; /* non-bundle sizing */
   for( ulong i=0UL; i<5UL; i++ ) {
     fd_topo_link_t * link = topo->links+i;
     fd_cstr_ncpy( link->name, names[i], sizeof(link->name) );
