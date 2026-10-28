@@ -131,7 +131,7 @@ backtest_topo( config_t * config ) {
       config->development.accdb.partition_size_gib*(1UL<<30UL),
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
-      execrp_tile_cnt+2UL+fd_ulong_if( disable_snap_loader, 1UL, snapin_tile_cnt ),
+      execrp_tile_cnt+2UL+fd_ulong_if( disable_snap_loader, 1UL, snapin_tile_cnt )+fd_ulong_if( !disable_snap_loader && config->firedancer.accounts.index_ram_max, snapdc_tile_cnt, 0UL ),
       0UL,
       config->firedancer.accounts.index_ram_max );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
@@ -422,6 +422,7 @@ backtest_topo( config_t * config ) {
      exclusive accdb writers */
   if( FD_LIKELY( !disable_snap_loader ) ) {
     FOR(snapin_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    if( config->firedancer.accounts.index_ram_max ) FOR(snapdc_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   } else fd_topob_tile_uses( topo, genesi_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, accdb_tile,  accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
