@@ -1078,7 +1078,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       fd_ip4_port_t tvu_addr;
       tvu_addr.addr = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].is_ipv6 ? 0U : ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].ip4;
       tvu_addr.port = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].port;
-      if( !tvu_addr.l ){
+      if( !tvu_addr.addr || !tvu_addr.port ) {
         fd_stake_ci_dest_remove( ctx->stake_ci, fd_type_pun_const( ctx->gossip_upd_buf->origin ) );
       } else {
         fd_stake_ci_dest_update( ctx->stake_ci, fd_type_pun_const( ctx->gossip_upd_buf->origin ), tvu_addr.addr, fd_ushort_bswap( tvu_addr.port ) );
