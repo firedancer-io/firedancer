@@ -106,7 +106,6 @@ test_convert( void ) {
 
   make_v4( vsv, 1 ); deq_fd_landed_vote_t_remove_all( vsv->v4.votes ); FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 10UL ) );
   FD_TEST( fd_vsv_try_convert_to_v4( vsv, &vsv->v5.node_pubkey )==FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
-  FD_TEST( fd_vsv_try_convert_to_v3( vsv )==FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   FD_TEST( !fd_vsv_is_uninitialized( vsv ) );
 }
 

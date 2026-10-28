@@ -37,8 +37,7 @@ fd_alpenglow_pda( char const *  seed,
 
    https://github.com/anza-xyz/agave/blob/ef210d67f2fabeee1730498188fa78854260c679/runtime/src/bank.rs#L6733
 
-   Returns ULONG_MAX if the alpenglow feature is not active on the bank
-   or the account is missing. */
+   Returns ULONG_MAX if the account is missing. */
 
 ulong
 fd_alpenglow_migration_slot( fd_bank_t *  bank,

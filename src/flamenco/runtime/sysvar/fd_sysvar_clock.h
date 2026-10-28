@@ -7,9 +7,6 @@
 #include "../../accdb/fd_accdb.h"
 #include "fd_sysvar_base.h"
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
-#define FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK (12500UL)
-
 /* The clock sysvar provides an approximate measure of network time. */
 
 /* fd_sysvar_clock_init initializes the sysvar account to genesis state. */

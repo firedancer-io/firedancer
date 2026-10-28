@@ -112,15 +112,6 @@ fd_blockhash_info_t *
 fd_blockhashes_push_new( fd_blockhashes_t * blockhashes,
                          fd_hash_t const *  hash );
 
-/* fd_blockhashes_push_old behaves like the above, but adding a new
-   oldest entry instead, with hash_index one below the oldest entry's.
-   Returns NULL if there is no more space or no lower hash_index.
-   Aborts if hash is already present.  Useful for testing. */
-
-fd_blockhash_info_t *
-fd_blockhashes_push_old( fd_blockhashes_t * blockhashes,
-                         fd_hash_t const *  hash );
-
 /* fd_blockhashes_pop_new removes the newest blockhash queue entry. */
 
 void

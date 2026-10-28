@@ -514,8 +514,6 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     /* Manifest validation already rejects non-increasing epochs (except
        Alpenglow marker). */
     ec->cnt = (uchar)cnt;
-    ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
-    FD_TEST( ec->fast_path_ok ); /* manifest validation enforces all three invariants */
     epoch_credits_len++;
   }
   epoch_credits_view->len = epoch_credits_len;

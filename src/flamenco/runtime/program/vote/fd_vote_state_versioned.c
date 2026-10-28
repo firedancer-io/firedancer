@@ -665,52 +665,6 @@ fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
 }
 
 int
-fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self ) {
-  switch( self->kind ) {
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L47-L73 */
-    case fd_vote_state_versioned_enum_uninitialized: {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    }
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L75-L91 */
-    case fd_vote_state_versioned_enum_v1_14_11: {
-      fd_vote_state_1_14_11_t * state = &self->v1_14_11;
-
-      /* Temporary to hold v3. Note that since v1_14_11 and v3/v4 use
-         the same underlying types for votes, we can just directly set
-         it and avoid an intermediate call to
-         fd_vote_lockout_landed_votes_from_lockouts. */
-      fd_vote_state_v3_t v3 = {
-        .node_pubkey           = state->node_pubkey,
-        .authorized_withdrawer = state->authorized_withdrawer,
-        .commission            = state->commission,
-        .votes                 = state->votes,
-        .has_root_slot         = state->has_root_slot,
-        .root_slot             = state->root_slot,
-        .authorized_voters     = state->authorized_voters,
-        .prior_voters          = state->prior_voters,
-        .epoch_credits         = state->epoch_credits,
-        .last_timestamp        = state->last_timestamp
-      };
-
-      /* Emplace new vote state into target */
-      self->kind = fd_vote_state_versioned_enum_v3;
-      self->v3   = v3;
-
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L93 */
-    case fd_vote_state_versioned_enum_v3:
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L96 */
-    case fd_vote_state_versioned_enum_v4:
-    case fd_vote_state_versioned_enum_v5:
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
-  }
-}
-
-int
 fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
                           fd_pubkey_t const *         vote_pubkey ) {
   switch( self->kind ) {

@@ -25,27 +25,6 @@ to_vote_state_1_14_11( fd_vote_state_v3_t *      vote_state,
   vote_state_1_14_11->last_timestamp        = vote_state->last_timestamp;
 }
 
-void
-fd_vote_program_v3_create_new( fd_vote_init_t * const        vote_init,
-                               fd_sol_sysvar_clock_t const * clock,
-                               fd_vote_state_versioned_t *   versioned /* out */ ) {
-  fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
-
-  fd_vote_state_v3_t * vote_state   = &versioned->v3;
-  vote_state->node_pubkey           = vote_init->node_pubkey;
-  vote_state->authorized_withdrawer = vote_init->authorized_withdrawer;
-  vote_state->commission            = vote_init->commission;
-  vote_state->prior_voters.idx      = 31;
-  vote_state->prior_voters.is_empty = 1;
-
-  /* Insert the authorized voter */
-  fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
-  voter->epoch  = clock->epoch;
-  voter->pubkey = vote_init->authorized_voter;
-  voter->prio   = voter->pubkey.uc[0];
-  fd_vote_authorized_voters_treap_ele_insert( vote_state->authorized_voters.treap, voter, vote_state->authorized_voters.pool );
-}
-
 int
 fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                          fd_borrowed_account_t *     vote_account,
@@ -78,27 +57,6 @@ fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L432-L433 */
   return fd_vsv_set_state( vote_account, versioned );
-}
-
-int
-fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
-                              fd_vote_state_versioned_t *   versioned ) {
-  /* deserialize_into_ptr is essentially a call to get_state +
-     try_convert_to_v3. It's written a little more verbosely in Agave
-     as they try to optimize the decoding steps.
-     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L162-L202 */
-  int rc = fd_vsv_get_state( vote_account->acc, versioned );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  /* Unlike vote states v4 decoding, vote state v3 decoding will only
-     pass for v1_14_11 and v3 vote states.
-     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_state_v3.rs#L157-L164 */
-  if( FD_UNLIKELY( versioned->kind!=fd_vote_state_versioned_enum_v1_14_11 &&
-                   versioned->kind!=fd_vote_state_versioned_enum_v3 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  return fd_vsv_try_convert_to_v3( versioned );
 }
 
 int

@@ -337,8 +337,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       ec->prev_credits_delta[ cnt ] = epc->prev_credits - ec->base_credits;
       cnt++;
     }
-    ec->cnt          = (uchar)cnt; /* <=FD_EPOCH_CREDITS_MAX tested above */
-    ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
+    ec->cnt = (uchar)cnt; /* <=FD_EPOCH_CREDITS_MAX tested above */
   }
   epoch_credits_view->len = epoch_credits_len;
   fd_epoch_credits_view_fini( epoch_credits_view );

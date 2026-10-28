@@ -228,9 +228,6 @@ fd_sysvar_cache_epoch_schedule_read(
     fd_epoch_schedule_t *     out
 );
 
-#define fd_sysvar_cache_epoch_schedule_read_nofail( cache ) \
-  SIMPLE_SYSVAR_READ_NOFAIL( cache, epoch_schedule, fd_epoch_schedule_t )
-
 static inline int
 fd_sysvar_cache_last_restart_slot_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, last_restart_slot );
