@@ -399,6 +399,7 @@ struct fd_votor_tile {
   fd_pubkey_t junk_key;                 /* the junk key generated at boot, a handoff switches to it */
   ulong       highest_unsent_slot;      /* highest vote the tile dropped before failover engaged, ULONG_MAX none */
   int         failover_hist_adopted;    /* a history, possibly empty, was adopted since the last switch */
+  ulong       adopted_tip;              /* tip of the adopted history, ULONG_MAX for an empty one or none */
   int         vote_authority;           /* our rank may be installed, 0 keeps us unranked */
   int         hist_was_truncated;       /* the last export dropped windows, warned once */
   ulong       last_leader_slot;         /* slot of the last LEADER we published, ULONG_MAX before any */
@@ -1447,6 +1448,7 @@ failover_adopt_hist( fd_votor_tile_t *   ctx,
     ag_votor_set_vote_bound( ctx->votor, bound );
     raise_leader_floor( ctx, bound );
     ctx->failover_hist_adopted = 1;
+    ctx->adopted_tip           = ULONG_MAX;
     result.result     = FD_VOTOR_ADOPT_SUCCESS;
     result.root       = ag_votor_metrics( ctx->votor ).highest_final_cert_slot;
     result.vote_bound = ag_votor_get_vote_bound( ctx->votor );
@@ -1483,6 +1485,7 @@ failover_adopt_hist( fd_votor_tile_t *   ctx,
   }
   if( FD_UNLIKELY( conflicts ) ) FD_LOG_WARNING(( "adopted vote history disagrees with %lu of our own notar hashes, theirs were the ones sent", conflicts ));
   ctx->failover_hist_adopted = 1;
+  ctx->adopted_tip           = tip;
   raise_leader_floor( ctx, hist->last_leader_slot );
   raise_leader_floor( ctx, ag_votor_get_vote_bound( ctx->votor ) );
   result.result     = FD_VOTOR_ADOPT_SUCCESS;
@@ -1510,6 +1513,20 @@ failover_switched( fd_votor_tile_t * ctx ) {
   int operator = !FD_VOLATILE_CONST( ctx->id_keyswitch->failover );
   int junk     = fd_pubkey_eq( &ctx->id_key, &ctx->junk_key );
   ctx->vote_authority = operator || ( !junk && ctx->failover_hist_adopted );
+
+  /* A promotion votes past the adopted history's tip, its vote bound
+     and the leader floor, which are consensus state and lost on a
+     restart.  The vote history file written at unhalt holds only the
+     watermark, so raise it to cover them and the file this identity
+     boots from after a crash waits past them too.  The old identity's
+     file was written at the halt and is not affected. */
+
+  if( FD_UNLIKELY( ctx->vote_authority && !operator ) ) {
+    ulong slots[ 3 ] = { ctx->adopted_tip, ag_votor_get_vote_bound( ctx->votor ), floor };
+    for( ulong i=0UL; i<3UL; i++ ) {
+      if( FD_LIKELY( slots[ i ]!=ULONG_MAX ) ) ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, slots[ i ] );
+    }
+  }
   if( FD_UNLIKELY( ctx->failover_engaged ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
     FD_LOG_NOTICE(( "failover: switched to identity `%s`%s, this machine %s", id_key_b58, operator ? " by set-identity" : "",
@@ -1517,6 +1534,7 @@ failover_switched( fd_votor_tile_t * ctx ) {
     if( FD_UNLIKELY( !operator && !junk && !ctx->failover_hist_adopted ) ) FD_LOG_WARNING(( "failover: the identity was installed without an adopted vote history, refusing to vote until an adoption precedes an identity switch" ));
   }
   ctx->failover_hist_adopted = 0;
+  ctx->adopted_tip           = ULONG_MAX;
   ctx->id_keyswitch->result  = ctx->hist_seq;
 }
 
@@ -1625,6 +1643,7 @@ failover_init( fd_votor_tile_t *      ctx,
   ctx->vote_authority           = 1;
   ctx->highest_unsent_slot      = ULONG_MAX;
   ctx->failover_hist_adopted    = 0;
+  ctx->adopted_tip              = ULONG_MAX;
   ctx->hist_was_truncated       = 0;
   ctx->last_leader_slot         = ULONG_MAX;
   ctx->adopted_last_leader_slot = ULONG_MAX;
