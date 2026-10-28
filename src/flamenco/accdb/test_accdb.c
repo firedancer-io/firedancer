@@ -2168,7 +2168,7 @@ test_setup_idx( int * out_fd ) {
   FD_TEST( shmem_mem );
   test_shmem_mem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, TEST_CACHE_FOOTPRINT,
                                                             TEST_CACHE_MIN_RESERVED, 0, 42UL, 2UL, 0UL, 64UL ) );
-  FD_TEST( test_shmem_mem && test_shmem_mem->pool_max==64UL && test_shmem_mem->idx_page_cnt==32UL );
+  FD_TEST( test_shmem_mem && test_shmem_mem->pool_max==64UL && test_shmem_mem->idx_page_cnt==24UL );
 
   void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 8UL, 1 ) );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
@@ -2487,7 +2487,7 @@ idx_build_run( void * _arg ) {
 
 static void
 test_idx_parallel_build( void ) {
-  ulong const max_accounts = 800000UL; /* 25000 pages, 4 windows */
+  ulong const max_accounts = 1066667UL; /* 25000 pages, 4 windows */
   int fd       = memfd_create( "accdb_test", 0 );
   int spill_fd = memfd_create( "accdb_spill_test", 0 );
   FD_TEST( fd>=0 && spill_fd>=0 );
