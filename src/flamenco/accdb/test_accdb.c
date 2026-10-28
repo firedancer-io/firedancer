@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 
 static uchar pubkey0[ 32UL ]  = { 0 };
 static uchar pubkey1[ 32UL ]  = { 1, 0 };
@@ -64,7 +65,7 @@ test_setup_ex( int * out_fd,
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -85,7 +86,7 @@ test_join_writer( int fd ) {
   ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots, 1 );
   void * mem = aligned_alloc( fd_accdb_align(), fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -907,6 +908,55 @@ test_purge_deep_subtree( void ) {
   FD_TEST( lamports==9UL );
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
 
+  test_teardown( accdb, fd );
+
+  /* Same purge through the deferred-free spill tier: shrink the RAM
+     window to 8 resident + 4 stage so 30 unlinks spill 5 sealed chunks
+     and leave 2 staged, then drain them back via a scratch-backed join. */
+  accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+  int scratch_fd = memfd_create( "accdb_test_scratch", 0 );
+  FD_TEST( scratch_fd>=0 );
+  FD_TEST( !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( 64UL, 8192UL ) ) );
+  void * t2_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 1 ) );
+  FD_TEST( t2_mem );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1 ) );
+  FD_TEST( t2 );
+  test_shmem_mem->deferred_acc_resident = 8UL;
+  test_shmem_mem->deferred_acc_stage    = 4UL;
+
+  root = fd_accdb_attach_child( accdb, SENTINEL );
+  keep = fd_accdb_attach_child( accdb, root );
+  drop = fd_accdb_attach_child( accdb, root );
+  accdb_write( accdb, keep, pk_a, 777UL, NULL, 0UL, owner2 );
+  for( ulong i=0UL; i<30UL; i++ ) {
+    uchar pk[ 32UL ] = { (uchar)(1UL+i), 0xF0 };
+    accdb_write( accdb, drop, pk, 10UL+i, NULL, 0UL, owner2 );
+  }
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==31UL );
+
+  fd_accdb_purge( accdb, drop );
+  drain_background( t2 );
+  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==30UL );
+  struct stat st[1]; FD_TEST( !fstat( scratch_fd, st ) );
+  FD_TEST( st->st_blocks>0L ); /* sealed chunks reached the scratch file */
+
+  fd_accdb_advance_root( accdb, keep ); /* drains the deferred batch */
+  drain_background( t2 );
+  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==0UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
+  FD_TEST( accdb_read( accdb, keep, pk_a, &lamports, &d, &data_len, owner ) );
+  FD_TEST( lamports==777UL );
+
+  /* the 30 released slots are reusable: fill the pool to max_accounts */
+  fd_accdb_fork_id_t next = fd_accdb_attach_child( accdb, keep );
+  for( ulong i=0UL; i<1023UL; i++ ) {
+    uchar pk[ 32UL ] = { (uchar)i, (uchar)(i>>8), 0xF1 };
+    accdb_write( accdb, next, pk, 50UL+i, NULL, 0UL, owner2 );
+  }
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1024UL );
+
+  free( t2_mem );
+  close( scratch_fd );
   test_teardown( accdb, fd );
 }
 

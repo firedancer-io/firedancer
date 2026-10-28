@@ -152,7 +152,7 @@ test_env_init( test_env_t * env,
 
     fd_snapin_tile_t * ctx = &env->worker[ i ];
     ctx->accdb = fd_accdb_join( fd_accdb_new( env->join_mem[ i ], env->shmem,
-                                               FD_ACCDB_FD_RW, 0UL, NULL, NULL, 0UL, 0 ) );
+                                               FD_ACCDB_FD_RW, -1, 0UL, NULL, NULL, 0UL, 0 ) );
     FD_TEST( ctx->accdb );
     ctx->full              = 1;
     ctx->tile_idx          = i;
