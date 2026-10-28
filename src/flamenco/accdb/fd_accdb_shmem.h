@@ -108,6 +108,13 @@ fd_accdb_shmem_new( void * shmem,
                     ulong  joiner_cnt,
                     ulong  max_incremental_accounts );
 
+/* fd_accdb_scratch_sz returns the size of the scratch spill file
+   (full deferred-free capacity, fallocated at boot). */
+
+ulong
+fd_accdb_scratch_sz( ulong max_live_slots,
+                     ulong max_account_writes_per_slot );
+
 fd_accdb_shmem_t *
 fd_accdb_shmem_join( void * shtc );
 
