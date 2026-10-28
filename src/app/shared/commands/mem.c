@@ -115,6 +115,7 @@ mem_cmd_fn( args_t *   args,
     /* Real topology objects */
     for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
       fd_topo_obj_t * obj = &topo->objs[ i ];
+      if( obj->overlay ) continue; /* inside its host */
       entries[ cnt ].footprint = obj->footprint;
       fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( entries[ cnt ].wksp ), topo->workspaces[ obj->wksp_id ].name, sizeof(entries[ cnt ].wksp)-1 ) );
       fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( entries[ cnt ].obj ), obj->name, sizeof(entries[ cnt ].obj)-1 ) );
