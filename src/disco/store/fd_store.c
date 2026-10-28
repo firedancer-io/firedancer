@@ -328,9 +328,9 @@ fd_store_new( void       * shmem,
   fd_wksp_t * wksp = fd_wksp_containing( shmem );
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "shmem must be part of a workspace" )); return NULL; }
 
-  ulong chain_cnt       = fd_store_map_chain_cnt_est( fec_max );
+  ulong chain_cnt       = fd_store_map_chain_cnt_est( fec_max>>1 );
   ulong part_cnt        = shred_tile_cnt;
-  ulong slot_chain_cnt  = fd_store_slot_to_fecs_chain_cnt_est( fec_max );
+  ulong slot_chain_cnt  = fd_store_slot_to_fecs_chain_cnt_est( 8UL*(fec_max/FD_FEC_BLK_MAX) );
   ulong slot_to_fecs_sz = fd_ulong_align_up( fd_store_slot_to_fecs_footprint( slot_chain_cnt ), fd_store_slot_to_fecs_align() );
   ulong payload_slot_sz = fd_store_payload_slot_sz( fec_data_max );
   ulong cache_slot_cnt = shred_cache_bytes
