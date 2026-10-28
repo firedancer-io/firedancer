@@ -14,6 +14,7 @@
 #include "../fd_hashes.h"
 #include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -1449,9 +1450,10 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
     patch_stake_epochs( mini, root_idx, &stake_key, &vote_key, 0UL, 0UL );
 
     fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+    uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
     fd_stake_history_t stake_history_[1];
     fd_stake_history_t const * stake_history =
-        fd_sysvar_cache_stake_history_view( &root_bank->f.sysvar_cache, stake_history_ );
+        fd_sysvar_stake_history_read( mini->runtime->accdb, root_bank->accdb_fork_id, stake_history_data, stake_history_ );
     fd_stake_delegations_t * stake_delegations =
         fd_banks_stake_delegations_root_query( mini->banks );
 
@@ -1515,9 +1517,10 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
   FD_TEST( fd_stake_delegations_iter_idx( spill_iter )==1UL );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history_[1];
   fd_stake_history_t const * stake_history =
-      fd_sysvar_cache_stake_history_view( &root_bank->f.sysvar_cache, stake_history_ );
+      fd_sysvar_stake_history_read( mini->runtime->accdb, root_bank->accdb_fork_id, stake_history_data, stake_history_ );
   fd_stake_delegations_refresh(
       spill_delegations,
       root_bank->f.epoch,

@@ -213,6 +213,10 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
                          fd_pubkey_t const * collector_id,
                          fd_pubkey_t const * leader_vote,
                          ulong               fees ) {
+  uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_stake_history_t         stake_history_[1];
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
+
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
   int burn;
@@ -232,7 +236,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
       acc.lamports += fees; /* guaranteed to not overflow, checked above */
     }
   }
-  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, NULL );
+  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, stake_history, NULL );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   return burn;
 }
@@ -725,8 +729,9 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
+  uchar                stake_delegations_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_delegations_history_[1];
-  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_delegations_history_ );
+  fd_stake_history_t * stake_delegations_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_delegations_history_data, stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
@@ -1255,7 +1260,9 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
-        fd_stakes_update_stake_delegation( pubkey, account, bank, txn_in );
+        fd_stake_history_t stake_history[1];
+        fd_stakes_update_stake_delegation( pubkey, account, bank,
+            fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history ), txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {

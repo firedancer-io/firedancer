@@ -813,8 +813,9 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477
   */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
+    uchar              history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
     fd_stake_history_t history[1];
-    if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, history ) ) ) {
+    if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, history_data, history ) ) ) {
       FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));
     }
     ulong effective    = 0UL;
@@ -843,22 +844,10 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_stake_history( &elem );
 
-  /* Snapshot the stake history sysvar into a local buffer and release
-     the accdb bracket before calling fd_refresh_vote_accounts, which
-     performs its own accdb acquires.  fd_sysvar_stake_history_view
-     aliases the source bytes, so the bracket cannot be held open across
-     an inner acquire. */
   uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];
-  {
-    fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-    if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing" ));
-    ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-    fd_memcpy( stake_history_data, ro.data, copy_sz );
-    fd_accdb_unread_one( accdb, &ro );
-    if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, stake_history_data, copy_sz ) ) ) {
-      FD_LOG_HEXDUMP_ERR(( "Invalid StakeHistory sysvar", stake_history_data, copy_sz ));
-    }
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history ) ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
 
   /* Now increment the epoch and recompute the stakes for the vote
@@ -880,10 +869,11 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
-                                   fd_acc_t const *    acc,
-                                   fd_bank_t *         bank,
-                                   fd_txn_in_t const * txn_in ) {
+fd_stakes_update_stake_delegation( fd_pubkey_t const *        pubkey,
+                                   fd_acc_t const *           acc,
+                                   fd_bank_t *                bank,
+                                   fd_stake_history_t const * stake_history,
+                                   fd_txn_in_t const *        txn_in ) {
 
   fd_stake_state_t const * stake_state       = fd_stakes_get_state( acc );
   fd_stake_state_t const * prior_stake_state = NULL;
@@ -919,8 +909,6 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) ) {
-    fd_stake_history_t         stake_history_[1];
-    fd_stake_history_t const * stake_history     = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
     int                        use_fp_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
     fd_delegation_t const *    delegation        = &stake_state->stake.stake.delegation;
     if( FD_UNLIKELY( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) &&
