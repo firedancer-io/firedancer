@@ -87,6 +87,9 @@ def convert_dbip(input_path: Path, output_path: Path) -> None:
         closed_end = stack.pop()[0]
         emit(closed_end, stack[-1][1], stack[-1][2])
 
+    # emit's same-start replace can leave equal neighbours; merge them
+    segments = [s for i, s in enumerate(segments) if i == 0 or segments[i-1][1:] != s[1:]]
+
     with open(output_path, 'wb') as f:
         f.write(struct.pack('<Q', len(country_codes)))
         for cc in sorted(country_codes):
