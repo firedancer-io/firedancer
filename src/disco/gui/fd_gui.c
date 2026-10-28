@@ -26,11 +26,9 @@ fd_gui_align( void ) {
 
 ulong
 fd_gui_footprint( ulong tile_cnt,
-                  ulong max_live_slots,
-                  ulong max_txn_per_slot ) {
+                  ulong max_live_slots ) {
   FD_TEST( tile_cnt && tile_cnt <=FD_DIAG_SYSTEM_TILE_MAX );
   FD_TEST( max_live_slots && max_live_slots<=ULONG_MAX/sizeof(fd_gui_ag_slot_t) );
-  FD_TEST( max_txn_per_slot && max_txn_per_slot<=ULONG_MAX/sizeof(fd_gui_store_txn_start_t) );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),                     sizeof(fd_gui_t) );
@@ -38,12 +36,35 @@ fd_gui_footprint( ulong tile_cnt,
   l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() ); /* ingress_maxq */
   l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() ); /* egress_maxq  */
   l = FD_LAYOUT_APPEND( l, fd_gui_hist_align(),               fd_gui_hist_footprint() );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
   l = FD_LAYOUT_APPEND( l, alignof(long),                     FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
   return FD_LAYOUT_FINI( l, fd_gui_align() );
+}
+
+static ulong
+fd_gui_txn_scratch_layout( ulong   max_txn_per_slot,
+                           ulong * ends_off,
+                           ulong * joined_off ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
+  l = fd_ulong_align_up( l, alignof(fd_gui_store_txn_end_t) ); *ends_off = l;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
+  l = fd_ulong_align_up( l, alignof(fd_gui_slot_txn_join_t) ); *joined_off = l;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
+  return l;
+}
+
+#define FD_GUI_LSCHED_SCRATCH_SZ fd_ulong_align_up( FD_EPOCH_LEADERS_FOOTPRINT( MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH ), alignof(fd_vote_stake_weight_t) )
+
+ulong
+fd_gui_shared_scratch_footprint( ulong max_txn_per_slot ) {
+  FD_TEST( max_txn_per_slot && max_txn_per_slot<=ULONG_MAX/sizeof(fd_gui_slot_txn_join_t)/4UL );
+  ulong ends_off, joined_off;
+  ulong sz = fd_gui_txn_scratch_layout( max_txn_per_slot, &ends_off, &joined_off );
+  sz = fd_ulong_max( sz, FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
+  sz = fd_ulong_max( sz, sizeof(fd_gui_timeline_scratch_t) );
+  sz = fd_ulong_max( sz, FD_GUI_LSCHED_SCRATCH_SZ+MAX_STAKE_WEIGHTS*sizeof(fd_vote_stake_weight_t) );
+  sz = fd_ulong_max( sz, ZSTD_estimateDStreamSize( 1<<FD_GUI_GEOIP_ZSTD_WINDOW_LOG ) );
+  return fd_ulong_align_up( sz, fd_gui_align() );
 }
 
 static inline void
@@ -85,6 +106,7 @@ fd_gui_new( void *                   shmem,
             uchar const *            vote_key,
             ulong                    max_live_slots,
             ulong                    max_txn_per_slot,
+            void *                   shared_scratch,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,
@@ -108,6 +130,11 @@ fd_gui_new( void *                   shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shared_scratch, fd_gui_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shared_scratch" ));
+    return NULL;
+  }
+
   if( FD_UNLIKELY( topo->tile_cnt>FD_DIAG_SYSTEM_TILE_MAX ) ) {
     FD_LOG_WARNING(( "too many tiles" ));
     return NULL;
@@ -121,18 +148,21 @@ fd_gui_new( void *                   shmem,
   void *     ingress_maxq_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() );
   void *     egress_maxq_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),         fd_gui_rate_deque_footprint() );
   void *     hist_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_hist_align(),               fd_gui_hist_footprint() );
-  void *     txn_starts_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
-  void *     txn_ends_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
-  void *     txn_joined_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
-  void *     shred_sc_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
   void *     exec_done_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(long),                     FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
 
+  /* All of these alias shared_scratch (disjoint lifetimes) */
+  ulong ends_off, joined_off;
+  fd_gui_txn_scratch_layout( max_txn_per_slot, &ends_off, &joined_off );
+  uchar * shared = shared_scratch;
   gui->slot_txn_scratch.max    = max_txn_per_slot;
-  gui->slot_txn_scratch.starts = txn_starts_mem;
-  gui->slot_txn_scratch.ends   = txn_ends_mem;
-  gui->slot_txn_scratch.joined = txn_joined_mem;
-  gui->shred_scratch.ev        = shred_sc_mem;
+  gui->slot_txn_scratch.starts = (fd_gui_store_txn_start_t *)shared;
+  gui->slot_txn_scratch.ends   = (fd_gui_store_txn_end_t   *)( shared+ends_off   );
+  gui->slot_txn_scratch.joined = (fd_gui_slot_txn_join_t   *)( shared+joined_off );
+  gui->shred_scratch.ev        = (fd_gui_shred_scratch_t *)shared;
   gui->shred_scratch.max       = FD_GUI_SHRED_SCRATCH_MAX;
+  gui->timeline_scratch        = (fd_gui_timeline_scratch_t *)shared;
+  gui->epoch.lsched_scratch    = shared;
+  gui->epoch.stakes_scratch    = (fd_vote_stake_weight_t *)( shared+FD_GUI_LSCHED_SCRATCH_SZ );
   gui->exec_done.ts            = exec_done_mem;
   for( ulong i=0UL; i<FD_GUI_EXEC_DONE_SLOT_CNT; i++ ) gui->exec_done.slot[ i ] = ULONG_MAX;
 

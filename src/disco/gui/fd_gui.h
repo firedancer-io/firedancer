@@ -1228,7 +1228,8 @@ union fd_gui_timeline_scratch {
 typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
 
 struct fd_gui {
-  fd_gui_timeline_scratch_t timeline_scratch;
+  /* Points into the shared scratch region (fd_gui_shared_scratch_footprint). */
+  fd_gui_timeline_scratch_t * timeline_scratch;
 
   fd_http_server_t * http;
   fd_topo_t const * topo;
@@ -1312,8 +1313,8 @@ struct fd_gui {
 
     ulong missed_vote_history_dirty; /* epoch whose missed vote history changed since the last broadcast, ULONG_MAX if none */
 
-    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) lsched_scratch[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
-    fd_vote_stake_weight_t stakes_scratch[ MAX_STAKE_WEIGHTS ];
+    void *                   lsched_scratch; /* shared scratch */
+    fd_vote_stake_weight_t * stakes_scratch; /* shared scratch, [MAX_STAKE_WEIGHTS] */
   } epoch;
 
   fd_gui_peers_ctx_t * peers; /* full-client */
@@ -1456,8 +1457,15 @@ fd_gui_align( void );
 
 ulong
 fd_gui_footprint( ulong tile_cnt,
-                  ulong max_live_slots,
-                  ulong max_txn_per_slot );
+                  ulong max_live_slots );
+
+/* fd_gui_shared_scratch_footprint sizes one region shared by buffers
+   whose users run to completion on the single-threaded gui tile and
+   never nest: slot txn join, shreds window, timeline queries, epoch
+   leader schedule, and the geoip DCtx in fd_gui_peers_new. */
+
+ulong
+fd_gui_shared_scratch_footprint( ulong max_txn_per_slot );
 
 void *
 fd_gui_new( void *                   shmem,
@@ -1469,6 +1477,7 @@ fd_gui_new( void *                   shmem,
             uchar const *            vote_key,
             ulong                    max_live_slots,
             ulong                    max_txn_per_slot,
+            void *                   shared_scratch,
             int                      snapshots_enabled,
             int                      is_voting,
             int                      schedule_strategy,

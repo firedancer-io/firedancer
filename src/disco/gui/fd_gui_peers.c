@@ -42,7 +42,7 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
 
   ulong image_sz = ZSTD_getFrameContentSize( dbip_f, dbip_f_sz );
   if( FD_UNLIKELY( image_sz>FD_GUI_GEOIP_BIN_MAX ) ) return 0UL; /* also CONTENTSIZE_UNKNOWN/ERROR */
-  l = FD_LAYOUT_APPEND( l, 16UL,                                    fd_ulong_align_up( image_sz, 16UL )+fd_ulong_align_up( ZSTD_estimateDStreamSize( 1<<FD_GUI_GEOIP_ZSTD_WINDOW_LOG ), 16UL ) );
+  l = FD_LAYOUT_APPEND( l, 16UL,                                    image_sz                                                                );
 
   return FD_LAYOUT_FINI( l, fd_gui_peers_align() );
 }
@@ -130,6 +130,7 @@ void *
 fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
                   fd_topo_t const *  topo,
+                  void *             dctx_scratch,
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
                   ulong              seed,
@@ -156,14 +157,10 @@ fd_gui_peers_new( void *             shmem,
   void * _pubkey_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_pubkey_map_align(),    fd_gui_peers_node_pubkey_map_footprint   ( pubkey_chain_cnt )           );
   void * _sock_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   ctx->client_viewports    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
-  /* DCtx scratch is only needed during load_geoip below; it lives
-     past the exactly sized image. */
-  ulong  zstd_ctx_sz = ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG );
   ulong  image_sz    = ZSTD_getFrameContentSize( dbip_f, dbip_f_sz );
   FD_TEST( image_sz<=FD_GUI_GEOIP_BIN_MAX );
-  image_sz = fd_ulong_align_up( image_sz, 16UL );
-  ctx->dbip_image          = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                                    image_sz+fd_ulong_align_up( zstd_ctx_sz, 16UL )                         );
-  ZSTD_DCtx * zstd_dctx = ZSTD_initStaticDStream( ctx->dbip_image+image_sz, zstd_ctx_sz );
+  ctx->dbip_image          = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                                    image_sz                                                                );
+  ZSTD_DCtx * zstd_dctx = ZSTD_initStaticDStream( dctx_scratch, ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG ) );
   FD_TEST( zstd_dctx );
 
     for( ulong i = 0UL; i<max_ws_conn_cnt; i++ ) ctx->client_viewports[ i ].connected = 0;

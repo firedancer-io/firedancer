@@ -529,10 +529,12 @@ static void
 store_open( test_store_t * s, ulong map_bytes, int instance ) {
   fd_cstr_printf_check( s->path, sizeof(s->path), NULL, "/tmp/fd_gui_hist_evict_test.%i.%i", (int)getpid(), instance );
 
-  s->gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  s->gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL ) );
   FD_TEST( s->gui );
-  memset( s->gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  memset( s->gui, 0, fd_gui_footprint( 1UL, 1UL ) );
   s->gui->slot_txn_scratch.max = 1UL;
+  static fd_gui_timeline_scratch_t timeline_scratch[ 1 ];
+  s->gui->timeline_scratch = timeline_scratch;
   static fd_gui_ag_slot_t ag_slot[ 1 ] = {{ .slot = ULONG_MAX, .bank_seq = ULONG_MAX }};
   s->gui->ag.slot     = ag_slot;
   s->gui->ag.slot_cnt = 1UL;
