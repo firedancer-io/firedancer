@@ -192,11 +192,7 @@ test_no_final_state( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
   ctx->last_vote_slot = FD_FAILOVER_SLOT_NULL;
   pair( ctx, 77UL, 0, 1000L );
-  /* Pairing while we run the identity engages votor's failover rules. */
-  FD_TEST( ctx->engage_pending );
-  step_controller( ctx, stem );
-  FD_TEST( !ctx->engage_pending && stem->seqs[ 0 ]==1UL && pub_mcache[ 0 ].sig==0UL && pub_mcache[ 0 ].sz==FD_VOTOR_ADOPT_ENGAGE_SZ );
-  /* Before votor streams a full history a request is refused. */
+  /* Before votor streams a history with a vote a request is refused. */
   fd_failover_handoff_request_t req = { .handoff_id=43UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=100UL };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   fd_failover_handoff_result_t result;
@@ -212,7 +208,7 @@ test_no_final_state( void ) {
   FD_TEST( !strcmp( control_result( result.result, &hint ), "NO_FINAL_HISTORY" ) );
   ctx->tx.valid                 = 0;
   ctx->session.close_after_send = 0;
-  /* A frame still in plain mode has no history. */
+  /* A frame whose history is empty is not a final history. */
   static fd_votor_hist_msg_t hist;
   fd_memset( &hist, 0, sizeof(hist) );
   fd_memcpy( hist.identity.uc, ctx->hello.staked_pubkey, 32UL );
@@ -223,8 +219,8 @@ test_no_final_state( void ) {
   hist.hist.vote_bound        = FD_FAILOVER_SLOT_NULL;
   on_votor_hist_msg( ctx, &hist );
   FD_TEST( ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL && !ctx->current_history.valid );
-  /* The first full frame after engagement comes from a completed slot,
-     not a vote, and still becomes our final history. */
+  /* The first frame with a vote in it comes from a completed slot, not
+     a vote, and still becomes our final history. */
   hist.hist.anchor         = 99UL;
   hist.hist.rec_cnt        = 1UL;
   hist.hist.rec[ 0 ].slot  = 99UL;
@@ -235,11 +231,6 @@ test_no_final_state( void ) {
   req.handoff_id = 44UL;
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( !ctx->tx.valid && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH && ctx->handoff.id==44UL );
-  /* A second pairing edge publishes the engage frame again. */
-  ctx->channel->state = FD_FAILOVER_SESSION_BACKOFF;
-  sync_session( ctx );
-  pair( ctx, 78UL, 0, 1000L );
-  FD_TEST( ctx->engage_pending );
   controller_fini( ctx );
 }
 
@@ -476,7 +467,7 @@ test_result_wait_peer_restart( void ) {
       pair( ctx, 78UL, 0, 1000L );
       fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
       int busy = 0;
-      peer_poll( ctx, stem, 1000L, &busy );
+      peer_poll( ctx, 1000L, &busy );
       FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.last_id==900UL );
       FD_TEST( ctx->request.result==( holds ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED ) );
       FD_TEST( ctx->holds==holds );
@@ -493,7 +484,7 @@ test_result_wait_peer_restart( void ) {
   pair( ctx, 78UL, 0, 1000L );
   fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
   int busy = 0;
-  peer_poll( ctx, stem, 1000L, &busy );
+  peer_poll( ctx, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->request.id==900UL && !ctx->request.until );
   controller_fini( ctx );
 
@@ -504,7 +495,7 @@ test_result_wait_peer_restart( void ) {
   pair( ctx, 78UL, 1, 1000L );
   fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
   busy = 0;
-  peer_poll( ctx, stem, 1000L, &busy );
+  peer_poll( ctx, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.id==900UL && !ctx->request.until && !ctx->request.peer_restarted );
   controller_fini( ctx );
 
@@ -514,7 +505,7 @@ test_result_wait_peer_restart( void ) {
   pair( ctx, 78UL, 1, 1000L );
   fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
   busy = 0;
-  peer_poll( ctx, stem, 1000L, &busy );
+  peer_poll( ctx, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.id && !ctx->request.until && ctx->stuck );
   controller_fini( ctx );
 
@@ -707,7 +698,7 @@ test_dialed_non_holder( void ) {
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   pair( ctx, 77UL, 0, 1000L );
   int busy = 0;
-  peer_poll( ctx, stem, 1000L, &busy );
+  peer_poll( ctx, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.result==FD_FAILOVER_HANDOFF_NOT_HOLDER );
   controller_fini( ctx );
 }
@@ -723,7 +714,7 @@ test_restarted_peer_new_request( void ) {
   open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
   pair( ctx, 78UL, 1, 1000L );
   int busy = 0;
-  peer_poll( ctx, stem, 1000L, &busy );
+  peer_poll( ctx, 1000L, &busy );
   FD_TEST( ctx->request.id==900UL && ctx->request.peer_restarted && !ctx->request.until );
 
   fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF };

@@ -1755,12 +1755,13 @@ hist_setup( fd_votor_tile_t * ctx ) {
   ctx->junk_key                 = ctx->id_key;
   ctx->curr_epoch_info          = epoch_info;
   ctx->failover_enabled         = 1;
-  ctx->failover_engaged         = 1;
   ctx->hist_out_idx             = ULONG_MAX;
   ctx->failov_out_idx           = ULONG_MAX;
   ctx->last_leader_slot         = ULONG_MAX;
   ctx->adopted_last_leader_slot = ULONG_MAX;
   ctx->last_vote_slot           = ULONG_MAX;
+  ctx->highest_unsent_slot      = ULONG_MAX;
+  ctx->adopted_tip              = ULONG_MAX;
   ctx->root_slot                = ULONG_MAX;
 
   ctx->pool  = test_pool( epoch_info, 0UL );
@@ -2892,14 +2893,15 @@ test_operator_switch_votes( void ) {
   operator_switch( 1, 0UL, 1 ); /* to the junk key, by set-identity */
 }
 
-/* Test that an adoption is rejected while this machine votes and taken
-   once it stands by again. */
+/* Test that an adoption is rejected while this machine votes as an
+   identity failover handed it and taken once it stands by again. */
 
 static void
 test_adopt_refused_while_voting( void ) {
   static fd_votor_tile_t ctx;
   hist_setup( &ctx );
-  ctx.vote_authority = 1;
+  ctx.vote_authority        = 1;
+  ctx.installed_by_failover = 1;
 
   static uchar          reply_mem[ 512 ] __attribute__((aligned(FD_CHUNK_SZ)));
   static fd_frag_meta_t mcache[ 8 ];
@@ -2929,7 +2931,7 @@ test_adopt_refused_while_voting( void ) {
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
 
   /* A client retains its old authority if the imported slots cannot fit. */
-  ctx.failover_engaged = 0;
+  ctx.installed_by_failover = 0;
   ag_hist_t hist = { .anchor = 12UL, .last_leader_slot = 80UL, .vote_bound = 83UL, .rec_cnt = AG_HIST_MAX };
   for( ulong i=0UL; i<hist.rec_cnt; i++ ) {
     hist.rec[ i ].slot  = 32UL+i;
@@ -2942,13 +2944,12 @@ test_adopt_refused_while_voting( void ) {
   reply = fd_chunk_to_laddr_const( reply_mem, mcache[1].chunk );
   FD_TEST( seqs[0]==2UL && mcache[1].sig==902UL );
   FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_CAPACITY && !ctx.failover_hist_adopted );
-  FD_TEST( !ctx.failover_engaged && ctx.vote_authority );
+  FD_TEST( ctx.vote_authority );
   FD_TEST( ctx.adopted_last_leader_slot==ULONG_MAX );
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
   FD_TEST( ag_votor_metrics( ctx.votor ).highest_final_cert_slot==0UL );
   FD_TEST( ag_votor_metrics( ctx.votor ).slot_state_pool_free==free );
 
-  ctx.failover_engaged = 1;
   ctx.vote_authority = 0;
   FD_STORE( ulong, ctx.adopt_req+FD_VOTOR_ADOPT_REQ_HDR_SZ, 9UL );
   ctx.adopt_req_sz = FD_VOTOR_ADOPT_REQ_HDR_SZ+FD_VOTOR_ADOPT_EMPTY_SZ;
@@ -2958,19 +2959,75 @@ test_adopt_refused_while_voting( void ) {
   FD_TEST( reply->result==FD_VOTOR_ADOPT_SUCCESS && ctx.failover_hist_adopted );
   FD_TEST( ag_votor_get_vote_bound( ctx.votor )==9UL );
 
-  /* An engage frame (empty) engages the latch for using the failover votor rules idempotently. */
-  ctx.failover_engaged     = 0;
-  ctx.highest_unsent_slot  = 21UL; /* its window ends at 23 */
-  ctx.adopt_req_sz         = FD_VOTOR_ADOPT_ENGAGE_SZ;
-  after_frag( &ctx, 0UL, 3UL, 0UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
-  FD_TEST( seqs[0]==3UL && ctx.failover_engaged && !ctx.vote_authority );
-  FD_TEST( ag_votor_get_vote_bound( ctx.votor )==23UL );
-  ctx.highest_unsent_slot  = 40UL;
-  after_frag( &ctx, 0UL, 4UL, 0UL, ctx.adopt_req_sz, 0UL, 0UL, stem );
-  FD_TEST( seqs[0]==3UL && ctx.failover_engaged );
-  FD_TEST( ag_votor_get_vote_bound( ctx.votor )==23UL );
+  hist_teardown( &ctx );
+}
+
+/* Test that the exporter's floors and dropped votes reach the adopter
+   as the history's vote bound without changing the exporter's own
+   consensus state, so a validator that never adopts votes as one
+   without failover. */
+
+static void
+test_export_leaves_consensus_alone( void ) {
+  static fd_votor_tile_t ctx;
+  hist_setup( &ctx );
+
+  static uchar          hist_mem[ 5UL*sizeof(fd_votor_hist_msg_t) ] __attribute__((aligned(FD_CHUNK_SZ)));
+  ulong                 hist_chunks = ( sizeof(fd_votor_hist_msg_t)+FD_CHUNK_SZ-1UL )/FD_CHUNK_SZ;
+  static fd_frag_meta_t mcache[ 8 ];
+  fd_frag_meta_t * mcaches[] = { mcache };
+  ulong seqs[] = { 0UL }, depths[] = { 8UL };
+  ulong cr_avail = 64UL, min_cr_avail = 64UL;
+  int   reliable = 0;
+  fd_stem_context_t stem[ 1 ] = {{
+    .mcaches=mcaches, .seqs=seqs, .depths=depths,
+    .cr_avail=&cr_avail, .min_cr_avail=&min_cr_avail,
+    .cr_decrement_amount=1UL, .out_reliable=&reliable
+  }};
+  ctx.hist_out_idx    = 0UL;
+  ctx.hist_out_mem    = hist_mem;
+  ctx.hist_out_chunk0 = 0UL;
+  ctx.hist_out_wmark  = 3UL*hist_chunks; /* four frames, no wrap */
+  ctx.hist_out_chunk  = 0UL;
+
+  /* A notar vote the tile built and sent.  The root counts as voted, so
+     the history holds it and slot 1. */
+  ag_block_info_t block = {0};
+  memset( block.hash, 1, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( ctx.votor, 1UL, &block );
+  uchar reason;
+  FD_TEST( ag_votor_poll_vote( ctx.votor, &ctx.scratch.vote, &reason ) && ag_vote_slot( &ctx.scratch.vote )==1UL );
+  failover_after_vote( &ctx, stem, 1UL, 1 );
+  fd_votor_hist_msg_t const * msg = fd_chunk_to_laddr_const( hist_mem, mcache[ 0 ].chunk );
+  FD_TEST( seqs[0]==1UL && msg->has_vote && msg->vote_slot==1UL && msg->hist.rec_cnt==2UL );
+  FD_TEST( msg->hist.vote_bound==ULONG_MAX && ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
+  FD_TEST( ctx.last_vote_slot==1UL && ctx.highest_unsent_slot==ULONG_MAX );
+
+  /* A vote in slot 21 the tile did not send: the exported bound covers
+     its window, the library keeps no bound and no unsent mark. */
+  failover_after_vote( &ctx, stem, 21UL, 0 );
+  msg = fd_chunk_to_laddr_const( hist_mem, mcache[ 1 ].chunk );
+  FD_TEST( seqs[0]==2UL && !msg->has_vote && msg->hist.vote_bound==23UL );
+  FD_TEST( ctx.last_vote_slot==1UL && ctx.highest_unsent_slot==21UL );
+  FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
+  ag_hist_t local;
+  FD_TEST( !ag_votor_hist_export( ctx.votor, ULONG_MAX, &local ) );
+  FD_TEST( local.rec_cnt==2UL && local.rec[ 1 ].slot==1UL && ( local.rec[ 1 ].flags & AG_HIST_FLAG_VOTED_NOTAR ) && !( local.rec[ 1 ].flags & AG_HIST_FLAG_BAD_WINDOW ) );
+
+  /* The restart and catch-up floors raise the exported bound the same
+     way, and only the highest window counts. */
+  ctx.vote_history_slot = 30UL; /* its window is 28..31 */
+  failover_after_leader( &ctx, stem );
+  msg = fd_chunk_to_laddr_const( hist_mem, mcache[ 2 ].chunk );
+  FD_TEST( seqs[0]==3UL && msg->hist.vote_bound==31UL );
+  ctx.catchup_vote_slot = 9UL;
+  failover_after_leader( &ctx, stem );
+  msg = fd_chunk_to_laddr_const( hist_mem, mcache[ 3 ].chunk );
+  FD_TEST( seqs[0]==4UL && msg->hist.vote_bound==31UL );
+  FD_TEST( ag_votor_get_vote_bound( ctx.votor )==ULONG_MAX );
 
   hist_teardown( &ctx );
+  FD_LOG_NOTICE(( "pass: test_export_leaves_consensus_alone" ));
 }
 
 int
@@ -3022,6 +3079,7 @@ main( int     argc,
   test_switch_runs_the_failover_rule();
   test_operator_switch_votes();
   test_adopt_refused_while_voting();
+  test_export_leaves_consensus_alone();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -206,8 +206,6 @@ struct fd_failover_tile_ctx {
   int                   last_requested;        /* status describes our request rather than our demotion */
   long                  handoff_refuse_log_at; /* when we may log a refused handoff request again */
 
-  int engage_pending; /* we paired while running the identity, votor has to engage the failover voting rules, see publish_engage */
-
   ulong peer_floor; /* highest last vote the peer reported for the target, kept across sessions */
   ulong own_floor;  /* highest vote this machine signed as the target */
 
@@ -530,10 +528,6 @@ sync_session( fd_failover_tile_ctx_t * ctx ) {
     if( FD_UNLIKELY( peer->holds ) ) {
       ctx->peer_history.valid = 0;
     }
-    /* The machine running the identity engages votor's failover voting
-       rules as soon as it has a peer, so its vote history streams in full
-       before any handoff request. */
-    if( FD_UNLIKELY( ctx->holds ) ) ctx->engage_pending = 1;
   }
 }
 
@@ -805,8 +799,8 @@ on_votor_hist_msg( fd_failover_tile_ctx_t *    ctx,
     if( FD_LIKELY( ctx->own_floor==FD_FAILOVER_SLOT_NULL || hist->vote_slot>ctx->own_floor ) ) ctx->own_floor = hist->vote_slot;
     prepare_history( ctx, hist );
   } else if( FD_UNLIKELY( producing && hist->vote_slot!=FD_FAILOVER_SLOT_NULL && ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL ) ) {
-    /* The first full history after votor engaged, its tip is a vote we
-       signed before failover engaged. */
+    /* The first history with a vote in it while we run the identity,
+       cast before we tracked our votes. */
     ctx->last_vote_slot = hist->vote_slot;
     if( FD_LIKELY( ctx->own_floor==FD_FAILOVER_SLOT_NULL || hist->vote_slot>ctx->own_floor ) ) ctx->own_floor = hist->vote_slot;
     prepare_history( ctx, hist );
@@ -838,18 +832,6 @@ publish_adopt_state( fd_failover_tile_ctx_t * ctx,
   ctx->adopt_out_chunk    = fd_dcache_compact_next( ctx->adopt_out_chunk, sz, ctx->adopt_out_chunk0, ctx->adopt_out_wmark );
   ctx->adopt_result_fresh = 0;
   return ctx->adopt_request_id;
-}
-
-/* Tells votor to engage the failover voting rules for the identity we
-   run.  The frame is empty and gets no answer, from then on the
-   votor_hist stream carries our full history. */
-static void
-publish_engage( fd_failover_tile_ctx_t * ctx,
-                fd_stem_context_t *      stem ) {
-  ctx->engage_pending = 0;
-  if( FD_UNLIKELY( ctx->adopt_out_idx==ULONG_MAX ) ) return;
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->adopt_out_idx, 0UL, ctx->adopt_out_chunk, FD_VOTOR_ADOPT_ENGAGE_SZ, 0UL, tspub, tspub );
 }
 
 /* Asks the admin tile to switch to the given key.  Only the public key
@@ -943,7 +925,6 @@ on_operator_action_msg( fd_failover_tile_ctx_t *       ctx,
   fd_memset( &ctx->promotion, 0, sizeof(ctx->promotion) );
   fd_memset( &ctx->reply,     0, sizeof(ctx->reply)     );
   fd_memset( &ctx->tx,        0, sizeof(ctx->tx)        );
-  ctx->engage_pending           = 0;
   ctx->peer_history.valid       = 0;
   ctx->current_history.valid    = 0;
   ctx->last_vote_slot           = FD_FAILOVER_SLOT_NULL;
@@ -1682,7 +1663,6 @@ static void
 step_controller( fd_failover_tile_ctx_t * ctx,
                  fd_stem_context_t *      stem ) {
   if( FD_UNLIKELY( ctx->reply.state==FD_FAILOVER_REPLY_PENDING && !ctx->tx.valid ) ) queue_reply( ctx );
-  if( FD_UNLIKELY( ctx->engage_pending ) ) publish_engage( ctx, stem );
   if( FD_LIKELY( ctx->action==FD_FAILOVER_ACTION_IDLE ) ) return;
 
   switch( ctx->action ) {
@@ -1865,9 +1845,9 @@ on_handoff_result_msg( fd_failover_tile_ctx_t * ctx,
                      "nothing votes until `failover promote --force` runs on the one whose status shows a coverage floor, never both", result.handoff_id, reject_name( ctx->reply.reason ) ));
   } else if( FD_UNLIKELY( failed && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY &&
                           ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.send_cnt<FD_FAILOVER_REQUEST_RETRIES ) ) {
-    /* The other machine pairs and engages its votor in the same moment,
-       so a request carried by that first session can arrive before its
-       first full history.  It hung up on us, the next session resends. */
+    /* The other machine may not have voted since it booted, so a request
+       can arrive before its first history with a vote.  It hung up on
+       us, the next session resends. */
     FD_LOG_NOTICE(( "handoff %lu: the other machine has no final vote state yet, asking again (send %lu)", result.handoff_id, ctx->request.send_cnt ));
     return 1;
   } else if( FD_UNLIKELY( failed ) ) {
@@ -2054,15 +2034,10 @@ preconnect( fd_failover_tile_ctx_t * ctx,
 /* An operator command is required before sending a handoff request. */
 static void
 peer_poll( fd_failover_tile_ctx_t * ctx,
-           fd_stem_context_t *      stem,
            long                     now,
            int *                    charge_busy ) {
   preconnect( ctx, now );
   sync_session( ctx );
-  /* A pairing seen here engages the votor before any frame on the new
-     session is read, else a request carried by that session can arrive
-     before the votor streams its first full history. */
-  if( FD_UNLIKELY( ctx->engage_pending ) ) publish_engage( ctx, stem );
   if( FD_UNLIKELY( ctx->request.id && ctx->request.until && now>=ctx->request.until &&
                    ( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER ||
                      ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) ) ) {
@@ -2085,8 +2060,6 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
   ulong  payload_sz;
   if( FD_UNLIKELY( fd_failover_channel_poll( ctx->channel, now, charge_busy, &type, ctx->rx, &payload_sz ) ) ) {
     sync_session( ctx );
-    /* The frame may have come on the session that just paired. */
-    if( FD_UNLIKELY( ctx->engage_pending ) ) publish_engage( ctx, stem );
     handle_control( ctx, type, payload_sz, now );
   }
   sync_session( ctx );
@@ -2599,7 +2572,7 @@ after_credit( fd_failover_tile_ctx_t * ctx,
   long now = fd_failover_clock();
   if( FD_LIKELY( now>=ctx->poll_at ) ) {
     int busy = 0;
-    peer_poll( ctx, stem, now, &busy );
+    peer_poll( ctx, now, &busy );
     ctx->poll_at = busy ? now : now+FD_FAILOVER_TILE_POLL_NANOS;
     if( busy ) *charge_busy = 1;
   }
