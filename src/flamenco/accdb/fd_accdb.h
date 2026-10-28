@@ -116,9 +116,9 @@ fd_accdb_join( void * shaccdb );
    external_epoch_slots[] pointer and defers partition reclamation
    accordingly, the same way it does for in-shmem joiner_epochs[].
 
-   Only fd_accdb_read_one_nocache, fd_accdb_exists, and
-   fd_accdb_lamports are supported on a readonly join; any other API is
-   undefined behavior. */
+   Only fd_accdb_read_one_nocache, fd_accdb_exists, fd_accdb_lamports,
+   and fd_accdb_data_len are supported on a readonly join; any other API
+   is undefined behavior. */
 
 fd_accdb_t *
 fd_accdb_join_readonly( void *             ljoin,
