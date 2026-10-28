@@ -425,17 +425,16 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
 
   if( FD_UNLIKELY( msg_cnt==0 ) ) return 0UL;
 
-  /* Track the chunk index of the last frag populated, so we can derive
-     the chunk indexes for the next poll_rx_socket call.
-     Guaranteed to be set since msg_cnt>0. */
-  ulong last_chunk;
+  /* Only frags published to rx_link may consume rx_link dcache space.
+     Packets that are dropped or redirected leave a hole, so subsequent
+     packets are compacted down to chunk_pub. */
+  ulong chunk_pub = link->chunk;
 
   for( ulong j=0; j<(ulong)msg_cnt; j++ ) {
     uchar * payload         = ctx->batch_iov[ j ].iov_base;
     ulong   payload_sz      = ctx->batch_msg[ j ].msg_len;
     struct sockaddr_in * sa = ctx->batch_msg[ j ].msg_hdr.msg_name;
     ulong frame_sz          = payload_sz + hdr_sz;
-    last_chunk = fd_laddr_to_chunk( base, payload-hdr_sz );
     if( FD_UNLIKELY( ctx->lo_ifindex &&
                      (ctx->batch_msg[ j ].msg_hdr.msg_flags & (MSG_TRUNC|MSG_CTRUNC)) ) ) continue;
     ctx->metrics.rx_bytes_total += frame_sz;
@@ -500,14 +499,16 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
       fd_stem_publish( stem, ctx->repair_rx, sig, repair_link->chunk, frame_sz, 0UL, 0UL, tspub );
       repair_link->chunk = fd_dcache_compact_next( repair_link->chunk, FD_NET_MTU, repair_link->chunk0, repair_link->wmark );
     } else {
-      fd_stem_publish( stem, rx_link, sig, chunk, frame_sz, 0UL, 0UL, tspub );
+      if( FD_UNLIKELY( chunk!=chunk_pub ) ) {
+        memcpy( fd_chunk_to_laddr( base, chunk_pub ), eth_hdr, frame_sz );
+      }
+      fd_stem_publish( stem, rx_link, sig, chunk_pub, frame_sz, 0UL, 0UL, tspub );
+      chunk_pub = fd_dcache_compact_next( chunk_pub, FD_NET_MTU, chunk0, wmark );
     }
-
-    last_chunk = chunk;
   }
 
   /* Rewind the chunk index to the first free index. */
-  link->chunk = fd_dcache_compact_next( last_chunk, FD_NET_MTU, chunk0, wmark );
+  link->chunk = chunk_pub;
   return (ulong)msg_cnt;
 }
 
