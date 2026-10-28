@@ -10,6 +10,9 @@
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
+/* Payload-slot shred sizes the store view would return */
+static ushort test_shred_sz[ FD_FEC_SHRED_CNT ];
+
 #define TEST_EXEC_CNT         4UL
 #define TEST_ROOT_SLOT        1000UL
 #define TEST_ROOT_TICK_HEIGHT 5000UL
@@ -207,14 +210,15 @@ ingest_ag_component( fd_sched_t * sched,
   ulong sz = encode_ag_component( buf, comp, prev_hash );
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  ushort shred_sz[ FD_FEC_SHRED_CNT ] = { (ushort)sz };
   store_fec->data_sz       = (uint)sz;
-  store_fec->shred_sz[ 0 ] = (ushort)sz;
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = bank_idx,
     .parent_bank_idx   = 1UL,
     .slot              = TEST_ROOT_SLOT+1UL,
     .parent_slot       = TEST_ROOT_SLOT,
     .fec               = store_fec,
+    .shred_sz          = shred_sz,
     .data              = buf,
     .shred_cnt         = 1U,
     .is_last_in_batch  = 1U,
@@ -322,15 +326,17 @@ run_interleaved_fec_residual_case( void ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
     FD_TEST( split_off[ i ]<=USHORT_MAX );
     store_fec->data_sz       = (uint)split_off[ i ];
-    store_fec->shred_sz[ 0 ] = (ushort)split_off[ i ];
+    test_shred_sz[ 0 ] = (ushort)split_off[ i ];
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx          = 2UL+i,
       .parent_bank_idx   = 1UL,
       .slot              = TEST_ROOT_SLOT+1UL,
       .parent_slot       = TEST_ROOT_SLOT,
       .fec               = store_fec,
+      .shred_sz          = test_shred_sz,
       .data              = encoded[ i ],
       .shred_cnt         = 1U,
     }};
@@ -348,14 +354,15 @@ run_interleaved_fec_residual_case( void ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
     store_fec->data_sz = (uint)(encoded_sz[ i ]-split_off[ i ]);
     if( !i ) {
       FD_TEST( store_fec->data_sz<=USHORT_MAX );
-      store_fec->shred_sz[ 0 ] = (ushort)(store_fec->data_sz/2U);
-      store_fec->shred_sz[ 1 ] = (ushort)(store_fec->data_sz-store_fec->data_sz/2U);
+      test_shred_sz[ 0 ] = (ushort)(store_fec->data_sz/2U);
+      test_shred_sz[ 1 ] = (ushort)(store_fec->data_sz-store_fec->data_sz/2U);
     } else {
       FD_TEST( store_fec->data_sz<=USHORT_MAX );
-      store_fec->shred_sz[ 0 ] = (ushort)store_fec->data_sz;
+      test_shred_sz[ 0 ] = (ushort)store_fec->data_sz;
     }
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx         = 2UL+i,
@@ -363,6 +370,7 @@ run_interleaved_fec_residual_case( void ) {
       .slot             = TEST_ROOT_SLOT+1UL,
       .parent_slot      = TEST_ROOT_SLOT,
       .fec              = store_fec,
+      .shred_sz         = test_shred_sz,
       .data             = encoded[ i ]+split_off[ i ],
       .shred_cnt        = (uint)(i ? 1UL : 2UL),
       .is_last_in_batch = 1U,
@@ -449,14 +457,15 @@ run_unparseable_residual_case( void ) {
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  ushort shred_sz[ FD_FEC_SHRED_CNT ] = { (ushort)cursor };
   store_fec->data_sz       = (uint)cursor;
-  store_fec->shred_sz[ 0 ] = (ushort)cursor;
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx        = 2UL,
     .parent_bank_idx = 1UL,
     .slot            = TEST_ROOT_SLOT+1UL,
     .parent_slot     = TEST_ROOT_SLOT,
     .fec             = store_fec,
+    .shred_sz        = shred_sz,
     .data            = encoded,
     .shred_cnt       = 1U,
   }};
@@ -490,12 +499,14 @@ run_shred_window_overflow_case( void ) {
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
   store_fec->data_sz = (uint)cursor;
+  fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx         = 2UL,
     .parent_bank_idx  = 1UL,
     .slot             = TEST_ROOT_SLOT+1UL,
     .parent_slot      = TEST_ROOT_SLOT,
     .fec              = store_fec,
+    .shred_sz         = test_shred_sz,
     .data             = encoded,
     .shred_cnt        = 300U,
     .is_last_in_batch = 1U,
@@ -576,14 +587,16 @@ run_ag_structure_case( fd_hash_t const * start_poh,
       int last = off+n==sz;
       fd_store_fec_t * sf = store_fec+fec_cnt++;
       fd_memset( sf, 0, sizeof(fd_store_fec_t) );
+      fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
       sf->data_sz     = (uint)n;
-      sf->shred_sz[0] = (ushort)n;
+      test_shred_sz[ 0 ] = (ushort)n;
       fd_sched_fec_t fec[ 1 ] = {{
         .bank_idx          = 2UL,
         .parent_bank_idx   = 1UL,
         .slot              = TEST_ROOT_SLOT + 1UL,
         .parent_slot       = TEST_ROOT_SLOT,
         .fec               = sf,
+        .shred_sz          = test_shred_sz,
         .data              = encoded[ i ]+off,
         .shred_cnt         = 1U,
         .is_last_in_batch  = !!last,
@@ -741,12 +754,14 @@ run_many_entries_case( ulong entry_cnt,
   {
     ulong sz = encode_ag_component( marker_buf, AG_COMP_HEADER, prev_hash );
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
     store_fec->data_sz     = (uint)sz;
-    store_fec->shred_sz[0] = (ushort)sz;
+    test_shred_sz[ 0 ] = (ushort)sz;
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx = 2UL, .parent_bank_idx = 1UL,
       .slot = TEST_ROOT_SLOT+1UL, .parent_slot = TEST_ROOT_SLOT,
-      .fec = store_fec, .data = marker_buf, .shred_cnt = 1U,
+      .fec = store_fec,
+      .shred_sz = test_shred_sz, .data = marker_buf, .shred_cnt = 1U,
       .is_last_in_batch = 1U, .is_first_in_block = 1U,
     }};
     FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
@@ -759,12 +774,14 @@ run_many_entries_case( ulong entry_cnt,
   while( off<stream_sz ) {
     ulong sz = fd_ulong_min( stream_sz-off, 63985UL );
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
     store_fec->data_sz     = (uint)sz;
-    store_fec->shred_sz[0] = (ushort)sz;
+    test_shred_sz[ 0 ] = (ushort)sz;
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx = 2UL, .parent_bank_idx = 1UL,
       .slot = TEST_ROOT_SLOT+1UL, .parent_slot = TEST_ROOT_SLOT,
-      .fec = store_fec, .data = stream+off, .shred_cnt = 1U,
+      .fec = store_fec,
+      .shred_sz = test_shred_sz, .data = stream+off, .shred_cnt = 1U,
       .is_last_in_batch = off+sz==stream_sz,
       .is_first_in_block = !!first,
     }};
@@ -818,6 +835,7 @@ add_live_block( fd_sched_t * sched,
                 ulong        parent_slot ) {
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  ushort shred_sz[ FD_FEC_SHRED_CNT ] = { 0 };
 
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = bank_idx,
@@ -825,6 +843,7 @@ add_live_block( fd_sched_t * sched,
     .slot              = slot,
     .parent_slot       = parent_slot,
     .fec               = store_fec,
+    .shred_sz          = shred_sz,
     .shred_cnt         = 1U,
     .is_last_in_batch  = 0U,
     .is_last_in_block  = 0U,
@@ -1042,14 +1061,16 @@ run_zero_hashcnt_mblk_case( void ) {
 
   fd_store_fec_t store_fec0[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec0, 0, sizeof(fd_store_fec_t) );
+  fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
   store_fec0->data_sz         = (uint)fec0_sz;
-  store_fec0->shred_sz[ 0 ]   = (ushort)fec0_sz;
+  test_shred_sz[ 0 ]   = (ushort)fec0_sz;
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = 2UL,
     .parent_bank_idx   = 1UL,
     .slot              = TEST_ROOT_SLOT+1UL,
     .parent_slot       = TEST_ROOT_SLOT,
     .fec               = store_fec0,
+    .shred_sz          = test_shred_sz,
     .data              = fec0,
     .shred_cnt         = 1U,
   }};
@@ -1109,8 +1130,9 @@ run_zero_hashcnt_mblk_case( void ) {
 
   fd_store_fec_t store_fec1[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec1, 0, sizeof(fd_store_fec_t) );
+  fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
   store_fec1->data_sz         = (uint)fec1_sz;
-  store_fec1->shred_sz[ 0 ]   = (ushort)fec1_sz;
+  test_shred_sz[ 0 ]   = (ushort)fec1_sz;
   fec->fec  = store_fec1;
   fec->data = fec1;
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
@@ -1142,8 +1164,9 @@ run_zero_hashcnt_mblk_case( void ) {
 
   fd_store_fec_t store_fec2[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec2, 0, sizeof(fd_store_fec_t) );
+  fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
   store_fec2->data_sz         = (uint)fec2_sz;
-  store_fec2->shred_sz[ 0 ]   = (ushort)fec2_sz;
+  test_shred_sz[ 0 ]   = (ushort)fec2_sz;
   fec->fec  = store_fec2;
   fec->data = fec2;
   FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
@@ -1180,14 +1203,16 @@ run_entry_hash_mismatch_case( void ) {
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
   store_fec->data_sz       = (uint)entry_sz;
-  store_fec->shred_sz[ 0 ] = (ushort)entry_sz;
+  test_shred_sz[ 0 ] = (ushort)entry_sz;
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx         = 2UL,
     .parent_bank_idx  = 1UL,
     .slot             = TEST_ROOT_SLOT+1UL,
     .parent_slot      = TEST_ROOT_SLOT,
     .fec              = store_fec,
+    .shred_sz         = test_shred_sz,
     .data             = entry,
     .shred_cnt        = 1U,
     .is_last_in_batch = 1U,
@@ -1247,12 +1272,14 @@ run_runtime_limit_case( void ) {
 
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
     fd_sched_fec_t fec[ 1 ] = {{
       .bank_idx          = 2UL,
       .parent_bank_idx   = 1UL,
       .slot              = TEST_ROOT_SLOT+1UL,
       .parent_slot       = TEST_ROOT_SLOT,
       .fec               = store_fec,
+      .shred_sz          = test_shred_sz,
       .shred_cnt         = 2U,
       .is_first_in_block = 1U
     }};
@@ -1286,9 +1313,10 @@ run_runtime_limit_case( void ) {
 
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
     FD_TEST( sizeof(encoded)<=USHORT_MAX );
     store_fec->data_sz       = (uint)sizeof(encoded);
-    store_fec->shred_sz[ 0 ] = (ushort)sizeof(encoded);
+    test_shred_sz[ 0 ] = (ushort)sizeof(encoded);
     fd_hash_t poh[ 1 ] = {{{ 0 }}};
     FD_TEST( ingest_ag_component( sched, 2UL, AG_COMP_HEADER, poh, 1, 0 ) );
     fd_sched_fec_t fec[ 1 ] = {{
@@ -1297,6 +1325,7 @@ run_runtime_limit_case( void ) {
       .slot              = TEST_ROOT_SLOT+1UL,
       .parent_slot       = TEST_ROOT_SLOT,
       .fec               = store_fec,
+      .shred_sz          = test_shred_sz,
       .data              = encoded,
       .shred_cnt         = 1U,
     }};
@@ -1319,9 +1348,10 @@ run_runtime_limit_case( void ) {
 
     fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
     fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    fd_memset( test_shred_sz, 0, sizeof(test_shred_sz) );
     FD_TEST( sizeof(encoded)<=USHORT_MAX );
     store_fec->data_sz       = (uint)sizeof(encoded);
-    store_fec->shred_sz[ 0 ] = (ushort)sizeof(encoded);
+    test_shred_sz[ 0 ] = (ushort)sizeof(encoded);
     fd_hash_t poh[ 1 ] = {{{ 0 }}};
     FD_TEST( ingest_ag_component( sched, 2UL, AG_COMP_HEADER, poh, 1, 0 ) );
     fd_sched_fec_t fec[ 1 ] = {{
@@ -1330,6 +1360,7 @@ run_runtime_limit_case( void ) {
       .slot              = TEST_ROOT_SLOT+1UL,
       .parent_slot       = TEST_ROOT_SLOT,
       .fec               = store_fec,
+      .shred_sz          = test_shred_sz,
       .data              = encoded,
       .shred_cnt         = 1U,
     }};
@@ -1837,8 +1868,8 @@ try_ingest_lthash_component( fd_sched_t * sched,
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
   FD_TEST( sz<=USHORT_MAX );
+  ushort shred_sz[ FD_FEC_SHRED_CNT ] = { (ushort)sz };
   store_fec->data_sz       = (uint)sz;
-  store_fec->shred_sz[ 0 ] = (ushort)sz;
 
   fd_sched_fec_t fec[ 1 ] = {{
     .bank_idx          = bank_idx,
@@ -1846,6 +1877,7 @@ try_ingest_lthash_component( fd_sched_t * sched,
     .slot              = slot,
     .parent_slot       = parent_slot,
     .fec               = store_fec,
+    .shred_sz          = shred_sz,
     .data              = data,
     .shred_cnt         = 1U,
     .is_last_in_batch  = 1U,

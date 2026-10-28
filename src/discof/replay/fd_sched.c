@@ -2618,7 +2618,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   ulong tracked_shred_cnt = fd_ulong_min( fec->shred_cnt, FD_FEC_SHRED_CNT );
   uint  tracked_data_sz   = 0U;
-  for( ulong i=0UL; i<tracked_shred_cnt; i++ ) tracked_data_sz += fec->fec->shred_sz[ i ];
+  for( ulong i=0UL; i<tracked_shred_cnt; i++ ) tracked_data_sz += fec->shred_sz[ i ];
   if( FD_LIKELY( fec->shred_cnt<=FD_FEC_SHRED_CNT ) ) FD_TEST( tracked_data_sz==fec->fec->data_sz );
   else                                                FD_TEST( tracked_data_sz<=fec->fec->data_sz );
 
@@ -2627,7 +2627,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_TEST( block->shred_cnt<sched->max_shreds_per_block );
     uint shred_off;
     if( FD_LIKELY( i<FD_FEC_SHRED_CNT ) ) {
-      shred_off = prev_shred_off + fec->fec->shred_sz[ i ];
+      shred_off = prev_shred_off + fec->shred_sz[ i ];
     } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
       /* We don't track shred boundaries after 32 shreds, assume they're
          sized uniformly */

@@ -130,12 +130,12 @@ test_insert_reserved( fd_wksp_t * wksp ) {
   FD_TEST( store->cache_free_cnt==fec_max-1UL );
   shred_sz[ 0 ] = 100;
   FD_TEST( !fd_store_insert( store, map, &mr0, 5UL, 0UL, data_idx, 100U, shred_sz, &fec ) && fec ); /* below the root */
-  FD_TEST( fec->data_state==FD_STORE_FEC_DATA_RAM_READY && fec->data_idx==data_idx && fec->data_sz==100U && fec->shred_sz[ 0 ]==100 );
+  FD_TEST( fec->data_state==FD_STORE_FEC_DATA_RAM_READY && fec->data_idx==data_idx && fec->data_sz==100U );
   FD_TEST( fec->slot==11U );
   FD_TEST( store->cache_lru_tail==cache_fec_idx( store, fec ) );
 
   fd_store_fec_data_view_t view[1];
-  FD_TEST( !fd_store_fec_data_view( store, -1, fec, view ) && view->data[ 99 ]==0xAA );
+  FD_TEST( !fd_store_fec_data_view( store, -1, fec, view ) && view->data[ 99 ]==0xAA && view->shred_sz[ 0 ]==100 );
   fd_store_fec_data_view_release( store, view );
 
   data = fd_store_fec_data_reserve( store, -1, &data_idx, NULL );
@@ -167,7 +167,7 @@ test_insert_reserved( fd_wksp_t * wksp ) {
 
 void
 test_api( fd_wksp_t * wksp ) {
-  FD_TEST( sizeof(fd_store_fec_t)==128UL );
+  FD_TEST( sizeof(fd_store_fec_t)==64UL );
 
   ulong  fec_max     = 8;
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL, 0UL, 0UL, 0UL, 1UL ), 1UL );
@@ -372,8 +372,8 @@ test_fec_data_max( fd_wksp_t * wksp ) {
   fd_hash_t mr1 = { { 1 } };
   fd_store_fec_t * fec0 = insert_payload( st, map, -1, &mr0, 0xAA, 63985UL );
   fd_store_fec_t * fec1 = insert_payload( st, map, -1, &mr1, 0xBB, 63985UL );
-  uchar * data0 = cache_data_laddr( st ) + (ulong)fec0->data_idx*st->payload_slot_sz;
-  uchar * data1 = cache_data_laddr( st ) + (ulong)fec1->data_idx*st->payload_slot_sz;
+  uchar * data0 = cache_data_laddr( st ) + (ulong)fec0->data_idx*st->payload_slot_sz + FD_STORE_PAYLOAD_HDR_SZ;
+  uchar * data1 = cache_data_laddr( st ) + (ulong)fec1->data_idx*st->payload_slot_sz + FD_STORE_PAYLOAD_HDR_SZ;
 
   FD_TEST( fec0->data_idx != fec1->data_idx );
   FD_TEST( st->payload_slot_sz >= 63985UL );
@@ -400,8 +400,8 @@ test_fec_data_max( fd_wksp_t * wksp ) {
 
   fec0  = insert_payload( st, map, -1, &mr0, 0xCC, 31840UL );
   fec1  = insert_payload( st, map, -1, &mr1, 0xDD, 31840UL );
-  data0 = cache_data_laddr( st ) + (ulong)fec0->data_idx*st->payload_slot_sz;
-  data1 = cache_data_laddr( st ) + (ulong)fec1->data_idx*st->payload_slot_sz;
+  data0 = cache_data_laddr( st ) + (ulong)fec0->data_idx*st->payload_slot_sz + FD_STORE_PAYLOAD_HDR_SZ;
+  data1 = cache_data_laddr( st ) + (ulong)fec1->data_idx*st->payload_slot_sz + FD_STORE_PAYLOAD_HDR_SZ;
 
   FD_TEST( fec0->data_idx != fec1->data_idx );
   FD_TEST( st->payload_slot_sz >= 31840UL );
@@ -483,6 +483,7 @@ test_spill( fd_wksp_t * wksp ) {
   FD_TEST( view->flags==FD_STORE_FEC_DATA_VIEW_SPILL );
   FD_TEST( view->data[0]==0xA0 );
   FD_TEST( view->data[fec_data_max-1UL]==0xA0 );
+  FD_TEST( view->shred_sz[0]==(ushort)fec_data_max && !view->shred_sz[1] ); /* header spills with the payload */
   fd_store_fec_data_view_t second_view[1];
   FD_TEST( fd_store_fec_data_view( st, fd, fec0, second_view )==-1 );
   FD_TEST( !second_view->data && !second_view->fec && !second_view->flags );
