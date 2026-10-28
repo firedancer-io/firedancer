@@ -350,16 +350,16 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->handoff_base, sizeof(ulong) ) );
 
   /* The junk key generated at boot goes into HELLO and TLS, and a
-     handoff switches to it.  Only Sign holds its private key.  The boot
-     identity is what we hand off until set-identity or failover promote
-     <keypair> picks another. */
+     handoff switches to it.  Only Sign holds its private key.  The
+     configured identity is what we hand off until set-identity or
+     failover promote <keypair> switches to another key. */
   uchar const * junk_pubkey = fd_keyload_load( FD_KEYLOAD_FAILOVER_JUNK, 1 );
   fd_memcpy( ctx->hello.junk_pubkey, junk_pubkey, 32UL );
   fd_keyload_unload( junk_pubkey, 1 );
-  uchar const * boot_pubkey = fd_keyload_load( tile->failov.identity_key_path, 1 );
-  fd_memcpy( ctx->hello.staked_pubkey, boot_pubkey, 32UL );
-  fd_memcpy( ctx->installed,           boot_pubkey, 32UL );
-  fd_keyload_unload( boot_pubkey, 1 );
+  uchar const * target_pubkey = fd_keyload_load( tile->failov.identity_key_path, 1 );
+  fd_memcpy( ctx->hello.staked_pubkey, target_pubkey, 32UL );
+  fd_memcpy( ctx->installed,           tile->failov.boot_to_standby ? ctx->hello.junk_pubkey : target_pubkey, 32UL );
+  fd_keyload_unload( target_pubkey,    1 );
 
   if( FD_UNLIKELY( fd_memeq( ctx->hello.junk_pubkey, ctx->hello.staked_pubkey, 32UL ) ) ) {
     FD_LOG_ERR(( "the failover junk key must differ from [paths.identity_key]" ));
@@ -376,8 +376,8 @@ privileged_init( fd_topo_t const *      topo,
   ctx->adopt_anchor     = FD_FAILOVER_SLOT_NULL;
   ctx->empty_vote_after = FD_FAILOVER_SLOT_NULL;
 
-  /* We run the boot identity, which is the target. */
-  ctx->holds         = 1;
+  /* We run the target identity unless we booted to standby. */
+  ctx->holds         = !tile->failov.boot_to_standby;
   ctx->hello.version = (ushort)FD_FAILOVER_VERSION;
   ctx->hello.holds   = (uchar)ctx->holds;
   ctx->hello.mode    = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
@@ -410,9 +410,15 @@ privileged_init( fd_topo_t const *      topo,
   char staked_b58[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( ctx->hello.junk_pubkey,   NULL, junk_b58   );
   fd_base58_encode_32( ctx->hello.staked_pubkey, NULL, staked_b58 );
-  FD_LOG_NOTICE(( "failover is on, listening on `" FD_IP4_ADDR_FMT ":%u` with junk key `%s`, a handoff from this machine gives up `%s` for the junk key, "
-                  "`failover promote <keypair>` here takes the identity in that keypair from the machine running it",
-                  FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port, junk_b58, staked_b58 ));
+  if( FD_UNLIKELY( tile->failov.boot_to_standby ) ) {
+    FD_LOG_NOTICE(( "failover is on, booting as a standby under junk key `%s` for identity `%s`, listening on `" FD_IP4_ADDR_FMT ":%u`, "
+                    "this machine does not vote until `failover promote` here takes the identity from the machine running it.",
+                    junk_b58, staked_b58, FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port ));
+  } else {
+    FD_LOG_NOTICE(( "failover is on, listening on `" FD_IP4_ADDR_FMT ":%u` with junk key `%s`, a handoff from this machine gives up `%s` for the junk key, "
+                    "`failover promote <keypair>` here takes the identity in that keypair from the machine running it",
+                    FD_IP4_ADDR_FMT_ARGS( tile->failov.listen_addr ), (uint)tile->failov.port, junk_b58, staked_b58 ));
+  }
 
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch+scratch_footprint( tile ) );
 }

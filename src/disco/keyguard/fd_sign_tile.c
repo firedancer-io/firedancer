@@ -464,6 +464,9 @@ failover_load_keys( fd_sign_ctx_t *        ctx,
   if( FD_UNLIKELY( fd_memeq( ctx->failover_junk_key+32UL, ctx->failover_boot_key+32UL, 32UL ) ) ) {
     FD_LOG_ERR(( "the failover junk key must differ from the [paths.identity_key] key" ));
   }
+  if( FD_UNLIKELY( tile->sign.failover_boot_to_standby ) ) {
+    fd_memcpy( ctx->private_key, ctx->failover_junk_key, 64UL );
+  }
 }
 
 static void FD_FN_SENSITIVE
