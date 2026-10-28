@@ -17,12 +17,19 @@
 #define FD_ACCDB_FD_RW (123461)
 #define FD_ACCDB_FD_RO (123460)
 
-/* Well-known fds of the disk index file (accounts.db-index), used when
-   index_ram_max is non-zero.  fd_accdb_new joins use the RW fd and
-   readonly joins the RO fd; fd_accdb_set_index_fd overrides it. */
+/* Well-known fds of the disk index, used when index_ram_max is
+   non-zero.  The index is split over FD_ACCDB_IDX_SHARD_CNT files
+   (accounts.db-index.0 ...) with the placement windows interleaved
+   across them, because buffered writes to one file serialize.  Shard i
+   is fd FD_ACCDB_IDX_FD_RW+i for fd_accdb_new joins and
+   FD_ACCDB_IDX_FD_RO+i for readonly joins; fd_accdb_set_index_fd
+   overrides them with a single file. */
 
-#define FD_ACCDB_IDX_FD_RW (123453)
-#define FD_ACCDB_IDX_FD_RO (123452)
+#define FD_ACCDB_IDX_SHARD_CNT (8UL)
+#define FD_ACCDB_IDX_FD_RW     (123400)
+#define FD_ACCDB_IDX_FD_RO     (123410)
+#define FD_ACCDB_IDX_FD_RW_MAX (FD_ACCDB_IDX_FD_RW+(int)FD_ACCDB_IDX_SHARD_CNT-1)
+#define FD_ACCDB_IDX_FD_RO_MAX (FD_ACCDB_IDX_FD_RO+(int)FD_ACCDB_IDX_SHARD_CNT-1)
 
 /* Well-known fd of the full snapshot spill file (accounts.db-spill),
    scratch for the disk index build.  fd_accdb_new joins use it. */
@@ -138,8 +145,9 @@ fd_accdb_join_readonly( void *             ljoin,
                         ulong *            my_epoch_slot_rw,
                         int                fd_ro );
 
-/* fd_accdb_set_index_fd makes accdb use idx_fd for the disk index,
-   with the spill stored after the index pages in the same file.
+/* fd_accdb_set_index_fd makes accdb use the single file idx_fd for the
+   disk index, with the spill stored after the index pages in the same
+   file.
    fd_accdb_set_spill_fd then moves the spill to its own file. */
 
 void

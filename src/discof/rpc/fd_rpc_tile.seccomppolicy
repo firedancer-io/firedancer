@@ -19,8 +19,10 @@
 #                 This tile needs access to the outer file descriptor to
 #                 rearm the inner set after a drain.
 #
-# accdb_idx_ro_fd: Read-only accounts index file (accounts.db-index).
-uint logfile_fd, uint rpc_socket_fd, uint accdb_ro_fd, uint epoll_inner_fd, uint epoll_outer_fd, uint accdb_idx_ro_fd
+# accdb_idx_ro_min_fd, accdb_idx_ro_max_fd: The first and last of the
+#                  read-only accounts index shard files
+#                  (accounts.db-index.N).
+uint logfile_fd, uint rpc_socket_fd, uint accdb_ro_fd, uint epoll_inner_fd, uint epoll_outer_fd, uint accdb_idx_ro_min_fd, uint accdb_idx_ro_max_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -116,7 +118,7 @@ epoll_ctl: (or (eq (arg 0) epoll_inner_fd)
 #
 # arg 0 is the file descriptor to read from.
 preadv2: (or (eq (arg 0) accdb_ro_fd)
-             (eq (arg 0) accdb_idx_ro_fd))
+             (and (>= (arg 0) accdb_idx_ro_min_fd) (<= (arg 0) accdb_idx_ro_max_fd)))
 
 # power saving: sleep when there is no work to do
 #

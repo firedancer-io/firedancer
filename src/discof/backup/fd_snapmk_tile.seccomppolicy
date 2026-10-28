@@ -21,8 +21,10 @@
 # txncache_fd: Disk backing for transaction cache pages beyond the
 #              in-memory cache.
 #
-# accdb_idx_ro_fd: Read-only accounts index file (accounts.db-index).
-uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd, uint vote_stakes_fd, uint txncache_fd, uint accdb_idx_ro_fd
+# accdb_idx_ro_min_fd, accdb_idx_ro_max_fd: The first and last of the
+#                  read-only accounts index shard files
+#                  (accounts.db-index.N).
+uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd, uint vote_stakes_fd, uint txncache_fd, uint accdb_idx_ro_min_fd, uint accdb_idx_ro_max_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -96,7 +98,7 @@ renameat2: (and (eq (arg 0) dir_fd)
 
 # snapshot manifest: vote account reads on accdb cache miss
 preadv2: (or (eq (arg 0) accdb_ro_fd)
-             (eq (arg 0) accdb_idx_ro_fd))
+             (and (>= (arg 0) accdb_idx_ro_min_fd) (<= (arg 0) accdb_idx_ro_max_fd)))
 
 # vote stakes: load a spilled t-1 set into the cache and write back the
 # evicted set.
