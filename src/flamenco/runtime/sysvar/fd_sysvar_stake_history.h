@@ -40,6 +40,17 @@ fd_sysvar_stake_history_view( fd_stake_history_t * view,
                               uchar const *        data,
                               ulong                sz );
 
+/* fd_sysvar_stake_history_read copies the StakeHistory sysvar account
+   into data and returns a view of it.  Returns NULL if the account does
+   not exist or is invalid.  Must not be called while an accdb acquire
+   is open. */
+
+fd_stake_history_t *
+fd_sysvar_stake_history_read( fd_accdb_t *         accdb,
+                              fd_accdb_fork_id_t   fork_id,
+                              uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
+                              fd_stake_history_t * view );
+
 /* https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v1.0.0/stake-history/src/lib.rs#L140-L144 */
 fd_stake_history_entry_t const *
 fd_sysvar_stake_history_query( fd_stake_history_t const * view,

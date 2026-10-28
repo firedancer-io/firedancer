@@ -133,6 +133,22 @@ fd_sysvar_stake_history_view( fd_stake_history_t * view,
   return view;
 }
 
+fd_stake_history_t *
+fd_sysvar_stake_history_read( fd_accdb_t *         accdb,
+                              fd_accdb_fork_id_t   fork_id,
+                              uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
+                              fd_stake_history_t * view ) {
+  fd_acc_t ro = fd_accdb_read_one( accdb, fork_id, fd_sysvar_stake_history_id.uc );
+  ulong sz = 0UL;
+  if( FD_LIKELY( ro.lamports ) ) {
+    sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+    fd_memcpy( data, ro.data, sz );
+  }
+  fd_accdb_unread_one( accdb, &ro );
+  if( FD_UNLIKELY( !sz ) ) return NULL;
+  return fd_sysvar_stake_history_view( view, data, sz );
+}
+
 fd_stake_history_entry_t const *
 fd_sysvar_stake_history_query( fd_stake_history_t const * view,
                                ulong                      epoch ) {

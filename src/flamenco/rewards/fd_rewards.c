@@ -303,21 +303,6 @@ fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch
   return get_reward_distribution_num_blocks( epoch_schedule, slot, total_stake_accounts, stake_account_stores_per_block );
 }
 
-static void
-read_stake_history( fd_accdb_t *         accdb,
-                    fd_accdb_fork_id_t   fork_id,
-                    uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
-                    fd_stake_history_t * stake_history ) {
-  fd_acc_t ro = fd_accdb_read_one( accdb, fork_id, fd_sysvar_stake_history_id.uc );
-  if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "Unable to read stake history sysvar" ));
-  ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-  fd_memcpy( data, ro.data, copy_sz );
-  fd_accdb_unread_one( accdb, &ro );
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, data, copy_sz ) ) ) {
-    FD_LOG_ERR(( "Unable to decode stake history sysvar" ));
-  }
-}
-
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/inflation_rewards/points.rs#L236-L312 */
 static void
 calculate_alpenglow_points( fd_epoch_credits_t const *    epoch_credits,
@@ -843,7 +828,9 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                              ulong                          total_rewards ) {
   uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];
-  read_stake_history( accdb, bank->accdb_fork_id, stake_history_data, stake_history );
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history ) ) ) {
+    FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  }
 
   /* Calculate the epoch reward points from stake/vote accounts */
   calculate_reward_points_partitioned(
@@ -1677,15 +1664,14 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
 
   uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];
-  read_stake_history( accdb, bank->accdb_fork_id, stake_history_data, stake_history );
-
-  fd_stake_history_t   frontier_stake_history_[1];
-  fd_stake_history_t * frontier_stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, frontier_stake_history_ );
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history ) ) ) {
+    FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  }
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_view_begin( stake_delegations,
                                    bank->f.epoch,
-                                   frontier_stake_history,
+                                   stake_history,
                                    &bank->f.warmup_cooldown_rate_epoch,
                                    FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                    bank->stake_delegations_fork_id );
@@ -1727,7 +1713,7 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
       epoch_rewards_sysvar->total_rewards );
 
   fd_stake_delegations_view_end( stake_delegations,
-                                 frontier_stake_history,
+                                 stake_history,
                                  &bank->f.warmup_cooldown_rate_epoch,
                                  FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
   return 1;

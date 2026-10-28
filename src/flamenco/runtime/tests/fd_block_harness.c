@@ -9,6 +9,7 @@
 #include "../../stakes/fd_stake_types.h"
 #include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
@@ -299,8 +300,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Initialize total_effective/activating/deactivating_stake from the
      loaded stake delegations.  These are read by fd_stakes_activate_epoch
      at epoch boundary instead of re-scanning all delegations. */
+  uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
   fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
@@ -575,8 +577,9 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
                                          ulong                             out_max ) {
   fd_bank_t * bank = runner->bank;
 
+  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( runner->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   ulong * warmup_cooldown_rate_epoch = &bank->f.warmup_cooldown_rate_epoch;
   int     use_fixed_point            = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
 

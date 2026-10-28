@@ -146,13 +146,15 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 /* fd_stakes_update_delegation is used to maintain the in-memory cache
    of the stake delegations that is used at the epoch boundary.  Entries
    in the cache will be inserted/updated/removed based on the state of
-   the stake account. */
+   the stake account.  stake_history is the bank's StakeHistory sysvar
+   (may be NULL if absent). */
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
-                                   fd_acc_t const *    acc,
-                                   fd_bank_t *         bank,
-                                   fd_txn_in_t const * txn_in );
+fd_stakes_update_stake_delegation( fd_pubkey_t const *        pubkey,
+                                   fd_acc_t const *           acc,
+                                   fd_bank_t *                bank,
+                                   fd_stake_history_t const * stake_history,
+                                   fd_txn_in_t const *        txn_in );
 
 FD_PROTOTYPES_END
 

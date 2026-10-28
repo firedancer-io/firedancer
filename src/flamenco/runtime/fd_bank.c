@@ -557,6 +557,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 static inline void
 fd_bank_apply_deltas( fd_banks_t *                         banks,
                       fd_bank_t *                          bank,
+                      fd_stake_history_t const *           stake_history,
                       fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
 
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
@@ -569,8 +570,6 @@ fd_bank_apply_deltas( fd_banks_t *                         banks,
                                      bank->f.total_activating_stake, bank->f.total_deactivating_stake );
   }
 
-  fd_stake_history_t stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
   /* stake_history may be NULL */
   fd_stake_delegations_advance_root( bank->f.epoch,
                                      stake_history,
@@ -588,8 +587,9 @@ fd_banks_stake_delegations_root_query( fd_banks_t * banks ) {
 }
 
 void
-fd_banks_advance_root( fd_banks_t * banks,
-                       ulong        root_bank_idx ) {
+fd_banks_advance_root( fd_banks_t *               banks,
+                       ulong                      root_bank_idx,
+                       fd_stake_history_t const * stake_history ) {
 
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
 
@@ -602,13 +602,11 @@ fd_banks_advance_root( fd_banks_t * banks,
   fd_bank_t * new_root = fd_banks_pool_ele( bank_pool, root_bank_idx );
 
   fd_stake_delegations_delta_stats_t stake_delegations_delta_stats = {0};
-  fd_bank_apply_deltas( banks, new_root, &stake_delegations_delta_stats );
+  fd_bank_apply_deltas( banks, new_root, stake_history, &stake_delegations_delta_stats );
 
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
   ulong                    stake_delegations_prunes = 0UL;
   if( FD_UNLIKELY( old_root->f.epoch!=new_root->f.epoch && FD_FEATURE_ACTIVE_BANK( new_root, remove_inactive_stakes ) ) ) {
-    fd_stake_history_t         stake_history_[1];
-    fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( &new_root->f.sysvar_cache, stake_history_ );
     stake_delegations_prunes = fd_stake_delegations_prune_inactive_root( stake_delegations, new_root->f.epoch, stake_history, &new_root->f.warmup_cooldown_rate_epoch,
                                                                          FD_FEATURE_ACTIVE_BANK( new_root, upgrade_bpf_stake_program_to_v5_1 ),
                                                                          banks->report_runtime_diffs ? new_root : NULL );
