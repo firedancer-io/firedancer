@@ -198,6 +198,12 @@ union fdctl_args {
   } snapshot_create;
 
   struct {
+    char  out[ PATH_MAX ];
+    ulong start_slot;
+    ulong end_slot;
+  } shredb_export;
+
+  struct {
     ulong min_idle_slots;
     ulong min_idle_ns;
     ulong max_delinquent_stake_pct;
