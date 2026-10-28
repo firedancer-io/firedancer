@@ -59,9 +59,6 @@ fd_sysvar_epoch_rewards_read( fd_accdb_t *                accdb,
   return out;
 }
 
-/* Since there are multiple sysvar epoch rewards updates within a single slot,
-   we need to ensure that the cache stays updated after each change (versus with other
-   sysvars which only get updated once per slot and then synced up after) */
 void
 fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
                                     fd_accdb_t *       accdb,
