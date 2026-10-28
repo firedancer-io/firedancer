@@ -1,5 +1,5 @@
 $ firedancer failover promote /home/firedancer/identity.json --yes
-failover promote       accepted
-runs identity:         no
-action:                handoff, requesting the final vote state
-handoff:               123456789, done when `failover status` here shows runs identity: yes and last handoff: 123456789, taken
+failover promote           accepted
+runs target identity:      no
+action:                    taking the identity, requesting the final vote state
+handoff:                   123456789, done when `failover status` here shows runs target identity: yes and last handoff: 123456789, taken

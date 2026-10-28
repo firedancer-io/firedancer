@@ -385,13 +385,21 @@ firedancer failover promote /path/to/identity.json --address 192.0.2.10 --port 8
 Failover runs on every validator with `[failover.enabled]` set to `true`.
 Each validator boots under its own `[paths.identity_key]`, and all must
 use the same vote account. The validator that should vote keeps the
-identity's keypair there. On every other machine, create a random placeholder
-keypair of its own and point `[paths.identity_key]` at it, so it replays
-without voting until it takes over.
+identity's keypair there. On every other machine, create a random unstaked
+placeholder keypair of its own and point `[paths.identity_key]` at it, so
+it replays without voting until it takes over.
 
 ```sh
 firedancer keys new /home/firedancer/junk.json --config config.toml
 ```
+
+Alternatively, set `[failover.boot_to_standby]` to `true` on the other
+machine and keep the identity's keypair in its `[paths.identity_key]`.
+It then boots as a standby under an unstaked junk key generated in memory
+at each start, and loads the keypair in `[paths.identity_key]` as the
+identity it takes, so `failover promote` there reads the keypair from the
+configuration instead of a command line argument. The junk private key
+is ephemeral and not written to a file. This requires `[failover.enabled]`.
 
 To hand the identity over, run the following on the machine that should
 take it, with the keypair of the identity to take.
@@ -411,11 +419,15 @@ back, run `failover promote` again on the demoted machine.
 
 ### Restarts
 
-A validator always boots under its `[paths.identity_key]`. Before
-restarting the machine that gave the identity up, point its
-`[paths.identity_key]` at a junk key of its own. If it boots under the
+A validator boots under its `[paths.identity_key]` unless
+`[failover.boot_to_standby]` is set. Before restarting the machine that
+gave the identity up, point its `[paths.identity_key]` at a junk key of
+its own, or set `[failover.boot_to_standby]` there. If it boots under the
 identity while the other machine runs it, the duplicate instance check
-stops the other machine.
+stops the other machine. A machine with `[failover.boot_to_standby]` boots
+under a fresh junk key every time, so it can restart while the other
+machine runs the identity, and it takes the identity back with
+`failover promote`.
 
 Leaving an identity renames its vote history file in
 `[paths.vote_history]` to `vote_history-<pubkey>.bin.bak`, and a
@@ -470,7 +482,7 @@ reason to `stderr`.
 
 The following example shows a completed handoff. The last handoff ID
 matches the ID printed by `failover promote` above. The connection closes
-after completion, so `peer runs identity` is unknown until another
+after completion, so `peer runs target identity` is unknown until another
 authenticated session is established. The machine that handed over its
 identity reconnects once it is discoverable through gossip.
 

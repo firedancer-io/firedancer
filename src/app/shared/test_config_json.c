@@ -140,14 +140,14 @@ main( int     argc,
   FD_TEST( !strstr( json, "example.com" ) );
 
   /* failover settings are reported, failover is on by default */
-  FD_TEST( strstr( json, "\"failover\":{\"enabled\":true,\"listen_address\":\"[redacted]\",\"listen_port\":8010}" ) );
+  FD_TEST( strstr( json, "\"failover\":{\"enabled\":true,\"boot_to_standby\":false,\"listen_address\":\"[redacted]\",\"listen_port\":8010}" ) );
 
   /* the listen address is redacted, the rest is reported */
   config->firedancer.failover.enabled = 0;
   strcpy( config->firedancer.failover.listen_address, "10.9.8.7" );
   FD_TEST( fd_config_to_json( config, json, sizeof(json) ) );
   FD_TEST( !strstr( json, "10.9.8.7" ) );
-  FD_TEST(  strstr( json, "\"failover\":{\"enabled\":false,\"listen_address\":\"[redacted]\",\"listen_port\":8010}" ) );
+  FD_TEST(  strstr( json, "\"failover\":{\"enabled\":false,\"boot_to_standby\":false,\"listen_address\":\"[redacted]\",\"listen_port\":8010}" ) );
 
   /* user override toml renders with keyword redaction */
   static char const user_toml[] =

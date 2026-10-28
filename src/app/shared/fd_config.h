@@ -128,6 +128,7 @@ struct fd_configf {
 
   struct {
     int    enabled;
+    int    boot_to_standby;
     char   listen_address[ 16 ];
     ushort listen_port;
   } failover;

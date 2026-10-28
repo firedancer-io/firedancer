@@ -1119,8 +1119,7 @@ run_firedancer_init( config_t * config,
   if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[paths.identity_key] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [paths.identity_key] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
-  /* Failover hands the identity off to a fresh junk key kept only in
-     memory. */
+  /* Failover needs a fresh in-memory junk key. */
   failover_junk_prepare( config );
 
   /* FIXME: fdctl_check_configure unconditionally checks for network

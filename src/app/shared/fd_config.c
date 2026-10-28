@@ -523,6 +523,9 @@ static void
 fd_config_validate_failover( fd_config_t const * config ) {
   fd_configf_t const * f = &config->firedancer;
 
+  if( FD_UNLIKELY( f->failover.boot_to_standby && !f->failover.enabled ) ) {
+    FD_LOG_ERR(( "[failover.boot_to_standby] is true, so [failover.enabled] must be true" ));
+  }
   if( FD_LIKELY( !f->failover.enabled ) ) return;
   if( FD_UNLIKELY( !f->failover.listen_port ) ) {
     FD_LOG_ERR(( "[failover.listen_port] must not be zero" ));

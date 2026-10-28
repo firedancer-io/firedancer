@@ -3,7 +3,7 @@
 
 #include "../fd_disco_base.h"
 
-/* Internal identity source selected by failover after hand-off. */
+/* Internal identity source selected by failover for standby nodes. */
 #define FD_KEYLOAD_FAILOVER_JUNK "@failover-junk"
 
 /* fd_keyload_read() reads a JSON encoded keypair from the provided file

@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <sys/resource.h>
 
+/* human-readable output string lookup tables */
 static char const * const ACTION_NAMES[] = {
   "idle",
   "giving up the identity, switching to the junk key",
@@ -42,10 +43,53 @@ static char const * const HANDOFF_NAMES[] = {
 #define SOURCE_NAME_CNT  ( sizeof(SOURCE_NAMES )/sizeof(SOURCE_NAMES [ 0 ]) )
 #define HANDOFF_NAME_CNT ( sizeof(HANDOFF_NAMES)/sizeof(HANDOFF_NAMES[ 0 ]) )
 
-FD_STATIC_ASSERT( ACTION_NAME_CNT ==FD_FAILOVER_ACTION_CNT,       action_names  );
-FD_STATIC_ASSERT( SESSION_NAME_CNT==FD_FAILOVER_SESSION_CNT,      session_names );
-FD_STATIC_ASSERT( SOURCE_NAME_CNT ==FD_FAILOVER_SOURCE_CNT,       source_names  );
-FD_STATIC_ASSERT( HANDOFF_NAME_CNT==FD_FAILOVER_HANDOFF_CNT,      handoff_names );
+FD_STATIC_ASSERT( ACTION_NAME_CNT ==FD_FAILOVER_ACTION_CNT,  action_names  );
+FD_STATIC_ASSERT( SESSION_NAME_CNT==FD_FAILOVER_SESSION_CNT, session_names );
+FD_STATIC_ASSERT( SOURCE_NAME_CNT ==FD_FAILOVER_SOURCE_CNT,  source_names  );
+FD_STATIC_ASSERT( HANDOFF_NAME_CNT==FD_FAILOVER_HANDOFF_CNT, handoff_names );
+
+static char const *
+action_name( uchar action ) {
+  return action<ACTION_NAME_CNT ? ACTION_NAMES[ action ] : "unknown";
+}
+
+/* control_result_name is the reason `failover promote` was rejected */
+static char const *
+control_result_name( ulong result ) {
+  switch( result ) {
+    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:      return "this machine already runs the identity";
+    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "a transition or key switch is currently running, check `failover status`";
+    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or pass in --address";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "the peer could not finish this request, check `failover status`";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:        return "the authenticated peer runs the identity";
+    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING:   return "the peer has not answered our last handoff";
+    case FD_FAILOVER_CONTROL_RESULT_TAKEN:             return "the peer took our last handoff and may still be voting";
+    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:       return "gossip showed the identity at another host";
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over";
+    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine is too far behind the vote history of the machine running the identity, retry once caught up";
+    case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "the keypair is this machine's current junk key";
+    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "failover lost an input update and is disabled until restart";
+    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
+    case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";
+    default:                                           return NULL;
+  }
+}
+
+/* other_holder is what this machine knows about the other machine running the identity */
+static char const *
+other_holder( ulong result ) {
+  switch( result ) {
+    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:      return "unknown after input loss, failover requires a restart";
+    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:    return "N/A, this machine runs the identity";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:      return "the authenticated peer says it runs the identity";
+    case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and may be voting";
+    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING: return "the peer has not answered our last handoff and may now be running the identity";
+    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:     return "gossip showed the identity at another host within 15 seconds, it is probably voting there";
+    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:     return "unknown, a transition or key switch is currently in progress";
+    case FD_ADMINCTL_RESULT_SUCCESS:                 return "none seen by this machine, the other machine may be stopped";
+    default:                                         return "unknown";
+  }
+}
 
 /* Strips key and its value. */
 static char const *
@@ -60,6 +104,7 @@ strip_value( int *        pargc,
   return fd_env_strip_cmdline_cstr( pargc, pargv, key, NULL, NULL );
 }
 
+/* Fetch and parse CLI args (Helper). */
 static void
 failover_cmd_args( int *    pargc,
                    char *** pargv,
@@ -72,8 +117,6 @@ failover_cmd_args( int *    pargc,
   args->failover.yes   = fd_env_strip_cmdline_contains( pargc, pargv, "--yes"   );
   args->failover.force = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
 
-  /* `failover promote --force` bypasses checks and takes the identity immediately
-     without a clean handoff. */
   args->failover.cmd = (int)( status ? FD_ADMINCTL_FAILOVER_CMD_STATUS :
                               args->failover.force ? FD_ADMINCTL_FAILOVER_CMD_PROMOTE : FD_ADMINCTL_FAILOVER_CMD_HANDOFF );
 
@@ -126,66 +169,15 @@ failover_args( int *    pargc,
   failover_cmd_args( pargc, pargv, args, status );
 }
 
-static char const *
-action_name( uchar action ) {
-  return action<ACTION_NAME_CNT ? ACTION_NAMES[ action ] : "unknown";
-}
-
-/* The error string when a keypair other than the identity this machine runs
-   is given without --force.  target_b58 is the identity, NULL if it is
-   unknown. */
+/* The error string when a keypair other than the identity this machine runs is given */
 static char const *
 holds_target_name( char const * target_b58 ) {
-  static char buf[ 320 ];
-  FD_TEST( fd_cstr_printf_check( buf, sizeof(buf), NULL,
-                                 "this machine runs `%s` which failover manages, hand it off first, or pass --force to stop managing it here "
-                                 "(it keeps signing with the installed identity)", target_b58 ? target_b58 : "the target identity" ) );
+  static char buf[ 192 ];
+  FD_TEST( fd_cstr_printf_check( buf, sizeof(buf), NULL, "this machine runs `%s`, hand it off first, or pass --force to stop managing it here",
+                                 target_b58 ? target_b58 : "the target identity" ) );
   return buf;
 }
 
-/* Map a result code `failover promote` can return to a human readable
-   reason, NULL for anything that is not a refusal. */
-static char const *
-control_result_name( ulong result ) {
-  switch( result ) {
-    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:      return "this machine already runs the identity, to take another one pass its keypair, `failover promote <keypair>`";
-    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "a transition or key switch is running, check `failover status`";
-    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or give it with --address, and if both machines show "
-                                                              "`runs target identity: no` no machine runs it and `failover promote --force` on one of them takes it";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "the peer could not finish this request, check `failover status` and the log on the peer";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:        return "the authenticated peer runs the identity";
-    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING:   return "the peer has not answered our last handoff, if it shows `runs target identity: yes` run `failover promote` there to "
-                                                              "finish it, if it shows `runs target identity: no` nothing votes and `failover promote --force` on one machine takes the identity";
-    case FD_FAILOVER_CONTROL_RESULT_TAKEN:             return "the peer took our last handoff and may still be voting";
-    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:       return "gossip showed the identity at another host within the last 15 seconds, it probably runs there";
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over and keeps it, check its voting progress and vote-history logs before retrying";
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine is too far behind the vote history of the machine running the identity, which keeps it, run `failover promote` again once this machine has caught up";
-    case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "the keypair is this machine's junk key";
-    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "failover lost an input update and is disabled until restart, validator processing continues";
-    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
-    case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator, `remove-all-authorized-voters` first, failover cannot run an identity that also signs votes as an authorized voter";
-    default:                                           return NULL;
-  }
-}
-
-/* What this machine knows of another machine running the identity,
-   from the checks that `failover promote --force` skips. */
-static char const *
-other_holder( ulong result ) {
-  switch( result ) {
-    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:      return "unknown after input loss, failover requires a restart";
-    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:    return "n/a, this machine runs the identity";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:      return "the authenticated peer says it runs the identity";
-    case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and may be voting";
-    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING: return "the peer has not answered our last handoff and may run the identity";
-    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:     return "gossip showed the identity at another host within 15 seconds, it is probably voting there, "
-                                                            "for 15 seconds after a restart this can be an old entry";
-    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:     return "unknown while a transition or key switch runs here";
-    case FD_ADMINCTL_RESULT_SUCCESS:                 return "none seen by this machine, which does not prove the other machine is stopped, check it before "
-                                                            "`failover promote --force`";
-    default:                                         return "unknown";
-  }
-}
 
 /* The installed identity relative to the target and the junk key. */
 static char const *
@@ -195,8 +187,7 @@ installed_name( fd_adminctl_failover_status_resp_t const * resp ) {
   return "another key";
 }
 
-/* Prints the identity lines of a status, shared by `failover status`
-   and the --force prompt. */
+/* Prints the identity lines of a status */
 static void
 failover_identities_print( fd_adminctl_failover_status_resp_t const * resp ) {
   FD_BASE58_ENCODE_32_BYTES( resp->target,    target_b58    );
@@ -212,11 +203,9 @@ failover_floor_print( fd_adminctl_failover_status_resp_t const * resp ) {
   else                                                            FD_LOG_STDOUT(( "%-26s slot %lu\n", "coverage floor:", resp->promote_floor ));
 }
 
-/* status is the live `failover status`, NULL when it is unavailable. */
 static void
 failover_confirm( args_t const *                             args,
                   fd_adminctl_failover_status_resp_t const * status ) {
-  /* A promote hands off the identity for this machine, so the operator confirms first. */
   if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) {
     if( FD_LIKELY( status ) ) {
       failover_identities_print( status );
@@ -264,8 +253,7 @@ failover_status_print( fd_adminctl_failover_status_resp_t const * resp ) {
   FD_BASE58_ENCODE_32_BYTES( resp->junk, junk_b58 );
   FD_LOG_STDOUT(( "%-26s %s\n", "junk key:", junk_b58 ));
   if( FD_UNLIKELY( resp->request_paused ) ) {
-    FD_LOG_STDOUT(( "%-26s %s, paused at its deadline and not dialing, `failover promote` resumes it\n", "action:",
-                    action_name( resp->action ) ));
+    FD_LOG_STDOUT(( "%-26s %s, paused at its deadline, `failover promote` resumes it\n", "action:", action_name( resp->action ) ));
   } else {
     FD_LOG_STDOUT(( "%-26s %s\n", "action:", action_name( resp->action ) ));
   }
@@ -307,8 +295,7 @@ failover_keypair_load( char const * path ) {
   return fd_keyload_mprotect_ro( keypair, 0 );
 }
 
-/* Sends req to the failover tile and waits for the answer, which lands
-   in resp.  Returns the adminctl result. */
+/* Sends req to the failover tile via adminctl and waits for the response.  Returns the adminctl result. */
 static ulong FD_FN_SENSITIVE
 failover_request( fd_adminctl_t *                    adminctl,
                   fd_adminctl_failover_req_t const * req,
@@ -340,9 +327,9 @@ fail_incompatible( void ) {
   FD_LOG_ERR(( "running validator returned an incompatible failover response, use the firedancer binary the validator runs" ));
 }
 
-/* Reads the live `failover status` into status before a promote.
-   Returns 1 when status is valid, 0 when the validator gave no usable
-   answer.  Exits if failover is off. */
+/* failover_status_fetch reads the live `failover status` into status.
+   Returns 1 when it is valid, 0 when the validator gave no usable
+   answer. */
 static int
 failover_status_fetch( fd_adminctl_t *                      adminctl,
                        fd_adminctl_failover_status_resp_t * status ) {
@@ -356,9 +343,7 @@ failover_status_fetch( fd_adminctl_t *                      adminctl,
   return 1;
 }
 
-/* Before we prompt we check that this machine does not already run
-   the identity it would take.
-   A keypair picks a new identity to take. */
+/* Run sanity checks before invoking failover. */
 static void FD_FN_SENSITIVE
 failover_precheck( fd_adminctl_failover_status_resp_t const * status,
                    args_t const *                             args,
@@ -378,7 +363,7 @@ failover_precheck( fd_adminctl_failover_status_resp_t const * status,
       FD_LOG_ERR(( "`%s` refused, %s", cmd_name, holds_target_name( target_b58 ) ));
     }
     if( FD_UNLIKELY( !same && status->action!=FD_FAILOVER_ACTION_IDLE && !args->failover.force ) ) {
-      FD_LOG_ERR(( "`%s` refused, a transition is running; wait for `failover status` to show idle, or --force to drop it", cmd_name ));
+      FD_LOG_ERR(( "`%s` refused, a transition is running, wait for `failover status` to show idle or pass --force", cmd_name ));
     }
     return;
   }
@@ -395,6 +380,7 @@ failover_cmd_fn( args_t *   args,
                  config_t * config ) {
   fd_adminctl_t * adminctl = adminctl_client_attach( config, args->failover.name );
   uchar const *   keypair  = args->failover.keypair_path[ 0 ] ? failover_keypair_load( args->failover.keypair_path ) : NULL;
+  /* run prechecks on the current status */
   int             status   = args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_STATUS;
   if( !status ) {
     fd_adminctl_failover_status_resp_t live;
@@ -403,26 +389,31 @@ failover_cmd_fn( args_t *   args,
     failover_confirm( args, live_ok ? &live : NULL );
   }
 
-  /* --yes only skips the prompt, the operator still has to give --force explicitly. */
+  /* fetch args */
   fd_adminctl_failover_req_t req;
   fd_memset( &req, 0, sizeof(req) );
   req.version = FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION;
   req.cmd     = (ulong)args->failover.cmd;
   if( FD_UNLIKELY( args->failover.yes   ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
-  if( FD_UNLIKELY( args->failover.force  ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
-  req.addr    = args->failover.addr;
-  req.port    = args->failover.port;
+  if( FD_UNLIKELY( args->failover.force ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
+  req.addr = args->failover.addr;
+  req.port = args->failover.port;
 
   union {
     fd_adminctl_failover_control_resp_t control;
     fd_adminctl_failover_status_resp_t  status;
   } resp = { 0 };
   ulong        resp_sz  = 0UL;
+
+  /* run the command */
   ulong        result   = failover_request( adminctl, &req, keypair, &resp, sizeof(resp), &resp_sz );
   char const * cmd_name = fd_adminctl_failover_cmd_typed( (ulong)args->failover.cmd );
   if( keypair ) fd_keyload_unload( keypair, 0 );
   char const * refusal  = control_result_name( result );
+
   if( FD_UNLIKELY( refusal ) ) FD_LOG_ERR(( "`%s` refused, %s", cmd_name, refusal ));
+
+  /* show the result */
   switch( result ) {
     case FD_ADMINCTL_RESULT_SUCCESS:
       if( FD_UNLIKELY( resp_sz!=(status ? sizeof(resp.status) : sizeof(resp.control)) ||
@@ -436,7 +427,7 @@ failover_cmd_fn( args_t *   args,
         ulong id = resp.control.handoff_id;
         FD_LOG_STDOUT(( "%-26s accepted\n", cmd_name ));
         FD_LOG_STDOUT(( "%-26s %s\n", "runs target identity:", resp.control.holds ? "yes" : "no" ));
-        FD_LOG_STDOUT(( "%-26s %s\n", "action:",        action_name( resp.control.action ) ));
+        FD_LOG_STDOUT(( "%-26s %s\n", "action:", action_name( resp.control.action ) ));
         if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) {
           FD_LOG_STDOUT(( "%-26s %lu, done when `failover status` here shows runs target identity: yes and last handoff: %lu, taken\n", "handoff:", id, id ));
         } else {
@@ -448,7 +439,7 @@ failover_cmd_fn( args_t *   args,
       FD_LOG_ERR(( "another failover command is in flight, try again" ));
     case FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE:
       if( status ) FD_LOG_ERR(( "the validator's failover tile did not answer in time" ));
-      FD_LOG_ERR(( "the validator's failover tile did not answer in time, the outcome is indeterminate, run `failover status`" ));
+      FD_LOG_ERR(( "the validator's failover tile did not answer in time, the outcome is unknown, check `failover status`" ));
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
       if( status ) {
         FD_LOG_STDOUT(( "%-26s %s\n", "failover:", "disabled" ));
@@ -459,7 +450,7 @@ failover_cmd_fn( args_t *   args,
       fail_disabled( status );
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
-      FD_LOG_ERR(( "failover is incompatible with the running validator, use the firedancer binary the validator runs" ));
+      FD_LOG_ERR(( "failover is incompatible with the running validator, use the same firedancer version this validator runs" ));
     default:
       FD_LOG_ERR(( "unexpected failover result %lu", result ));
   }
@@ -473,20 +464,17 @@ failover_status_args_help( fd_action_help_t * help ) {
 
 static void
 failover_args_help( fd_action_help_t * help ) {
-  fd_action_help_arg( help, "<promote|status>", NULL,        "Request takeover on this validator (promote), or read its failover state (status)." );
+  fd_action_help_arg( help, "<promote|status>", NULL,        "Request failover takeover on this validator (promote), or read its failover state (status)." );
   fd_action_help_arg( help, "[<keypair>]",      NULL,        "Path to the keypair of the identity to take, in the standard Solana keypair\n"
                                                              "file format (the 64-byte JSON array), or `-` to read it from stdin.  Defaults\n"
                                                              "to [paths.identity_key] or the last keypair given to `failover promote` or\n"
                                                              "`set-identity`." );
   failover_status_args_help( help );
-  fd_action_help_arg( help, "--yes",            NULL,        "Skip the confirmation prompt. It does not authorize peer or\n"
-                                                             "vote-history overrides" );
-  fd_action_help_arg( help, "--force",          NULL,        "Forcibly take the identity without coordinating with the machine running it, skip\n"
-                                                             "every check on the other machine.  Use it only when the other machine cannot sign.\n" );
-  fd_action_help_arg( help, "--address",        "<address>", "Only without --force.  The machine running the identity, an\n"
-                                                             "IPv4 address or host name, instead of the address gossip shows\n"
-                                                             "for it, for example when it listens on a private network" );
-  fd_action_help_arg( help, "--port",           "<port>",    "Only without --force.  Its failover port, 8010 by default" );
+  fd_action_help_arg( help, "--yes",            NULL,        "Bypass the interactive confirmation prompt." );
+  fd_action_help_arg( help, "--force",          NULL,        "Forcibly take the identity without asking the machine running it, skipping every\n"
+                                                             "check.  Only use when the other machine cannot vote.\n" );
+  fd_action_help_arg( help, "--address",        "<address>", "Only without --force.  The target machine's IPv4 address or host name" );
+  fd_action_help_arg( help, "--port",           "<port>",    "Only without --force.  The target machine's failover port, 8010 by default" );
 }
 
 static void
@@ -495,7 +483,7 @@ failover_promote_perm( args_t *         args,
                        config_t const * config FD_PARAM_UNUSED ) {
   if( args->failover.keypair_path[ 0 ] ) {
     fd_cap_chk_raise_rlimit( chk, "failover promote", RLIMIT_MEMLOCK, 5UL*FD_SHMEM_NORMAL_PAGE_SZ,
-                            "lock the target keypair in memory" );
+                             "lock the target keypair in memory" );
   }
 }
 
@@ -509,6 +497,10 @@ action_t fd_action_failover = {
   .detail         = "Hands off an identity between validators.  Each boots under its own\n"
                     "[paths.identity_key], and all validators must use the same [paths.vote_account].\n"
                     "On the machine that should take over, pass the keypair of the target identity.\n"
+                    "A validator with [failover.boot_to_standby] boots as a standby under a junk key\n"
+                    "generated in memory and loads the keypair in its [paths.identity_key] as the\n"
+                    "identity to take over, so `failover promote` there reads the keypair from the\n"
+                    "configuration instead of the command line.\n"
                     "\n"
                     "Asks the machine running the identity to hand it over.  With --force,\n"
                     "takes the identity without handover.\n"

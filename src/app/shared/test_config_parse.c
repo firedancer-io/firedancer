@@ -34,6 +34,7 @@ static char const cfg_str_vote_history[] =
 static char const cfg_str_failover[] =
   "[failover]\n"
   "  enabled = true\n"
+  "  boot_to_standby = true\n"
   "  listen_address = \"10.0.0.1\"\n"
   "  listen_port = 9010";
 
@@ -110,6 +111,7 @@ consensus_is_valid( ulong        wfs_slot,
 static int
 failover_is_valid( config_t *   config,
                    int          enabled,
+                   int          boot_to_standby,
                    char const * listen_address,
                    ushort       listen_port,
                    char const * vote_account ) {
@@ -118,6 +120,7 @@ failover_is_valid( config_t *   config,
   if( FD_UNLIKELY( !pid ) ) {
     config->firedancer.development.genesis.max_file_size_mib = 4055UL;
     config->firedancer.failover.enabled                      = enabled;
+    config->firedancer.failover.boot_to_standby              = boot_to_standby;
     config->firedancer.failover.listen_port                  = listen_port;
     fd_cstr_ncpy( config->firedancer.failover.listen_address, listen_address, sizeof(config->firedancer.failover.listen_address) );
     fd_cstr_ncpy( config->paths.vote_account, vote_account, sizeof(config->paths.vote_account) );
@@ -235,12 +238,17 @@ main( int     argc,
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
 
-  FD_TEST(  failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json" ) );
-  FD_TEST(  failover_is_valid( config, 1, "10.0.0.1",  8010, "vote.json" ) );
-  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   0,    "vote.json" ) );
-  FD_TEST( !failover_is_valid( config, 1, "localhost", 8010, "vote.json" ) );
-  FD_TEST(  failover_is_valid( config, 1, "0.0.0.0",   8010, ""          ) );
-  FD_TEST(  failover_is_valid( config, 0, "",          0,    ""          ) );
+  FD_TEST(  failover_is_valid( config, 1, 0, "0.0.0.0",   8010, "vote.json" ) );
+  FD_TEST(  failover_is_valid( config, 1, 0, "10.0.0.1",  8010, "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 1, 0, "0.0.0.0",   0,    "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 1, 0, "localhost", 8010, "vote.json" ) );
+  FD_TEST(  failover_is_valid( config, 1, 0, "0.0.0.0",   8010, ""          ) );
+  FD_TEST(  failover_is_valid( config, 0, 0, "",          0,    ""          ) );
+  /* boot_to_standby needs failover enabled */
+  FD_TEST(  failover_is_valid( config, 1, 1, "0.0.0.0",   8010, "vote.json" ) );
+  FD_TEST(  failover_is_valid( config, 1, 1, "0.0.0.0",   8010, ""          ) );
+  FD_TEST( !failover_is_valid( config, 0, 1, "0.0.0.0",   8010, "vote.json" ) );
+  FD_TEST( !failover_is_valid( config, 0, 1, "",          0,    ""          ) );
 
   /* Ensure we can selectively override a field */
 
@@ -325,6 +333,7 @@ main( int     argc,
   FD_TEST( fd_toml_parse( cfg_str_failover, sizeof(cfg_str_failover)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   FD_TEST( config->firedancer.failover.enabled );
+  FD_TEST( config->firedancer.failover.boot_to_standby );
   FD_TEST( !strcmp( config->firedancer.failover.listen_address, "10.0.0.1" ) );
   FD_TEST( config->firedancer.failover.listen_port==9010 );
 

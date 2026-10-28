@@ -107,7 +107,9 @@ telemetry = true
     # The validator boots under this identity.  For failover, a standby
     # machine that waits to take over another validator's identity
     # should boot under an unstaked randomized key, created using
-    # `firedancer keys new`.
+    # `firedancer keys new`, or set [failover.boot_to_standby] to boot
+    # under an ephemeral junk key generated in memory, with the keypair
+    # here as the identity it can take over via hand-off.
     identity_key = ""
 
     # Absolute path to a `keypair.json` containing the voting account
@@ -2001,6 +2003,17 @@ telemetry = true
     # run on a standby host, it takes over the identity in that keypair
     # from the machine that is actively running it.
     enabled = true
+
+    # Whether to boot as a standby under a junk identity generated in
+    # memory at each start, instead of under [paths.identity_key].  The
+    # junk private key is never written out to a file.  The keypair in
+    # [paths.identity_key] is then the identity this machine takes with
+    # `failover promote`.  Set it on a standby machine that should take
+    # over a staked identity another machine runs. This prevents a
+    # restarted standby from double-voting under the same staked identity
+    # while the other active machine is already voting with it.
+    # Requires [failover.enabled].
+    boot_to_standby = false
 
     # The address to listen on.  If enabled, by default the listener is
     # exposed to the network.  This is safe as possession of the private

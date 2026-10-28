@@ -1,4 +1,5 @@
 #include "topology.h"
+#include "../../disco/keyguard/fd_keyload.h"
 #include "../shared/fd_config_json.h"
 
 #include "../../discof/poh/fd_poh.h"
@@ -1431,6 +1432,13 @@ wfs_decode_bank_hash( fd_config_t const * config,
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
+  /* With [failover.boot_to_standby] every tile boots under the junk key
+     generated at boot, and [paths.identity_key] is only the handoff
+     target.  The sign and failov tiles keep the configured path, they
+     load the target from it. */
+  int          boot_to_standby   = config->firedancer.failover.boot_to_standby && fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
+  char const * identity_key_path = boot_to_standby ? FD_KEYLOAD_FAILOVER_JUNK : config->paths.identity_key;
+
   if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
 
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
@@ -1439,7 +1447,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "event" ) ) ) {
 
-    fd_cstr_ncpy( tile->event.identity_key_path, config->paths.identity_key, sizeof(tile->event.identity_key_path) );
+    fd_cstr_ncpy( tile->event.identity_key_path, identity_key_path, sizeof(tile->event.identity_key_path) );
     fd_cstr_ncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
     tile->event.tx_rate_mbps = config->development.event.max_upload_rate_mbps;
     fd_cstr_ncpy( tile->event.action, config->action, sizeof(tile->event.action) );
@@ -1503,12 +1511,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "admin" ) ) ) {
 
-    fd_cstr_ncpy( tile->admin.identity_key_path, config->paths.identity_key, sizeof(tile->admin.identity_key_path) );
+    fd_cstr_ncpy( tile->admin.identity_key_path, identity_key_path, sizeof(tile->admin.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
 
     fd_cstr_ncpy( tile->failov.identity_key_path, config->paths.identity_key, sizeof(tile->failov.identity_key_path) );
     fd_cstr_ncpy( tile->failov.vote_account_path, config->paths.vote_account, sizeof(tile->failov.vote_account_path) );
+    tile->failov.boot_to_standby = boot_to_standby;
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.listen_address, &tile->failov.listen_addr ) ) )
       FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", config->firedancer.failover.listen_address ));
     tile->failov.port = config->firedancer.failover.listen_port;
@@ -1518,7 +1527,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 
-    fd_cstr_ncpy( tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(tile->gossvf.identity_key_path) );
+    fd_cstr_ncpy( tile->gossvf.identity_key_path, identity_key_path, sizeof(tile->gossvf.identity_key_path) );
     tile->gossvf.tcache_depth          = 1<<22UL; /* TODO: user defined option */
     tile->gossvf.shred_version         = 0U;
     tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
@@ -1542,7 +1551,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.net_ip_addr            = config->net.ip_addr;
     tile->gossip.ip_addr                = config->net.ip_addr;
     tile->gossip.bind_ip_addr           = config->net.ip_addr;
-    fd_cstr_ncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
+    fd_cstr_ncpy( tile->gossip.identity_key_path, identity_key_path, sizeof(tile->gossip.identity_key_path) );
     tile->gossip.expected_shred_version = config->consensus.expected_shred_version;
     tile->gossip.max_entries            = config->tiles.gossip.max_entries;
     tile->gossip.boot_timestamp_nanos   = config->boot_timestamp_nanos;
@@ -1638,13 +1647,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       }
     }
     tile->rotor.repair_sign_cnt = config->firedancer.layout.sign_tile_count - 1; /* -1 because this excludes the keyguard client */
-    fd_cstr_ncpy( tile->rotor.identity_key_path, config->paths.identity_key, sizeof(tile->rotor.identity_key_path) );
+    fd_cstr_ncpy( tile->rotor.identity_key_path, identity_key_path, sizeof(tile->rotor.identity_key_path) );
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rserve" ) ) ) {
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;
     tile->rserve.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rserve.ping_cache_entries = 1UL<<16; /* TODO: Configure this from some global metric? */
     tile->rserve.blockdb_max = 1UL<<15; /* ~20.6 KiB each. TODO: make configurable */
-    fd_cstr_ncpy( tile->rserve.identity_key_path, config->paths.identity_key, sizeof(tile->rserve.identity_key_path) );
+    fd_cstr_ncpy( tile->rserve.identity_key_path, identity_key_path, sizeof(tile->rserve.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
@@ -1657,7 +1666,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
     FD_TEST( tile->replay.txncache_obj_id !=ULONG_MAX );
 
-    fd_cstr_ncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
+    fd_cstr_ncpy( tile->replay.identity_key_path, identity_key_path, sizeof(tile->replay.identity_key_path) );
     fd_cstr_ncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
 
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
@@ -1721,7 +1730,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.quic_server_listen_port = config->firedancer.development.votor.quic_server_listen_port;
     tile->votor.ip_addr                 = config->net.ip_addr;
     tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
-    fd_cstr_ncpy( tile->votor.identity_key_path, config->paths.identity_key, sizeof(tile->votor.identity_key_path) );
+    fd_cstr_ncpy( tile->votor.identity_key_path, identity_key_path, sizeof(tile->votor.identity_key_path) );
     fd_cstr_ncpy( tile->votor.vote_history_path, config->paths.vote_history, sizeof(tile->votor.vote_history_path) );
     tile->votor.target_gid = config->gid;
     tile->votor.target_uid = config->uid;
@@ -1806,7 +1815,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       PARSE_BUNDLE_PUBKEY( pack, tip_payment_program_addr      );
       PARSE_BUNDLE_PUBKEY( pack, tip_distribution_authority    );
       tile->pack.bundle.commission_bps = config->tiles.bundle.commission_bps;
-      fd_cstr_ncpy( tile->pack.bundle.identity_key_path, config->paths.identity_key, sizeof(tile->pack.bundle.identity_key_path) );
+      fd_cstr_ncpy( tile->pack.bundle.identity_key_path, identity_key_path, sizeof(tile->pack.bundle.identity_key_path) );
       fd_cstr_ncpy( tile->pack.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pack.bundle.vote_account_path) );
     } else {
       fd_memset( &tile->pack.bundle, '\0', sizeof(tile->pack.bundle) );
@@ -1821,14 +1830,14 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.report_runtime_diffs = config->development.event.report_runtime_diffs;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "motor" ) ) ) {
-    fd_cstr_ncpy( tile->motor.identity_key_path, config->paths.identity_key, sizeof(tile->motor.identity_key_path) );
+    fd_cstr_ncpy( tile->motor.identity_key_path, identity_key_path, sizeof(tile->motor.identity_key_path) );
 
     tile->motor.execle_cnt = config->firedancer.layout.execle_tile_count;
     tile->motor.max_txn_per_slot = config->limits.max_txn_per_slot;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
 
-    fd_cstr_ncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
+    fd_cstr_ncpy( tile->shred.identity_key_path, identity_key_path, sizeof(tile->shred.identity_key_path) );
 
     tile->shred.fec_exposure                  = FD_SHRED_FIREDANCER_FEC_EXPOSURE;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
@@ -1847,8 +1856,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
 
     fd_cstr_ncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
-    tile->sign.failover_junk_fd = -1;
-    tile->sign.failover_enabled = fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
+    tile->sign.failover_junk_fd         = -1;
+    tile->sign.failover_enabled         = fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
+    tile->sign.failover_boot_to_standby = boot_to_standby;
 
     tile->sign.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
@@ -1885,7 +1895,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.max_txn_per_slot = config->limits.max_txn_per_slot;
     tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
     fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
-    fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
+    fd_cstr_ncpy( tile->gui.identity_key_path, identity_key_path, sizeof(tile->gui.identity_key_path) );
     fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
     fd_cstr_ncpy( tile->gui.accounts_database_path, config->paths.accounts, sizeof(tile->gui.accounts_database_path) );
     fd_cstr_ncpy( tile->gui.gui_database_path, config->paths.guidb, sizeof(tile->gui.gui_database_path) );
@@ -1920,7 +1930,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rpc.accdb_epoch_fseq_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.rpc", ULONG_MAX );
     FD_TEST( tile->rpc.accdb_epoch_fseq_obj_id!=ULONG_MAX );
 
-    fd_cstr_ncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
+    fd_cstr_ncpy( tile->rpc.identity_key_path, identity_key_path, sizeof(tile->rpc.identity_key_path) );
 
     tile->rpc.snapshot_server_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
     if( FD_LIKELY( tile->rpc.snapshot_server_enabled ) ) {
@@ -1946,7 +1956,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->bundle.url_len = strnlen( tile->bundle.url, sizeof(tile->bundle.url)-1UL );
     fd_cstr_ncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(tile->bundle.sni) );
     tile->bundle.sni_len = strnlen( tile->bundle.sni, sizeof(tile->bundle.sni)-1UL );
-    fd_cstr_ncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
+    fd_cstr_ncpy( tile->bundle.identity_key_path, identity_key_path, sizeof(tile->bundle.identity_key_path) );
     fd_cstr_ncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
     tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
     tile->bundle.out_depth = config->tiles.verify.receive_buffer_size;

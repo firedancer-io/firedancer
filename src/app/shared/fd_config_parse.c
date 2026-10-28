@@ -78,6 +78,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
   CFG_POP      ( bool,   failover.enabled                                    );
+  CFG_POP      ( bool,   failover.boot_to_standby                            );
   CFG_POP      ( cstr,   failover.listen_address                             );
   CFG_POP      ( ushort, failover.listen_port                                );
 

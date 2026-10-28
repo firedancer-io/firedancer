@@ -121,12 +121,20 @@ privileged_init( fd_topo_t const *      topo,
 
   fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
 
-  /* With failover, the boot identity is the key that failover hands
-     off, and a handoff switches to the junk key generated at boot. */
-  if( FD_UNLIKELY( fd_topo_find_tile( topo, "failov", 0UL )!=ULONG_MAX ) ) {
+  /* With failover, the configured identity is the key that failover
+     hands off, and a handoff switches to the junk key generated at boot.  */
+  ulong failov_idx = fd_topo_find_tile( topo, "failov", 0UL );
+  if( FD_UNLIKELY( failov_idx!=ULONG_MAX ) ) {
     FD_TEST( !fd_memeq( topo->failover_junk, (uchar[ 32 ]){0}, 32UL ) );
-    fd_memcpy( ctx->junk_pubkey,     topo->failover_junk,  32UL );
-    fd_memcpy( ctx->failover_pubkey, ctx->identity_pubkey, 32UL );
+    fd_memcpy( ctx->junk_pubkey, topo->failover_junk, 32UL );
+    fd_topo_tile_t const * failov = &topo->tiles[ failov_idx ];
+    if( FD_UNLIKELY( failov->failov.boot_to_standby ) ) {
+      uchar const * target = fd_keyload_load( failov->failov.identity_key_path, /* pubkey only: */ 1 );
+      fd_memcpy( ctx->failover_pubkey, target, 32UL );
+      fd_keyload_unload( target, 1 );
+    } else {
+      fd_memcpy( ctx->failover_pubkey, ctx->identity_pubkey, 32UL );
+    }
   }
 }
 

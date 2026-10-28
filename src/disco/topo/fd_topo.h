@@ -244,9 +244,10 @@ struct fd_topo_tile {
     } admin;
 
     struct {
-      char   identity_key_path[ PATH_MAX ];   /* the boot identity, the initial handoff target */
+      char   identity_key_path[ PATH_MAX ];
       char   vote_account_path[ PATH_MAX ];
-      uint   listen_addr;                     /* network byte order */
+      int    boot_to_standby;
+      uint   listen_addr;          /* network byte order */
       ushort port;
 
       char          gossip_host[ FD_FQDN_BUF_MAX ];
@@ -414,6 +415,7 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       int   failover_junk_fd; /* private startup pipe for the failover junk key, -1 without failover */
       int   failover_enabled;
+      int   failover_boot_to_standby;
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       struct {
