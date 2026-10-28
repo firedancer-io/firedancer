@@ -293,6 +293,15 @@ peek_alut( fd_resolv_ctx_t *  ctx,
   fd_txn_acct_addr_lut_t const * addr_lut = &fd_txn_get_address_tables_const( txn )[ alut_idx ];
   fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, txn_payload+addr_lut->addr_off );
 
+  /* Valid ALUTs cannot be bigger than FD_LOOKUP_TABLE_SZ_MAX.
+
+     An account with wrong owner will return this error instead of
+     FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER.
+     This is not consensus relevant. */
+  if( FD_UNLIKELY( fd_accdb_data_len( ctx->accdb, ctx->bank->accdb_fork_id, addr_lut_acc.uc )>FD_LOOKUP_TABLE_SZ_MAX ) ) {
+    return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+  }
+
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94
 
      The resolv tile maps accdb read-only and so must use the nocache

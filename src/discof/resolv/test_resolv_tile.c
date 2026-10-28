@@ -62,7 +62,8 @@ test_serialize_txn( fd_txn_m_t *    txnm,
                     fd_pubkey_t *     account_keys,
                     ushort            account_keys_cnt,
                     test_instr_t *    instrs,
-                    ushort            instr_cnt ) {
+                    ushort            instr_cnt,
+                    fd_pubkey_t *     alut ) {
   uchar * begin = fd_txn_m_payload( txnm );
   uchar * cur   = begin;
 
@@ -95,8 +96,15 @@ test_serialize_txn( fd_txn_m_t *    txnm,
     test_add( begin, &cur, instrs[i].data, instrs[i].data_sz );
   }
 
-  ushort addr_table_cnt = 0U;
+  ushort addr_table_cnt = (ushort)!!alut;
   test_add_cu16( begin, &cur, addr_table_cnt );
+  if( alut ) { /* writable index 0, no readonly indexes */
+    uchar idx = 0U;
+    test_add( begin, &cur, alut, sizeof(fd_pubkey_t) );
+    test_add_cu16( begin, &cur, 1U );
+    test_add( begin, &cur, &idx, 1UL );
+    test_add_cu16( begin, &cur, 0U );
+  }
 
   txnm->payload_sz = (ushort)( cur-begin );
   txnm->txn_t_sz   = (ushort)fd_txn_parse( fd_txn_m_payload( txnm ), txnm->payload_sz, fd_txn_m_txn_t( txnm ), NULL );
@@ -109,7 +117,8 @@ test_make_txnm( fd_txn_m_t *    txnm,
                 int              durable_nonce,
                 uint             nonce_discriminant,
                 ushort           nonce_acct_cnt,
-                uchar            program_id_idx ) {
+                uchar            program_id_idx,
+                fd_pubkey_t *    alut ) {
   fd_memset( txnm, 0, FD_TPU_PARSED_MTU );
 
   fd_pubkey_t keys[4] = {
@@ -129,7 +138,7 @@ test_make_txnm( fd_txn_m_t *    txnm,
     .data_sz           = 4U
   };
 
-  test_serialize_txn( txnm, recent_blockhash, keys, 4U, &instr, (ushort)durable_nonce );
+  test_serialize_txn( txnm, recent_blockhash, keys, 4U, &instr, (ushort)durable_nonce, alut );
 }
 
 static test_env_t *
@@ -307,7 +316,7 @@ test_ingest_txn( test_env_t *     env,
                  fd_hash_t const * recent_blockhash,
                  int               durable_nonce ) {
   fd_txn_m_t * txnm = fd_chunk_to_laddr( env->ctx->out_pack->mem, env->ctx->out_pack->chunk );
-  test_make_txnm( txnm, recent_blockhash, durable_nonce, 4U, 3U, 3U );
+  test_make_txnm( txnm, recent_blockhash, durable_nonce, 4U, 3U, 3U, NULL );
   after_frag( env->ctx, 0UL, 0UL, 0UL, fd_txn_m_realized_footprint( txnm, 1, 0 ), 0UL, 0UL, env->stem );
 }
 
@@ -316,19 +325,19 @@ FD_UNIT_TEST( resolv_is_durable_nonce ) {
   uchar buf[ FD_TPU_PARSED_MTU ] __attribute__((aligned(alignof(fd_txn_m_t))));
   fd_txn_m_t * txnm = (fd_txn_m_t *)buf;
 
-  test_make_txnm( txnm, &hash, 1, 4U, 3U, 3U );
+  test_make_txnm( txnm, &hash, 1, 4U, 3U, 3U, NULL );
   FD_TEST( fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 
-  test_make_txnm( txnm, &hash, 0, 4U, 3U, 3U );
+  test_make_txnm( txnm, &hash, 0, 4U, 3U, 3U, NULL );
   FD_TEST( !fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 
-  test_make_txnm( txnm, &hash, 1, 5U, 3U, 3U );
+  test_make_txnm( txnm, &hash, 1, 5U, 3U, 3U, NULL );
   FD_TEST( !fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 
-  test_make_txnm( txnm, &hash, 1, 4U, 2U, 3U );
+  test_make_txnm( txnm, &hash, 1, 4U, 2U, 3U, NULL );
   FD_TEST( !fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 
-  test_make_txnm( txnm, &hash, 1, 4U, 3U, 2U );
+  test_make_txnm( txnm, &hash, 1, 4U, 3U, 2U, NULL );
   FD_TEST( !fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 }
 
@@ -421,6 +430,66 @@ FD_UNIT_TEST( resolv_blockhash_expired ) {
 
   FD_TEST( env->stem_seqs[0]==0UL );
   FD_TEST( env->ctx->metrics.txn_dropped[ FD_METRICS_ENUM_RESOLV_TXN_DROP_REASON_V_BLOCKHASH_EXPIRED_IDX ]==1UL );
+
+  test_env_destroy( env );
+}
+
+static void
+test_put_alut( test_env_t *        env,
+               fd_pubkey_t const * addr,
+               ulong               data_sz ) {
+  fd_acc_t acc = fd_accdb_write_one( env->ctx->accdb, env->ctx->bank->accdb_fork_id, addr->uc );
+  fd_alut_meta_t meta = { .discriminant = FD_ALUT_STATE_DISC_LOOKUP_TABLE, .deactivation_slot = ULONG_MAX,
+                          .last_extended_slot = env->ctx->bank->f.slot-1UL };
+  FD_TEST( !fd_alut_state_encode( &meta, acc.data, FD_LOOKUP_TABLE_META_SIZE ) );
+  memset( acc.data+FD_LOOKUP_TABLE_META_SIZE, 0, data_sz-FD_LOOKUP_TABLE_META_SIZE );
+  acc.data_len = data_sz;
+  acc.lamports = 1UL;
+  memcpy( acc.owner, fd_solana_address_lookup_table_program_id.uc, 32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( env->ctx->accdb, &acc );
+}
+
+/* Returns 1 if a transaction using the lookup table at alut was
+   published to pack. */
+
+static int
+test_resolve_alut( test_env_t *      env,
+                   fd_hash_t const * hash,
+                   fd_pubkey_t *     alut ) {
+  fd_txn_m_t * txnm = fd_chunk_to_laddr( env->ctx->out_pack->mem, env->ctx->out_pack->chunk );
+  test_make_txnm( txnm, hash, 0, 4U, 3U, 3U, alut );
+  ulong seq = env->stem_seqs[0];
+  after_frag( env->ctx, 0UL, 0UL, 0UL, fd_txn_m_realized_footprint( txnm, 1, 0 ), 0UL, 0UL, env->stem );
+  return env->stem_seqs[0]==seq+1UL;
+}
+
+FD_UNIT_TEST( resolv_alut ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  ulong root_idx  = fd_svm_mini_reset( mini, params );
+  ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, params->root_slot+1UL );
+
+  test_env_t env[1];
+  test_env_create( env );
+  env->ctx->accdb = mini->runtime->accdb;
+  env->ctx->bank  = fd_svm_mini_bank( mini, child_idx );
+
+  fd_hash_t hash = { .ul = { 0xa1a1UL } };
+  test_add_blockhash( env, &hash, 125UL );
+
+  /* A full table resolves.  One byte more is dropped from the account
+     metadata, without copying the data. */
+  fd_pubkey_t full = { .ul = { 0xa1UL } };
+  fd_pubkey_t over = { .ul = { 0xa2UL } };
+  test_put_alut( env, &full, FD_LOOKUP_TABLE_SZ_MAX     );
+  test_put_alut( env, &over, FD_LOOKUP_TABLE_SZ_MAX+1UL );
+
+  FD_TEST( test_resolve_alut( env, &hash, &full ) );
+  ulong bytes_copied = fd_accdb_metrics( env->ctx->accdb )->bytes_copied;
+  FD_TEST( !test_resolve_alut( env, &hash, &over ) );
+  FD_TEST( fd_accdb_metrics( env->ctx->accdb )->bytes_copied==bytes_copied );
+  FD_TEST( env->ctx->metrics.lut[ FD_METRICS_ENUM_LUT_RESOLVE_RESULT_V_INVALID_ACCOUNT_DATA_IDX ]==1UL );
 
   test_env_destroy( env );
 }

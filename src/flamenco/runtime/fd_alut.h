@@ -19,6 +19,10 @@
 /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L19 */
 #define FD_LOOKUP_TABLE_META_SIZE      (56)
 
+/* https://github.com/solana-program/address-lookup-table/blob/a9fc56e413727e2a9d6dce58df6691f4b45320d7/program/src/state.rs#L12 */
+#define FD_LOOKUP_TABLE_MAX_ADDRESSES  (256)
+#define FD_LOOKUP_TABLE_SZ_MAX         (FD_LOOKUP_TABLE_META_SIZE + (FD_LOOKUP_TABLE_MAX_ADDRESSES * 32UL))
+
 /* Discriminants for the ProgramState enum wrapping the lookup table
    metadata in the on-disk account format. */
 
