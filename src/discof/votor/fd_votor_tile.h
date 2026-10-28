@@ -33,6 +33,13 @@
 
 #define QUIC_DGRAM_BURST (9UL)
 
+/* RAM vote sig pages (12 KiB) per live slot: notar|skip and final
+   pages for 768 ranks (mainnet ~665) plus 2 for fallback votes (mainnet
+   <1.4/slot).  Pool-wide, so every slot the pool holds, catch-up
+   included, keeps its sigs in RAM. */
+
+#define VOTOR_SIG_PG_PER_SLOT (2UL*12UL+2UL)
+
 #define FD_VOTOR_OUT_BURST (1UL+FD_VOTOR_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST+1UL) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram, + 1 parent ready */
 
 /* fd_votor_certed notifies that we have a valid cert for the block
