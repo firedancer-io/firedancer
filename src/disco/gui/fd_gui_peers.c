@@ -25,7 +25,7 @@ fd_gui_peers_align( void ) {
   return a;
 }
 
-FD_FN_CONST ulong
+FD_FN_PURE ulong
 fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
   ulong info_chain_cnt   = fd_gui_peers_node_info_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
   ulong pubkey_chain_cnt = fd_gui_peers_node_pubkey_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE );
@@ -40,15 +40,17 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
 
-  l = FD_LAYOUT_APPEND( l, 16UL,                                    FD_GUI_GEOIP_BIN_MAX+fd_ulong_align_up( ZSTD_estimateDStreamSize( 1<<FD_GUI_GEOIP_ZSTD_WINDOW_LOG ), 16UL ) );
+  ulong image_sz = ZSTD_getFrameContentSize( dbip_f, dbip_f_sz );
+  if( FD_UNLIKELY( image_sz>FD_GUI_GEOIP_BIN_MAX ) ) return 0UL; /* also CONTENTSIZE_UNKNOWN/ERROR */
+  l = FD_LAYOUT_APPEND( l, 16UL,                                    fd_ulong_align_up( image_sz, 16UL )+fd_ulong_align_up( ZSTD_estimateDStreamSize( 1<<FD_GUI_GEOIP_ZSTD_WINDOW_LOG ), 16UL ) );
 
   return FD_LAYOUT_FINI( l, fd_gui_peers_align() );
 }
 
 /* load_geoip decompresses the dbip database image into image (a
    single streaming decompress; the image is the on-disk format, see
-   fd_gui_peers.h) and points ip_db's columnar segment arrays at it.
-   Country/city string tables are copied out to fixed arrays. */
+   fd_gui_peers.h) and points ip_db's columnar segment arrays and city
+   names at it.  Country codes are copied out. */
 
 static void
 load_geoip( ZSTD_DCtx *      dctx,
@@ -87,10 +89,11 @@ load_geoip( ZSTD_DCtx *      dctx,
   for( ulong i=0UL; i<city_name_cnt; i++ ) {
     uchar const * nul = memchr( p, '\0', fd_ulong_min( FD_GUI_GEOIP_MAX_CITY_NAME_SZ, (ulong)(end-p) ) );
     if( FD_UNLIKELY( !nul ) ) FD_LOG_ERR(( "dbip database corrupt (unterminated city name)" ));
-    fd_memcpy( ip_db->city_name[ i ], p, (ulong)(nul-p)+1UL );
+    ip_db->city_name_off[ i ] = (uint)(p-image);
     ADVANCE( (ulong)(nul-p)+1UL );
-    if( FD_UNLIKELY( i && strcmp( ip_db->city_name[ i-1UL ], ip_db->city_name[ i ] )>0 ) )
-      FD_LOG_ERR(( "city names not sorted a=%s > b=%s i=%lu", ip_db->city_name[ i-1UL ], ip_db->city_name[ i ], i ));
+    char const * prev = (char const *)image+ip_db->city_name_off[ i-!!i ];
+    char const * cur  = (char const *)image+ip_db->city_name_off[ i ];
+    if( FD_UNLIKELY( strcmp( prev, cur )>0 ) ) FD_LOG_ERR(( "city names not sorted a=%s > b=%s i=%lu", prev, cur, i ));
   }
 
   /* Sections below are 4-byte aligned in the file (the generator pads
@@ -120,6 +123,7 @@ load_geoip( ZSTD_DCtx *      dctx,
   ip_db->seg_start   = seg_start;
   ip_db->seg_country = seg_country;
   ip_db->seg_city    = seg_city;
+  ip_db->image       = (char const *)image;
 }
 
 void *
@@ -153,11 +157,13 @@ fd_gui_peers_new( void *             shmem,
   void * _sock_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   ctx->client_viewports    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
   /* DCtx scratch is only needed during load_geoip below; it lives
-     past the image so the image gets the full FD_GUI_GEOIP_BIN_MAX
-     the generator enforces. */
+     past the exactly sized image. */
   ulong  zstd_ctx_sz = ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG );
-  ctx->dbip_image          = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                                    FD_GUI_GEOIP_BIN_MAX+fd_ulong_align_up( zstd_ctx_sz, 16UL )             );
-  ZSTD_DCtx * zstd_dctx = ZSTD_initStaticDStream( ctx->dbip_image+FD_GUI_GEOIP_BIN_MAX, zstd_ctx_sz );
+  ulong  image_sz    = ZSTD_getFrameContentSize( dbip_f, dbip_f_sz );
+  FD_TEST( image_sz<=FD_GUI_GEOIP_BIN_MAX );
+  image_sz = fd_ulong_align_up( image_sz, 16UL );
+  ctx->dbip_image          = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                                    image_sz+fd_ulong_align_up( zstd_ctx_sz, 16UL )                         );
+  ZSTD_DCtx * zstd_dctx = ZSTD_initStaticDStream( ctx->dbip_image+image_sz, zstd_ctx_sz );
   FD_TEST( zstd_dctx );
 
     for( ulong i = 0UL; i<max_ws_conn_cnt; i++ ) ctx->client_viewports[ i ].connected = 0;
@@ -198,7 +204,7 @@ fd_gui_peers_new( void *             shmem,
     ctx->node_pubkey_map = fd_gui_peers_node_pubkey_map_join( fd_gui_peers_node_pubkey_map_new( _pubkey_map, pubkey_chain_cnt, seed ) );
     ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   sock_chain_cnt,   seed ) );
 
-    load_geoip( zstd_dctx, ctx->dbip_image, FD_GUI_GEOIP_BIN_MAX, dbip_f, dbip_f_sz, &ctx->dbip );
+    load_geoip( zstd_dctx, ctx->dbip_image, image_sz, dbip_f, dbip_f_sz, &ctx->dbip );
 
     ctx->wfs_peers_cnt = 0UL;
     ctx->wfs_peers_valid = 0;
