@@ -9,7 +9,10 @@
 #                 can poll all file descriptors across all tiles at once.
 #                 This tile needs access to the outer file descriptor to
 #                 rearm the inner set after a drain.
-uint logfile_fd, uint etc_hosts_fd, uint etc_resolv_conf, uint epoll_inner_fd, uint epoll_outer_fd
+#
+# spool_fd: The retry queue spills its oldest messages to this file
+#           when the in-memory window overflows.
+uint logfile_fd, uint etc_hosts_fd, uint etc_resolv_conf, uint epoll_inner_fd, uint epoll_outer_fd, uint spool_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -54,6 +57,7 @@ sendmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
 # arg 0 is the file descriptor of the socket to connect to.  We will
 # restrict this being called on STDERR or the logfile.
 connect: (not (or (eq (arg 0) 2)
+                  (eq (arg 0) spool_fd)
                   (eq (arg 0) etc_resolv_conf)
                   (eq (arg 0) etc_hosts_fd)
                   (eq (arg 0) logfile_fd)))
@@ -64,6 +68,7 @@ connect: (not (or (eq (arg 0) 2)
 # arg 0 is the file descriptor that we would like to close.  We will
 # restrict this being called on STDERR or the logfile.
 close: (not (or (eq (arg 0) 2)
+                (eq (arg 0) spool_fd)
                 (eq (arg 0) etc_resolv_conf)
                 (eq (arg 0) etc_hosts_fd)
                 (eq (arg 0) logfile_fd)))
@@ -115,6 +120,10 @@ setsockopt: (or (and (eq (arg 1) SOL_TCP)
 
 # HTTPS client: secure random bytes for TLS handshake
 getrandom
+
+# spool: append overflowed retry queue messages, read them back to send
+pwritev: (eq (arg 0) spool_fd)
+pread64: (eq (arg 0) spool_fd)
 
 # waker: register the TCP socket in the tile's inner epoll set on
 # (re)connect, and rearm the tile's entry in the waker's outer epoll

@@ -46,11 +46,14 @@ FD_STATIC_ASSERT( FD_EVENT_CLIENT_STATE_AUTHENTICATING==FD_METRICS_ENUM_EVENT_CO
 FD_STATIC_ASSERT( FD_EVENT_CLIENT_STATE_CONNECTED==FD_METRICS_ENUM_EVENT_CONN_STATE_V_CONNECTED_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_EVENT_CLIENT_FITS( FD_EVENT_BOOT_BUF_MAX, GRPC_BUF_MAX ), boot_event_fits_grpc_tx_buf );
 
-/* Event retry queue.  fd_circq drops the oldest event when full, so
-   this only bounds how long a collector outage can be bridged without
-   telemetry loss.  256 MiB keeps the event workspace (circq + ~48 MiB
-   client/ctx) on 2 MiB pages, well under the gigantic page threshold. */
-#define EVENT_CIRCQ_SZ (256UL<<20UL)
+/* Event retry queue.  A locked 64 MiB window spills its oldest events
+   to the FD_EVENT_SPOOL_FD file (pread/pwritev), dropping oldest only
+   once that is full too, so window+spool only bounds how long a
+   collector outage is bridged.  A healthy collector keeps the depth far
+   below the window, so the file is untouched.  EVENT_MSG_MAX is the
+   largest push footprint and sizes the spool read bounce buffer. */
+#define EVENT_CIRCQ_SZ (64UL<<20UL)
+#define EVENT_MSG_MAX  (FD_EVENT_BLOCK_COMPLETED_BUF_MAX)
 
 #define METRICS_SAMPLE_INTERVAL_SECS (10L)
 
@@ -79,6 +82,29 @@ FD_STATIC_ASSERT( FD_EVENT_CLIENT_FITS( FD_EVENT_BOOT_BUF_MAX, GRPC_BUF_MAX ), b
    TODO: this needs to be auto-generated as this is fragile,
    have the schema generator spit out max sizes for messages. */
 #define EVENT_TXN_BUF_MAX (FD_TPU_MTU+233UL)
+
+FD_STATIC_ASSERT( EVENT_TXN_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_BOOT_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( 4096UL<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_SIGNED_VOTE_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_SLOT_CONFIRMED_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_ACCDB_COMPACTION_COMPLETED_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_RUNTIME_TXN_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_SNAPSHOT_CREATED_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_ADMIN_COMMAND_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_RUNTIME_BLOCK_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_RUNTIME_REWARD_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_RUNTIME_STAKE_DELEGATION_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_RUNTIME_ROOTED_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_RUNTIME_EPOCH_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_ALPENGLOW_VOTE_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_ALPENGLOW_CERT_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_BLOCK_RECEIVED_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( FD_EVENT_REPAIR_REQUEST_BUF_MAX<=EVENT_MSG_MAX, event_msg_max );
+FD_STATIC_ASSERT( 2UL*EVENT_MSG_MAX+(1UL<<20)<=EVENT_CIRCQ_SZ, event_window );
 
 #define IN_KIND_SHRED  (0)
 #define IN_KIND_DEDUP  (1)
@@ -178,17 +204,17 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   l = FD_LAYOUT_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_circq_align(),         fd_circq_footprint( EVENT_CIRCQ_SZ )      );
+  l = FD_LAYOUT_APPEND( l, fd_circq_align(),         fd_circq_spool_footprint( EVENT_CIRCQ_SZ, EVENT_MSG_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static inline void
 metrics_write( fd_event_tile_t * ctx ) {
-  FD_MGAUGE_SET( EVENT, QUEUE_USED, ctx->circq->cnt );
+  FD_MGAUGE_SET( EVENT, QUEUE_USED, ctx->circq->cnt+ctx->circq->spool_cnt );
   FD_MGAUGE_SET( EVENT, QUEUE_UNSENT_COUNT, fd_circq_unsent_cnt( ctx->circq ) );
   FD_MCNT_SET( EVENT, QUEUE_EVICTED, ctx->circq->metrics.drop_cnt );
   FD_MGAUGE_SET( EVENT, QUEUE_USED_BYTES, fd_circq_bytes_used( ctx->circq ) );
-  FD_MGAUGE_SET( EVENT, QUEUE_CAPACITY_BYTES, ctx->circq->size );
+  FD_MGAUGE_SET( EVENT, QUEUE_CAPACITY_BYTES, ctx->circq->size+ctx->circq->spool_cap );
 
   fd_event_client_metrics_t const * metrics = fd_event_client_metrics( ctx->client );
   FD_MCNT_SET( EVENT, EVENT_TX,      metrics->events_sent );
@@ -526,7 +552,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t),  sizeof(fd_event_tile_t) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( EVENT_CIRCQ_SZ )      );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_spool_footprint( EVENT_CIRCQ_SZ, EVENT_MSG_MAX ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -600,7 +626,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   void * _event_client  = FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
-  void * _circq         = FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( EVENT_CIRCQ_SZ )      );
+  void * _circq         = FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_spool_footprint( EVENT_CIRCQ_SZ, EVENT_MSG_MAX ) );
 
   ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_event", tile->kind_id );
   ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "event_sign", tile->kind_id );
@@ -634,6 +660,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->circq = fd_circq_join( fd_circq_new( _circq, EVENT_CIRCQ_SZ ) );
   FD_TEST( ctx->circq );
+  fd_circq_spool_init( ctx->circq, FD_EVENT_SPOOL_FD, FD_EVENT_SPOOL_SZ, EVENT_MSG_MAX );
 
   ctx->waker_client_idx = tile->waker_client_idx;
   FD_TEST( ctx->waker_client_idx!=ULONG_MAX );
@@ -756,7 +783,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)ctx->netdb_fds->etc_hosts,
       (uint)ctx->netdb_fds->etc_resolv_conf,
       epoll_inner_fd,
-      epoll_outer_fd );
+      epoll_outer_fd,
+      (uint)FD_EVENT_SPOOL_FD );
   return sock_filter_policy_fd_event_tile_instr_cnt;
 }
 
@@ -767,7 +795,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   fd_event_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -778,6 +806,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_resolv_conf;
   out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
   out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
+  out_fds[ out_cnt++ ] = FD_EVENT_SPOOL_FD;                           /* retry queue spool */
   return out_cnt;
 }
 
