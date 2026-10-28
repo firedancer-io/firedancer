@@ -185,10 +185,8 @@ struct fd_gui_peers_node {
     uint parent;
     uint left;
     uint right;
-    uint prio;
-    uint next;
-    uint prev;
   } treaps_live_table[ FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT ];
+  uint prio_live_table;
   struct {
     ulong next;
     ulong prev;
@@ -318,6 +316,7 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 
 #define LIVE_TABLE_NAME fd_gui_peers_live_table
 #define LIVE_TABLE_TREAP treaps_live_table
+#define LIVE_TABLE_PRIO prio_live_table
 #define LIVE_TABLE_SORT_KEYS sort_keys_live_table
 #define LIVE_TABLE_DLIST dlist_live_table
 #define LIVE_TABLE_COLUMN_CNT (9UL)
