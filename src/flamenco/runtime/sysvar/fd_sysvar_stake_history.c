@@ -12,43 +12,11 @@ fd_sysvar_stake_history_init( fd_bank_t *        bank,
   fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_stake_history_id, data, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-rc.1/runtime/src/bank.rs#L2452-L2463 */
-
 void
-fd_sysvar_stake_history_update( fd_bank_t *                      bank,
-                                fd_accdb_t *                     accdb,
-                                fd_capture_ctx_t *               capture_ctx,
+fd_sysvar_stake_history_insert( uchar                            data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
                                 fd_stake_history_entry_t const * entry ) {
-  fd_accdb_svm_update_t update[1];
-  fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_stake_history_id, 1 );
-
-  if( FD_UNLIKELY( !rw.lamports ) ) {
-    /* Initialize account if it did not exist */
-    fd_memcpy( rw.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
-    rw.lamports = FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE;
-    rw.data_len = FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ;
-    fd_memset( rw.data, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-    /* Now a valid StakeHistory sysvar with zero entries */
-  } else {
-    /* Sanity check existing state */
-    if( FD_UNLIKELY( 0!=memcmp( rw.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
-      FD_LOG_ERR(( "stake history sysvar not owned by sysvar owner" ));
-    }
-  }
-
-  if( FD_UNLIKELY( rw.data_len<8UL ) ) FD_LOG_ERR(( "invalid stake history sysvar" ));
-
-  ulong len = FD_LOAD( ulong, rw.data );
-  len = fd_ulong_min( len, FD_SYSVAR_STAKE_HISTORY_CAP );
-  ulong min_sz = 8UL + len * sizeof(fd_stake_history_entry_t);
-  if( FD_UNLIKELY( rw.data_len<min_sz ) ) {
-    FD_LOG_ERR(( "invalid stake history sysvar: data_len too small (%lu, required %lu)", rw.data_len, min_sz ));
-  }
-
-  /* https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
-  if( FD_UNLIKELY( rw.data_len!=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) ) rw.data_len = FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ;
-
-  fd_stake_history_entry_t * entries = fd_type_pun( rw.data+8UL );
+  ulong len = fd_ulong_min( FD_LOAD( ulong, data ), FD_SYSVAR_STAKE_HISTORY_CAP );
+  fd_stake_history_entry_t * entries = fd_type_pun( data+8UL );
 
   /* https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L83 */
   ulong idx   = 0UL;
@@ -91,9 +59,48 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
 
   /* Zero trailing bytes (technically a no-op) */
   FD_TEST( used_sz <= FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-  fd_memset( rw.data+used_sz, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ-used_sz );
+  fd_memset( data+used_sz, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ-used_sz );
 
-  FD_STORE( ulong, rw.data, new_len );
+  FD_STORE( ulong, data, new_len );
+}
+
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-rc.1/runtime/src/bank.rs#L2452-L2463 */
+
+void
+fd_sysvar_stake_history_update( fd_bank_t *                      bank,
+                                fd_accdb_t *                     accdb,
+                                fd_capture_ctx_t *               capture_ctx,
+                                fd_stake_history_entry_t const * entry ) {
+  fd_accdb_svm_update_t update[1];
+  fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_stake_history_id, 1 );
+
+  if( FD_UNLIKELY( !rw.lamports ) ) {
+    /* Initialize account if it did not exist */
+    fd_memcpy( rw.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
+    rw.lamports = FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE;
+    rw.data_len = FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ;
+    fd_memset( rw.data, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+    /* Now a valid StakeHistory sysvar with zero entries */
+  } else {
+    /* Sanity check existing state */
+    if( FD_UNLIKELY( 0!=memcmp( rw.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
+      FD_LOG_ERR(( "stake history sysvar not owned by sysvar owner" ));
+    }
+  }
+
+  if( FD_UNLIKELY( rw.data_len<8UL ) ) FD_LOG_ERR(( "invalid stake history sysvar" ));
+
+  ulong len = FD_LOAD( ulong, rw.data );
+  len = fd_ulong_min( len, FD_SYSVAR_STAKE_HISTORY_CAP );
+  ulong min_sz = 8UL + len * sizeof(fd_stake_history_entry_t);
+  if( FD_UNLIKELY( rw.data_len<min_sz ) ) {
+    FD_LOG_ERR(( "invalid stake history sysvar: data_len too small (%lu, required %lu)", rw.data_len, min_sz ));
+  }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
+  if( FD_UNLIKELY( rw.data_len!=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) ) rw.data_len = FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ;
+
+  fd_sysvar_stake_history_insert( rw.data, entry );
 
   /* Balance is updated later by fd_stake_history_ensure_rent_exempt. */
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &rw, update );
@@ -131,22 +138,6 @@ fd_sysvar_stake_history_view( fd_stake_history_t * view,
   view->len     = FD_LOAD( ulong, data );
   view->entries = fd_type_pun_const( data + 8UL );
   return view;
-}
-
-fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_accdb_t *         accdb,
-                              fd_accdb_fork_id_t   fork_id,
-                              uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
-                              fd_stake_history_t * view ) {
-  fd_acc_t ro = fd_accdb_read_one( accdb, fork_id, fd_sysvar_stake_history_id.uc );
-  if( FD_UNLIKELY( !ro.lamports ) ) {
-    fd_accdb_unread_one( accdb, &ro );
-    return NULL;
-  }
-  ulong sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-  fd_memcpy( data, ro.data, sz );
-  fd_accdb_unread_one( accdb, &ro );
-  return fd_sysvar_stake_history_view( view, data, sz );
 }
 
 fd_stake_history_entry_t const *

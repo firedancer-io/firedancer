@@ -104,6 +104,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Epoch */
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
+  fd_banks_stake_history_init( runner->banks, runner->bank );
 
   /* Rent */
   FD_TEST( fd_sysvar_cache_rent_read( fd_bank_sysvar_cache( runner->bank ), &runner->bank->f.rent ) );

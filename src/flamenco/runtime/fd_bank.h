@@ -173,7 +173,7 @@ FD_PROTOTYPES_BEGIN
    To advance the root bank.  This assumes that the bank index is "safe"
    to advance to.  This means that none of the ancestors of the bank
    index have a non-zero reference count.
-   fd_banks_advance_root( banks, bank_index, stake_history );
+   fd_banks_advance_root( banks, bank_index );
 
    To query some arbitrary bank:
    fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
@@ -336,6 +336,7 @@ struct fd_bank {
     fd_slot_params_t       slot_params_default; /* slot params this cluster uses when no reduce_slot_time gate is active */
     fd_hash_t              block_id;
     ulong                  alpenglow_migration_slot;
+    fd_stake_history_entry_t stake_history_entry; /* added at the boundary into epoch */
   } f;
 
 };
@@ -409,6 +410,18 @@ struct fd_banks {
 
   ulong stake_delegations_offset;
   ulong vote_stakes_offset;
+
+  /* StakeHistory of the root bank.  A bank in a later epoch than the
+     root has this plus its stake_history_entry.  Double buffered so
+     readers racing a root advance see a whole copy; stake_history_idx
+     selects the current one. */
+
+  struct {
+    ulong epoch; /* epoch of the root bank */
+    ulong sz;    /* 0 if the sysvar is missing */
+    uchar data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  } stake_history[2];
+  ulong stake_history_idx;
 };
 typedef struct fd_banks fd_banks_t;
 
@@ -453,6 +466,31 @@ fd_bank_cost_tracker( fd_bank_t const * bank );
 
 fd_sysvar_cache_t *
 fd_bank_sysvar_cache( fd_bank_t const * bank );
+
+/* fd_bank_stake_history returns a view of the StakeHistory of bank, or
+   NULL if it has none.  The view points into banks, or into buf if
+   bank is past an epoch boundary the root has not crossed.  It stays
+   valid while the root advances by at most one epoch. */
+
+fd_stake_history_t *
+fd_bank_stake_history( fd_bank_t const *    bank,
+                       uchar                buf[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
+                       fd_stake_history_t * view );
+
+/* fd_bank_stake_history_add records entry, which bank added to its
+   StakeHistory at an epoch boundary. */
+
+void
+fd_bank_stake_history_add( fd_bank_t *                      bank,
+                           fd_stake_history_entry_t const * entry );
+
+/* fd_banks_stake_history_init sets the StakeHistory of the root bank
+   to that of bank, or to none if bank is NULL.  Called at boot once
+   bank's epoch is set and its sysvar cache is restored. */
+
+void
+fd_banks_stake_history_init( fd_banks_t *      banks,
+                             fd_bank_t const * bank );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );
@@ -584,15 +622,11 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
    the new root bank should be a child of the current root bank.
 
    All banks that are ancestors or siblings of the new root bank will be
-   cancelled and their resources will be released back to the pool.
-
-   stake_history is the stake history of the new root bank, or NULL if
-   it has none. */
+   cancelled and their resources will be released back to the pool. */
 
 void
-fd_banks_advance_root( fd_banks_t *               banks,
-                       ulong                      bank_idx,
-                       fd_stake_history_t const * stake_history );
+fd_banks_advance_root( fd_banks_t * banks,
+                       ulong        bank_idx );
 
 /* fd_banks_clear releases all banks back to the pool and resets the
    banks manager to its post-new state.  Assumes no active references to

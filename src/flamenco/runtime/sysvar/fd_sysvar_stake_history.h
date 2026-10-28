@@ -11,6 +11,15 @@ fd_sysvar_stake_history_init( fd_bank_t *        bank,
                               fd_accdb_t *       accdb,
                               fd_capture_ctx_t * capture_ctx );
 
+/* fd_sysvar_stake_history_insert adds entry to the StakeHistory data,
+   replacing any entry of the same epoch, as the sysvar is updated at
+   an epoch boundary.  data holds a valid length prefix and is zero
+   past its entries. */
+
+void
+fd_sysvar_stake_history_insert( uchar                            data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
+                                fd_stake_history_entry_t const * entry );
+
 /* Known differences:
    - Firedancer checks the account owner, Agave ignores it */
 
@@ -39,16 +48,6 @@ fd_stake_history_t *
 fd_sysvar_stake_history_view( fd_stake_history_t * view,
                               uchar const *        data,
                               ulong                sz );
-
-/* fd_sysvar_stake_history_read copies the StakeHistory sysvar of
-   fork_id into data and returns a view of it, or NULL if the sysvar is
-   missing or invalid. */
-
-fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_accdb_t *         accdb,
-                              fd_accdb_fork_id_t   fork_id,
-                              uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
-                              fd_stake_history_t * view );
 
 /* https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v1.0.0/stake-history/src/lib.rs#L140-L144 */
 fd_stake_history_entry_t const *

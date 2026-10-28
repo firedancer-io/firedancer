@@ -383,6 +383,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   fd_sysvar_stake_history_init( env->bank, env->accdb, NULL );
   fd_sysvar_clock_init( env->bank, env->accdb, NULL );
   init_blockhash_queue( env );
+  FD_TEST( fd_sysvar_cache_restore( fd_bank_sysvar_cache( env->bank ), env->accdb, env->bank->accdb_fork_id ) );
+  fd_banks_stake_history_init( env->banks, env->bank );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( env->bank );
   fd_vote_stakes_reset( vote_stakes );
@@ -461,7 +463,6 @@ step_slot( test_env_t * env, ulong prep_epoch ) {
 
   new_bank->f.slot        = slot;
   new_bank->f.parent_slot = parent_slot;
-  new_bank->f.epoch       = fd_slot_to_epoch( &new_bank->f.epoch_schedule, slot, NULL );
 
   new_bank->accdb_fork_id = fd_accdb_attach_child( env->accdb, parent_bank->accdb_fork_id );
 
@@ -477,12 +478,9 @@ step_slot( test_env_t * env, ulong prep_epoch ) {
   }
 
   fd_banks_mark_bank_frozen( new_bank );
-  uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
-  fd_stake_history_t         stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( env->accdb, new_bank->accdb_fork_id, stake_history_data, stake_history_ );
   fd_accdb_advance_root( env->accdb, new_bank->accdb_fork_id );
   drain_background( env->accdb );
-  fd_banks_advance_root( env->banks, new_bank_idx, stake_history );
+  fd_banks_advance_root( env->banks, new_bank_idx );
 }
 
 static ulong

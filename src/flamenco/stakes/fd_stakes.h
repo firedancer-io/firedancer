@@ -113,17 +113,12 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
                           int                      iter_kind,
                           fd_vote_stake_weight_t * weights );
 
-/* fd_stakes_activate_epoch updates the stake history sysvar and the
-   vote account stakes at an epoch boundary.  history is the stake
-   history from before this boundary. */
-
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_accdb_t *                   accdb,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t *       stake_delegations,
-                          fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch );
 
 /* fd_stakes_vote_account_is_admissible returns 1 if a vote account
@@ -139,6 +134,7 @@ fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
 
 /* rewarded_epoch selects the epoch whose effective delegated stakes
    should be accumulated for rewards.  ULONG_MAX disables this work. */
+
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_accdb_t *                   accdb,
@@ -151,14 +147,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 /* fd_stakes_update_delegation is used to maintain the in-memory cache
    of the stake delegations that is used at the epoch boundary.  Entries
    in the cache will be inserted/updated/removed based on the state of
-   the stake account.  stake_history is the bank's stake history. */
+   the stake account. */
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const *        pubkey,
-                                   fd_acc_t const *           acc,
-                                   fd_bank_t *                bank,
-                                   fd_stake_history_t const * stake_history,
-                                   fd_txn_in_t const *        txn_in );
+fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
+                                   fd_acc_t const *    acc,
+                                   fd_bank_t *         bank,
+                                   fd_txn_in_t const * txn_in );
 
 FD_PROTOTYPES_END
 

@@ -213,12 +213,6 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
                          fd_pubkey_t const * collector_id,
                          fd_pubkey_t const * leader_vote,
                          ulong               fees ) {
-  /* Read before the collector is opened, since its handle must not be
-     held across another account database read. */
-  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
-  fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
-
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
   int burn;
@@ -238,7 +232,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
       acc.lamports += fees; /* guaranteed to not overflow, checked above */
     }
   }
-  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, stake_history, NULL );
+  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, NULL );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   return burn;
 }
@@ -731,12 +725,9 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
-  /* Read before fd_stakes_activate_epoch updates the sysvar.  The stake
-     delegations view and the stake history entry for the ended epoch
-     both use the stake history from before this boundary. */
   uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_delegations_history_[1];
-  fd_stake_history_t * stake_delegations_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_delegations_history_ );
+  fd_stake_history_t * stake_delegations_history = fd_bank_stake_history( bank, stake_history_data, stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
@@ -768,7 +759,7 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
     fd_stake_delegations_invalidate_warmed( stake_delegations, 0 );
   }
 
-  fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations, stake_delegations_history,
+  fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,
                             &bank->f.warmup_cooldown_rate_epoch );
 
   /* Distribute rewards.  This involves calculating the rewards for
@@ -1266,8 +1257,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
-        fd_stake_history_t stake_history[1];
-        fd_stakes_update_stake_delegation( pubkey, account, bank, fd_sysvar_cache_stake_history_view( runtime->sysvar_cache, stake_history ), txn_in );
+        fd_stakes_update_stake_delegation( pubkey, account, bank, txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {
@@ -1694,7 +1684,16 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
        across an inner acquire. */
     uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
     fd_stake_history_t   stake_history_[1];
-    fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
+    fd_stake_history_t * stake_history = NULL;
+    fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
+    if( FD_LIKELY( ro.lamports ) ) {
+      ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+      fd_memcpy( stake_history_data, ro.data, copy_sz );
+      fd_accdb_unread_one( accdb, &ro );
+      stake_history = fd_sysvar_stake_history_view( stake_history_, stake_history_data, copy_sz );
+    } else {
+      fd_accdb_unread_one( accdb, &ro );
+    }
 
     fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, ULONG_MAX, &new_rate_activation_epoch );
   }

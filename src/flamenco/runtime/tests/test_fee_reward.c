@@ -682,6 +682,7 @@ test_simd0232_fee_capture_chain( fd_svm_mini_t * mini ) {
      the captured state). */
   ulong e1_idx = fd_svm_mini_attach_child( mini, root_idx, 16UL );
   fd_svm_mini_freeze( mini, e1_idx );
+  fd_svm_mini_advance_root( mini, e1_idx );
   ulong e2_idx = fd_svm_mini_attach_child( mini, e1_idx, 32UL );
   fd_svm_mini_freeze( mini, e2_idx );
 

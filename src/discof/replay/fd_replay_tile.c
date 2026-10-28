@@ -2139,7 +2139,7 @@ refresh_vote_account_staked( fd_replay_tile_t * ctx,
 
   uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t         stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( ctx->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
+  fd_stake_history_t const * stake_history = fd_bank_stake_history( bank, stake_history_data, stake_history_ );
   fd_stake_history_entry_t   status        = fd_stake_delegations_vote_account_status(
       fd_banks_stake_delegations_root_query( ctx->banks ), vote_key, bank->f.epoch, stake_history,
       &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
@@ -2195,7 +2195,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
   uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t         stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( ctx->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
+  fd_stake_history_t const * stake_history = fd_bank_stake_history( bank, stake_history_data, stake_history_ );
   /* Despite claims like https://github.com/solana-program/stake/pull/81
      that the stake history sysvar is contiguous, testnet has in fact
      had a gap at epoch 386. */
@@ -2368,6 +2368,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
   FD_TEST( fd_sysvar_cache_restore( fd_bank_sysvar_cache( bank ), ctx->accdb, bank->accdb_fork_id ) );
+  fd_banks_stake_history_init( ctx->banks, bank );
 
   bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache, (fd_txncache_fork_id_t){USHORT_MAX} );
   bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, fd_progcache_fork_id_initial()     );
@@ -2584,6 +2585,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_hash_t manifest_block_id = ctx->has_manifest_block_id ? ctx->manifest_block_id : ctx->initial_block_id;
 
     FD_TEST( fd_sysvar_cache_restore( fd_bank_sysvar_cache( bank ), ctx->accdb, bank->accdb_fork_id ) );
+    fd_banks_stake_history_init( ctx->banks, bank );
     /* Agave zeroes manifest rent_params; reload from sysvar account */
     FD_TEST( fd_sysvar_rent_read( ctx->accdb, bank->accdb_fork_id, &bank->f.rent ) );
 
@@ -3253,14 +3255,11 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   ulong advanceable_root_slot = bank->f.slot;
   int   root_epoch_changed    = bank->f.epoch!=published_root_bank->f.epoch;
-  uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
-  fd_stake_history_t         stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( ctx->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_progcache_advance_root( ctx->progcache, bank->progcache_fork_id );
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
-  fd_banks_advance_root( ctx->banks, advanceable_root_idx, stake_history );
+  fd_banks_advance_root( ctx->banks, advanceable_root_idx );
   if( FD_UNLIKELY( root_epoch_changed ) ) refresh_vote_account_staked( ctx, bank );
 
   for( ulong b=0UL; b<ctx->max_live_slots; b++ ) {

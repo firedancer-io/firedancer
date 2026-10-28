@@ -4,6 +4,8 @@
 #include "../rewards/fd_stake_rewards.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
+#include "sysvar/fd_sysvar_stake_history.h"
+#include "fd_system_ids.h"
 
 #define POOL_NAME fd_banks_pool
 #define POOL_T    fd_bank_t
@@ -179,6 +181,74 @@ fd_bank_sysvar_cache( fd_bank_t const * bank ) {
   if( bank->sysvar_cache_idx==USHORT_MAX ) return NULL;
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
   return &fd_banks_get_sysvar_cache_pool( banks_data )[ bank->sysvar_cache_idx ].cache;
+}
+
+/* stake_history_pending returns 1 if bank crossed an epoch boundary
+   that a root in root_epoch has not, so its StakeHistory has
+   stake_history_entry on top of the root's. */
+
+static inline int
+stake_history_pending( fd_bank_t const * bank,
+                       ulong             root_epoch ) {
+  return bank->f.epoch>root_epoch;
+}
+
+fd_stake_history_t *
+fd_bank_stake_history( fd_bank_t const *    bank,
+                       uchar                buf[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
+                       fd_stake_history_t * view ) {
+  fd_banks_t const * banks = fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
+  ulong idx = FD_VOLATILE_CONST( banks->stake_history_idx );
+  FD_COMPILER_MFENCE();
+  uchar const * data = banks->stake_history[ idx ].data;
+  ulong         sz   = banks->stake_history[ idx ].sz;
+  if( FD_UNLIKELY( stake_history_pending( bank, banks->stake_history[ idx ].epoch ) ) ) {
+    fd_memcpy( buf, data, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+    fd_sysvar_stake_history_insert( buf, &bank->f.stake_history_entry );
+    data = buf;
+    sz   = FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ;
+  }
+  return fd_sysvar_stake_history_view( view, data, sz );
+}
+
+void
+fd_bank_stake_history_add( fd_bank_t *                      bank,
+                           fd_stake_history_entry_t const * entry ) {
+  fd_banks_t const * banks = fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
+  FD_CHECK_CRIT( !stake_history_pending( bank, banks->stake_history[ banks->stake_history_idx ].epoch ),
+                 "bank is more than one epoch ahead of the root" );
+  bank->f.stake_history_entry = *entry;
+}
+
+void
+fd_banks_stake_history_init( fd_banks_t *      banks,
+                             fd_bank_t const * bank ) {
+  fd_sysvar_cache_t const * cache = bank ? fd_bank_sysvar_cache( bank ) : NULL;
+  ulong                     sz    = 0UL;
+  uchar const *             data  = cache ? fd_sysvar_cache_data_query( cache, fd_sysvar_stake_history_id.uc, &sz ) : NULL;
+  sz = fd_ulong_min( sz, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  banks->stake_history_idx = 0UL;
+  banks->stake_history[0].epoch = bank ? bank->f.epoch : 0UL;
+  banks->stake_history[0].sz    = sz;
+  fd_memset( banks->stake_history[0].data, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  if( sz ) fd_memcpy( banks->stake_history[0].data, data, sz );
+}
+
+/* fd_banks_stake_history_advance moves the root StakeHistory to
+   new_root, filling the spare buffer before publishing it. */
+
+static void
+fd_banks_stake_history_advance( fd_banks_t *      banks,
+                                fd_bank_t const * new_root ) {
+  ulong cur = banks->stake_history_idx;
+  if( FD_LIKELY( !stake_history_pending( new_root, banks->stake_history[ cur ].epoch ) ) ) return;
+  ulong nxt = cur^1UL;
+  fd_memcpy( banks->stake_history[ nxt ].data, banks->stake_history[ cur ].data, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_sysvar_stake_history_insert( banks->stake_history[ nxt ].data, &new_root->f.stake_history_entry );
+  banks->stake_history[ nxt ].sz    = FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ;
+  banks->stake_history[ nxt ].epoch = new_root->f.epoch;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( banks->stake_history_idx ) = nxt;
 }
 
 fd_bank_t *
@@ -550,6 +620,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   banks->root_idx = bank->idx;
   banks->curr_fork_width = 1UL;
   banks->prunable_idx    = null_idx;
+  fd_banks_stake_history_init( banks, NULL );
 
   FD_LOG_DEBUG(( "init bank (idx=%lu, stake_rewards_idx=%u, stake_delegations_idx=%u)",
                  bank->idx,
@@ -648,9 +719,8 @@ fd_banks_stake_delegations_root_query( fd_banks_t * banks ) {
 }
 
 void
-fd_banks_advance_root( fd_banks_t *               banks,
-                       ulong                      root_bank_idx,
-                       fd_stake_history_t const * stake_history ) {
+fd_banks_advance_root( fd_banks_t * banks,
+                       ulong        root_bank_idx ) {
 
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
 
@@ -661,6 +731,11 @@ fd_banks_advance_root( fd_banks_t *               banks,
   FD_CHECK_CRIT( old_root->refcnt==0UL, "refcnt for old root bank is nonzero" );
 
   fd_bank_t * new_root = fd_banks_pool_ele( bank_pool, root_bank_idx );
+
+  fd_banks_stake_history_advance( banks, new_root );
+  uchar                      stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_stake_history_t         stake_history_[1];
+  fd_stake_history_t const * stake_history = fd_bank_stake_history( new_root, stake_history_data, stake_history_ );
 
   fd_stake_delegations_delta_stats_t stake_delegations_delta_stats = {0};
   fd_bank_apply_deltas( banks, new_root, stake_history, &stake_delegations_delta_stats );

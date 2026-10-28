@@ -282,6 +282,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */
   bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
+  fd_banks_stake_history_init( banks, bank );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_bank_t *        parent      = fd_banks_get_parent( banks, bank );
