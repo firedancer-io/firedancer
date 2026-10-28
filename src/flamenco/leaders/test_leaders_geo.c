@@ -275,7 +275,7 @@ check_permutation( fd_epoch_leaders_t const * base,
   for( ulong i=0UL; i<base->sched_cnt; i++ ) cnt[ base->sched[ i ] ]++;
   for( ulong i=0UL; i<geo->sched_cnt;  i++ ) { FD_TEST( cnt[ geo->sched[ i ] ] ); cnt[ geo->sched[ i ] ]--; }
   for( ulong i=0UL; i<base->pub_cnt;   i++ ) FD_TEST( !cnt[ i ] );
-  for( ulong i=0UL; i<geo->sched_cnt;  i++ ) FD_TEST( !memcmp( geo->vote_addr+i, &lstakes[ geo->sched[ i ] ].vote_key, 32UL ) );
+  for( ulong i=0UL; i<geo->sched_cnt;  i++ ) FD_TEST( !memcmp( fd_epoch_leaders_get_vote( geo, geo->slot0+i*FD_EPOCH_SLOTS_PER_ROTATION ), &lstakes[ geo->sched[ i ] ].vote_key, 32UL ) );
 }
 
 static void
