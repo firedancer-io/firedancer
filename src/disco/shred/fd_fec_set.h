@@ -33,4 +33,18 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_fec_set {
 };
 typedef struct fd_fec_set fd_fec_set_t;
 
+/* fd_fec_view_t addresses the shreds of a FEC set stored elsewhere (the
+   FEC resolver's shred slab), with the same field names as
+   fd_fec_set_t. */
+
+struct fd_fec_view {
+  uint  data_shred_rcvd;
+  uint  parity_shred_rcvd;
+  ulong turbine_shred_rcvd;
+  ulong repair_shred_rcvd;
+  union { fd_shred_t * s; uchar * b; } data_shreds  [ FD_FEC_SHRED_CNT ];
+  union { fd_shred_t * s; uchar * b; } parity_shreds[ FD_FEC_SHRED_CNT ];
+};
+typedef struct fd_fec_view fd_fec_view_t;
+
 #endif /* HEADER_fd_src_disco_shred_fd_fec_set_h */
