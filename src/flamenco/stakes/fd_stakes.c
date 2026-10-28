@@ -631,7 +631,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* Iterate over the valid delegated vote accounts and insert them into
      the top votes set for the t-1 epoch. */
 
-  ulong top_votes_eligible = 0UL;
+  ulong top_votes_eligible   = 0UL;
+  ulong staked_vote_accounts = 0UL;
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
        iter = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool ) ) {
@@ -642,6 +643,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     ushort      commission_t_1   = 0;
     uchar       bls_key_t_1[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
+    staked_vote_accounts += (ulong)!!( stake_t_1 | stake_accum->reward_stake );
     if( FD_UNLIKELY( !stake_t_1 ) ) continue;
 
     /* Stake can be delegated to any address, so reject accounts that
@@ -728,6 +730,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
     vote_ele->pubkey             = ele->pubkey;
     vote_ele->vote_rewards       = 0UL;
+    vote_ele->has_commission_entry = 0;
     if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
       vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : ele->commission);
     } else {
@@ -757,7 +760,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   }
   epoch_credits_view->len = vote_reward_cnt;
   fd_epoch_credits_view_fini( epoch_credits_view );
-  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_votes( staked_accounts, top_votes_eligible );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_votes( staked_vote_accounts, top_votes_eligible );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L2644-L2695 */

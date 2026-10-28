@@ -8,6 +8,7 @@
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../runtime/sysvar/fd_sysvar_clock.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../events/fd_event_runtime.h"
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
 
@@ -392,6 +393,9 @@ struct vote_update {
   ulong credits;      /* 0 = none */
   ulong migration_epoch;
   ulong current_epoch;
+  int   event_kind;   /* FD_EVENT_RUNTIME_VOTE_WRITE_KIND_*, for the runtime_vote_write event */
+  ulong cert_slot;    /* slot the certificate causing this write is for */
+  ulong stored_vote_slot; long stored_vote_ts; ulong stored_root_slot; /* values written, for the event */
 };
 typedef struct vote_update vote_update_t;
 
@@ -424,6 +428,33 @@ vote_account_is_v5( fd_acc_t const * acc ) {
   return FD_LOAD( uint, acc->data )==fd_vote_state_versioned_enum_v5;
 }
 
+/* epoch_credits_at returns the credits of the last epoch-credits entry
+   for epoch, 0 if there is none.  The Alpenglow migration epoch has two
+   entries for the epoch: the frozen Tower one, then (after the Alpenglow
+   marker) the one credits accrue to. */
+
+static ulong
+epoch_credits_at( fd_acc_t const *                  acc,
+                  fd_vote_state_versioned_t const * vs,
+                  ulong                             epoch ) {
+  ulong credits = 0UL;
+  if( vote_account_is_v5( acc ) ) {
+    fd_vote_state_v5_t const * v5 = fd_vote_account_v5( (uchar *)acc->data );
+    for( ulong i=0UL; i<v5->accumulated_lamports_len; i++ ) {
+      if( v5->accumulated_lamports[ i ].epoch==epoch ) credits = v5->accumulated_lamports[ i ].credits;
+    }
+    return credits;
+  }
+  fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( (fd_vote_state_versioned_t *)vs );
+  for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( ec );
+       !deq_fd_vote_epoch_credits_t_iter_done( ec, iter );
+       iter = deq_fd_vote_epoch_credits_t_iter_next( ec, iter ) ) {
+    fd_vote_epoch_credits_t const * e = deq_fd_vote_epoch_credits_t_iter_ele_const( ec, iter );
+    if( e->epoch==epoch ) credits = e->credits;
+  }
+  return credits;
+}
+
 static void
 vote_update_apply_v5( fd_vote_state_v5_t *  v5,
                       vote_update_t const * upd ) {
@@ -445,16 +476,25 @@ vote_update_apply_v5( fd_vote_state_v5_t *  v5,
 static void
 vote_update_apply( fd_vote_state_versioned_t * vs,
                    fd_acc_t *                  acc,
-                   vote_update_t const *       upd ) {
+                   vote_update_t *             upd ) {
   if( vote_account_is_v5( acc ) ) {
-    vote_update_apply_v5( fd_vote_account_v5( acc->data ), upd );
+    fd_vote_state_v5_t * v5 = fd_vote_account_v5( acc->data );
+    vote_update_apply_v5( v5, upd );
+    upd->stored_vote_slot = v5->latest_vote;
+    upd->stored_vote_ts   = v5->last_timestamp.timestamp;
+    upd->stored_root_slot = v5->root_slot;
     return;
   }
-  if( upd->update_votes ) vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
+  if( upd->update_votes ) {
+    vs_maybe_update_votes( vs, upd->vote_slot, upd->vote_ts_ns );
+    upd->stored_vote_slot = *fd_vsv_get_last_voted_slot( vs );
+    upd->stored_vote_ts   = fd_vsv_get_last_timestamp( vs )->timestamp;
+  }
   if( upd->update_root ) {
     ulong const * root = fd_vsv_get_root_slot( vs );
     ulong latest_root  = fd_ulong_max( root ? *root : upd->root_slot, upd->root_slot );
     fd_vsv_set_root_slot( vs, &latest_root );
+    upd->stored_root_slot = latest_root;
   }
   if( upd->credits ) credits_increment( fd_vsv_get_epoch_credits_mutable( vs ), upd->migration_epoch, upd->current_epoch, upd->credits );
 }
@@ -465,6 +505,8 @@ vote_account_store( fd_bank_t *                       bank,
                     fd_capture_ctx_t *                capture_ctx,
                     fd_acc_t *                        acc,
                     fd_vote_state_versioned_t const * vs,
+                    vote_update_t const *             upd,
+                    ulong                             upd_cnt,
                     fd_footer_cache_memo_t *          memo,
                     fd_vote_queue_t *                 q ) {
   /* We do not need to serialize Vote State V5 accounts as they are
@@ -483,6 +525,17 @@ vote_account_store( fd_bank_t *                       bank,
   fd_vote_queue_store( q, acc, memo );
   fd_hashes_capture_account( acc->pubkey, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
 
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
+    for( ulong i=0UL; i<upd_cnt; i++ ) {
+      fd_event_runtime_vote_write_emit( bank, acc->pubkey, acc->owner, acc->lamports, acc->data_len,
+                                        upd[ i ].event_kind, upd[ i ].cert_slot,
+                                        upd[ i ].credits, epoch_credits_at( acc, vs, upd[ i ].current_epoch ),
+                                        upd[ i ].update_votes ? upd[ i ].stored_vote_slot : 0UL,
+                                        upd[ i ].update_votes ? upd[ i ].stored_vote_ts   : 0L,
+                                        upd[ i ].update_root  ? upd[ i ].stored_root_slot : 0UL );
+    }
+  }
+
   acc->commit = 1;
   fd_accdb_unwrite_one( accdb, acc );
 }
@@ -492,14 +545,14 @@ vote_account_modify( fd_bank_t *              bank,
                      fd_accdb_t *             accdb,
                      fd_capture_ctx_t *       capture_ctx,
                      fd_pubkey_t const *      pk,
-                     vote_update_t const *    upd,
+                     vote_update_t *          upd,
                      fd_footer_cache_memo_t * memo,
                      fd_vote_queue_t *        q ) {
   static FD_TL fd_vote_state_versioned_t vs[1];
   fd_acc_t acc;
   if( FD_UNLIKELY( !vote_account_open( bank, accdb, pk, vs, &acc ) ) ) return;
   vote_update_apply( vs, &acc, upd );
-  vote_account_store( bank, accdb, capture_ctx, &acc, vs, memo, q );
+  vote_account_store( bank, accdb, capture_ctx, &acc, vs, upd, 1UL, memo, q );
 }
 
 void
@@ -728,7 +781,9 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       if( !in_rwd && !in_fin ) continue;
 
       static FD_TL fd_vote_state_versioned_t vs[1];
-      fd_acc_t acc;
+      fd_acc_t      acc;
+      vote_update_t upd[ 2 ];
+      ulong         upd_cnt = 0UL;
 
       /* Skip this node if the vote account cannot be deserialized
          https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L378-L380 */
@@ -747,21 +802,28 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
 
            https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L249 */
         leader_credits = fd_ulong_sat_add( leader_credits, reward-validator_reward );
-        vote_update_apply( vs, &acc, &(vote_update_t){
+        upd[ upd_cnt ] = (vote_update_t){
           .update_votes    = 1, .vote_slot = reward_slot, .vote_ts_ns = reward_ts_ns,
           .credits         = validator_reward,
           .migration_epoch = migration_epoch,
           .current_epoch   = current_epoch,
-        } );
+          .event_kind      = FD_EVENT_RUNTIME_VOTE_WRITE_KIND_REWARD_CERT,
+          .cert_slot       = reward_slot,
+        };
+        vote_update_apply( vs, &acc, &upd[ upd_cnt++ ] );
       }
       if( in_fin ) {
-        vote_update_apply( vs, &acc, &(vote_update_t){
-          .update_root  = 1, .root_slot = final_slot,
-          .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = final_ts_ns,
-        } );
+        upd[ upd_cnt ] = (vote_update_t){
+          .update_root   = 1, .root_slot = final_slot,
+          .update_votes  = 1, .vote_slot = final_slot, .vote_ts_ns = final_ts_ns,
+          .current_epoch = current_epoch, /* for the event's credits_after */
+          .event_kind    = FD_EVENT_RUNTIME_VOTE_WRITE_KIND_FINAL_CERT,
+          .cert_slot     = final_slot,
+        };
+        vote_update_apply( vs, &acc, &upd[ upd_cnt++ ] );
       }
       ulong m = iter_kind==memo_kind ? r : memo_rank( bank, memo_kind, &ele->pubkey );
-      vote_account_store( bank, accdb, capture_ctx, &acc, vs, m!=ULONG_MAX ? cache->memo+m : NULL, q );
+      vote_account_store( bank, accdb, capture_ctx, &acc, vs, upd, upd_cnt, m!=ULONG_MAX ? cache->memo+m : NULL, q );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       if( rwd ) FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu",    bank_slot, reward_slot ));
@@ -778,6 +840,8 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       .credits         = leader_credits,
       .migration_epoch = migration_epoch,
       .current_epoch   = current_epoch,
+      .event_kind      = FD_EVENT_RUNTIME_VOTE_WRITE_KIND_LEADER_REWARD,
+      .cert_slot       = reward_slot,
     };
     vote_account_modify( bank, accdb, capture_ctx, leader_vote_pubkey, &upd, leader_rank!=ULONG_MAX ? cache->memo+leader_rank : NULL, q );
   }

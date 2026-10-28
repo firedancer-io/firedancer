@@ -426,6 +426,7 @@ fd_event_runtime_reward_fill_max( fd_event_runtime_reward_t * msg ) {
   msg->partition_idx = ULONG_MAX;
   msg->credits_observed = ULONG_MAX;
   msg->stake = ULONG_MAX;
+  fd_memset( msg->vote_account, 0xFF, 32UL );
 }
 
 static void
@@ -668,6 +669,28 @@ fd_event_repair_request_fill_max( fd_event_repair_request_t * msg ) {
 static void
 fd_event_repair_request_fill_max_v( void * msg ) { fd_event_repair_request_fill_max( (fd_event_repair_request_t *)msg ); }
 
+static inline void
+fd_event_runtime_vote_write_fill_max( fd_event_runtime_vote_write_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  msg->epoch = ULONG_MAX;
+  fd_memset( msg->vote_account, 0xFF, 32UL );
+  msg->kind = INT_MAX;
+  msg->cert_slot = ULONG_MAX;
+  msg->credits_added = ULONG_MAX;
+  msg->credits_after = ULONG_MAX;
+  msg->vote_slot = ULONG_MAX;
+  msg->vote_timestamp = LONG_MAX;
+  msg->root_slot = ULONG_MAX;
+  fd_memset( msg->owner, 0xFF, 32UL );
+  msg->lamports = ULONG_MAX;
+  msg->data_sz = ULONG_MAX;
+}
+
+static void
+fd_event_runtime_vote_write_fill_max_v( void * msg ) { fd_event_runtime_vote_write_fill_max( (fd_event_runtime_vote_write_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -696,9 +719,10 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 20UL, FD_EVENT_ALPENGLOW_CERT_BUF_MAX, sizeof(fd_event_alpenglow_cert_t), "alpenglow_cert", fd_event_alpenglow_cert_fill_max_v },
   { 21UL, FD_EVENT_BLOCK_RECEIVED_BUF_MAX, sizeof(fd_event_block_received_t), "block_received", fd_event_block_received_fill_max_v },
   { 63UL, FD_EVENT_REPAIR_REQUEST_BUF_MAX, sizeof(fd_event_repair_request_t), "repair_request", fd_event_repair_request_fill_max_v },
+  { 64UL, FD_EVENT_RUNTIME_VOTE_WRITE_BUF_MAX, sizeof(fd_event_runtime_vote_write_t), "runtime_vote_write", fd_event_runtime_vote_write_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (19UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (20UL)
 
 FD_PROTOTYPES_END
 
