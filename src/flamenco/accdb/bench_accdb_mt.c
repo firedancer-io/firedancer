@@ -325,13 +325,17 @@ main( int     argc,
                           BENCH_PARTITION_SZ, cache_fp, BENCH_MIN_RESERVED, 0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
 
+  /* The background join's scratch spill file. */
+  int scratch_fd = memfd_create( "accdb_mt_scratch", 0 );
+  FD_TEST( scratch_fd>=0 && !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( BENCH_MAX_LIVE_SLOTS, writes ) ) );
+
   /* One join per worker, plus the background join (compaction). */
   fd_accdb_t * joins[ BENCH_MAX_THREADS+1UL ];
   for( ulong i=0UL; i<=max_threads; i++ ) {
     int    compaction = i==max_threads;
     void * mem        = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( BENCH_MAX_LIVE_SLOTS, compaction ) );
     FD_TEST( mem );
-    joins[ i ] = fd_accdb_join( fd_accdb_new( mem, shmem, fd, 0UL, NULL, NULL, 0UL, compaction ) );
+    joins[ i ] = fd_accdb_join( fd_accdb_new( mem, shmem, fd, compaction ? scratch_fd : -1, 0UL, NULL, NULL, 0UL, compaction ) );
     FD_TEST( joins[ i ] );
   }
   fd_accdb_t * bg = joins[ max_threads ];

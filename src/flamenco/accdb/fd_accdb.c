@@ -89,6 +89,7 @@ typedef struct fd_accdb_fork fd_accdb_fork_t;
 
 struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int fd;
+  int scratch_fd; /* scratch spill file, -1 unless T2 */
 
   int acquire_state;
 
@@ -283,6 +284,7 @@ void *
 fd_accdb_new( void *              ljoin,
               fd_accdb_shmem_t *  shmem,
               int                 fd,
+              int                 scratch_fd,
               ulong               external_epoch_cnt,
               ulong const **      external_epoch_slots,
               fd_sleep_t *        sleep,
@@ -331,6 +333,7 @@ fd_accdb_new( void *              ljoin,
   uchar * _bounce         = compaction ? FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ ) : NULL;
 
   accdb->fd = fd;
+  accdb->scratch_fd = scratch_fd;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->sleep         = sleep;
   accdb->sleep_tile_id = sleep_tile_id;
@@ -793,6 +796,7 @@ fd_accdb_join_readonly( void *             ljoin,
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
   accdb->fd    = fd_ro;
+  accdb->scratch_fd = -1;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );

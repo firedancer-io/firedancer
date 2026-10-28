@@ -54,6 +54,13 @@ fd_accdb_shmem_join( void * shtc ) {
 }
 
 ulong
+fd_accdb_scratch_sz( ulong max_live_slots,
+                     ulong max_account_writes_per_slot ) {
+  (void)max_live_slots; (void)max_account_writes_per_slot;
+  return 0UL; /* no spill tier uses it yet */
+}
+
+ulong
 fd_accdb_shmem_footprint( ulong max_accounts,
                           ulong max_live_slots,
                           ulong max_account_writes_per_slot,

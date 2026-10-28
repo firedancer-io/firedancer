@@ -154,7 +154,7 @@ join_new( void ) {
   FD_TEST( accdb_fp );
   void * mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, 0UL, NULL, NULL, 0UL, 1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, -1, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   fd_accdb_set_preevict_interval( accdb, 0L ); /* background steps pre-evict every call */
   return accdb;
