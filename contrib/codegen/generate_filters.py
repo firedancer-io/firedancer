@@ -70,6 +70,7 @@ SYSCALL_ARGS = {
     "pselect6":        (  "int", "long",  "long", "long", "long",  "long"  ),
     "preadv2":         (  "int", "long",   "int", "long", "long",   "int"  ),
     "pwrite64":        (  "int", "long",  "long", "long",   None,    None  ),
+    "pwritev":         (  "int", "long",   "int", "long", "long",    None  ),
     "pwritev2":        (  "int", "long",   "int", "long", "long",   "int"  ),
     "read":            (  "int", "long",  "long",   None,   None,    None  ),
     "readv":           (  "int", "long",   "int",   None,   None,    None  ),

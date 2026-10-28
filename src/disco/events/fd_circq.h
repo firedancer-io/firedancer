@@ -24,11 +24,23 @@
 
    Here, the meta elements are fd_circq_message_t, which each point to
    the next message in the queue, and head, tail are the head and tail
-   of the queue respectively. */
+   of the queue respectively.
+
+   Optionally a spool file is attached (fd_circq_spool_init).  Instead
+   of dropping, the oldest messages then migrate in order to a file ring
+   accessed only with pread/pwritev, and drops happen oldest-first only
+   once the file ring is full too.  Logical order is [spool][memory];
+   cursor, pop_until and reset_cursor span both tiers.  Spool messages
+   are returned through a bounce buffer after the data region, valid
+   until the next cursor_advance. */
 
 #include "../../util/fd_util_base.h"
 
 #define FD_CIRCQ_ALIGN (4096UL)
+
+/* Well-known fd and size of the event tile retry queue spool file. */
+#define FD_EVENT_SPOOL_FD (123452)
+#define FD_EVENT_SPOOL_SZ (256UL<<20UL)
 
 struct __attribute__((aligned(FD_CIRCQ_ALIGN))) fd_circq_private {
   /* Current count of elements in the queue. */
@@ -47,6 +59,19 @@ struct __attribute__((aligned(FD_CIRCQ_ALIGN))) fd_circq_private {
   ulong cursor_seq;      /* Monotonic counter - cursor value for current position */
   ulong cursor_push_seq; /* Monotonic counter - incremented on each push */
 
+  /* Spool tier: records are {ulong sz; ulong seq;} + payload in a file
+     ring; sz==ULONG_MAX marks an end-of-ring wrap. */
+  int   spool_fd;         /* -1 if none */
+  ulong spool_cap;        /* file ring bytes */
+  ulong spool_max_msg;    /* largest message; bounce buffer size */
+  ulong spool_head;       /* offset of oldest record */
+  ulong spool_tail;       /* offset of next append */
+  ulong spool_cnt;
+  ulong spool_bytes;
+  int   cursor_spool;     /* next advance reads spool_cursor (cursor==ULONG_MAX) */
+  int   cursor_ram_entry; /* next advance starts at memory head, cursor_seq seeded (cursor==ULONG_MAX) */
+  ulong spool_cursor;
+
   struct {
     ulong drop_cnt;
   } metrics;
@@ -64,9 +89,27 @@ fd_circq_align( void );
 FD_FN_CONST ulong
 fd_circq_footprint( ulong sz );
 
+/* fd_circq_spool_footprint is fd_circq_footprint plus a max_msg
+   bounce buffer for spool reads. */
+
+FD_FN_CONST ulong
+fd_circq_spool_footprint( ulong sz,
+                          ulong max_msg );
+
 void *
 fd_circq_new( void * shmem,
               ulong  sz );
+
+/* fd_circq_spool_init attaches file fd as a cap byte spool ring.
+   max_msg bounds every push footprint.  Memory must be sized with
+   fd_circq_spool_footprint and sz a multiple of FD_CIRCQ_ALIGN.  Call
+   before the first push. */
+
+void
+fd_circq_spool_init( fd_circq_t * circq,
+                     int          fd,
+                     ulong        cap,
+                     ulong        max_msg );
 
 fd_circq_t *
 fd_circq_join( void * shbuf );
@@ -130,8 +173,8 @@ void
 fd_circq_reset_cursor( fd_circq_t * circq );
 
 /* fd_circq_bytes_used returns the bytes held by queued messages,
-   including their metadata and alignment padding.  The unused tail a
-   wrapping push skips over is not counted. */
+   including their metadata and alignment padding, over both tiers.
+   The unused tail a wrapping push skips over is not counted. */
 
 ulong
 fd_circq_bytes_used( fd_circq_t const * circq );
