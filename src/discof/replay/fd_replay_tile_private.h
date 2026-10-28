@@ -67,10 +67,7 @@ typedef struct fd_block_id_ele fd_block_id_ele_t;
 struct fd_reception_stats {
   ulong                     bank_seq; /* alpenglow guard: valid iff ==bank->bank_seq */
   uint                      fec_set_idx;
-
-  union {
-    fd_repair_fec_metrics_t rotor;
-  } metrics;
+  uchar                     votor_repaired;
 };
 typedef struct fd_reception_stats fd_reception_stats_t;
 

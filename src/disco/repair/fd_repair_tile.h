@@ -110,61 +110,15 @@
 /* alpenglow type - completed block metadata, on rotor_rserve */
 #define ROTOR_SIG_BLOCK       (4UL)
 
-struct fd_repair_fec_metrics {
-  uint  stats_valid;         /* 1 if the counters below are populated */
-
-  /* 1 if the FEC was delivered under a votor-driven version of its slot
-     -- one the rotor created from a cert and filled by block id
-     repair -- and 0 if it was delivered under the slot's turbine
-     version, our own leader blocks included. */
-  uchar votor_repaired;
-
-  uint  blk_turbine_cnt;            /* block: data shreds received via turbine, plus every coding shred */
-  uint  blk_repair_cnt;             /* block: data shreds received via repair */
-  uint  blk_recovered_cnt;          /* block: shreds recovered via reed-solomon */
-  uint  blk_data_cnt;               /* block: data shreds held */
-  uint  blk_parity_cnt;             /* block: coding shreds received */
-  uchar blk_slot_complete;          /* block: 1 if the end of the block is known */
-  uint  blk_last_completed_fec_idx; /* block: fec_set_idx of the set that most recently completed reception, UINT_MAX if none */
-
-  uint  blk_req_window_cnt;     /* block: positional specific-shred requests sent */
-  uint  blk_req_highest_cnt;    /* block: highest-shred requests sent */
-  uint  blk_req_orphan_cnt;     /* block: orphan requests sent */
-  uint  blk_req_shred_bid_cnt;  /* block: ShredForBlockId requests sent */
-  uint  blk_req_parent_cnt;     /* block: ParentAndFecCount requests sent */
-  uint  blk_req_fec_root_cnt;   /* block: FecRoot requests sent */
-  uint  blk_req_retransmit_cnt; /* block: requests re-issued after a timeout or bad response */
-  uint  blk_repair_responses;   /* block: repair responses matched to an outstanding request */
-
-  ulong blk_first_shred_ts_nanos;      /* block: when the first shred arrived, 0 if never stamped */
-  ulong blk_last_shred_ts_nanos;       /* block: when the block became contiguous, 0 if it has not */
-  ulong blk_first_req_ts_nanos;        /* block: when the first specific-shred repair request was sent, 0 if none */
-  ulong blk_last_repair_resp_ts_nanos; /* block: when the most recent matched repair response arrived, 0 if none */
-
-  long  fec_completed_ts_nanos; /* this FEC: network arrival (wallclock ns) of the shred that completed it, 0 if unavailable */
-
-  /* Highest slot rotor has completed a FEC set for off the network, our
-     own leader FEC sets excluded: the cluster tip.  Not a per-block
-     figure like the rest of these metrics. */
-  ulong highest_fec_complete_slot;
-};
-typedef struct fd_repair_fec_metrics fd_repair_fec_metrics_t;
-
 struct fd_repair_replay_fec {
    ulong     slot;
-   uint      fec_set_idx;
-   fd_hash_t mr;
+   uint      parent_off    : 31; /* slot - parent_slot; delivered blks hang off the root inside the window */
+   uint      finalized     : 1;  /* Known pre-execution that this block is finalized. 1 iff slot_complete and block is finalized. */
 
-   /* conditional fields */
-
-   ulong     parent_slot;     /* only present if fec_set_idx is 0 or has
-                                 parentUpdate. TBD, could also just have
-                                 replay do parent reparsing */
-   fd_hash_t parent_block_id;
-
-   uchar     slot_complete : 1;
-   uchar     data_complete : 1;
-   uchar     is_leader     : 1;
+   uint      fec_set_idx   : 28; /* < FD_SHRED_BLK_MAX_RAISED */
+   uint      slot_complete : 1;
+   uint      data_complete : 1;
+   uint      is_leader     : 1;
 
    /* known_id.  This is not the same as slot_complete = 1. known_id
       should be set always to 1 if the block id was known from the
@@ -187,14 +141,23 @@ struct fd_repair_replay_fec {
       block_id. Neither does a merge: when a turbine copy completes as
       a block whose repaired copy is also delivering, the surviving
       turbine copy keeps known_id 0, and replay keeps building its
-      {slot, 0} bank, abandoning the notarized copy's bank. */
-   uchar     known_id : 1;
-   fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
-   uchar     finalized : 1; /* Known pre-execution that this block is finalized. 1 iff slot_complete and block is finalized. */
+      {slot, 0} bank, abandoning the notarized copy's bank.
 
-   fd_repair_fec_metrics_t metrics;
+      Also the block_completed votor_repaired flag. */
+   uint      known_id      : 1;
+
+   /* Highest slot rotor has completed a FEC set for off the network, our
+      own leader FEC sets excluded: the cluster tip. */
+   ulong     highest_fec_complete_slot;
+   long      fec_completed_ts_nanos; /* network arrival (wallclock ns) of the shred that completed it, 0 if unavailable */
+
+   fd_hash_t mr;
+   fd_hash_t parent_block_id; /* only present if fec_set_idx is 0 */
+   fd_hash_t block_id; /* always populated if known_id is 1, or if slot_complete is 1.  Otherwise could be populated on redelivery or as soon as the block_id is computed.  */
 };
 typedef struct fd_repair_replay_fec fd_repair_replay_fec_t;
+
+FD_STATIC_ASSERT( sizeof(fd_repair_replay_fec_t)==128UL, repair_replay_fec_sz );
 
 /* fd_repair_block is published to rserve when a block's slot-complete
    FEC is delivered.  merkle_roots holds the first 20B of each FEC

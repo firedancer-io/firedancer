@@ -2515,9 +2515,9 @@ deliver_rotor_fec( fd_replay_tile_t * ctx,
   fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
-  fec->fec_set_idx     = fec_set_idx;
+  fec->fec_set_idx     = fec_set_idx & ((1U<<28)-1U);
   fec->mr              = *mr;
-  fec->parent_slot     = parent_slot;
+  fec->parent_off      = (uint)(slot-parent_slot) & ((1U<<31)-1U);
   fec->parent_block_id = *parent_block_id;
   fec->slot_complete   = !!slot_complete;
   fec->known_id        = !!verified;
@@ -2549,9 +2549,9 @@ deliver_rotor_fec_bid( fd_replay_tile_t * ctx,
   fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
-  fec->fec_set_idx     = fec_set_idx;
+  fec->fec_set_idx     = fec_set_idx & ((1U<<28)-1U);
   fec->mr              = *mr;
-  fec->parent_slot     = parent_slot;
+  fec->parent_off      = (uint)(slot-parent_slot) & ((1U<<31)-1U);
   fec->parent_block_id = *parent_block_id;
   fec->block_id        = *block_id;
   fec->slot_complete   = !!slot_complete;
@@ -3011,7 +3011,7 @@ deliver_rotor_fec_final( fd_replay_tile_t * ctx,
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
   fec->mr              = *mr;
-  fec->parent_slot     = 0UL;
+  fec->parent_off      = (uint)slot & ((1U<<31)-1U);
   fec->parent_block_id = *parent_block_id;
   fec->block_id        = *block_id;
   fec->slot_complete   = 1;
@@ -3402,9 +3402,9 @@ deliver_leader_fec( fd_replay_tile_t * ctx,
   fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
-  fec->fec_set_idx     = fec_set_idx;
+  fec->fec_set_idx     = fec_set_idx & ((1U<<28)-1U);
   fec->mr              = *mr;
-  fec->parent_slot     = parent_slot;
+  fec->parent_off      = (uint)(slot-parent_slot) & ((1U<<31)-1U);
   fec->parent_block_id = *parent_block_id;
   fec->block_id        = *block_id;
   fec->slot_complete   = !!slot_complete;

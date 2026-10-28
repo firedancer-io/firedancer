@@ -1065,10 +1065,12 @@ after_credit( fd_repair_tile_t *  ctx,
     fd_repair_fec_t const *  fec = fd_repair_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ out.fec_idx ] );
     fd_repair_replay_fec_t * msg = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
     fd_memset( msg, 0, sizeof(fd_repair_replay_fec_t) );
+    ulong fec_set_idx    = (ulong)out.fec_idx*FD_FEC_SHRED_CNT;
+    FD_TEST( blk->parent_slot<blk->slot && blk->slot-blk->parent_slot<(1UL<<31) && fec_set_idx<FD_SHRED_BLK_MAX_RAISED );
     msg->slot            = blk->slot;
-    msg->fec_set_idx     = out.fec_idx*FD_FEC_SHRED_CNT;
+    msg->parent_off      = (uint)(blk->slot-blk->parent_slot) & ((1U<<31)-1U);
+    msg->fec_set_idx     = (uint)fec_set_idx & ((1U<<28)-1U);
     msg->mr              = fec->mr32;
-    msg->parent_slot     = blk->parent_slot;
     msg->parent_block_id = blk->parent_blk_mr;
     msg->slot_complete   = out.fec_idx+1U==blk->cmpl_fec_cnt;
     msg->data_complete   = fec->data_complete;
@@ -1076,9 +1078,8 @@ after_credit( fd_repair_tile_t *  ctx,
     msg->known_id        = fd_repair_slot_meta( ctx->rotor, blk->slot )->eager!=out.blk_idx;
     msg->block_id        = blk->dmr;
     msg->finalized       = msg->slot_complete && fd_repair_slot_meta( ctx->rotor, blk->slot )->final==out.blk_idx;
-    msg->metrics.highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, ctx->catchup_slot );
-    msg->metrics.fec_completed_ts_nanos    = fec->cmpl_ts;       /* shred tile rx of the shred that completed it, 0 for our own */
-    msg->metrics.votor_repaired            = (uchar)msg->known_id;
+    msg->highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, ctx->catchup_slot );
+    msg->fec_completed_ts_nanos    = fec->cmpl_ts;       /* shred tile rx of the shred that completed it, 0 for our own */
     fd_stem_publish( stem, ctx->replay_out_idx, ROTOR_SIG_FEC_REPLAY, ctx->replay_out_chunk, sizeof(fd_repair_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_repair_replay_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
     ctx->metrics->fec_delivered++;

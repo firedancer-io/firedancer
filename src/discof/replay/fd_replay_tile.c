@@ -782,7 +782,6 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
                                       ulong                        bank_idx ) {
   ev->lowest_verified_fec_index    = 0U;
   ev->last_completed_fec_set_index = UINT_MAX;
-  fd_repair_fec_metrics_t const * rm = NULL;
 
     fd_bank_t const * bank = bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, bank_idx );
     if( FD_UNLIKELY( !bank ) ) return;
@@ -800,31 +799,7 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
        occupant of this bank idx, i.e. we have no stats for this block. */
     fd_reception_stats_t const * s = &ctx->reception_stats[ bank_idx ];
     if( FD_UNLIKELY( s->bank_seq!=bank->bank_seq ) ) return;
-    rm = &s->metrics.rotor;
-    ev->votor_repaired = !!rm->votor_repaired;
-
-    if( FD_UNLIKELY( !rm->stats_valid ) ) return;
-
-    ev->turbine_shred_count   = rm->blk_turbine_cnt;
-    ev->repair_shred_count    = rm->blk_repair_cnt;
-    ev->recovered_shred_count = rm->blk_recovered_cnt;
-    ev->data_shred_count      = rm->blk_data_cnt;
-    ev->parity_shred_count    = rm->blk_parity_cnt;
-    ev->slot_complete_flag    = !!rm->blk_slot_complete;
-
-    ev->last_completed_fec_set_index        = rm->blk_last_completed_fec_idx;
-    ev->repair_request_window_count         = rm->blk_req_window_cnt;
-    ev->repair_request_highest_window_count = rm->blk_req_highest_cnt;
-    ev->repair_request_orphan_count         = rm->blk_req_orphan_cnt;
-    ev->repair_request_shred_block_id_count = rm->blk_req_shred_bid_cnt;
-    ev->repair_request_parent_count         = rm->blk_req_parent_cnt;
-    ev->repair_request_fec_root_count       = rm->blk_req_fec_root_cnt;
-    ev->repair_requests_retransmitted       = rm->blk_req_retransmit_cnt;
-    ev->repair_responses_received           = rm->blk_repair_responses;
-    ev->first_shred_received_time           = rm->blk_first_shred_ts_nanos;
-    ev->last_shred_received_time            = rm->blk_last_shred_ts_nanos;
-    ev->first_repair_request_time           = rm->blk_first_req_ts_nanos;
-    ev->last_repair_received_time           = rm->blk_last_repair_resp_ts_nanos;
+    ev->votor_repaired = !!s->votor_repaired;
 
     /* always zero for alpenglow*/
     ev->lowest_verified_fec_index  = 0;
@@ -3124,7 +3099,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
 
   if( FD_UNLIKELY( ctx->published_root_slot!=ULONG_MAX &&
                    ( fec->slot<=ctx->published_root_slot ||
-                     fec->parent_slot<ctx->published_root_slot ) ) ) {
+                     (fec->slot-fec->parent_off)<ctx->published_root_slot ) ) ) {
     ctx->metrics.fec_rooted_past++;
     return PROCESS_FEC_SKIP;
   }
@@ -3132,11 +3107,11 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
   ulong               parent_bank_idx = UINT_MAX;
   fd_block_id_ele_t * parent          = NULL;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
-    ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
+    ag_block_id_t parent_key = ag_block_id( (fec->slot-fec->parent_off), fec->parent_block_id.uc );
     parent = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->parent_block_id.uc, parent_key_b58 );
-      FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u, parent slot %lu parent block_id %s", fec->slot, fec->fec_set_idx, fec->parent_slot, parent_key_b58 ));
+      FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u, parent slot %lu parent block_id %s", fec->slot, (uint)fec->fec_set_idx, (fec->slot-fec->parent_off), parent_key_b58 ));
 
       /* We cannot tell here why the parent is missing -- dropped on a
          dead lineage, evicted with its tracking slot reused, or rooted
@@ -3154,7 +3129,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     parent = fd_block_id_map_ele_query( ctx->block_id_map, &key, NULL, ctx->block_id_arr );
     if( FD_UNLIKELY( !parent ) ) {
       FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
-      FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u slot_bid %s. parent slot %lu", fec->slot, fec->fec_set_idx, block_id_b58, fec->parent_slot ));
+      FD_LOG_INFO(( "parent bank not found for slot %lu fec set idx %u slot_bid %s. parent slot %lu", fec->slot, (uint)fec->fec_set_idx, block_id_b58, (fec->slot-fec->parent_off) ));
       ctx->metrics.parent_unavailable++;
       return PROCESS_FEC_DROP; // either pruned or bank evicted
     }
@@ -3168,7 +3143,7 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
      wait to process the FEC until the bank has been evicted. */
   fd_bank_t * parent_fec_bank = parent_bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent_bank_idx );
   if( FD_UNLIKELY( parent_fec_bank && parent_fec_bank->bank_seq==parent->bank_seq && parent_fec_bank->state==FD_BANK_STATE_PRUNABLE ) ) {
-    FD_LOG_DEBUG(( "waiting to process FEC set (slot=%lu, fec_set_idx=%u) because parent bank is being pruned", fec->slot, fec->fec_set_idx ));
+    FD_LOG_DEBUG(( "waiting to process FEC set (slot=%lu, fec_set_idx=%u) because parent bank is being pruned", fec->slot, (uint)fec->fec_set_idx ));
     return PROCESS_FEC_WAIT;
   }
 
@@ -3223,15 +3198,15 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
 
   int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
   if( FD_UNLIKELY( invalid_parent ) ) {
-    FD_LOG_INFO(( "parent bank evicted for slot %lu fec set idx %u, parent slot %lu", fec->slot, fec->fec_set_idx, fec->parent_slot ));
+    FD_LOG_INFO(( "parent bank evicted for slot %lu fec set idx %u, parent slot %lu", fec->slot, (uint)fec->fec_set_idx, (fec->slot-fec->parent_off) ));
     ctx->metrics.parent_unavailable++;
     return PROCESS_FEC_DROP;
-  } else if( FD_UNLIKELY( fec->fec_set_idx!=0U && parent->latest_fec_idx!=fec->fec_set_idx - FD_FEC_SHRED_CNT ) ) {
+  } else if( FD_UNLIKELY( fec->fec_set_idx!=0U && parent->latest_fec_idx!=(uint)fec->fec_set_idx - FD_FEC_SHRED_CNT ) ) {
     /* Similar to the very first condition in can_process_rotor_fec,
        but this would hit if we were halfway through replaying a slot
        and then requested redelivery from rotor. Then we can skip
        replaying the first half of the slot. */
-    FD_LOG_INFO(( "fec redelivered for slot %lu fec set idx %u, parent slot %lu. bank_idx %lu, latest_fec_idx %u", fec->slot, fec->fec_set_idx, fec->parent_slot, fd_block_id_ele_get_idx( ctx->block_id_arr, parent ), parent->latest_fec_idx ));
+    FD_LOG_INFO(( "fec redelivered for slot %lu fec set idx %u, parent slot %lu. bank_idx %lu, latest_fec_idx %u", fec->slot, (uint)fec->fec_set_idx, (fec->slot-fec->parent_off), fd_block_id_ele_get_idx( ctx->block_id_arr, parent ), parent->latest_fec_idx ));
     return PROCESS_FEC_SKIP; // context for slot exists, but this is an earlier or non-contiguous FEC. Safe to skip.
   }
 
@@ -3816,14 +3791,14 @@ static void
 process_rotor_fec( fd_replay_tile_t       * ctx,
                    fd_stem_context_t      * stem,
                    fd_repair_replay_fec_t * fec ) {
-  if( FD_LIKELY( fec->metrics.highest_fec_complete_slot && ( ctx->catch_up_max_fec_slot==ULONG_MAX || fec->metrics.highest_fec_complete_slot>ctx->catch_up_max_fec_slot ) ) ) {
-    ctx->catch_up_max_fec_slot = fec->metrics.highest_fec_complete_slot;
+  if( FD_LIKELY( fec->highest_fec_complete_slot && ( ctx->catch_up_max_fec_slot==ULONG_MAX || fec->highest_fec_complete_slot>ctx->catch_up_max_fec_slot ) ) ) {
+    ctx->catch_up_max_fec_slot = fec->highest_fec_complete_slot;
     ctx->catch_up_tip_advance_cnt++;
   }
 
   ulong parent_bank_idx = ULONG_MAX;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
-    ag_block_id_t parent_key = ag_block_id( fec->parent_slot, fec->parent_block_id.uc );
+    ag_block_id_t parent_key = ag_block_id( (fec->slot-fec->parent_off), fec->parent_block_id.uc );
     fd_block_id_ele_t * parent = fd_block_id_map_ele_query( ctx->block_id_map, &parent_key, NULL, ctx->block_id_arr );
     FD_TEST( parent );
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
@@ -3849,7 +3824,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   FD_TEST( parent_bank );
 
   if( FD_UNLIKELY( parent_bank->state==FD_BANK_STATE_DEAD ) ) {
-    FD_LOG_WARNING(( "parent bank is dead for slot %lu, fec set idx %u, parent slot %lu, dropping", fec->slot, fec->fec_set_idx, fec->parent_slot ));
+    FD_LOG_WARNING(( "parent bank is dead for slot %lu, fec set idx %u, parent slot %lu, dropping", fec->slot, (uint)fec->fec_set_idx, (fec->slot-fec->parent_off) ));
     return;
   }
 
@@ -3920,11 +3895,11 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   fd_reception_stats_t * stats = &ctx->reception_stats[ bank->idx ];
   stats->bank_seq      = bank->bank_seq;
   stats->fec_set_idx   = fec->fec_set_idx;
-  stats->metrics.rotor = fec->metrics; /* votor_repaired always, the counters only if stats_valid */
+  stats->votor_repaired = (uchar)fec->known_id;
 
   if( FD_UNLIKELY( fec->slot_complete ) ) {
     FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
-    FD_LOG_INFO(( "slot %lu fec set idx %u slot_bid %s is complete, inserted to map. finalized: %d", fec->slot, fec->fec_set_idx, block_id_b58, fec->finalized ));
+    FD_LOG_INFO(( "slot %lu fec set idx %u slot_bid %s is complete, inserted to map. finalized: %d", fec->slot, (uint)fec->fec_set_idx, block_id_b58, (int)fec->finalized ));
     block_id_ele->block_id_seen = 1;
     block_id_ele->dmr           = fec->block_id;
     block_id_ele->finalized     = !!fec->finalized;
@@ -3962,7 +3937,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   sched_fec->bank_idx          = bank->idx;
   sched_fec->parent_bank_idx   = bank->parent_idx;
   sched_fec->slot              = fec->slot;
-  sched_fec->parent_slot       = fec->parent_slot;
+  sched_fec->parent_slot       = fec->slot-fec->parent_off;
   sched_fec->is_first_in_block = fec->fec_set_idx==0U;
   sched_fec->fec               = store_fec;
   sched_fec->data              = data_view->data;
@@ -3970,7 +3945,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
-  sched_fec->completed_ns      = fec->metrics.fec_completed_ts_nanos;
+  sched_fec->completed_ns      = fec->fec_completed_ts_nanos;
 
   if( sched_fec->is_first_in_block ) {
     bank->refcnt++;
