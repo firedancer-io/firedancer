@@ -1598,6 +1598,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( out_idx!=ULONG_MAX && in_idx!=ULONG_MAX );
     fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ out_idx ] ];
     FD_TEST( sign_out->mtu>=FD_REPAIR_SIG_SER_MAX );
+    FD_TEST( sign_out->depth>=tile->rotor.repair_sign_depth );
     ctx->sign[ s ].idx         = out_idx;
     ctx->sign[ s ].mem         = topo->workspaces[ topo->objs[ sign_out->dcache_obj_id ].wksp_id ].wksp;
     ctx->sign[ s ].chunk0      = fd_dcache_compact_chunk0( ctx->sign[ s ].mem, sign_out->dcache );
