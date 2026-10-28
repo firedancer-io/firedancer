@@ -582,7 +582,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_gossvf", "gossip_gossvf", 65536UL*2UL,                              sizeof(fd_gossip_ping_update_t), 1UL ); /* min pow2 >= gossip's STEM_BURST */
   /**/                 fd_topob_link( topo, "gossip_ciaddr", "gossip_ciaddr", 65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* min pow2 >= gossip's STEM_BURST */
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
-                       fd_topob_link( topo, "gossip_ciseen", "gossip_ciseen", 65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
+                       fd_topob_link( topo, "gossip_ciseen", "gossip_ciseen", 65536UL*2UL,                              FD_GOSSIP_UPDATE_SZ_CONTACT_INFO, 1UL ); /* CONTACT_INFO and CONTACT_INFO_REMOVE only */
   }
   /**/                 fd_topob_link( topo, "gossip_misc",   "gossip_misc",   65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
 
