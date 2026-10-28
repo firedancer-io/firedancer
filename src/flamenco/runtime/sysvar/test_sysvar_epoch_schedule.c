@@ -185,7 +185,7 @@ test_sysvar_epoch_schedule_invalid_warmup( fd_wksp_t * wksp ) {
   };
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, NULL, &schedule );
 
-  FD_TEST( !fd_sysvar_cache_restore( env->bank, env->accdb ) );
+  FD_TEST( !fd_sysvar_cache_restore( env->sysvar_cache, env->accdb, env->bank->accdb_fork_id ) );
   FD_TEST( fd_sysvar_cache_epoch_schedule_is_valid( env->sysvar_cache )==0 );
 
   fd_epoch_schedule_t restored;

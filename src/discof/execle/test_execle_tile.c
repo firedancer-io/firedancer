@@ -2132,7 +2132,7 @@ FD_UNIT_TEST( execle_cpi ) {
   fd_memcpy( programdata_state_data + PROGRAMDATA_METADATA_SIZE, test_bpf_program, test_bpf_program_sz );
 
   fd_rent_t rent_;
-  fd_rent_t const * rent = fd_sysvar_cache_rent_read( &bank->f.sysvar_cache, &rent_ );
+  fd_rent_t const * rent = fd_sysvar_rent_read( env->mini->runtime->accdb, bank->accdb_fork_id, &rent_ );
   FD_TEST( rent );
   ulong const old_len              = sizeof(programdata_state_data);
   ulong const new_len              = old_len + MINIMUM_EXTEND_PROGRAM_BYTES;

@@ -97,16 +97,18 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   runner->bank->f.slot_params_default        = runner->bank->f.slot_params;
 
   /* Restore sysvars from account context */
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
+  fd_sysvar_cache_t * sysvar_cache = runner->runtime->sysvar_cache;
+  fd_sysvar_cache_restore_fuzz( sysvar_cache, runner->accdb, runner->bank->accdb_fork_id );
+  runner->runtime->sysvar_bank_seq = runner->bank->bank_seq;
 
   /* Epoch schedule */
-  FD_TEST( fd_sysvar_cache_epoch_schedule_read( &runner->bank->f.sysvar_cache, &runner->bank->f.epoch_schedule ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( sysvar_cache, &runner->bank->f.epoch_schedule ) );
 
   /* Epoch */
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
 
   /* Rent */
-  FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
+  FD_TEST( fd_sysvar_cache_rent_read( sysvar_cache, &runner->bank->f.rent ) );
 
   /* Alpenglow migration slot */
   runner->bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( runner->bank, accdb );

@@ -992,8 +992,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
   {
     reset_world();
-    /* Initialize slot hashes sysvar so the sysvar cache can serve them
-       to fd_executor_setup_txn_alut_account_keys. */
+    /* Initialize slot hashes sysvar for
+       fd_executor_setup_txn_alut_account_keys, and drop the runtime's
+       cached copy of this bank's sysvars. */
 
     uchar slot_hashes_data[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ];
     ulong sh_cnt = 10UL;
@@ -1005,8 +1006,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     }
     ulong sh_sz = sizeof(ulong) + sh_cnt * sizeof(fd_slot_hash_t);
     fd_sysvar_account_update( env->bank, env->runtime->accdb, NULL, &fd_sysvar_slot_hashes_id, slot_hashes_data, sh_sz );
-
-    fd_sysvar_cache_restore( env->bank, env->mini->runtime->accdb );
+    env->runtime->sysvar_bank_seq = 0UL;
 
     fd_pubkey_t alut_key = { .ul[0] = 0xA107UL };
     ulong num_alut_addrs = 4UL;

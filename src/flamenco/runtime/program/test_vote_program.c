@@ -4,6 +4,8 @@
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
 #include "fd_vote_program.h"
+#include "../sysvar/fd_sysvar.h"
+#include "../sysvar/fd_sysvar_clock.h"
 #include "../../features/fd_features.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include "vote/fd_vote_codec_tmpl.h"
@@ -1327,9 +1329,10 @@ static void
 set_clock_epoch( test_env_t * env,
                  ulong        epoch ) {
   fd_sol_sysvar_clock_t clock[1];
-  FD_TEST( fd_sysvar_cache_clock_read( &env->bank->f.sysvar_cache, clock ) );
+  FD_TEST( fd_sysvar_clock_read( env->mini->runtime->accdb, env->bank->accdb_fork_id, clock ) );
   clock->epoch = epoch;
-  fd_sysvar_cache_restore_one( &env->bank->f.sysvar_cache, &fd_sysvar_clock_id, 1UL, (uchar const *)clock, sizeof(fd_sol_sysvar_clock_t) );
+  fd_sysvar_account_update( env->bank, env->mini->runtime->accdb, NULL, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
+  env->mini->runtime->sysvar_bank_seq = 0UL;
 }
 
 static void

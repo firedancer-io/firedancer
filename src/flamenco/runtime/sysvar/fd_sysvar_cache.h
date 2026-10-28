@@ -3,22 +3,20 @@
 
 /* fd_sysvar_cache.h is a read-only cache of sysvar accounts.
 
-   Each block, the sysvar cache is used as follows:
+   Each block, sysvars are used as follows:
 
    - Sysvar accounts are written to DB pre-execution (Bank::new)
-   - Sysvar cache is restored from accounts (reads sysvar accounts)
-     (Recreated from scratch using account contents)
+   - Replay validates the sysvar accounts (fd_sysvar_cache_validate)
    - Parallel transaction execution (reads from sysvar cache)
    - Sysvar accounts are written to DB post-execution (Bank::freeze)
 
    In other words, sysvars backed by stored accounts are updated before
    and after transaction execution.  During transaction execution, they
-   are constant.  Firedancer stores a copy of these sysvars in the
-   sysvar cache for performance (in serialized form).
+   are constant.  Each executor (fd_runtime_t) keeps a local copy of
+   these sysvars for the bank it is executing (in serialized form).
 
    During the slot boundary (outside of transaction execution), sysvars
-   should be accessed using the accounts directly, and the sysvar cache
-   is considered non-existent. */
+   should be accessed using the accounts directly. */
 
 #include "fd_sysvar_base.h"
 #include "../../accdb/fd_accdb.h"
@@ -112,13 +110,15 @@ void *
 fd_sysvar_cache_delete( void * mem );
 
 /* fd_sysvar_cache_restore rebuilds the sysvar cache from the account
-   database.  Does blocking account database queries.  Returns 1 on
+   database as of fork_id.  Does blocking account database queries.
+   Must not be called while an accdb acquire is open.  Returns 1 on
    success (missing sysvars fine), or 0 if any present sysvar account
    fails validation (logs details at DEBUG level). */
 
 int
-fd_sysvar_cache_restore( fd_bank_t *  bank,
-                         fd_accdb_t * accdb );
+fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
+                         fd_accdb_t *        accdb,
+                         fd_accdb_fork_id_t  fork_id );
 
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
    with solfuzz/protosol conformance tooling.  This version works around
@@ -126,8 +126,17 @@ fd_sysvar_cache_restore( fd_bank_t *  bank,
    missing-sysvar logs. */
 
 void
-fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
-                              fd_accdb_t * accdb );
+fd_sysvar_cache_restore_fuzz( fd_sysvar_cache_t * cache,
+                              fd_accdb_t *        accdb,
+                              fd_accdb_fork_id_t  fork_id );
+
+/* fd_sysvar_cache_validate checks that every present sysvar account
+   of the bank decodes, without keeping a copy.  Same return value as
+   fd_sysvar_cache_restore. */
+
+int
+fd_sysvar_cache_validate( fd_bank_t const * bank,
+                          fd_accdb_t *      accdb );
 
 /* fd_sysvar_cache_restore_one restores a single sysvar cache entry from
    raw account fields (as opposed to a full fd_acc_t).  If pubkey is not

@@ -358,6 +358,7 @@
         "accdb_disk_read":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Reads from the account database file" },
         "accdb_disk_written_bytes":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bytes written to the account database file" },
         "accdb_disk_written":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Writes to the account database file" },
-        "accdb_copied_bytes":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" }
+        "accdb_copied_bytes":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" },
+        "bank_switched":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cache invalidations due to transaction execution from a different block" }
     }
 }

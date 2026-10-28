@@ -162,6 +162,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED,   runtime->metrics.instr_cum );
   FD_MCNT_SET( EXECRP, CPI_EXECUTED,           runtime->metrics.cpi_cum   );
   FD_MCNT_SET( EXECRP, ACCOUNT_LTHASH_SKIPPED, runtime->metrics.lthash_unchanged_cnt );
+  FD_MCNT_SET( EXECRP, BANK_SWITCHED, runtime->metrics.bank_switch_cnt );
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -500,6 +501,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->runtime->accdb                    = ctx->accdb;
+  ctx->runtime->sysvar_bank_seq          = 0UL;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
