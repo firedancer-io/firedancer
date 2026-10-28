@@ -226,6 +226,17 @@ ulong
 fd_progcache_shmem_footprint( ulong txn_max,
                               ulong progcache_sz );
 
+/* fd_progcache_shmem_arena sets [*lo,*hi) to the value arena's byte
+   range relative to the shmem.  Arena bytes are only read for live
+   records, so the range holds no state until the first program load.
+   Returns 0 on invalid params. */
+
+int
+fd_progcache_shmem_arena( ulong   txn_max,
+                          ulong   progcache_sz,
+                          ulong * lo,
+                          ulong * hi );
+
 fd_progcache_shmem_t *
 fd_progcache_shmem_new( void * shmem,
                         ulong  wksp_tag,
