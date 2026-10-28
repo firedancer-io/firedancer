@@ -63,12 +63,13 @@ check_exact_fit( ulong txn_max,
   FD_TEST( wksp_idx!=ULONG_MAX );
   fd_topo_wksp_t const * wksp = &topo->workspaces[ wksp_idx ];
 
-  ulong locked = wksp->page_cnt*wksp->page_sz;
-  if( FD_UNLIKELY( locked!=fd_ulong_align_up( wksp_size, wksp->page_sz ) ) ) {
-    FD_LOG_ERR(( "wksp_size %lu (%lu MiB): locked %lu B (%lu x %lu B pages), expected %lu B; "
+  /* A huge page tail replaces a gigantic round-up */
+  ulong locked   = fd_topo_wksp_sz( wksp );
+  ulong expected = fd_ulong_align_up( wksp_size, wksp->tail_page_cnt ? FD_SHMEM_HUGE_PAGE_SZ : wksp->page_sz );
+  if( FD_UNLIKELY( locked!=expected ) ) {
+    FD_LOG_ERR(( "wksp_size %lu (%lu MiB): locked %lu B (%lu x %lu B pages + %lu huge), expected %lu B; "
                  "PROGCACHE_WKSP_OVERHEAD_SZ does not cover fd_topob's layout",
-                 wksp_size, wksp_size>>20, locked, wksp->page_cnt, wksp->page_sz,
-                 fd_ulong_align_up( wksp_size, wksp->page_sz ) ));
+                 wksp_size, wksp_size>>20, locked, wksp->page_cnt, wksp->page_sz, wksp->tail_page_cnt, expected ));
   }
 }
 
