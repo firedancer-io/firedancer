@@ -76,8 +76,7 @@ case $what in
       ACCOUNTS_DB=$RAMDB/accounts.db out=$out.warmup backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000
     fi
     ACCOUNTS_DB=$RAMDB/accounts.db backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000 ;;
-  epoch)    backtest "${BENCH_EPOCH_LEDGER:-mainnet-epoch-boundary-461376000}" \
-            -e "${BENCH_EPOCH_END_SLOT:-461376010}" -m 2000000 ;;  # crosses one epoch boundary
+  epoch)    backtest "${BENCH_EPOCH_LEDGER:-mainnet-epoch-boundary-461376000}" -m 2000000 ;;  # whole ledger: crosses one epoch boundary
   bench)
     { cat "$BENCH_DIR/$side/bench.toml"; printf '[paths]\n    accounts = "%s"\n    shredb = "%s"\n' "$DUMP_DIR/accounts.db" "$SHREDB"; } > "$out.toml"
     quiesce
