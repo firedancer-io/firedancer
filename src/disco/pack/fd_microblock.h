@@ -79,7 +79,8 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_PER_BUNDLE<=MAX_TXN_PER_MICROBLOCK, bundle_fit
    largest microblock the pack tile will produce, plus the 48B of
    microblock header (hash and 2 ulongs) plus the fd_entry_batch_meta_t
    metadata. */
-#define FD_POH_SHRED_MTU (sizeof(fd_entry_batch_meta_t) + sizeof(fd_entry_batch_header_t) + FD_TPU_MTU * MAX_TXN_PER_MICROBLOCK)
+#define FD_POH_SHRED_MTU_TXN(txn_max) (sizeof(fd_entry_batch_meta_t) + sizeof(fd_entry_batch_header_t) + FD_TPU_MTU * (txn_max))
+#define FD_POH_SHRED_MTU FD_POH_SHRED_MTU_TXN(MAX_TXN_PER_MICROBLOCK)
 
 FD_STATIC_ASSERT( FD_POH_SHRED_MTU<=USHORT_MAX, poh_shred_mtu );
 

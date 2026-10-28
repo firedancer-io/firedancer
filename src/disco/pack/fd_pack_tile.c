@@ -332,6 +332,7 @@ typedef struct {
   int              in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   ulong    execle_cnt;
+  ulong    mblk_txn_max; /* txns that fit a pack_execle frag */
   ulong    execle_idle_bitset; /* bit i is 1 if we've observed *execle_current[i]==execle_expect[i] */
   int      poll_cursor; /* in [0, execle_cnt), the next execle to poll */
   int      use_consumed_cus;
@@ -949,6 +950,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     }
 
     if( FD_LIKELY( schedule_cnt ) ) {
+      FD_TEST( schedule_cnt<=ctx->mblk_txn_max );
       any_scheduled = 1;
       long  now2   = fd_tickcount();
       ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed execle was idle */
@@ -1586,6 +1588,10 @@ unprivileged_init( fd_topo_t const *      topo,
     out->chunk0 = fd_dcache_compact_chunk0( out->mem, link->dcache );
     out->wmark  = fd_dcache_compact_wmark ( out->mem, link->dcache, link->mtu );
     out->chunk  = out->chunk0;
+    ulong txn_max = (fd_ulong_max( link->mtu, sizeof(fd_microblock_execle_trailer_t) )-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
+    FD_TEST( txn_max>=EFFECTIVE_TXN_PER_MICROBLOCK );
+    FD_TEST( !tile->pack.bundle.enabled || txn_max>=FD_PACK_MAX_TXN_PER_BUNDLE );
+    ctx->mblk_txn_max = i ? fd_ulong_min( ctx->mblk_txn_max, txn_max ) : txn_max;
   }
 
   ctx->poh_out.out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_poh", 0UL );

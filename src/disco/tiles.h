@@ -184,8 +184,11 @@ typedef struct fd_microblock_execle_trailer fd_microblock_execle_trailer_t;
 
 /* Exact worst-case frag sizes for the pack_execle and execle_poh
    links.  execle strips the ALT accounts from each fd_txn_e_t before
-   forwarding to poh, so the poh side is smaller. */
-#define FD_PACK_EXECLE_MTU (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t))
-#define FD_EXECLE_POH_MTU  (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)+sizeof(fd_microblock_trailer_t))
+   forwarding to poh, so the poh side is smaller.  The _TXN forms size
+   for at most txn_max txns per microblock. */
+#define FD_PACK_EXECLE_MTU_TXN(txn_max) ((txn_max)*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t))
+#define FD_EXECLE_POH_MTU_TXN(txn_max)  ((txn_max)*sizeof(fd_txn_p_t)+sizeof(fd_microblock_trailer_t))
+#define FD_PACK_EXECLE_MTU FD_PACK_EXECLE_MTU_TXN(MAX_TXN_PER_MICROBLOCK)
+#define FD_EXECLE_POH_MTU  FD_EXECLE_POH_MTU_TXN(MAX_TXN_PER_MICROBLOCK)
 
 #endif /* HEADER_fd_src_disco_tiles_h */

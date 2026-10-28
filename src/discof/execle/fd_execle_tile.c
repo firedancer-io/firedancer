@@ -883,6 +883,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pack_in_wmark  = fd_dcache_compact_wmark ( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
 
   *ctx->out_poh = out1( topo, tile, "execle_poh" ); FD_TEST( ctx->out_poh->idx!=ULONG_MAX );
+  ulong pack_in_mtu  = topo->links[ tile->in_link_id[ 0UL ] ].mtu;
+  ulong mblk_txn_max = fd_ulong_min( (fd_ulong_max( pack_in_mtu, sizeof(fd_microblock_execle_trailer_t) )-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t), MAX_TXN_PER_MICROBLOCK );
+  FD_TEST( mblk_txn_max>=1UL );
+  FD_TEST( topo->links[ tile->out_link_id[ ctx->out_poh->idx ] ].mtu>=FD_EXECLE_POH_MTU_TXN( mblk_txn_max ) );
   *ctx->out_pack = out1( topo, tile, "execle_pack" );
 
   ctx->enable_rebates = ctx->out_pack->idx!=ULONG_MAX;
