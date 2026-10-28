@@ -898,7 +898,8 @@ prepare_fec( block_t const *  block,
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
   FD_TEST( seg_sz<=USHORT_MAX );
   store_fec->data_sz       = (uint)seg_sz;
-  store_fec->shred_sz[ 0 ] = (ushort)seg_sz;
+  static ushort shred_sz[ FD_FEC_SHRED_CNT ];
+  shred_sz[ 0 ] = (ushort)seg_sz;
 
   *fec = (fd_sched_fec_t) {
     .bank_idx           = block->bank_idx,
@@ -906,6 +907,7 @@ prepare_fec( block_t const *  block,
     .slot               = block->slot,
     .parent_slot        = block->parent_slot,
     .fec                = store_fec,
+    .shred_sz           = shred_sz,
     .data               = (uchar *)block->encoded + seg_start,
     .shred_cnt          = 1U,
     .is_last_in_batch   = !!block->seg_eob[ seg ],
