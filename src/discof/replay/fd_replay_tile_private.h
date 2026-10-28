@@ -394,8 +394,8 @@ struct fd_replay_tile {
 
   /* Watermarks marking the finalized but unreplayed slots.  lo is the
      oldest and held until replay reaches it.  hi is the newest and
-     continuously updated.  If the gap between hi and lo exceeds
-     max_live_slots, Firedancer halts. */
+     continuously updated.  Finalizations between lo and hi are dropped
+     since rooting hi implies its ancestors. */
   ag_block_id_t finalized_block_id_lo;
   ag_block_id_t finalized_block_id_hi;
 
