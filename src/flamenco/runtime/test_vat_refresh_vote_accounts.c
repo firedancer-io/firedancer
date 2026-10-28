@@ -782,7 +782,7 @@ test_geo_schedule_enforced_set( fd_wksp_t * wksp ) {
   fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( env->bank, 2UL );
   FD_TEST( leaders && leaders->pub_cnt==1UL );
   fd_pubkey_t v0 = vote_key( 0UL );
-  for( ulong i=0UL; i<leaders->sched_cnt; i++ ) FD_TEST( fd_pubkey_eq( leaders->vote_addr+i, &v0 ) );
+  for( ulong i=0UL; i<leaders->sched_cnt; i++ ) FD_TEST( fd_pubkey_eq( leaders->vote_keys+leaders->sched[ i ], &v0 ) );
 
   test_env_destroy( env );
   voter0_is_v5 = 0;
