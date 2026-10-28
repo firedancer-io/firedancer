@@ -104,7 +104,6 @@ struct fd_runtime_stack {
 
     ulong       total_rewards;
     ulong       distributed_rewards;
-    fd_w_u128_t total_points;
     ulong       block_rewards; /* SIMD-0123 pending delegator rewards swept out of vote accounts at the boundary */
 
     ulong stake_rewards_cnt;

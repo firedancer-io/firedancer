@@ -20,6 +20,7 @@
 #include "../stakes/fd_stake_types.h"
 #include "../stakes/fd_vote_stakes.h"
 #include "../stakes/fd_stakes.h"
+#include "../rewards/fd_epoch_inflation_account.h"
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -36,7 +37,7 @@ static fd_validator_location_t const * voter0_location = &LOC_FRA;
 
 #define GENESIS_CREATION_TIME (1700000000L)
 
-#define VOTE_ACCOUNT_LAMPORTS (1000000000UL)
+#define VOTE_ACCOUNT_LAMPORTS (100000000000UL) /* covers rent and VAT */
 #define BASE_STAKE            (1000000000UL)
 #define WHALE_STAKE           (5UL*BASE_STAKE)
 
@@ -116,6 +117,14 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
   };
   env->bank->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, NULL, &epoch_schedule );
+}
+
+static void
+init_epoch_inflation_account( test_env_t * env ) {
+  fd_epoch_inflation_account_state_t state = { .current = {
+    .slots_per_epoch = TEST_SLOTS_PER_EPOCH,
+    .epoch           = fd_slot_to_epoch( &env->bank->f.epoch_schedule, env->bank->f.slot, NULL ) } };
+  fd_epoch_inflation_account_write( env->bank, env->accdb, NULL, &state );
 }
 
 static void
@@ -371,6 +380,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   env->bank->f.slot_params             = FD_SLOT_PARAMS_400MS;
   env->bank->f.slot_params_default     = FD_SLOT_PARAMS_400MS;
   env->bank->f.ticks_per_slot          = 64UL;
+  /* Covers the accounts written below outside capitalization tracking */
+  env->bank->f.capitalization          = 1UL<<62;
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
@@ -380,6 +391,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
 
   init_rent_sysvar( env );
   init_epoch_schedule_sysvar( env );
+  init_epoch_inflation_account( env );
   fd_sysvar_stake_history_init( env->bank, env->accdb, NULL );
   fd_sysvar_clock_init( env->bank, env->accdb, NULL );
   init_blockhash_queue( env );

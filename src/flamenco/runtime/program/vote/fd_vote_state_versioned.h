@@ -182,10 +182,6 @@ fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
                                ulong                       epoch,
                                ulong                       current_slot );
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L40-L98 */
-int
-fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self );
-
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L966-L1007 */
 int
 fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,

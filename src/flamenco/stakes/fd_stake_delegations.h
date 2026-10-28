@@ -114,18 +114,12 @@
      upcoming epoch, which is naturally the largest epoch in the
      cluster.  Since tag_epoch was sometime in the past when a block
      rooted, tag_epoch<=target_epoch holds trivially.
-   - For the points calculation use case, recall that rewarded_epoch is
-     the just-ended epoch.  Since we are at the boundary of
-     rewarded_epoch=>rewarded_epoch+1, we know that
+   - For the reward stake accumulation in refresh_vote_accounts(),
+     recall that rewarded_epoch is the just-ended epoch.  Since we are
+     at the boundary of rewarded_epoch=>rewarded_epoch+1, we know that
      tag_epoch<=rewarded_epoch, because no slot has rooted for
      rewarded_epoch+1 yet.  So if we constrain the target_epoch to be
-     exactly rewarded_epoch, we get tag_epoch<=target_epoch.  It doesn't
-     hurt that most delegations are up to date on rewards payout, and
-     the only epoch for which they have eligible points is precisely the
-     rewarded_epoch.
-   - We disable the tag fast path for recalculation during boot, because
-     tags are computed fresh at the snapshot root, and so
-     rewarded_epoch<tag_epoch.
+     exactly rewarded_epoch, we get tag_epoch<=target_epoch.
 
    WARMED and COOLED are stable states and are the only tags that the
    fast paths act on.  The unstable state tags (WARMING/COOLING) are

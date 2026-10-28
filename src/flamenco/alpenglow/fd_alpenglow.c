@@ -517,8 +517,6 @@ fd_alpenglow_pda( char const *  seed,
 ulong
 fd_alpenglow_migration_slot( fd_bank_t *  bank,
                              fd_accdb_t * accdb ) {
-  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) return ULONG_MAX;
-
   fd_pubkey_t genesis_cert_addr;
   fd_alpenglow_pda( "carlgration", &genesis_cert_addr );
 

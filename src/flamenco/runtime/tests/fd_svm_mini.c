@@ -19,6 +19,7 @@
 #include "../../stakes/fd_stake_delegations.h"
 #include "../../stakes/fd_vote_stakes.h"
 #include "../../leaders/fd_leaders.h"
+#include "../../rewards/fd_epoch_inflation_account.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -314,7 +315,9 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   ulong const uniform_stake = 1000000000UL; /* 1 SOL */
   ulong const vote_min_bal  = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ );
   ulong const stake_min_bal = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_STAKE_STATE_SZ );
-  ulong const vote_bal      = fd_ulong_max( vote_min_bal, uniform_stake );
+  /* Pays VAT for 64 epoch boundaries */
+  ulong const vote_bal      = fd_ulong_max( vote_min_bal, uniform_stake ) +
+                              64UL*fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             fork_id     = bank->vote_stakes_fork_id;
@@ -666,6 +669,21 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     }
 
     free( slot_history_enc );
+
+    /* Empty epoch inflation state, as written at an Alpenglow genesis */
+    {
+      fd_epoch_inflation_account_state_t state = { .current = {
+        .slots_per_epoch = bank->f.epoch_schedule.slots_per_epoch,
+        .epoch           = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL ) } };
+      fd_pubkey_t address = fd_epoch_inflation_account_address();
+      fd_acc_t    acc     = fd_accdb_write_one( accdb, root_fork_id, address.uc );
+      acc.data_len = fd_epoch_inflation_account_encode( acc.data, &state );
+      acc.lamports = fd_rent_exempt_minimum_balance( &bank->f.rent, acc.data_len );
+      fd_memcpy( acc.owner, fd_solana_system_program_id.uc, 32UL );
+      acc.commit   = 1;
+      fd_accdb_unwrite_one( accdb, &acc );
+      bank->f.capitalization += acc.lamports;
+    }
 
     FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
   }

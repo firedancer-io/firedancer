@@ -15,7 +15,6 @@ struct fd_prev_epoch_inflation_rewards {
 typedef struct fd_prev_epoch_inflation_rewards fd_prev_epoch_inflation_rewards_t;
 
 struct fd_partitioned_rewards_calculation {
-  uint128 validator_points;
   ulong   old_vote_balance_and_staked;
   ulong   validator_rewards;
   double  validator_rate;
@@ -45,13 +44,10 @@ fd_apply_double_disinflation_rate( fd_bank_t * bank );
    - begin_partitioned_rewards
      - calculate_rewards_and_distribute_vote_rewards
        - calculate_rewards_for_partitioning
-         - calculate_reward_points_partitioned (calculates total points)
-           - calculate_points_all
+         - calculate_reward_points_partitioned (caches stake points)
+           - calculate_alpenglow_points
          - calculate_stake_vote_rewards (calculates reward list)
-           - calculate_stake_vote_rewards_account
-             - for each delegation: redeem_rewards
-               - calculate_stake_rewards
-                 - calculate_stake_points_and_credits
+           - for each delegation: redeem_rewards
        - ... update all vote accounts ...
      - ... update epoch rewards bank field ... */
 
@@ -71,10 +67,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
 
    Call stack is as follows:
    - calculate_stake_vote_rewards (calculates reward list)
-     - calculate_stake_vote_rewards_account
-       - for each delegation: redeem_rewards
-         - calculate_stake_rewards
-           - calculate_stake_points_and_credits */
+     - for each delegation: calculate_alpenglow_points, redeem_rewards */
 
 void
 fd_rewards_recalculate_partitioned_rewards( fd_bank_t *          bank,
@@ -113,11 +106,6 @@ struct fd_commission_split {
 };
 
 typedef struct fd_commission_split fd_commission_split_t;
-
-void
-fd_vote_commission_split( ushort                  commission,
-                          ulong                   on,
-                          fd_commission_split_t * result );
 
 FD_PROTOTYPES_END
 

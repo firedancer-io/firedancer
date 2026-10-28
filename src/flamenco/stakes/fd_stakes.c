@@ -525,7 +525,6 @@ get_vote_credits( uchar const *        account_data,
 
   epoch_credits->cnt          = (uchar)n;
   epoch_credits->base_credits = base;
-  epoch_credits->fast_path_ok = fd_epoch_credits_fast_path_ok( epoch_credits );
 }
 
 int
@@ -535,9 +534,8 @@ fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
                                       uchar const *     data,
                                       ulong             data_len ) {
   /* Agave's VAT filter also checks lamports against the VoteStateV4
-     rent-exempt minimum, plus one epoch's VAT burn once alpenglow is
-     active. */
-  ulong vat_to_burn_per_epoch = FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ? fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch : 0UL;
+     rent-exempt minimum, plus one epoch's VAT burn. */
+  ulong vat_to_burn_per_epoch = fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
   ulong minimum_balance       = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
   return lamports>=minimum_balance &&
          fd_vsv_is_correct_size_owner_and_init( owner, data, data_len ) &&
@@ -566,9 +564,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong total_deactivating         = 0UL;
   ulong staked_accounts            = 0UL;
   int   use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
-  int   alpenglow_enabled          = FD_FEATURE_ACTIVE_BANK( bank, alpenglow );
   int   block_revenue_sharing      = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
-  int   accumulate_reward_stakes   = alpenglow_enabled && rewarded_epoch!=ULONG_MAX;
+  int   accumulate_reward_stakes   = rewarded_epoch!=ULONG_MAX;
 
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
@@ -765,8 +762,6 @@ static void
 fd_stakes_burn_vat( fd_bank_t *         bank,
                     fd_accdb_t *        accdb,
                     fd_capture_ctx_t *  capture_ctx ) {
-  if( !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) return;
-
   fd_vote_stakes_t * vote_stakes    = fd_bank_vote_stakes( bank );
   ushort             fork_id        = bank->vote_stakes_fork_id;
   ulong              burn_per_epoch = fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch;
