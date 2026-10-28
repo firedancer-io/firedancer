@@ -633,7 +633,7 @@ zip_flush( fd_snapmk_t *     ctx,
   }
   ctx->metrics.bytes_written    += comp_wr_;
   ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
-  fd_histf_sample( ctx->metrics.disk_write_hist, (ulong)( t1-t0 ) );
+  if( FD_LIKELY( comp_sz ) ) fd_histf_sample( ctx->metrics.disk_write_hist, (ulong)( t1-t0 ) );
   ctx->pool_sz[ ctx->snap_idx ] += comp_wr_;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
