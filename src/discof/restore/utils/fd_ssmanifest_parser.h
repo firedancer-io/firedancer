@@ -41,8 +41,12 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
 int
 fd_ssmanifest_parser_fini( fd_ssmanifest_parser_t * parser );
 
+/* fd_ssmanifest_vote_stakes_from_v5 converts a v5 vote state into out,
+   writing its epoch credits history to ec[0,*ec_len). */
 int
 fd_ssmanifest_vote_stakes_from_v5( fd_snapshot_manifest_vote_stakes_t * out,
+                                   ulong *                              ec_len,
+                                   epoch_credits_t *                    ec,
                                    fd_vote_state_v5_t const *           v5 );
 
 FD_PROTOTYPES_END

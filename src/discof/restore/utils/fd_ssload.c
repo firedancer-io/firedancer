@@ -9,7 +9,58 @@ FD_STATIC_ASSERT( FD_HARD_FORKS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->hard_
 FD_STATIC_ASSERT( FD_BLOCKHASHES_MAX==sizeof(((fd_snapshot_manifest_t *)0)->blockhashes)/sizeof(fd_snapshot_manifest_blockhash_t), blockhashes_max );
 FD_STATIC_ASSERT( FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN==sizeof(((fd_snapshot_manifest_t *)0)->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t), epoch_stakes_len );
 FD_STATIC_ASSERT( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS==sizeof(((fd_snapshot_manifest_epoch_stakes_t *)0)->vote_stakes)/sizeof(fd_snapshot_manifest_vote_stakes_t), epoch_vote_stakes_max );
-FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==sizeof(((fd_snapshot_manifest_vote_stakes_t *)0)->epoch_credits)/sizeof(epoch_credits_t), vote_stakes_epoch_credits_max );
+FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->t_1_epoch_credits[0])/sizeof(epoch_credits_t), vote_stakes_epoch_credits_max );
+
+int
+fd_ssload_epoch_credits_validate( epoch_credits_t const * ec,
+                                  ulong                   len ) {
+  if( FD_UNLIKELY( len>FD_EPOCH_CREDITS_MAX ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: epoch_credits_history_len %lu exceeds max %lu", len, FD_EPOCH_CREDITS_MAX ));
+    return -1;
+  }
+  /* The Alpenglow migration marker is a special credits record that
+     separates pre-Alpenglow and post-Alpenglow credits.  Note
+     Alpenglow is for a slot, so the credit epoch before and after
+     can be the same.  Validators who earned credits before and
+     after will have two entries for the same epoch. */
+  ulong ec_base     = 0UL;
+  ulong prev        = ULONG_MAX; /* index of the previous non-marker entry */
+  int   marker_seen = 0;
+  for( ulong k=0UL; k<len; k++ ) {
+    epoch_credits_t const * epc = &ec[k];
+    if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker( epc ) ) ) {
+      if( FD_UNLIKELY( marker_seen ) ) {
+        FD_LOG_WARNING(( "corrupt snapshot: epoch credits have more than one alpenglow migration marker" ));
+        return -1;
+      }
+      marker_seen = 1;
+      continue;
+    }
+    if( FD_UNLIKELY( prev==ULONG_MAX ) ) ec_base = epc->prev_credits;
+    if( FD_UNLIKELY( epc->prev_credits>epc->credits ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch_credits[%lu].prev_credits %lu exceeds credits %lu", k, epc->prev_credits, epc->credits ));
+      return -1;
+    }
+    if( FD_UNLIKELY( prev!=ULONG_MAX && epc->epoch<ec[prev].epoch ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch_credits[%lu].epoch %lu is less than previous epoch %lu", k, epc->epoch, ec[prev].epoch ));
+      return -1;
+    }
+    if( FD_UNLIKELY( prev!=ULONG_MAX && epc->prev_credits!=ec[prev].credits ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch_credits[%lu].prev_credits %lu does not equal previous credits %lu", k, epc->prev_credits, ec[prev].credits ));
+      return -1;
+    }
+    if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch_credits[%lu].epoch %lu exceeds USHORT_MAX", k, epc->epoch ));
+      return -1;
+    }
+    if( FD_UNLIKELY( epc->credits<ec_base ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch_credits[%lu].credits %lu is below base %lu", k, epc->credits, ec_base ));
+      return -1;
+    }
+    prev = k;
+  }
+  return 0;
+}
 
 int
 fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
@@ -110,69 +161,15 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
-  /* Epoch credits downcasting validation */
-
   for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
     if( FD_UNLIKELY( manifest->epoch_stakes[i].vote_stakes_len>FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes_len %lu exceeds max %lu",
                        i, manifest->epoch_stakes[i].vote_stakes_len, FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ));
       return -1;
     }
-    for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
-      fd_snapshot_manifest_vote_stakes_t const * vs = &manifest->epoch_stakes[i].vote_stakes[j];
-      if( FD_UNLIKELY( vs->epoch_credits_history_len>FD_EPOCH_CREDITS_MAX ) ) {
-        FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits_history_len %lu exceeds max %lu",
-                         i, j, vs->epoch_credits_history_len, FD_EPOCH_CREDITS_MAX ));
-        return -1;
-      }
-      /* The Alpenglow migration marker is a special credits record that
-         separates pre-Alpenglow and post-Alpenglow credits.  Note
-         Alpenglow is for a slot, so the credit epoch before and after
-         can be the same.  Validators who earned credits before and
-         after will have two entries for the same epoch. */
-
-      ulong ec_base     = 0UL;
-      ulong prev        = ULONG_MAX; /* index of the previous non-marker entry */
-      int   marker_seen = 0;
-
-      for( ulong k=0UL; k<vs->epoch_credits_history_len; k++ ) {
-        epoch_credits_t const * epc = &vs->epoch_credits[k];
-        if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker( epc ) ) ) {
-          if( FD_UNLIKELY( marker_seen ) ) {
-            FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu] has more than one alpenglow migration marker", i, j ));
-            return -1;
-          }
-          marker_seen = 1;
-          continue;
-        }
-        if( FD_UNLIKELY( prev==ULONG_MAX ) ) ec_base = epc->prev_credits;
-        if( FD_UNLIKELY( epc->prev_credits>epc->credits ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu exceeds credits %lu",
-                           i, j, k, epc->prev_credits, epc->credits ));
-          return -1;
-        }
-        if( FD_UNLIKELY( prev!=ULONG_MAX && epc->epoch<vs->epoch_credits[prev].epoch ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu is less than previous epoch %lu",
-                           i, j, k, epc->epoch, vs->epoch_credits[prev].epoch ));
-          return -1;
-        }
-        if( FD_UNLIKELY( prev!=ULONG_MAX && epc->prev_credits!=vs->epoch_credits[prev].credits ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu does not equal previous credits %lu",
-                           i, j, k, epc->prev_credits, vs->epoch_credits[prev].credits ));
-          return -1;
-        }
-        if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu exceeds USHORT_MAX",
-                           i, j, k, epc->epoch ));
-          return -1;
-        }
-        if( FD_UNLIKELY( epc->credits<ec_base ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].credits %lu is below base %lu",
-                           i, j, k, epc->credits, ec_base ));
-          return -1;
-        }
-        prev = k;
-      }
+    if( FD_UNLIKELY( manifest->epoch_credits_invalid[i] ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu] has invalid epoch credits", i ));
+      return -1;
     }
   }
 
@@ -229,6 +226,15 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     FD_LOG_WARNING(( "corrupt snapshot: epoch stakes index %lu out of range (max %lu)",
                      t_1_idx, FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ));
     return -1;
+  }
+
+  /* Epoch credits downcasting validation (other epochs' credits were
+     validated by the parser and dropped) */
+  for( ulong j=0UL; j<manifest->epoch_stakes[t_1_idx].vote_stakes_len; j++ ) {
+    if( FD_UNLIKELY( fd_ssload_epoch_credits_validate( manifest->t_1_epoch_credits[j], manifest->t_1_epoch_credits_len[j] ) ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: T-1 epoch stakes entry %lu has invalid epoch credits", j ));
+      return -1;
+    }
   }
 
   if( FD_UNLIKELY( manifest->epoch_stakes[t_1_idx].vote_stakes_len>max_vote_accounts ) ) {
@@ -503,12 +509,13 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
     ulong cnt        = 0UL;
     ec->base_credits = 0UL;
-    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker( &elem->epoch_credits[ j ] ) ) ) continue;
-      if( FD_UNLIKELY( !cnt ) ) ec->base_credits = elem->epoch_credits[ j ].prev_credits;
-      ec->epoch[ cnt ]              = (ushort)elem->epoch_credits[ j ].epoch;
-      ec->credits_delta[ cnt ]      = elem->epoch_credits[ j ].credits      - ec->base_credits;
-      ec->prev_credits_delta[ cnt ] = elem->epoch_credits[ j ].prev_credits - ec->base_credits;
+    epoch_credits_t const * elem_ec = manifest->t_1_epoch_credits[ i ];
+    for( ulong j=0UL; j<manifest->t_1_epoch_credits_len[ i ]; j++ ) {
+      if( FD_UNLIKELY( fd_epoch_credits_is_alpenglow_marker( &elem_ec[ j ] ) ) ) continue;
+      if( FD_UNLIKELY( !cnt ) ) ec->base_credits = elem_ec[ j ].prev_credits;
+      ec->epoch[ cnt ]              = (ushort)elem_ec[ j ].epoch;
+      ec->credits_delta[ cnt ]      = elem_ec[ j ].credits      - ec->base_credits;
+      ec->prev_credits_delta[ cnt ] = elem_ec[ j ].prev_credits - ec->base_credits;
       cnt++;
     }
     /* Manifest validation already rejects non-increasing epochs (except
