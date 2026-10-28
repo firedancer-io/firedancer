@@ -599,6 +599,8 @@ fd_rpc_ws_unsubscribe( fd_rpc_tile_t * ctx,
   return 0;
 }
 
+#define RPC_BZ2_BLOCK_SZ_100K (1) /* loose_footprint is sized for this */
+
 static void *
 bz2_malloc( void * opaque,
             int    items,
@@ -654,7 +656,7 @@ fd_rpc_file_as_tarball( fd_rpc_tile_t * ctx,
   bzstrm.bzalloc = bz2_malloc;
   bzstrm.bzfree  = bz2_free;
   bzstrm.opaque  = ctx->bz2_alloc;
-  int bzerr = BZ2_bzCompressInit( &bzstrm, 1, 0, 0 );
+  int bzerr = BZ2_bzCompressInit( &bzstrm, RPC_BZ2_BLOCK_SZ_100K, 0, 0 );
   if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzCompressInit() failed (%d)", bzerr ));
 
   ulong tar_bz_sz = out_sz;
@@ -693,8 +695,9 @@ scratch_align( void ) {
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  /* bzip2 heap: BZ2_bzCompressInit at blockSize100k=1 takes ~1.12 MB */
-  return 4UL<<20;
+  /* bzip2 compress heap: EState + arr1/arr2 (400 KB each per 100k
+     block) + ftab (256 KiB) = 1.12 MB at block size 1. */
+  return 2UL<<20;
 }
 
 static inline ulong
