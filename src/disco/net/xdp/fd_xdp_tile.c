@@ -799,6 +799,7 @@ after_frag( fd_net_ctx_t *      ctx,
       /* sz includes an ethernet frame but not the VLAN tag. */
       ctx->net.metrics.tx_bytes_total += sz+FD_VLAN_TAG_SZ;
       ctx->net.metrics.tx_sock_cnt++;
+      if (ctx->net.tx_route.use_gre) ctx->net.metrics.tx_gre_cnt++;
     } else {
       ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]++;
     }
