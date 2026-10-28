@@ -73,6 +73,11 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong *                idx_bloom;
   ulong *                idx_dup;
 
+  /* Disk index geometry, kept out of shmem lines other tiles write */
+  ulong idx_seed;
+  ulong idx_slot_cnt;
+  ulong idx_bloom_cnt;
+
   fd_accdb_shmem_t * shmem;
 
   /* Doorbell for the parked accdb tile, NULL when nobody parks */
@@ -259,6 +264,14 @@ fd_accdb_ptr_in_region( fd_accdb_t const * accdb,
 }
 #endif
 
+static void
+idx_geometry_init( fd_accdb_t *             accdb,
+                   fd_accdb_shmem_t const * shmem ) {
+  accdb->idx_seed      = fd_accdb_idx_seed( shmem );
+  accdb->idx_slot_cnt  = shmem->idx_page_cnt*FD_ACCDB_IDX_SLOT_CNT;
+  accdb->idx_bloom_cnt = shmem->idx_bloom_cnt;
+}
+
 FD_FN_CONST ulong
 fd_accdb_align( void ) {
   return FD_ACCDB_ALIGN;
@@ -342,6 +355,7 @@ fd_accdb_new( void *              ljoin,
   accdb->idx_carry  = idx ? (fd_accdb_idx_slot_t *) ( (uchar *)shmem+shmem->idx_carry_off  ) : NULL;
   accdb->idx_bloom  = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_bloom_off  ) : NULL;
   accdb->idx_dup    = idx ? (ulong *)               ( (uchar *)shmem+shmem->idx_dup_off    ) : NULL;
+  idx_geometry_init( accdb, shmem );
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -799,6 +813,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->idx_carry  = NULL;
   accdb->idx_bloom  = shmem->idx_page_cnt ? (ulong *)( (uchar *)shmem+shmem->idx_bloom_off ) : NULL;
   accdb->idx_dup    = shmem->idx_page_cnt ? (ulong *)( (uchar *)shmem+shmem->idx_dup_off   ) : NULL;
+  idx_geometry_init( accdb, shmem );
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
@@ -1144,31 +1159,45 @@ idx_on( fd_accdb_t const * accdb ) {
   return !!accdb->shmem->idx_page_cnt;
 }
 
-#define idx_home fd_accdb_idx_home
+/* idx_hash returns the hash of pubkey that its home slot, bloom block
+   and bloom bits derive from (matches fd_accdb_idx_home). */
 
-/* idx_bloom_block returns the bloom filter block of a pubkey homed at
-   slot home.  Blocks follow home slots, so the pubkeys of a placement
-   window share a few cache resident blocks. */
+static inline ulong
+idx_hash( fd_accdb_t const * accdb,
+          uchar const        pubkey[ 32 ] ) {
+  return fd_hash32( pubkey, accdb->idx_seed );
+}
+
+/* idx_home returns the disk index slot a pubkey with hash h probes
+   from. */
+
+static inline ulong
+idx_home( fd_accdb_t const * accdb,
+          ulong              h ) {
+  return (ulong)( ( (uint128)h*(uint128)accdb->idx_slot_cnt )>>64 );
+}
+
+/* idx_bloom_block returns the bloom filter block of a pubkey with hash
+   h.  Blocks follow home slots, so the pubkeys of a placement window
+   share a few cache resident blocks. */
 
 static inline ulong *
 idx_bloom_block( fd_accdb_t const * accdb,
-                 ulong              home ) {
-  ulong slot_cnt = accdb->shmem->idx_page_cnt*FD_ACCDB_IDX_SLOT_CNT;
-  return accdb->idx_bloom+8UL*(ulong)( ( (uint128)home*(uint128)accdb->shmem->idx_bloom_cnt )/slot_cnt );
+                 ulong              h ) {
+  return accdb->idx_bloom+8UL*(ulong)( ( (uint128)h*(uint128)accdb->idx_bloom_cnt )>>64 );
 }
 
-/* idx_bloom tests (insert==0) or sets (insert==1) pubkey in the disk
-   index bloom filter: 4 bits in one 64 byte block.  A test miss proves
-   pubkey is not in the disk index.  Deletes leave their bits until the
-   next full snapshot index build.  Bits are set before the slot is
-   written. */
+/* idx_bloom tests (insert==0) or sets (insert==1) the pubkey with hash
+   h in the disk index bloom filter: 4 bits in one 64 byte block.  A
+   test miss proves the pubkey is not in the disk index.  Deletes leave
+   their bits until the next full snapshot index build.  Bits are set
+   before the slot is written. */
 
 static int
 idx_bloom( fd_accdb_t const * accdb,
-           uchar const        pubkey[ 32 ],
+           ulong              h,
            int                insert ) {
-  ulong   h     = fd_hash32( pubkey, accdb->shmem->seed^0x9e3779b97f4a7c15UL );
-  ulong * block = idx_bloom_block( accdb, idx_home( accdb->shmem, pubkey ) );
+  ulong * block = idx_bloom_block( accdb, h );
   ulong   g     = fd_ulong_hash( h );
   int     hit   = 1;
   for( ulong j=0UL; j<4UL; j++, g>>=9 ) {
@@ -1263,8 +1292,8 @@ idx_probe( fd_accdb_t *          accdb,
            fd_accdb_idx_slot_t * buf,
            ulong *               out_page,
            uint *                out_seq ) {
-  ulong page_cnt = accdb->shmem->idx_page_cnt;
-  ulong slot     = idx_home( accdb->shmem, pubkey );
+  ulong page_cnt = accdb->idx_slot_cnt/FD_ACCDB_IDX_SLOT_CNT;
+  ulong slot     = idx_home( accdb, idx_hash( accdb, pubkey ) );
   for( ulong n=0UL; n<page_cnt; n++ ) {
     ulong page = slot/FD_ACCDB_IDX_SLOT_CNT;
     uint  seq  = idx_page_read( accdb, page, buf );
@@ -1389,7 +1418,7 @@ fd_accdb_idx_query( fd_accdb_t *  accdb,
                     ulong *       out_off,
                     ulong *       out_lamports,
                     uint *        out_size ) {
-  if( FD_UNLIKELY( !idx_on( accdb ) || !idx_bloom( accdb, pubkey, 0 ) ) ) return 0;
+  if( FD_UNLIKELY( !idx_on( accdb ) || !idx_bloom( accdb, idx_hash( accdb, pubkey ), 0 ) ) ) return 0;
   fd_accdb_idx_slot_t buf[ FD_ACCDB_IDX_SLOT_CNT ] __attribute__((aligned(64)));
   ulong page;
   long  i = idx_probe( accdb, pubkey, 1, buf, &page, NULL );
@@ -2807,7 +2836,7 @@ acc_promote( fd_accdb_t *          accdb,
              ulong                 map_idx,
              fd_accdb_accmeta_t ** out ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
-  if( !idx_bloom( accdb, pubkey, 0 ) ) return 0;
+  if( !idx_bloom( accdb, idx_hash( accdb, pubkey ), 0 ) ) return 0;
   fd_accdb_idx_slot_t buf[ FD_ACCDB_IDX_SLOT_CNT ] __attribute__((aligned(64)));
   for(;;) {
     ulong page;
@@ -4746,7 +4775,7 @@ idx_spill_flush( fd_accdb_t * accdb,
 static void
 idx_spill( fd_accdb_t *                accdb,
            fd_accdb_idx_slot_t const * rec ) {
-  ulong range = idx_home( accdb->shmem, rec->pubkey )/( FD_ACCDB_IDX_WINDOW_PAGES*FD_ACCDB_IDX_SLOT_CNT );
+  ulong range = idx_home( accdb, idx_hash( accdb, rec->pubkey ) )/( FD_ACCDB_IDX_WINDOW_PAGES*FD_ACCDB_IDX_SLOT_CNT );
   fd_accdb_idx_range_t * r = &accdb->idx_range[ range ];
   spin_lock_acquire( &r->lock );
   accdb->idx_stage[ range*FD_ACCDB_IDX_STAGE_CNT+1UL+r->stage_cnt++ ] = *rec;
@@ -5084,15 +5113,15 @@ idx_build_range( fd_accdb_t *          accdb,
     fd_accdb_idx_chunk_hdr_t const * hdr = (fd_accdb_idx_chunk_hdr_t const *)stage;
     ulong cnt = hdr->cnt;
     tail = hdr->prev_plus1;
-    ulong home[ FD_ACCDB_IDX_STAGE_CNT ];
+    ulong hash[ FD_ACCDB_IDX_STAGE_CNT ];
     for( ulong i=1UL; i<=cnt; i++ ) {
-      home[ i ] = idx_home( shmem, stage[ i ].pubkey );
-      __builtin_prefetch( &win[ home[ i ]-base*FD_ACCDB_IDX_SLOT_CNT ] );
-      __builtin_prefetch( idx_bloom_block( accdb, home[ i ] ), 1 );
+      hash[ i ] = idx_hash( accdb, stage[ i ].pubkey );
+      __builtin_prefetch( &win[ idx_home( accdb, hash[ i ] )-base*FD_ACCDB_IDX_SLOT_CNT ] );
+      __builtin_prefetch( idx_bloom_block( accdb, hash[ i ] ), 1 );
     }
     for( ulong i=1UL; i<=cnt; i++ ) {
       fd_accdb_idx_slot_t rec = stage[ i ];
-      ulong s = home[ i ]-base*FD_ACCDB_IDX_SLOT_CNT;
+      ulong s = idx_home( accdb, hash[ i ] )-base*FD_ACCDB_IDX_SLOT_CNT;
       for( ; s<wslot && win[ s ].off_plus1 && memcmp( win[ s ].pubkey, rec.pubkey, 32UL ); s++ ) {}
       if( s==wslot ) {
         ulong c = FD_ATOMIC_FETCH_AND_ADD( &shmem->idx_build.carry_cnt, 1UL );
@@ -5102,7 +5131,7 @@ idx_build_range( fd_accdb_t *          accdb,
       }
       if( !win[ s ].off_plus1 ) {
         win[ s ] = rec;
-        idx_bloom( accdb, rec.pubkey, 1 );
+        idx_bloom( accdb, hash[ i ], 1 );
         winners++;
       } else {
         idx_dup( accdb, &win[ s ], &rec, &dup_cnt, &dup_lamports_hi, &dup_lamports, &freed );
@@ -5190,7 +5219,7 @@ fd_accdb_snapshot_index_build_fini( fd_accdb_t * accdb,
   for( ulong i=0UL; i<carry_cnt; i++ ) {
     fd_accdb_idx_slot_t * carry = &accdb->idx_carry[ i ];
     fd_accdb_idx_slot_t   old;
-    idx_bloom( accdb, carry->pubkey, 1 );
+    idx_bloom( accdb, idx_hash( accdb, carry->pubkey ), 1 );
     if( !idx_upsert( accdb, carry, &old ) ) { winners += !!carry->lamports; continue; }
     idx_dup( accdb, &old, carry, &dup_cnt, &dup_lamports_hi, &dup_lamports, &freed );
     idx_upsert( accdb, &old, &old );
@@ -5297,7 +5326,7 @@ background_demote( fd_accdb_t * accdb,
           .generation      = m->key.generation
         }, old;
         fd_memcpy( rec.pubkey, m->key.pubkey, 32UL );
-        idx_bloom( accdb, rec.pubkey, 1 );
+        idx_bloom( accdb, idx_hash( accdb, rec.pubkey ), 1 );
         if( idx_upsert( accdb, &rec, &old ) ) idx_free_old( accdb, &old );
         idx_kill_copies( accdb, m->key.pubkey );
       }
