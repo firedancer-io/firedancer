@@ -9,6 +9,8 @@
 
 static ulong publish_cnt;
 static ulong publish_sig;
+static ulong publish_data_sz;
+static uchar publish_data[ 16 ];
 static ulong init_cnt;
 static uchar output[ 4UL*FD_SNAPSHOT_DATA_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
@@ -25,6 +27,11 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
                    ulong               tspub   FD_PARAM_UNUSED ) {
   publish_cnt++;
   publish_sig = sig;
+  if( sig==FD_SNAPSHOT_MSG_DATA ) {
+    FD_TEST( publish_data_sz+sz<=sizeof(publish_data) );
+    fd_memcpy( publish_data+publish_data_sz, fd_chunk_to_laddr_const( output, chunk ), sz );
+    publish_data_sz += sz;
+  }
   if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL || sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
     FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
     fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, chunk );
@@ -54,9 +61,13 @@ static int test_epoll_fd = -1;
 #undef fd_sshttp_init
 #undef fd_stem_publish
 
+/* file: 0 downloads, 1 reads a memfd, 2 reads an uncached file on
+   disk through O_DIRECT (where the filesystem supports it). */
+
 static void
 test_start( int file,
             int bad_target ) {
+  static uchar rd_buf[ FD_SNAPLD_READ_SZ ] __attribute__((aligned(FD_SNAPLD_READ_ALIGN)));
   static fd_sshttp_t http[1];
   static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
@@ -68,16 +79,30 @@ test_start( int file,
   ctx->out_dc.mem    = (fd_wksp_t *)output;
   ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
   ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
-  ctx->local_full_fd = -1;
+  ctx->local_full_fd  = -1;
+  ctx->local_incr_fd  = -1;
+  ctx->local_full_dfd = -1;
+  ctx->local_incr_dfd = -1;
+  ctx->rd_buf         = rd_buf;
 
   int           server = -1;
   fd_ip4_port_t addr   = {0};
-  if( file ) {
+  if( file==1 ) {
     ctx->local_full_fd = memfd_create( "snapshot-test", 0 );
     FD_TEST( ctx->local_full_fd>=0 );
     ulong wsz;
     FD_TEST( !fd_io_write( ctx->local_full_fd, "snapshot", 8UL, 8UL, &wsz ) );
     FD_TEST( wsz==8UL );
+  } else if( file==2 ) {
+    char path[] = "/tmp/test_snapld_XXXXXX";
+    ctx->local_full_fd = mkstemp( path );
+    FD_TEST( ctx->local_full_fd>=0 );
+    ulong wsz;
+    FD_TEST( !fd_io_write( ctx->local_full_fd, "snapshot", 8UL, 8UL, &wsz ) );
+    FD_TEST( wsz==8UL && !fsync( ctx->local_full_fd ) );
+    FD_TEST( !posix_fadvise( ctx->local_full_fd, 0L, 0L, POSIX_FADV_DONTNEED ) );
+    ctx->local_full_dfd = open( path, O_RDONLY|O_DIRECT );
+    FD_TEST( !unlink( path ) );
   } else if( !bad_target ) {
     server = socket( AF_INET, SOCK_STREAM, 0 );
     FD_TEST( server>=0 );
@@ -97,7 +122,7 @@ test_start( int file,
   init->file    = file;
   init->slot    = 123UL;
   init->file_sz = file ? 8UL : 0UL;
-  publish_cnt = init_cnt = 0UL;
+  publish_cnt = init_cnt = publish_data_sz = 0UL;
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( publish_cnt==1UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
   FD_TEST( !init_cnt && !ctx->pipeline_ready && http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );
@@ -137,11 +162,15 @@ test_start( int file,
     } else {
       after_credit( ctx, test_stem, NULL, &busy );
       FD_TEST( publish_cnt>1UL && ctx->sent_meta );
+      for( int i=0; i<4 && ctx->state==FD_SNAPSHOT_STATE_PROCESSING; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+      FD_TEST( publish_sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE && ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      FD_TEST( publish_data_sz==8UL && !memcmp( publish_data, "snapshot", 8UL ) );
     }
   }
   fd_sshttp_cancel( http );
   if( server>=0 ) FD_TEST( !close( server ) );
   if( file      ) FD_TEST( !close( ctx->local_full_fd ) );
+  if( ctx->local_full_dfd>=0 ) FD_TEST( !close( ctx->local_full_dfd ) );
 }
 
 int
@@ -153,6 +182,7 @@ main( int     argc,
   test_start( 0, 0 );
   test_start( 0, 1 );
   test_start( 1, 0 );
+  test_start( 2, 0 );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
