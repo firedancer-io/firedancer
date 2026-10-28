@@ -270,16 +270,16 @@ struct fd_snapmk {
   ulong             startup_pool_idx;
 
   struct {
-    ulong snapshots_started[ FD_METRICS_ENUM_SNAP_TYPE_CNT ];
-    ulong snapshots_finished[ FD_METRICS_ENUM_SNAP_TYPE_CNT ];
-    ulong last_snapshot_slot_started_full;
-    ulong last_snapshot_slot_started_incremental;
-    ulong last_snapshot_slot_finished_full;
-    ulong last_snapshot_slot_finished_incremental;
-    ulong bytes_compressed;
-    ulong bytes_written;
-    ulong io_blocked_ticks;
-    ulong compress_ticks;
+    ulong      snapshots_started[ FD_METRICS_ENUM_SNAP_TYPE_CNT ];
+    ulong      snapshots_finished[ FD_METRICS_ENUM_SNAP_TYPE_CNT ];
+    ulong      last_snapshot_slot_started_full;
+    ulong      last_snapshot_slot_started_incremental;
+    ulong      last_snapshot_slot_finished_full;
+    ulong      last_snapshot_slot_finished_incremental;
+    ulong      bytes_compressed;
+    ulong      bytes_written;
+    ulong      io_blocked_ticks;
+    ulong      compress_ticks;
     fd_histf_t disk_write_hist[1];
   } metrics;
 };

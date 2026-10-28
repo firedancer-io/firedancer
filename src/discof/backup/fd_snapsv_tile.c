@@ -183,11 +183,10 @@ struct fd_snapsv {
   void *        ring_shmem;
 
   /* I/O buffers */
-  uchar * iobuf0;
-  uint *  iobuf_free;
-  uint    iobuf_free_cnt;
-  uint    iobuf_sz;
-
+  uchar *    iobuf0;
+  uint *     iobuf_free;
+  uint       iobuf_free_cnt;
+  uint       iobuf_sz;
   fd_histf_t disk_read_hist[1];
 
   /* TCP sockets */

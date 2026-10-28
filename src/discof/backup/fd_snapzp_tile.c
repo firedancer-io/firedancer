@@ -96,12 +96,12 @@ struct fd_snapzp {
   } disk;
 
   struct {
-    ulong accounts_compressed;
-    ulong cache_read_torn;
-    ulong bytes_compressed;
-    ulong bytes_written;
-    ulong io_blocked_ticks;
-    ulong compress_ticks;
+    ulong      accounts_compressed;
+    ulong      cache_read_torn;
+    ulong      bytes_compressed;
+    ulong      bytes_written;
+    ulong      io_blocked_ticks;
+    ulong      compress_ticks;
     fd_histf_t disk_write_hist[1];
   } metrics;
 

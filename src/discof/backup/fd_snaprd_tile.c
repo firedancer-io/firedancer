@@ -60,10 +60,10 @@ struct fd_snaprd {
   } out;
 
   struct {
-    ulong bytes_read;
-    ulong export_progress_bytes;
-    ulong export_total_bytes;
-    ulong io_blocked_ticks;
+    ulong      bytes_read;
+    ulong      export_progress_bytes;
+    ulong      export_total_bytes;
+    ulong      io_blocked_ticks;
     fd_histf_t disk_read_hist[1];
   } metrics;
 
