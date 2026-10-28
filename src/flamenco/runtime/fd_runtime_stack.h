@@ -61,6 +61,11 @@ typedef struct fd_stake_accum fd_stake_accum_t;
 
 /* fd_map_chain over fd_stake_accum_t, instantiated in fd_runtime_stack_tmpl.h */
 
+/* Voters beyond the stake_accum RAM map spill to this unlinked file
+   (pread/pwrite, replay only). */
+
+#define FD_STAKE_ACCUM_FD (123448)
+
 struct fd_stake_accum_map_private;
 typedef struct fd_stake_accum_map_private fd_stake_accum_map_t;
 
@@ -110,6 +115,16 @@ struct fd_runtime_stack {
     fd_stake_accum_t *     stake_accum;
     fd_stake_accum_map_t * stake_accum_map;
 
+    ulong stake_accum_cnt; /* RAM pool entries in use */
+
+    /* stake_accum overflow table in stake_accum_fd: bucket_cnt buckets
+       then spill_max dense records.  fd -1: no spill. */
+    int   stake_accum_fd;
+    uint  stake_accum_spill_gen;
+    ulong stake_accum_spill_max;
+    ulong stake_accum_spill_cnt;
+    ulong stake_accum_spill_bucket_cnt;
+
     fd_vote_rewards_t *     vote_ele;
     fd_vote_rewards_map_t * vote_map;
 
@@ -141,5 +156,30 @@ struct fd_runtime_stack {
   } epoch_weights;
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* Out-of-line spill paths of the stake accumulator (see
+   fd_runtime_stack_tmpl.h).  Only reached once more than the RAM map's
+   capacity of distinct voters were accumulated. */
+
+fd_stake_accum_t *
+fd_runtime_stack_stake_accum_spill_query( fd_runtime_stack_t * runtime_stack,
+                                          fd_pubkey_t const *  key,
+                                          fd_stake_accum_t *   scratch );
+
+void
+fd_runtime_stack_stake_accum_spill_add( fd_runtime_stack_t * runtime_stack,
+                                        fd_pubkey_t const *  key,
+                                        ulong                stake,
+                                        ulong                reward_stake );
+
+void
+fd_runtime_stack_stake_accum_spill_read( fd_runtime_stack_t const * runtime_stack,
+                                         ulong                      idx,
+                                         fd_stake_accum_t *         out,
+                                         ulong                      cnt );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h */
