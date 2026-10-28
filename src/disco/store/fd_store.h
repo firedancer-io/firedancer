@@ -10,7 +10,7 @@
 #include "../../util/shmem/fd_shmem.h"
 #include "../../util/tile/fd_tile.h"
 
-#define FD_STORE_ALIGN (128UL)
+#define FD_STORE_ALIGN (64UL)
 
 /* The launcher creates the Store backing file before starting any tile
    and passes these descriptors through exec.  Keep them adjacent to the
@@ -18,16 +18,18 @@
 #define FD_STORE_FD_RW (123459)
 #define FD_STORE_FD_RO (123458)
 
-/* Spill and cache slots are page aligned. */
+/* Spill and cache slots are page aligned.  Each slot is
+   [ ushort shred_sz[FD_FEC_SHRED_CNT] ][ payload ]. */
 #define FD_STORE_PAYLOAD_PAGE_SZ (FD_SHMEM_NORMAL_PAGE_SZ)
+#define FD_STORE_PAYLOAD_HDR_SZ  (FD_FEC_SHRED_CNT*sizeof(ushort))
 
 FD_FN_CONST static inline ulong
 fd_store_payload_slot_sz( ulong fec_data_max ) {
   ulong rounded;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_HDR_SZ+FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702eeUL) /* firedancer store version 14 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702efUL) /* firedancer store version 15 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -169,7 +171,6 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
   ushort    data_pin_cnt;                   /* active payload views */
   uchar     data_state;                     /* FD_STORE_FEC_DATA_* */
   uchar     data_consume_pending;
-  ushort    shred_sz[ FD_FEC_SHRED_CNT ];   /* payload size of each data shred */
 };
 typedef struct fd_store_fec fd_store_fec_t;
 
@@ -423,6 +424,7 @@ fd_store_map_ljoin( fd_store_t const * store,
 
 struct fd_store_fec_data_view {
   uchar          * data;
+  ushort const   * shred_sz; /* FD_FEC_SHRED_CNT data shred payload sizes */
   fd_store_fec_t * fec;
   uint             flags;
 };
@@ -443,8 +445,8 @@ struct fd_store_fec_cache_stats {
 };
 typedef struct fd_store_fec_cache_stats fd_store_fec_cache_stats_t;
 
-/* Reserves a RAM payload not yet bound to any FEC and returns it, with
-   its cache slot in *data_idx, or NULL if nothing can be spilled to
+/* Reserves a RAM payload not yet bound to any FEC and returns it (past
+   the slot header), with its cache slot in *data_idx, or NULL if nothing can be spilled to
    make room.  Fill it, then hand data_idx to fd_store_insert, which
    takes ownership of the slot.  spill is optional and reports
    synchronous fallback spills. */
