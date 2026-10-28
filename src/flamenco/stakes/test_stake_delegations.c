@@ -1349,8 +1349,8 @@ int main( int argc, char ** argv ) {
     FD_TEST( stake_delegation_0->state==FD_STAKE_DELEGATION_STATE_WARMED );
     FD_TEST( stake_delegations->fp_warmed_awarded==1 );
 
-    /* A conditional wipe demotes float-awarded tags and clears the flag. */
-    fd_stake_delegations_invalidate_warmed( stake_delegations, 0 );
+    /* A wipe demotes float-awarded tags and clears the flag. */
+    fd_stake_delegations_invalidate_warmed( stake_delegations );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, stake_delegation_0 ) );
     FD_TEST( stake_delegation_0->state==FD_STAKE_DELEGATION_STATE_UNKNOWN );
     FD_TEST( stake_delegations->fp_warmed_awarded==0 );
@@ -1365,14 +1365,10 @@ int main( int argc, char ** argv ) {
     FD_TEST( stake_delegation_0->state==FD_STAKE_DELEGATION_STATE_WARMED );
     FD_TEST( stake_delegations->fp_warmed_awarded==0 );
 
-    /* Conditional invalidation retains a fixed-point WARMED tag, while
-       forced invalidation clears it when stake history is incomplete. */
-    fd_stake_delegations_invalidate_warmed( stake_delegations, 0 );
+    /* Invalidation retains a fixed-point WARMED tag. */
+    fd_stake_delegations_invalidate_warmed( stake_delegations );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, stake_delegation_0 ) );
     FD_TEST( stake_delegation_0->state==FD_STAKE_DELEGATION_STATE_WARMED );
-    fd_stake_delegations_invalidate_warmed( stake_delegations, 1 );
-    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, stake_delegation_0 ) );
-    FD_TEST( stake_delegation_0->state==FD_STAKE_DELEGATION_STATE_UNKNOWN );
 
     /* A COOLING award never touches the flag ... */
     fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
@@ -1389,7 +1385,7 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 0 /* float */, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
     FD_TEST( stake_delegations->fp_warmed_awarded==1 );
-    fd_stake_delegations_invalidate_warmed( stake_delegations, 1 );
+    fd_stake_delegations_invalidate_warmed( stake_delegations );
     FD_TEST( stake_delegations->fp_warmed_awarded==0 );
   }
 

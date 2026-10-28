@@ -555,20 +555,17 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
   return !iter->ele;
 }
 
-/* Invalidates WARMED tags in the in-memory and disk roots.  With
-   force==0, skip the scan if no tag was awarded under floating point
-   math.  Use this when upgrade_bpf_stake_program_to_v5_1 is active.
-   With force!=0, invalidate all WARMED tags regardless of how they were
-   calculated, for example when stake history is not contiguous.  The
-   next scan reevaluates each formerly WARMED delegation.
+/* Invalidates WARMED tags in the in-memory and disk roots, skipping the
+   scan if no tag was awarded under floating point math.  Use this when
+   upgrade_bpf_stake_program_to_v5_1 is active.  The next scan
+   reevaluates each formerly WARMED delegation.
 
    Unlike the other mutators, this one does not take the write lock
    itself: its only callers run inside the boundary's
    mark/iterate/unmark bracket, which already holds it. */
 
 void
-fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations,
-                                        int                      force );
+fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations );
 
 FD_PROTOTYPES_END
 

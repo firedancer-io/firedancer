@@ -861,10 +861,6 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     }
   }
 
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_is_contiguous( stake_history ) ) ) {
-    fd_stake_delegations_invalidate_warmed( stake_delegations, 1 );
-  }
-
   /* Now increment the epoch and recompute the stakes for the vote
      accounts for the new epoch value.  The rewarded epoch trails the
      current epoch by 1 except for the first epoch (genesis) case. */
