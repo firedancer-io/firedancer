@@ -3355,7 +3355,7 @@ fd_gui_timeline_query_events( fd_gui_t * gui,
                               ulong      id,
                               int        fec ) {
   if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
-  fd_gui_shred_event_t * events = gui->timeline_scratch.events;
+  fd_gui_shred_event_t * events = gui->timeline_scratch->events;
   fd_gui_shred_event_iter_t it;
   if( fec ) fd_gui_fec_event_iter_begin( gui, &it, start, end );
   else      fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
@@ -3581,7 +3581,7 @@ fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
                                     long       end,
                                     ulong      id ) {
   if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
-  fd_gui_timeline_query_slot_t * rows = gui->timeline_scratch.slots;
+  fd_gui_timeline_query_slot_t * rows = gui->timeline_scratch->slots;
   ulong n  = 0UL;
   int   rc = fd_gui_timeline_slots_collect( gui, start, end, rows, FD_GUI_TIMELINE_QUERY_SLOT_MAX, &n );
   if( FD_UNLIKELY( rc<0 ) ) goto done;
@@ -3640,7 +3640,7 @@ fd_gui_printf_timeline_query_events( fd_gui_t * gui,
                                      long       end,
                                      ulong      id ) {
   if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
-  fd_gui_timeline_query_event_t * rows = gui->timeline_scratch.slot_events;
+  fd_gui_timeline_query_event_t * rows = gui->timeline_scratch->slot_events;
   ulong n  = 0UL;
   int   rc = fd_gui_timeline_events_collect( gui, start, end, rows, FD_GUI_TIMELINE_QUERY_EVENT_MAX, &n );
   if( FD_UNLIKELY( rc<0 ) ) return rc;
@@ -3698,7 +3698,7 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
   ulong ns = fd_gui_timeline_granularity_ns( g );
   if( FD_UNLIKELY( (ulong)reference+count*ns>=(ulong)LONG_MAX ) ) return -1; /* window end must be representable */
 
-  fd_gui_timeline_query_bucket_t * b = gui->timeline_scratch.buckets;
+  fd_gui_timeline_query_bucket_t * b = gui->timeline_scratch->buckets;
   for( ulong i=0UL; i<count; i++ ) {
     memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
     b[ i ].slot_duration = ULONG_MAX;
@@ -3870,7 +3870,7 @@ fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
     /* Each requested tile is merged from its own day records; a missing
        record leaves that tile's buckets empty.  The buckets are visited
        in ascending time order, so a day's record is looked up once. */
-    memset( gui->timeline_scratch.cpu, 0, count*sizeof(gui->timeline_scratch.cpu[ 0 ]) );
+    memset( gui->timeline_scratch->cpu, 0, count*sizeof(gui->timeline_scratch->cpu[ 0 ]) );
     ulong cur_day_idx = ULONG_MAX;
     fd_gui_timeline_tile_day_t const * cur_day = NULL;
     for( ulong i=0UL; i<count; i++ ) {
@@ -3902,14 +3902,14 @@ fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
           cnt += (uint)c;
         }
       }
-      gui->timeline_scratch.cpu[ i ].sum = sum;
-      gui->timeline_scratch.cpu[ i ].cnt = cnt;
+      gui->timeline_scratch->cpu[ i ].sum = sum;
+      gui->timeline_scratch->cpu[ i ].cnt = cnt;
     }
 
     jsonp_open_array( gui->http, NULL );
     for( ulong i=0UL; i<count; i++ ) {
-      ulong sum = gui->timeline_scratch.cpu[ i ].sum;
-      ulong cnt = gui->timeline_scratch.cpu[ i ].cnt;
+      ulong sum = gui->timeline_scratch->cpu[ i ].sum;
+      ulong cnt = gui->timeline_scratch->cpu[ i ].cnt;
       if( !cnt ) jsonp_null( gui->http, NULL );
       else jsonp_ulong( gui->http, NULL, (sum + cnt/2UL)/cnt );
     }
