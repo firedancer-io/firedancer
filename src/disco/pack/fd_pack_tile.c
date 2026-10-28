@@ -1121,6 +1121,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
 
     fd_pack_rebate_cus( ctx->pack, ctx->rebate->rebate );
+    if( FD_UNLIKELY( ctx->rebate->rebate->ib_result<0 ) ) FD_LOG_WARNING(( "initializer bundle failed in leader slot %lu; no bundles until the slot ends", ctx->leader_slot ));
     ctx->pending_rebate_sz = 0UL;
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
     break;
