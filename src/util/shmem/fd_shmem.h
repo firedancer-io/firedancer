@@ -181,6 +181,19 @@ fd_shmem_leave( void *                    join,
                 fd_shmem_joinleave_func_t leave_func,
                 void *                    context );
 
+/* fd_shmem_join_split joins a region whose first part is the gigantic
+   page backed name and whose remaining tail_page_cnt (non-zero) huge
+   pages are the same-name huge page backed file, mapped contiguously.
+   The join reports page_sz huge and page_cnt spanning both, so leave
+   and the query APIs treat it as one region.  Fails if the tail file
+   is not exactly tail_page_cnt pages. */
+
+void *
+fd_shmem_join_split( char const * name,
+                     ulong        tail_page_cnt,
+                     int          mode,
+                     int          dump );
+
 /* FIXME: CONSIDER OPTION FOR SLIGHTLY MORE ALGO EFFICIENT LEAVE BY NAME
    VARIANT? */
 
