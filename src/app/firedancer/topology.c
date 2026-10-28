@@ -492,7 +492,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snapct"      );
     fd_topob_wksp( topo, "snapld"      );
     fd_topob_wksp( topo, "snapdc"      );
-    fd_topob_wksp( topo, "snapin"      )->demote_ok = 1; /* boot only */
     fd_topob_wksp( topo, "snapct_ld"   );
     fd_topob_wksp( topo, "snapld_dc"   );
     fd_topob_wksp( topo, "snapdc_in"   );
@@ -731,7 +730,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile( topo, "snapct", "snapct", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,                 0,                 1 )->allow_shutdown = 1;
     /**/                 fd_topob_tile( topo, "snapld", "snapld", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,                 0,                 1 )->allow_shutdown = 1;
     FOR(snapdc_tile_cnt) fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,                 0,                 0 )->allow_shutdown = 1;
-    FOR(snapin_tile_cnt) fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,                 0,                 0 )->allow_shutdown = 1;
+    FOR(snapin_tile_cnt) fd_topob_tile( topo, "snapin", "progcache", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0,                 0,                 0 )->allow_shutdown = 1; /* scratch overlaid below */
   }
   if( snapmk_enabled ) {
     /**/                 fd_topob_tile( topo, "snapmk", "snapmk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
@@ -1176,6 +1175,18 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_obj_t * bpf_frames_obj = setup_topo_bpf_frames( topo, "bpf_frames", config->firedancer.runtime.bpf_shared_frames, config->firedancer.runtime.bpf_local_frames, execrp_tile_cnt+execle_tile_cnt );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], bpf_frames_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  /* snapin scratch lives in the progcache value arena, which holds
+     nothing until replay boots; replay holds DONE until every snapin
+     tile has halted.  Network-facing snapshot tiles stay out. */
+  if( FD_LIKELY( snapshots_enabled ) ) {
+    ulong arena_lo, arena_hi;
+    FD_TEST( fd_progcache_shmem_arena( fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.txn_max",      progcache_obj_id ),
+                                       fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.progcache_sz", progcache_obj_id ),
+                                       &arena_lo, &arena_hi ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, arena_lo, "obj.%lu.overlay_lo", progcache_obj_id ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, arena_hi, "obj.%lu.overlay_hi", progcache_obj_id ) );
+    FOR(snapin_tile_cnt) fd_topob_obj_overlay( topo, &topo->objs[ topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ].tile_obj_id ], progcache_obj );
+  }
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"        )->demote_ok = 1; /* non-consensus http server */
