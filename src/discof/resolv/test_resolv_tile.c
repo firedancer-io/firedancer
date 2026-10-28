@@ -196,7 +196,7 @@ test_env_create( test_env_t * env ) {
   env->ctx->pool                   = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
   env->ctx->map_chain              = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, TEST_HASH_SEED ) );
   env->ctx->blockhash_map          = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( map_chain_cnt ) ), map_chain_cnt, TEST_HASH_SEED ) );
-  env->ctx->nonce_blockhash_map    = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( map_chain_cnt ) ), map_chain_cnt, TEST_HASH_SEED ) );
+  env->ctx->nonce_blockhash_map    = nmap_join( nmap_new( FD_SCRATCH_ALLOC_APPEND( l, nmap_align(), nmap_footprint( map_chain_cnt ) ), map_chain_cnt, TEST_HASH_SEED ) );
   FD_TEST( env->ctx->pool );
   FD_TEST( env->ctx->map_chain );
   FD_TEST( map_chain_seed( env->ctx->map_chain )==TEST_HASH_SEED );
@@ -298,8 +298,7 @@ static void
 test_add_blockhash( test_env_t * env,
                     fd_hash_t *  hash,
                     ulong        slot ) {
-  blockhash_map_t * entry       = env->ctx->blockhash_ring      +(env->ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
-  blockhash_map_t * nonce_entry = env->ctx->nonce_blockhash_ring+(env->ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
+  blockhash_map_t * entry = env->ctx->blockhash_ring+(env->ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
 
   /* See fd_durable_nonce_from_blockhash */
   struct {
@@ -307,12 +306,12 @@ test_add_blockhash( test_env_t * env,
     fd_hash_t bh[1];
   } hash_buf[1] = {{ .tag = "DURABLE_NONCE", .bh = { *hash } }};
 
-  memcpy( entry->key.b, hash, 32UL );   fd_sha256_hash( hash_buf, sizeof(hash_buf), nonce_entry->key.b );
-  entry->slot         = slot;           nonce_entry->slot         = slot;
-  entry->block_height = slot;           nonce_entry->block_height = slot;
+  memcpy( entry->key.b, hash, 32UL );
+  fd_sha256_hash( hash_buf, sizeof(hash_buf), entry->nonce_key.b );
+  entry->block_height = slot;
 
-  map_ele_insert( env->ctx->blockhash_map,       entry,       env->ctx->blockhash_ring       );
-  map_ele_insert( env->ctx->nonce_blockhash_map, nonce_entry, env->ctx->nonce_blockhash_ring );
+  map_ele_insert ( env->ctx->blockhash_map,       entry, env->ctx->blockhash_ring );
+  nmap_ele_insert( env->ctx->nonce_blockhash_map, entry, env->ctx->blockhash_ring );
   env->ctx->blockhash_ring_idx++;
 }
 
