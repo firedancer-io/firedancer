@@ -48,9 +48,6 @@ fd_reward_epoch_stakes_set( fd_bank_t *                    bank,
                             fd_capture_ctx_t *             capture_ctx,
                             ulong                          rewarded_epoch,
                             fd_runtime_stack_t *           runtime_stack ) {
-  fd_stake_accum_t *     pool = runtime_stack->stakes.stake_accum;
-  fd_stake_accum_map_t * map  = runtime_stack->stakes.stake_accum_map;
-
   fd_reward_epoch_stake_t entries[ FD_REWARD_EPOCH_STAKE_MAX_CNT ];
   ulong                   entries_cnt = 0UL;
 
@@ -65,8 +62,8 @@ fd_reward_epoch_stakes_set( fd_bank_t *                    bank,
     fd_vote_stakes_ele_t ele[1];
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
     entries[ entries_cnt ].vote_pubkey = ele->pubkey;
-    fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
-        map, &entries[ entries_cnt ].vote_pubkey, NULL, pool );
+    fd_stake_accum_t         scratch[1];
+    fd_stake_accum_t const * accumulated = fd_runtime_stack_stake_accum_query( runtime_stack, &entries[ entries_cnt ].vote_pubkey, scratch );
     FD_TEST( accumulated );
     entries[ entries_cnt ].delegated_stake = accumulated->reward_stake;
     entries_cnt++;
@@ -119,7 +116,8 @@ fd_reward_epoch_stakes_restore( fd_bank_t *          bank,
 
   fd_stake_accum_t *     pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * map  = runtime_stack->stakes.stake_accum_map;
-  fd_stake_accum_map_reset( map );
+  fd_runtime_stack_stake_accum_reset( runtime_stack );
+  runtime_stack->stakes.stake_accum_cnt = cnt;
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar const *      src = acc.data+FD_REWARD_EPOCH_STAKE_HEADER_SZ+i*FD_REWARD_EPOCH_STAKE_ENTRY_SZ;
     fd_stake_accum_t * ele = &pool[i];
