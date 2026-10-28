@@ -47,9 +47,7 @@
       alignof(uint),               (                                                                        \
         (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)                 \
         )                                                                                ),                 \
-      32UL,                        (                                                                        \
-        (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*32UL                         \
-        )                                                                                ),                 \
+      32UL,                        32UL*(pub_cnt)                                        ),                 \
       FD_EPOCH_LEADERS_ALIGN                                                             )  +               \
       FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*(pub_cnt),                                                      \
                                        FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
@@ -75,11 +73,11 @@ struct fd_epoch_leaders {
   uint *        sched;
   ulong         sched_cnt;
 
-  /* vote_addr is the leader vote account address per rotation
-     (sched_cnt entries).  Needed by SIMD-0232 fee collection: multiple
-     vote accounts can share one node identity, so the vote address
-     cannot be recovered from pub. */
-  fd_pubkey_t * vote_addr;
+  /* vote_keys is the vote account address per stake entry (pub_cnt
+     entries, indexed like pub).  Needed by SIMD-0232 fee collection:
+     multiple vote accounts can share one node identity, so the vote
+     address cannot be recovered from pub. */
+  fd_pubkey_t * vote_keys;
 };
 typedef struct fd_epoch_leaders fd_epoch_leaders_t;
 
@@ -177,7 +175,7 @@ fd_epoch_leaders_get_vote( fd_epoch_leaders_t const * leaders,
   ulong slot_delta = slot - leaders->slot0;
   if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
   if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
-  return (fd_pubkey_t const *)( leaders->vote_addr + slot_delta/FD_EPOCH_SLOTS_PER_ROTATION );
+  return (fd_pubkey_t const *)( leaders->vote_keys + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ] );
 }
 
 FD_PROTOTYPES_END
