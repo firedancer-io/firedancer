@@ -755,7 +755,7 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
      activation.  Tags are only used at boundaries for now, and this
      runs before any use. */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
-    fd_stake_delegations_invalidate_warmed( stake_delegations, 0 );
+    fd_stake_delegations_invalidate_warmed( stake_delegations );
   }
 
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,
