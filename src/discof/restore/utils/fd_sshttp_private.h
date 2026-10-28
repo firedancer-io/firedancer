@@ -45,6 +45,7 @@ struct fd_sshttp_private {
   ulong request_len;
   ulong request_sent;
   ulong range_start; /* byte offset the request resumes at, 0 for the whole body */
+  int   is_stream;   /* a fast boot stream, see fd_sshttp_init */
 
   ulong response_len;
   char  response[ USHORT_MAX ];
