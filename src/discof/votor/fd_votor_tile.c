@@ -92,8 +92,8 @@ static fd_quic_limits_t quic_server_limits = {
   .conn_cnt                    = QUIC_SERVER_CONN_MAX,
   .handshake_cnt               = 1024UL,
   .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
-  .inflight_frame_cnt          = 64UL * QUIC_SERVER_CONN_MAX,
-  .min_inflight_frame_cnt_conn = 32UL,
+  .inflight_frame_cnt          = 16UL * QUIC_SERVER_CONN_MAX, /* rx only: handshake/close/ping frames */
+  .min_inflight_frame_cnt_conn = 8UL,
 };
 
 #define CONTACT_INFOS_LG_SLOT_CNT (16) /* FD_CONTACT_INFO_TABLE_SIZE keys, fill ratio 0.5 */
