@@ -93,7 +93,7 @@ struct fd_motor_tile {
 };
 typedef struct fd_motor_tile fd_motor_tile_t;
 
-FD_STATIC_ASSERT( FD_POH_SHRED_MTU-sizeof(fd_entry_batch_meta_t)>=FD_BLOCK_MARKER_SER_MAX, fd_motor_tile );
+FD_STATIC_ASSERT( FD_POH_SHRED_MTU_TXN( 1UL )-sizeof(fd_entry_batch_meta_t)>=FD_BLOCK_MARKER_SER_MAX, fd_motor_tile );
 
 static void
 fill_meta( fd_motor_tile_t *       ctx,
@@ -445,6 +445,13 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->replay_out = out1( topo, tile, "poh_replay" );
   fd_poh_out_t shred_out = out1( topo, tile, "poh_shred" );
   fd_motor_shred_init( ctx->shred, &shred_out );
+  ulong shred_mtu = topo->links[ tile->out_link_id[ shred_out.idx ] ].mtu;
+  FD_TEST( shred_mtu>=FD_POH_SHRED_MTU_TXN( 1UL ) );
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    if( ctx->in_kind[ i ]!=IN_KIND_EXECLE ) continue;
+    ulong txn_max = fd_ulong_min( (fd_ulong_max( ctx->in[ i ].mtu, sizeof(fd_microblock_trailer_t) )-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t), MAX_TXN_PER_MICROBLOCK );
+    FD_TEST( shred_mtu>=FD_POH_SHRED_MTU_TXN( txn_max ) );
+  }
 
   ulong ldr_tt_obj_id   = fd_pod_query_ulong( topo->props, "ldr_tt", ULONG_MAX );
   ctx->timing_tables    = ldr_tt_obj_id==ULONG_MAX ? NULL : fd_topo_obj_laddr( topo, ldr_tt_obj_id );
