@@ -966,6 +966,62 @@ test_count_notar_fallback_creates_cert_at_quorum( void ) {
   free( em );
 }
 
+/* Firedancer-only test.
+
+   The reference also makes a notar-fallback cert when notar votes
+   alone reach quorum.  Agave does not, a notar or fast-final cert
+   already certifies the block as notar-fallback or stronger
+   (Definition 13), so the pool makes one only when notar votes alone
+   fall short. */
+
+static void
+test_notar_cert_implies_notar_fallback( void ) {
+  ulong n = 5UL;
+  generate_validators( n );
+  void * em; ag_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  ag_block_hash_t hash; random_hash( hash );
+  ag_slot_state_t * ss = make_state( slot, epoch_info );
+  out_t t;
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ag_vote_t nv = ag_vote_construct_notar( sec_sign_fn, &g_sk[i], test_bls_public_key, slot, hash, (ushort)i, TEST_SHRED_VERSION );
+    add_vote_helper( ss, &nv, epoch_info, &t );
+    FD_TEST( t.ok && t.o.certs_cnt==0UL );
+  }
+  ag_vote_t nv2 = ag_vote_construct_notar( sec_sign_fn, &g_sk[2], test_bls_public_key, slot, hash, 2UL, TEST_SHRED_VERSION );
+  add_vote_helper( ss, &nv2, epoch_info, &t );
+  FD_TEST( t.ok && t.o.certs_cnt==1UL && t.o.certs[0].kind==AG_CERT_KIND_NOTAR );
+  ag_slot_state_add_cert( ss, &t.o.certs[0] );
+
+  ag_vote_t nf3 = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[3], test_bls_public_key, slot, hash, 3UL, TEST_SHRED_VERSION );
+  add_vote_helper( ss, &nf3, epoch_info, &t );
+  FD_TEST( t.ok && t.o.certs_cnt==0UL );
+
+  ag_vote_t nv4 = ag_vote_construct_notar( sec_sign_fn, &g_sk[4], test_bls_public_key, slot, hash, 4UL, TEST_SHRED_VERSION );
+  add_vote_helper( ss, &nv4, epoch_info, &t );
+  FD_TEST( t.ok && t.o.certs_cnt==1UL && t.o.certs[0].kind==AG_CERT_KIND_FAST_FINAL );
+  FD_TEST( !ag_slot_state_is_notar_fallback( ss, hash ) && ag_slot_state_is_notar_fallback_or_stronger( ss, hash ) );
+
+  ag_slot_state_null( ss, &g_states );
+  ss->slot = slot;
+  ag_vote_t nf0 = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, hash, 0UL, TEST_SHRED_VERSION );
+  add_vote_helper( ss, &nf0, epoch_info, &t );
+  FD_TEST( t.ok && t.o.certs_cnt==0UL );
+  ag_vote_t nv1 = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, hash, 1UL, TEST_SHRED_VERSION );
+  add_vote_helper( ss, &nv1, epoch_info, &t );
+  FD_TEST( t.ok && t.o.certs_cnt==0UL );
+  add_vote_helper( ss, &nv2, epoch_info, &t );
+  FD_TEST( t.ok && t.o.certs_cnt==1UL && t.o.certs[0].kind==AG_CERT_KIND_NOTAR_FALLBACK && t.o.certs[0].notar_fallback.stake==3UL );
+  FD_TEST( ag_cert_verify( &t.o.certs[0], epoch_info )==AG_CERT_VERIFY_SUCCESS );
+
+  ag_vote_t nv3 = ag_vote_construct_notar( sec_sign_fn, &g_sk[3], test_bls_public_key, slot, hash, 3UL, TEST_SHRED_VERSION );
+  add_vote_helper( ss, &nv3, epoch_info, &t );
+  FD_TEST( t.ok && t.o.certs_cnt==1UL && t.o.certs[0].kind==AG_CERT_KIND_NOTAR );
+
+  free( em );
+}
+
 /* src/consensus/pool/slot_state.rs::skip_skip_fallback_conflict */
 
 static void
@@ -1308,6 +1364,7 @@ main( int     argc,
   test_null_ignores_stale_sigs();
   test_count_finalize_creates_cert_at_quorum();
   test_count_notar_fallback_creates_cert_at_quorum();
+  test_notar_cert_implies_notar_fallback();
   test_poisoned_notar_aggregate();
   test_identity_partition();
   test_safe_to_events_verify();
