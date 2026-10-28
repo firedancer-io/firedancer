@@ -1530,8 +1530,10 @@ telemetry = true
         #
         # Smaller values use less memory.  Larger values reduce packet
         # loss caused by excessive scheduling or inter-CPU latency.
-        rx_queue_size = 32768
-        tx_queue_size = 32768
+        # 16384 entries is ~80ms of tolerance at ~200k pps, matching
+        # the XDP queue sizes.
+        rx_queue_size = 16384
+        tx_queue_size = 16384
 
 
     # This section contains Intel i40e/ice specific network
