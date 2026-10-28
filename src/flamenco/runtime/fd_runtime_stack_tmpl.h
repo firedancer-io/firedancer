@@ -62,13 +62,24 @@ fd_runtime_stack_footprint( ulong max_vote_accounts,
   return FD_LAYOUT_FINI( l, fd_runtime_stack_align() );
 }
 
+/* fd_runtime_stack_new: max_staked_vote_accounts sizes the RAM stake
+   accumulator and max_stake_accounts the points/rewards cache window.  Distinct
+   voters beyond the RAM accumulator spill to stake_accum_fd (up to
+   stake_accum_spill_max; fd -1 disables spilling). */
+
 static inline void *
 fd_runtime_stack_new( void * shmem,
                       ulong  max_vote_accounts,
                       ulong  max_staked_vote_accounts,
                       ulong  max_stake_accounts,
+                      int    stake_accum_fd,
+                      ulong  stake_accum_spill_max,
                       ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) return NULL;
+  if( FD_UNLIKELY( stake_accum_spill_max>=(ulong)UINT_MAX ) ) {
+    FD_LOG_WARNING(( "fd_runtime_stack_new: bad stake accum sizing" ));
+    return NULL;
+  }
   ulong vote_chain_cnt  = fd_vote_rewards_map_chain_cnt_est( max_vote_accounts );
   ulong stake_chain_cnt = fd_stake_accum_map_chain_cnt_est( max_staked_vote_accounts );
   FD_SCRATCH_ALLOC_INIT( l, shmem );
@@ -94,6 +105,13 @@ fd_runtime_stack_new( void * shmem,
   runtime_stack->stakes.stake_results        = stake_results;
   runtime_stack->stakes.stake_accum          = stake_accum;
   runtime_stack->bpf_migration               = (fd_runtime_stack_bpf_migration_t *)stake_accum;
+  runtime_stack->stakes.stake_accum_cnt      = 0UL;
+
+  runtime_stack->stakes.stake_accum_fd               = stake_accum_fd;
+  runtime_stack->stakes.stake_accum_spill_gen        = 1U;
+  runtime_stack->stakes.stake_accum_spill_max        = stake_accum_fd>=0 ? stake_accum_spill_max : 0UL;
+  runtime_stack->stakes.stake_accum_spill_cnt        = 0UL;
+  runtime_stack->stakes.stake_accum_spill_bucket_cnt = fd_ulong_pow2_up( stake_accum_spill_max + (stake_accum_spill_max>>1) + 1UL );
 
   runtime_stack->stakes.stake_accum_map = fd_stake_accum_map_join( fd_stake_accum_map_new( stake_accum_map_mem, stake_chain_cnt, seed ) );
   if( FD_UNLIKELY( !runtime_stack->stakes.stake_accum_map ) ) {
@@ -113,6 +131,56 @@ fd_runtime_stack_new( void * shmem,
 FD_FN_CONST static inline fd_runtime_stack_t *
 fd_runtime_stack_join( void * shruntime_stack ) {
   return (fd_runtime_stack_t *)shruntime_stack;
+}
+
+/* Stake accumulator: one entry per distinct delegated-to vote account.
+   RAM map first; spill table only once the RAM pool is full, so no
+   disk access while nothing has spilled. */
+
+static inline void
+fd_runtime_stack_stake_accum_reset( fd_runtime_stack_t * runtime_stack ) {
+  fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
+  runtime_stack->stakes.stake_accum_cnt = 0UL;
+  if( FD_UNLIKELY( runtime_stack->stakes.stake_accum_spill_cnt ) ) {
+    runtime_stack->stakes.stake_accum_spill_cnt = 0UL;
+    if( FD_UNLIKELY( !++runtime_stack->stakes.stake_accum_spill_gen ) ) FD_LOG_CRIT(( "stake accum spill generation wrapped" ));
+  }
+}
+
+/* Returns key's entry (spilled entries are copied into scratch) or
+   NULL. */
+
+static inline fd_stake_accum_t const *
+fd_runtime_stack_stake_accum_query( fd_runtime_stack_t * runtime_stack,
+                                    fd_pubkey_t const *  key,
+                                    fd_stake_accum_t *   scratch ) {
+  fd_stake_accum_t const * ele = fd_stake_accum_map_ele_query_const( runtime_stack->stakes.stake_accum_map, key, NULL, runtime_stack->stakes.stake_accum );
+  if( FD_LIKELY( ele || !runtime_stack->stakes.stake_accum_spill_cnt ) ) return ele;
+  return fd_runtime_stack_stake_accum_spill_query( runtime_stack, key, scratch );
+}
+
+/* Adds stake/reward_stake to key's entry, creating it if absent. */
+
+static inline void
+fd_runtime_stack_stake_accum_add( fd_runtime_stack_t * runtime_stack,
+                                  fd_pubkey_t const *  key,
+                                  ulong                stake,
+                                  ulong                reward_stake ) {
+  fd_stake_accum_t *     pool = runtime_stack->stakes.stake_accum;
+  fd_stake_accum_map_t * map  = runtime_stack->stakes.stake_accum_map;
+  fd_stake_accum_t *     ele  = fd_stake_accum_map_ele_query( map, key, NULL, pool );
+  if( FD_LIKELY( ele ) ) {
+    ele->stake += stake;
+    FD_TEST( !__builtin_uaddl_overflow( ele->reward_stake, reward_stake, &ele->reward_stake ) );
+  } else if( FD_LIKELY( runtime_stack->stakes.stake_accum_cnt<runtime_stack->max_staked_vote_accounts ) ) {
+    ele               = &pool[ runtime_stack->stakes.stake_accum_cnt++ ];
+    ele->pubkey       = *key;
+    ele->stake        = stake;
+    ele->reward_stake = reward_stake;
+    fd_stake_accum_map_ele_insert( map, ele, pool );
+  } else {
+    fd_runtime_stack_stake_accum_spill_add( runtime_stack, key, stake, reward_stake );
+  }
 }
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_stack_tmpl_h */

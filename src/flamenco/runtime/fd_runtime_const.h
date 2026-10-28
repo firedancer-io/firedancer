@@ -27,10 +27,18 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_MAX_STAKE_DELEGATION_DISK_RECORDS (100000000UL)
 
 /* The runtime only supports post-validator_admission_ticket banks.  The
-   accumulator can still see one distinct voter per stake account before
-   the final eligible set is reduced to the VAT limit below. */
+   accumulator can still see one distinct voter per stake delegation
+   (root pool plus disk roots) before the final eligible set is reduced
+   to the VAT limit below.  Only FD_RUNTIME_STAKE_ACCUM_RAM_MAX of them
+   are held in RAM (mainnet: thousands); the rest spill to
+   FD_STAKE_ACCUM_FD. */
 
-#define FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS (FD_RUNTIME_MAX_STAKE_ACCOUNTS)
+#define FD_RUNTIME_STAKE_ACCUM_RAM_MAX (65536UL)
+
+/* Delegations with a root index below this cache their reward points
+   in the runtime stack; the rest recompute (mainnet: ~1.39M). */
+
+#define FD_RUNTIME_STAKE_POINTS_WINDOW (1750000UL)
 
 /* Maximum number of vote accounts eligible to receive rewards or
    meaningfully contribute to consensus after
