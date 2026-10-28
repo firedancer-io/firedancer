@@ -17,6 +17,14 @@ FD_PROTOTYPES_BEGIN
    Returns 0 on success, -1 on failure (corrupt manifest or
    configuration mismatch).  This function only reads the manifest and
    has no side effects. */
+/* fd_ssload_epoch_credits_validate checks one vote account's epoch
+   credits history (len<=FD_EPOCH_CREDITS_MAX, ordering, prev_credits
+   chaining, single Alpenglow marker, epoch fits ushort, credits at or
+   above base).  Returns 0 if valid, -1 otherwise. */
+int
+fd_ssload_epoch_credits_validate( epoch_credits_t const * ec,
+                                  ulong                   len );
+
 int
 fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                              ulong                          max_vote_accounts,
