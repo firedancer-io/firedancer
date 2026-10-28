@@ -28,6 +28,10 @@
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
+/* Tiny runtime stack: 2 RAM accumulator entries (rest spill to a memfd)
+   and a 1-delegation points window. */
+static int tiny_stack = 0;
+
 static fd_validator_location_t const LOC_FRA = { 4051542, 618526, 4870645 };
 static fd_validator_location_t const no_loc  = {0};
 static fd_validator_location_t const * voter0_location = &LOC_FRA;
@@ -56,6 +60,7 @@ struct test_env {
   void *               accdb_shmem;
   void *               accdb_join;
   int                  accdb_fd;
+  int                  stake_accum_fd;
   fd_runtime_stack_t * runtime_stack;
 };
 typedef struct test_env test_env_t;
@@ -383,9 +388,13 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   /* Covers the accounts written below outside capitalization tracking */
   env->bank->f.capitalization          = 1UL<<62;
 
-  env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
+  ulong accum_ram  = tiny_stack ? 2UL : 2048UL;
+  ulong points_win = tiny_stack ? 1UL : 2048UL;
+  env->stake_accum_fd = tiny_stack ? memfd_create( "vat_stake_accum", 0 ) : -1;
+  if( tiny_stack ) FD_TEST( env->stake_accum_fd>=0 );
+  env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, accum_ram, points_win ), env->tag );
   FD_TEST( env->runtime_stack );
-  FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) );
+  FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, accum_ram, points_win, env->stake_accum_fd, 64UL, 999UL ) ) );
 
   env->bank->accdb_fork_id = fd_accdb_attach_child( env->accdb, SENTINEL );
 
@@ -444,6 +453,7 @@ test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( env->accdb_join );
   fd_wksp_free_laddr( env->accdb_shmem );
   if( FD_LIKELY( env->accdb_fd>=0 ) ) close( env->accdb_fd );
+  if( env->stake_accum_fd>=0 ) close( env->stake_accum_fd );
   fd_memset( env, 0, sizeof(test_env_t) );
 }
 
@@ -854,11 +864,58 @@ test_runtime_stack_stake_accum_map_sizing( fd_wksp_t * wksp ) {
                             max_vote_accounts,
                             max_staked_vote_accounts,
                             max_stake_accounts,
+                            -1,
+                            0UL,
                             999UL ) );
   FD_TEST( stack );
   FD_TEST( fd_stake_accum_map_chain_cnt( stack->stakes.stake_accum_map )==
            fd_stake_accum_map_chain_cnt_est( max_staked_vote_accounts ) );
   fd_wksp_free_laddr( mem );
+
+  /* 4 RAM entries, the rest in the spill table: same sums either way,
+     and reset makes spilled entries invisible without touching disk. */
+  int fd = memfd_create( "stake_accum_spill", 0 );
+  FD_TEST( fd>=0 );
+  mem = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 4UL, 4UL, 1UL ), 1234UL );
+  FD_TEST( mem );
+  stack = fd_runtime_stack_join( fd_runtime_stack_new( mem, 4UL, 4UL, 1UL, fd, 300UL, 999UL ) );
+  FD_TEST( stack );
+  for( ulong round=0UL; round<2UL; round++ ) {
+    fd_runtime_stack_stake_accum_reset( stack );
+    ulong key_cnt = round ? 9UL : 300UL;
+    for( ulong rep=0UL; rep<3UL; rep++ ) {
+      for( ulong i=0UL; i<key_cnt; i++ ) {
+        fd_pubkey_t k = { .ul = { i, 0UL, 0UL, i*0x9e3779b97f4a7c15UL } };
+        fd_runtime_stack_stake_accum_add( stack, &k, i+1UL, 2UL*i );
+      }
+    }
+    FD_TEST( stack->stakes.stake_accum_cnt==4UL );
+    FD_TEST( stack->stakes.stake_accum_spill_cnt==key_cnt-4UL );
+    for( ulong i=0UL; i<key_cnt+5UL; i++ ) {
+      fd_pubkey_t k = { .ul = { i, 0UL, 0UL, i*0x9e3779b97f4a7c15UL } };
+      fd_stake_accum_t         scratch[1];
+      fd_stake_accum_t const * e = fd_runtime_stack_stake_accum_query( stack, &k, scratch );
+      if( i>=key_cnt ) { FD_TEST( !e ); continue; }
+      FD_TEST( e && fd_pubkey_eq( &e->pubkey, &k ) );
+      FD_TEST( e->stake==3UL*(i+1UL) && e->reward_stake==6UL*i );
+    }
+    fd_stake_accum_t batch[ 5 ];
+    fd_runtime_stack_stake_accum_spill_read( stack, 0UL, batch, 5UL );
+    for( ulong j=0UL; j<5UL; j++ ) FD_TEST( batch[j].pubkey.ul[0]==4UL+j );
+  }
+  fd_wksp_free_laddr( mem );
+  close( fd );
+}
+
+/* VAT boundary paths with a tiny runtime stack: 1 of 3 voters spills
+   and 2 of 3 delegations miss the points window. */
+static void
+test_vat_tiny_runtime_stack( fd_wksp_t * wksp ) {
+  tiny_stack = 1;
+  test_vat_path_unconditional( wksp );
+  test_vat_invalidate_revalidate( wksp );
+  tiny_stack = 0;
+  FD_LOG_NOTICE(( "test_vat_tiny_runtime_stack: ok" ));
 }
 
 int
@@ -887,6 +944,7 @@ main( int argc, char ** argv ) {
   test_vat_invalidate_revalidate( wksp );
   test_geo_leader_schedule_gate( wksp );
   test_geo_schedule_enforced_set( wksp );
+  test_vat_tiny_runtime_stack( wksp );
 
   fd_wksp_delete_anonymous( wksp );
   FD_LOG_NOTICE(( "pass" ));
