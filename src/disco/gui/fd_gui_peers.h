@@ -443,6 +443,7 @@ void *
 fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
                   fd_topo_t const *  topo,
+                  void *             dctx_scratch, /* geoip DCtx, only used inside new; fd_gui_shared_scratch_footprint */
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
                   ulong              seed,
