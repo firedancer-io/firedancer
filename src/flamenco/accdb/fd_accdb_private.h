@@ -166,8 +166,12 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 /* Disk index.  When index_ram_max is non-zero, acc_pool holds at most
    index_ram_max entries and the rooted index lives in a file of
-   idx_page_cnt 4 KiB pages of 64 byte slots (linear probing, load
-   factor at most 2/3), accessed with explicit pread/pwrite.  acc_map
+   idx_page_cnt 4 KiB pages of 64 byte slots, accessed with explicit
+   pread/pwrite.  A pubkey hashes to a home page and takes any slot in
+   it.  Only a page with no empty slot sends pubkeys on to the next
+   page of its placement window, wrapping at the window end, so pages
+   fill to FD_ACCDB_IDX_FILL_PCT at max_accounts and a lookup almost
+   always reads one page.  acc_map
    keeps unrooted versions, rooted versions not yet demoted, and
    promoted copies of disk slots.
 
@@ -188,7 +192,7 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 #define FD_ACCDB_IDX_SEQ_LG       (3)         /* pages per seqlock (lg) */
 #define FD_ACCDB_IDX_WINDOW_PAGES (8192UL)    /* 32 MiB placement window */
 #define FD_ACCDB_IDX_STAGE_CNT    (512UL)     /* 32 KiB spill stage per range */
-#define FD_ACCDB_IDX_CARRY_MAX    (262144UL)
+#define FD_ACCDB_IDX_FILL_PCT     (85UL)      /* slots used at max_accounts */
 #define FD_ACCDB_IDX_DUP_WORDS    (1UL<<21)   /* 16 MiB filter of pubkeys that lost a version */
 #define FD_ACCDB_IDX_PUNCH_CHUNK  (1UL<<30)   /* spill bytes punched per background call */
 
@@ -246,7 +250,8 @@ fd_accdb_pool_max( ulong max_accounts,
 static inline ulong
 fd_accdb_idx_page_cnt( ulong max_accounts,
                        ulong index_ram_max ) {
-  return index_ram_max ? ( 3UL*max_accounts/2UL+FD_ACCDB_IDX_SLOT_CNT-1UL )/FD_ACCDB_IDX_SLOT_CNT : 0UL;
+  ulong slot_cnt = ( max_accounts*100UL+FD_ACCDB_IDX_FILL_PCT-1UL )/FD_ACCDB_IDX_FILL_PCT;
+  return index_ram_max ? ( slot_cnt+FD_ACCDB_IDX_SLOT_CNT-1UL )/FD_ACCDB_IDX_SLOT_CNT : 0UL;
 }
 
 struct fd_accdb_cache_key {
@@ -653,7 +658,6 @@ struct fd_accdb_shmem_private {
   ulong idx_seq_off;      /* uint seqlock per 2^FD_ACCDB_IDX_SEQ_LG pages */
   ulong idx_range_off;    /* fd_accdb_idx_range_t per range */
   ulong idx_stage_off;    /* FD_ACCDB_IDX_STAGE_CNT slots per range */
-  ulong idx_carry_off;    /* FD_ACCDB_IDX_CARRY_MAX slots */
   ulong idx_bloom_off;    /* bloom filter, idx_bloom_cnt 64 byte blocks */
   ulong idx_bloom_cnt;
   ulong idx_dup_off;      /* FD_ACCDB_IDX_DUP_WORDS bit words, see fd_accdb_snapshot_index_maybe_dup */
@@ -665,7 +669,6 @@ struct fd_accdb_shmem_private {
   struct __attribute__((aligned(64))) {
     ulong next;          /* next unclaimed range */
     ulong done;          /* ranges placed */
-    ulong carry_cnt;     /* records that probed past their window */
     ulong winners;
     ulong dup_cnt;
     ulong dup_lamports;  /* low word */
@@ -720,13 +723,13 @@ fd_accdb_idx_seed( fd_accdb_shmem_t const * shmem ) {
   return shmem->seed^0x5bd1e9955bd1e995UL;
 }
 
-/* fd_accdb_idx_home returns the disk index slot pubkey probes from. */
+/* fd_accdb_idx_home returns the disk index page pubkey probes from. */
 
 static inline ulong
 fd_accdb_idx_home( fd_accdb_shmem_t const * shmem,
                    uchar const              pubkey[ 32 ] ) {
   ulong h = fd_hash32( pubkey, fd_accdb_idx_seed( shmem ) );
-  return (ulong)( ( (uint128)h*(uint128)( shmem->idx_page_cnt*FD_ACCDB_IDX_SLOT_CNT ) )>>64 );
+  return (ulong)( ( (uint128)h*(uint128)shmem->idx_page_cnt )>>64 );
 }
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_private_h */
