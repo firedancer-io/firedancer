@@ -382,7 +382,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay" )->demote_ok = 1; /* sched/rdisp ~200 2MiB pages, within STLB reach */
   fd_topob_wksp( topo, "accdb"  );
   fd_topob_wksp( topo, "execrp" )->demote_ok = 1; /* sequential-fill serialization buffers */
-  fd_topob_wksp( topo, "votor" );
+  fd_topob_wksp( topo, "votor"  )->demote_ok = 1; /* off the exec/replay/pack path */
   fd_topob_wksp( topo, "sign"   )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
   fd_topob_wksp( topo, "admin"  )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
   /* The failov tile keeps TLS session keys in its scratch, so its
