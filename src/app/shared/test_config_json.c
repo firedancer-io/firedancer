@@ -1,7 +1,11 @@
+#define _GNU_SOURCE
 #include "fd_config_json.h"
 #include "../../util/fd_boolau.h"
 
 #include <string.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 FD_IMPORT_CSTR( default_config, "src/app/firedancer/config/default.toml" );
 
@@ -246,6 +250,27 @@ main( int     argc,
   FD_TEST( config->firedancer.runtime.transaction_cache_size_mib==3072UL );
   FD_TEST( fd_config_to_json( config, json, sizeof(json) ) );
   FD_TEST( strstr( json, "\"transaction_cache_size_mib\":3072" ) );
+
+  do { /* memfd handoff round-trips and stays sparse on both ends */
+    int fd = fd_config_to_memfd( config );
+    FD_TEST( fd>=0 );
+    struct stat st;
+    FD_TEST( !fstat( fd, &st ) && (ulong)st.st_size==sizeof(fd_config_t) );
+    FD_TEST( (ulong)st.st_blocks*512UL < sizeof(fd_config_t)/4UL );
+    ulong sz = fd_ulong_align_up( sizeof(fd_config_t), FD_SHMEM_NORMAL_PAGE_SZ );
+    fd_config_t * copy = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+    FD_TEST( copy!=MAP_FAILED );
+    fd_config_from_memfd( fd, copy );
+    uchar vec[ sizeof(fd_config_t)/FD_SHMEM_NORMAL_PAGE_SZ+1UL ];
+    FD_TEST( !mincore( copy, sz, vec ) ); /* before memcmp maps zero pages */
+    ulong resident = 0UL;
+    for( ulong i=0UL; i<sz/FD_SHMEM_NORMAL_PAGE_SZ; i++ ) resident += vec[ i ]&1;
+    FD_TEST( resident*FD_SHMEM_NORMAL_PAGE_SZ < sizeof(fd_config_t)/4UL );
+    FD_TEST( !memcmp( copy, config, sizeof(fd_config_t) ) );
+    FD_LOG_NOTICE(( "config handoff touches %lu of %lu pages", resident, sz/FD_SHMEM_NORMAL_PAGE_SZ ));
+    FD_TEST( !munmap( copy, sz ) );
+    FD_TEST( !close( fd ) );
+  } while(0);
 
   FD_LOG_NOTICE(( "rendered %lu bytes", len ));
   FD_LOG_NOTICE(( "pass" ));

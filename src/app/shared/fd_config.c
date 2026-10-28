@@ -769,17 +769,41 @@ fd_config_to_memfd( fd_config_t const * config ) {
     return -1;
   }
 
-  uchar * bytes = mmap( NULL, sizeof( config_t ), PROT_READ|PROT_WRITE, MAP_SHARED, config_memfd, 0 );
-  if( FD_UNLIKELY( bytes==MAP_FAILED ) ) {
-    if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_WARNING(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return -1;
-  }
-
-  fd_memcpy( bytes, config, sizeof( config_t ) );
-  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) {
-    FD_LOG_WARNING(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return -1;
+  /* Write only non-zero pages so the memfd stays sparse */
+  uchar const * bytes = (uchar const *)config;
+  for( ulong off=0UL; off<sizeof( config_t ); off+=FD_SHMEM_NORMAL_PAGE_SZ ) {
+    ulong sz = fd_ulong_min( FD_SHMEM_NORMAL_PAGE_SZ, sizeof( config_t )-off );
+    ulong nz = 0UL;
+    for( ulong i=0UL; i<sz/8UL; i++ ) nz |= FD_LOAD( ulong, bytes+off+8UL*i );
+    for( ulong i=sz&~7UL; i<sz; i++ ) nz |= bytes[ off+i ];
+    if( !nz ) continue;
+    if( FD_UNLIKELY( (long)sz!=pwrite( config_memfd, bytes+off, sz, (long)off ) ) ) {
+      FD_LOG_WARNING(( "pwrite() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_WARNING(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      return -1;
+    }
   }
 
   return config_memfd;
+}
+
+void
+fd_config_from_memfd( int           config_memfd,
+                      fd_config_t * config ) {
+  uchar * bytes = (uchar *)config;
+  long    off   = 0L;
+  for(;;) {
+    long data = lseek( config_memfd, off, SEEK_DATA );
+    if( data==-1L && errno==ENXIO ) break;
+    if( FD_UNLIKELY( data==-1L ) ) FD_LOG_ERR(( "lseek(SEEK_DATA) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    long hole = lseek( config_memfd, data, SEEK_HOLE );
+    if( FD_UNLIKELY( hole==-1L ) ) FD_LOG_ERR(( "lseek(SEEK_HOLE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    hole = fd_long_min( hole, (long)sizeof( config_t ) );
+    while( data<hole ) {
+      long n = pread( config_memfd, bytes+data, (ulong)(hole-data), data );
+      if( FD_UNLIKELY( n<=0L ) ) FD_LOG_ERR(( "pread() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      data += n;
+    }
+    off = hole;
+  }
 }

@@ -24,16 +24,6 @@ fdctl_tile_run( fd_topo_tile_t const * tile ) {
 }
 
 static void
-copy_config_from_fd( int        config_fd,
-                     config_t * config ) {
-  uchar * bytes = mmap( NULL, sizeof( config_t ), PROT_READ, MAP_PRIVATE, config_fd, 0 );
-  if( FD_UNLIKELY( bytes == MAP_FAILED ) ) FD_LOG_ERR(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  fd_memcpy( config, bytes, sizeof( config_t ) );
-  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( config_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-}
-
-static void
 determine_override_config( int *                      pargc,
                            char ***                   pargv,
                            fd_config_file_t * const * configs,
@@ -143,14 +133,17 @@ fd_main_init( int *                      pargc,
 
   int config_fd = fd_env_strip_cmdline_int( pargc, pargv, "--config-fd", NULL, -1 );
 
-  fd_memset( config, 0, sizeof( config_t ) );
   char * thread = "";
   if( FD_UNLIKELY( config_fd >= 0 ) ) {
-    copy_config_from_fd( config_fd, config );
+    /* config is a fresh static (zero after execve); a memset here would
+       dirty every page and undo the sparse copy */
+    fd_config_from_memfd( config_fd, config );
+    if( FD_UNLIKELY( close( config_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     /* tick_per_ns needs to be synchronized across processes so that
        they can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
+    fd_memset( config, 0, sizeof( config_t ) );
     char * user_config = NULL;
     ulong user_config_sz = 0UL;
     if( FD_LIKELY( opt_user_config_path ) ) {
