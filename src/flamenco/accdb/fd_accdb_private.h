@@ -164,6 +164,16 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 #include "../../util/tmpl/fd_dlist.c"
 
+/* Deferred-free buffer tiering.  The buffer must hold txn_max entries
+   (worst single advance_root/purge; exhaustion is FD_TEST abort) but
+   mainnet appends ~1 rooted slot of unlinks per call.  Locked RAM holds
+   DEFER_WINDOW entries (resident + one stage chunk); past resident, T2
+   pwrites sealed stage chunks to the scratch file and preads them back
+   at drain.  Positions are pure f(cnt). */
+
+#define FD_ACCDB_DEFER_WINDOW_ELE (16UL<<20)  /* 64 MiB locked window  */
+#define FD_ACCDB_DEFER_STAGE_ELE  (2UL<<20)   /* 8 MiB spill I/O chunk */
+
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -559,6 +569,8 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_buf_cnt;
   ulong deferred_acc_buf_max;
   ulong deferred_acc_epoch;
+  ulong deferred_acc_resident; /* RAM entries before the spill tier  */
+  ulong deferred_acc_stage;    /* stage chunk entries, 0 = no spill  */
 
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];
