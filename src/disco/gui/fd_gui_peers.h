@@ -65,9 +65,12 @@
   in place directly out of the decompressed image, making startup a
   single streaming decompress.  seg_country[i] is an index into
   country_codes, or 255 for unmapped space; seg_city[i] is an index
-  into city_names, or UINT_MAX. */
+  into city_names, or UINT_MAX.  Adjacent segments never share both.
 
-#define FD_GUI_GEOIP_BIN_MAX          (64UL<<20) /* decompressed image cap; embedded image is ~54 MiB, boot fails loudly if a dbip refresh outgrows this */
+  The image buffer is sized exactly from the embedded frame's content
+  size. */
+
+#define FD_GUI_GEOIP_BIN_MAX          (64UL<<20) /* decompressed image sanity cap */
 #define FD_GUI_GEOIP_MAX_CITY_NAME_SZ (80UL)
 #define FD_GUI_GEOIP_MAX_CITY_CNT     (160000UL)
 #define FD_GUI_GEOIP_MAX_COUNTRY_CNT  (254UL)
@@ -353,9 +356,10 @@ struct fd_gui_ip_db {
   ulong         seg_cnt;
   uint const *  seg_start;   /* [seg_cnt] sorted, host byte order */
   uchar const * seg_country; /* [seg_cnt] index into country_code, 255=unknown */
-  uint const *  seg_city;    /* [seg_cnt] index into city_name, UINT_MAX=unknown */
+  uint const *  seg_city;    /* [seg_cnt] index into city_name_off, UINT_MAX=unknown */
+  char const *  image;
   char country_code[ FD_GUI_GEOIP_MAX_COUNTRY_CNT ][ 3 ]; /* ISO 3166-1 alpha-2 country codes as cstrings */
-  char city_name[ FD_GUI_GEOIP_MAX_CITY_CNT ][ FD_GUI_GEOIP_MAX_CITY_NAME_SZ ]; /* city_names as cstrings */
+  uint city_name_off[ FD_GUI_GEOIP_MAX_CITY_CNT ]; /* image offset of each NUL-terminated city name */
 };
 
 typedef struct fd_gui_ip_db fd_gui_ip_db_t;
@@ -433,7 +437,7 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_gui_peers_align( void );
 
-FD_FN_CONST ulong
+FD_FN_PURE ulong
 fd_gui_peers_footprint( ulong max_ws_conn_cnt );
 
 void *
