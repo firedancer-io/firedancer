@@ -74,6 +74,20 @@ fd_progcache_layout_footprint( ulong txn_max,
   return FD_LAYOUT_FINI( l, fd_progcache_shmem_align() );
 }
 
+/* fd_progcache_arena_off returns the byte offset of the value arena from
+   the start of the shmem, matching fd_progcache_shmem_new's layout. */
+static ulong
+fd_progcache_arena_off( ulong txn_max,
+                        ulong rec_max ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_progcache_shmem_t), sizeof(fd_progcache_shmem_t) );
+  l = FD_LAYOUT_APPEND( l, fd_prog_txnm_align(), fd_prog_txnm_footprint( fd_prog_txnm_chain_cnt_est( txn_max ) ) );
+  l = FD_LAYOUT_APPEND( l, fd_prog_txnp_align(), fd_prog_txnp_footprint( txn_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_prog_recm_align(), fd_prog_recm_footprint( fd_prog_recm_chain_cnt_est( rec_max ) ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_progcache_rec_t), sizeof(fd_progcache_rec_t)*rec_max );
+  return fd_ulong_align_up( l, fd_progcache_val_align() );
+}
+
 /* fd_progcache_setup_slots provisions progcache_sz across the classes.  Returns rec_max (== sum(slot_cnt)),
    or 0 if the budget cannot cover class_min for every class. */
 
@@ -156,6 +170,19 @@ fd_progcache_shmem_footprint( ulong txn_max,
   return progcache_sz;
 }
 
+int
+fd_progcache_shmem_arena( ulong   txn_max,
+                          ulong   progcache_sz,
+                          ulong * lo,
+                          ulong * hi ) {
+  if( FD_UNLIKELY( !fd_progcache_shmem_footprint( txn_max, progcache_sz ) ) ) return 0;
+  ulong slot_cnt[ FD_PROGCACHE_CACHE_CLASS_CNT ];
+  ulong rec_max = fd_progcache_setup_slots( txn_max, progcache_sz, slot_cnt );
+  *lo = fd_progcache_arena_off( txn_max, rec_max );
+  *hi = *lo + fd_progcache_arena_sz( slot_cnt );
+  return 1;
+}
+
 fd_progcache_shmem_t *
 fd_progcache_shmem_new( void * shmem,
                         ulong  wksp_tag,
@@ -209,6 +236,7 @@ fd_progcache_shmem_new( void * shmem,
   fd_progcache_rec_t * rec_ele = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_progcache_rec_t), sizeof(fd_progcache_rec_t)*rec_max );
   uchar *              arena   = FD_SCRATCH_ALLOC_APPEND( l, fd_progcache_val_align(), arena_sz );
 
+  FD_TEST( (ulong)arena==(ulong)pc + fd_progcache_arena_off( txn_max, rec_max ) );
   ulong layout_sz = fd_progcache_layout_footprint( txn_max, rec_max, arena_sz );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_progcache_shmem_align() ) == (ulong)pc + layout_sz );
   FD_TEST( layout_sz<=progcache_sz );

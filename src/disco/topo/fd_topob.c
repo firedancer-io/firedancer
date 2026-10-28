@@ -74,6 +74,16 @@ fd_topob_obj( fd_topo_t *  topo,
   return obj;
 }
 
+void
+fd_topob_obj_overlay( fd_topo_t *           topo,
+                      fd_topo_obj_t *       obj,
+                      fd_topo_obj_t const * host ) {
+  (void)topo;
+  obj->overlay     = 1;
+  obj->host_obj_id = host->id;
+  obj->wksp_id     = host->wksp_id;
+}
+
 fd_topo_obj_t *
 fd_topob_obj_named( fd_topo_t *  topo,
                     char const * obj_type,
@@ -563,28 +573,54 @@ fd_topob_finish( fd_topo_t *                topo,
     part_max += 3; /* for initial alignment */
     ulong offset = fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() );
 
-    for( ulong j=0UL; j<topo->obj_cnt; j++ ) {
-      fd_topo_obj_t * obj = &topo->objs[ j ];
-      if( FD_UNLIKELY( obj->wksp_id!=wksp->id ) ) continue;
+    /* Pass 0 places regular objects, pass 1 packs overlays into their
+       host's window, falling back to regular space when it is full. */
+    ulong ov_host = ULONG_MAX;
+    ulong ov_off  = 0UL;
+    ulong ov_hi   = 0UL;
+    for( ulong pass=0UL; pass<2UL; pass++ ) {
+      for( ulong j=0UL; j<topo->obj_cnt; j++ ) {
+        fd_topo_obj_t * obj = &topo->objs[ j ];
+        if( FD_UNLIKELY( obj->wksp_id!=wksp->id ) ) continue;
+        if( (ulong)obj->overlay!=pass ) continue;
 
-      fd_topo_obj_callbacks_t * cb = NULL;
-      for( ulong i=0UL; callbacks[ i ]; i++ ) {
-        if( FD_UNLIKELY( !strcmp( callbacks[ i ]->name, obj->name ) ) ) {
-          cb = callbacks[ i ];
-          break;
+        fd_topo_obj_callbacks_t * cb = NULL;
+        for( ulong i=0UL; callbacks[ i ]; i++ ) {
+          if( FD_UNLIKELY( !strcmp( callbacks[ i ]->name, obj->name ) ) ) {
+            cb = callbacks[ i ];
+            break;
+          }
         }
-      }
-      if( FD_UNLIKELY( !cb ) ) FD_LOG_ERR(( "no callbacks for object %s", obj->name ));
+        if( FD_UNLIKELY( !cb ) ) FD_LOG_ERR(( "no callbacks for object %s", obj->name ));
 
-      ulong align_ = cb->align( topo, obj );
-      if( FD_UNLIKELY( !fd_ulong_is_pow2( align_ ) ) ) FD_LOG_ERR(( "Return value of fdctl_obj_align(%s,%lu) is not a power of 2", obj->name, obj->id ));
-      offset = fd_ulong_align_up( offset, align_ );
-      obj->offset = offset;
-      obj->footprint = cb->footprint( topo, obj );
-      if( FD_UNLIKELY( 0!=strcmp( obj->name, "tile" ) && (!obj->footprint || obj->footprint>LONG_MAX) ) ) {
-        FD_LOG_ERR(( "fdctl_obj_footprint(%s,%lu) failed", obj->name, obj->id ));
+        ulong align_ = cb->align( topo, obj );
+        if( FD_UNLIKELY( !fd_ulong_is_pow2( align_ ) ) ) FD_LOG_ERR(( "Return value of fdctl_obj_align(%s,%lu) is not a power of 2", obj->name, obj->id ));
+        obj->footprint = cb->footprint( topo, obj );
+        if( FD_UNLIKELY( 0!=strcmp( obj->name, "tile" ) && (!obj->footprint || obj->footprint>LONG_MAX) ) ) {
+          FD_LOG_ERR(( "fdctl_obj_footprint(%s,%lu) failed", obj->name, obj->id ));
+        }
+
+        if( pass ) {
+          fd_topo_obj_t const * host = &topo->objs[ obj->host_obj_id ];
+          if( FD_UNLIKELY( host->wksp_id!=wksp->id || host->overlay ) ) FD_LOG_ERR(( "bad overlay host for obj %lu", obj->id ));
+          if( host->id!=ov_host ) {
+            ov_host = host->id;
+            ov_off  = host->offset + fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.overlay_lo", host->id );
+            ov_hi   = host->offset + fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.overlay_hi", host->id );
+          }
+          ulong lo = fd_ulong_align_up( ov_off, align_ );
+          if( FD_LIKELY( lo+obj->footprint<=ov_hi ) ) {
+            obj->offset = lo;
+            ov_off      = lo + obj->footprint;
+            continue;
+          }
+          obj->overlay = 0; /* window full */
+        }
+
+        offset = fd_ulong_align_up( offset, align_ );
+        obj->offset = offset;
+        offset += obj->footprint;
       }
-      offset += obj->footprint;
     }
 
     ulong footprint = fd_ulong_align_up( offset, fd_topo_workspace_align() );
