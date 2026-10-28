@@ -167,7 +167,7 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 /* Disk index.  When index_ram_max is non-zero, acc_pool holds at most
    index_ram_max entries and the rooted index lives in a file of
    idx_page_cnt 4 KiB pages of 64 byte slots (linear probing, load
-   factor at most 0.5), accessed with explicit pread/pwrite.  acc_map
+   factor at most 2/3), accessed with explicit pread/pwrite.  acc_map
    keeps unrooted versions, rooted versions not yet demoted, and
    promoted copies of disk slots.
 
@@ -246,7 +246,7 @@ fd_accdb_pool_max( ulong max_accounts,
 static inline ulong
 fd_accdb_idx_page_cnt( ulong max_accounts,
                        ulong index_ram_max ) {
-  return index_ram_max ? ( 2UL*max_accounts+FD_ACCDB_IDX_SLOT_CNT-1UL )/FD_ACCDB_IDX_SLOT_CNT : 0UL;
+  return index_ram_max ? ( 3UL*max_accounts/2UL+FD_ACCDB_IDX_SLOT_CNT-1UL )/FD_ACCDB_IDX_SLOT_CNT : 0UL;
 }
 
 struct fd_accdb_cache_key {
