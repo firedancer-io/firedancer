@@ -33,7 +33,7 @@
 #include <linux/futex.h>
 #include "generated/fd_event_tile_seccomp.h"
 
-#define GRPC_BUF_MAX (12UL<<20UL) /* 12 MiB */
+#define GRPC_BUF_MAX (6UL<<20UL) /* 6 MiB */
 
 /* The largest event, compressed in the worst case, has to fit the
    gRPC send buffer. */
