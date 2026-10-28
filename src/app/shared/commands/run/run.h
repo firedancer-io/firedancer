@@ -41,6 +41,12 @@ initialize_stake_delegations_fd( config_t const * config );
 void
 initialize_txncache_fd( config_t const * config );
 
+/* initialize_event_spool_fd opens the unlinked event retry queue spool
+   at FD_EVENT_SPOOL_FD, preallocated if the topology has an event tile. */
+
+void
+initialize_event_spool_fd( config_t const * config );
+
 void
 initialize_votor_spill_fd( config_t const * config );
 
