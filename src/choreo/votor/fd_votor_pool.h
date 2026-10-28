@@ -32,8 +32,8 @@
 #define FD_VOTOR_POOL_EVENT_IMPLICITLY_SKIPPED   (5) /* Firedancer only: for other tiles, never routed to fd_votor_loop */
 #define FD_VOTOR_POOL_EVENT_IMPLICITLY_FINALIZED (6) /* Firedancer only: for other tiles, never routed to fd_votor_loop */
 
-/* Spill file for a slot's block hash stakes past the inline ones,
-   opened at boot.  123450-123461 are other fixed fds, 123462+ XDP. */
+/* Spill file for a slot's block hash stakes past the inline ones and
+   the vote sigs of slots without a RAM block, opened at boot.  123450-123461 are other fixed fds, 123462+ XDP. */
 
 #define FD_VOTOR_SPILL_FD (123449)
 
@@ -81,16 +81,26 @@ fd_votor_pool_align( void );
 
 FD_FN_CONST ulong
 fd_votor_pool_footprint( ulong slot_max,
-                         ulong burst );
+                         ulong burst,
+                         ulong sig_pg_max );
 
-/* spill_fd is read/written with pread/pwrite at offsets below
-   slot_max*SLOT_STATE_SPILL_SZ, only when a slot sees more than
-   HASH_STAKE_INLINE_MAX distinct notar or notar fallback hashes. */
+/* sig_pg_max (<=slot_max*FD_VOTOR_VOTES_PER_SLOT_MAX*fd_bls_set_word_cnt)
+   RAM pages of 64 vote sigs.  spill_fd is read/written with
+   pread/pwrite at offsets below fd_votor_pool_spill_footprint( slot_max ), only
+   when a slot sees more than HASH_STAKE_INLINE_MAX distinct notar or
+   notar fallback hashes, or gets sigs while every RAM page is taken. */
+
+/* fd_votor_pool_spill_footprint returns the spill file size a pool of
+   slot_max slots can write. */
+
+FD_FN_CONST ulong
+fd_votor_pool_spill_footprint( ulong slot_max );
 
 void *
 fd_votor_pool_new( void * mem,
                    ulong  slot_max,
                    ulong  burst,
+                   ulong  sig_pg_max,
                    ulong  seed,
                    int    spill_fd );
 

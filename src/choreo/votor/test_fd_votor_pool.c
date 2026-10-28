@@ -13,13 +13,14 @@
 #define STATE_SHRED_VERSION  ((ushort)514)
 #define TEST_HASH_STAKE_SEED (42UL)
 
-#define VAT_MAX 64UL /* smaller for tests */
+#define VAT_MAX 200UL /* smaller for tests, still spans 4 sig pages */
 
 static slot_state_t  slot_state_mem;
 static slot_states_t g_states;
 
-static bls_sig_ele_t * g_bls_sig_pool;
-
+static fd_bls_sig_t g_sig_pg[ SLOT_SIG_PG_MAX*SIG_PG_RANKS ];
+static uint         g_sig_pg_free[ SLOT_SIG_PG_MAX ];
+static int          g_disk; /* 0 all sig pages in RAM, 1 all in the spill file, 2 one RAM page then spill */
 static fd_bls_sec_t        g_state_sk  [ VAT_MAX ];
 static fd_validator_info_t g_state_info[ VAT_MAX ];
 static void
@@ -27,6 +28,7 @@ generate_validators( ulong n ) {
   FD_TEST( n<=VAT_MAX );
   for( ulong i=0UL; i<n; i++ ) {
     fd_memset( &g_state_sk[i], (int)(i*7UL+1UL), FD_BLS_SEC_SZ );
+    if( i>=12UL ) { fd_memset( &g_state_sk[i], 0, FD_BLS_SEC_SZ ); ((uchar *)&g_state_sk[i])[ 16 ] = (uchar)i; } /* 7i+1 bytes can exceed the group order */
     memset( &g_state_info[i], 0, sizeof(fd_validator_info_t) );
     g_state_info[i].id    = i;
     g_state_info[i].stake = 1UL;
@@ -123,12 +125,19 @@ typedef struct {
 } out_t;
 
 static void
-add_vote_helper( slot_state_t *          ss,
+add_vote_helper( slot_state_t *       ss,
                  fd_vote_t const *       vote,
                  fd_epoch_info_t const * epoch_info,
                  out_t *                 t ) {
   ulong stake = fd_epoch_info_validator( epoch_info, fd_vote_rank( vote ) )->stake;
   t->ok = slot_state_add_vote( ss, &g_states, vote, stake, t->o.certs, &t->o.certs_cnt, t->o.safe_to_notar, &t->o.safe_to_notar_cnt, t->o.safe_to_skip, &t->o.safe_to_skip_cnt, t->o.block_to_repair, &t->o.block_to_repair_cnt, t->o.bad );
+  ulong ram = 0UL, disk = 0UL;
+  for( ulong ks=0UL; ks<FD_VOTOR_VOTES_PER_SLOT_MAX; ks++ ) for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) { uint pg = ss->sig_pg[ ks ][ w ]; ram += pg && pg!=SIG_PG_DISK; disk += pg==SIG_PG_DISK; }
+  switch( g_disk ) {
+  case 0: FD_TEST( !disk && ram+g_states.sig_pg_free_cnt==SLOT_SIG_PG_MAX ); break;
+  case 1: FD_TEST( !ram && disk );                                              break;
+  case 2: FD_TEST( ram==1UL && !g_states.sig_pg_free_cnt );                     break;
+  }
 }
 
 /* src/consensus/pool/slot_state.rs::add_cert */
@@ -390,7 +399,7 @@ test_should_ignore_duplicate_votes( void ) {
   free( em );
 }
 
-/* slot_state_null leaves the per-rank signature indices alone, so a
+/* slot_state_null leaves the sig block contents alone, so a
    recycled slot state must not read stale signatures as votes. */
 
 static void
@@ -408,25 +417,23 @@ test_null_ignores_stale_sigs( void ) {
   fd_bls_set_null( slot_state_mem.votes.notar_set );
   fd_bls_agg_null( &slot_state_mem.votes.skip_agg          );
   fd_bls_agg_null( &slot_state_mem.votes.skip_fallback_agg );
-  fd_bls_agg_null( &slot_state_mem.votes.final_agg         );
+  fd_bls_agg_null( &slot_state_mem.votes.final_agg      );
+  ulong free0 = g_states.sig_pg_free_cnt;
+  if( free0 ) slot_state_mem.sig_pg[ 4 ][ 0 ] = g_states.sig_pg_free[ --g_states.sig_pg_free_cnt ]+1U;
+  fd_memset( g_sig_pg, 0x5a, sizeof(g_sig_pg) );
   for( ulong rank=0UL; rank<n; rank++ ) {
-    slot_state_mem.votes.notar_sig_idx        [ rank ] = (uint)bls_sig_pool_idx_acquire( g_bls_sig_pool );
-    slot_state_mem.votes.skip_sig_idx         [ rank ] = (uint)bls_sig_pool_idx_acquire( g_bls_sig_pool );
-    slot_state_mem.votes.skip_fallback_sig_idx[ rank ] = (uint)bls_sig_pool_idx_acquire( g_bls_sig_pool );
-    slot_state_mem.votes.final_sig_idx        [ rank ] = (uint)bls_sig_pool_idx_acquire( g_bls_sig_pool );
-    for( ulong j=0UL; j<FD_VOTOR_NOTAR_FALLBACK_VOTE_MAX; j++ ) slot_state_mem.votes.notar_fallback_sig_idx[ rank ][ j ] = (uint)bls_sig_pool_idx_acquire( g_bls_sig_pool );
     slot_state_mem.votes.notar_fallback_sig_cnt[ rank ] = (uchar)FD_VOTOR_NOTAR_FALLBACK_VOTE_MAX;
     fd_bls_set_insert( slot_state_mem.votes.notar_set,              rank );
     fd_bls_set_insert( slot_state_mem.votes.skip_agg.set,          rank );
     fd_bls_set_insert( slot_state_mem.votes.skip_fallback_agg.set, rank );
     fd_bls_set_insert( slot_state_mem.votes.final_agg.set,         rank );
   }
-  FD_TEST( bls_sig_pool_free( g_bls_sig_pool )==bls_sig_pool_max( g_bls_sig_pool )-n*(4UL+FD_VOTOR_NOTAR_FALLBACK_VOTE_MAX) );
   slot_state_t * ss = make_state( slot, epoch_info );
   assert_maps_empty( ss );
   FD_TEST( fd_bls_set_is_null( ss->votes.notar_set ) && fd_bls_set_is_null( ss->votes.skip_agg.set ) && fd_bls_set_is_null( ss->votes.skip_fallback_agg.set ) && fd_bls_set_is_null( ss->votes.final_agg.set ) );
   for( ulong rank=0UL; rank<FD_VOTOR_VAT_MAX; rank++ ) FD_TEST( !ss->votes.notar_fallback_sig_cnt[ rank ] );
-  FD_TEST( bls_sig_pool_free( g_bls_sig_pool )==bls_sig_pool_max( g_bls_sig_pool ) );
+  for( ulong ks=0UL; ks<FD_VOTOR_VOTES_PER_SLOT_MAX; ks++ ) for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) FD_TEST( !ss->sig_pg[ ks ][ w ] );
+  FD_TEST( g_states.sig_pg_free_cnt==free0 );
 
   fd_vote_t n1 = fd_vote_construct_notar( sec_sign_fn, &g_state_sk[1], test_bls_public_key, slot, &hash, 1UL, STATE_SHRED_VERSION );
   fd_vote_t s1 = fd_vote_construct_skip ( sec_sign_fn, &g_state_sk[1], test_bls_public_key, slot, 1UL,        STATE_SHRED_VERSION );
@@ -454,28 +461,36 @@ test_null_ignores_stale_sigs( void ) {
 
 static void
 test_count_finalize_creates_cert_at_quorum( void ) {
-  ulong n = 6UL;
+  ulong n = VAT_MAX; /* 6 heavy voters on 4 sig pages, the rest stake 0 */
   generate_validators( n );
+  static ulong const heavy[ 6 ] = { 0UL, 1UL, 63UL, 64UL, 130UL, 199UL };
+  for( ulong i=0UL; i<n; i++ ) g_state_info[ i ].stake = 0UL;
+  for( ulong i=0UL; i<6UL; i++ ) g_state_info[ heavy[ i ] ].stake = 1UL;
   void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
   ulong slot = 1UL;
   slot_state_t * ss = make_state( slot, epoch_info );
   out_t t;
 
   for( ulong i=1UL; i<=3UL; i++ ) {
-    fd_vote_t fv = fd_vote_construct_final( sec_sign_fn, &g_state_sk[i], test_bls_public_key, slot, (ushort)i, STATE_SHRED_VERSION );
+    fd_vote_t fv = fd_vote_construct_final( sec_sign_fn, &g_state_sk[ heavy[ i ] ], test_bls_public_key, slot, (ushort)heavy[ i ], STATE_SHRED_VERSION );
     add_vote_helper( ss, &fv, epoch_info, &t );
     FD_TEST( t.o.certs_cnt==0UL );
     FD_TEST( t.o.safe_to_notar_cnt==0UL && t.o.safe_to_skip_cnt==0UL );
     FD_TEST( t.o.block_to_repair_cnt==0UL );
   }
 
-  fd_vote_t fv4 = fd_vote_construct_final( sec_sign_fn, &g_state_sk[4], test_bls_public_key, slot, 4UL, STATE_SHRED_VERSION );
+  fd_vote_t fv4 = fd_vote_construct_final( sec_sign_fn, &g_state_sk[ heavy[ 4 ] ], test_bls_public_key, slot, (ushort)heavy[ 4 ], STATE_SHRED_VERSION );
   add_vote_helper( ss, &fv4, epoch_info, &t );
   FD_TEST( t.o.certs_cnt==1UL );
-  FD_TEST( t.o.certs[0].kind==FD_CERT_KIND_FINAL );
+  FD_TEST( t.o.certs[0].kind==FD_CERT_KIND_FINAL && fd_bls_set_cnt( t.o.certs[0].final.agg.set )==4UL && fd_bls_set_is_null( t.o.bad ) );
+  for( ulong i=1UL; i<=4UL; i++ ) {
+    fd_bls_sig_t sig;
+    fd_vote_t    want = fd_vote_construct_final( sec_sign_fn, &g_state_sk[ heavy[ i ] ], test_bls_public_key, slot, (ushort)heavy[ i ], STATE_SHRED_VERSION );
+    FD_TEST( !memcmp( slot_state_vote_sig( ss, &g_states, FD_VOTE_KIND_FINAL, heavy[ i ], 0UL, &sig ), &want.final.sig, sizeof(fd_bls_sig_t) ) );
+  }
 
   slot_state_add_cert( ss, &t.o.certs[0] );
-  fd_vote_t fv5 = fd_vote_construct_final( sec_sign_fn, &g_state_sk[5], test_bls_public_key, slot, 5UL, STATE_SHRED_VERSION );
+  fd_vote_t fv5 = fd_vote_construct_final( sec_sign_fn, &g_state_sk[ heavy[ 5 ] ], test_bls_public_key, slot, (ushort)heavy[ 5 ], STATE_SHRED_VERSION );
   add_vote_helper( ss, &fv5, epoch_info, &t );
   FD_TEST( t.o.certs_cnt==0UL );
 
@@ -900,6 +915,20 @@ test_notar_fallback_removes_head_middle_tail( void ) {
   FD_TEST( fd_cert_verify( &t.o.certs[0], epoch_info )==FD_CERT_VERIFY_SUCCESS );
   slot_state_null( ss, &g_states );
   assert_maps_empty( ss );
+
+  /* removing a rank's first notar fallback moves its second sig down */
+  ss = make_state( slot, epoch_info );
+  fd_vote_t forged = fd_vote_construct_notar_fallback( sec_sign_fn, &g_state_sk[8], test_bls_public_key, slot, &hash[0], 2UL, STATE_SHRED_VERSION );
+  fd_vote_t valid  = fd_vote_construct_notar_fallback( sec_sign_fn, &g_state_sk[2], test_bls_public_key, slot, &hash[1], 2UL, STATE_SHRED_VERSION );
+  add_vote_helper( ss, &forged, epoch_info, &t ); FD_TEST( t.ok );
+  add_vote_helper( ss, &valid,  epoch_info, &t ); FD_TEST( t.ok && ss->votes.notar_fallback_sig_cnt[ 2 ]==2U );
+  fd_vote_t heavy = fd_vote_construct_notar_fallback( sec_sign_fn, &g_state_sk[1], test_bls_public_key, slot, &hash[0], 1UL, STATE_SHRED_VERSION );
+  add_vote_helper( ss, &heavy, epoch_info, &t );
+  FD_TEST( t.ok && fd_bls_set_cnt( t.o.bad )==1UL && fd_bls_set_test( t.o.bad, 2UL ) && t.o.certs_cnt==1UL );
+  FD_TEST( ss->votes.notar_fallback_sig_cnt[ 2 ]==1U );
+  fd_block_hash_t got; FD_TEST( !memcmp( slot_state_vote_hash( ss, &g_states, FD_VOTE_KIND_NOTAR_FALLBACK, 2UL, 0UL, &got ), &hash[1], sizeof(fd_block_hash_t) ) );
+  fd_bls_sig_t sig; FD_TEST( !memcmp( slot_state_vote_sig( ss, &g_states, FD_VOTE_KIND_NOTAR_FALLBACK, 2UL, 0UL, &sig ), &valid.notar_fallback.sig, sizeof(fd_bls_sig_t) ) );
+  slot_state_null( ss, &g_states );
   free( em );
 }
 
@@ -1296,7 +1325,7 @@ test_pool_ids_stable( void ) {
 
 static void
 test_hash_stake_spill( void ) {
-  ulong n = VAT_MAX;
+  ulong n = 64UL;
   generate_validators( n );
   g_state_info[ 40 ].stake = 200UL; /* alone a quorum */
   void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
@@ -1366,10 +1395,9 @@ test_hash_stake_spill( void ) {
 
 static void
 test_slot_state( void ) {
-  void * bls_sig_pool_mem = aligned_alloc( bls_sig_pool_align(), bls_sig_pool_footprint( FD_VOTOR_VAT_MAX*FD_VOTOR_VOTES_PER_SLOT_MAX ) );
-  FD_TEST( bls_sig_pool_mem );
-  g_bls_sig_pool = bls_sig_pool_join( bls_sig_pool_new( bls_sig_pool_mem, FD_VOTOR_VAT_MAX*FD_VOTOR_VOTES_PER_SLOT_MAX ) );
-  g_states.bls_sig_pool    = g_bls_sig_pool;
+
+  g_states.sig_pg          = g_sig_pg;
+  g_states.sig_pg_free     = g_sig_pg_free;
   g_states.prev_epoch_info = NULL;
   g_states.prev_epoch_rank = USHORT_MAX;
   g_states.prev_epoch_slot = ULONG_MAX;
@@ -1382,40 +1410,43 @@ test_slot_state( void ) {
   g_states.spill_fd        = memfd_create( "votor_spill", 0 );
   FD_TEST( g_states.spill_fd>=0 );
 
-  test_add_cert();
-  test_add_vote();
-  test_safe_to_notar();
-  test_slashable_skip_and_notarize();
-  test_slashable_notar_different_hash();
-  test_slashable_skip_and_finalize();
-  test_slashable_notar_fallback_and_finalize();
-  test_slashable_offence_none();
-  test_should_ignore_duplicate_votes();
-  test_null_ignores_stale_sigs();
-  test_count_finalize_creates_cert_at_quorum();
-  test_count_notar_fallback_creates_cert_at_quorum();
-  test_notar_cert_implies_notar_fallback();
-  test_poisoned_notar_aggregate();
-  test_identity_partition();
-  test_safe_to_events_verify();
-  test_safe_to_skip_removes_forged_notar();
-  test_safe_to_skip_verifies_skip_first();
-  test_map_capacity();
-  test_safe_to_skip_removes_table_mate();
-  test_safe_to_skip_removes_head_middle_tail();
-  test_notar_fallback_removes_head_middle_tail();
-  test_skip_skip_fallback_conflict();
-  test_notar_notar_fallback_conflict();
+  for( g_disk=0; g_disk<3; g_disk++ ) {
+    slot_state_null( &slot_state_mem, &g_states );
+    g_states.sig_pg_free_cnt = g_disk==0 ? SLOT_SIG_PG_MAX : g_disk==1 ? 0UL : 1UL;
+    for( ulong i=0UL; i<SLOT_SIG_PG_MAX; i++ ) g_sig_pg_free[ i ] = (uint)i;
+    test_add_cert();
+    test_add_vote();
+    test_safe_to_notar();
+    test_slashable_skip_and_notarize();
+    test_slashable_notar_different_hash();
+    test_slashable_skip_and_finalize();
+    test_slashable_notar_fallback_and_finalize();
+    test_slashable_offence_none();
+    test_should_ignore_duplicate_votes();
+    test_null_ignores_stale_sigs();
+    test_count_finalize_creates_cert_at_quorum();
+    test_count_notar_fallback_creates_cert_at_quorum();
+    test_notar_cert_implies_notar_fallback();
+    test_poisoned_notar_aggregate();
+    test_identity_partition();
+    test_safe_to_events_verify();
+    test_safe_to_skip_removes_forged_notar();
+    test_safe_to_skip_verifies_skip_first();
+    test_map_capacity();
+    test_safe_to_skip_removes_table_mate();
+    test_safe_to_skip_removes_head_middle_tail();
+    test_notar_fallback_removes_head_middle_tail();
+    test_skip_skip_fallback_conflict();
+    test_notar_notar_fallback_conflict();
 
-  test_set_insert_contains_iter();
+    test_set_insert_contains_iter();
 
-  test_notar_stake_tally();
-  test_notar_fallback_stake_tally();
+    test_notar_stake_tally();
+    test_notar_fallback_stake_tally();
 
-  test_pool_ids_stable();
-  test_hash_stake_spill();
-
-  free( bls_sig_pool_delete( bls_sig_pool_leave( g_bls_sig_pool ) ) );
+    test_pool_ids_stable();
+    test_hash_stake_spill();
+  }
 }
 
 static int g_spill_fd = -1;
@@ -1567,10 +1598,11 @@ drain_events( fd_votor_pool_t * pool ) {
 static fd_bls_set_t bad[ fd_bls_set_word_cnt ];
 static uchar        quorum_reached;
 
-#define SCRATCH_MAX (TEST_SLOT_MAX*(sizeof(slot_state_t)+FD_VOTOR_VAT_MAX*FD_VOTOR_VOTES_PER_SLOT_MAX*sizeof(bls_sig_ele_t)+1024UL)+(4UL<<20)) /* ~133 MiB */
+#define SCRATCH_MAX (TEST_SLOT_MAX*(sizeof(slot_state_t)+SLOT_SIG_PG_MAX*(SIG_PG_SZ+sizeof(uint))+1024UL)+(4UL<<20))
+
+static ulong g_sig_pg_max = TEST_SLOT_MAX*SLOT_SIG_PG_MAX; /* small: most sig pages live in the spill file */
 
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
-
 static fd_bls_sec_t      g_sk  [ NV ];
 static fd_validator_info_t g_info[ NV ];
 static void
@@ -1664,8 +1696,8 @@ static fd_votor_pool_t *
 setup_pool( void ) {
   create_validators();
   ulong slot_max = TEST_SLOT_MAX;
-  FD_TEST( fd_votor_pool_footprint( slot_max, TEST_BURST )<=sizeof(scratch) );
-  fd_votor_pool_t * pool = fd_votor_pool_join( fd_votor_pool_new( scratch, slot_max, TEST_BURST, 42UL, g_spill_fd ) );
+  FD_TEST( fd_votor_pool_footprint( slot_max, TEST_BURST, g_sig_pg_max )<=sizeof(scratch) );
+  fd_votor_pool_t * pool = fd_votor_pool_join( fd_votor_pool_new( scratch, slot_max, TEST_BURST, g_sig_pg_max, 42UL, g_spill_fd ) );
   FD_TEST( pool );
   fd_votor_pool_from_genesis( pool, &(fd_block_id_t){ .slot = 0UL } );
 
@@ -1674,13 +1706,46 @@ setup_pool( void ) {
   return pool;
 }
 
+/* Every RAM sig page is free or owned by exactly one live slot. */
+
+static uchar g_pg_own[ TEST_SLOT_MAX*SLOT_SIG_PG_MAX ];
+
+static void
+check_sig_pgs( fd_votor_pool_t const * pool ) {
+  slot_states_t const * ss  = pool->slot_states;
+  ulong                 cnt = ss->sig_pg_free_cnt;
+  fd_memset( g_pg_own, 0, sizeof(g_pg_own) );
+  for( ulong i=0UL; i<cnt; i++ ) { FD_TEST( ss->sig_pg_free[ i ]<g_sig_pg_max && !g_pg_own[ ss->sig_pg_free[ i ] ] ); g_pg_own[ ss->sig_pg_free[ i ] ] = 1; }
+  for( ulong i=0UL; i<slot_state_pool_max( ss->pool ); i++ ) {
+    slot_state_ele_t const * ele = ss->pool+i;
+    if( slot_state_map_ele_query_const( ss->map, &ele->slot, NULL, ss->pool )!=ele ) continue;
+    for( ulong ks=0UL; ks<FD_VOTOR_VOTES_PER_SLOT_MAX; ks++ ) {
+      for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) {
+        uint pg = ele->slot_state.sig_pg[ ks ][ w ];
+        if( !pg || pg==SIG_PG_DISK ) continue;
+        FD_TEST( pg-1U<g_sig_pg_max && !g_pg_own[ pg-1U ] ); g_pg_own[ pg-1U ] = 1;
+        cnt++;
+      }
+    }
+  }
+  FD_TEST( cnt==g_sig_pg_max );
+}
+static ulong
+ram_pg_cnt( slot_state_t const * state ) {
+  ulong cnt = 0UL;
+  for( ulong ks=0UL; ks<FD_VOTOR_VOTES_PER_SLOT_MAX; ks++ ) for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) cnt += state->sig_pg[ ks ][ w ] && state->sig_pg[ ks ][ w ]!=SIG_PG_DISK;
+  return cnt;
+}
+
 static void
 teardown_pool_only( fd_votor_pool_t * pool ) {
+  check_sig_pgs( pool );
   fd_votor_pool_delete( fd_votor_pool_leave( pool ) );
 }
 
 static void
 teardown_pool( fd_votor_pool_t * pool ) {
+  check_sig_pgs( pool );
   fd_votor_pool_delete( fd_votor_pool_leave( pool ) );
   g_epoch_info = NULL;
 }
@@ -2385,20 +2450,11 @@ test_pruning( void ) {
 
   teardown_pool( pool );
 }
-
-/* Firedancer-only test.
-
-   Fill a slot with the most signatures the acceptance rules admit per
-   rank (notar, three notar-fallback, skip-fallback), check every further
-   vote from those ranks is refused without taking a signature, then
-   prune the slot and require the signature pool to be fully free. */
-
 static void
-test_bls_sig_pool_released_on_prune( void ) {
-  fd_votor_pool_t *        pool         = setup_pool();
-  bls_sig_ele_t * bls_sig_pool = pool->slot_states->bls_sig_pool;
-  ulong              sig_max      = bls_sig_pool_max( bls_sig_pool );
-  FD_TEST( sig_max==TEST_SLOT_MAX*FD_VOTOR_VAT_MAX*FD_VOTOR_VOTES_PER_SLOT_MAX && bls_sig_pool_free( bls_sig_pool )==sig_max );
+test_sig_pg_released_on_prune( void ) {
+  fd_votor_pool_t *        pool   = setup_pool();
+  slot_states_t * states = pool->slot_states;
+  FD_TEST( states->sig_pg_free_cnt==g_sig_pg_max );
 
   ulong           slot   = 1UL;
   ulong           voters = 6UL; /* below quorum, so no cert is created */
@@ -2416,14 +2472,25 @@ test_bls_sig_pool_released_on_prune( void ) {
   FD_TEST( state && state->certs.notar.slot==ULONG_MAX && !state->certs.notar_fallback_cnt && state->certs.skip.slot==ULONG_MAX );
   FD_TEST( fd_bls_set_cnt( state->votes.notar_set )==voters && fd_bls_set_cnt( state->votes.skip_fallback_agg.set )==voters );
   for( ulong v=0UL; v<voters; v++ ) FD_TEST( state->votes.notar_fallback_sig_cnt[ v ]==FD_VOTOR_NOTAR_FALLBACK_VOTE_MAX );
-  FD_TEST( bls_sig_pool_free( bls_sig_pool )==sig_max-voters*FD_VOTOR_VOTES_PER_SLOT_MAX );
+  FD_TEST( ram_pg_cnt( state )==FD_VOTOR_VOTES_PER_SLOT_MAX && states->sig_pg_free_cnt==g_sig_pg_max-FD_VOTOR_VOTES_PER_SLOT_MAX ); /* NV ranks: one page per kind slot */
   FD_TEST( fd_uint_popcnt( state->votes.notar_hash_stake.used )==1 && fd_uint_popcnt( state->votes.notar_fallback_hash_stake.used )==(int)FD_VOTOR_NOTAR_FALLBACK_VOTE_MAX );
+  for( ulong v=0UL; v<voters; v++ ) {
+    fd_bls_sig_t sig;
+    fd_vote_t    want = fd_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, &hash[ 0 ], (ushort)v, TEST_SHRED_VERSION );
+    FD_TEST( !memcmp( slot_state_vote_sig( state, states, FD_VOTE_KIND_NOTAR, v, 0UL, &sig ), &want.notar.sig, sizeof(fd_bls_sig_t) ) );
+    want = fd_vote_construct_skip_fallback( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, (ushort)v, TEST_SHRED_VERSION );
+    FD_TEST( !memcmp( slot_state_vote_sig( state, states, FD_VOTE_KIND_SKIP_FALLBACK, v, 0UL, &sig ), &want.skip_fallback.sig, sizeof(fd_bls_sig_t) ) );
+    for( ulong j=0UL; j<FD_VOTOR_NOTAR_FALLBACK_VOTE_MAX; j++ ) {
+      want = fd_vote_construct_notar_fallback( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, &hash[ 1UL+j ], (ushort)v, TEST_SHRED_VERSION );
+      FD_TEST( !memcmp( slot_state_vote_sig( state, states, FD_VOTE_KIND_NOTAR_FALLBACK, v, j, &sig ), &want.notar_fallback.sig, sizeof(fd_bls_sig_t) ) );
+    }
+  }
 
   fd_block_hash_t other; random_hash( &other );
   for( ulong v=0UL; v<voters; v++ ) {
     fd_vote_t notar = fd_vote_construct_notar         ( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, &other, (ushort)v, TEST_SHRED_VERSION );
     fd_vote_t nf    = fd_vote_construct_notar_fallback( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, &other, (ushort)v, TEST_SHRED_VERSION );
-    fd_vote_t skip  = fd_vote_construct_skip          ( sec_sign_fn, &g_sk[v], test_bls_public_key, slot,         (ushort)v, TEST_SHRED_VERSION );
+    fd_vote_t skip  = fd_vote_construct_skip          ( sec_sign_fn, &g_sk[v], test_bls_public_key, slot,        (ushort)v, TEST_SHRED_VERSION );
     fd_vote_t sf    = fd_vote_construct_skip_fallback ( sec_sign_fn, &g_sk[v], test_bls_public_key, slot,        (ushort)v, TEST_SHRED_VERSION );
     fd_vote_t final = fd_vote_construct_final         ( sec_sign_fn, &g_sk[v], test_bls_public_key, slot,        (ushort)v, TEST_SHRED_VERSION );
     FD_TEST( fd_votor_pool_add_vote( pool, &notar, 0, bad, &quorum_reached )==FD_VOTOR_POOL_ERR_SLASHABLE );
@@ -2432,16 +2499,54 @@ test_bls_sig_pool_released_on_prune( void ) {
     FD_TEST( fd_votor_pool_add_vote( pool, &sf, 0,    bad, &quorum_reached )==FD_VOTOR_POOL_ERR_DUPLICATE );
     FD_TEST( fd_votor_pool_add_vote( pool, &final, 0, bad, &quorum_reached )==FD_VOTOR_POOL_ERR_SLASHABLE );
   }
-  FD_TEST( bls_sig_pool_free( bls_sig_pool )==sig_max-voters*FD_VOTOR_VOTES_PER_SLOT_MAX );
+
+  /* a cert-only slot takes no page; with every page taken a voted
+     slot keeps its sigs in the spill file */
+  ulong           far = TEST_SLOT_MAX-FD_VOTOR_REWARD_SLOT_DELTA-1UL;
+  fd_block_hash_t far_hash; random_hash( &far_hash );
+  fd_vote_notar_t nv[ NV ];
+  for( ulong v=0UL; v<NV; v++ ) nv[v] = fd_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, far, &far_hash, (ushort)v, TEST_SHRED_VERSION ).notar;
+  fd_cert_t far_cert = cert_build_notar( nv, NV, g_epoch_info );
+  FD_TEST( fd_votor_pool_add_cert( pool, &far_cert, 0, bad )==FD_VOTOR_POOL_SUCCESS );
+  drain_events( pool );
+  ulong free1 = g_sig_pg_max-FD_VOTOR_VOTES_PER_SLOT_MAX;
+  FD_TEST( !ram_pg_cnt( slot_state_query( pool, far ) ) && states->sig_pg_free_cnt==free1 );
+  if( free1<far-slot-1UL ) {
+    for( ulong s=slot+1UL; s<=slot+1UL+free1; s++ ) {
+      fd_vote_t vote = fd_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, s, 0, TEST_SHRED_VERSION );
+      FD_TEST( fd_votor_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
+      drain_events( pool );
+      uint pg = slot_state_query( pool, s )->sig_pg[ 0 ][ 0 ];
+      FD_TEST( s<=slot+free1 ? pg && pg!=SIG_PG_DISK : pg==SIG_PG_DISK );
+    }
+    slot_state_t const * disk = slot_state_query( pool, slot+1UL+free1 );
+    FD_TEST( disk->sig_pg[ 0 ][ 0 ]==SIG_PG_DISK && !states->sig_pg_free_cnt );
+    fd_bls_sig_t sig;
+    fd_vote_t    want = fd_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot+1UL+free1, 0, TEST_SHRED_VERSION );
+    FD_TEST( !memcmp( slot_state_vote_sig( disk, states, FD_VOTE_KIND_SKIP, 0UL, 0UL, &sig ), &want.skip.sig, sizeof(fd_bls_sig_t) ) );
+  }
+  check_sig_pgs( pool );
 
   fast_finalize( pool, slot, &hash[ 0 ] );
-  FD_TEST( contains_slot( pool, slot ) && bls_sig_pool_free( bls_sig_pool )==sig_max-voters*FD_VOTOR_VOTES_PER_SLOT_MAX );
-  for( ulong s=slot+1UL; s<=slot+FD_VOTOR_REWARD_SLOT_DELTA+1UL; s++ ) { fd_block_hash_t h; random_hash( &h ); fast_finalize( pool, s, &h ); }
-  FD_TEST( !contains_slot( pool, slot ) );
-  FD_TEST( bls_sig_pool_free( bls_sig_pool )==sig_max );
+  FD_TEST( contains_slot( pool, slot ) );
+  for( ulong s=slot+1UL; s<=far+FD_VOTOR_REWARD_SLOT_DELTA+1UL; s++ ) {
+    fd_block_hash_t h; random_hash( &h );
+    fast_finalize( pool, s, s==far ? &far_hash : &h );
+    if( s==slot+FD_VOTOR_REWARD_SLOT_DELTA+1UL ) { FD_TEST( !contains_slot( pool, slot ) ); check_sig_pgs( pool ); }
+  }
+  FD_TEST( !contains_slot( pool, far ) && states->sig_pg_free_cnt==g_sig_pg_max );
 
   teardown_pool( pool );
 }
+
+/* Firedancer-only test.
+
+   Fill a slot with the most signatures the acceptance rules admit per
+   rank (notar, three notar-fallback, skip-fallback), check every further
+   vote from those ranks is refused and every sig reads back, take every
+   other RAM page so the next voted slot keeps its sigs in the spill
+   file, then prune and require every RAM page to be free. */
+
 
 /* src/consensus/pool.rs::duplicate_votes */
 
@@ -3211,8 +3316,8 @@ setup_two_epoch_pool( fd_epoch_info_t ** out_a,
   create_validators();
   ulong slot_max = TEST_SLOT_MAX;
 
-  FD_TEST( fd_votor_pool_footprint( slot_max, TEST_BURST )<=sizeof(scratch) );
-  fd_votor_pool_t * pool = fd_votor_pool_join( fd_votor_pool_new( scratch, slot_max, TEST_BURST, 42UL, g_spill_fd ) );
+  FD_TEST( fd_votor_pool_footprint( slot_max, TEST_BURST, g_sig_pg_max )<=sizeof(scratch) );
+  fd_votor_pool_t * pool = fd_votor_pool_join( fd_votor_pool_new( scratch, slot_max, TEST_BURST, g_sig_pg_max, 42UL, g_spill_fd ) );
   FD_TEST( pool );
   fd_votor_pool_from_genesis( pool, &(fd_block_id_t){ .slot = 0UL } );
 
@@ -3695,62 +3800,66 @@ main( int     argc,
   g_spill_fd = memfd_create( "votor_spill", 0 );
   FD_TEST( g_spill_fd>=0 );
 
-  test_notarize_block();
-  test_skip_block();
-  test_finalize_block();
-  test_reward_readback_window();
-  test_cert_and_agg_rewards();
-  test_reward_late_skip_unverified();
-  test_reward_wire_cert_base();
-  test_fast_finalize_block();
-  test_implicit_finalization_events();
-  test_fast_final_cert_requests_repair();
-  test_finalized_block_hash();
-  test_simple_branch_certified();
-  test_branch_certified_notar_fallback();
-  test_branch_certified_out_of_order();
-  test_branch_certified_late_cert();
-  test_regular_handover();
-  test_one_skip_handover();
-  test_two_skip_handover();
-  test_skip_window_handover();
-  test_pruning();
-  test_bls_sig_pool_released_on_prune();
-  test_duplicate_votes();
-  test_vote_subgroup_after_duplicate();
-  test_duplicate_certs();
-  test_add_verified_cert();
-  test_out_of_bounds_votes();
-  test_out_of_bounds_certs();
-  test_slow_finalize_closing_gap_no_double_parent_ready();
-  test_standstill_recovery();
-  test_parent_ready_upon_finalization();
-  test_add_block_root_jump();
-  test_safe_to_notar_notar_cert_only();
-  test_safe_to_notar_fast_final_cert_only();
-  test_safe_to_notar_verifies_before_parent_cert();
-  test_safe_to_notar_awaiting_votes();
-  test_safe_to_notar_not_queued_for_parent_cert();
-  test_s2n_waiting_every_child();
-  test_s2n_waiting_fast_final_parent();
-  test_s2n_waiting_pruned();
+  ulong sig_pg_max[ 2 ] = { TEST_SLOT_MAX*SLOT_SIG_PG_MAX, FD_VOTOR_VOTES_PER_SLOT_MAX+2UL }; /* RAM, then mostly spill file */
+  for( ulong r=0UL; r<2UL; r++ ) {
+    g_sig_pg_max = sig_pg_max[ r ];
+    test_notarize_block();
+    test_skip_block();
+    test_finalize_block();
+    test_reward_readback_window();
+    test_cert_and_agg_rewards();
+    test_reward_late_skip_unverified();
+    test_reward_wire_cert_base();
+    test_fast_finalize_block();
+    test_implicit_finalization_events();
+    test_fast_final_cert_requests_repair();
+    test_finalized_block_hash();
+    test_simple_branch_certified();
+    test_branch_certified_notar_fallback();
+    test_branch_certified_out_of_order();
+    test_branch_certified_late_cert();
+    test_regular_handover();
+    test_one_skip_handover();
+    test_two_skip_handover();
+    test_skip_window_handover();
+    test_pruning();
+    test_sig_pg_released_on_prune();
+    test_duplicate_votes();
+    test_vote_subgroup_after_duplicate();
+    test_duplicate_certs();
+    test_add_verified_cert();
+    test_out_of_bounds_votes();
+    test_out_of_bounds_certs();
+    test_slow_finalize_closing_gap_no_double_parent_ready();
+    test_standstill_recovery();
+    test_parent_ready_upon_finalization();
+    test_add_block_root_jump();
+    test_safe_to_notar_notar_cert_only();
+    test_safe_to_notar_fast_final_cert_only();
+    test_safe_to_notar_verifies_before_parent_cert();
+    test_safe_to_notar_awaiting_votes();
+    test_safe_to_notar_not_queued_for_parent_cert();
+    test_s2n_waiting_every_child();
+    test_s2n_waiting_fast_final_parent();
+    test_s2n_waiting_pruned();
 
-  test_handle_invalid_votes();
-  test_hash_capacity();
-  test_unknown_signer_votes();
-  test_wait_for_parent_ready();
-  test_stake_resolved_per_slot_epoch();
-  test_epoch_boundary_slot();
-  test_epoch_installed_late();
-  test_retired_epoch_already_pruned();
-  test_standstill_recovery_no_final_cert();
-  test_standstill_iter_order();
-  test_standstill_iter_partial_root();
-  test_standstill_iter_prune();
-  test_parent_ready_pruned_while_queued();
-  test_add_block_below_watermark();
-  test_update_own_rank();
-  test_bls_verify_cnt();
+    test_handle_invalid_votes();
+    test_hash_capacity();
+    test_unknown_signer_votes();
+    test_wait_for_parent_ready();
+    test_stake_resolved_per_slot_epoch();
+    test_epoch_boundary_slot();
+    test_epoch_installed_late();
+    test_retired_epoch_already_pruned();
+    test_standstill_recovery_no_final_cert();
+    test_standstill_iter_order();
+    test_standstill_iter_partial_root();
+    test_standstill_iter_prune();
+    test_parent_ready_pruned_while_queued();
+    test_add_block_below_watermark();
+    test_update_own_rank();
+    test_bls_verify_cnt();
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
