@@ -318,6 +318,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, BANK_USED, fd_banks_pool_used_cnt( ctx->banks ) );
 
   FD_MCNT_SET( REPLAY, BANK_FROZEN, ctx->metrics.slots_total );
+  FD_MCNT_SET( REPLAY, BANK_HASH_MISMATCHED, ctx->metrics.bank_hash_mismatch_cnt );
+  FD_MGAUGE_SET( REPLAY, LAST_BANK_HASH_MISMATCH_TIME, (ulong)ctx->metrics.last_bank_hash_mismatch_nanos );
   FD_MGAUGE_SET( REPLAY, CHAIN_TXN_HEIGHT, ctx->metrics.transactions_total );
 
   FD_MGAUGE_SET( REPLAY, LAST_REASSEMBLY_DEQUEUED_SLOT,      ctx->metrics.reasm_latest_slot );
@@ -1783,6 +1785,8 @@ replay_block_complete( fd_replay_tile_t *        ctx,
     FD_BASE58_ENCODE_32_BYTES( footer_bank_hash->uc,   footer_bank_hash_b58   );
     FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, executed_bank_hash_b58 );
     FD_LOG_WARNING(( "slot %lu: bank hash mismatch, footer declares %s but executed %s. ", bank->f.slot, footer_bank_hash_b58, executed_bank_hash_b58 ));
+    ctx->metrics.bank_hash_mismatch_cnt++;
+    ctx->metrics.last_bank_hash_mismatch_nanos = fd_clock_tile_now( ctx->clock );
 
     /* A bank hash mismatch detected now is only considered a true BHM
        if the block_id also becomes finalized.  If the finalization

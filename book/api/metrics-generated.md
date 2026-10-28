@@ -1098,6 +1098,8 @@
 | <span class="metrics-name">replay_&#8203;sched_&#8203;dropped_&#8203;bytes</span> | counter | Bytes the replay scheduler refused to ingest because the block was abandoned |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;fec_&#8203;ingested</span> | counter | FEC sets the replay scheduler has been given |
 | <span class="metrics-name">replay_&#8203;bank_&#8203;frozen</span> | counter | Banks frozen, including our own leader blocks |
+| <span class="metrics-name">replay_&#8203;bank_&#8203;hash_&#8203;mismatched</span> | counter | Blocks replayed whose executed bank hash differed from the footer's; counts every replay, so a block redelivered and replayed again counts again |
+| <span class="metrics-name">replay_&#8203;last_&#8203;bank_&#8203;hash_&#8203;mismatch_&#8203;time</span> | gauge | Wall-clock time replay last found a block's executed bank hash differed from its footer, 0 if never |
 | <span class="metrics-name">replay_&#8203;chain_&#8203;txn_&#8203;height</span> | gauge | Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">sched_&#8203;full</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (The scheduler was full) |
 | <span class="metrics-name">replay_&#8203;fec_&#8203;poll_&#8203;skipped</span><br/>{fec_&#8203;poll_&#8203;skip_&#8203;reason="<span class="metrics-enum">leader_&#8203;freeze_&#8203;wait</span>"} | counter | Replay loop iterations that processed no FEC set, by reason (Waiting for PoH to end our leader block) |

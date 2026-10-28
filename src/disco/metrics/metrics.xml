@@ -991,6 +991,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedFecIngested" summary="FEC sets the replay scheduler has been given" />
 
     <counter name="BankFrozen" summary="Banks frozen, including our own leader blocks" />
+    <counter name="BankHashMismatched" summary="Blocks replayed whose executed bank hash differed from the footer's; counts every replay, so a block redelivered and replayed again counts again" />
+    <time name="LastBankHashMismatchTime" summary="Wall-clock time replay last found a block's executed bank hash differed from its footer, 0 if never" />
     <gauge name="ChainTxnHeight" ambiguous-kind="true" summary="Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch" />
 
     <counter name="FecPollSkipped" enum="FecPollSkipReason" summary="Replay loop iterations that processed no FEC set, by reason" />
