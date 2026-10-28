@@ -2168,7 +2168,7 @@ test_setup_idx( int * out_fd ) {
   FD_TEST( shmem_mem );
   test_shmem_mem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, 1024UL, 8UL, 1024UL, 64UL, 11UL<<20UL, TEST_CACHE_FOOTPRINT,
                                                             TEST_CACHE_MIN_RESERVED, 0, 42UL, 2UL, 0UL, 64UL ) );
-  FD_TEST( test_shmem_mem && test_shmem_mem->pool_max==64UL && test_shmem_mem->idx_page_cnt==24UL );
+  FD_TEST( test_shmem_mem && test_shmem_mem->pool_max==64UL && test_shmem_mem->idx_page_cnt==19UL );
 
   void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 8UL, 1 ) );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
@@ -2473,8 +2473,7 @@ test_idx_compaction( void ) {
 
 /* Windows placed by several joins at once give the same index as one
    join: newest slot wins, zero-lamport winners vanish, and records
-   homed at a window end carry over it (the last one wraps to the file
-   start). */
+   homed in a full page at a window end wrap to the window start. */
 
 typedef struct { fd_accdb_t * accdb; void * scratch; } idx_build_arg_t;
 
@@ -2487,7 +2486,7 @@ idx_build_run( void * _arg ) {
 
 static void
 test_idx_parallel_build( void ) {
-  ulong const max_accounts = 1066667UL; /* 25000 pages, 4 windows */
+  ulong const max_accounts = 1360000UL; /* 25000 pages, 4 windows */
   int fd       = memfd_create( "accdb_test", 0 );
   int spill_fd = memfd_create( "accdb_spill_test", 0 );
   FD_TEST( fd>=0 && spill_fd>=0 );
@@ -2510,23 +2509,20 @@ test_idx_parallel_build( void ) {
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
 
   /* Accounts i%7==0 have an older version, i%11==0 end at zero
-     lamports.  The first 16 per window are homed in its last 8 slots,
-     so at least 8 carry over its end. */
-  ulong const n      = 4000UL;
-  ulong const wslots = FD_ACCDB_IDX_WINDOW_PAGES*FD_ACCDB_IDX_SLOT_CNT;
-  ulong const slots  = test_shmem_mem->idx_page_cnt*FD_ACCDB_IDX_SLOT_CNT;
+     lamports.  The first 80 per window are homed in its last page, so
+     at least 16 wrap to its first page. */
+  ulong const n = 4000UL;
   static uchar pk[ 4000 ][ 32 ];
   ulong seed = 1UL;
   for( ulong i=0UL; i<n; i++ ) {
-    ulong w    = i/16UL;
-    ulong last = fd_ulong_min( (w+1UL)*wslots, slots )-1UL;
+    ulong w    = i/80UL;
+    ulong last = fd_ulong_min( (w+1UL)*FD_ACCDB_IDX_WINDOW_PAGES, test_shmem_mem->idx_page_cnt )-1UL;
     for(;;) {
       fd_memset( pk[ i ], 0, 32UL );
       FD_STORE( ulong, pk[ i ],    fd_ulong_hash( seed++ ) );
       FD_STORE( ulong, pk[ i ]+8,  i                       );
       if( w>=test_shmem_mem->idx_range_cnt ) break;
-      ulong home = fd_accdb_idx_home( test_shmem_mem, pk[ i ] );
-      if( home<=last && home+8UL>last ) break;
+      if( fd_accdb_idx_home( test_shmem_mem, pk[ i ] )==last ) break;
     }
   }
 
@@ -2558,7 +2554,6 @@ test_idx_parallel_build( void ) {
   fd_accdb_snapshot_load_end( accdb );
 
   FD_TEST( test_shmem_mem->idx_build.done==test_shmem_mem->idx_range_cnt );
-  FD_TEST( test_shmem_mem->idx_build.carry_cnt>=8UL*test_shmem_mem->idx_range_cnt );
   for( int i=0; i<(int)FD_ACCDB_IDX_SHARD_CNT; i++ ) FD_TEST( ( lseek( FD_ACCDB_IDX_FD_RW+i, 0L, SEEK_END )>0L )==( i<4 ) );
   FD_TEST( dup_cnt==want_dups && !dup_lamports_hi && dup_lamports==5UL*want_dups );
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==want_winners );
