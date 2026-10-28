@@ -1228,7 +1228,7 @@ main( int     argc,
 
     /* Pop frame off FILL ring */
     FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
-    ulong const rx_frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ] + (ulong)i*37UL; /* exercise unaligned offsets */
+    ulong const rx_frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ] + (ulong)i*38UL; /* exercise offsets that are not chunk aligned; headers need 2-byte alignment */
     xdp_fr_ring_cons++;
 
     /* Write packet into frame */
