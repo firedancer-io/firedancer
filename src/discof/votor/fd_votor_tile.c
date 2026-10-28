@@ -2027,7 +2027,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                              );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )                          );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
-  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
+  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST, VOTOR_SIG_PG_PER_SLOT*tile->votor.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
   l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
   l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
@@ -2963,7 +2963,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                              );
   void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )                          );
   void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
-  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
+  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST, VOTOR_SIG_PG_PER_SLOT*tile->votor.max_live_slots ) );
   void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
   void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
   void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
@@ -2983,7 +2983,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
 
-  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, QUIC_DGRAM_BURST, seed, FD_VOTOR_SPILL_FD ) );
+  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, QUIC_DGRAM_BURST, VOTOR_SIG_PG_PER_SLOT*tile->votor.max_live_slots, seed, FD_VOTOR_SPILL_FD ) );
   FD_TEST( ctx->pool );
 
   ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );

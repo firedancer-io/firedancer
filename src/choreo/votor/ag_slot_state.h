@@ -39,7 +39,20 @@ struct ag_hash_stake {
 };
 typedef struct ag_hash_stake ag_hash_stake_t;
 
-#define AG_SLOT_STATE_SPILL_SZ ((AG_NOTAR_SPILL_MAX+AG_NF_SPILL_MAX)*sizeof(ag_hash_stake_t))
+/* Vote sigs live at a fixed position [ks][rank] of a slot.  Kind
+   slots: 0 notar|skip, 1-3 notar fallback j, 4 skip fallback|final;
+   kinds sharing a slot are exclusive per rank (check_slashable_offence,
+   should_ignore_vote).  Each [ks][64 ranks] page takes one of the
+   preallocated RAM pages on its first sig, else lives at its offset in
+   the slot's spill region after the hash stake records. */
+
+#define AG_SLOT_SIG_CNT        (AG_SLOT_VOTE_SIG_MAX*AG_VAT_MAX)
+#define AG_SIG_PG_RANKS        (64UL) /* one fd_bls_set word */
+#define AG_SIG_PG_SZ           (AG_SIG_PG_RANKS*sizeof(fd_bls_sig_t))
+#define AG_SLOT_SIG_PG_MAX     (AG_SLOT_VOTE_SIG_MAX*fd_bls_set_word_cnt)
+#define AG_HS_SPILL_SZ         ((AG_NOTAR_SPILL_MAX+AG_NF_SPILL_MAX)*sizeof(ag_hash_stake_t))
+#define AG_SLOT_STATE_SPILL_SZ (AG_HS_SPILL_SZ+AG_SLOT_SIG_CNT*sizeof(fd_bls_sig_t))
+#define AG_SIG_PG_DISK         (UINT_MAX)
 
 struct ag_hash_stakes {
   ag_hash_stake_t ele[ AG_HASH_STAKE_INLINE_MAX ];
@@ -61,34 +74,18 @@ struct ag_block_hash_set {
 };
 typedef struct ag_block_hash_set ag_block_hash_set_t;
 
-union fd_bls_sig_ele {
-  fd_bls_sig_t sig;
-  ulong        next;
-};
-typedef union fd_bls_sig_ele fd_bls_sig_ele_t;
-FD_STATIC_ASSERT( sizeof(fd_bls_sig_ele_t)==sizeof(fd_bls_sig_t), fd_bls_sig_ele );
-
-#define POOL_NAME fd_bls_sig_pool
-#define POOL_T    fd_bls_sig_ele_t
-#include "../../util/tmpl/fd_pool.c"
-
 struct ag_slot_votes {
   fd_bls_set_t    notar_set                    [ fd_bls_set_word_cnt ];
-  uint            notar_sig_idx                [ AG_VAT_MAX ];
   ushort          notar_hash_stake_idx         [ AG_VAT_MAX ];
   ag_hash_stakes_t notar_hash_stake;
-  uint            notar_fallback_sig_idx       [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
   ushort          notar_fallback_hash_stake_idx[ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
   ag_hash_stakes_t notar_fallback_hash_stake;
   uchar           notar_fallback_sig_cnt       [ AG_VAT_MAX ];
   ulong           skip_stake;
-  uint            skip_sig_idx                 [ AG_VAT_MAX ];
   fd_bls_agg_t    skip_agg;
   ulong           skip_fallback_stake;
-  uint            skip_fallback_sig_idx        [ AG_VAT_MAX ];
   fd_bls_agg_t    skip_fallback_agg;
   ulong           finalize_stake;
-  uint            finalize_sig_idx             [ AG_VAT_MAX ];
   fd_bls_agg_t    finalize_agg;
   ulong           notar_or_skip_stake;
   ulong           top_notar_stake;
@@ -121,12 +118,15 @@ struct ag_slot_state {
   ulong  slot;
   ulong  own_rank;
   ulong  spill_off; /* this slot's spill file region */
+  uint   sig_pg[ AG_SLOT_VOTE_SIG_MAX ][ fd_bls_set_word_cnt ]; /* 0 none yet, AG_SIG_PG_DISK, else RAM page+1 */
   ushort shred_version;
 };
 typedef struct ag_slot_state ag_slot_state_t;
 
 struct ag_slot_states {
-  fd_bls_sig_ele_t *      bls_sig_pool;
+  fd_bls_sig_t *          sig_pg;      /* RAM pages of AG_SIG_PG_RANKS */
+  uint *                  sig_pg_free; /* free page stack */
+  ulong                   sig_pg_free_cnt;
   int                     spill_fd;
   ag_epoch_info_t const * prev_epoch_info;
   ulong                   prev_epoch_rank;
@@ -241,6 +241,17 @@ ag_slot_state_vote_hash( ag_slot_state_t const *  self,
                          ulong                    rank,
                          ulong                    j,
                          ag_block_hash_t          out );
+
+/* Copies into out the sig of rank's kind vote (j-th for notar
+   fallback). */
+
+fd_bls_sig_t *
+ag_slot_state_vote_sig( ag_slot_state_t const *  self,
+                        ag_slot_states_t const * states,
+                        uint                     kind,
+                        ulong                    rank,
+                        ulong                    j,
+                        fd_bls_sig_t *           out );
 
 /* Copies the kind vote sigs of the ranks in set into out[ rank ].
    block_hash selects the sig for notar fallback; for notar the caller

@@ -217,6 +217,52 @@ hash_stake_next( ag_slot_state_t const * self,
   return ULONG_MAX;
 }
 
+/* Vote sigs, see AG_SLOT_SIG_CNT.  [rank,rank+cnt) stays in one page. */
+
+static inline ulong
+sig_off( ag_slot_state_t const * self,
+         ulong                   ks,
+         ulong                   rank ) {
+  return self->spill_off + AG_HS_SPILL_SZ + (ks*AG_VAT_MAX+rank)*sizeof(fd_bls_sig_t);
+}
+
+static void
+sig_write( ag_slot_state_t *    self,
+           ag_slot_states_t *   states,
+           ulong                ks,
+           ulong                rank,
+           fd_bls_sig_t const * sig ) {
+  uint * pg = &self->sig_pg[ ks ][ rank/AG_SIG_PG_RANKS ];
+  if( FD_UNLIKELY( !*pg ) ) *pg = FD_LIKELY( states->sig_pg_free_cnt ) ? states->sig_pg_free[ --states->sig_pg_free_cnt ]+1U : AG_SIG_PG_DISK;
+  if( FD_LIKELY( *pg!=AG_SIG_PG_DISK ) ) states->sig_pg[ (*pg-1UL)*AG_SIG_PG_RANKS+rank%AG_SIG_PG_RANKS ] = *sig;
+  else                                   spill_io( states->spill_fd, 1, (void *)sig, sizeof(fd_bls_sig_t), sig_off( self, ks, rank ) );
+}
+
+static void
+sig_read( ag_slot_state_t const *  self,
+          ag_slot_states_t const * states,
+          ulong                    ks,
+          ulong                    rank,
+          ulong                    cnt,
+          fd_bls_sig_t *           out ) {
+  uint pg = self->sig_pg[ ks ][ rank/AG_SIG_PG_RANKS ];
+  if( FD_LIKELY( pg!=AG_SIG_PG_DISK ) ) fd_memcpy( out, states->sig_pg + (pg-1UL)*AG_SIG_PG_RANKS+rank%AG_SIG_PG_RANKS, cnt*sizeof(fd_bls_sig_t) );
+  else                                  spill_io( states->spill_fd, 0, out, cnt*sizeof(fd_bls_sig_t), sig_off( self, ks, rank ) );
+}
+
+static inline ulong
+sig_ks( uint  kind,
+        ulong j ) {
+  switch( kind ) {
+  case AG_VOTE_KIND_NOTAR:
+  case AG_VOTE_KIND_SKIP:           return 0UL;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: return 1UL+j;
+  case AG_VOTE_KIND_SKIP_FALLBACK:
+  case AG_VOTE_KIND_FINAL:          return 4UL;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
 static int
 verify_subtract_votes( ag_slot_state_t *     self,
                        ag_slot_states_t *    states,
@@ -282,7 +328,6 @@ verify_subtract_votes( ag_slot_state_t *     self,
       hash_stake_set( self, fd, 0, id, hash_stake_get( self, fd, 0, id, NULL )-stake );
       votes->notar_or_skip_stake -= stake;
       fd_bls_set_remove( votes->notar_set, rank );
-      fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->notar_sig_idx[ rank ] );
       break;
     case AG_VOTE_KIND_NOTAR_FALLBACK: {
       ulong j;
@@ -291,24 +336,24 @@ verify_subtract_votes( ag_slot_state_t *     self,
       }
       FD_CHECK_CRIT( j<votes->notar_fallback_sig_cnt[ rank ], "invariant violation" );
       hash_stake_set( self, fd, 1, id, hash_stake_get( self, fd, 1, id, NULL )-stake );
-      fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->notar_fallback_sig_idx[ rank ][ j ] );
-      votes->notar_fallback_sig_cnt[ rank ]--;
-      votes->notar_fallback_sig_idx       [ rank ][ j ] = votes->notar_fallback_sig_idx       [ rank ][ votes->notar_fallback_sig_cnt[ rank ] ];
-      votes->notar_fallback_hash_stake_idx[ rank ][ j ] = votes->notar_fallback_hash_stake_idx[ rank ][ votes->notar_fallback_sig_cnt[ rank ] ];
+      ulong last = --votes->notar_fallback_sig_cnt[ rank ];
+      if( FD_LIKELY( j!=last ) ) {
+        fd_bls_sig_t sig;
+        sig_read ( self, states, sig_ks( kind, last ), rank, 1UL, &sig );
+        sig_write( self, states, sig_ks( kind, j    ), rank, &sig );
+        votes->notar_fallback_hash_stake_idx[ rank ][ j ] = votes->notar_fallback_hash_stake_idx[ rank ][ last ];
+      }
       break;
     }
     case AG_VOTE_KIND_SKIP:
       votes->skip_stake -= stake;
       votes->notar_or_skip_stake -= stake;
-      fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->skip_sig_idx[ rank ] );
       break;
     case AG_VOTE_KIND_SKIP_FALLBACK:
       votes->skip_fallback_stake -= stake;
-      fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->skip_fallback_sig_idx[ rank ] );
       break;
     case AG_VOTE_KIND_FINAL:
       votes->finalize_stake -= stake;
-      fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->finalize_sig_idx[ rank ] );
       break;
     default:
       FD_LOG_CRIT(( "unreachable" ));
@@ -720,13 +765,13 @@ void
 ag_slot_state_null( ag_slot_state_t *  self,
                     ag_slot_states_t * states ) {
   ag_slot_votes_t * votes = &self->votes;
-  for( ulong rank = fd_bls_set_const_iter_init( votes->notar_set );              !fd_bls_set_const_iter_done( rank ); rank = fd_bls_set_const_iter_next( votes->notar_set,              rank ) ) fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->notar_sig_idx        [ rank ] );
-  for( ulong rank = fd_bls_set_const_iter_init( votes->skip_agg.set );          !fd_bls_set_const_iter_done( rank ); rank = fd_bls_set_const_iter_next( votes->skip_agg.set,          rank ) ) fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->skip_sig_idx         [ rank ] );
-  for( ulong rank = fd_bls_set_const_iter_init( votes->skip_fallback_agg.set ); !fd_bls_set_const_iter_done( rank ); rank = fd_bls_set_const_iter_next( votes->skip_fallback_agg.set, rank ) ) fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->skip_fallback_sig_idx[ rank ] );
-  for( ulong rank = fd_bls_set_const_iter_init( votes->finalize_agg.set );      !fd_bls_set_const_iter_done( rank ); rank = fd_bls_set_const_iter_next( votes->finalize_agg.set,      rank ) ) fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->finalize_sig_idx     [ rank ] );
-  for( ulong rank=0UL; rank<AG_VAT_MAX; rank++ ) {
-    for( ulong j=0UL; j<votes->notar_fallback_sig_cnt[ rank ]; j++ ) fd_bls_sig_pool_idx_release( states->bls_sig_pool, votes->notar_fallback_sig_idx[ rank ][ j ] );
+  for( ulong ks=0UL; ks<AG_SLOT_VOTE_SIG_MAX; ks++ ) {
+    for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) {
+      uint pg = self->sig_pg[ ks ][ w ];
+      if( pg && pg!=AG_SIG_PG_DISK ) states->sig_pg_free[ states->sig_pg_free_cnt++ ] = pg-1U;
+    }
   }
+  fd_memset( self->sig_pg, 0, sizeof(self->sig_pg) );
   votes->notar_hash_stake          = (ag_hash_stakes_t){ .used = 0U }; /* spill_hwm 0 drops the spill region, no I/O */
   votes->notar_fallback_hash_stake = (ag_hash_stakes_t){ .used = 0U };
   fd_bls_set_null( votes->notar_set );
@@ -828,38 +873,37 @@ ag_slot_state_add_vote( ag_slot_state_t *  self,
   ulong slot = ag_vote_slot( vote );
   ulong rank = ag_vote_rank( vote );
 
-  fd_bls_sig_t const * sig = ag_vote_sig( vote );
-
-  FD_TEST( fd_bls_sig_pool_free( states->bls_sig_pool ) );
-  uint sig_idx = (uint)fd_bls_sig_pool_idx_acquire( states->bls_sig_pool );
-  fd_bls_sig_pool_ele( states->bls_sig_pool, sig_idx )->sig = *sig;
+  ag_slot_votes_t * votes = &self->votes;
+  switch( vote->kind ) { /* the kind slot must be free */
+  case AG_VOTE_KIND_NOTAR:
+  case AG_VOTE_KIND_SKIP:           FD_TEST( !fd_bls_set_test( votes->notar_set, rank ) && !fd_bls_set_test( votes->skip_agg.set, rank ) );                   break;
+  case AG_VOTE_KIND_NOTAR_FALLBACK: FD_TEST( votes->notar_fallback_sig_cnt[ rank ]<AG_NOTAR_FALLBACK_VOTE_MAX );                                              break;
+  case AG_VOTE_KIND_SKIP_FALLBACK:
+  case AG_VOTE_KIND_FINAL:          FD_TEST( !fd_bls_set_test( votes->skip_fallback_agg.set, rank ) && !fd_bls_set_test( votes->finalize_agg.set, rank ) ); break;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+  sig_write( self, states, sig_ks( vote->kind, votes->notar_fallback_sig_cnt[ rank ] ), rank, ag_vote_sig( vote ) );
 
   *out_cert_event_cnt = 0UL; *out_safe_to_notar_cnt = 0UL; *out_safe_to_skip_cnt = 0UL; *out_repair_event_cnt = 0UL; fd_bls_set_null( bad );
   self->shred_version = ag_vote_shred_version( vote );
   int err;
   switch( vote->kind ) {
   case AG_VOTE_KIND_NOTAR:
-    self->votes.notar_sig_idx[ rank ] = sig_idx;
     fd_bls_set_insert( self->votes.notar_set, rank );
     err = count_notar_stake( self, states, &vote->notar, stake, out_cert_events, out_cert_event_cnt, out_safe_to_notar, out_safe_to_notar_cnt, out_safe_to_skip, out_safe_to_skip_cnt, out_repair_events, out_repair_event_cnt, bad );
     break;
   case AG_VOTE_KIND_NOTAR_FALLBACK:
-    FD_TEST( self->votes.notar_fallback_sig_cnt[ rank ]<AG_NOTAR_FALLBACK_VOTE_MAX );
-    self->votes.notar_fallback_sig_idx[ rank ][ self->votes.notar_fallback_sig_cnt[ rank ] ] = sig_idx;
     self->votes.notar_fallback_sig_cnt[ rank ]++;
     err = count_notar_fallback_stake( self, states, &vote->notar_fallback, stake, out_cert_events, out_cert_event_cnt, bad );
     break;
   case AG_VOTE_KIND_SKIP:
-    self->votes.skip_sig_idx[ rank ] = sig_idx;
     self->votes.notar_or_skip_stake += stake;
     err = count_skip_stake( self, states, vote, stake, out_cert_events, out_cert_event_cnt, out_safe_to_notar, out_safe_to_notar_cnt, out_safe_to_skip, out_safe_to_skip_cnt, out_repair_events, out_repair_event_cnt, bad );
     break;
   case AG_VOTE_KIND_SKIP_FALLBACK:
-    self->votes.skip_fallback_sig_idx[ rank ] = sig_idx;
     err = count_skip_stake( self, states, vote, stake, out_cert_events, out_cert_event_cnt, out_safe_to_notar, out_safe_to_notar_cnt, out_safe_to_skip, out_safe_to_skip_cnt, out_repair_events, out_repair_event_cnt, bad );
     break;
   case AG_VOTE_KIND_FINAL:
-    self->votes.finalize_sig_idx[ rank ] = sig_idx;
     err = count_finalize_stake( self, states, &vote->final, stake, out_cert_events, out_cert_event_cnt, bad );
     break;
   default:
@@ -1044,35 +1088,46 @@ ag_slot_state_skip_reward_agg( ag_slot_state_t const * self ) {
 }
 
 fd_bls_sig_t *
+ag_slot_state_vote_sig( ag_slot_state_t const *  self,
+                        ag_slot_states_t const * states,
+                        uint                     kind,
+                        ulong                    rank,
+                        ulong                    j,
+                        fd_bls_sig_t *           out ) {
+  sig_read( self, states, sig_ks( kind, j ), rank, 1UL, out );
+  return out;
+}
+
+fd_bls_sig_t *
 ag_slot_state_sigs( ag_slot_state_t const *  self,
                     ag_slot_states_t const * states,
                     uint                     kind,
                     ag_block_hash_t const    block_hash,
                     fd_bls_set_t const *     set,
                     fd_bls_sig_t *           out ) {
+  if( FD_LIKELY( kind!=AG_VOTE_KIND_NOTAR_FALLBACK ) ) { /* one copy per page */
+    ulong ks = sig_ks( kind, 0UL );
+    for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) {
+      if( !set[ w ] ) continue;
+      ulong lo = w*AG_SIG_PG_RANKS+(ulong)fd_ulong_find_lsb( set[ w ] );
+      ulong hi = w*AG_SIG_PG_RANKS+(ulong)fd_ulong_find_msb( set[ w ] );
+      sig_read( self, states, ks, lo, hi-lo+1UL, out+lo );
+    }
+    return out;
+  }
   ag_slot_votes_t const * votes = &self->votes;
   ulong                   nf    = kind==AG_VOTE_KIND_NOTAR_FALLBACK ? hash_stake_query( self, states->spill_fd, 1, block_hash ) : ULONG_MAX;
   for( ulong rank = fd_bls_set_const_iter_init( set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( set, rank ) ) {
-    ulong idx;
-    switch( kind ) {
-    case AG_VOTE_KIND_NOTAR:         idx = votes->notar_sig_idx        [ rank ]; break;
-    case AG_VOTE_KIND_SKIP:          idx = votes->skip_sig_idx         [ rank ]; break;
-    case AG_VOTE_KIND_SKIP_FALLBACK: idx = votes->skip_fallback_sig_idx[ rank ]; break;
-    case AG_VOTE_KIND_FINAL:         idx = votes->finalize_sig_idx     [ rank ]; break;
-    case AG_VOTE_KIND_NOTAR_FALLBACK: {
-      ulong j;
-      for( j=0UL; j<votes->notar_fallback_sig_cnt[ rank ]; j++ ) {
+    ulong j = 0UL;
+    if( FD_UNLIKELY( kind==AG_VOTE_KIND_NOTAR_FALLBACK ) ) {
+      for( ; j<votes->notar_fallback_sig_cnt[ rank ]; j++ ) {
         if( FD_UNLIKELY( votes->notar_fallback_hash_stake_idx[ rank ][ j ]==nf ) ) break;
       }
       FD_CHECK_CRIT( j<votes->notar_fallback_sig_cnt[ rank ], "invariant violation" );
-      idx = votes->notar_fallback_sig_idx[ rank ][ j ];
-      break;
     }
-    default: FD_LOG_CRIT(( "unreachable" ));
-    }
-    out[ rank ] = fd_bls_sig_pool_ele_const( states->bls_sig_pool, idx )->sig;
+    sig_read( self, states, sig_ks( kind, j ), rank, 1UL, out+rank );
   }
   return out;
 }
