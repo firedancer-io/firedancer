@@ -928,9 +928,9 @@ send_shred( fd_shred_ctx_t                 * ctx,
    hop, or our children. */
 
 static void
-fan_out( fd_shred_ctx_t *     ctx,
-         fd_stem_context_t *  stem,
-         fd_fec_set_t const * set,
+fan_out( fd_shred_ctx_t *      ctx,
+         fd_stem_context_t *   stem,
+         fd_fec_view_t const * set,
          int                  is_leader,
          int                  received,
          ulong                tsorig ) {
@@ -985,12 +985,10 @@ fan_out( fd_shred_ctx_t *     ctx,
 static void
 complete_fec_set( fd_shred_ctx_t *         ctx,
                   fd_stem_context_t *      stem,
-                  ulong                    fec_set_idx,
+                  fd_fec_view_t const *    set,
                   fd_bmtree_node_t const * merkle_root,
                   int                      is_leader,
                   ulong                    tsorig ) {
-  fd_fec_set_t * set = ctx->fec_sets + fec_set_idx;
-
   fd_shred_t const * last = set->data_shreds[ FD_FEC_SHRED_CNT - 1 ].s;
 
   /* Broadcast locally produced shreds before any disk work. */
@@ -1182,9 +1180,15 @@ after_frag( fd_shred_ctx_t *    ctx,
     ctx->sign_pend_cnt--;
 
     fd_fec_set_t * set = ctx->fec_sets + pend->fec_set_idx;
-    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) fd_memcpy( set->data_shreds  [ i ].s->signature, ctx->signature, FD_ED25519_SIG_SZ );
-    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) fd_memcpy( set->parity_shreds[ i ].s->signature, ctx->signature, FD_ED25519_SIG_SZ );
-    complete_fec_set( ctx, stem, pend->fec_set_idx, &pend->merkle_root, 1, pend->tsorig );
+    fd_fec_view_t  view[1] = {{ .data_shred_rcvd = set->data_shred_rcvd, .parity_shred_rcvd = set->parity_shred_rcvd,
+                                .turbine_shred_rcvd = set->turbine_shred_rcvd, .repair_shred_rcvd = set->repair_shred_rcvd }};
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+      fd_memcpy( set->data_shreds  [ i ].s->signature, ctx->signature, FD_ED25519_SIG_SZ );
+      fd_memcpy( set->parity_shreds[ i ].s->signature, ctx->signature, FD_ED25519_SIG_SZ );
+      view->data_shreds  [ i ].s = set->data_shreds  [ i ].s;
+      view->parity_shreds[ i ].s = set->parity_shreds[ i ].s;
+    }
+    complete_fec_set( ctx, stem, view, &pend->merkle_root, 1, pend->tsorig );
     return;
   }
 
@@ -1232,8 +1236,8 @@ after_frag( fd_shred_ctx_t *    ctx,
       return;
     }
 
-    fd_fec_set_t const * out_fec_set[1];
-    fd_shred_t const   * out_shred[1];
+    fd_fec_view_t const * out_fec_set[1];
+    fd_shred_t const    * out_shred[1];
     fd_fec_resolver_spilled_t spilled_fec = { 0 };
     int from_repair = 0;
 
@@ -1345,8 +1349,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
 
-    FD_TEST( ctx->fec_sets <= *out_fec_set );
-    complete_fec_set( ctx, stem, (ulong)(*out_fec_set - ctx->fec_sets), &ctx->out_merkle_roots[0], 0, ctx->tsorig );
+    complete_fec_set( ctx, stem, *out_fec_set, &ctx->out_merkle_roots[0], 0, ctx->tsorig );
   }
 }
 
@@ -1538,14 +1541,17 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->bench_max_shred_idx           = tile->shred.bench_max_shreds_per_block;
   ulong shred_limit                  = tile->shred.max_shreds_per_block;
   ctx->shred_limit                   = shred_limit;
-  fd_fec_set_t * resolver_sets       = fec_sets + fec_exposure + FD_SHRED_SIGN_PEND_MAX;
+  fd_fec_view_t * resolver_views     = (fd_fec_view_t *)( fec_sets + fec_exposure + FD_SHRED_SIGN_PEND_MAX );
+  uchar *         resolver_shreds    = (uchar *)resolver_views + fd_ulong_align_up( fd_shred_tile_resolver_set_cnt( fec_exposure, tile->shred.fec_resolver_depth )*sizeof(fd_fec_view_t), 64UL );
+  FD_TEST( resolver_shreds + fd_fec_resolver_shred_footprint( tile->shred.fec_resolver_depth, fec_exposure+1UL ) <= (uchar *)( fec_sets + fec_set_cnt ) );
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
                                                                         tile->shred.fec_resolver_depth, 1UL,
                                                                         fec_exposure+1UL,
                                                                         128UL * tile->shred.fec_resolver_depth,
                                                                         tile->shred.slot_max,
-                                                                        resolver_sets,
+                                                                        resolver_views,
+                                                                        resolver_shreds,
                                                                         ctx->resolver_seed ) ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
   ctx->new_root    = 0UL;

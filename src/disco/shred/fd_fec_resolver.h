@@ -18,10 +18,8 @@
    of its way to use memory in a way that doesn't require a second
    memcpy once the FEC set is complete.  To that end, the FEC resolver
    makes two promises:
-   1. Once memory has been used for a specific FEC set, it will not be
-      reused for a different FEC set until at least partial_depth other
-      distinct FEC sets have been returned in the out_fec_set field of
-      fd_fec_resolver_add_shred.
+   1. A shred returned in out_shred stays valid until the next call to
+      fd_fec_resolver_add_shred or fd_fec_resolver_advance_slot_old.
    2. Once a FEC set is complete (specified with COMPLETES), the
       associated memory will not be reused for a different FEC set until
       at least complete_depth other distinct FEC sets have been returned
@@ -101,6 +99,22 @@
 struct fd_fec_resolver;
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 
+/* Shreds live in a slab of FD_FEC_RESOLVER_SHRED_SLOT_SZ slots.  An in
+   progress set holds at most FD_FEC_SHRED_CNT-1 shreds (the 32nd
+   completes or frees it), a complete set 2*FD_FEC_SHRED_CNT, and the
+   completing set briefly 2*FD_FEC_SHRED_CNT, so the slab needs
+   (depth-1)*31 + 64 + complete_depth*64 slots. */
+
+#define FD_FEC_RESOLVER_SHRED_SLOT_SZ (1232UL)
+FD_STATIC_ASSERT( FD_FEC_RESOLVER_SHRED_SLOT_SZ>=FD_SHRED_MAX_SZ, shred_slot_sz );
+
+FD_FN_CONST static inline ulong
+fd_fec_resolver_shred_footprint( ulong depth,
+                                 ulong complete_depth ) {
+  ulong slot_cnt = depth*(FD_FEC_SHRED_CNT-1UL) + (FD_FEC_SHRED_CNT+1UL) + complete_depth*2UL*FD_FEC_SHRED_CNT;
+  return slot_cnt*FD_FEC_RESOLVER_SHRED_SLOT_SZ;
+}
+
 
 FD_PROTOTYPES_BEGIN
 /* fd_fec_resolver_footprint returns the required footprint (in bytes as
@@ -122,12 +136,12 @@ FD_FN_CONST ulong fd_fec_resolver_align    ( void );
    and must be positive.  The sum of depth, partial_depth, and
    complete_depth must be less than UINT_MAX.  slot_max is the maximum
    number of slots above the root slot that the resolver tracks; if
-   slot_max is 0, the resolver does not limit the slot range.  sets is a
-   pointer to the first of depth+partial_depth+complete_depth FEC sets
-   that this resolver will take ownership of.  The FEC resolver retains
-   a write interest in these FEC sets and the shreds they point to until
-   the resolver is deleted.  These FEC sets and the memory for the
-   shreds they point to are the only values that will be returned in the
+   slot_max is 0, the resolver does not limit the slot range.  views is
+   a pointer to the first of depth+partial_depth+complete_depth FEC set
+   views and shred_mem (8-byte aligned) to
+   fd_fec_resolver_shred_footprint( depth, complete_depth ) bytes, both
+   owned by the resolver until it is deleted.  These views and the
+   shreds in shred_mem are the only values that will be returned in the
    out_shred and out_fec_set output parameters of add_shred. seed is an
    arbitrary ulong used to seed various data structures.  It should be
    set to a different value on each validator.
@@ -147,7 +161,8 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      ulong                     slot_max,
-                     fd_fec_set_t            * sets,
+                     fd_fec_view_t           * views,
+                     void                    * shred_mem,
                      ulong                     seed );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
@@ -227,7 +242,7 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
 
    On success ie. SHRED_{OKAY,COMPLETES}, a pointer to a copy of shred
    will be written to the location pointed to by out_shred.
-   Additionally, on SHRED_COMPLETES a pointer to the fd_fec_set_t
+   Additionally, on SHRED_COMPLETES a pointer to the fd_fec_view_t
    structure representing the FEC set of which the shred is a part will
    be written to out_fec_set.  See the long explanation above about the
    lifetimes of these pointers.  Finally, on success the merkle root of
@@ -308,7 +323,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            ulong                       max_shred_idx,
                            uint                        source,
                            uchar const               * leader_pubkey,
-                           fd_fec_set_t const      * * out_fec_set,
+                           fd_fec_view_t const     * * out_fec_set,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
                            fd_fec_resolver_spilled_t * out_spilled_fec_set );

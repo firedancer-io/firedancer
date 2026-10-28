@@ -12,10 +12,28 @@
    FD_SHRED_SIGN_PEND_MAX. */
 #define FD_SHRED_SIGN_PEND_MAX ( 2UL*FD_SHRED_BATCH_FEC_SETS_MAX )
 
+/* Per-tile FEC arena: fec_exposure+FD_SHRED_SIGN_PEND_MAX full shredder
+   sets, then the resolver's views and shred slab, rounded up to whole
+   fd_fec_set_t units. */
+
+FD_FN_CONST static inline ulong
+fd_shred_tile_resolver_set_cnt( ulong fec_exposure,
+                                ulong fec_resolver_depth ) {
+  return fec_resolver_depth + 1UL + fec_exposure + 1UL;
+}
+
+FD_FN_CONST static inline ulong
+fd_shred_tile_fec_arena_sz( ulong fec_exposure,
+                            ulong fec_resolver_depth ) {
+  return (fec_exposure+FD_SHRED_SIGN_PEND_MAX)*sizeof(fd_fec_set_t)
+       + fd_ulong_align_up( fd_shred_tile_resolver_set_cnt( fec_exposure, fec_resolver_depth )*sizeof(fd_fec_view_t), 64UL )
+       + fd_fec_resolver_shred_footprint( fec_resolver_depth, fec_exposure+1UL );
+}
+
 FD_FN_CONST static inline ulong
 fd_shred_tile_fec_set_cnt( ulong fec_exposure,
                            ulong fec_resolver_depth ) {
-  return 2UL*fec_exposure + fec_resolver_depth + FD_SHRED_SIGN_PEND_MAX + 2UL;
+  return fd_ulong_align_up( fd_shred_tile_fec_arena_sz( fec_exposure, fec_resolver_depth ), sizeof(fd_fec_set_t) )/sizeof(fd_fec_set_t);
 }
 
 /* Forward declarations */

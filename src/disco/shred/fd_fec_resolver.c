@@ -53,7 +53,8 @@ struct __attribute__((aligned(32UL))) set_ctx {
 
   ulong                 total_rx_shred_cnt;
 
-  fd_fec_set_t *        set;
+  fd_fec_view_t *       set;
+  ulong                 held; /* slab slots held: data bit i, parity bit 32+i */
 
   union {
     fd_bmtree_commit_t  tree[1];
@@ -232,6 +233,14 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   /* free_list_cnt: The number of items in free_list. */
   ulong free_list_cnt;
 
+  /* Shred slab: slot_free is a stack of slot_free_cnt free slot
+     indices into shred_mem.  A set's slots return to it when the set
+     leaves the in progress map without completing, or when it leaves
+     the complete list. */
+  uchar * shred_mem;
+  uint *  slot_free;
+  ulong   slot_free_cnt;
+
   /* completion_lag_hist: histogram of how much earlier repair made a
      FEC set complete.  Completion needs any FD_FEC_SHRED_CNT shreds, so
      a set that completed with R repair shreds would have needed R more
@@ -294,6 +303,41 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
 
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 
+static inline ulong
+shred_slot_cnt( ulong depth, ulong complete_depth ) {
+  return fd_fec_resolver_shred_footprint( depth, complete_depth )/FD_FEC_RESOLVER_SHRED_SLOT_SZ;
+}
+
+/* Returns every slab slot ctx holds to the free stack. */
+
+static inline void
+set_release_shreds( fd_fec_resolver_t * resolver,
+                    set_ctx_t *         ctx ) {
+  uint * slot_free = resolver->slot_free;
+  ulong  cnt       = resolver->slot_free_cnt;
+  for( ulong held=ctx->held; held; held=fd_ulong_pop_lsb( held ) ) {
+    ulong   i = (ulong)fd_ulong_find_lsb( held );
+    uchar * b = i<FD_FEC_SHRED_CNT ? ctx->set->data_shreds[ i ].b : ctx->set->parity_shreds[ i-FD_FEC_SHRED_CNT ].b;
+    slot_free[ cnt++ ] = (uint)((ulong)(b-resolver->shred_mem)/FD_FEC_RESOLVER_SHRED_SLOT_SZ);
+  }
+  resolver->slot_free_cnt = cnt;
+  ctx->held = 0UL;
+}
+
+/* Binds a free slab slot to shred i (parity at 32+i) of ctx's set. */
+
+static inline uchar *
+slot_acquire( fd_fec_resolver_t * resolver,
+              set_ctx_t *         ctx,
+              ulong               i ) {
+  FD_TEST( resolver->slot_free_cnt && !(ctx->held&(1UL<<i)) );
+  uchar * b = resolver->shred_mem + (ulong)resolver->slot_free[ --resolver->slot_free_cnt ]*FD_FEC_RESOLVER_SHRED_SLOT_SZ;
+  if( i<FD_FEC_SHRED_CNT ) ctx->set->data_shreds  [ i                  ].b = b;
+  else                     ctx->set->parity_shreds[ i-FD_FEC_SHRED_CNT ].b = b;
+  ctx->held |= 1UL<<i;
+  return b;
+}
+
 FD_FN_PURE ulong
 fd_fec_resolver_footprint( ulong depth,
                            ulong partial_depth,
@@ -315,6 +359,7 @@ fd_fec_resolver_footprint( ulong depth,
   layout = FD_LAYOUT_APPEND( layout, done_pool_align(),        done_pool_footprint( done_depth     )               );
   layout = FD_LAYOUT_APPEND( layout, done_map_align(),         done_map_footprint ( done_chain_cnt )               );
   layout = FD_LAYOUT_APPEND( layout, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT ) );
+  layout = FD_LAYOUT_APPEND( layout, alignof(uint),            sizeof(uint)*shred_slot_cnt( depth, complete_depth ) );
 
   return FD_LAYOUT_FINI( layout, FD_FEC_RESOLVER_ALIGN );
 }
@@ -334,8 +379,10 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      ulong                     slot_max,
-                     fd_fec_set_t            * sets,
+                     fd_fec_view_t           * views,
+                     void                    * shred_mem,
                      ulong                     seed ) {
+  if( FD_UNLIKELY( !views || !shred_mem || !fd_ulong_is_aligned( (ulong)shred_mem, 8UL ) ) ) return NULL;
   if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (done_depth==0UL) ) ) return NULL;
   if( FD_UNLIKELY( (depth>UINT_MAX) | (partial_depth>UINT_MAX) | (complete_depth>UINT_MAX)         ) ) return NULL;
 
@@ -359,6 +406,7 @@ fd_fec_resolver_new( void                    * shmem,
   void * _done_pool  = FD_SCRATCH_ALLOC_APPEND( l, done_pool_align(),        done_pool_footprint( done_depth     )               );
   void * _done_map   = FD_SCRATCH_ALLOC_APPEND( l, done_map_align(),         done_map_footprint ( done_chain_cnt )               );
   void * _ed_cache   = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT ) );
+  uint * slot_free   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            sizeof(uint)*shred_slot_cnt( depth, complete_depth ) );
   FD_SCRATCH_ALLOC_FINI( l, FD_FEC_RESOLVER_ALIGN );
 
   fd_fec_resolver_t * resolver = (fd_fec_resolver_t *)self;
@@ -380,7 +428,10 @@ fd_fec_resolver_new( void                    * shmem,
 
   set_ctx_t * ctx_pool = (set_ctx_t *)_ctx_pool;
   fd_memset( ctx_pool, '\0', sizeof(set_ctx_t)*depth_sum );
-  for( ulong i=0UL; i<depth_sum; i++ ) ctx_pool[i].set = sets + i;
+  fd_memset( views, 0, sizeof(fd_fec_view_t)*depth_sum );
+  for( ulong i=0UL; i<depth_sum; i++ ) ctx_pool[i].set = views + i;
+  ulong slot_cnt = shred_slot_cnt( depth, complete_depth );
+  for( ulong i=0UL; i<slot_cnt; i++ ) slot_free[ i ] = (uint)(slot_cnt-1UL-i);
   ctx_treap_seed( ctx_pool, depth_sum, seed2 );
 
   /* Initialize all the lists */
@@ -404,6 +455,8 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->free_list_cnt          = depth+partial_depth;
   resolver->slot_old               = 0UL;
   resolver->seed                   = seed3;
+  resolver->shred_mem              = (uchar *)shred_mem;
+  resolver->slot_free_cnt          = slot_cnt;
   return shmem;
 }
 
@@ -428,9 +481,11 @@ fd_fec_resolver_join( void * shmem ) {
   void * _done_pool  = FD_SCRATCH_ALLOC_APPEND( l, done_pool_align(),        done_pool_footprint( done_depth     )               );
   void * _done_map   = FD_SCRATCH_ALLOC_APPEND( l, done_map_align(),         done_map_footprint ( done_chain_cnt )               );
   void * _ed_cache   = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT ) );
+  void * _slot_free  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            sizeof(uint)*shred_slot_cnt( depth, complete_depth ) );
   FD_SCRATCH_ALLOC_FINI( l, FD_FEC_RESOLVER_ALIGN );
 
   resolver->ctx_pool      = (set_ctx_t *)_ctx_pool;
+  resolver->slot_free     = (uint *)_slot_free;
   resolver->ctx_map       = ctx_map_join         ( _ctx_map   );  if( FD_UNLIKELY( !resolver->ctx_map       ) ) return NULL;
   resolver->done_pool     = done_pool_join       ( _done_pool );  if( FD_UNLIKELY( !resolver->done_pool     ) ) return NULL;
   resolver->done_map      = done_map_join        ( _done_map  );  if( FD_UNLIKELY( !resolver->done_map      ) ) return NULL;
@@ -489,6 +544,7 @@ fd_fec_resolver_advance_slot_old( fd_fec_resolver_t * resolver,
 
     ctx_treap_ele_remove   ( ctx_treap, min_ele, ctx_pool );
     ctx_map_ele_remove_fast( ctx_map,   min_ele, ctx_pool );
+    set_release_shreds( resolver, min_ele );
     ctx_list_ele_push_head ( free_list, min_ele, ctx_pool );
     resolver->free_list_cnt++;
   }
@@ -517,7 +573,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            ulong                       max_shred_idx,
                            uint                        source,
                            uchar const               * leader_pubkey,
-                           fd_fec_set_t const      * * out_fec_set,
+                           fd_fec_view_t const     * * out_fec_set,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
                            fd_fec_resolver_spilled_t * out_spilled      ) {
@@ -714,6 +770,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       /* Remove from treap and map, then add to free_list */
       ctx_treap_ele_remove   ( ctx_treap, victim_ctx, ctx_pool );
       ctx_map_ele_remove_fast( ctx_map,   victim_ctx, ctx_pool );
+      set_release_shreds( resolver, victim_ctx );
 
       ctx_list_ele_push_tail ( free_list, victim_ctx, ctx_pool );
       resolver->free_list_cnt++;
@@ -920,7 +977,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      shred belongs. */
 
   /* Copy the shred to memory the FEC resolver owns */
-  uchar * dst = is_data_shred ? ctx->set->data_shreds[ in_type_idx ].b : ctx->set->parity_shreds[ in_type_idx ].b;
+  uchar * dst = slot_acquire( resolver, ctx, fd_ulong_if( is_data_shred, in_type_idx, FD_FEC_SHRED_CNT+in_type_idx ) );
   fd_memcpy( dst, shred, fd_shred_sz( shred ) );
 
   /* Resigned shreds are relayed with a zero retransmitter signature:
@@ -985,8 +1042,11 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   /* At this point, ctx is not in any of the data structures, so we need
      to be sure to add it to one of the lists before exiting. */
 
-  fd_fec_set_t       * set  = ctx->set;
+  fd_fec_view_t      * set  = ctx->set;
   fd_bmtree_commit_t * tree = ctx->tree;
+
+  /* Recovered shreds take the remaining slab slots */
+  for( ulong i=0UL; i<2UL*FD_FEC_SHRED_CNT; i++ ) if( !(ctx->held&(1UL<<i)) ) slot_acquire( resolver, ctx, i );
 
   reedsol = fd_reedsol_recover_init( (void*)reedsol, reedsol_protected_sz );
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
@@ -1006,6 +1066,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
        FEC set here.  A malicious leader's inconsistent shreds are caught
        by checking the recovered shreds against the signed Merkle root
        below. */
+    set_release_shreds( resolver, ctx );
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
     FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
@@ -1063,6 +1124,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       fd_memcpy( set->data_shreds[i].b, shred, sizeof(fd_ed25519_sig_t) );
       if( FD_LIKELY( !resolver->bypass_verify ) ) {
         if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaves+i, NULL, 0, NULL ) ) ) {
+          set_release_shreds( resolver, ctx );
           ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
           resolver->free_list_cnt++;
           FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
@@ -1077,6 +1139,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       fd_memcpy( set->parity_shreds[i].s->signature, shred->signature, sizeof(fd_ed25519_sig_t) );
       if( FD_LIKELY( !resolver->bypass_verify ) ) {
         if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaves+FD_FEC_SHRED_CNT+i, NULL, 0, NULL ) ) ) {
+          set_release_shreds( resolver, ctx );
           ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
           resolver->free_list_cnt++;
           FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
@@ -1088,6 +1151,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   /* Check that the whole Merkle tree is consistent. */
   if( FD_UNLIKELY( !resolver->bypass_verify && !fd_bmtree_commitp_fini( tree, FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) ) ) {
+    set_release_shreds( resolver, ctx );
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
     FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
@@ -1145,6 +1209,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            (uchar *)base_data_shred+fd_shred_chain_off( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
   }
   if( FD_UNLIKELY( reject ) ) {
+    set_release_shreds( resolver, ctx );
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
     FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
@@ -1170,7 +1235,9 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   /* Finally... A valid FEC set.  Forward it along. */
   ctx_list_ele_push_tail( complete_list, ctx, ctx_pool );
-  ctx_list_idx_push_tail( free_list, ctx_list_idx_pop_head( complete_list, ctx_pool ), ctx_pool );
+  set_ctx_t * retired = ctx_list_ele_pop_head( complete_list, ctx_pool );
+  set_release_shreds( resolver, retired );
+  ctx_list_ele_push_tail( free_list, retired, ctx_pool );
   resolver->free_list_cnt++;
 
   *out_fec_set = set;
