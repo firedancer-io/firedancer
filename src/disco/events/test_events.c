@@ -4,6 +4,7 @@
    the encoded size fits the modeled bound. */
 
 #include "fd_event_client.c" /* struct visibility; only id_reserve is exercised */
+#include "fd_event_tile.c"     /* frag reassembly */
 
 #include "generated/fd_event_gen.h"
 #include "generated/fd_event_gen_test.h"
@@ -67,6 +68,91 @@ test_admin_command_fields( fd_circq_t *        circq,
   FD_TEST( !fd_pb_inbuf_sz( command ) );
 }
 
+/* Big events leave the producer as SOM..EOM frags of at most mtu
+   bytes, each carrying the total size in sig and the event number in
+   tsorig; their concatenation is the event. */
+
+static void
+test_report_frags( fd_circq_t *        circq,
+                   fd_event_client_t * client ) {
+  ulong const depth = 64UL;
+  ulong const mtu   = 256UL;
+  static uchar ev[ 1000 ];
+  ulong data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 64UL, fd_shmem_cpu_idx( 0UL ), "test_events", 16UL );
+  FD_TEST( wksp );
+  void * mmem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( depth, 0UL ), 1UL );
+  void * dmem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( data_sz, 0UL ), 1UL );
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( mmem, depth, 0UL, 0UL ) );
+  uchar *          dcache = fd_dcache_join( fd_dcache_new( dmem, data_sz, 0UL ) );
+  FD_TEST( mcache && dcache );
+
+  fd_event_reporter_t r[1] = {{
+    .mcache = mcache, .depth = depth, .seq = 0UL, .seq_store = fd_mcache_seq_laddr( mcache ),
+    .mem = wksp, .chunk0 = fd_dcache_compact_chunk0( wksp, dcache ), .wmark = fd_dcache_compact_wmark( wksp, dcache, mtu ),
+    .mtu = mtu, .max_sz = sizeof(ev), .ev_seq = 0UL }};
+  r->chunk = r->chunk0;
+  fd_event_tl = r;
+
+  for( ulong i=0UL; i<sizeof(ev); i++ ) ev[ i ] = (uchar)(i*7UL+1UL);
+  ulong const sizes[4] = { 8UL, mtu, mtu+1UL, sizeof(ev) };
+  ulong seq = 0UL;
+  for( ulong t=0UL; t<4UL; t++ ) {
+    fd_event_report_iov_t iov[2] = {{ ev, 5UL }, { ev+5UL, sizes[ t ]-5UL }};
+    fd_event_report_gather_( 9UL, iov, 2UL );
+    ulong off = 0UL;
+    for(;;) {
+      fd_frag_meta_t const * m = mcache + fd_mcache_line_idx( seq, depth );
+      FD_TEST( m->seq==seq && m->sig==FD_EVENT_SIG( 9UL, sizes[ t ] ) && m->tsorig==(uint)t );
+      FD_TEST( fd_frag_meta_ctl_som( m->ctl )==!off && m->sz<=mtu && m->sz );
+      FD_TEST( !memcmp( fd_chunk_to_laddr( wksp, m->chunk ), ev+off, m->sz ) );
+      off += m->sz; seq++;
+      if( fd_frag_meta_ctl_eom( m->ctl ) ) break;
+      FD_TEST( m->sz==mtu );
+    }
+    FD_TEST( off==sizes[ t ] );
+  }
+  FD_TEST( r->seq==seq && fd_mcache_seq_query( r->seq_store )==seq );
+
+  /* Event tile: reassemble a multi-frag vote; a skipped frag drops it. */
+  static fd_event_tile_t ctx[1];
+  static fd_event_alpenglow_vote_t vote[1];
+  static uchar reasm_buf[ sizeof(fd_event_alpenglow_vote_t) ] __attribute__((aligned(FD_EVENT_GEN_STRUCT_ALIGN)));
+  ctx->circq = circq; ctx->client = client;
+  fd_clock_tile_init( ctx->clock );
+  ctx->in_kind[ 0 ] = IN_KIND_EVENT;
+  ctx->in[ 0 ].mem = wksp; ctx->in[ 0 ].mtu = mtu; ctx->in[ 0 ].chunk0 = r->chunk0; ctx->in[ 0 ].wmark = r->wmark;
+  ctx->reasm[ 0 ] = (fd_event_tile_reasm_t){ .buf = reasm_buf, .max_sz = sizeof(reasm_buf) };
+  r->max_sz = sizeof(reasm_buf);
+  fd_memset( vote, 0, sizeof(vote) );
+  vote->broadcast_to_cnt = 9UL;
+  ulong vote_sz = fd_event_alpenglow_vote_footprint( vote );
+  FD_TEST( vote_sz>2UL*mtu );
+  for( ulong drop=0UL; drop<3UL; drop++ ) {
+    ulong seq0 = r->seq;
+    fd_event_report_alpenglow_vote( vote );
+    ulong frag_cnt = r->seq-seq0;
+    ulong pushed   = circq->cursor_push_seq;
+    for( ulong i=0UL; i<frag_cnt; i++ ) {
+      if( drop==2UL && i==1UL ) continue;
+      ulong q = seq0+i;
+      fd_frag_meta_t const * m = mcache + fd_mcache_line_idx( q, depth );
+      during_frag( ctx, 0UL, q, m->sig, m->chunk, m->sz, m->ctl );
+      after_frag( ctx, 0UL, q, m->sig, m->sz, m->tsorig, m->tspub, NULL );
+    }
+    FD_TEST( (circq->cursor_push_seq!=pushed)==(drop<2UL) );
+    FD_TEST( !ctx->reasm[ 0 ].active );
+    if( drop<2UL ) {
+      FD_TEST( ctx->reasm[ 0 ].ev_seq==4UL+drop );
+      FD_TEST( !memcmp( reasm_buf, vote, vote_sz ) );
+    }
+  }
+
+  fd_event_tl = NULL;
+  fd_wksp_delete_anonymous( wksp );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -108,6 +194,7 @@ main( int     argc,
 
   FD_TEST( have_admin_command );
   test_admin_command_fields( circq, client );
+  test_report_frags( circq, client );
 
   free( fd_circq_delete( fd_circq_leave( circq ) ) );
 

@@ -28,6 +28,7 @@
 #include "../../disco/gui/fd_gui_config_parse.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/tiles.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
@@ -67,6 +68,10 @@ tile_max_event_sz( fd_topo_tile_t const * tile ) {
 void
 wire_event_links( fd_topo_t * topo ) {
   fd_topob_wksp( topo, "event_in" );
+  ulong event_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+  FD_TEST( event_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t * event_tile = &topo->tiles[ event_tile_idx ];
+  event_tile->event.reasm_sz = 0UL;
 
   ulong tile_cnt = topo->tile_cnt;
   for( ulong i=0UL; i<tile_cnt; i++ ) {
@@ -79,14 +84,15 @@ wire_event_links( fd_topo_t * topo ) {
     char link_name[ sizeof(((fd_topo_link_t *)0)->name) ];
     FD_TEST( fd_cstr_printf_check( link_name, sizeof(link_name), NULL, "%s_event", tile->name ) );
 
-    /* The dcache must cover depth*MTU (a smaller region risks undetected
-       torn reads), so big-MTU links trade depth away to fit the budget. */
-    ulong const event_link_dcache_max = 64UL<<20; /* 64 MiB data region per event link */
-    ulong depth = 1024UL;
-    while( depth>1UL && fd_dcache_req_data_sz( max_sz, depth, 1UL, 1 )>event_link_dcache_max ) depth >>= 1;
+    /* Big events travel as FD_EVENT_FRAG_MTU frags, so the dcache covers
+       depth frags rather than depth max-size events. */
+    ulong mtu   = fd_ulong_min( max_sz, FD_EVENT_FRAG_MTU );
+    ulong depth = max_sz>FD_EVENT_FRAG_MTU ? 2048UL : 1024UL;
 
-    fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", depth, max_sz, 1UL );
+    fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", depth, mtu, 1UL );
     link->permit_no_producers = 1; /* written outside fd_stem; topo sees no producer */
+    FD_TEST( fd_pod_insertf_ulong( topo->props, max_sz, "obj.%lu.event_max_sz", link->dcache_obj_id ) );
+    event_tile->event.reasm_sz += fd_ulong_align_up( max_sz, FD_EVENT_GEN_STRUCT_ALIGN );
 
     tile->event_link_id = link->id;
 
@@ -105,6 +111,8 @@ wire_replay_diff_link( fd_topo_t * topo ) {
 
   fd_topo_link_t * link = fd_topob_link( topo, "replay_diff", "event_in", 65536UL, FD_EVENT_RUNTIME_DIFF_MTU, 1UL );
   link->permit_no_producers = 1;
+  FD_TEST( fd_pod_insertf_ulong( topo->props, FD_EVENT_RUNTIME_DIFF_MTU, "obj.%lu.event_max_sz", link->dcache_obj_id ) );
+  topo->tiles[ fd_topo_find_tile( topo, "event", 0UL ) ].event.reasm_sz += fd_ulong_align_up( FD_EVENT_RUNTIME_DIFF_MTU, FD_EVENT_GEN_STRUCT_ALIGN );
 
   fd_topob_tile_uses( topo, replay, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
