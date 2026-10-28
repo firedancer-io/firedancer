@@ -261,7 +261,7 @@ spill_one_locked( fd_store_t                 * store,
   long evict_ticks = -fd_tickcount();
   fd_rwlock_unwrite( &store->cache_lock );
 
-  if( FD_UNLIKELY( store_pwrite_all( disk_fd, cache_data_laddr( store ) + ram_off, data_sz, (off_t)spill_off ) ) )
+  if( FD_UNLIKELY( store_pwrite_all( disk_fd, cache_data_laddr( store ) + ram_off, FD_STORE_PAYLOAD_HDR_SZ+data_sz, (off_t)spill_off ) ) )
     FD_LOG_ERR(( "error spilling FEC payload to disk: (%d-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_rwlock_write( &store->cache_lock );
@@ -582,7 +582,7 @@ fd_store_fec_data_reserve( fd_store_t                 * store,
   fd_rwlock_unwrite( &store->cache_lock );
 
   *data_idx = (uint)slot;
-  return cache_data_laddr( store ) + slot*store->payload_slot_sz;
+  return cache_data_laddr( store ) + slot*store->payload_slot_sz + FD_STORE_PAYLOAD_HDR_SZ;
 }
 
 int
@@ -656,9 +656,10 @@ fd_store_fec_data_view( fd_store_t *               store,
                         fd_store_fec_t *           fec,
                         fd_store_fec_data_view_t * view ) {
   if( FD_UNLIKELY( !view ) ) return -1;
-  view->data  = NULL;
-  view->fec   = NULL;
-  view->flags = 0U;
+  view->data     = NULL;
+  view->shred_sz = NULL;
+  view->fec      = NULL;
+  view->flags    = 0U;
   if( FD_UNLIKELY( !store || !fec ) ) return -1;
   fd_store_fec_t * fec0 = pool_ele_laddr( store );
   if( FD_UNLIKELY( fec<fec0 || fec>=fec0+store->fec_max ) ) return -1;
@@ -673,8 +674,10 @@ fd_store_fec_data_view( fd_store_t *               store,
   if( FD_LIKELY( fec->data_state==FD_STORE_FEC_DATA_RAM_READY ||
                  fec->data_state==FD_STORE_FEC_DATA_SPILLING ) ) {
     cache_pin_locked( store, fec );
-    view->data = cache_data_laddr( store ) + (ulong)fec->data_idx*store->payload_slot_sz;
-    view->fec  = fec;
+    uchar * slot   = cache_data_laddr( store ) + (ulong)fec->data_idx*store->payload_slot_sz;
+    view->shred_sz = (ushort const *)slot;
+    view->data     = slot + FD_STORE_PAYLOAD_HDR_SZ;
+    view->fec      = fec;
     fd_rwlock_unwrite( &store->cache_lock );
     return 0;
   }
@@ -694,15 +697,16 @@ fd_store_fec_data_view( fd_store_t *               store,
     cache_pin_locked( store, fec );
     fd_rwlock_unwrite( &store->cache_lock );
 
-    if( FD_UNLIKELY( store_pread_all( disk_fd, spill_read_data, data_sz, (off_t)data_off ) ) )
+    if( FD_UNLIKELY( store_pread_all( disk_fd, spill_read_data, FD_STORE_PAYLOAD_HDR_SZ+data_sz, (off_t)data_off ) ) )
       FD_LOG_ERR(( "error reading spilled FEC payload: (%d-%s)", errno, fd_io_strerror( errno ) ));
 
     atomic_fetch_add_explicit( &store->fec_spill_read_cnt, 1UL, memory_order_relaxed );
     atomic_fetch_add_explicit( &store->fec_spill_read_bytes, data_sz, memory_order_relaxed );
 
-    view->data  = spill_read_data;
-    view->fec   = fec;
-    view->flags = FD_STORE_FEC_DATA_VIEW_SPILL;
+    view->shred_sz = (ushort const *)spill_read_data;
+    view->data     = spill_read_data + FD_STORE_PAYLOAD_HDR_SZ;
+    view->fec      = fec;
+    view->flags    = FD_STORE_FEC_DATA_VIEW_SPILL;
     return 0;
   }
 
@@ -721,9 +725,10 @@ fd_store_fec_data_view_release( fd_store_t *               store,
   cache_consume_locked( store, view->fec );
   fd_rwlock_unwrite( &store->cache_lock );
 
-  view->data  = NULL;
-  view->fec   = NULL;
-  view->flags = 0U;
+  view->data     = NULL;
+  view->shred_sz = NULL;
+  view->fec      = NULL;
+  view->flags    = 0U;
 }
 
 fd_store_fec_t *
@@ -772,7 +777,7 @@ fd_store_insert( fd_store_t *       store,
     FD_TEST( new_fec );
     new_fec->key     = *merkle_root;
     new_fec->data_sz = data_sz;
-    memcpy( new_fec->shred_sz, shred_sz, sizeof(new_fec->shred_sz) );
+    memcpy( cache_data_laddr( store ) + (ulong)data_idx*store->payload_slot_sz, shred_sz, FD_STORE_PAYLOAD_HDR_SZ );
 
     /* RAM_READY before it is linked: fd_store_publish (exclusive
        fec_lock) never sees it mid-write. */

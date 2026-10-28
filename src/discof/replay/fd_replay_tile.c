@@ -4109,6 +4109,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   sched_fec->starts_at_update_parent = sched_fec->is_first_in_block && fec->update_parent_fec_idx!=0U; /* the feature is checked at BLOCK_START, after the bank is cloned */
   sched_fec->fec               = store_fec;
   sched_fec->data              = data_view->data;
+  sched_fec->shred_sz          = data_view->shred_sz;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
