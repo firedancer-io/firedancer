@@ -1,6 +1,12 @@
+#define _GNU_SOURCE
 #include "fd_circq.h"
 
 #include "../../util/log/fd_log.h"
+#include "../../util/io/fd_io.h"
+
+#include <errno.h>
+#include <unistd.h>
+#include <sys/uio.h>
 
 struct __attribute__((aligned(8UL))) fd_circq_message_private {
   ulong align;
@@ -25,6 +31,12 @@ fd_circq_footprint( ulong sz ) {
   return sizeof( fd_circq_t ) + sz;
 }
 
+FD_FN_CONST ulong
+fd_circq_spool_footprint( ulong sz,
+                          ulong max_msg ) {
+  return sizeof( fd_circq_t ) + sz + max_msg;
+}
+
 void *
 fd_circq_new( void * shmem,
               ulong  sz ) {
@@ -38,9 +50,41 @@ fd_circq_new( void * shmem,
   circq->cursor_seq = 0UL;
   circq->cursor_push_seq = 0UL;
 
+  circq->spool_fd         = -1;
+  circq->spool_cap        = 0UL;
+  circq->spool_max_msg    = 0UL;
+  circq->spool_head       = 0UL;
+  circq->spool_tail       = 0UL;
+  circq->spool_cnt        = 0UL;
+  circq->spool_bytes      = 0UL;
+  circq->cursor_spool     = 0;
+  circq->cursor_ram_entry = 0;
+  circq->spool_cursor     = 0UL;
+
   memset( &circq->metrics, 0, sizeof( circq->metrics ) );
 
   return shmem;
+}
+
+#define SPOOL_HDR_SZ (16UL)
+
+static inline ulong
+spool_rec_sz( ulong sz ) {
+  return SPOOL_HDR_SZ+fd_ulong_align_up( sz, 8UL );
+}
+
+void
+fd_circq_spool_init( fd_circq_t * circq,
+                     int          fd,
+                     ulong        cap,
+                     ulong        max_msg ) {
+  FD_TEST( fd>=0 );
+  FD_TEST( !circq->cnt && !circq->cursor_push_seq );
+  FD_TEST( fd_ulong_is_aligned( circq->size, FD_CIRCQ_ALIGN ) );
+  FD_TEST( cap>=2UL*spool_rec_sz( max_msg ) );
+  circq->spool_fd      = fd;
+  circq->spool_cap     = cap;
+  circq->spool_max_msg = max_msg;
 }
 
 fd_circq_t *
@@ -86,14 +130,154 @@ verify( fd_circq_t * circq ) {
   }
 }
 
+/* Cursor states, cursor_seq is always the next seq to return:
+   idle      cursor==ULONG_MAX, no flag: next advance starts at front
+   memory    cursor is the offset of the last returned message
+   ram_entry next is the memory head
+   spool     next is the spool record at spool_cursor */
+
+static inline void
+cursor_reset( fd_circq_t * circq ) {
+  circq->cursor           = ULONG_MAX;
+  circq->cursor_spool     = 0;
+  circq->cursor_ram_entry = 0;
+}
+
+static inline int
+cursor_active( fd_circq_t const * circq ) {
+  return circq->cursor!=ULONG_MAX || circq->cursor_spool || circq->cursor_ram_entry;
+}
+
 /* Recover from eviction logic removing elements at the cursor */
 
 static inline void
 overrun_recover( fd_circq_t * circq ) {
-  if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( !cursor_active( circq ) ) ) return;
 
-  ulong oldest_seq = circq->cursor_push_seq - circq->cnt;
-  if( FD_UNLIKELY( circq->cursor_seq<=oldest_seq ) ) circq->cursor = ULONG_MAX;
+  ulong oldest_seq = circq->cursor_push_seq - circq->cnt - circq->spool_cnt;
+  if( FD_UNLIKELY( circq->cursor_seq<=oldest_seq ) ) cursor_reset( circq );
+}
+
+static void
+spool_pread( fd_circq_t const * circq,
+             void *             dst,
+             ulong              sz,
+             ulong              off ) {
+  if( FD_UNLIKELY( (long)sz!=pread( circq->spool_fd, dst, sz, (off_t)off ) ) )
+    FD_LOG_ERR(( "pread(circq spool,%lu,%lu) failed (%i-%s)", sz, off, errno, fd_io_strerror( errno ) ));
+}
+
+static void
+spool_pwritev( fd_circq_t const * circq,
+               struct iovec *     iov,
+               int                iov_cnt,
+               ulong              sz,
+               ulong              off ) {
+  if( FD_UNLIKELY( (long)sz!=pwritev( circq->spool_fd, iov, iov_cnt, (off_t)off ) ) )
+    FD_LOG_ERR(( "pwritev(circq spool,%lu,%lu) failed (%i-%s)", sz, off, errno, fd_io_strerror( errno ) ));
+}
+
+/* spool_resolve reads the record header at off, following an
+   end-of-ring wrap.  Returns the record offset, fills sz and seq. */
+
+static ulong
+spool_resolve( fd_circq_t const * circq,
+               ulong              off,
+               ulong *            sz,
+               ulong *            seq ) {
+  ulong hdr[ 2 ] = { ULONG_MAX, 0UL };
+  if( FD_LIKELY( off+SPOOL_HDR_SZ<=circq->spool_cap ) ) spool_pread( circq, hdr, SPOOL_HDR_SZ, off );
+  if( FD_UNLIKELY( hdr[ 0 ]==ULONG_MAX ) ) {
+    off = 0UL;
+    spool_pread( circq, hdr, SPOOL_HDR_SZ, off );
+  }
+  FD_TEST( hdr[ 0 ]<=circq->spool_max_msg );
+  *sz  = hdr[ 0 ];
+  *seq = hdr[ 1 ];
+  return off;
+}
+
+static void
+spool_pop_head( fd_circq_t * circq,
+                int          dropped ) {
+  ulong sz, seq;
+  ulong off = spool_resolve( circq, circq->spool_head, &sz, &seq );
+  FD_TEST( seq==circq->cursor_push_seq-circq->cnt-circq->spool_cnt );
+  circq->spool_cnt--;
+  circq->spool_bytes -= spool_rec_sz( sz );
+  if( FD_UNLIKELY( !circq->spool_cnt ) ) circq->spool_head = circq->spool_tail = 0UL;
+  else                                   circq->spool_head = off+spool_rec_sz( sz );
+  if( FD_UNLIKELY( dropped ) ) {
+    circq->metrics.drop_cnt++;
+    overrun_recover( circq );
+  }
+}
+
+static void
+spool_evict( fd_circq_t * circq,
+             ulong        from,
+             ulong        to ) {
+  while( circq->spool_cnt ) {
+    ulong sz, seq;
+    ulong head  = circq->spool_head;
+    ulong start = spool_resolve( circq, head, &sz, &seq );
+    if( FD_UNLIKELY( start!=head && head<to && head+SPOOL_HDR_SZ>from ) ) {
+      /* about to overwrite the wrap marker at head: skip past it */
+      if( circq->cursor_spool && circq->spool_cursor==head ) circq->spool_cursor = start;
+      circq->spool_head = start;
+      continue;
+    }
+    if( FD_UNLIKELY( start<to && start+spool_rec_sz( sz )>from ) ) spool_pop_head( circq, 1 );
+    else break;
+  }
+}
+
+/* spool_migrate_front moves the front memory message to the spool
+   tail, dropping the spool's oldest records if the file ring is full. */
+
+static void
+spool_migrate_front( fd_circq_t * circq ) {
+  uchar * buf = (uchar *)(circq+1);
+  fd_circq_message_t * head = (fd_circq_message_t *)(buf+circq->head);
+  ulong sz  = head->footprint;
+  ulong seq = circq->cursor_push_seq-circq->cnt; /* memory head seq */
+  ulong rec = spool_rec_sz( sz );
+
+  ulong pos = circq->spool_tail;
+  if( FD_UNLIKELY( pos+rec>circq->spool_cap ) ) {
+    spool_evict( circq, pos, circq->spool_cap );
+    spool_evict( circq, 0UL, rec );
+    if( FD_LIKELY( pos+SPOOL_HDR_SZ<=circq->spool_cap ) ) {
+      ulong marker[ 2 ] = { ULONG_MAX, 0UL };
+      struct iovec iov[ 1 ] = { { .iov_base = marker, .iov_len = SPOOL_HDR_SZ } };
+      spool_pwritev( circq, iov, 1, SPOOL_HDR_SZ, pos );
+    }
+    pos = 0UL;
+  } else {
+    spool_evict( circq, pos, pos+rec );
+  }
+
+  ulong hdr[ 2 ] = { sz, seq };
+  struct iovec iov[ 2 ] = { { .iov_base = hdr, .iov_len = SPOOL_HDR_SZ }, { .iov_base = head+1, .iov_len = sz } };
+  spool_pwritev( circq, iov, 2, SPOOL_HDR_SZ+sz, pos );
+
+  circq->spool_tail   = pos+rec;
+  circq->spool_cnt++;
+  circq->spool_bytes += rec;
+
+  circq->bytes_used -= fd_ulong_align_up( circq->head+sizeof( fd_circq_message_t ), head->align ) + sz - circq->head;
+  circq->cnt--;
+  if( FD_UNLIKELY( !circq->cnt ) ) circq->head = circq->tail = 0UL;
+  else                             circq->head = head->next;
+
+  /* Keep the cursor on the same seq across tiers (no resend). */
+  if( circq->cursor!=ULONG_MAX ) {
+    if( circq->cursor_seq==seq+1UL ) { circq->cursor = ULONG_MAX; circq->cursor_ram_entry = 1; }
+  } else if( ( circq->cursor_spool || circq->cursor_ram_entry ) && circq->cursor_seq==seq ) {
+    circq->cursor_ram_entry = 0;
+    circq->cursor_spool     = 1;
+    circq->spool_cursor     = pos;
+  }
 }
 
 static void
@@ -111,6 +295,7 @@ evict( fd_circq_t * circq,
     ulong end = fd_ulong_align_up( start + sizeof( fd_circq_message_t ), head->align ) + head->footprint;
 
     if( FD_UNLIKELY( (start<to && end>from) ) ) {
+      if( FD_LIKELY( circq->spool_fd>=0 ) ) { spool_migrate_front( circq ); continue; }
       circq->bytes_used -= end-start;
       circq->cnt--;
       circq->metrics.drop_cnt++;
@@ -139,6 +324,10 @@ fd_circq_push_back( fd_circq_t * circq,
   ulong required = fd_ulong_align_up( sizeof( fd_circq_message_t ), align ) + footprint;
   if( FD_UNLIKELY( required>circq->size ) ) {
     FD_LOG_WARNING(( "tried to push message which was too large %lu>%lu", required, circq->size ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( circq->spool_fd>=0 && footprint>circq->spool_max_msg ) ) {
+    FD_LOG_WARNING(( "tried to push message larger than spool max %lu>%lu", footprint, circq->spool_max_msg ));
     return NULL;
   }
 
@@ -190,21 +379,45 @@ fd_circq_resize_back( fd_circq_t * circq,
 uchar const *
 fd_circq_cursor_advance( fd_circq_t * circq,
                          ulong *      msg_sz ) {
-  /* First call or after reset - start from head */
-  if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) {
-    if( FD_UNLIKELY( !circq->cnt ) ) return NULL;
-    circq->cursor = circq->head;
-    circq->cursor_seq = circq->cursor_push_seq - circq->cnt;
+  uchar * buf = (uchar *)(circq+1);
+
+  if( FD_UNLIKELY( circq->cursor==ULONG_MAX && !circq->cursor_spool && !circq->cursor_ram_entry ) ) {
+    /* First call or after reset - start from the queue front */
+    ulong total = circq->cnt+circq->spool_cnt;
+    if( FD_UNLIKELY( !total ) ) return NULL;
+    circq->cursor_seq = circq->cursor_push_seq - total;
+    if( FD_UNLIKELY( circq->spool_cnt ) ) { circq->cursor_spool = 1; circq->spool_cursor = circq->spool_head; }
+    else                                    circq->cursor_ram_entry = 1;
+  }
+
+  if( FD_UNLIKELY( circq->cursor_spool ) ) {
+    if( FD_LIKELY( circq->cursor_seq<circq->cursor_push_seq-circq->cnt ) ) {
+      ulong sz, seq;
+      ulong off = spool_resolve( circq, circq->spool_cursor, &sz, &seq );
+      FD_TEST( seq==circq->cursor_seq );
+      uchar * bounce = buf+circq->size;
+      spool_pread( circq, bounce, sz, off+SPOOL_HDR_SZ );
+      circq->spool_cursor = off+spool_rec_sz( sz );
+      circq->cursor_seq++;
+      if( FD_LIKELY( msg_sz ) ) *msg_sz = sz;
+      return bounce;
+    }
+    circq->cursor_spool     = 0;
+    circq->cursor_ram_entry = 1;
+  }
+
+  if( FD_UNLIKELY( circq->cursor_ram_entry ) ) {
+    if( FD_UNLIKELY( circq->cursor_seq>=circq->cursor_push_seq ) ) return NULL;
+    circq->cursor_ram_entry = 0;
+    circq->cursor           = circq->head;
   } else {
     /* Already iterating - move to next */
     if( FD_UNLIKELY( circq->cursor_seq >= circq->cursor_push_seq ) ) return NULL;
 
-    uchar * buf = (uchar *)(circq+1);
     fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->cursor);
     circq->cursor = message->next;
   }
 
-  uchar * buf = (uchar *)(circq+1);
   fd_circq_message_t * current_msg = (fd_circq_message_t *)(buf+circq->cursor);
   circq->cursor_seq++;
   if( FD_LIKELY( msg_sz ) ) *msg_sz = current_msg->footprint;
@@ -216,12 +429,23 @@ fd_circq_cursor_peek( fd_circq_t const * circq,
                       ulong *            msg_sz ) {
   uchar const * buf = (uchar const *)(circq+1);
   ulong off;
-  if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( !cursor_active( circq ) ) ) {
+    if( FD_UNLIKELY( circq->spool_cnt ) ) {
+      ulong seq;
+      spool_resolve( circq, circq->spool_head, msg_sz, &seq );
+      return 1;
+    }
     if( FD_UNLIKELY( !circq->cnt ) ) return 0;
     off = circq->head;
   } else {
     if( FD_UNLIKELY( circq->cursor_seq>=circq->cursor_push_seq ) ) return 0;
-    off = ((fd_circq_message_t const *)(buf+circq->cursor))->next;
+    if( FD_UNLIKELY( circq->cursor_spool && circq->cursor_seq<circq->cursor_push_seq-circq->cnt ) ) {
+      ulong seq;
+      spool_resolve( circq, circq->spool_cursor, msg_sz, &seq );
+      return 1;
+    }
+    if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) off = circq->head; /* ram_entry, or spool crossed into memory */
+    else off = ((fd_circq_message_t const *)(buf+circq->cursor))->next;
   }
   *msg_sz = ((fd_circq_message_t const *)(buf+off))->footprint;
   return 1;
@@ -232,10 +456,11 @@ fd_circq_pop_until( fd_circq_t * circq,
                     ulong        cursor ) {
   if( FD_UNLIKELY( cursor>=circq->cursor_seq ) ) return -1;
 
-  ulong oldest_seq = circq->cursor_push_seq-circq->cnt;
+  ulong oldest_seq = circq->cursor_push_seq-circq->cnt-circq->spool_cnt;
   if( FD_UNLIKELY( cursor<oldest_seq ) ) return 0;
 
-  ulong to_pop = fd_ulong_min( cursor-oldest_seq+1UL, circq->cnt );
+  ulong to_pop = fd_ulong_min( cursor-oldest_seq+1UL, circq->cnt+circq->spool_cnt );
+  for( ; to_pop && circq->spool_cnt; to_pop-- ) spool_pop_head( circq, 0 );
 
   uchar * buf = (uchar *)(circq+1);
   for( ulong i=0UL; i<to_pop; i++ ) {
@@ -251,23 +476,24 @@ fd_circq_pop_until( fd_circq_t * circq,
     }
   }
 
-  if( FD_UNLIKELY( !circq->cnt ) ) circq->cursor = ULONG_MAX;
+  if( FD_UNLIKELY( !circq->cnt && !circq->spool_cnt ) ) cursor_reset( circq );
   overrun_recover( circq );
   return 0;
 }
 
 void
 fd_circq_reset_cursor( fd_circq_t * circq ) {
-  circq->cursor = ULONG_MAX;
+  cursor_reset( circq );
 }
 
 ulong
 fd_circq_bytes_used( fd_circq_t const * circq ) {
-  return circq->bytes_used;
+  return circq->bytes_used + circq->spool_bytes;
 }
 
 ulong
 fd_circq_unsent_cnt( fd_circq_t const * circq ) {
-  if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) return circq->cnt;
-  return fd_ulong_min( circq->cursor_push_seq - circq->cursor_seq, circq->cnt );
+  ulong total = circq->cnt+circq->spool_cnt;
+  if( FD_UNLIKELY( !cursor_active( circq ) ) ) return total;
+  return fd_ulong_min( circq->cursor_push_seq - circq->cursor_seq, total );
 }
