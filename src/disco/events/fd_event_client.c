@@ -933,7 +933,7 @@ rotate( fd_event_client_t * client,
   client->drain_stream      = client->event_stream;
   client->event_stream      = NULL;
   client->auth_send_pending = 1;
-  if( FD_LIKELY( fd_circq_unsent_cnt( client->circq )<client->circq->cnt ) ) { /* unacked events in flight */
+  if( FD_LIKELY( fd_circq_unsent_cnt( client->circq )<client->circq->cnt+client->circq->spool_cnt ) ) { /* unacked events in flight */
     client->drain_gen  = client->stream_gen;
     client->drain_last = client->circq->cursor_seq-1UL;
   }

@@ -241,6 +241,7 @@ bench_cmd_fn( args_t *   args,
   initialize_stake_delegations_fd( config );
   initialize_txncache_fd( config );
   initialize_votor_spill_fd( config );
+  initialize_event_spool_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );
 

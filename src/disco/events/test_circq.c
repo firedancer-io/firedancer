@@ -1,5 +1,9 @@
+#define _GNU_SOURCE
 #include "../../util/fd_util.h"
 #include "fd_circq.h"
+
+#include <sys/mman.h>
+#include <unistd.h>
 
 static void
 test_fuzz( void ) {
@@ -360,6 +364,207 @@ test_edge_cases( void ) {
   FD_TEST( out );
 }
 
+
+/* Spool: two-tier queue over a small window plus a file ring.  Each
+   message carries its push seq at [0]. */
+
+#define SPOOL_MSG_SZ (256UL)
+
+static int
+spool_fd_new( ulong cap ) {
+  int fd = memfd_create( "test_circq_spool", 0U );
+  FD_TEST( fd>=0 );
+  FD_TEST( !ftruncate( fd, (off_t)cap ) );
+  return fd;
+}
+
+static void
+spool_push( fd_circq_t * circq,
+            ulong        id ) {
+  uchar * msg = fd_circq_push_back( circq, 1UL, SPOOL_MSG_SZ );
+  FD_TEST( msg );
+  FD_TEST( circq->cursor_push_seq-1UL==id );
+  FD_STORE( ulong, msg, id );
+  for( ulong i=8UL; i<SPOOL_MSG_SZ; i++ ) msg[ i ] = (uchar)(id+i);
+}
+
+static ulong
+spool_check_next( fd_circq_t * circq ) {
+  ulong peek_sz = 0UL;
+  FD_TEST( fd_circq_cursor_peek( circq, &peek_sz ) );
+  ulong msg_sz;
+  uchar const * msg = fd_circq_cursor_advance( circq, &msg_sz );
+  FD_TEST( msg );
+  FD_TEST( msg_sz==SPOOL_MSG_SZ && peek_sz==msg_sz );
+  ulong id = FD_LOAD( ulong, msg );
+  for( ulong i=8UL; i<SPOOL_MSG_SZ; i++ ) FD_TEST( msg[ i ]==(uchar)(id+i) );
+  return id;
+}
+
+static void
+test_spool_migration( void ) {
+  static uchar buf[ 4096UL+4096UL+SPOOL_MSG_SZ ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+  int fd = spool_fd_new( 1UL<<20UL );
+  fd_circq_spool_init( circq, fd, 1UL<<20UL, SPOOL_MSG_SZ );
+  ulong msg_sz;
+
+  FD_TEST( !fd_circq_push_back( circq, 1UL, SPOOL_MSG_SZ+1UL ) );
+
+  for( ulong i=0UL; i<100UL; i++ ) spool_push( circq, i );
+  FD_TEST( circq->spool_cnt>0UL );
+  FD_TEST( circq->cnt+circq->spool_cnt==100UL );
+  FD_TEST( !circq->metrics.drop_cnt );
+  FD_TEST( fd_circq_unsent_cnt( circq )==100UL );
+  FD_TEST( fd_circq_bytes_used( circq )==circq->bytes_used+circq->spool_bytes );
+
+  for( ulong i=0UL; i<100UL; i++ ) FD_TEST( spool_check_next( circq )==i );
+  FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+  FD_TEST( !fd_circq_cursor_peek( circq, &msg_sz ) );
+  FD_TEST( !fd_circq_unsent_cnt( circq ) );
+
+  FD_TEST( !fd_circq_pop_until( circq, 10UL ) );
+  FD_TEST( circq->cnt+circq->spool_cnt==89UL );
+  ulong ram_cnt = circq->cnt;
+  FD_TEST( !fd_circq_pop_until( circq, 99UL-ram_cnt+2UL ) );
+  FD_TEST( !circq->spool_cnt );
+  FD_TEST( circq->cnt==ram_cnt-2UL );
+
+  fd_circq_reset_cursor( circq );
+  for( ulong i=0UL; i<ram_cnt-2UL; i++ ) FD_TEST( spool_check_next( circq )==99UL-ram_cnt+3UL+i );
+  FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+
+  FD_TEST( !fd_circq_pop_until( circq, 99UL ) );
+  FD_TEST( !circq->cnt && !circq->spool_cnt && !circq->spool_bytes && !fd_circq_bytes_used( circq ) );
+  FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+  FD_TEST( !close( fd ) );
+}
+
+/* Pushes interleaved with sends: the in-flight cursor follows its
+   message into the spool, so nothing is skipped or resent. */
+
+static void
+test_spool_cursor_follows( void ) {
+  static uchar buf[ 4096UL+4096UL+SPOOL_MSG_SZ ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+  int fd = spool_fd_new( 1UL<<20UL );
+  fd_circq_spool_init( circq, fd, 1UL<<20UL, SPOOL_MSG_SZ );
+
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1U, 0UL ) );
+  ulong pushed = 0UL, sent = 0UL, acked = 0UL, spilled = 0UL, mid = 0UL;
+  for( ulong iter=0UL; iter<20000UL; iter++ ) {
+    ulong r = fd_rng_ulong_roll( rng, 8UL );
+    if( r<4UL ) {
+      spool_push( circq, pushed++ );
+    } else if( r<7UL ) {
+      if( sent<pushed ) FD_TEST( spool_check_next( circq )==sent++ );
+    } else if( sent>acked ) {
+      ulong to = acked+fd_rng_ulong_roll( rng, sent-acked );
+      FD_TEST( !fd_circq_pop_until( circq, to ) );
+      acked = to+1UL;
+    }
+    FD_TEST( circq->cnt+circq->spool_cnt==pushed-acked );
+    FD_TEST( fd_circq_unsent_cnt( circq )==pushed-sent );
+    spilled += !!circq->spool_cnt;
+    mid     += circq->cursor_spool && sent<pushed-circq->cnt;
+  }
+  FD_TEST( spilled && mid );
+  FD_TEST( !circq->metrics.drop_cnt );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  FD_TEST( !close( fd ) );
+}
+
+static void
+test_spool_drop_oldest( void ) {
+  static uchar buf[ 4096UL+4096UL+SPOOL_MSG_SZ ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+  ulong cap = 4096UL;
+  int fd = spool_fd_new( cap );
+  fd_circq_spool_init( circq, fd, cap, SPOOL_MSG_SZ );
+  ulong msg_sz;
+
+  for( ulong i=0UL; i<5UL; i++ ) FD_TEST( spool_check_next( circq )==( spool_push( circq, i ), i ) );
+  for( ulong i=5UL; i<200UL; i++ ) spool_push( circq, i );
+  FD_TEST( circq->metrics.drop_cnt>0UL );
+  ulong live = circq->cnt+circq->spool_cnt;
+  FD_TEST( live<200UL );
+  FD_TEST( fd_circq_unsent_cnt( circq )==live ); /* cursor overrun: resend from front */
+
+  ulong expected = 200UL-live;
+  for( ulong i=0UL; i<live; i++ ) FD_TEST( spool_check_next( circq )==expected+i );
+  FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+  FD_TEST( !close( fd ) );
+}
+
+static void
+test_spool_wrap_cycles( void ) {
+  static uchar buf[ 4096UL+4096UL+SPOOL_MSG_SZ ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+  ulong cap = 8192UL+40UL; /* not a record multiple: exercises the marker-less wrap too */
+  int fd = spool_fd_new( cap );
+  fd_circq_spool_init( circq, fd, cap, SPOOL_MSG_SZ );
+  ulong msg_sz;
+
+  ulong id = 0UL;
+  ulong acked = 0UL;
+  for( ulong round=0UL; round<50UL; round++ ) {
+    for( ulong i=0UL; i<20UL; i++ ) spool_push( circq, id++ );
+    fd_circq_reset_cursor( circq );
+    ulong live = circq->cnt+circq->spool_cnt;
+    FD_TEST( acked+live==id );
+    for( ulong i=0UL; i<live; i++ ) FD_TEST( spool_check_next( circq )==acked+i );
+    FD_TEST( !fd_circq_cursor_advance( circq, &msg_sz ) );
+    FD_TEST( !fd_circq_pop_until( circq, id-6UL ) );
+    acked = id-5UL;
+    FD_TEST( circq->cnt+circq->spool_cnt==5UL );
+  }
+  FD_TEST( !circq->metrics.drop_cnt );
+  FD_TEST( !close( fd ) );
+}
+
+/* Variable-size pure overflow with sparse sends/acks: many file-ring
+   wraps with head and cursor parked on end-of-ring markers. */
+
+static ulong
+spool_var_sz( ulong id ) {
+  return 8UL+( id*2654435761UL )%( SPOOL_MSG_SZ-7UL );
+}
+
+static void
+test_spool_overflow_var( void ) {
+  static uchar buf[ 4096UL+4096UL+SPOOL_MSG_SZ ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 4096UL ) );
+  ulong cap = 16384UL+40UL;
+  int fd = spool_fd_new( cap );
+  fd_circq_spool_init( circq, fd, cap, SPOOL_MSG_SZ );
+
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 2U, 0UL ) );
+  for( ulong id=0UL; id<400000UL; id++ ) {
+    ulong sz = spool_var_sz( id );
+    uchar * msg = fd_circq_push_back( circq, 1UL, sz );
+    FD_TEST( msg );
+    FD_STORE( ulong, msg, id );
+    for( ulong i=8UL; i<sz; i++ ) msg[ i ] = (uchar)(id+i);
+
+    ulong r = fd_rng_ulong_roll( rng, 64UL );
+    if( r<2UL ) {
+      ulong msg_sz;
+      uchar const * out = fd_circq_cursor_advance( circq, &msg_sz );
+      FD_TEST( out );
+      ulong got = FD_LOAD( ulong, out );
+      FD_TEST( got==circq->cursor_seq-1UL && msg_sz==spool_var_sz( got ) );
+      for( ulong i=8UL; i<msg_sz; i++ ) FD_TEST( out[ i ]==(uchar)(got+i) );
+    } else if( r<3UL && circq->cursor_seq ) {
+      fd_circq_pop_until( circq, circq->cursor_seq-1UL );
+    }
+  }
+  FD_TEST( circq->metrics.drop_cnt );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  FD_TEST( !close( fd ) );
+}
+
 static void
 test_bounds( void ) {
   uchar buf[ 128UL+4096UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
@@ -389,6 +594,11 @@ main( int     argc,
   test_pop_recover();                  FD_LOG_NOTICE(( "pass: pop_recover" ));
   test_cursor_sequence_monotonicity(); FD_LOG_NOTICE(( "pass: cursor_sequence_monotonicity" ));
   test_edge_cases();                   FD_LOG_NOTICE(( "pass: edge_cases" ));
+  test_spool_migration();              FD_LOG_NOTICE(( "pass: spool_migration" ));
+  test_spool_cursor_follows();         FD_LOG_NOTICE(( "pass: spool_cursor_follows" ));
+  test_spool_drop_oldest();            FD_LOG_NOTICE(( "pass: spool_drop_oldest" ));
+  test_spool_wrap_cycles();            FD_LOG_NOTICE(( "pass: spool_wrap_cycles" ));
+  test_spool_overflow_var();           FD_LOG_NOTICE(( "pass: spool_overflow_var" ));
   test_bounds();                       FD_LOG_NOTICE(( "pass: bounds" ));
 
   FD_LOG_NOTICE(( "pass" ));
