@@ -1346,8 +1346,9 @@ initialize_txncache_fd( config_t const * config ) {
   }
 }
 
-/* Unlinked sparse file, grown by votor pwrites only when a slot sees
-   more than AG_HASH_STAKE_INLINE_MAX distinct vote hashes. */
+/* Unlinked file, written by votor only when a slot sees more than
+   its inline distinct vote hashes or gets votes with
+   every RAM sig block taken.  Reserved up front so neither hits ENOSPC. */
 
 void
 initialize_votor_spill_fd( config_t const * config ) {
@@ -1356,6 +1357,12 @@ initialize_votor_spill_fd( config_t const * config ) {
   int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  ulong votor_idx = fd_topo_find_tile( &config->topo, "votor", 0UL );
+  if( votor_idx!=ULONG_MAX ) {
+    ulong spill_sz = fd_votor_pool_spill_footprint( config->topo.tiles[ votor_idx ].votor.max_live_slots );
+    if( FD_UNLIKELY( fallocate( spill_fd, 0, 0L, (off_t)spill_sz ) && errno!=EOPNOTSUPP ) )
+      FD_LOG_ERR(( "fallocate(%s,%lu) failed (%i-%s)", spill_path, spill_sz, errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_LIKELY( spill_fd!=FD_VOTOR_SPILL_FD ) ) {
     if( FD_UNLIKELY( -1==dup2( spill_fd, FD_VOTOR_SPILL_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
