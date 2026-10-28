@@ -611,6 +611,30 @@ main( int     argc,
   unprivileged_init( topo, tile );
 
   test_genesis_static_body( ctx );
+
+  do { /* genesis tarball fits a wksp of exactly loose_footprint */
+    ulong loose    = loose_footprint( tile );
+    ulong part_max = loose/(64UL<<10) + 3UL;
+    ulong data_max = loose + fd_alloc_footprint() + fd_alloc_align();
+    ulong fp       = fd_ulong_align_up( fd_wksp_footprint( part_max, data_max ), FD_SHMEM_NORMAL_PAGE_SZ );
+    void * mem = mmap( NULL, fp, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+    FD_TEST( mem!=MAP_FAILED );
+    fd_wksp_t * bz_wksp = fd_wksp_join( fd_wksp_new( mem, "bz2wksp", 1U, part_max, data_max ) );
+    FD_TEST( bz_wksp );
+    FD_TEST( !fd_shmem_join_anonymous( "bz2wksp", FD_SHMEM_JOIN_MODE_READ_WRITE, bz_wksp, mem, FD_SHMEM_NORMAL_PAGE_SZ, fp>>FD_SHMEM_NORMAL_LG_PAGE_SZ ) );
+    fd_alloc_t * main_alloc = ctx->bz2_alloc;
+    ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( bz_wksp, fd_alloc_align(), fd_alloc_footprint(), 1UL ), 1UL ), 1UL );
+    FD_TEST( ctx->bz2_alloc );
+    ulong blob_sz = 1UL<<20;
+    uchar * blob = fd_wksp_alloc_laddr( wksp, 1UL, blob_sz, 1UL ); FD_TEST( blob );
+    for( ulong i=0UL; i<blob_sz; i++ ) blob[ i ] = (uchar)fd_ulong_hash( i );
+    ulong sz = fd_rpc_file_as_tarball( ctx, "genesis.bin", blob, blob_sz, ctx->genesis_tar, ctx->genesis_tar_max_sz, ctx->genesis_tar_bz, ctx->genesis_tar_bz_max_sz );
+    FD_TEST( sz && sz!=ULONG_MAX );
+    fd_wksp_free_laddr( blob );
+    ctx->bz2_alloc = main_alloc;
+    FD_TEST( !fd_shmem_leave_anonymous( bz_wksp, NULL ) );
+    FD_TEST( !munmap( mem, fp ) );
+  } while(0);
   test_snapshot_redirect( ctx );
   test_websocket_disabled( ctx );
 

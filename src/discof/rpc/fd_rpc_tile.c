@@ -693,8 +693,8 @@ scratch_align( void ) {
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  /* Leftover space for bzip2 allocations */
-  return 1UL<<26; /* 64 MiB */
+  /* bzip2 heap: BZ2_bzCompressInit at blockSize100k=1 takes ~1.12 MB */
+  return 4UL<<20;
 }
 
 static inline ulong
