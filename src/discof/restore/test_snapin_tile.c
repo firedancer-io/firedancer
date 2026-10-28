@@ -235,6 +235,7 @@ struct test_sysvar {
 };
 typedef struct test_sysvar test_sysvar_t;
 static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
+static test_sysvar_t test_slot_history;
 
 /* Outcome mock_accdb_snapshot_write_batch reports for every account. */
 static uchar test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
@@ -340,14 +341,17 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
                              uchar *            out_data,
                              ulong *            out_data_len ) {
   (void)accdb;
-  ulong idx;
-  for( idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
-    if( !memcmp( pubkey, snapin_sysvar_tbl[ idx ].id->uc, 32UL ) ) break;
+  test_sysvar_t const * sv = &test_slot_history;
+  if( memcmp( pubkey, fd_sysvar_slot_history_id.uc, 32UL ) ) {
+    ulong idx;
+    for( idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
+      if( !memcmp( pubkey, snapin_sysvar_tbl[ idx ].id->uc, 32UL ) ) break;
+    }
+    FD_TEST( idx<FD_SYSVAR_CACHE_ENTRY_CNT );
+    sv = &test_sysvars[ idx ];
   }
-  FD_TEST( idx<FD_SYSVAR_CACHE_ENTRY_CNT );
   test_accdb_read_one_cnt++;
   test_accdb_read_one_fork = fork_id;
-  test_sysvar_t const * sv = &test_sysvars[ idx ];
   *out_lamports = sv->lamports;
   if( FD_UNLIKELY( !sv->lamports ) ) return FD_ACCDB_READ_ONE_NOCACHE_MISS;
   *out_executable = 0;
@@ -631,6 +635,7 @@ test_counters_reset( void ) {
   test_write_result             = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
   test_accdb_read_one_cnt       = 0UL;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) test_sysvars[ i ].lamports = 0UL;
+  test_slot_history.lamports    = 0UL;
   test_appendvec_parse_cnt      = 0UL;
   test_parser_script            = 0;
   test_parser_call_cnt          = 0UL;
@@ -849,16 +854,22 @@ test_stream_init( ulong av_cnt ) {
 
 /* Install a sysvar account in the accdb mock (data NULL: zero-filled). */
 static void
-test_sysvar_set( ulong        idx,
-                 void const * data,
-                 ulong        data_len ) {
-  test_sysvar_t * sv = &test_sysvars[ idx ];
+test_sysvar_install( test_sysvar_t * sv,
+                     void const *    data,
+                     ulong           data_len ) {
   FD_TEST( data_len<=sizeof(sv->data) );
   sv->lamports = 1UL;
   sv->data_len = data_len;
   fd_memcpy( sv->owner, fd_sysvar_owner_id.uc, 32UL );
   if( data ) fd_memcpy( sv->data, data, data_len );
   else       fd_memset( sv->data, 0,    data_len );
+}
+
+static void
+test_sysvar_set( ulong        idx,
+                 void const * data,
+                 ulong        data_len ) {
+  test_sysvar_install( &test_sysvars[ idx ], data, data_len );
 }
 
 /* A SlotHistory sysvar returned by the accdb mock:
@@ -871,8 +882,8 @@ test_stamp_slot_history( ulong bank_slot ) {
   ulong blocks_len = FD_SLOT_HISTORY_MAX_ENTRIES/64UL;
   FD_TEST( 9UL+blocks_len*8UL+16UL==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 
-  test_sysvar_set( FD_SYSVAR_slot_history_IDX, NULL, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
-  uchar * buf = test_sysvars[ FD_SYSVAR_slot_history_IDX ].data;
+  test_sysvar_install( &test_slot_history, NULL, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  uchar * buf = test_slot_history.data;
   buf[ 0 ] = 1;
   FD_STORE( ulong, buf+1UL, blocks_len );
   uchar * footer = buf + 9UL + blocks_len*8UL;
@@ -2683,7 +2694,7 @@ test_accumulator_fold( void ) {
   FD_TEST( t0->lead.account_counts.duplicates==exp_duplicates );
   /* The full snapshot's totals are saved for the incremental revert. */
   FD_TEST( t0->lead.recovery.capitalization==t0->lead.manifest_capitalization );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==t0->lead.accdb_root_fork_id.val );
 
   test_cluster_delete( cl );
@@ -2774,7 +2785,7 @@ test_verify_sysvars_accepts_valid( void ) {
   fd_snapin_tile_t * ctx = &cl->ctx[ 0 ];
 
   FD_TEST( !verify_sysvars( ctx ) );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==ctx->lead.accdb_root_fork_id.val );
 
   /* An incremental load reads from the incremental fork. */
@@ -2800,9 +2811,12 @@ test_verify_sysvars_presence( void ) {
   for( ulong idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
     test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
     test_sysvars[ idx ].lamports = 0UL;
-    int required = idx==FD_SYSVAR_clock_IDX || idx==FD_SYSVAR_rent_IDX || idx==FD_SYSVAR_slot_history_IDX;
+    int required = idx==FD_SYSVAR_clock_IDX || idx==FD_SYSVAR_rent_IDX;
     FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==(required ? -1 : 0) );
   }
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
+  test_slot_history.lamports = 0UL;
+  FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==-1 );
   test_cluster_delete( cl );
 }
 
@@ -2814,6 +2828,9 @@ test_verify_sysvars_rejects_bad_owner( void ) {
     test_sysvars[ idx ].owner[ 0 ] ^= 1;
     FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==-1 );
   }
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
+  test_slot_history.owner[ 0 ] ^= 1;
+  FD_TEST( verify_sysvars( &cl->ctx[ 0 ] )==-1 );
   test_cluster_delete( cl );
 }
 
@@ -2829,6 +2846,9 @@ test_verify_sysvars_rejects_undecodable( void ) {
     test_sysvars[ idx ].data_len = 0UL;
     FD_TEST( verify_sysvars( ctx )==-1 );
   }
+  test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
+  test_slot_history.data_len = 0UL;
+  FD_TEST( verify_sysvars( ctx )==-1 );
 
   /* Right size, bad content (the decoders themselves are covered by
      the sysvar unit tests). */
@@ -2839,11 +2859,11 @@ test_verify_sysvars_rejects_undecodable( void ) {
   /* SlotHistory must be exactly the serialized size, SlotHashes at
      least (the in-place updater rewrites the whole account). */
   test_stamp_sysvars( cl, TEST_SYSVAR_BANK_SLOT );
-  test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+1UL;
+  test_slot_history.data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ+1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
-  test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ-1UL;
+  test_slot_history.data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ-1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
-  test_sysvars[ FD_SYSVAR_slot_history_IDX ].data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ;
+  test_slot_history.data_len = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ;
   test_sysvars[ FD_SYSVAR_slot_hashes_IDX  ].data_len = FD_SYSVAR_SLOT_HASHES_BINCODE_SZ-1UL;
   FD_TEST( verify_sysvars( ctx )==-1 );
 
@@ -3028,7 +3048,7 @@ test_full_lifecycle_9_tiles( void ) {
 
   test_stamp_sysvars( cl, bank_slot );
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_NEXT );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==cl->ctx[ 0 ].lead.accdb_root_fork_id.val );
   FD_TEST( test_accdb_save_whead_cnt==1UL );
   for( ulong t=0UL; t<n; t++ ) FD_TEST( cl->ctx[ t ].state==FD_SNAPSHOT_STATE_IDLE );
@@ -3085,7 +3105,7 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( test_accdb_load_end_cnt==1UL );
   FD_TEST( test_feature_restore_cnt==1UL );
   FD_TEST( test_feature_restore_fork.val==7U );
-  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT );
+  FD_TEST( test_accdb_read_one_cnt==FD_SYSVAR_CACHE_ENTRY_CNT+1UL );
   FD_TEST( test_accdb_read_one_fork.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_root_fork_id.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_incr_fork_id.val==USHORT_MAX );

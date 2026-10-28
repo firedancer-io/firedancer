@@ -81,9 +81,8 @@ writer_slots_init( fd_txncache_writer_t * writer,
                   writer->snapshot_slot, view->bits_len, view->blocks_len, view->next_slot ));
   }
 
-  /* The SlotHistory in the bank's sysvar cache is one slot stale: it
-     is missing the bit for the snapshot slot itself, so the loop below
-     forces that slot in. */
+  /* The SlotHistory may be one slot stale (missing the bit for the
+     snapshot slot itself), so the loop below forces that slot in. */
 
   ulong scan_cnt = fd_ulong_min( writer->snapshot_slot+1UL, FD_SLOT_HISTORY_MAX_ENTRIES );
   ulong cnt      = 0UL;

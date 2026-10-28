@@ -524,7 +524,6 @@ static snapin_sysvar_t const snapin_sysvar_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [ FD_SYSVAR_recent_hashes_IDX     ] = { &fd_sysvar_recent_block_hashes_id, "RecentBlockhashes", 0 },
   [ FD_SYSVAR_rent_IDX              ] = { &fd_sysvar_rent_id,                "Rent",              1 },
   [ FD_SYSVAR_slot_hashes_IDX       ] = { &fd_sysvar_slot_hashes_id,         "SlotHashes",        0 },
-  [ FD_SYSVAR_slot_history_IDX      ] = { &fd_sysvar_slot_history_id,        "SlotHistory",       1 },
   [ FD_SYSVAR_stake_history_IDX     ] = { &fd_sysvar_stake_history_id,       "StakeHistory",      0 },
 };
 
@@ -606,6 +605,37 @@ verify_epoch_rewards( fd_snapin_tile_t const *  ctx,
   return 0;
 }
 
+/* read_sysvar reads a sysvar account into ctx->staged.data.  Returns 1
+   if present, 0 if absent and optional, -1 if absent and required or
+   not owned by the sysvar program. */
+
+static int
+read_sysvar( fd_snapin_tile_t *      ctx,
+             fd_accdb_fork_id_t      fork_id,
+             snapin_sysvar_t const * sysvar,
+             ulong *                 lamports,
+             ulong *                 data_len ) {
+  int   executable;
+  uchar owner[ 32UL ];
+  int   source = fd_accdb_read_one_nocache( ctx->accdb, fork_id, sysvar->id->uc,
+                                            lamports, &executable, owner,
+                                            ctx->staged.data, data_len );
+  if( source==FD_ACCDB_READ_ONE_NOCACHE_MISS ) {
+    if( FD_UNLIKELY( sysvar->required ) ) {
+      FD_LOG_WARNING(( "%s sysvar account was not present in the accounts database", sysvar->name ));
+      return -1;
+    }
+    return 0;
+  }
+
+  if( FD_UNLIKELY( !fd_memeq( owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( owner, owner_b58 );
+    FD_LOG_WARNING(( "%s sysvar owner is invalid: %s != sysvar_owner_id", sysvar->name, owner_b58 ));
+    return -1;
+  }
+  return 1;
+}
+
 /* verify_sysvars reads the sysvar accounts back from the accounts
    database and checks they decode and satisfy the invariants replay
    asserts at boot.  Call after all FINI acks.  Returns 0 on success,
@@ -624,24 +654,9 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
 
     ulong lamports;
     ulong data_len;
-    int   executable;
-    uchar owner[ 32UL ];
-    int   source = fd_accdb_read_one_nocache( ctx->accdb, fork_id, sysvar->id->uc,
-                                              &lamports, &executable, owner,
-                                              ctx->staged.data, &data_len );
-    if( source==FD_ACCDB_READ_ONE_NOCACHE_MISS ) {
-      if( FD_UNLIKELY( sysvar->required ) ) {
-        FD_LOG_WARNING(( "%s sysvar account was not present in the accounts database", sysvar->name ));
-        return -1;
-      }
-      continue;
-    }
-
-    if( FD_UNLIKELY( !fd_memeq( owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( owner, owner_b58 );
-      FD_LOG_WARNING(( "%s sysvar owner is invalid: %s != sysvar_owner_id", sysvar->name, owner_b58 ));
-      return -1;
-    }
+    int   found = read_sysvar( ctx, fork_id, sysvar, &lamports, &data_len );
+    if( FD_UNLIKELY( found<0 ) ) return -1;
+    if( !found ) continue;
 
     /* Same decode as fd_sysvar_cache_restore at boot */
     fd_sysvar_cache_restore_one( cache, sysvar->id, lamports, ctx->staged.data, data_len );
@@ -658,9 +673,11 @@ verify_sysvars( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( verify_slot_hashes  ( cache,      data_lens[ FD_SYSVAR_slot_hashes_IDX   ] ) ) ) return -1;
   if( FD_UNLIKELY( verify_epoch_rewards( ctx, cache, data_lens[ FD_SYSVAR_epoch_rewards_IDX ] ) ) ) return -1;
 
-  ulong         slot_history_sz;
-  uchar const * slot_history = fd_sysvar_cache_data_query( cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
-  return verify_slot_deltas_with_slot_history( ctx, slot_history, data_lens[ FD_SYSVAR_slot_history_IDX ] );
+  snapin_sysvar_t const slot_history = { &fd_sysvar_slot_history_id, "SlotHistory", 1 };
+  ulong lamports;
+  ulong data_len;
+  if( FD_UNLIKELY( read_sysvar( ctx, fork_id, &slot_history, &lamports, &data_len )<0 ) ) return -1;
+  return verify_slot_deltas_with_slot_history( ctx, ctx->staged.data, data_len );
 }
 
 /* verification of epoch stakes from manifest
