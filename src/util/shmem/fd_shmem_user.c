@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/random.h>
+#include <sys/stat.h>
 
 /* fd_shmem_private_key converts the cstr pointed to by name into a
    valid key and stores it at the location pointed to by key assumed
@@ -159,13 +160,14 @@ fd_shmem_private_map_rand( ulong  size,
 static fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
 static ulong                fd_shmem_private_map_cnt;                              /* 0 on thread group start */
 
-void *
-fd_shmem_join( char const *               name,
-               int                        mode,
-               int                        dump,
-               fd_shmem_joinleave_func_t  join_func,
-               void *                     context,
-               fd_shmem_join_info_t *     opt_info ) {
+static void *
+fd_shmem_private_join( char const *               name,
+                       ulong                      tail_page_cnt,
+                       int                        mode,
+                       int                        dump,
+                       fd_shmem_joinleave_func_t  join_func,
+                       void *                     context,
+                       fd_shmem_join_info_t *     opt_info ) {
 
   /* Check input args */
 
@@ -209,21 +211,38 @@ fd_shmem_join( char const *               name,
   /* We have enough room for it.  Try to map the memory. */
 
   fd_shmem_info_t shmem_info[1];
-  if( FD_UNLIKELY( fd_shmem_info( name, 0UL, shmem_info ) ) ) {
+  if( FD_UNLIKELY( fd_shmem_info( name, tail_page_cnt ? FD_SHMEM_GIGANTIC_PAGE_SZ : 0UL, shmem_info ) ) ) {
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "unable to query region \"%s\"\n\tprobably does not exist or bad permissions", name ));
     return NULL;
   }
   ulong page_sz  = shmem_info->page_sz;
   ulong page_cnt = shmem_info->page_cnt;
-  ulong sz       = page_sz*page_cnt;
+  ulong head_sz  = page_sz*page_cnt;
+  ulong tail_sz  = tail_page_cnt*FD_SHMEM_HUGE_PAGE_SZ;
+  ulong sz       = head_sz + tail_sz;
   int   rw       = (mode==FD_SHMEM_JOIN_MODE_READ_WRITE);
+
+  /* Tail is a same-name huge page file mapped right after the head */
+  int tail_fd = -1;
+  if( tail_page_cnt ) {
+    char tail_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+    tail_fd = open( fd_shmem_private_path( name, FD_SHMEM_HUGE_PAGE_SZ, tail_path ), rw ? O_RDWR : O_RDONLY, (mode_t)0 );
+    struct stat st;
+    if( FD_UNLIKELY( tail_fd==-1 || fstat( tail_fd, &st ) || (ulong)st.st_size!=tail_sz ) ) {
+      if( tail_fd!=-1 ) close( tail_fd );
+      FD_SHMEM_UNLOCK;
+      FD_LOG_WARNING(( "tail \"%s\" missing or not %lu huge pages", tail_path, tail_page_cnt ));
+      return NULL;
+    }
+  }
 
   /* Map the region into our address space. */
 
   char path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
   int fd = open( fd_shmem_private_path( name, page_sz, path ), rw ? O_RDWR : O_RDONLY, (mode_t)0 );
   if( FD_UNLIKELY( fd==-1 ) ) {
+    if( tail_fd!=-1 ) close( tail_fd );
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "open(\"%s\",%s,0) failed (%i-%s)", path, rw ? "O_RDWR" : "O_RDONLY", errno, fd_io_strerror( errno ) ));
     return NULL;
@@ -236,6 +255,7 @@ fd_shmem_join( char const *               name,
     if( FD_UNLIKELY( close( fd ) ) ) {
       FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
     }
+    if( tail_fd!=-1 ) close( tail_fd );
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "unable to reserve a random address to map region \"%s\" (%lu KiB) (%i-%s)",
                      name, sz>>10, map_err, fd_io_strerror( map_err ) ));
@@ -243,16 +263,21 @@ fd_shmem_join( char const *               name,
   }
 
   /* Note that MAP_HUGETLB and MAP_HUGE_* are implied by the mount point */
-  void * shmem = mmap( map_addr, sz, PROT_READ|( rw?PROT_WRITE:0 ) , MAP_SHARED|MAP_FIXED, fd, (off_t)0 );
+  void * shmem = mmap( map_addr, head_sz, PROT_READ|( rw?PROT_WRITE:0 ) , MAP_SHARED|MAP_FIXED, fd, (off_t)0 );
+  if( FD_LIKELY( shmem!=MAP_FAILED ) && tail_fd!=-1 ) {
+    if( FD_UNLIKELY( mmap( (uchar *)map_addr+head_sz, tail_sz, PROT_READ|( rw?PROT_WRITE:0 ), MAP_SHARED|MAP_FIXED, tail_fd, (off_t)0 )==MAP_FAILED ) ) shmem = MAP_FAILED;
+  }
 
   int mmap_errno = errno;
   if( FD_UNLIKELY( close( fd ) ) ) {
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
   }
+  if( tail_fd!=-1 ) close( tail_fd );
 
   /* Validate the mapping */
 
   if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
+    munmap( map_addr, sz ); /* release the reservation */
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "mmap(%p,%lu KiB,%s,MAP_SHARED,\"%s\",0) failed (%i-%s)",
                      map_addr, sz>>10, rw ? "PROT_READ|PROT_WRITE" : "PROT_READ", path, mmap_errno, fd_io_strerror( mmap_errno ) ));
@@ -303,8 +328,8 @@ fd_shmem_join( char const *               name,
   join_info->ref_cnt  = -1L;  /* Mark join/leave in progress so we can detect circular join/leave dependencies */
   join_info->join     = NULL; /* Overridden below */
   join_info->shmem    = shmem;
-  join_info->page_sz  = page_sz;
-  join_info->page_cnt = page_cnt;
+  join_info->page_sz  = tail_page_cnt ? FD_SHMEM_HUGE_PAGE_SZ : page_sz;
+  join_info->page_cnt = sz / join_info->page_sz;
   join_info->mode     = mode;
   /* join_info->hash handled by insert */
   /* join_info->name "                 */
@@ -327,6 +352,24 @@ fd_shmem_join( char const *               name,
   if( opt_info ) *opt_info = *join_info;
   FD_SHMEM_UNLOCK;
   return join;
+}
+
+void *
+fd_shmem_join( char const *               name,
+               int                        mode,
+               int                        dump,
+               fd_shmem_joinleave_func_t  join_func,
+               void *                     context,
+               fd_shmem_join_info_t *     opt_info ) {
+  return fd_shmem_private_join( name, 0UL, mode, dump, join_func, context, opt_info );
+}
+
+void *
+fd_shmem_join_split( char const * name,
+                     ulong        tail_page_cnt,
+                     int          mode,
+                     int          dump ) {
+  return fd_shmem_private_join( name, tail_page_cnt, mode, dump, NULL, NULL, NULL );
 }
 
 int

@@ -131,7 +131,7 @@ mem_cmd_fn( args_t *   args,
         fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( entries[ cnt ].obj ), "loose", 5 ) );
         cnt++;
       }
-      ulong pages_sz = wksp->page_cnt * wksp->page_sz;
+      ulong pages_sz = fd_topo_wksp_sz( wksp );
       ulong overhead = pages_sz - wksp->total_footprint;
       if( overhead ) {
         entries[ cnt ].footprint = overhead;
