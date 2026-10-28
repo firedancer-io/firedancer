@@ -89,19 +89,8 @@ struct fd_snapshot_manifest_vote_stakes {
   /* The validator's pending delegator rewards as of the given epoch */
   ulong  pending_delegator_rewards;
 
-  /* The epoch credits array tracks the history of how many credits the
-     provided vote account earned in each recorded epoch.  Entries are
-     ordered by strictly increasing epoch: epoch_credits[0] is the
-     oldest and epoch_credits[epoch_credits_history_len-1] is the
-     newest.  Epochs with no recorded credits can be absent.  When
-     booting a new chain from genesis, or for new vote accounts, the
-     epoch credits history may be short.  The maximum number of entries
-     in the epoch credits history is 64.
-
-     Note one entry may be the Alpenglow migration marker (all three
-     fields ULONG_MAX, see fd_epoch_credits_is_alpenglow_marker). */
-  ulong           epoch_credits_history_len;
-  epoch_credits_t epoch_credits[ FD_EPOCH_CREDITS_MAX ];
+  /* Epoch credits live in fd_snapshot_manifest_t t_1_epoch_credits,
+     kept only for the leader schedule epoch's (T-1) entries. */
 };
 
 typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes_t;
@@ -448,6 +437,16 @@ struct fd_snapshot_manifest {
        epoch_stakes[4] = epoch E+1
      Entries the snapshot does not carry keep epoch ULONG_MAX. */
   fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ];
+
+  /* Epoch credits of epoch_stakes[ t_1 ].vote_stakes[ i ], t_1 the
+     leader schedule epoch's entry (the only reader).  Each history is
+     ordered by strictly increasing epoch, oldest first, at most
+     FD_EPOCH_CREDITS_MAX entries, and may hold one Alpenglow migration
+     marker (all fields ULONG_MAX).  Other epochs' credits are validated
+     by the parser and dropped. */
+  uchar           epoch_credits_invalid[ FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ]; /* non-T-1 entry failed validation */
+  ulong           t_1_epoch_credits_len[ FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ];
+  epoch_credits_t t_1_epoch_credits    [ FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ][ FD_EPOCH_CREDITS_MAX ];
 };
 
 typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;
