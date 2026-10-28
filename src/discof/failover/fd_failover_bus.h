@@ -2,79 +2,74 @@
 #define HEADER_fd_src_discof_failover_fd_failover_bus_h
 
 /* The admin and failover tiles talk over the admin_failov and
-   failov_admin links.  The admin tile stays the only adminctl poller.  It
+   failov_admin links.  The admin tile is the only adminctl poller.  It
    forwards failover commands with a nonce and parks the adminctl slot
    until the response comes back or the deadline passes.  The failover
    tile asks for identity switches the same way.  Every frame is one
    fd_failover_bus_msg_t.  Each side has at most one request outstanding,
    even past the deadline, so neither link has more than two frames in
    flight and neither tile can backpressure the other, even behind an
-   identity switch that never finishes. */
+   identity switch that never terminates. */
 
 #include "../admin/fd_adminctl.h"
 
-#define FD_FAILOVER_BUS_SWITCH_REQ  (1UL) /* failov to admin, fd_failover_switch_req_t */
-#define FD_FAILOVER_BUS_SWITCH_RESP (2UL) /* admin to failov, fd_failover_switch_resp_t */
-#define FD_FAILOVER_BUS_REQUEST     (3UL) /* admin to failov, fd_adminctl_failover_req_t */
-#define FD_FAILOVER_BUS_RESPONSE    (4UL) /* failov to admin, the requested command's response */
-#define FD_FAILOVER_BUS_OPERATOR_ACTION    (5UL) /* admin to failov, fd_failover_operator_t, set-identity ran */
+#define FD_FAILOVER_BUS_PAYLOAD_MAX (256UL)
 
-/* Only the public key goes over the bus, and the sign tile selects its
-   junk key or the failover identity.  epoch is the failover epoch the
-   failover tile last saw, and the admin tile refuses a request from
-   before a set-identity. */
-struct fd_failover_switch_req {
-  uchar identity[ 32 ]; /* public key of the identity to install */
-  ulong epoch;
-};
+/* bus message types */
 
-typedef struct fd_failover_switch_req fd_failover_switch_req_t;
+#define FD_FAILOVER_BUS_SWITCH_REQ      (1UL) /* failov to admin: fd_failover_switch_req_t */
+#define FD_FAILOVER_BUS_SWITCH_RESP     (2UL) /* admin to failov: fd_failover_switch_resp_t */
+#define FD_FAILOVER_BUS_REQUEST         (3UL) /* admin to failov: fd_adminctl_failover_req_t */
+#define FD_FAILOVER_BUS_RESPONSE        (4UL) /* failov to admin: the requested command's response */
+#define FD_FAILOVER_BUS_OPERATOR_ACTION (5UL) /* admin to failov: fd_failover_operator_t, set-identity ran */
+
+/* result codes */
 
 #define FD_FAILOVER_SWITCH_OK                   (0UL)
-#define FD_FAILOVER_SWITCH_ERR_DISABLED         (1UL) /* failover is off here */
-#define FD_FAILOVER_SWITCH_ERR_STALE            (2UL) /* set-identity ran since the request, nothing switched */
+#define FD_FAILOVER_SWITCH_ERR_DISABLED         (1UL)
+#define FD_FAILOVER_SWITCH_ERR_STALE            (2UL)
 #define FD_FAILOVER_SWITCH_ERR_AUTHORIZED_VOTER (3UL) /* the target is an authorized voter, nothing switched */
 
-/* set-identity or failover promote <keypair> ran, and each bumps the
-   failover epoch.  identity is the installed public key, and
-   failover_identity is the key failover hands off, which set-identity
-   changes to identity unless that is the junk key. */
+/* bus message structs */
+
 struct fd_failover_operator {
   ulong epoch;
   uchar identity[ 32 ];
   uchar failover_identity[ 32 ];
 };
-
 typedef struct fd_failover_operator fd_failover_operator_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_operator_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, operator_fits );
 
-/* Sent once every tile has switched, or right away when refused. */
-struct fd_failover_switch_resp {
-  ulong                  result;            /* FD_FAILOVER_SWITCH_* */
-  ulong                  history_watermark; /* the votor keyswitch result, its history output sequence at the halt */
-  fd_failover_operator_t operator;          /* with STALE */
+struct fd_failover_switch_req {
+  uchar identity[ 32 ]; /* public key of the identity to install */
+  ulong epoch;
 };
+typedef struct fd_failover_switch_req fd_failover_switch_req_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_switch_req_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, switch_req_fits );
 
+struct fd_failover_switch_resp {
+  ulong                  result;
+  ulong                  history_watermark;
+  fd_failover_operator_t operator;
+};
 typedef struct fd_failover_switch_resp fd_failover_switch_resp_t;
-
-#define FD_FAILOVER_BUS_PAYLOAD_MAX (256UL)
-
-FD_STATIC_ASSERT( sizeof(fd_failover_switch_req_t )<=FD_FAILOVER_BUS_PAYLOAD_MAX, switch_req_fits  );
 FD_STATIC_ASSERT( sizeof(fd_failover_switch_resp_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, switch_resp_fits );
-FD_STATIC_ASSERT( sizeof(fd_failover_operator_t   )<=FD_FAILOVER_BUS_PAYLOAD_MAX, operator_fits    );
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t         )<=FD_FAILOVER_BUS_PAYLOAD_MAX, command_fits         );
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, control_resp_fits    );
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t )<=FD_FAILOVER_BUS_PAYLOAD_MAX, status_resp_fits     );
+
+/* bus message framing */
 
 struct fd_failover_bus_msg {
   ulong nonce;  /* per request, echoed on the response */
   ulong result; /* the adminctl result for command responses */
   uchar payload[ FD_FAILOVER_BUS_PAYLOAD_MAX ];
 };
-
 typedef struct fd_failover_bus_msg fd_failover_bus_msg_t;
 
 #define FD_FAILOVER_BUS_MTU (sizeof(fd_failover_bus_msg_t))
 FD_STATIC_ASSERT( sizeof(fd_failover_bus_msg_t)==272UL, bus_layout );
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t         )<=FD_FAILOVER_BUS_PAYLOAD_MAX, command_fits      );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, control_resp_fits );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t )<=FD_FAILOVER_BUS_PAYLOAD_MAX, status_resp_fits  );
 
 /* How long the admin tile waits for a failover command response
    before it responds to the operator itself. */

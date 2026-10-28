@@ -53,28 +53,6 @@ action_name( uchar action ) {
   return action<ACTION_NAME_CNT ? ACTION_NAMES[ action ] : "unknown";
 }
 
-/* control_result_name is the reason `failover promote` was rejected */
-static char const *
-control_result_name( ulong result ) {
-  switch( result ) {
-    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:      return "this machine already runs the identity";
-    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "a transition or key switch is currently running, check `failover status`";
-    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or pass in --address";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "the peer could not finish this request, check `failover status`";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:        return "the authenticated peer runs the identity";
-    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING:   return "the peer has not answered our last handoff";
-    case FD_FAILOVER_CONTROL_RESULT_TAKEN:             return "the peer took our last handoff and may still be voting";
-    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:       return "gossip showed the identity at another host";
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over";
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine is too far behind the vote history of the machine running the identity, retry once caught up";
-    case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "the keypair is this machine's current junk key";
-    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "failover lost an input update and is disabled until restart";
-    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
-    case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";
-    default:                                           return NULL;
-  }
-}
-
 /* other_holder is what this machine knows about the other machine running the identity */
 static char const *
 other_holder( ulong result ) {
@@ -356,7 +334,7 @@ failover_precheck( fd_adminctl_failover_status_resp_t const * status,
     fd_ed25519_public_from_private( pubkey, keypair, sha512 );
     int same = !memcmp( pubkey, status->target, 32UL );
     if( FD_UNLIKELY( same && status->holds ) ) {
-      FD_LOG_ERR(( "`%s` refused, %s", cmd_name, control_result_name( FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER ) ));
+      FD_LOG_ERR(( "`%s` refused, %s", cmd_name, fd_adminctl_failover_result_cstr( FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER ) ));
     }
     if( FD_UNLIKELY( !same && status->holds && status->promote_floor!=FD_FAILOVER_SLOT_NULL && !args->failover.force ) ) {
       FD_BASE58_ENCODE_32_BYTES( status->target, target_b58 );
@@ -370,7 +348,7 @@ failover_precheck( fd_adminctl_failover_status_resp_t const * status,
   if( FD_UNLIKELY( status->holds &&
                    !( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF &&
                       status->request_paused && status->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) ) ) {
-    FD_LOG_ERR(( "`%s` refused, %s", cmd_name, control_result_name( FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER ) ));
+    FD_LOG_ERR(( "`%s` refused, %s", cmd_name, fd_adminctl_failover_result_cstr( FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER ) ));
   }
 }
 
@@ -409,9 +387,9 @@ failover_cmd_fn( args_t *   args,
   ulong        result   = failover_request( adminctl, &req, keypair, &resp, sizeof(resp), &resp_sz );
   char const * cmd_name = fd_adminctl_failover_cmd_typed( (ulong)args->failover.cmd );
   if( keypair ) fd_keyload_unload( keypair, 0 );
-  char const * refusal  = control_result_name( result );
+  int refused = result>=FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER || result==FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH || result==FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER;
 
-  if( FD_UNLIKELY( refusal ) ) FD_LOG_ERR(( "`%s` refused, %s", cmd_name, refusal ));
+  if( FD_UNLIKELY( refused ) ) FD_LOG_ERR(( "`%s` refused, %s", cmd_name, fd_adminctl_failover_result_cstr( result ) ));
 
   /* show the result */
   switch( result ) {

@@ -28,6 +28,10 @@ socket: (and (eq (arg 0) "AF_INET")
              (eq (arg 2) 0))
 connect
 
+# the dialed socket disables TCP Nagle
+setsockopt: (and (eq (arg 1) IPPROTO_TCP)
+                 (eq (arg 2) TCP_NODELAY))
+
 # every member accepts candidate connections on its listener
 accept4: (and (eq (arg 0) listen_fd)
               (eq (arg 3) "SOCK_NONBLOCK|SOCK_CLOEXEC"))

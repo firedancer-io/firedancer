@@ -10,8 +10,7 @@
 /* Protocol version */
 #define FD_FAILOVER_VERSION (1U)
 
-/* The port a handoff dials unless `failover promote --port` gives
-   another.  It is also the default [failover.listen_port]. */
+/* The default port for a handoff. */
 #define FD_FAILOVER_DEFAULT_PORT ((ushort)8010)
 
 /* Message types */
@@ -22,7 +21,7 @@
 #define FD_FAILOVER_MSG_PROMOTE_REJECTED (4U)
 #define FD_FAILOVER_MSG_HANDOFF_RESULT   (5U)
 #define FD_FAILOVER_MSG_KEEPALIVE        (6U)
-#define FD_FAILOVER_MSG_CNT         (7U)
+#define FD_FAILOVER_MSG_CNT              (7U)
 
 /* Sentinel for a slot field with no value */
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
@@ -30,26 +29,13 @@
 /* Consensus payload formats */
 #define FD_FAILOVER_MODE_ALPENGLOW (1U)
 
-/* Session states for one authenticated TCP session per pair.  The
-   listener only ever shows LISTENING or PAIRED, its candidates are
-   tracked per socket.  The dialer walks BACKOFF, DIALING, HELLO and
-   PAIRED. */
+/* Session states for authenticated TCP sessions. */
 #define FD_FAILOVER_SESSION_LISTENING (0UL) /* Accept candidates until one authenticates. */
 #define FD_FAILOVER_SESSION_DIALING   (1UL) /* Wait for outbound TCP to connect. */
 #define FD_FAILOVER_SESSION_HELLO     (2UL) /* Complete TLS and exchange HELLO. */
 #define FD_FAILOVER_SESSION_PAIRED    (3UL) /* Exchange messages with the authenticated peer. */
 #define FD_FAILOVER_SESSION_BACKOFF   (4UL) /* Wait before the next dial attempt. */
 #define FD_FAILOVER_SESSION_CNT       (5UL)
-
-/* Session events, inputs to fd_failover_session_step */
-#define FD_FAILOVER_EV_PEER_CONNECTED (0) /* An inbound TCP candidate was accepted. */
-#define FD_FAILOVER_EV_CONNECTED      (1) /* Outbound TCP connected. */
-#define FD_FAILOVER_EV_HELLO_OK       (2) /* The peer passed authentication and HELLO checks. */
-#define FD_FAILOVER_EV_HELLO_FATAL    (3) /* The peer failed HELLO checks. */
-#define FD_FAILOVER_EV_TIMEOUT        (4) /* The handshake or session deadline expired. */
-#define FD_FAILOVER_EV_LINK_LOST      (5) /* The connection closed or failed. */
-#define FD_FAILOVER_EV_RETRY          (6) /* The next dial attempt may start. */
-#define FD_FAILOVER_EV_CNT            (7)
 
 /* HELLO pairing outcomes */
 #define FD_FAILOVER_HELLO_OK             (0)
@@ -83,14 +69,10 @@ struct __attribute__((packed)) fd_failover_hello {
 typedef struct fd_failover_hello fd_failover_hello_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==128UL, wire_layout );
 
-/* Admission precedes TLS.  START carries one complete TLS ClientHello
-   record after this fixed header.  Both proofs cover START, that record
-   and CHALLENGE.  The server proof additionally covers the client proof
-   and the exact prepared server TLS flight.
-   Nonces are public, fresh for each connection and consumed once. */
-#define FD_FAILOVER_ADMISSION_MAGIC           (0x314d44414c494146UL)
-#define FD_FAILOVER_ADMISSION_MAX             (2048UL)
-#define FD_FAILOVER_CLIENT_HELLO_MAX          (1024UL)
+/* Pre-TLS admission */
+#define FD_FAILOVER_ADMISSION_MAGIC  (0x314d44414c494146UL)
+#define FD_FAILOVER_ADMISSION_MAX    (2048UL)
+#define FD_FAILOVER_CLIENT_HELLO_MAX (1024UL)
 
 struct __attribute__((packed)) fd_failover_admission_start {
   ulong               magic;
@@ -118,8 +100,6 @@ FD_STATIC_ASSERT( sizeof(fd_failover_admission_response_t)==66UL, admission_resp
 
 #define FD_FAILOVER_SERVER_FLIGHT_MAX (FD_FAILOVER_ADMISSION_MAX-sizeof(fd_failover_admission_response_t))
 
-/* Sent by the demoter once it runs the junk key, the final history
-   follows it. */
 struct __attribute__((packed)) fd_failover_demoted {
   ulong  handoff_id;     /* the handoff id from the HANDOFF_REQUEST */
   ulong  target_boot_id; /* peer boot_id the handoff is for */
@@ -174,8 +154,7 @@ FD_STATIC_ASSERT( sizeof(fd_failover_handoff_result_t)==16UL, wire_layout );
 FD_PROTOTYPES_BEGIN
 
 /* Checks a peer's HELLO against ours and returns FD_FAILOVER_HELLO_OK or
-   the first fatal error.  The checks are symmetric, so a misconfigured
-   pair fails the same way on both nodes. */
+   the first fatal error.  The checks are symmetric on both nodes. */
 int
 fd_failover_hello_check( fd_failover_hello_t const * self,
                          fd_failover_hello_t const * peer );
@@ -185,9 +164,9 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
    and the server's prepared TLS flight, including its ephemeral key. */
 void
 fd_failover_admission_hash( fd_failover_admission_start_t const *     start,
-                            uchar const *                            client_hello,
+                            uchar const *                             client_hello,
                             fd_failover_admission_challenge_t const * challenge,
-                            uchar                                    out[ 32 ] );
+                            uchar                                     out[ 32 ] );
 
 void
 fd_failover_response_hash( uchar const   transcript[ 32 ],
@@ -202,28 +181,7 @@ fd_failover_proof_msg( uchar       out[ FD_KEYGUARD_FAILOVER_PROOF_SZ ],
                        uchar const junk_pubkey[ 32 ],
                        uchar const transcript[ 32 ] );
 
-/* fd_failover_session_init returns the resting state of an endpoint,
-   LISTENING for the listener and BACKOFF for the dialer. */
-ulong
-fd_failover_session_init( int dial_peer );
-
-/* Returns the next session state for event on a listener or dialer.  The
-   channel makes every state change with it or with
-   fd_failover_session_init.  A listener stays
-   LISTENING while candidates handshake, pairs on HELLO_OK and goes back
-   to LISTENING on any loss.  A dialer leaves BACKOFF on RETRY, reaches
-   HELLO once TCP connects, pairs on HELLO_OK and falls back to BACKOFF on
-   any loss.  An event that does not apply, or an out of range input,
-   leaves the state unchanged. */
-ulong
-fd_failover_session_step( ulong state,
-                          int   dial_peer,
-                          int   event );
-
-/* Validate a handoff request or result.  Both have exact wire sizes.
-   Handoff ids and target boot ids must be nonzero.  The controller binds
-   replies to an outstanding request and treats an unknown result as a
-   refusal.  Return 0 on failure without changing out. */
+/* Validate a handoff request or response. */
 int
 fd_failover_handoff_request_decode( fd_failover_handoff_request_t * out,
                                     uchar const *                   payload,
@@ -234,9 +192,7 @@ fd_failover_handoff_result_decode( fd_failover_handoff_result_t * out,
                                    uchar const *                  payload,
                                    ulong                          payload_sz );
 
-/* Writes a DEMOTED payload, the header and then the history, into out,
-   which holds FD_FAILOVER_DEMOTED_PAYLOAD_MAX bytes.  Returns the payload
-   size, 0 for an empty or oversized history. */
+/* Writes a DEMOTED payload. */
 ulong
 fd_failover_demoted_encode( uchar *       out,
                             ulong         handoff_id,
@@ -245,16 +201,13 @@ fd_failover_demoted_encode( uchar *       out,
                             uchar const * state,
                             ulong         state_sz );
 
-/* Validates a DEMOTED header, not the history itself, which votor
-   decodes on adoption.  Returns 1 on success, else 0 with out
-   unchanged. */
+/* Validates a DEMOTED header. */
 int
 fd_failover_demoted_decode( fd_failover_demoted_t * out,
                             uchar const *           payload,
                             ulong                   payload_sz );
 
-/* Write a PROMOTE_ACK or PROMOTE_REJECTED payload into out and return
-   its size.  The reject encoder returns 0 for an unknown reason. */
+/* Write a PROMOTE_ACK or PROMOTE_REJECTED payload. */
 ulong
 fd_failover_promote_ack_encode( uchar * out,
                                 ulong   handoff_id );
@@ -264,8 +217,7 @@ fd_failover_promote_rejected_encode( uchar * out,
                                      ulong   handoff_id,
                                      uchar   reason );
 
-/* Validate a PROMOTE_ACK or PROMOTE_REJECTED payload.  Return 1 on
-   success, 0 on failure with out left unchanged. */
+/* Validate a PROMOTE_ACK or PROMOTE_REJECTED payload. */
 int
 fd_failover_promote_ack_decode( fd_failover_promote_ack_t * out,
                                 uchar const *               payload,
