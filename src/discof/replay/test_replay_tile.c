@@ -55,11 +55,13 @@ mock_store_fec_data_view_fn( fd_store_t *               store FD_PARAM_UNUSED,
   mock_store_view_call_cnt++;
   if( FD_UNLIKELY( mock_store_view_fail ) ) {
     view->data  = NULL;
+    view->shred_sz = NULL;
     view->fec   = NULL;
     view->flags = 0U;
     return -1;
   }
-  view->data = mock_store_data;
+  view->data = mock_store_data+FD_STORE_PAYLOAD_HDR_SZ;
+  view->shred_sz = (ushort const *)mock_store_data;
   view->fec = &mock_store_fec;
   view->flags = 0U;
   mock_store_view_success_cnt++;
