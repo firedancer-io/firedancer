@@ -338,7 +338,7 @@ fd_epoch_leaders_new( void  *                  shmem,
      struct                   (align=8, footprint=64)
      list of indices          (align=4, footprint=4*ceil(slot_cnt/4))
      (up to 28 bytes of padding to align to 32)
-     vote addr per rotation   (align=32, footprint=32*ceil(slot_cnt/4))
+     vote key per stake entry (align=32, footprint=32*pub_cnt)
      (up to 32 bytes of padding to align to 64)
      list of pubkeys          (align=32, footprint=32*pub_cnt)
      (possibly 32 bytes of padding to align to 64)
@@ -364,8 +364,8 @@ fd_epoch_leaders_new( void  *                  shmem,
   laddr += sizeof(uint)*sched_cnt;
 
   laddr  = fd_ulong_align_up( laddr, 32UL );
-  fd_pubkey_t * vote_addr = (fd_pubkey_t *)fd_type_pun( (void *)laddr );
-  laddr += 32UL*sched_cnt;
+  fd_pubkey_t * vote_keys = (fd_pubkey_t *)fd_type_pun( (void *)laddr );
+  laddr += 32UL*pub_cnt;
 
   laddr  = fd_ulong_align_up( laddr, fd_ulong_max( sizeof(fd_pubkey_t), FD_WSAMPLE_ALIGN ) );
   /* These two alias, like a union.  We don't need pubkeys until we're
@@ -405,8 +405,7 @@ fd_epoch_leaders_new( void  *                  shmem,
   /* Now we can use the space for the pubkeys */
   for( ulong i=0UL; i<pub_cnt; i++ ) memcpy( pubkeys+i, &stakes[ i ].id_key, 32UL );
 
-  /* record the leader vote address per rotation */
-  for( ulong i=0UL; i<sched_cnt; i++ ) memcpy( vote_addr+i, &stakes[ sched[ i ] ].vote_key, 32UL );
+  for( ulong i=0UL; i<pub_cnt; i++ ) memcpy( vote_keys+i, &stakes[ i ].vote_key, 32UL );
 
   /* Construct the final struct */
   leaders->epoch     = epoch;
@@ -416,7 +415,7 @@ fd_epoch_leaders_new( void  *                  shmem,
   leaders->pub_cnt   = pub_cnt;
   leaders->sched     = sched;
   leaders->sched_cnt = sched_cnt;
-  leaders->vote_addr = vote_addr;
+  leaders->vote_keys = vote_keys;
 
   return (void *)shmem;
 }
