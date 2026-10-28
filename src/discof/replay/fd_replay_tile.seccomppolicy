@@ -14,9 +14,10 @@
 #
 # vote_stakes_fd: Disk backing for t-1 vote stakes sets beyond the
 #                 in-memory cache.
-# accounts_idx_fd: The accounts index file (accounts.db-index), read
-#                  to find rooted accounts that are not in memory.
-uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint epoch_credits_fd, uint cost_tracker_fd, uint vote_stakes_fd, uint accounts_idx_fd
+# accounts_idx_min_fd, accounts_idx_max_fd: The first and last of the
+#                  accounts index shard files (accounts.db-index.N),
+#                  read to find rooted accounts that are not in memory.
+uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint epoch_credits_fd, uint cost_tracker_fd, uint vote_stakes_fd, uint accounts_idx_min_fd, uint accounts_idx_max_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -47,7 +48,7 @@ pwritev2: (eq (arg 0) accounts_fd)
 #
 # arg 0 is the file descriptor to read from
 preadv2: (or (eq (arg 0) accounts_fd)
-             (eq (arg 0) accounts_idx_fd))
+             (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd)))
 
 # accounts database: allocate more space from the disk
 #

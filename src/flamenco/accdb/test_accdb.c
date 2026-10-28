@@ -2488,10 +2488,16 @@ idx_build_run( void * _arg ) {
 static void
 test_idx_parallel_build( void ) {
   ulong const max_accounts = 800000UL; /* 25000 pages, 4 windows */
-  test_idx_fd = memfd_create( "accdb_idx_test", 0 );
   int fd       = memfd_create( "accdb_test", 0 );
   int spill_fd = memfd_create( "accdb_spill_test", 0 );
-  FD_TEST( test_idx_fd>=0 && fd>=0 && spill_fd>=0 );
+  FD_TEST( fd>=0 && spill_fd>=0 );
+  /* The index lives in the well-known shard fds, so windows land in
+     different shards. */
+  for( int i=0; i<(int)FD_ACCDB_IDX_SHARD_CNT; i++ ) {
+    int shard = memfd_create( "accdb_idx_shard", 0 );
+    FD_TEST( shard>=0 && dup2( shard, FD_ACCDB_IDX_FD_RW+i )==FD_ACCDB_IDX_FD_RW+i );
+    close( shard );
+  }
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, 8UL, 1024UL, 64UL, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 3UL, 0UL, 64UL );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
@@ -2500,7 +2506,6 @@ test_idx_parallel_build( void ) {
   FD_TEST( test_shmem_mem && test_shmem_mem->idx_range_cnt==4UL );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 8UL, 1 ) ), test_shmem_mem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
-  fd_accdb_set_index_fd( accdb, test_idx_fd );
   fd_accdb_set_spill_fd( accdb, spill_fd );
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
 
@@ -2544,7 +2549,6 @@ test_idx_parallel_build( void ) {
   for( ulong t=0UL; t<2UL; t++ ) {
     args[ t ].accdb   = test_join_writer( fd );
     args[ t ].scratch = scratch[ t+1UL ];
-    fd_accdb_set_index_fd( args[ t ].accdb, test_idx_fd );
     fd_accdb_set_spill_fd( args[ t ].accdb, spill_fd );
     FD_TEST( !pthread_create( &threads[ t ], NULL, idx_build_run, &args[ t ] ) );
   }
@@ -2555,6 +2559,7 @@ test_idx_parallel_build( void ) {
 
   FD_TEST( test_shmem_mem->idx_build.done==test_shmem_mem->idx_range_cnt );
   FD_TEST( test_shmem_mem->idx_build.carry_cnt>=8UL*test_shmem_mem->idx_range_cnt );
+  for( int i=0; i<(int)FD_ACCDB_IDX_SHARD_CNT; i++ ) FD_TEST( ( lseek( FD_ACCDB_IDX_FD_RW+i, 0L, SEEK_END )>0L )==( i<4 ) );
   FD_TEST( dup_cnt==want_dups && !dup_lamports_hi && dup_lamports==5UL*want_dups );
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==want_winners );
   for( ulong i=0UL; i<n; i++ ) {
@@ -2572,7 +2577,7 @@ test_idx_parallel_build( void ) {
   for( ulong t=0UL; t<2UL; t++ ) free( args[ t ].accdb );
   for( ulong t=0UL; t<3UL; t++ ) free( scratch[ t ] );
   test_teardown( accdb, fd );
-  close( test_idx_fd );
+  for( int i=0; i<(int)FD_ACCDB_IDX_SHARD_CNT; i++ ) close( FD_ACCDB_IDX_FD_RW+i );
   close( spill_fd );
 }
 

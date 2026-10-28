@@ -57,7 +57,8 @@ typedef struct fd_accdb_fork fd_accdb_fork_t;
 
 struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int   fd;
-  int   idx_fd;
+  int   idx_fd[ FD_ACCDB_IDX_SHARD_CNT ];
+  ulong idx_shard_cnt;
   int   spill_fd;
   ulong spill_base; /* file offset of the spill in spill_fd */
 
@@ -326,7 +327,8 @@ fd_accdb_new( void *              ljoin,
   uchar * _bounce         = compaction ? FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ+PREEVICT_STAGE_SZ ) : NULL;
 
   accdb->fd = fd;
-  accdb->idx_fd = FD_ACCDB_IDX_FD_RW;
+  for( ulong i=0UL; i<FD_ACCDB_IDX_SHARD_CNT; i++ ) accdb->idx_fd[ i ] = FD_ACCDB_IDX_FD_RW+(int)i;
+  accdb->idx_shard_cnt = FD_ACCDB_IDX_SHARD_CNT;
   accdb->spill_fd   = FD_ACCDB_SPILL_FD;
   accdb->spill_base = 0UL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
@@ -784,7 +786,8 @@ fd_accdb_join_readonly( void *             ljoin,
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
   accdb->fd    = fd_ro;
-  accdb->idx_fd = FD_ACCDB_IDX_FD_RO;
+  for( ulong i=0UL; i<FD_ACCDB_IDX_SHARD_CNT; i++ ) accdb->idx_fd[ i ] = FD_ACCDB_IDX_FD_RO+(int)i;
+  accdb->idx_shard_cnt = FD_ACCDB_IDX_SHARD_CNT;
   accdb->spill_fd   = -1;
   accdb->spill_base = 0UL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
@@ -1198,13 +1201,29 @@ idx_io_fd( int    fd,
   }
 }
 
+/* idx_locate maps index file offset off to its shard: returns the
+   shard fd and stores the offset in it.  Placement windows are
+   interleaved across shards, and an access never spans two windows. */
+
+static inline int
+idx_locate( fd_accdb_t const * accdb,
+            ulong              off,
+            ulong *            shard_off ) {
+  ulong wsz  = FD_ACCDB_IDX_WINDOW_PAGES*4096UL;
+  ulong w    = off/wsz;
+  *shard_off = ( w/accdb->idx_shard_cnt )*wsz + off%wsz;
+  return accdb->idx_fd[ w%accdb->idx_shard_cnt ];
+}
+
 static inline void
 idx_io( fd_accdb_t * accdb,
         int          write,
         void *       buf,
         ulong        sz,
         ulong        off ) {
-  idx_io_fd( accdb->idx_fd, write, buf, sz, off );
+  ulong shard_off;
+  int   fd = idx_locate( accdb, off, &shard_off );
+  idx_io_fd( fd, write, buf, sz, shard_off );
 }
 
 static uint
@@ -1313,9 +1332,10 @@ idx_free_old( fd_accdb_t *                accdb,
 void
 fd_accdb_set_index_fd( fd_accdb_t * accdb,
                        int          idx_fd ) {
-  accdb->idx_fd     = idx_fd;
-  accdb->spill_fd   = idx_fd;
-  accdb->spill_base = accdb->shmem->idx_page_cnt*4096UL;
+  accdb->idx_fd[ 0 ]   = idx_fd;
+  accdb->idx_shard_cnt = 1UL;
+  accdb->spill_fd      = idx_fd;
+  accdb->spill_base    = accdb->shmem->idx_page_cnt*4096UL;
 }
 
 void
@@ -5110,7 +5130,9 @@ idx_build_range( fd_accdb_t *          accdb,
   /* Start writeback now: windows left to the flusher pile up as dirty
      pages and throttle the build.  The pages stay cached for the first
      reads after the load. */
-  if( FD_UNLIKELY( -1==sync_file_range( accdb->idx_fd, (long)( base*4096UL ), (long)wsz, SYNC_FILE_RANGE_WRITE ) ) ) {
+  ulong shard_off;
+  int   shard_fd = idx_locate( accdb, base*4096UL, &shard_off );
+  if( FD_UNLIKELY( -1==sync_file_range( shard_fd, (long)shard_off, (long)wsz, SYNC_FILE_RANGE_WRITE ) ) ) {
     FD_LOG_WARNING(( "sync_file_range of the accounts index failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
   accdb->idx_range[ r ].spill_tail = 0UL;

@@ -743,8 +743,8 @@ telemetry = true
     # The maximum number of account index entries kept in memory.  If
     # zero, the whole index of up to max_accounts entries is kept in
     # memory (64 bytes per entry).  Otherwise rooted accounts that are
-    # not in use move to an index file next to the accounts database
-    # (`accounts.db-index`) and only this many entries stay in memory.
+    # not in use move to index files next to the accounts database
+    # (`accounts.db-index.N`) and only this many entries stay in memory.
     # The default of 32 million entries is 2 GiB.
     index_ram_max = 33_554_432
 

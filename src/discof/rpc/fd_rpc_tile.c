@@ -3179,7 +3179,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
   uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
 
-  populate_sock_filter_policy_fd_rpc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->http ), (uint)FD_ACCDB_FD_RO, epoll_inner_fd, epoll_outer_fd, FD_ACCDB_IDX_FD_RO );
+  populate_sock_filter_policy_fd_rpc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->http ), (uint)FD_ACCDB_FD_RO, epoll_inner_fd, epoll_outer_fd, FD_ACCDB_IDX_FD_RO, FD_ACCDB_IDX_FD_RO_MAX );
   return sock_filter_policy_fd_rpc_tile_instr_cnt;
 }
 
@@ -3192,7 +3192,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL+FD_ACCDB_IDX_SHARD_CNT ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -3200,7 +3200,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->http ); /* rpc listen socket */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO; /* accounts db readonly fd */
-  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RO; /* accounts index */
+  for( int fd=FD_ACCDB_IDX_FD_RO; fd<=FD_ACCDB_IDX_FD_RO_MAX; fd++ ) out_fds[ out_cnt++ ] = fd; /* accounts index shards */
   out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;
   out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx );
 

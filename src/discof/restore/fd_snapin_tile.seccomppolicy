@@ -6,12 +6,13 @@
 #              or purge out of cache to the disk to make forward
 #              progress.
 #
-# accounts_idx_fd: The accounts index file (accounts.db-index), read
-#                  to find rooted accounts that are not in memory.
+# accounts_idx_min_fd, accounts_idx_max_fd: The first and last of the
+#                  accounts index shard files (accounts.db-index.N),
+#                  read to find rooted accounts that are not in memory.
 #
 # accounts_spill_fd: The accounts index spill (accounts.db-spill),
 #                    scratch for building the index of a full snapshot.
-uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint accounts_idx_fd, uint accounts_spill_fd
+uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint accounts_idx_min_fd, uint accounts_idx_max_fd, uint accounts_spill_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -37,16 +38,16 @@ exit: (eq (arg 0) 0)
 #
 # arg 0 is the file descriptor to read from.
 preadv2: (or (eq (arg 0) accounts_fd)
-             (eq (arg 0) accounts_idx_fd)
+             (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
              (eq (arg 0) accounts_spill_fd))
 
 # accounts index: spill and build the index of a full snapshot
-pwritev2: (or (eq (arg 0) accounts_idx_fd)
+pwritev2: (or (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
               (eq (arg 0) accounts_spill_fd))
 
 # accounts index: start writeback of each index build window
 # (SYNC_FILE_RANGE_WRITE)
-sync_file_range: (and (eq (arg 0) accounts_idx_fd)
+sync_file_range: (and (and (>= (arg 0) accounts_idx_min_fd) (<= (arg 0) accounts_idx_max_fd))
                       (eq (arg 3) 2))
 
 # accounts database: allocate more space from the disk

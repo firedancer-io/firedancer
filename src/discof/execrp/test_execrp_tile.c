@@ -385,16 +385,17 @@ test_execrp_run( test_env_t * env,
 }
 
 FD_UNIT_TEST( execrp_seccomp ) {
-  int   out_fds[6];
-  ulong nfds = populate_allowed_fds( NULL, NULL, 6UL, out_fds );
-  FD_TEST( nfds>=5 && nfds<=6 );
+  ulong const max_fds = 5UL+FD_ACCDB_IDX_SHARD_CNT;
+  int   out_fds[ 5UL+FD_ACCDB_IDX_SHARD_CNT ];
+  ulong nfds = populate_allowed_fds( NULL, NULL, max_fds, out_fds );
+  FD_TEST( nfds>=max_fds-1UL && nfds<=max_fds );
   FD_TEST( out_fds[0]==STDERR_FILENO );
   /* logfile fd is optional; the spill fds are always last */
-  FD_TEST( out_fds[ nfds-4UL ]==FD_ACCDB_FD_RW );
-  FD_TEST( out_fds[ nfds-3UL ]==FD_ACCDB_IDX_FD_RW );
+  FD_TEST( out_fds[ nfds-3UL-FD_ACCDB_IDX_SHARD_CNT ]==FD_ACCDB_FD_RW );
+  for( ulong i=0UL; i<FD_ACCDB_IDX_SHARD_CNT; i++ ) FD_TEST( out_fds[ nfds-2UL-FD_ACCDB_IDX_SHARD_CNT+i ]==FD_ACCDB_IDX_FD_RW+(int)i );
   FD_TEST( out_fds[ nfds-2UL ]==FD_STAKE_DELEGATIONS_FD );
   FD_TEST( out_fds[ nfds-1UL ]==FD_VOTE_STAKES_FD );
-  if( nfds==6 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
+  if( nfds==max_fds ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
 
   struct sock_filter filter[ sock_filter_policy_fd_execrp_tile_instr_cnt ];
   populate_allowed_seccomp( NULL, NULL, sock_filter_policy_fd_execrp_tile_instr_cnt, filter );

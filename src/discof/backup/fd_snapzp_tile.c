@@ -235,13 +235,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   (void)topo;
   ulong snap_fd_cnt = tile->snapzp.snap_fd_cnt;
-  FD_CHECK_ERR( out_fds_cnt>=4UL+snap_fd_cnt, "out_fds[] too small" );
+  FD_CHECK_ERR( out_fds_cnt>=3UL+FD_ACCDB_IDX_SHARD_CNT+snap_fd_cnt, "out_fds[] too small" );
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
-  out_fds[ out_cnt++ ] = FD_ACCDB_IDX_FD_RO; /* accounts index */
+  for( int fd=FD_ACCDB_IDX_FD_RO; fd<=FD_ACCDB_IDX_FD_RO_MAX; fd++ ) out_fds[ out_cnt++ ] = fd; /* accounts index shards */
   for( uint i=0U; i<snap_fd_cnt; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_DIO_FD( i );
   return out_cnt;
@@ -259,7 +259,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)fd_log_private_logfile_fd(),
       (uint)FD_SNAP_DIO_FD( 0 ),
       (uint)FD_SNAP_DIO_FD( snap_fd_cnt-1U ),
-      (uint)FD_ACCDB_FD_RO, FD_ACCDB_IDX_FD_RO );
+      (uint)FD_ACCDB_FD_RO, FD_ACCDB_IDX_FD_RO, FD_ACCDB_IDX_FD_RO_MAX );
   return sock_filter_policy_fd_snapzp_tile_instr_cnt;
 }
 
