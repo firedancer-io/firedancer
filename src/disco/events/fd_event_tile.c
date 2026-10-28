@@ -14,6 +14,7 @@
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../topo/fd_topo.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../waker/fd_waker.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/http/fd_url.h"
@@ -125,6 +126,19 @@ union fd_event_tile_in {
 
 typedef union fd_event_tile_in fd_event_tile_in_t;
 
+/* Per event link reassembly state */
+struct fd_event_tile_reasm {
+  uchar * buf;      /* max_sz bytes, FD_EVENT_GEN_STRUCT_ALIGN aligned */
+  ulong   max_sz;
+  ulong   sig;      /* sig of the event being assembled */
+  ulong   off;      /* bytes assembled so far */
+  ulong   next_seq; /* expected seq of the next frag */
+  ulong   ev_seq;   /* last event number (extended from tsorig) */
+  int     active;
+};
+
+typedef struct fd_event_tile_reasm fd_event_tile_reasm_t;
+
 struct fd_event_tile {
   fd_circq_t * circq;
   fd_event_client_t * client;
@@ -153,9 +167,9 @@ struct fd_event_tile {
   ulong shred_buf_sz;
   uchar shred_buf[ FD_NET_MTU ];
 
-  ulong event_type;
-  ulong event_sz;
-  uchar event_buf[ FD_EVENT_GEN_STRUCT_MAX ] __attribute__((aligned(FD_EVENT_GEN_STRUCT_ALIGN)));
+  int   event_frag_ok;
+  ulong event_frag_sz;
+  ulong event_frag_ctl;
 
   uchar identity_pubkey[ 32UL ];
 
@@ -185,6 +199,7 @@ struct fd_event_tile {
   ulong in_cnt;
   int in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
   fd_event_tile_in_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  fd_event_tile_reasm_t reasm[ FD_TOPO_MAX_TILE_IN_LINKS ];
 };
 
 typedef struct fd_event_tile fd_event_tile_t;
@@ -194,17 +209,17 @@ scratch_align( void ) {
   ulong a = alignof( fd_event_tile_t );
   a = fd_ulong_max( a, fd_event_client_align() );
   a = fd_ulong_max( a, fd_circq_align() );
+  a = fd_ulong_max( a, FD_EVENT_GEN_STRUCT_ALIGN );
   return a;
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   l = FD_LAYOUT_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_circq_align(),         fd_circq_spool_footprint( EVENT_CIRCQ_SZ, EVENT_MSG_MAX ) );
+  l = FD_LAYOUT_APPEND( l, FD_EVENT_GEN_STRUCT_ALIGN,  tile->event.reasm_sz                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -364,8 +379,6 @@ during_frag( fd_event_tile_t * ctx,
              ulong             chunk,
              ulong             sz,
              ulong             ctl ) {
-  (void)seq; (void)ctl;
-
   fd_event_tile_in_t const * in = &ctx->in[ in_idx ];
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
@@ -390,12 +403,19 @@ during_frag( fd_event_tile_t * ctx,
       ctx->chunk = chunk;
       break;
     case IN_KIND_EVENT: {
+      if( FD_UNLIKELY( chunk<in->chunk0 || chunk>in->wmark || sz>in->mtu ) )
+        FD_LOG_CRIT(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in->chunk0, in->wmark ));
+      fd_event_tile_reasm_t const * r = &ctx->reasm[ in_idx ];
       ulong event_sz = FD_EVENT_SIG_SZ( sig );
-      if( FD_UNLIKELY( chunk<in->chunk0 || chunk>in->wmark || event_sz>in->mtu ) )
-        FD_LOG_CRIT(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, event_sz, in->chunk0, in->wmark ));
-      fd_memcpy( ctx->event_buf, fd_chunk_to_laddr_const( in->mem, chunk ), event_sz );
-      ctx->event_type = FD_EVENT_SIG_TYPE( sig );
-      ctx->event_sz   = event_sz;
+      int   som      = fd_frag_meta_ctl_som( ctl );
+      ulong off      = som ? 0UL : r->off;
+      /* A non-SOM frag must directly follow the previous one of the same event */
+      int ok = event_sz<=r->max_sz && off+sz<=event_sz &&
+               ( som || ( r->active && seq==r->next_seq && sig==r->sig ) );
+      if( FD_LIKELY( ok ) ) fd_memcpy( r->buf+off, fd_chunk_to_laddr_const( in->mem, chunk ), sz );
+      ctx->event_frag_ok  = ok;
+      ctx->event_frag_sz  = sz;
+      ctx->event_frag_ctl = ctl;
       break;
     }
     default:
@@ -412,7 +432,7 @@ after_frag( fd_event_tile_t *   ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)sz; (void)tsorig; (void)stem;
+  (void)sz; (void)stem;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
@@ -527,14 +547,29 @@ after_frag( fd_event_tile_t *   ctx,
       fd_event_client_init_shred_version( ctx->client, (ushort)sig );
       break;
     case IN_KIND_EVENT: {
-      if( FD_UNLIKELY( ctx->event_type==FD_EVENT_TYPE_METRICS_TRIGGER ) ) {
-        FD_TEST( ctx->event_sz==sizeof(fd_event_metrics_trigger_t) );
-        fd_event_metrics_trigger_t const * t = (fd_event_metrics_trigger_t const *)ctx->event_buf;
+      fd_event_tile_reasm_t * r = &ctx->reasm[ in_idx ];
+      if( FD_UNLIKELY( !ctx->event_frag_ok ) ) { r->active = 0; break; } /* partial event lost */
+      if( fd_frag_meta_ctl_som( ctx->event_frag_ctl ) ) { r->active = 1; r->sig = sig; r->off = 0UL; }
+      r->off     += ctx->event_frag_sz;
+      r->next_seq = fd_seq_inc( seq, 1UL );
+      if( !fd_frag_meta_ctl_eom( ctx->event_frag_ctl ) ) break;
+      r->active = 0;
+      ulong event_sz = FD_EVENT_SIG_SZ( sig );
+      if( FD_UNLIKELY( r->off!=event_sz ) ) break;
+
+      ulong ev_seq = ( r->ev_seq & ~(ulong)UINT_MAX ) | (ulong)(uint)tsorig;
+      if( FD_UNLIKELY( ev_seq<r->ev_seq ) ) ev_seq += 1UL<<32;
+      r->ev_seq = ev_seq;
+
+      ulong event_type = FD_EVENT_SIG_TYPE( sig );
+      if( FD_UNLIKELY( event_type==FD_EVENT_TYPE_METRICS_TRIGGER ) ) {
+        FD_TEST( event_sz==sizeof(fd_event_metrics_trigger_t) );
+        fd_event_metrics_trigger_t const * t = (fd_event_metrics_trigger_t const *)r->buf;
         metrics_sample_sweep( ctx, t->reason, t->slot, t->snapct_state );
         break;
       }
       long timestamp_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
-      fd_event_serialize_by_type( ctx->event_type, ctx->circq, ctx->client, timestamp_nanos, seq, ctx->event_buf, ctx->event_sz );
+      fd_event_serialize_by_type( event_type, ctx->circq, ctx->client, timestamp_nanos, ev_seq, r->buf, event_sz );
       break;
     }
     default:
@@ -553,6 +588,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t),  sizeof(fd_event_tile_t) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_spool_footprint( EVENT_CIRCQ_SZ, EVENT_MSG_MAX ) );
+  FD_SCRATCH_ALLOC_APPEND( l, FD_EVENT_GEN_STRUCT_ALIGN,  tile->event.reasm_sz                      );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -627,6 +663,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   void * _event_client  = FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
   void * _circq         = FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_spool_footprint( EVENT_CIRCQ_SZ, EVENT_MSG_MAX ) );
+  uchar * reasm_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_EVENT_GEN_STRUCT_ALIGN, tile->event.reasm_sz                     );
+  ulong   reasm_off     = 0UL;
 
   ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_event", tile->kind_id );
   ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "event_sign", tile->kind_id );
@@ -731,7 +769,11 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) { ctx->in_kind[ polled_in_idx ] = IN_KIND_IPECHO; have_ipecho = 1; }
     else if( FD_LIKELY( link_is_event_report( topo, link->id ) ) ) {
       ctx->in_kind[ polled_in_idx ] = IN_KIND_EVENT;
-      FD_TEST( link->mtu<=sizeof(ctx->event_buf) );
+      ulong max_sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.event_max_sz", link->dcache_obj_id );
+      FD_TEST( max_sz!=ULONG_MAX && max_sz<=FD_EVENT_GEN_STRUCT_MAX && link->mtu<=FD_EVENT_FRAG_MTU );
+      FD_TEST( reasm_off+max_sz<=tile->event.reasm_sz );
+      ctx->reasm[ polled_in_idx ] = (fd_event_tile_reasm_t){ .buf = reasm_mem+reasm_off, .max_sz = max_sz, .ev_seq = 0UL };
+      reasm_off += fd_ulong_align_up( max_sz, FD_EVENT_GEN_STRUCT_ALIGN );
     }
     else FD_LOG_ERR(( "event tile has unexpected input link %lu %s", i, link->name ));
 

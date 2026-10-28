@@ -376,6 +376,7 @@ struct fd_topo_tile {
       ulong  launch_cpus[ 1024UL/64UL ];
       char   launch_cgroup[ PATH_MAX ];
       ulong  tx_rate_mbps;
+      ulong  reasm_sz; /* bytes of per-link event reassembly buffers */
     } event;
 
     struct {
