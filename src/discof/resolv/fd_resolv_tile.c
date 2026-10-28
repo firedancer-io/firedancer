@@ -34,16 +34,18 @@ struct blockhash {
 
 typedef struct blockhash blockhash_t;
 
+/* One ring element serves both the blockhash map (key/next/prev) and
+   the nonce map (nonce_key/nonce_next/nonce_prev).  Each map's probe
+   fields are adjacent to its key. */
+
 struct blockhash_map {
   blockhash_t key;
-  ulong       slot;
-  ulong       block_height;
-  /* The map_chain variables: */
   uint        next;
-  /* It's probably not worth 4 bytes of cache per element to store
-     chain_prev, since the query/delete ratio is probably about 1000:1,
-     but alignof is 8, so we'd just store padding here instead */
   uint        prev;
+  ulong       block_height;
+  blockhash_t nonce_key;
+  uint        nonce_next;
+  uint        nonce_prev;
 };
 
 typedef struct blockhash_map blockhash_map_t;
@@ -78,6 +80,19 @@ typedef struct blockhash_map blockhash_map_t;
 #define MAP_NAME               map
 #define MAP_ELE_T              blockhash_map_t
 #define MAP_KEY_T              blockhash_t
+#define MAP_IDX_T              uint
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0)->b,(k1)->b, 32UL))
+#define MAP_KEY_HASH(key,seed) ((uint)fd_hash32( (key)->b, (seed) ))
+
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define MAP_NAME               nmap
+#define MAP_ELE_T              blockhash_map_t
+#define MAP_KEY_T              blockhash_t
+#define MAP_KEY                nonce_key
+#define MAP_NEXT               nonce_next
+#define MAP_PREV               nonce_prev
 #define MAP_IDX_T              uint
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0)->b,(k1)->b, 32UL))
@@ -152,8 +167,8 @@ typedef struct {
   int   bundle_failed;
   ulong bundle_id;
 
-  map_t * blockhash_map;
-  map_t * nonce_blockhash_map;
+  map_t *  blockhash_map;
+  nmap_t * nonce_blockhash_map;
 
   ulong flushing_block_height;
   ulong flush_pool_idx;
@@ -182,13 +197,11 @@ typedef struct {
   ulong completed_slot;
   ulong completed_block_height;
   /* The total number of blockhashes that have been inserted in
-     blockhash_ring (and since nonce_blockhash_ring is parallel, also in
-     nonce_blockhash_ring. */
+     blockhash_ring. */
   ulong blockhash_ring_idx;
 
-  /* These are the pools used the blockhash_map */
-  blockhash_map_t blockhash_ring      [ BLOCKHASH_RING_LEN ];
-  blockhash_map_t nonce_blockhash_ring[ BLOCKHASH_RING_LEN ];
+  /* The pool shared by blockhash_map and nonce_blockhash_map */
+  blockhash_map_t blockhash_ring[ BLOCKHASH_RING_LEN ];
 
   fd_replay_root_advanced_t  _rooted_slot_msg;
   fd_replay_slot_completed_t _completed_slot_msg;
@@ -220,7 +233,7 @@ typedef struct {
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return fd_ulong_max( fd_ulong_max( alignof( fd_resolv_ctx_t ), pool_align() ), fd_ulong_max( map_chain_align(), map_align() ) );
+  return fd_ulong_max( fd_ulong_max( alignof( fd_resolv_ctx_t ), pool_align() ), fd_ulong_max( map_chain_align(), fd_ulong_max( map_align(), nmap_align() ) ) );
 }
 
 FD_FN_PURE static inline ulong
@@ -232,7 +245,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( STASH_POOL_CNT )                );
   l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    )                     );
   l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( map_chain_cnt   )                     );
-  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( map_chain_cnt   )                     );
+  l = FD_LAYOUT_APPEND( l, nmap_align(),               nmap_footprint( map_chain_cnt  )                     );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->resolv.max_live_slots, 0 ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -467,11 +480,10 @@ after_frag( fd_resolv_ctx_t *   ctx,
         /* if we've already inserted BLOCKHASH_RING_LEN, then we need to
            delete the one we're overwriting */
         if( FD_UNLIKELY( ctx->blockhash_ring_idx>=BLOCKHASH_RING_LEN ) ) {
-          map_idx_remove_fast( ctx->blockhash_map,       ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->blockhash_ring       );
-          map_idx_remove_fast( ctx->nonce_blockhash_map, ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->nonce_blockhash_ring );
+          map_idx_remove_fast ( ctx->blockhash_map,       ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->blockhash_ring );
+          nmap_idx_remove_fast( ctx->nonce_blockhash_map, ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->blockhash_ring );
         }
-        blockhash_map_t * entry       = ctx->blockhash_ring      +(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
-        blockhash_map_t * nonce_entry = ctx->nonce_blockhash_ring+(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
+        blockhash_map_t * entry = ctx->blockhash_ring+(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
 
         /* See fd_durable_nonce_from_blockhash */
         struct {
@@ -479,12 +491,12 @@ after_frag( fd_resolv_ctx_t *   ctx,
           fd_hash_t bh[1];
         } hash_buf[1] = {{ .tag = "DURABLE_NONCE", .bh = { msg->block_hash } }};
 
-        memcpy( entry->key.b, msg->block_hash.uc, 32UL );  fd_sha256_hash( hash_buf, sizeof(hash_buf), nonce_entry->key.b );
-        entry->slot         = msg->slot;                   nonce_entry->slot         = msg->slot;
-        entry->block_height = msg->block_height;           nonce_entry->block_height = msg->block_height;
+        memcpy( entry->key.b, msg->block_hash.uc, 32UL );
+        fd_sha256_hash( hash_buf, sizeof(hash_buf), entry->nonce_key.b );
+        entry->block_height = msg->block_height;
 
-        map_ele_insert( ctx->blockhash_map,       entry,       ctx->blockhash_ring       );
-        map_ele_insert( ctx->nonce_blockhash_map, nonce_entry, ctx->nonce_blockhash_ring );
+        map_ele_insert ( ctx->blockhash_map,       entry, ctx->blockhash_ring );
+        nmap_ele_insert( ctx->nonce_blockhash_map, entry, ctx->blockhash_ring );
         ctx->blockhash_ring_idx++;
 
         blockhash_t * hash = (blockhash_t *)msg->block_hash.uc;
@@ -565,12 +577,10 @@ after_frag( fd_resolv_ctx_t *   ctx,
   txnm->reference_block_height = ctx->completed_block_height;
 
   int is_durable_nonce = fd_disco_tpu_is_durable_nonce( txnt, fd_txn_m_payload( txnm ) );
-  map_t const *           map  = fd_ptr_if( is_durable_nonce, ctx->nonce_blockhash_map, ctx->blockhash_map );
-  blockhash_map_t const * pool = is_durable_nonce ? ctx->nonce_blockhash_ring : ctx->blockhash_ring;
-
   blockhash_t const * recent_blockhash = (blockhash_t const *)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off );
 
-  blockhash_map_t const * blockhash = map_ele_query_const( map, recent_blockhash, NULL, pool );
+  blockhash_map_t const * blockhash = is_durable_nonce ? nmap_ele_query_const( ctx->nonce_blockhash_map, recent_blockhash, NULL, ctx->blockhash_ring )
+                                                       : map_ele_query_const ( ctx->blockhash_map,       recent_blockhash, NULL, ctx->blockhash_ring );
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_block_height = blockhash->block_height;
     if( FD_UNLIKELY( (!is_durable_nonce) & (txnm->reference_block_height+151UL<ctx->completed_block_height) ) ) {
@@ -678,14 +688,13 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "fd_pack_est_ctx_init failed" ));
   fd_rng_delete( fd_rng_leave( rng ) );
 
-  memset( ctx->blockhash_ring,       0, sizeof( ctx->blockhash_ring      ) );
-  memset( ctx->nonce_blockhash_ring, 0, sizeof( ctx->nonce_blockhash_ring ) );
+  memset( ctx->blockhash_ring, 0, sizeof( ctx->blockhash_ring ) );
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
 
   ulong map_chain_cnt = 2UL*map_chain_cnt_est( BLOCKHASH_RING_LEN );
   ulong footprint     = map_footprint( map_chain_cnt );
   ctx->blockhash_map       = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), footprint ), map_chain_cnt, ctx->map_seed ) );
-  ctx->nonce_blockhash_map = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), footprint ), map_chain_cnt, ctx->map_seed ) );
+  ctx->nonce_blockhash_map = nmap_join( nmap_new( FD_SCRATCH_ALLOC_APPEND( l, nmap_align(), nmap_footprint( map_chain_cnt ) ), map_chain_cnt, ctx->map_seed ) );
   FD_TEST( ctx->blockhash_map       );
   FD_TEST( ctx->nonce_blockhash_map );
 
