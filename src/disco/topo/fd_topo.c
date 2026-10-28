@@ -31,7 +31,9 @@ fd_topo_join_workspace( fd_topo_t *      topo,
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
-  wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, dump, NULL, NULL, NULL ) );
+  void * shmem = wksp->tail_page_cnt ? fd_shmem_join_split( name, wksp->tail_page_cnt, mode, dump )
+                                     : fd_shmem_join( name, mode, dump, NULL, NULL, NULL );
+  wksp->wksp = fd_wksp_join( shmem );
   if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
 }
 
@@ -99,16 +101,21 @@ fd_topo_create_workspace( fd_topo_t *      topo,
   ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
   ulong sub_cpu_idx [ 1 ] = { fd_shmem_cpu_idx( wksp->numa_idx ) };
 
+  ulong tail_page_cnt[ 1 ] = { wksp->tail_page_cnt };
+
   int err;
   if( FD_UNLIKELY( update_existing ) ) {
     err = fd_shmem_update_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+    if( !err && wksp->tail_page_cnt ) err = fd_shmem_update_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, tail_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR );
   } else {
     err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+    if( !err && wksp->tail_page_cnt ) err = fd_shmem_create_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, tail_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR );
   }
   if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
   else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 
-  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, 0, NULL, NULL, NULL ); /* logs details */
+  void * shmem = wksp->tail_page_cnt ? fd_shmem_join_split( name, wksp->tail_page_cnt, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 )
+                                     : fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, 0, NULL, NULL, NULL ); /* logs details */
 
   void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
   if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
@@ -282,7 +289,7 @@ fd_topo_mlock_max_tile1( fd_topo_t const *      topo,
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     if( FD_UNLIKELY( -1!=tile_needs_wksp( topo, tile, i ) ) )
-      tile_mem += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
+      tile_mem += fd_topo_wksp_sz( &topo->workspaces[ i ] );
   }
 
   return tile_mem +
@@ -368,6 +375,7 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
     if( FD_LIKELY( wksp->page_sz==FD_SHMEM_HUGE_PAGE_SZ ) ) {
       result += wksp->page_cnt;
     }
+    result += wksp->tail_page_cnt;
   }
 
   /* The stack huge pages are also placed in the hugetlbfs. */
@@ -395,7 +403,7 @@ FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t const * topo ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    result += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
+    result += fd_topo_wksp_sz( &topo->workspaces[ i ] );
   }
   return result;
 }
@@ -515,7 +523,7 @@ fd_topo_print_log( int         stdout,
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 
-    ulong sz = wksp->page_sz * wksp->page_cnt;
+    ulong sz = fd_topo_wksp_sz( wksp );
     char size[ 24 ];
     fd_topo_mem_sz_string( sz, size );
     PRINT( "  %3lu  %s%10s%s  %-13s  %5lu  %-8s  %4lu  %12lu  %s%12lu%s\n",
@@ -734,9 +742,9 @@ fd_topo_print_json( fd_topo_t * topo ) {
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
     PRINT( "    { \"id\": %lu, \"name\": ", i );
     PRINT_JSON_CSTR( wksp->name, sizeof(wksp->name) );
-    PRINT( ", \"page_cnt\": %lu, \"page_sz\": \"%s\", \"numa_idx\": %lu, \"total_bytes\": %lu, \"footprint\": %lu, \"loose\": %lu }%s\n",
-           wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx,
-           wksp->page_cnt * wksp->page_sz, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint,
+    PRINT( ", \"page_cnt\": %lu, \"page_sz\": \"%s\", \"tail_huge_page_cnt\": %lu, \"numa_idx\": %lu, \"total_bytes\": %lu, \"footprint\": %lu, \"loose\": %lu }%s\n",
+           wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->tail_page_cnt, wksp->numa_idx,
+           fd_topo_wksp_sz( wksp ), wksp->known_footprint, wksp->total_footprint - wksp->known_footprint,
            i==topo->wksp_cnt-1UL ? "" : "," );
   }
   PRINT( "  ],\n" );
