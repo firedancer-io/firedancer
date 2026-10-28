@@ -65,7 +65,7 @@ typedef struct {
    payloads into a contiguous buffer. */
 static void
 capture_completed_fec( fd_spad_t *                spad,
-                       fd_fec_set_t const *       set,
+                       fd_fec_view_t const *      set,
                        fd_shred_completed_fec_t * out ) {
   fd_memset( out, 0, sizeof(fd_shred_completed_fec_t) );
 
@@ -165,8 +165,10 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
      context. */
   ulong const resolver_set_cnt = RESOLVER_DEPTH + RESOLVER_PARTIAL_DEPTH + RESOLVER_COMPLETE_DEPTH;
 
-  fd_fec_set_t * resolver_sets =
-      fd_spad_alloc( runner->spad, alignof(fd_fec_set_t), sizeof(fd_fec_set_t)*resolver_set_cnt );
+  fd_fec_view_t * resolver_views =
+      fd_spad_alloc( runner->spad, alignof(fd_fec_view_t), sizeof(fd_fec_view_t)*resolver_set_cnt );
+  void * resolver_shreds =
+      fd_spad_alloc( runner->spad, 64UL, fd_fec_resolver_shred_footprint( RESOLVER_DEPTH, RESOLVER_COMPLETE_DEPTH ) );
 
   ulong  resolver_footprint = fd_fec_resolver_footprint( RESOLVER_DEPTH,
                                                          RESOLVER_PARTIAL_DEPTH,
@@ -184,7 +186,8 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       RESOLVER_COMPLETE_DEPTH,
       RESOLVER_DONE_DEPTH,
       RESOLVER_SLOT_MAX,
-      resolver_sets,
+      resolver_views,
+      resolver_shreds,
       0UL ) );
   FD_TEST( resolver );
 
@@ -239,7 +242,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     effects->shred_results[ i ] = true;
 
     /* Step 2: fd_fec_resolver_add_shred() */
-    fd_fec_set_t const * out_fec_set = NULL;
+    fd_fec_view_t const * out_fec_set = NULL;
     fd_shred_t const *   out_shred   = NULL;
     fd_bmtree_node_t     out_merkle_root[1];
     int rc = fd_fec_resolver_add_shred(
