@@ -29,14 +29,13 @@ Typical usage:
         ulong parent;
         ulong left;
         ulong right;
-        ulong prio;
-        ulong next;
-        ulong prev;
 
         ... these fields back one of up to MY_TABLE_MAX_SORT_KEY_CNT
         ... active treaps.  See fd_treap.c for restrictions, lifetimes, etc.
 
       } treaps[ MY_TABLE_MAX_SORT_KEY_CNT ]; // technically LIVE_TABLE_TREAP[ MY_TABLE_MAX_SORT_KEY_CNT ]
+
+      ulong prio; // technically LIVE_TABLE_PRIO, shared by all treaps
 
       struct {
         ulong prev;
@@ -227,6 +226,10 @@ FD_STATIC_ASSERT( LIVE_TABLE_MAX_SORT_KEY_CNT >= 2UL, "Requires at least 2 sort 
 #define LIVE_TABLE_TREAP treaps
 #endif
 
+#ifndef LIVE_TABLE_PRIO
+#define LIVE_TABLE_PRIO prio
+#endif
+
 #ifndef LIVE_TABLE_DLIST
 #define LIVE_TABLE_DLIST dlist
 #endif
@@ -317,16 +320,16 @@ LIVE_TABLE_(private_row_lt)(LIVE_TABLE_ROW_T const * a, LIVE_TABLE_ROW_T const *
                                                                           implementation to cmp either */
 #define TREAP_LT(e0,e1) (LIVE_TABLE_(private_row_lt)( (e0), (e1) ))
 #define TREAP_IDX_T     LIVE_TABLE_IDX_T
-#define TREAP_OPTIMIZE_ITERATION 1
+/* Iteration walks parent links (amortized O(1)) instead of keeping
+   next/prev per sort key. */
+#define TREAP_OPTIMIZE_ITERATION 0
 #define TREAP_PARENT LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].parent
 #define TREAP_LEFT   LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].left
 #define TREAP_RIGHT  LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].right
-#define TREAP_NEXT   LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].next
-#define TREAP_PREV   LIVE_TABLE_TREAP[ LIVE_TABLE_(private_active_sort_key_idx) ].prev
 /* Priorities depend only on (row, seed), identical across sort keys,
    and treap operations only ever read them, so all sort keys share
-   slot 0's prio to reduce cache misses. */
-#define TREAP_PRIO   LIVE_TABLE_TREAP[ 0 ].prio
+   one prio per row. */
+#define TREAP_PRIO   LIVE_TABLE_PRIO
 #define TREAP_IMPL_STYLE LIVE_TABLE_IMPL_STYLE
 #include "../../util/tmpl/fd_treap.c"
 
@@ -609,7 +612,7 @@ LIVE_TABLE_(seed)( LIVE_TABLE_ROW_T * pool, ulong rows_max, ulong seed ) {
   ulong idx_null = LIVE_TABLE_(private_treap_idx_null)();
   for( ulong row=0UL; row<rows_max; row++ ) {
     ulong r = fd_ulong_hash( row ^ seed ) & idx_null;
-    pool[ row ].LIVE_TABLE_TREAP[ 0 ].prio = (LIVE_TABLE_IDX_T)(r - (ulong)(r==idx_null));
+    pool[ row ].LIVE_TABLE_PRIO = (LIVE_TABLE_IDX_T)(r - (ulong)(r==idx_null));
   }
 }
 
@@ -778,6 +781,7 @@ LIVE_TABLE_(verify)( LIVE_TABLE_(t) const * join, LIVE_TABLE_ROW_T const * pool 
 #undef LIVE_TABLE_COLUMNS
 #undef LIVE_TABLE_SORT_KEYS
 #undef LIVE_TABLE_TREAP
+#undef LIVE_TABLE_PRIO
 #undef LIVE_TABLE_DLIST
 #undef LIVE_TABLE_
 #undef LIVE_TABLE_COL_ENTRY
