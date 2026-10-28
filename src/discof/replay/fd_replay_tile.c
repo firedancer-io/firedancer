@@ -4293,6 +4293,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_SNAP: {
+      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
+        for( ulong i=0UL; i<ctx->overlay_tile_cnt; i++ ) {
+          if( FD_VOLATILE_CONST( *ctx->overlay_tile_state[ i ] )!=2UL ) return 1; /* progcache arena still in use */
+        }
+      }
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       maybe_verify_cluster_type( ctx );
       maybe_verify_shred_version( ctx );
@@ -4700,6 +4705,15 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id       ) ) );
+
+  ctx->overlay_tile_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * t = &topo->tiles[ i ];
+    if( FD_LIKELY( !topo->objs[ t->tile_obj_id ].overlay ) ) continue;
+    FD_TEST( topo->objs[ t->tile_obj_id ].host_obj_id==progcache_obj_id && t->allow_shutdown && t->metrics );
+    FD_TEST( ctx->overlay_tile_cnt<sizeof(ctx->overlay_tile_state)/sizeof(ctx->overlay_tile_state[0]) );
+    ctx->overlay_tile_state[ ctx->overlay_tile_cnt++ ] = &fd_metrics_tile( t->metrics )[ FD_METRICS_GAUGE_TILE_STATE_OFF ];
+  }
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

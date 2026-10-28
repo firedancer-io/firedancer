@@ -835,6 +835,12 @@ typedef struct {
 
   ulong offset;
   ulong footprint;
+
+  /* Overlay objects live inside host_obj_id's overlay window (pod
+     obj.<host>.overlay_{lo,hi}) instead of taking their own space.
+     For boot-only data whose lifetime ends before the host's begins. */
+  int   overlay;
+  ulong host_obj_id;
 } fd_topo_obj_t;
 
 /* An fd_topo_t represents the overall structure of a Firedancer

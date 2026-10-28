@@ -62,6 +62,15 @@ fd_topob_obj_named( fd_topo_t *  topo,
                     char const * wksp_name,
                     char const * label );
 
+/* Moves obj into host's workspace, placed inside host's overlay window
+   at fd_topob_finish.  Falls back to a regular object in host's
+   workspace if the window is too small. */
+
+void
+fd_topob_obj_overlay( fd_topo_t *           topo,
+                      fd_topo_obj_t *       obj,
+                      fd_topo_obj_t const * host );
+
 /* Add a relationship saying that a certain tile uses a given object.
    This has the effect that when memory mapping required workspaces
    for a tile, it will map the workspace required for this object in
