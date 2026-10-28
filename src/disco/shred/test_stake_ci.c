@@ -976,8 +976,13 @@ test_geo_aware_consistency( void ) {
   FD_TEST( ci->sched_cnt==ref->sched_cnt && ml->sched_cnt==ref->sched_cnt );
   FD_TEST( !memcmp( ci->sched,     ref->sched,     ref->sched_cnt*sizeof(uint)        ) );
   FD_TEST( !memcmp( ml->sched,     ref->sched,     ref->sched_cnt*sizeof(uint)        ) );
-  FD_TEST( !memcmp( ci->vote_addr, ref->vote_addr, ref->sched_cnt*sizeof(fd_pubkey_t) ) );
-  FD_TEST( !memcmp( ml->vote_addr, ref->vote_addr, ref->sched_cnt*sizeof(fd_pubkey_t) ) );
+  for( ulong i=0UL; i<ref->sched_cnt; i++ ) {
+    ulong slot = ref->slot0+i*FD_EPOCH_SLOTS_PER_ROTATION;
+    fd_pubkey_t const * v = fd_epoch_leaders_get_vote( ref, slot );
+    FD_TEST( v && fd_pubkey_eq( v, &copy[ ref->sched[ i ] ].vote_key ) );
+    FD_TEST( fd_pubkey_eq( fd_epoch_leaders_get_vote( ci, slot ), v ) );
+    FD_TEST( fd_pubkey_eq( fd_epoch_leaders_get_vote( ml, slot ), v ) );
+  }
 
   fd_multi_epoch_leaders_delete( fd_multi_epoch_leaders_leave( mleaders ) );
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
