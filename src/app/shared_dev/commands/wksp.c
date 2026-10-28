@@ -15,7 +15,7 @@ wksp_cmd_perm( args_t *         args FD_PARAM_UNUSED,
   ulong mlock_limit = 0UL;
   for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t const * wksp = &config->topo.workspaces[ i ];
-    mlock_limit = fd_ulong_max( mlock_limit, wksp->page_cnt * wksp->page_sz );
+    mlock_limit = fd_ulong_max( mlock_limit, fd_topo_wksp_sz( wksp ) );
   }
   /* One 4K page is used by the logging lock */
   fd_cap_chk_raise_rlimit( chk, "wksp", RLIMIT_MEMLOCK, mlock_limit+4096UL, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
