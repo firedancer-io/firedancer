@@ -1510,8 +1510,8 @@ render_topology_json( fd_boot_report_t * r,
   PRINT( "],\"workspaces\":[" );
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
-    PRINT( "%s{\"name\":\"%s\",\"numa_idx\":%lu,\"page_sz\":%lu,\"page_cnt\":%lu,\"footprint\":%lu,\"loose\":%lu}",
-           i ? "," : "", wksp->name, wksp->numa_idx, wksp->page_sz, wksp->page_cnt,
+    PRINT( "%s{\"name\":\"%s\",\"numa_idx\":%lu,\"page_sz\":%lu,\"page_cnt\":%lu,\"tail_huge_page_cnt\":%lu,\"footprint\":%lu,\"loose\":%lu}",
+           i ? "," : "", wksp->name, wksp->numa_idx, wksp->page_sz, wksp->page_cnt, wksp->tail_page_cnt,
            wksp->known_footprint, wksp->total_footprint-wksp->known_footprint );
   }
   PRINT( "]}" );

@@ -791,9 +791,10 @@ clone_firedancer( config_t const * config,
 static void
 workspace_path( config_t const *       config,
                 fd_topo_wksp_t const * wksp,
+                ulong                  page_sz,
                 char                   out[ PATH_MAX ] ) {
   char const * mount_path;
-  switch( wksp->page_sz ) {
+  switch( page_sz ) {
     case FD_SHMEM_HUGE_PAGE_SZ:
       mount_path = config->hugetlbfs.huge_page_mount_path;
       break;
@@ -804,7 +805,7 @@ workspace_path( config_t const *       config,
       mount_path = config->hugetlbfs.normal_page_mount_path;
       break;
     default:
-      FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
+      FD_LOG_ERR(( "invalid page size %lu", page_sz ));
   }
 
   FD_TEST( fd_cstr_printf_check( out, PATH_MAX, NULL, "%s/%s_%s.wksp", mount_path, config->name, wksp->name ) );
@@ -847,12 +848,13 @@ warn_unknown_files( config_t const * config,
       fd_topo_wksp_t const * wksp = &config->topo.workspaces[ i ];
 
       char expected_path[ PATH_MAX ];
-      workspace_path( config, wksp, expected_path );
-
-      if( !strcmp( entry_path, expected_path ) ) {
-        known_file = 1;
-        break;
+      workspace_path( config, wksp, wksp->page_sz, expected_path );
+      known_file = !strcmp( entry_path, expected_path );
+      if( wksp->tail_page_cnt && !known_file ) {
+        workspace_path( config, wksp, FD_SHMEM_HUGE_PAGE_SZ, expected_path );
+        known_file = !strcmp( entry_path, expected_path );
       }
+      if( known_file ) break;
     }
 
     if( mount_type==0UL ) {
@@ -891,14 +893,33 @@ initialize_workspaces( config_t * config ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
 
     char path[ PATH_MAX ];
-    workspace_path( config, wksp, path );
+    char tail_path[ PATH_MAX ];
+    workspace_path( config, wksp, wksp->page_sz, path );
+    workspace_path( config, wksp, FD_SHMEM_HUGE_PAGE_SZ, tail_path );
+
+    /* Same-name files at page sizes this layout does not use are stale
+       and would be picked up by joins. */
+    ulong const page_szs[ 2 ] = { FD_SHMEM_GIGANTIC_PAGE_SZ, FD_SHMEM_HUGE_PAGE_SZ };
+    for( ulong j=0UL; j<2UL; j++ ) {
+      if( page_szs[ j ]==wksp->page_sz || ( wksp->tail_page_cnt && page_szs[ j ]==FD_SHMEM_HUGE_PAGE_SZ ) ) continue;
+      char stale_path[ PATH_MAX ];
+      workspace_path( config, wksp, page_szs[ j ], stale_path );
+      if( FD_UNLIKELY( -1==unlink( stale_path ) && errno!=ENOENT ) ) FD_LOG_ERR(( "unlink() failed when trying to remove stale workspace `%s` (%i-%s)", stale_path, errno, fd_io_strerror( errno ) ));
+    }
 
     struct stat st;
     int result = stat( path, &st );
+    if( FD_UNLIKELY( wksp->tail_page_cnt && !result && -1==stat( tail_path, &st ) ) ) result = -1;
 
     int update_existing;
-    if( FD_UNLIKELY( !result && config->is_live_cluster && !config->is_dev ) ) {
+    if( FD_UNLIKELY( result && errno==ENOENT && wksp->tail_page_cnt ) ) {
+      /* Head and tail are only reused as a pair */
       if( FD_UNLIKELY( -1==unlink( path ) && errno!=ENOENT ) ) FD_LOG_ERR(( "unlink() failed when trying to create workspace `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==unlink( tail_path ) && errno!=ENOENT ) ) FD_LOG_ERR(( "unlink() failed when trying to create workspace `%s` (%i-%s)", tail_path, errno, fd_io_strerror( errno ) ));
+      update_existing = 0;
+    } else if( FD_UNLIKELY( !result && config->is_live_cluster && !config->is_dev ) ) {
+      if( FD_UNLIKELY( -1==unlink( path ) && errno!=ENOENT ) ) FD_LOG_ERR(( "unlink() failed when trying to create workspace `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( wksp->tail_page_cnt && -1==unlink( tail_path ) && errno!=ENOENT ) ) FD_LOG_ERR(( "unlink() failed when trying to create workspace `%s` (%i-%s)", tail_path, errno, fd_io_strerror( errno ) ));
       update_existing = 0;
     } else if( FD_UNLIKELY( !result ) ) {
       /* Creating all of the workspaces is very expensive because the
@@ -923,16 +944,15 @@ initialize_workspaces( config_t * config ) {
     if( FD_UNLIKELY( -1==fd_topo_create_workspace( &config->topo, wksp, update_existing ) ) ) {
       FD_TEST( errno==ENOMEM );
 
-      warn_unknown_files( config, wksp->page_sz!=FD_SHMEM_HUGE_PAGE_SZ );
+      warn_unknown_files( config, 0UL );
+      warn_unknown_files( config, 1UL );
 
-      char path[ PATH_MAX ];
-      workspace_path( config, wksp, path );
       FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
-                   "with %lu %s pages. Firedancer reserves enough memory for all of its workspaces "
+                   "with %lu %s pages (+%lu huge tail pages). Firedancer reserves enough memory for all of its workspaces "
                    "during the `hugetlbfs` configure step, so it is likely you have unknown files "
                    "left over in this directory which are consuming memory, or another program on "
                    "the system is using pages from the same mount.",
-                   wksp->name, path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
+                   wksp->name, path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->tail_page_cnt ));
     }
     fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
     fd_topo_wksp_new( &config->topo, wksp, CALLBACKS );

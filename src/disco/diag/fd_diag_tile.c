@@ -1509,7 +1509,7 @@ privileged_init( fd_topo_t const *      topo,
                                   sizeof(ctx->memory.wksp[ wksp_idx ].name), NULL,
                                   "%s_%s.wksp", topo->app_name, wksp->name ) );
     ctx->memory.wksp[ wksp_idx ].numa_idx  = wksp->numa_idx;
-    ctx->memory.wksp[ wksp_idx ].bytes     = wksp->page_cnt*wksp->page_sz;
+    ctx->memory.wksp[ wksp_idx ].bytes     = fd_topo_wksp_sz( wksp );
     ctx->memory.wksp[ wksp_idx ].numa_slot = USHORT_MAX;
 
     ushort owners[ FD_DIAG_SYSTEM_TILE_MAX ];

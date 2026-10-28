@@ -5,6 +5,7 @@
 #include <ctype.h> /* For isalnum */
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include "fd_shmem_private.h"
 
@@ -345,6 +346,51 @@ main( int     argc,
       }
     }
   }
+
+  do { /* fd_shmem_join_split on a tmpfs stand-in for the mounts */
+    char base[ FD_SHMEM_PRIVATE_BASE_MAX ];
+    char saved[ FD_SHMEM_PRIVATE_BASE_MAX ];
+    char dir  [ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+    FD_TEST( fd_cstr_printf_check( base, sizeof(base), NULL, "/dev/shm/test_shmem_split.%d", (int)getpid() ) );
+    if( FD_UNLIKELY( mkdir( base, 0700 ) ) ) { FD_LOG_WARNING(( "skip split join: mkdir(%s) failed", base )); break; }
+    FD_TEST( !mkdir( fd_cstr_printf( dir, sizeof(dir), NULL, "%s/.gigantic", base ), 0700 ) );
+    FD_TEST( !mkdir( fd_cstr_printf( dir, sizeof(dir), NULL, "%s/.huge",     base ), 0700 ) );
+    ulong saved_len = fd_shmem_private_base_len;
+    strcpy( saved, fd_shmem_private_base );
+    strcpy( fd_shmem_private_base, base ); fd_shmem_private_base_len = strlen( base );
+
+    char head_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+    char tail_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+    fd_shmem_private_path( "split", FD_SHMEM_GIGANTIC_PAGE_SZ, head_path );
+    fd_shmem_private_path( "split", FD_SHMEM_HUGE_PAGE_SZ,     tail_path );
+    int head_fd = open( head_path, O_RDWR|O_CREAT|O_EXCL, 0600 ); FD_TEST( head_fd>=0 );
+    int tail_fd = open( tail_path, O_RDWR|O_CREAT|O_EXCL, 0600 ); FD_TEST( tail_fd>=0 );
+    FD_TEST( !ftruncate( head_fd, (off_t)FD_SHMEM_GIGANTIC_PAGE_SZ ) );
+    FD_TEST( !ftruncate( tail_fd, (off_t)(2UL*FD_SHMEM_HUGE_PAGE_SZ) ) );
+
+    FD_TEST( !fd_shmem_join_split( "split", 3UL, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 ) ); /* tail size mismatch */
+
+    uchar * join = fd_shmem_join_split( "split", 2UL, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
+    FD_TEST( join );
+    ulong sz = FD_SHMEM_GIGANTIC_PAGE_SZ + 2UL*FD_SHMEM_HUGE_PAGE_SZ;
+    FD_TEST( !fd_shmem_join_query_by_addr( join+sz-1UL, 1UL, info ) );
+    FD_TEST( info->shmem==join && info->page_sz==FD_SHMEM_HUGE_PAGE_SZ && info->page_cnt==sz/FD_SHMEM_HUGE_PAGE_SZ );
+    FD_TEST( fd_shmem_join_query_by_addr( join+sz, 1UL, NULL )==ENOENT );
+    join[ FD_SHMEM_GIGANTIC_PAGE_SZ-1UL ] = 0xa5; join[ FD_SHMEM_GIGANTIC_PAGE_SZ ] = 0x5a; join[ sz-1UL ] = 0x3c;
+    uchar b;
+    FD_TEST( pread( head_fd, &b, 1UL, (off_t)(FD_SHMEM_GIGANTIC_PAGE_SZ-1UL) )==1L && b==0xa5 );
+    FD_TEST( pread( tail_fd, &b, 1UL, 0L )==1L && b==0x5a );
+    FD_TEST( pread( tail_fd, &b, 1UL, (off_t)(2UL*FD_SHMEM_HUGE_PAGE_SZ-1UL) )==1L && b==0x3c );
+    FD_TEST( !fd_shmem_leave( join, NULL, NULL ) );
+    FD_TEST( fd_shmem_join_query_by_name( "split", NULL )==ENOENT );
+
+    FD_TEST( !close( head_fd ) ); FD_TEST( !unlink( head_path ) );
+    FD_TEST( !close( tail_fd ) ); FD_TEST( !unlink( tail_path ) );
+    FD_TEST( !rmdir( fd_cstr_printf( dir, sizeof(dir), NULL, "%s/.gigantic", base ) ) );
+    FD_TEST( !rmdir( fd_cstr_printf( dir, sizeof(dir), NULL, "%s/.huge",     base ) ) );
+    FD_TEST( !rmdir( base ) );
+    strcpy( fd_shmem_private_base, saved ); fd_shmem_private_base_len = saved_len;
+  } while(0);
 
   /* FIXME: DO MORE EXTENSIVE TESTS OF ACQUIRE / RELEASE */
 

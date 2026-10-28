@@ -62,6 +62,7 @@ typedef struct {
   struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
     ulong page_cnt; /* The number of pages that must be mapped to this workspace to store all the data needed by consumers. */
+    ulong tail_page_cnt; /* Huge pages appended after the page_cnt gigantic pages, backing the sub-GiB remainder.  0 if none. */
     ulong part_max; /* The maximum number of partitions in the underlying workspace.  There can only be this many allocations made at any one time. */
 
     int core_dump_level; /* The core dump level required to be set in the application configuration to have this workspace appear in core dumps. */
@@ -906,6 +907,13 @@ fd_topo_workspace_align( void ) {
      should probably be calculated dynamically, or we should reduce
      those child aligns if we can. */
   return 4096UL;
+}
+
+/* Bytes of hugetlbfs memory backing wksp, tail included. */
+
+FD_FN_PURE static inline ulong
+fd_topo_wksp_sz( fd_topo_wksp_t const * wksp ) {
+  return wksp->page_cnt*wksp->page_sz + wksp->tail_page_cnt*FD_SHMEM_HUGE_PAGE_SZ;
 }
 
 void *

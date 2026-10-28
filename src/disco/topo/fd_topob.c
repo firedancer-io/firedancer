@@ -609,13 +609,28 @@ fd_topob_finish( fd_topo_t *                topo,
 
     ulong wksp_aligned_footprint = fd_ulong_align_up( total_wksp_footprint, page_sz );
 
+    /* Back the sub-GiB remainder with huge pages when that saves
+       >=64 MiB and at least one gigantic page remains. */
+    ulong page_cnt      = wksp_aligned_footprint / page_sz;
+    ulong tail_page_cnt = 0UL;
+    if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) {
+      ulong gigantic_cnt = total_wksp_footprint / FD_SHMEM_GIGANTIC_PAGE_SZ;
+      ulong tail_sz      = fd_ulong_align_up( total_wksp_footprint - gigantic_cnt*FD_SHMEM_GIGANTIC_PAGE_SZ, FD_SHMEM_HUGE_PAGE_SZ );
+      if( gigantic_cnt && tail_sz && FD_SHMEM_GIGANTIC_PAGE_SZ-tail_sz>=(64UL<<20) ) {
+        page_cnt               = gigantic_cnt;
+        tail_page_cnt          = tail_sz / FD_SHMEM_HUGE_PAGE_SZ;
+        wksp_aligned_footprint = gigantic_cnt*FD_SHMEM_GIGANTIC_PAGE_SZ + tail_sz;
+      }
+    }
+
     /* Give any leftover space in the underlying shared memory to the
        data region of the workspace, since we might as well use it. */
     wksp->part_max = part_max;
     wksp->known_footprint = footprint;
     wksp->total_footprint = wksp_aligned_footprint - fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() );
     wksp->page_sz = page_sz;
-    wksp->page_cnt = wksp_aligned_footprint / page_sz;
+    wksp->page_cnt = page_cnt;
+    wksp->tail_page_cnt = tail_page_cnt;
   }
 
   /* Fingerprint the computed layout so attaching processes can detect
