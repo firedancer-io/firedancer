@@ -77,9 +77,13 @@ controller_init( int holds ) {
   return ctx;
 }
 
+static int fake_peer_fd = -1;
+
 static void
 controller_fini( fd_failover_tile_ctx_t * ctx ) {
   fd_failover_channel_fini( ctx->channel );
+  if( fake_peer_fd!=-1 ) close( fake_peer_fd );
+  fake_peer_fd = -1;
 }
 
 static void
@@ -87,12 +91,28 @@ pair( fd_failover_tile_ctx_t * ctx,
       ulong                    boot_id,
       ulong                    peer_holds,
       long                     now ) {
-  ctx->channel->state              = FD_FAILOVER_SESSION_PAIRED;
-  ctx->channel->peer_hello.boot_id = boot_id;
-  ctx->channel->peer_hello.holds    = (uchar)peer_holds;
+  fd_failover_channel_t * ch = ctx->channel;
+  struct candidate *      c  = &ch->candidates[ ADMITTED_IDX ];
+  if( c->fd==-1 ) {
+    int sv[ 2 ];
+    FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0, sv ) );
+    fd_memset( c, 0, sizeof(*c) );
+    c->fd  = sv[ 0 ];
+    c->tls.fd = sv[ 0 ];
+    c->phase  = PHASE_READY;
+    c->tls.conn.hs.base.state = FD_TLS_HS_CONNECTED;
+    c->tls.paired = 1;
+    c->local_hello = ctx->hello;
+    fake_peer_fd = sv[ 1 ];
+  }
+  ch->paired_idx         = (int)ADMITTED_IDX;
+  ch->peer_hello.boot_id = boot_id;
+  ch->peer_hello.holds   = (uchar)peer_holds;
+  fd_keepalive_init( ch->keepalive, ch->rng, FD_FAILOVER_CHANNEL_KEEPALIVE_NANOS, FD_FAILOVER_CHANNEL_IDLE_NANOS, now );
+  fd_keepalive_rx( ch->keepalive, now );
+  ch->paired_at = now;
   sync_session( ctx );
-  (void)now;
-  fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x22, 32UL );
+  fd_memset( ch->peer_hello.junk_pubkey, 0x22, 32UL );
 }
 
 static void
@@ -176,7 +196,7 @@ test_handoff( void ) {
   fd_failover_demoted_t demoted = pending_demoted( ctx );
   FD_TEST( demoted.handoff_id==42UL && demoted.mode==FD_FAILOVER_MODE_ALPENGLOW && demoted.last_vote_slot==99UL );
   fd_adminctl_failover_status_resp_t status;
-  status_snapshot( ctx, 1000L, &status );
+  failover_status_resp( ctx, 1000L, &status );
   FD_TEST( status.version==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION && !status.holds );
   FD_TEST( fd_memeq( status.target, ctx->hello.staked_pubkey, 32UL ) && fd_memeq( status.installed, ctx->hello.junk_pubkey, 32UL ) &&
            fd_memeq( status.junk, ctx->hello.junk_pubkey, 32UL ) );
@@ -201,11 +221,7 @@ test_no_final_state( void ) {
   FD_TEST( result.handoff_id==43UL && result.result==FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY );
   FD_TEST( ctx->holds==1 && ctx->action==FD_FAILOVER_ACTION_IDLE );
   FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.request_id && !ctx->promotion.adopt_id );
-  char const * hint;
-  FD_TEST( !strcmp( control_refusal( result.result, &hint ), "NO_FINAL_HISTORY" ) );
-  FD_TEST( strstr( hint, "the other machine" ) );
-  /* The requester logs the relayed rejection under the same name. */
-  FD_TEST( !strcmp( control_result( result.result, &hint ), "NO_FINAL_HISTORY" ) );
+  FD_TEST( strstr( fd_adminctl_failover_result_cstr( result.result ), "no eligible final vote state" ) );
   ctx->tx.valid                 = 0;
   ctx->session.close_after_send = 0;
   /* A frame whose history is empty is not a final history. */
@@ -277,7 +293,7 @@ test_demote_drain( void ) {
   step_controller( ctx, stem );
   FD_TEST( ctx->holds==1 && ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN );
   fd_adminctl_failover_status_resp_t status;
-  status_snapshot( ctx, 1000L, &status );
+  failover_status_resp( ctx, 1000L, &status );
   FD_TEST( status.action==(uchar)FD_FAILOVER_ACTION_DEMOTE_DRAIN );
   deliver_ack( ctx, 44UL );
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
@@ -467,7 +483,7 @@ test_result_wait_peer_restart( void ) {
       pair( ctx, 78UL, 0, 1000L );
       fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
       int busy = 0;
-      peer_poll( ctx, 1000L, &busy );
+      poll_peer( ctx, 1000L, &busy );
       FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.last_id==900UL );
       FD_TEST( ctx->request.result==( holds ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED ) );
       FD_TEST( ctx->holds==holds );
@@ -484,7 +500,7 @@ test_result_wait_peer_restart( void ) {
   pair( ctx, 78UL, 0, 1000L );
   fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
   int busy = 0;
-  peer_poll( ctx, 1000L, &busy );
+  poll_peer( ctx, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->request.id==900UL && !ctx->request.until );
   controller_fini( ctx );
 
@@ -495,7 +511,7 @@ test_result_wait_peer_restart( void ) {
   pair( ctx, 78UL, 1, 1000L );
   fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
   busy = 0;
-  peer_poll( ctx, 1000L, &busy );
+  poll_peer( ctx, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.id==900UL && !ctx->request.until && !ctx->request.peer_restarted );
   controller_fini( ctx );
 
@@ -505,7 +521,7 @@ test_result_wait_peer_restart( void ) {
   pair( ctx, 78UL, 1, 1000L );
   fd_memset( ctx->channel->peer_hello.junk_pubkey, 0x33, 32UL );
   busy = 0;
-  peer_poll( ctx, 1000L, &busy );
+  poll_peer( ctx, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.id && !ctx->request.until && ctx->stuck );
   controller_fini( ctx );
 
@@ -578,34 +594,34 @@ test_request_address( void ) {
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,3);
   fd_adminctl_failover_status_resp_t status;
-  status_snapshot( ctx, 1000L, &status );
+  failover_status_resp( ctx, 1000L, &status );
   FD_TEST( status.peer_addr==FD_IP4_ADDR(10,0,0,2) && !status.peer_addr_cmd && status.peer_port==8010 );
 
-  request_pause( ctx, 1000L, "test" );
+  pause_request( ctx, 1000L, "test" );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,4), 9001 )==FD_ADMINCTL_RESULT_SUCCESS );
-  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,4) && dial_port( ctx )==9001 );
-  request_pause( ctx, 1000L, "test" );
-  status_snapshot( ctx, 1000L, &status );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,4) && get_dial_port( ctx )==9001 );
+  pause_request( ctx, 1000L, "test" );
+  failover_status_resp( ctx, 1000L, &status );
   FD_TEST( status.request_paused && status.mode==(uchar)FD_FAILOVER_MODE_ALPENGLOW );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,5), 0 )==FD_ADMINCTL_RESULT_SUCCESS );
-  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && dial_port( ctx )==9001 );
-  status_snapshot( ctx, 1000L, &status );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9001 );
+  failover_status_resp( ctx, 1000L, &status );
   FD_TEST( status.peer_addr==FD_IP4_ADDR(10,0,0,5) && status.peer_addr_cmd && status.peer_port==9001 && !status.request_paused );
-  request_pause( ctx, 1000L, "test" );
+  pause_request( ctx, 1000L, "test" );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 9002 )==FD_ADMINCTL_RESULT_SUCCESS );
-  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && dial_port( ctx )==9002 );
-  status_snapshot( ctx, 1000L, &status );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9002 );
+  failover_status_resp( ctx, 1000L, &status );
   FD_TEST( status.peer_addr_cmd );
-  request_pause( ctx, 1000L, "test" );
+  pause_request( ctx, 1000L, "test" );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
-  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && dial_port( ctx )==9002 );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9002 );
   ctx->request.peer.boot_id = 77UL;
-  request_pause( ctx, 1000L, "test" );
+  pause_request( ctx, 1000L, "test" );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,6), 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,6) && ctx->request.peer.boot_id==77UL );
 
-  request_end( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
-  status_snapshot( ctx, 1000L, &status );
+  end_request( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
+  failover_status_resp( ctx, 1000L, &status );
   FD_TEST( status.peer_addr==FD_IP4_ADDR(10,0,0,3) && !status.peer_addr_cmd && status.peer_port==8010 );
   controller_fini( ctx );
 }
@@ -661,31 +677,31 @@ test_refused_command_keeps_stuck( void ) {
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS && ctx->stuck );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS && !ctx->stuck );
-  request_end( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
+  end_request( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
   controller_fini( ctx );
 
   /* Without --force the takeover checks report SUCCESS when none finds
      another machine running the identity, and the refusal otherwise. */
   ctx = controller_init( 0 );
-  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   fd_adminctl_failover_status_resp_t status;
-  status_snapshot( ctx, 1000L, &status );
+  failover_status_resp( ctx, 1000L, &status );
   FD_TEST( status.promote_result==FD_ADMINCTL_RESULT_SUCCESS && !status.holds );
   FD_TEST( fd_memeq( status.installed, ctx->hello.junk_pubkey, 32UL ) && fd_memeq( status.target, ctx->hello.staked_pubkey, 32UL ) );
   ctx->taken = 1;
-  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_TAKEN );
-  FD_TEST( promote_guard( ctx, 1000L, 1 )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_TAKEN );
+  FD_TEST( check_promotion( ctx, 1000L, 1 )==FD_ADMINCTL_RESULT_SUCCESS );
   ctx->taken = 0;
   ctx->staked_seen_at = 1000L;
-  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN );
-  FD_TEST( promote_guard( ctx, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN );
+  FD_TEST( check_promotion( ctx, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   ctx->staked_seen_at = 0L;
   pair( ctx, 77UL, 1, 1000L );
-  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS );
+  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS );
   ctx->channel->peer_hello.holds = 0;
-  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   ctx->holds = 1;
-  FD_TEST( promote_guard( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER );
+  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER );
   controller_fini( ctx );
 }
 
@@ -698,7 +714,7 @@ test_dialed_non_holder( void ) {
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
   pair( ctx, 77UL, 0, 1000L );
   int busy = 0;
-  peer_poll( ctx, 1000L, &busy );
+  poll_peer( ctx, 1000L, &busy );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.result==FD_FAILOVER_HANDOFF_NOT_HOLDER );
   controller_fini( ctx );
 }
@@ -714,7 +730,7 @@ test_restarted_peer_new_request( void ) {
   open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
   pair( ctx, 78UL, 1, 1000L );
   int busy = 0;
-  peer_poll( ctx, 1000L, &busy );
+  poll_peer( ctx, 1000L, &busy );
   FD_TEST( ctx->request.id==900UL && ctx->request.peer_restarted && !ctx->request.until );
 
   fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF };
@@ -743,8 +759,7 @@ test_force_empty_bound( void ) {
   ulong const fences[ 3 ] = { 100UL,                 120UL, 100UL };
   for( ulong i=0UL; i<3UL; i++ ) {
     ctx->promotion.floor = floors[ i ];
-    promote_start( ctx );
-    FD_TEST( replay_ready( ctx ) );
+    FD_TEST( is_replay_ready( ctx ) );
     FD_TEST( ctx->empty_vote_after==fences[ i ] );
     FD_TEST( ctx->promotion.adopt.sz==FD_VOTOR_ADOPT_EMPTY_SZ && FD_LOAD( ulong, ctx->promotion.adopt.state )==fences[ i ] );
   }
@@ -782,8 +797,9 @@ test_adopt_capacity_retry( void ) {
   controller_fini( ctx );
 }
 
-/* A full table evicts the oldest eligible candidate from the busiest
-   address.  Reserved slots and candidates within their grace stay. */
+/* A full pool refuses new candidates.  The outbound and admitted slots
+   are never handed to an unknown address, the known address gets the
+   admitted slot and nothing else. */
 static void
 fill( fd_failover_channel_t * ch,
       ulong                   idx,
@@ -804,15 +820,21 @@ static void
 test_listen_slot( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
   fd_failover_channel_t  * ch  = ctx->channel;
-  long now = FD_FAILOVER_ADMISSION_START_NANOS;
-  FD_TEST( listen_slot( ch, now )==UNAUTHENTICATED_IDX );
+  long now      = FD_FAILOVER_ADMISSION_START_NANOS;
+  uint stranger = FD_IP4_ADDR(10,2,0,1);
+  uint known    = FD_IP4_ADDR(10,2,0,2);
+  remember_source( ch, known, now );
+  FD_TEST( listen_slot( ch, stranger, now )==UNAUTHENTICATED_IDX );
+  FD_TEST( listen_slot( ch, known,    now )==ADMITTED_IDX );
   for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) fill( ch, i, FD_IP4_ADDR(10,1,0,(uint)i), now+100L+(long)i );
-  FD_TEST( listen_slot( ch, now )==FD_FAILOVER_CHANNEL_CANDIDATE_MAX );
+  FD_TEST( listen_slot( ch, stranger, now )==FD_FAILOVER_CHANNEL_CANDIDATE_MAX );
+  FD_TEST( listen_slot( ch, known,    now )==FD_FAILOVER_CHANNEL_CANDIDATE_MAX );
   close( ch->candidates[ UNAUTHENTICATED_IDX ].fd );
   ch->candidates[ UNAUTHENTICATED_IDX ].fd = -1;
-  FD_TEST( listen_slot( ch, now )==UNAUTHENTICATED_IDX );
-  FD_TEST( ch->candidates[ OUTBOUND_IDX ].fd!=-1 && ch->candidates[ ADMITTED_IDX ].fd!=-1 &&
-           ch->candidates[ RECONNECT_IDX ].fd!=-1 );
+  FD_TEST( listen_slot( ch, stranger, now )==UNAUTHENTICATED_IDX );
+  FD_TEST( listen_slot( ch, known,    now )==FD_FAILOVER_CHANNEL_CANDIDATE_MAX ); /* only the admitted slot, never the pool */
+  FD_TEST( ch->candidates[ OUTBOUND_IDX ].fd!=-1 && ch->candidates[ ADMITTED_IDX ].fd!=-1 );
+  FD_TEST( listen_slot( ch, known, now+FD_FAILOVER_CHANNEL_IDLE_NANOS )==UNAUTHENTICATED_IDX ); /* forgotten once idle */
   for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) if( ch->candidates[ i ].fd!=-1 ) {
     close( ch->candidates[ i ].fd );
     ch->candidates[ i ].fd = -1;

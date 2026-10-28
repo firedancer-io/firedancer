@@ -145,6 +145,33 @@ fd_adminctl_failover_cmd_typed( ulong cmd ) {
 #define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL) /* confirmation only, does not authorize peer or history overrides */
 #define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL) /* --force, bypass peer guards and accept incomplete or empty vote history */
 
+/* Why a failover command or handoff was refused. */
+static inline char const *
+fd_adminctl_failover_result_cstr( ulong result ) {
+  switch( result ) {
+    case FD_ADMINCTL_RESULT_SUCCESS:                   return "success";
+    case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:           return "the failover tile does not know this command";
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:               return "the failover tile does not support this command";
+    case FD_FAILOVER_CONTROL_RESULT_BUSY:              return "another failover command is in flight, try again";
+    case FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE:      return "the failover tile did not answer in time, the outcome is unknown";
+    case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:      return "this machine already runs the identity, or the machine it asked does not";
+    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "a transition or key switch is running, wait for it";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "the other machine could not finish this handoff and may have given up the identity";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:        return "the authenticated peer runs the identity";
+    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING:   return "the peer has not answered our last handoff and may now run the identity";
+    case FD_FAILOVER_CONTROL_RESULT_TAKEN:             return "the peer took our last handoff and may still be voting";
+    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:       return "gossip showed the identity at another host within 15 seconds";
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over, its log says why";
+    case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or pass --address";
+    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine's replay is too far behind the last vote of the machine running the identity, retry once caught up";
+    case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "the keypair is this machine's current junk key";
+    case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "failover lost an input update and is disabled until restart";
+    case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
+    case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";
+    default:                                           return "unknown result";
+  }
+}
+
 struct fd_adminctl_failover_req_v1 {
   ulong  version; /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
   ulong  cmd;     /* FD_ADMINCTL_FAILOVER_CMD_* */

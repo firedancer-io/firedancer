@@ -9,23 +9,23 @@
 #include <time.h>
 
 #define FD_FAILOVER_CHANNEL_MAGIC         (0xF17EDA2CE5FA170AUL)
-#define FD_FAILOVER_CHANNEL_CANDIDATE_MAX (64UL)
+
+/* Candidate slots */
+#define FD_FAILOVER_CHANNEL_CANDIDATE_MAX (16UL)
 
 #define FD_FAILOVER_NANOS_PER_SECOND   (1000000000UL)
 #define FD_FAILOVER_LOG_INTERVAL_NANOS (60L*(long)FD_FAILOVER_NANOS_PER_SECOND)
 
-#define FD_FAILOVER_ACCEPT_RATE           (8192UL)
+/* Rate limits */
+#define FD_FAILOVER_ACCEPT_RATE           (8192UL) /* number of num accept4 calls */
 #define FD_FAILOVER_ACCEPT_BURST          (128UL)
-#define FD_FAILOVER_ADMIT_RATE            (128UL)
+#define FD_FAILOVER_ADMIT_RATE            (128UL)  /* number of candidates started */
 #define FD_FAILOVER_ADMIT_BURST           (16UL)
-#define FD_FAILOVER_VERIFY_RATE           (128UL)
+#define FD_FAILOVER_VERIFY_RATE           (128UL)  /* number of Ed25519 proofs */
 #define FD_FAILOVER_VERIFY_BURST          (16UL)
 #define FD_FAILOVER_ACCEPT_PER_POLL       (16UL)
 #define FD_FAILOVER_LISTEN_BACKLOG        (256)
-#define FD_FAILOVER_RECONNECT_RATE        (4UL)
-#define FD_FAILOVER_RECONNECT_BURST       (2UL)
-#define FD_FAILOVER_PRIORITY_VERIFY_RATE  (16UL)
-#define FD_FAILOVER_PRIORITY_VERIFY_BURST (4UL)
+
 #define FD_FAILOVER_ADMISSION_START_NANOS ((long)FD_FAILOVER_NANOS_PER_SECOND)
 #define FD_FAILOVER_ADMISSION_PROOF_NANOS (2L*(long)FD_FAILOVER_NANOS_PER_SECOND)
 
@@ -35,8 +35,7 @@ struct fd_failover_proof_signer {
 };
 typedef struct fd_failover_proof_signer fd_failover_proof_signer_t;
 
-/* fd_failover_clock returns monotonic nanoseconds for every channel
-   deadline. */
+/* Monotonic clock in nanoseconds. */
 static inline long
 fd_failover_clock( void ) {
   struct timespec ts;
@@ -74,15 +73,13 @@ fd_failover_channel_init_listener( fd_failover_channel_t * channel,
                                    uint                    address,
                                    ushort                  port );
 
-/* Starts dialing and retrying at address:port.  A changed nonzero
-   destination replaces an established session.  Zero stops dialing. */
+/* Starts dialing and retrying at address:port. */
 void
 fd_failover_channel_init_dialer( fd_failover_channel_t * channel,
                                  uint                    address,
                                  ushort                  port );
 
-/* Configures admission and mutual TLS with separate proof and TLS
-   signers.  Identity private keys stay in the sign tile. */
+/* Configures admission and mutual TLS with separate proof and TLS signers. */
 int
 fd_failover_channel_set_identity( fd_failover_channel_t *     channel,
                                   uchar const                 junk_pubkey[ 32 ],
@@ -94,12 +91,7 @@ fd_failover_channel_set_identity( fd_failover_channel_t *     channel,
 void
 fd_failover_channel_fini( fd_failover_channel_t * channel );
 
-/* Returns how many connections are still in their TCP, TLS or HELLO
-   handshake.  The paired session does not count. */
-FD_FN_PURE ulong
-fd_failover_channel_pending( fd_failover_channel_t const * channel );
-
-/* Updates whether the next HELLO says we run the handed off identity. */
+/* Updates who holds the identity. */
 void
 fd_failover_channel_set_holds( fd_failover_channel_t * channel,
                                int                     holds );
@@ -136,16 +128,16 @@ FD_FN_PURE fd_failover_hello_t const * fd_failover_channel_peer_hello( fd_failov
 /* Changes whenever a new authenticated session replaces the previous one. */
 FD_FN_PURE ulong fd_failover_channel_generation( fd_failover_channel_t const * channel );
 
-/* Reads the bound port back from the listen socket, for binds to port zero. */
+/* Gets the bound port from the listen socket. */
 ushort
 fd_failover_channel_listen_port( fd_failover_channel_t const * channel );
 
-/* Closes any live connection and returns the channel to its resting state. */
+/* Closes the connection. */
 void
 fd_failover_channel_hangup( fd_failover_channel_t * channel,
                             long                    now );
 
-/* Drops a paired session after an authenticated protocol violation. */
+/* Drops the session after an error. */
 void
 fd_failover_channel_protocol_error( fd_failover_channel_t * channel,
                                     long                    now );
