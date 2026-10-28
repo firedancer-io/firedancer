@@ -1,5 +1,6 @@
 #define _GNU_SOURCE /* O_DIRECT */
 #include "fd_ssmanifest_writer.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_txncache_writer.h"
 #include "../restore/utils/fd_ssmanifest_parser.h"
 #include "../restore/utils/fd_slot_delta_parser.h"
@@ -93,6 +94,8 @@ seed_epoch_credits( fd_bank_t * bank ) {
 
 static void
 check_epoch_credits( fd_bank_t *                                bank,
+                     fd_snapshot_manifest_t const *             manifest,
+                     ulong                                      idx,
                      fd_snapshot_manifest_vote_stakes_t const * vs ) {
   fd_epoch_credits_view_t view[1];
   FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
@@ -103,11 +106,12 @@ check_epoch_credits( fd_bank_t *                                bank,
   }
   FD_TEST( ec );
   FD_TEST( ec->cnt==EPOCH_CREDITS_CNT );
-  FD_TEST( vs->epoch_credits_history_len==ec->cnt );
+  epoch_credits_t const * vec = manifest->t_1_epoch_credits[ idx ];
+  FD_TEST( manifest->t_1_epoch_credits_len[ idx ]==ec->cnt );
   for( ulong j=0UL; j<ec->cnt; j++ ) {
-    FD_TEST( vs->epoch_credits[j].epoch       ==(ulong)ec->epoch[j] );
-    FD_TEST( vs->epoch_credits[j].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
-    FD_TEST( vs->epoch_credits[j].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
+    FD_TEST( vec[j].epoch       ==(ulong)ec->epoch[j] );
+    FD_TEST( vec[j].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
+    FD_TEST( vec[j].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
   }
   fd_epoch_credits_view_fini( view );
 }
@@ -558,7 +562,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
     int seen_t1_vote0 = 0; int seen_t1_vote1 = 0;
     for( ulong i=0UL; i<t1->vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * vs = &t1->vote_stakes[i];
-      check_epoch_credits( bank, vs );
+      check_epoch_credits( bank, manifest, i, vs );
       if( !memcmp( vs->vote, &vote0, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, &infl0, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk0,  32UL ) );
@@ -578,11 +582,10 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
     }
     FD_TEST( seen_t1_vote0 && seen_t1_vote1 );
 
-    /* Only the t_1 entries carry credit histories. */
+    /* Only the t_1 entries carry credit histories (side arrays). */
     int seen_t2_vote1 = 0; int seen_t2_vote0 = 0;
     for( ulong i=0UL; i<t2->vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * vs = &t2->vote_stakes[i];
-      FD_TEST( !vs->epoch_credits_history_len );
       if( !memcmp( vs->vote, &vote1, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk1,    32UL ) );
@@ -615,7 +618,6 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
         fd_snapshot_manifest_vote_stakes_t const * vs = &tn->vote_stakes[i];
         FD_TEST( !memcmp( vs->commission_inflation, zero32, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     zero32, 32UL ) );
-        FD_TEST( !vs->epoch_credits_history_len );
         FD_TEST( vs->stake==1000000UL*n && vs->commission==100UL*n );
         if( n==3UL && !memcmp( vs->vote, &vote0, 32UL ) ) {
           FD_TEST( vs->commission_block_bps==4321U && vs->pending_delegator_rewards==99UL );
@@ -766,6 +768,8 @@ test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
   ulong   bad_len_off = ULONG_MAX;
   ulong   converted   = 0UL;
   int     injected    = 0;
+  ulong   conv_off[ 64 ];
+  ulong   conv_cnt    = 0UL;
   for(;;) {
     ulong sz = fd_snap_manifest_serialize( writer, chunk_buf, FD_SSMANIFEST_BUF_MIN );
     if( !sz ) break;
@@ -797,6 +801,7 @@ test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
       vsv->v5.location = LOC_FRA;
       FD_TEST( !fd_vote_state_versioned_serialize( vsv, v5, sizeof(v5) ) );
       if( bad_len_off==ULONG_MAX ) bad_len_off = v5_sz+48UL;
+      if( conv_cnt<64UL ) conv_off[ conv_cnt++ ] = v5_sz+56UL;
       v5_sz += put_v5_vote_entry( v5_buf+v5_sz, chunk_buf, FD_LOAD( ulong, chunk_buf+32UL ), FD_LOAD( ulong, chunk_buf+40UL ),
                                   FD_VOTE_STATE_V5_SZ, v5, chunk_buf[ 56UL+data_len+32UL ], FD_LOAD( ulong, chunk_buf+56UL+data_len+33UL ) );
       converted++;
@@ -816,6 +821,14 @@ test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
   FD_TEST( parse_manifest( wksp, v4_buf, v4_sz, a ) );
   FD_TEST( parse_manifest( wksp, v5_buf, v5_sz, b ) );
 
+  fd_epoch_schedule_t es = {
+    .slots_per_epoch             = a->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = a->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = a->epoch_schedule_params.warmup,
+    .first_normal_epoch          = a->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = a->epoch_schedule_params.first_normal_slot,
+  };
+  ulong t_1_epoch = fd_slot_to_leader_schedule_epoch( &es, a->slot );
   for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
     FD_TEST( a->epoch_stakes[ i ].epoch==b->epoch_stakes[ i ].epoch );
     FD_TEST( a->epoch_stakes[ i ].vote_stakes_len==b->epoch_stakes[ i ].vote_stakes_len );
@@ -828,18 +841,39 @@ test_manifest_v5_vote_accounts( fd_svm_mini_t * mini,
       if( la.x || la.y || la.z ) FD_TEST( loc_eq( vs.location, la      ) );
       else                       FD_TEST( loc_eq( vs.location, LOC_FRA ) );
       vs.location = la;
-      ulong skip = fd_ulong_sat_sub( want.epoch_credits_history_len, FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX );
-      want.epoch_credits_history_len -= skip;
-      memmove( want.epoch_credits, want.epoch_credits+skip, want.epoch_credits_history_len*sizeof(epoch_credits_t) );
-      memset( want.epoch_credits+want.epoch_credits_history_len, 0, (FD_EPOCH_CREDITS_MAX-want.epoch_credits_history_len)*sizeof(epoch_credits_t) );
-      memset( vs.epoch_credits+vs.epoch_credits_history_len,     0, (FD_EPOCH_CREDITS_MAX-vs.epoch_credits_history_len  )*sizeof(epoch_credits_t) );
       FD_TEST( fd_memeq( &vs, &want, sizeof(fd_snapshot_manifest_vote_stakes_t) ) );
+      if( a->epoch_stakes[ i ].epoch!=t_1_epoch ) continue;
+      ulong want_len = a->t_1_epoch_credits_len[ j ];
+      ulong skip     = fd_ulong_sat_sub( want_len, FD_VOTE_STATE_V5_ACCUMULATED_LAMPORTS_MAX );
+      FD_TEST( b->t_1_epoch_credits_len[ j ]==want_len-skip );
+      FD_TEST( fd_memeq( b->t_1_epoch_credits[ j ], a->t_1_epoch_credits[ j ]+skip, (want_len-skip)*sizeof(epoch_credits_t) ) );
     }
   }
 
   memcpy( bad_buf, v5_buf, v5_sz );
   FD_STORE( ulong, bad_buf+bad_len_off, sizeof(uint)+sizeof(fd_vote_state_v5_t)-1UL );
   FD_TEST( !parse_manifest( wksp, bad_buf, v5_sz, b ) );
+
+  /* Credits of epoch_stakes entries outside T-1 are validated by the
+     parser and dropped: a broken chain flags the entry invalid (which
+     fd_ssload_manifest_validate rejects, see test_ssload). */
+  memcpy( bad_buf, v5_buf, v5_sz );
+  ulong ec_off = 4UL+offsetof( fd_vote_state_v5_t, accumulated_lamports );
+  ulong ec_len_off = 4UL+offsetof( fd_vote_state_v5_t, accumulated_lamports_len );
+  for( ulong pass=0UL; pass<2UL; pass++ ) {
+    for( ulong k=0UL; k<conv_cnt; k++ ) {
+      uchar * v5 = bad_buf+conv_off[ k ];
+      if( FD_LOAD( uint, v5+ec_len_off ) ) continue; /* T-1: keep the encoded history */
+      FD_STORE( uint, v5+ec_len_off, 2U );
+      FD_STORE( fd_vote_epoch_credits_t, v5+ec_off,                                 ((fd_vote_epoch_credits_t){ .epoch=1UL, .credits=100UL, .prev_credits=0UL }) );
+      FD_STORE( fd_vote_epoch_credits_t, v5+ec_off+sizeof(fd_vote_epoch_credits_t), ((fd_vote_epoch_credits_t){ .epoch=2UL, .credits=200UL, .prev_credits=pass ? 100UL : 101UL }) );
+    }
+    FD_TEST( parse_manifest( wksp, bad_buf, v5_sz, b ) );
+    int invalid = 0;
+    for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) invalid |= b->epoch_credits_invalid[ i ];
+    FD_TEST( invalid==!pass );
+    memcpy( bad_buf, v5_buf, v5_sz );
+  }
 }
 
 static void
