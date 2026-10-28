@@ -506,6 +506,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool( &w, "report_shreds",            config->development.event.report_shreds );
       jw_bool( &w, "report_transactions",      config->development.event.report_transactions );
       jw_bool ( &w, "report_runtime_diffs",      config->development.event.report_runtime_diffs );
+      jw_bool ( &w, "report_repair_requests",    config->development.event.report_repair_requests );
       jw_ulong( &w, "max_upload_rate_mbps",      config->development.event.max_upload_rate_mbps );
     jw_obj_close( &w );
     jw_obj_open( &w, "pktgen" );

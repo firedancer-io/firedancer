@@ -278,6 +278,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   development.event.report_shreds                  );
   CFG_POP      ( bool,   development.event.report_transactions            );
   CFG_POP      ( bool,   development.event.report_runtime_diffs           );
+  CFG_POP      ( bool,   development.event.report_repair_requests         );
   CFG_POP      ( ulong,  development.event.max_upload_rate_mbps           );
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
