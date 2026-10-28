@@ -82,6 +82,19 @@ test_newest_copy( void ) {
     FD_TEST( !strcmp( peer->row.name, want[ k ] ) );
   }
 
+  /* geoip image: merged segments, city names in place */
+  fd_gui_ip_db_t const * db = &peers->dbip;
+  FD_TEST( db->seg_cnt>1UL );
+  for( ulong i=1UL; i<db->seg_cnt; i++ ) FD_TEST( db->seg_country[ i ]!=db->seg_country[ i-1UL ] || db->seg_city[ i ]!=db->seg_city[ i-1UL ] );
+  ulong named = 0UL;
+  for( ulong i=0UL; i<db->seg_cnt; i++ ) {
+    if( db->seg_city[ i ]==UINT_MAX ) continue;
+    char const * name = db->image+db->city_name_off[ db->seg_city[ i ] ];
+    FD_TEST( (uchar const *)name>=peers->dbip_image && strlen( name )<FD_GUI_GEOIP_MAX_CITY_NAME_SZ );
+    named++;
+  }
+  FD_TEST( named );
+
   free( peers_mem );
   free( fd_http_server_delete( fd_http_server_leave( http ) ) );
 }

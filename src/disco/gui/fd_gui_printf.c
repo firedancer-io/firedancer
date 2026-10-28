@@ -1887,7 +1887,7 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
       }
 
       if( FD_LIKELY( peer->row.city_name_idx!=UINT_MAX ) ) {
-        jsonp_string( peers->http, "city_name", peers->dbip.city_name[ peer->row.city_name_idx ] );
+        jsonp_string( peers->http, "city_name", peers->dbip.image+peers->dbip.city_name_off[ peer->row.city_name_idx ] );
       } else {
         jsonp_null( peers->http, "city_name" );
       }
