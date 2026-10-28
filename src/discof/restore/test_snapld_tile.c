@@ -45,9 +45,10 @@ test_sshttp_init( fd_sshttp_t * http,
                   ulong         path_len,
                   ulong         hops,
                   long          now,
-                  ulong         range_start ) {
+                  ulong         range_start,
+                  int           is_stream ) {
   init_cnt++;
-  return fd_sshttp_init( http, addr, hostname, is_https, path, path_len, hops, now, range_start );
+  return fd_sshttp_init( http, addr, hostname, is_https, path, path_len, hops, now, range_start, is_stream );
 }
 
 #define fd_stem_publish test_stem_publish
@@ -303,12 +304,25 @@ test_stream( void ) {
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==4UL && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
 
-  /* More bytes.  A stream only needs a byte per download speed
-     window. */
+  /* A download speed window belongs to one request: an expired one
+     left by the last poll does not cancel the next. */
+  ctx->window_deadline = 1L;
+  ctx->bytes_in_window = 0UL;
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->window_deadline==LONG_MAX && ctx->fast_boot_stream.wait==LONG_MAX && http->state!=FD_SSHTTP_STATE_INIT );
+
+  /* More bytes.  A stream only needs a byte per window. */
+  int conn = serve_one_open( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 8-11/12\r\nContent-Length: 4\r\n\r\n" );
+  for( int i=0; i<100 && http->state!=FD_SSHTTP_STATE_DL; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( http->state==FD_SSHTTP_STATE_DL );
   ctx->window_deadline     = 1L;
+  ctx->bytes_in_window     = 1UL;
   ctx->min_bytes_in_window = ULONG_MAX;
-  serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 8-11/12\r\nContent-Length: 4\r\n\r\nmore" );
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->window_deadline!=LONG_MAX && ctx->fast_boot_stream.wait==LONG_MAX );
+  FD_TEST( 4L==send( conn, "more", 4UL, 0 ) );
   drive_until( ctx, &ctx->fast_boot_stream.off, 12UL );
+  FD_TEST( !close( conn ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==5UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
 
   /* The stream ended: the next request asks for the newest stream. */

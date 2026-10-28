@@ -335,6 +335,17 @@ handle_connection_failure( fd_snapld_tile_t * ctx,
   return 1;
 }
 
+/* publish_caught_up reports, once per stream, that the stream has
+   been read as far as the server has it. */
+
+static void
+publish_caught_up( fd_snapld_tile_t *  ctx,
+                   fd_stem_context_t * stem ) {
+  if( FD_LIKELY( ctx->fast_boot_stream.caught_up ) ) return;
+  ctx->fast_boot_stream.caught_up = 1;
+  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
 static int
 check_download_progress( fd_snapld_tile_t *  ctx,
                          fd_stem_context_t * stem,
@@ -435,6 +446,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         return;
       }
       ctx->fast_boot_stream.wait = LONG_MAX;
+      ctx->window_deadline       = LONG_MAX;
     }
 
     int   downloading = 0;
@@ -542,6 +554,7 @@ after_credit( fd_snapld_tile_t *  ctx,
           if( FD_UNLIKELY( slot>replay_slot ) ) {
             FD_LOG_NOTICE(( "the next fast boot stream starts at slot %lu, ahead of replay at slot %lu, waiting", slot, replay_slot ));
             fd_sshttp_cancel( ctx->sshttp );
+            ctx->window_deadline       = LONG_MAX;
             ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
             break;
           }
@@ -584,48 +597,28 @@ after_credit( fd_snapld_tile_t *  ctx,
         break;
       }
       case FD_SSHTTP_ADVANCE_DONE:
-        if( FD_UNLIKELY( !ctx->sent_meta ) ) {
-          FD_LOG_WARNING(( "zero-length HTTP response for %s snapshot", ctx->load_full ? "full" : "incremental" ));
-          transition_malformed( ctx, stem );
-          fd_sshttp_cancel( ctx->sshttp );
-          break;
-        }
-        if( FD_UNLIKELY( ctx->fast_boot_stream.active ) ) {
-          ctx->fast_boot_stream.wait = now;
-          break;
-        }
         FD_LOG_INFO(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
-      case FD_SSHTTP_ADVANCE_NOT_YET:
-        if( FD_UNLIKELY( !ctx->fast_boot_stream.caught_up ) ) {
-          ctx->fast_boot_stream.caught_up = 1;
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, 0UL, 0UL, 0UL );
-        }
+      case FD_SSHTTP_ADVANCE_NOT_FOUND:
+        FD_LOG_WARNING(( "%s snapshot not found at the peer", ctx->load_full ? "full" : "incremental" ));
+        transition_malformed( ctx, stem );
+        break;
+      case FD_SSHTTP_ADVANCE_STREAM_CHUNK:
+        ctx->fast_boot_stream.wait = now;
+        break;
+      case FD_SSHTTP_ADVANCE_STREAM_IDLE:
+        publish_caught_up( ctx, stem );
         ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
         break;
-      case FD_SSHTTP_ADVANCE_NOT_FOUND:
-        if( FD_UNLIKELY( !ctx->fast_boot_stream.active ) ) {
-          FD_LOG_WARNING(( "%s snapshot not found at the peer", ctx->load_full ? "full" : "incremental" ));
-          transition_malformed( ctx, stem );
-          break;
-        }
-        if( FD_UNLIKELY( !ctx->sent_meta || ctx->fast_boot_stream.next_stream ) ) {
-          /* The server has no stream right now.  It may be between two
-             streams. */
-          ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
-          break;
-        }
-
-        /* If fast boot is enabled, this state indicates we've consumed
-           everything in the current stream.  We are now ready for the
-           next stream. */
-        if( FD_UNLIKELY( !ctx->fast_boot_stream.caught_up ) ) {
-          ctx->fast_boot_stream.caught_up = 1;
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, 0UL, 0UL, 0UL );
-        }
-
+      case FD_SSHTTP_ADVANCE_STREAM_ABSENT:
+        /* The server has no stream right now.  It may be between two
+           streams. */
+        ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
+        break;
+      case FD_SSHTTP_ADVANCE_STREAM_ENDED:
+        publish_caught_up( ctx, stem );
         FD_LOG_INFO(( "the fast boot stream ended after %lu bytes, following the next one", ctx->fast_boot_stream.off ));
         ctx->fast_boot_stream.next_stream      = 1;
         ctx->fast_boot_stream.next_stream_slot = ULONG_MAX;
@@ -713,7 +706,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       if( !ctx->load_file ) {
         FD_TEST( sz==sizeof(fd_ssctrl_start_t) );
         fd_ssctrl_start_t const * msg = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
-        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg->addr, msg->hostname, msg->is_https, msg->path, msg->path_len, 4UL, fd_clock_tile_now( ctx->clock ), 0UL ) ) ) {
+        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg->addr, msg->hostname, msg->is_https, msg->path, msg->path_len, 4UL, fd_clock_tile_now( ctx->clock ), 0UL, ctx->fast_boot_stream.active ) ) ) {
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;

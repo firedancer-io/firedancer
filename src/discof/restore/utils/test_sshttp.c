@@ -63,6 +63,24 @@ advance_until_terminal( fd_sshttp_t * http ) {
   return run_request( http, body, sizeof(body), &body_len, &last_len );
 }
 
+/* A 200 with an empty body has nothing to load: an error, which is
+   what keeps the loader's "response complete" from ever running before
+   its first data. */
+
+static void
+test_empty_body( void ) {
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+  FD_TEST( http );
+
+  int server = connect_pair( http );
+  char const * resp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+  FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
+  FD_TEST( FD_SSHTTP_ADVANCE_ERROR==advance_until_terminal( http ) );
+
+  FD_TEST( 0==close( server ) );
+  fd_sshttp_cancel( http );
+}
+
 /* A server that closes after a complete header, without ever sending
    the body it promised, must fail the download rather than spin on the
    readable EOF socket. */
@@ -169,7 +187,7 @@ test_plaintext_host( char const * hostname,
 
   fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
   fd_ip4_port_t peer = { .addr = addr.sin_addr.s_addr, .port = addr.sin_port };
-  FD_TEST( !fd_sshttp_init( http, peer, hostname, 0, "/snapshot.tar.bz2", 17UL, 4UL, 0L, 0UL ) );
+  FD_TEST( !fd_sshttp_init( http, peer, hostname, 0, "/snapshot.tar.bz2", 17UL, 4UL, 0L, 0UL, 0 ) );
   int server = accept( listener, NULL, NULL );
   FD_TEST( server!=-1 );
   FD_TEST( !fcntl( server, F_SETFL, fcntl( server, F_GETFL, 0 )|O_NONBLOCK ) );
@@ -223,25 +241,30 @@ run_request( fd_sshttp_t * http,
   FD_LOG_ERR(( "fd_sshttp_advance never terminated" ));
 }
 
-/* A ranged request answered with 206 delivers the partial body. */
+/* A ranged request answered with 206 delivers the partial body and
+   ends the request: DONE for a file, STREAM_CHUNK for a stream. */
 
 static void
 test_range_partial( void ) {
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
-  FD_TEST( http );
+  for( int stream=0; stream<=1; stream++ ) {
+    fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+    FD_TEST( http );
 
-  int server = connect_pair( http );
-  http->range_start = 10UL;
-  char const * resp = "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 10-14/15\r\nContent-Length: 5\r\n\r\nhello";
-  FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
+    int server = connect_pair( http );
+    http->range_start = 10UL;
+    http->is_stream   = stream;
+    char const * resp = "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 10-14/15\r\nContent-Length: 5\r\n\r\nhello";
+    FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
 
-  uchar body[ 16 ];
-  ulong body_len, last_len;
-  FD_TEST( FD_SSHTTP_ADVANCE_DONE==run_request( http, body, sizeof(body), &body_len, &last_len ) );
-  FD_TEST( body_len==5UL && !memcmp( body, "hello", 5UL ) );
+    uchar body[ 16 ];
+    ulong body_len, last_len;
+    int   res = run_request( http, body, sizeof(body), &body_len, &last_len );
+    FD_TEST( res==( stream ? FD_SSHTTP_ADVANCE_STREAM_CHUNK : FD_SSHTTP_ADVANCE_DONE ) );
+    FD_TEST( body_len==5UL && !memcmp( body, "hello", 5UL ) );
 
-  FD_TEST( 0==close( server ) );
-  fd_sshttp_cancel( http );
+    FD_TEST( 0==close( server ) );
+    fd_sshttp_cancel( http );
+  }
 }
 
 /* A 200 to a ranged request means the server ignored the range and is
@@ -325,27 +348,34 @@ test_range_missing( void ) {
   fd_sshttp_cancel( http );
 }
 
-/* 416 means the tail the caller asked for does not exist yet, so the
-   request finishes with no bytes and the caller can ask again. */
+/* 416 to a stream poll means the tail does not exist yet: the poll
+   finishes idle, with no bytes, and the caller asks again.  A file
+   request never asks for a tail that may not exist, so a 416 is an
+   error there. */
 
 static void
 test_range_not_satisfiable( void ) {
-  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
-  FD_TEST( http );
+  for( int stream=0; stream<=1; stream++ ) {
+    fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+    FD_TEST( http );
 
-  int server = connect_pair( http );
-  http->range_start = 10UL;
-  char const * resp = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n";
-  FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
+    int server = connect_pair( http );
+    http->range_start = 10UL;
+    http->is_stream   = stream;
+    char const * resp = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n";
+    FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
 
-  uchar body[ 16 ];
-  ulong body_len, last_len;
-  FD_TEST( FD_SSHTTP_ADVANCE_NOT_YET==run_request( http, body, sizeof(body), &body_len, &last_len ) );
-  FD_TEST( !body_len && !last_len );
-  FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
+    uchar body[ 16 ];
+    ulong body_len, last_len;
+    int   res = run_request( http, body, sizeof(body), &body_len, &last_len );
+    FD_TEST( res==( stream ? FD_SSHTTP_ADVANCE_STREAM_IDLE : FD_SSHTTP_ADVANCE_ERROR ) );
+    FD_TEST( !body_len );
+    if( stream ) FD_TEST( !last_len );
+    FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
-  FD_TEST( 0==close( server ) );
-  fd_sshttp_cancel( http );
+    FD_TEST( 0==close( server ) );
+    fd_sshttp_cancel( http );
+  }
 }
 
 /* A redirect to a fast boot stream name resolves its slot and hash. */
@@ -390,22 +420,31 @@ test_redirect_stream_name( void ) {
   fd_sshttp_cancel( http );
 }
 
-/* A 404 means there is no such file, ranged or not. */
+/* A 404 means there is no such file, ranged or not.  For a stream it
+   means no stream is open when the request had no offset, and that
+   the stream being read ended when it had one. */
 
 static void
 test_not_found( void ) {
-  for( ulong range_start=0UL; range_start<=10UL; range_start+=10UL ) {
+  struct { int stream; ulong range_start; int expect; } cases[] = {
+    { 0, 0UL,  FD_SSHTTP_ADVANCE_NOT_FOUND     },
+    { 0, 10UL, FD_SSHTTP_ADVANCE_NOT_FOUND     },
+    { 1, 0UL,  FD_SSHTTP_ADVANCE_STREAM_ABSENT },
+    { 1, 10UL, FD_SSHTTP_ADVANCE_STREAM_ENDED  },
+  };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
     fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
     FD_TEST( http );
 
     int server = connect_pair( http );
-    http->range_start = range_start;
+    http->range_start = cases[ i ].range_start;
+    http->is_stream   = cases[ i ].stream;
     char const * resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
     FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
 
     uchar body[ 16 ];
     ulong body_len, last_len;
-    FD_TEST( FD_SSHTTP_ADVANCE_NOT_FOUND==run_request( http, body, sizeof(body), &body_len, &last_len ) );
+    FD_TEST( cases[ i ].expect==run_request( http, body, sizeof(body), &body_len, &last_len ) );
     FD_TEST( !body_len && !last_len );
     FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
@@ -433,12 +472,12 @@ test_range_request( void ) {
   FD_TEST( !listen( listen_fd, 1 ) );
   fd_ip4_port_t addr = { .addr = sa.sin_addr.s_addr, .port = sa.sin_port };
 
-  FD_TEST( !fd_sshttp_init( http, addr, "localhost", 0, "/boot/7.tar.zst", 15UL, 4UL, 0L, 0UL ) );
+  FD_TEST( !fd_sshttp_init( http, addr, "localhost", 0, "/boot/7.tar.zst", 15UL, 4UL, 0L, 0UL, 0 ) );
   FD_TEST( strstr( http->request, "GET /boot/7.tar.zst HTTP/1.1" ) );
   FD_TEST( !strstr( http->request, "Range:" ) );
   fd_sshttp_cancel( http );
 
-  FD_TEST( !fd_sshttp_init( http, addr, "localhost", 0, "/boot/7.tar.zst", 15UL, 4UL, 0L, 4096UL ) );
+  FD_TEST( !fd_sshttp_init( http, addr, "localhost", 0, "/boot/7.tar.zst", 15UL, 4UL, 0L, 4096UL, 0 ) );
   FD_TEST( strstr( http->request, "Range: bytes=4096-\r\n" ) );
   fd_sshttp_cancel( http );
 
@@ -446,6 +485,12 @@ test_range_request( void ) {
   FD_TEST( !fd_sshttp_resume( http, 0L, 8192UL ) );
   FD_TEST( strstr( http->request, "GET /boot/7.tar.zst HTTP/1.1" ) );
   FD_TEST( strstr( http->request, "Range: bytes=8192-\r\n" ) );
+  fd_sshttp_cancel( http );
+
+  /* A resume keeps the request kind. */
+  FD_TEST( !fd_sshttp_init( http, addr, "localhost", 0, "/boot/7.tar.zst", 15UL, 4UL, 0L, 0UL, 1 ) );
+  fd_sshttp_cancel( http );
+  FD_TEST( !fd_sshttp_resume( http, 0L, 8192UL ) && http->is_stream );
   fd_sshttp_cancel( http );
 
   /* After a redirect a resume stays on the new name, except from the
@@ -472,6 +517,7 @@ main( int     argc,
 
   test_plaintext_host( "snapshots.example.com", "\r\nHost: snapshots.example.com\r\n\r\n" );
   test_plaintext_host( "", "\r\nHost: 127.0.0.1\r\n\r\n" );
+  test_empty_body();
   test_eof_during_body();
   test_eof_during_headers();
   test_eof_immediate();
