@@ -319,7 +319,6 @@ struct fd_bank {
     fd_hash_t              prev_bank_hash;
     fd_epoch_schedule_t    epoch_schedule;
     fd_rent_t              rent;
-    fd_sysvar_cache_t      sysvar_cache;
     fd_features_t          features;
     ulong                  txn_count;
     ulong                  nonvote_txn_count;

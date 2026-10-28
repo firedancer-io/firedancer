@@ -941,9 +941,8 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                          fd_txn_out_t *      txn_out ) {
   if( FD_LIKELY( TXN( txn_in->txn )->transaction_version==FD_TXN_V0 ) ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
-    fd_sysvar_cache_t const * sysvar_cache = &bank->f.sysvar_cache;
     fd_slot_hashes_t slot_hashes_view[1];
-    if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( sysvar_cache, slot_hashes_view ) ) ) {
+    if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( runtime->sysvar_cache, slot_hashes_view ) ) ) {
       FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
@@ -1188,7 +1187,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( runtime->instr.stack_sz ) ) runtime->metrics.cpi_cum++;
   else                                         runtime->metrics.instr_cum++;
 
-  fd_sysvar_cache_t const * sysvar_cache = &bank->f.sysvar_cache;
+  fd_sysvar_cache_t const * sysvar_cache = runtime->sysvar_cache;
   int instr_exec_result = fd_instr_stack_push( runtime, txn_in, txn_out, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );

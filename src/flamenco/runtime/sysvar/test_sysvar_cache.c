@@ -80,7 +80,9 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   env->accdb_join_mem  = join_mem;
   env->accdb           = accdb;
   env->bank            = bank;
-  env->sysvar_cache    = fd_sysvar_cache_join( fd_sysvar_cache_new( &bank->f.sysvar_cache ) );
+  void * cache_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_sysvar_cache_t), sizeof(fd_sysvar_cache_t), wksp_tag );
+  FD_TEST( cache_mem );
+  env->sysvar_cache    = fd_sysvar_cache_join( fd_sysvar_cache_new( cache_mem ) );
 
   return env;
 }
@@ -88,7 +90,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
 void
 test_sysvar_cache_env_destroy( test_sysvar_cache_env_t * env ) {
   FD_TEST( env );
-  FD_TEST( fd_sysvar_cache_delete( fd_sysvar_cache_leave( env->sysvar_cache ) ) );
+  fd_wksp_free_laddr( fd_sysvar_cache_delete( fd_sysvar_cache_leave( env->sysvar_cache ) ) );
   fd_wksp_free_laddr( env->bank );
   /* The accdb has no leave/delete API; rely on process exit to reclaim
      the shmem and join allocations.  Match the cleanup pattern used by

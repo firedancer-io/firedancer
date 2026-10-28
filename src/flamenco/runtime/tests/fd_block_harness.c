@@ -275,10 +275,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   bank->f.warmup_cooldown_rate_epoch = 0UL;
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore_fuzz( bank, accdb );
+  fd_sysvar_cache_t * sysvar_cache = runner->runtime->sysvar_cache;
+  fd_sysvar_cache_restore_fuzz( sysvar_cache, accdb, bank->accdb_fork_id );
+  runner->runtime->sysvar_bank_seq = 0UL; /* refreshed again after block_execute_prepare */
 
   /* Epoch schedule */
-  FD_TEST( fd_sysvar_cache_epoch_schedule_read( &bank->f.sysvar_cache, &bank->f.epoch_schedule ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( sysvar_cache, &bank->f.epoch_schedule ) );
 
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */
@@ -353,7 +355,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_lthash_end_locking_modify( bank );
 
   /* Rent */
-  FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
+  FD_TEST( fd_sysvar_cache_rent_read( sysvar_cache, &runner->bank->f.rent ) );
 
   /* Prepare raw transaction pointers and block / microblock infos */
   ulong        txn_cnt  = test_ctx->txns_count;

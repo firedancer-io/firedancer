@@ -577,9 +577,6 @@ deprecate_rent_exemption_threshold( fd_bank_t *        bank,
   rent.exemption_threshold     = FD_SIMD_0194_NEW_RENT_EXEMPTION_THRESHOLD;
   rent.burn_percent            = FD_SIMD_0194_NEW_BURN_PERCENT;
 
-  /* We don't refresh the sysvar cache here. The cache is refreshed in
-     fd_sysvar_cache_restore, which is called at the start of every
-     block in fd_runtime_block_execute_prepare, after this function. */
   bank->f.rent = rent;
   fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
 }
@@ -959,7 +956,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
   fd_features_prepopulate_upcoming( bank, accdb );
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, capture_ctx );
-  FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
+  FD_TEST( fd_sysvar_cache_validate( bank, accdb ) );
 }
 
 static void
@@ -1262,7 +1259,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
         fd_stake_history_t stake_history[1];
         fd_stakes_update_stake_delegation( pubkey, account, bank,
-            fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history ), txn_in );
+            fd_sysvar_cache_stake_history_view( runtime->sysvar_cache, stake_history ), txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {
@@ -1458,11 +1455,21 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
 }
 
 void
+fd_runtime_sysvar_cache_refresh( fd_runtime_t *    runtime,
+                                 fd_bank_t const * bank ) {
+  if( FD_LIKELY( runtime->sysvar_bank_seq==bank->bank_seq ) ) return;
+  fd_sysvar_cache_restore( runtime->sysvar_cache, runtime->accdb, bank->accdb_fork_id );
+  runtime->sysvar_bank_seq = bank->bank_seq;
+  runtime->metrics.bank_switch_cnt++;
+}
+
+void
 fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
                                     fd_bank_t *         bank,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
   fd_runtime_reset_runtime( runtime );
+  fd_runtime_sysvar_cache_refresh( runtime, bank );
 
   fd_runtime_new_txn_out( txn_in, txn_out );
 
@@ -2102,6 +2109,8 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
 
   runtime->accounts.account_cnt    = 0UL;
   runtime->accounts.executable_cnt = 0UL;
+
+  fd_runtime_sysvar_cache_refresh( runtime, bank );
 
   uchar const * acquire_pubkeys[ FD_BUNDLE_ACCT_MAX ];
   int           acquire_writable[ FD_BUNDLE_ACCT_MAX ];

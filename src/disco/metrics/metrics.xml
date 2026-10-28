@@ -748,6 +748,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="InstructionExecuted" summary="Top-level instructions executed" />
     <counter name="CpiExecuted" summary="Cross-program invocations executed" />
     <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" />
+    <counter name="BankSwitched" summary="Cache invalidations due to transaction execution from a different block" />
     <counter name="CuConsumed" summary="Compute units consumed by executed transactions" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
@@ -1705,6 +1706,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="InstructionExecuted" summary="Top-level instructions executed" />
     <counter name="CpiExecuted" summary="Cross-program invocations executed" />
     <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" />
+    <counter name="BankSwitched" summary="Cache invalidations due to transaction execution from a different block" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
     <counter name="VmRegimeDurationNanos" enum="VmRegime" source="ticks" summary="Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute" />

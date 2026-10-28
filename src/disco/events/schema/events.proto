@@ -9644,6 +9644,8 @@ message MetricsExecle {
   uint64 accdb_disk_written = 60;
   // Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded
   uint64 accdb_copied_bytes = 61;
+  // Cache invalidations due to transaction execution from a different block
+  uint64 bank_switched = 62;
 }
 
 // Metrics of one shred tile instance, one row per sweep
@@ -11526,6 +11528,8 @@ message MetricsExecrp {
   uint64 accdb_disk_written = 62;
   // Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded
   uint64 accdb_copied_bytes = 63;
+  // Cache invalidations due to transaction execution from a different block
+  uint64 bank_switched = 64;
 }
 
 // Metrics of one votor tile instance, one row per sweep

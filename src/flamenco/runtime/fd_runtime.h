@@ -78,6 +78,11 @@ struct fd_runtime {
   fd_txncache_t *  status_cache;
   fd_progcache_t * progcache;
 
+  /* Sysvars of the bank with sequence number sysvar_bank_seq (0 if
+     none).  Refilled by fd_runtime_sysvar_cache_refresh. */
+  ulong             sysvar_bank_seq;
+  fd_sysvar_cache_t sysvar_cache[1];
+
   struct {
     uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
     fd_exec_instr_ctx_t stack[ FD_MAX_INSTRUCTION_STACK_DEPTH ]; /* Instruction execution stack. */
@@ -217,6 +222,8 @@ struct fd_runtime {
     /* Committed writable accounts left byte-identical by the txn,
        whose lthash update was skipped */
     ulong lthash_unchanged_cnt;
+
+    ulong bank_switch_cnt;
   } metrics;
 
   struct {
@@ -400,6 +407,15 @@ fd_runtime_fee_split( ulong   execution_fees,
                       ulong   priority_fees,
                       ulong * burn,
                       ulong * reward );
+
+/* fd_runtime_sysvar_cache_refresh makes runtime->sysvar_cache hold the
+   sysvars of bank, reading them from the accounts database if the cache
+   holds a different bank.  Must not be called while an accdb acquire is
+   open, unless the cache already holds bank (then it is a no-op). */
+
+void
+fd_runtime_sysvar_cache_refresh( fd_runtime_t *    runtime,
+                                 fd_bank_t const * bank );
 
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of

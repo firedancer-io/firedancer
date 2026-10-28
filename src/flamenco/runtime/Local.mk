@@ -77,6 +77,8 @@ $(call add-objs,fd_runtime,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_lamports_per_byte_feature_gates,test_lamports_per_byte_feature_gates,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_lamports_per_byte_feature_gates)
+$(call make-unit-test,test_runtime_sysvar_cache,test_runtime_sysvar_cache,fd_flamenco_test fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_runtime_sysvar_cache)
 $(call make-unit-test,test_vat_refresh_vote_accounts,test_vat_refresh_vote_accounts,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vat_refresh_vote_accounts)
 $(call make-unit-test,test_define_ltds_fee_only_semantics,test_define_ltds_fee_only_semantics,fd_flamenco_test fd_flamenco fd_ballet fd_util)
