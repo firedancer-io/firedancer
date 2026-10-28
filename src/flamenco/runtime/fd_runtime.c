@@ -1693,7 +1693,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
       fd_accdb_unread_one( accdb, &ro );
     }
 
-    fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, ULONG_MAX, &new_rate_activation_epoch );
+    fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, NULL, ULONG_MAX, &new_rate_activation_epoch );
   }
 
   /* At genesis (epoch 0) there is no previous epoch, so the t-2 set

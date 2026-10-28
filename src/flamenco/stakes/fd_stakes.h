@@ -133,13 +133,15 @@ fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
                                       ulong             data_len );
 
 /* rewarded_epoch selects the epoch whose effective delegated stakes
-   should be accumulated for rewards.  ULONG_MAX disables this work. */
+   should be accumulated for rewards, evaluated against reward_history.
+   ULONG_MAX disables this work. */
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_accdb_t *                   accdb,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
+                          fd_stake_history_t const *     reward_history,
                           ulong                          rewarded_epoch,
                           ulong *                        new_rate_activation_epoch );
 

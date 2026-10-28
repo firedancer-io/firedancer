@@ -552,6 +552,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
+                          fd_stake_history_t const *     reward_history,
                           ulong                          rewarded_epoch,
                           ulong *                        new_rate_activation_epoch ) {
   bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id );
@@ -596,7 +597,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       if( FD_LIKELY( st==FD_STAKE_DELEGATION_STATE_WARMED ) ) {
         reward_stake = stake_delegation->stake;
       } else if( st!=FD_STAKE_DELEGATION_STATE_COOLED ) {
-        reward_stake = fd_stake_delegation_activation_status( stake_delegation, rewarded_epoch, history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+        reward_stake = fd_stake_delegation_activation_status( stake_delegation, rewarded_epoch, reward_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
       }
     }
 
@@ -793,6 +794,30 @@ fd_stakes_burn_vat( fd_bank_t *         bank,
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_vat_burn( burn_per_epoch );
 }
 
+/* read_stake_history copies the StakeHistory sysvar into data and
+   returns a view of it, or NULL if the sysvar is missing.  The copy
+   lets the caller release the accdb bracket before acquires of its
+   own: fd_sysvar_stake_history_view aliases the source bytes. */
+
+static fd_stake_history_t *
+read_stake_history( fd_accdb_t *         accdb,
+                    fd_accdb_fork_id_t   fork_id,
+                    uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
+                    fd_stake_history_t * view ) {
+  fd_acc_t ro = fd_accdb_read_one( accdb, fork_id, fd_sysvar_stake_history_id.uc );
+  if( FD_UNLIKELY( !ro.lamports ) ) {
+    fd_accdb_unread_one( accdb, &ro );
+    return NULL;
+  }
+  ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_memcpy( data, ro.data, copy_sz );
+  fd_accdb_unread_one( accdb, &ro );
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( view, data, copy_sz ) ) ) {
+    FD_LOG_HEXDUMP_ERR(( "Invalid StakeHistory sysvar", data, copy_sz ));
+  }
+  return view;
+}
+
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
@@ -845,26 +870,22 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     elem.deactivating = deactivating;
   }
 
+  /* The rewarded epoch's stakes are evaluated against the StakeHistory
+     without this boundary's entry.  Lookups index by distance from the
+     newest entry, so the two differ unless the newest entry is for the
+     epoch before.
+     https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/runtime/src/stakes.rs#L461-L516 */
+  uchar                reward_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_stake_history_t   reward_history_[1];
+  fd_stake_history_t * reward_history = read_stake_history( accdb, bank->accdb_fork_id, reward_history_data, reward_history_ );
+
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_stake_history( &elem );
 
-  /* Snapshot the stake history sysvar into a local buffer and release
-     the accdb bracket before calling fd_refresh_vote_accounts, which
-     performs its own accdb acquires.  fd_sysvar_stake_history_view
-     aliases the source bytes, so the bracket cannot be held open across
-     an inner acquire. */
-  uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
-  fd_stake_history_t stake_history[1];
-  {
-    fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-    if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing" ));
-    ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-    fd_memcpy( stake_history_data, ro.data, copy_sz );
-    fd_accdb_unread_one( accdb, &ro );
-    if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, stake_history_data, copy_sz ) ) ) {
-      FD_LOG_HEXDUMP_ERR(( "Invalid StakeHistory sysvar", stake_history_data, copy_sz ));
-    }
-  }
+  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_stake_history_t   stake_history_[1];
+  fd_stake_history_t * stake_history = read_stake_history( accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
+  if( FD_UNLIKELY( !stake_history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing" ));
 
   if( FD_UNLIKELY( !fd_sysvar_stake_history_is_contiguous( stake_history ) ) ) {
     fd_stake_delegations_invalidate_warmed( stake_delegations, 1 );
@@ -882,6 +903,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                             runtime_stack,
                             stake_delegations,
                             stake_history,
+                            reward_history,
                             rewarded_epoch,
                             new_rate_activation_epoch );
   fd_stakes_burn_vat( bank, accdb, capture_ctx );
