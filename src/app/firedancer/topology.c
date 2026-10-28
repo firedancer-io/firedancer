@@ -1192,9 +1192,12 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
-  /* Snapin and genesi are mutually exclusive accdb writers. */
+  /* Snapin and genesi are mutually exclusive accdb writers.  snapdc
+     helps build the disk index. */
+  int   snapdc_idx    = snapshots_enabled && !!config->firedancer.accounts.index_ram_max;
   ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+resolv_tile_cnt
-                      + fd_ulong_if( snapshots_enabled, snapin_tile_cnt, 1UL );
+                      + fd_ulong_if( snapshots_enabled, snapin_tile_cnt, 1UL )
+                      + fd_ulong_if( snapdc_idx, snapdc_tile_cnt, 0UL );
   ulong partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
@@ -1224,6 +1227,7 @@ fd_topo_initialize( config_t * config ) {
       fd_topob_tile_uses( topo, snapin_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
       fd_topob_tile_uses( topo, snapin_tile, shmem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
+    if( snapdc_idx ) FOR(snapdc_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
   fd_topo_obj_t * backup_obj = NULL;
   if( snapmk_enabled ) {
@@ -1539,6 +1543,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapld.wfs_shred_version                 = config->consensus.expected_shred_version;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
+
+    tile->snapdc.accdb_obj_id   = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
+    tile->snapdc.max_live_slots = config->firedancer.runtime.max_live_slots;
+    tile->snapdc.max_accounts   = config->firedancer.accounts.max_accounts;
+    tile->snapdc.index_ram_max  = config->firedancer.accounts.index_ram_max;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 

@@ -456,8 +456,10 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RO+i, F_SETFD, tile_uses_idx_ro ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
-        /* snapin builds the index from the spill, accdb punches it out. */
-        int tile_uses_spill = !strcmp( tile->name, "snapin" ) || !strcmp( tile->name, "accdb" );
+        /* snapin and snapdc build the index from the spill, accdb
+           punches it out. */
+        int tile_uses_spill = !strcmp( tile->name, "snapin" ) || !strcmp( tile->name, "accdb" ) ||
+                              ( !strcmp( tile->name, "snapdc" ) && tile_uses_accdb );
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_SPILL_FD, F_SETFD, tile_uses_spill ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         if( FD_LIKELY( has_store ) ) {

@@ -688,6 +688,13 @@ struct fd_topo_tile {
     } snapld;
 
     struct {
+      ulong accdb_obj_id;
+      ulong max_live_slots;
+      ulong max_accounts;
+      ulong index_ram_max;
+    } snapdc;
+
+    struct {
       ulong     wait_for_supermajority_at_slot;
       fd_hash_t wait_for_supermajority_with_bank_hash;
       ushort    expected_shred_version;
