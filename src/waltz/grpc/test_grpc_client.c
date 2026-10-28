@@ -932,8 +932,9 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   static uchar client_mem[ 262144 ] __attribute__((aligned(128)));
-  ulong const buf_max = 4096UL;
-  FD_TEST( fd_grpc_client_footprint( buf_max, buf_max )<=sizeof(client_mem) );
+  ulong const buf_max   = 8192UL; /* distinct from the frame rings */
+  ulong const frame_max = 4096UL;
+  FD_TEST( fd_grpc_client_footprint( buf_max, frame_max, frame_max )<=sizeof(client_mem) );
 
   fd_grpc_client_callbacks_t callbacks = {
     .rx_start   = cb_rx_start,
@@ -944,7 +945,8 @@ main( int     argc,
   fd_grpc_client_metrics_t metrics = {0};
   void * app_ctx = (void *)( 0x1234UL );
   ulong rng_seed = 1UL;
-  client = fd_grpc_client_new( client_mem, &callbacks, &metrics, app_ctx, buf_max, buf_max, rng_seed );
+  client = fd_grpc_client_new( client_mem, &callbacks, &metrics, app_ctx, buf_max, frame_max, frame_max, rng_seed );
+  FD_TEST( client && client->nanopb_tx_max==buf_max && client->frame_tx_buf_max==frame_max && client->frame_rx_buf_max==frame_max && client->frame_scratch_max==frame_max );
   FD_TEST( client );
 
   fd_unit_tests( argc, argv );

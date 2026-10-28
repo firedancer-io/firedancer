@@ -17,13 +17,14 @@ fd_grpc_client_align( void ) {
 
 ulong
 fd_grpc_client_footprint( ulong buf_max,
+                          ulong frame_max,
                           ulong rx_msg_max ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_grpc_client_t), sizeof(fd_grpc_client_t) );
-  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* nanopb_tx */
-  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_scratch */
-  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_rx_buf */
-  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_tx_buf */
+  l = FD_LAYOUT_APPEND( l, 1UL, buf_max   ); /* nanopb_tx */
+  l = FD_LAYOUT_APPEND( l, 1UL, frame_max ); /* frame_scratch */
+  l = FD_LAYOUT_APPEND( l, 1UL, frame_max ); /* frame_rx_buf */
+  l = FD_LAYOUT_APPEND( l, 1UL, frame_max ); /* frame_tx_buf */
   l = FD_LAYOUT_APPEND( l, fd_grpc_h2_stream_pool_align(), fd_grpc_h2_stream_pool_footprint( FD_GRPC_CLIENT_MAX_STREAMS ) );
   l = FD_LAYOUT_APPEND( l, 1UL, rx_msg_max*FD_GRPC_CLIENT_MAX_STREAMS );
   return FD_LAYOUT_FINI( l, fd_grpc_client_align() );
@@ -50,13 +51,14 @@ fd_grpc_client_new( void *                             mem,
                     fd_grpc_client_metrics_t *         metrics,
                     void *                             app_ctx,
                     ulong                              buf_max,
+                    ulong                              frame_max,
                     ulong                              rx_msg_max,
                     ulong                              rng_seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
-  if( FD_UNLIKELY( buf_max<4096UL || rx_msg_max<4096UL ) ) {
+  if( FD_UNLIKELY( buf_max<4096UL || frame_max<4096UL || rx_msg_max<4096UL ) ) {
     FD_LOG_WARNING(( "undersz buf_max" ));
     return NULL;
   }
@@ -67,14 +69,14 @@ fd_grpc_client_new( void *                             mem,
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * client_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_grpc_client_t), sizeof(fd_grpc_client_t) );
-  void * nanopb_tx       = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* nanopb_tx */
-  void * frame_scratch   = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_scratch */
-  void * frame_rx_buf    = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_rx_buf */
-  void * frame_tx_buf    = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_tx_buf */
+  void * nanopb_tx       = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max   ); /* nanopb_tx */
+  void * frame_scratch   = FD_SCRATCH_ALLOC_APPEND( l, 1UL, frame_max ); /* frame_scratch */
+  void * frame_rx_buf    = FD_SCRATCH_ALLOC_APPEND( l, 1UL, frame_max ); /* frame_rx_buf */
+  void * frame_tx_buf    = FD_SCRATCH_ALLOC_APPEND( l, 1UL, frame_max ); /* frame_tx_buf */
   void * stream_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_h2_stream_pool_align(), fd_grpc_h2_stream_pool_footprint( FD_GRPC_CLIENT_MAX_STREAMS ) );
   void * stream_buf_mem  = FD_SCRATCH_ALLOC_APPEND( l, 1UL, rx_msg_max*FD_GRPC_CLIENT_MAX_STREAMS );
   ulong end = FD_SCRATCH_ALLOC_FINI( l, fd_grpc_client_align() );
-  FD_TEST( end-(ulong)mem == fd_grpc_client_footprint( buf_max, rx_msg_max ) );
+  FD_TEST( end-(ulong)mem == fd_grpc_client_footprint( buf_max, frame_max, rx_msg_max ) );
 
   fd_grpc_client_t * client = client_mem;
 
@@ -90,11 +92,11 @@ fd_grpc_client_new( void *                             mem,
     .nanopb_tx         = nanopb_tx,
     .nanopb_tx_max     = buf_max,
     .frame_scratch     = frame_scratch,
-    .frame_scratch_max = buf_max,
+    .frame_scratch_max = frame_max,
     .frame_rx_buf      = frame_rx_buf,
-    .frame_rx_buf_max  = buf_max,
+    .frame_rx_buf_max  = frame_max,
     .frame_tx_buf      = frame_tx_buf,
-    .frame_tx_buf_max  = buf_max,
+    .frame_tx_buf_max  = frame_max,
     .https             = 1,
     .metrics           = metrics
   };
