@@ -7,7 +7,11 @@
 #                 can poll all file descriptors across all tiles at once.
 #                 This tile needs access to the outer file descriptor to
 #                 rearm the inner set after a drain.
-uint logfile_fd, uint in_full_fd, uint in_incr_fd, uint sockfd, uint epoll_inner_fd, uint epoll_outer_fd
+#
+# in_full_dfd, in_incr_dfd: The local snapshot files opened with
+#                           O_DIRECT, read where the page cache does not
+#                           hold them.
+uint logfile_fd, uint in_full_fd, uint in_incr_fd, uint in_full_dfd, uint in_incr_dfd, uint sockfd, uint epoll_inner_fd, uint epoll_outer_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -24,19 +28,19 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# snapshot: need to be able to read from an open file for snapshot
-# loading and from the socket file descriptor.
+# snapshot: need to be able to read from the socket file descriptor.
 #
 # arg 0 is the file descriptor that we want to read from
-read: (or (eq (arg 0) in_full_fd)
-          (eq (arg 0) in_incr_fd)
-          (eq (arg 0) sockfd))
+read: (eq (arg 0) sockfd)
 
-# snapshot: Uses lseek to reset position in input file
-lseek: (and (or (eq (arg 0) in_full_fd)
-                (eq (arg 0) in_incr_fd))
-            (eq (arg 1) 0)
-            (eq (arg 2) "SEEK_SET"))
+# snapshot: local snapshot files are read at explicit offsets, from the
+# page cache (RWF_NOWAIT) or with O_DIRECT.
+#
+# arg 0 is the file descriptor that we want to read from
+preadv2: (or (eq (arg 0) in_full_fd)
+             (eq (arg 0) in_incr_fd)
+             (eq (arg 0) in_full_dfd)
+             (eq (arg 0) in_incr_dfd))
 
 # snapshot: establish connections for snapshot download.
 socket: (and (eq (arg 0) "AF_INET")
@@ -52,7 +56,9 @@ socket: (and (eq (arg 0) "AF_INET")
 connect: (not (or (eq (arg 0) 2)
                   (eq (arg 0) logfile_fd)
                   (eq (arg 0) in_full_fd)
-                  (eq (arg 0) in_incr_fd)))
+                  (eq (arg 0) in_incr_fd)
+                  (eq (arg 0) in_full_dfd)
+                  (eq (arg 0) in_incr_dfd)))
 
 # snapshot: need to close sockets that were opened when calls to connect
 # fail.
@@ -63,7 +69,9 @@ connect: (not (or (eq (arg 0) 2)
 close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) logfile_fd)
                 (eq (arg 0) in_full_fd)
-                (eq (arg 0) in_incr_fd)))
+                (eq (arg 0) in_incr_fd)
+                (eq (arg 0) in_full_dfd)
+                (eq (arg 0) in_incr_dfd)))
 
 # snapshot: send HTTP requests to endpoints for snapshot downloading.
 #
@@ -73,7 +81,9 @@ close: (not (or (eq (arg 0) 2)
 sendto: (not (or (eq (arg 0) 2)
                  (eq (arg 0) logfile_fd)
                  (eq (arg 0) in_full_fd)
-                 (eq (arg 0) in_incr_fd)))
+                 (eq (arg 0) in_incr_fd)
+                 (eq (arg 0) in_full_dfd)
+                 (eq (arg 0) in_incr_dfd)))
 
 # snapshot: we need to be able to receive responses for any requests
 # that were sent out for snapshot download or slot resolution.
@@ -84,7 +94,9 @@ sendto: (not (or (eq (arg 0) 2)
 recvfrom: (not (or (eq (arg 0) 2)
                    (eq (arg 0) logfile_fd)
                    (eq (arg 0) in_full_fd)
-                   (eq (arg 0) in_incr_fd)))
+                   (eq (arg 0) in_incr_fd)
+                   (eq (arg 0) in_full_dfd)
+                   (eq (arg 0) in_incr_dfd)))
 
 # snapshot: if we are bottlenecked by the network, spinning on
 # non-blocking recv() calls will waste power and may have lower

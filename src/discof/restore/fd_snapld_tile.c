@@ -11,6 +11,7 @@
 #include "../../disco/fd_clock_tile.h"
 
 #include <sys/mman.h> /* memfd_create */
+#include <sys/uio.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -30,6 +31,14 @@
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
    for later decompression. */
+
+/* A local file is read in FD_SNAPLD_READ_SZ chunks.  The part of a
+   chunk the page cache holds is copied from it, the rest is read with
+   O_DIRECT: buffered reads of an uncached file are held by readahead
+   well below disk speed. */
+
+#define FD_SNAPLD_READ_SZ    (8UL<<20)
+#define FD_SNAPLD_READ_ALIGN (4096UL)
 
 typedef struct fd_snapld_tile {
 
@@ -58,6 +67,14 @@ typedef struct fd_snapld_tile {
 
   int local_full_fd;
   int local_incr_fd;
+  int local_full_dfd; /* O_DIRECT local_full_fd, -1 if unsupported */
+  int local_incr_dfd;
+
+  uchar * rd_buf; /* FD_SNAPLD_READ_SZ, FD_SNAPLD_READ_ALIGN aligned */
+  ulong   rd_off; /* file offset after the bytes in rd_buf */
+  ulong   rd_len;
+  ulong   rd_pos; /* bytes of rd_buf published */
+
   int sockfd;
 
   ulong   waker_client_idx;
@@ -86,6 +103,7 @@ scratch_align( void ) {
   ulong a = alignof(fd_snapld_tile_t);
   a = fd_ulong_max( a, fd_sshttp_align() );
   a = fd_ulong_max( a, fd_alloc_align() );
+  a = fd_ulong_max( a, FD_SNAPLD_READ_ALIGN );
   return a;
 }
 
@@ -95,6 +113,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND(  l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
   l = FD_LAYOUT_APPEND(  l, fd_sshttp_align(),          fd_sshttp_footprint()    );
   l = FD_LAYOUT_APPEND(  l, fd_alloc_align(),           fd_alloc_footprint()     );
+  l = FD_LAYOUT_APPEND(  l, FD_SNAPLD_READ_ALIGN,       FD_SNAPLD_READ_SZ        );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -118,8 +137,10 @@ privileged_init( fd_topo_t const *      topo,
   char incr_path[ PATH_MAX ] = { 0 };
   uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
   uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
-  ctx->local_full_fd = -1;
-  ctx->local_incr_fd = -1;
+  ctx->local_full_fd  = -1;
+  ctx->local_incr_fd  = -1;
+  ctx->local_full_dfd = -1;
+  ctx->local_incr_dfd = -1;
   /* fd_ssarchive_latest_best needs to be invoked here, irrespective
      of whether snapct may do the same, because this information is
      needed here during privileged_init. */
@@ -140,11 +161,13 @@ privileged_init( fd_topo_t const *      topo,
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
     if( FD_UNLIKELY( -1==ctx->local_full_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", full_path, errno, fd_io_strerror( errno ) ));
     posix_fadvise( ctx->local_full_fd, 0L, 0L, POSIX_FADV_SEQUENTIAL );
+    ctx->local_full_dfd = open( full_path, O_RDONLY|O_CLOEXEC|O_DIRECT );
 
     if( FD_LIKELY( incr_slot!=ULONG_MAX ) ) {
       ctx->local_incr_fd = open( incr_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
       if( FD_UNLIKELY( -1==ctx->local_incr_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", incr_path, errno, fd_io_strerror( errno ) ));
       posix_fadvise( ctx->local_incr_fd, 0L, 0L, POSIX_FADV_SEQUENTIAL );
+      ctx->local_incr_dfd = open( incr_path, O_RDONLY|O_CLOEXEC|O_DIRECT );
     }
   }
 
@@ -164,7 +187,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<9UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
@@ -179,6 +202,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
   if( FD_LIKELY( -1!=ctx->local_full_fd ) ) out_fds[ out_cnt++ ] = ctx->local_full_fd;
   if( FD_LIKELY( -1!=ctx->local_incr_fd ) ) out_fds[ out_cnt++ ] = ctx->local_incr_fd;
+  if( FD_LIKELY( -1!=ctx->local_full_dfd ) ) out_fds[ out_cnt++ ] = ctx->local_full_dfd;
+  if( FD_LIKELY( -1!=ctx->local_incr_dfd ) ) out_fds[ out_cnt++ ] = ctx->local_incr_dfd;
   out_fds[ out_cnt++ ] = ctx->sockfd;
 
   return out_cnt;
@@ -195,7 +220,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 
   uint epoll_inner_fd = (uint)FD_WAKER_INNER_FD( tile->waker_client_idx );
   uint epoll_outer_fd = (uint)FD_WAKER_OUTER_FD;
-  populate_sock_filter_policy_fd_snapld_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_full_fd, (uint)ctx->local_incr_fd, (uint)ctx->sockfd, epoll_inner_fd, epoll_outer_fd );
+  populate_sock_filter_policy_fd_snapld_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_full_fd, (uint)ctx->local_incr_fd, (uint)ctx->local_full_dfd, (uint)ctx->local_incr_dfd, (uint)ctx->sockfd, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_snapld_tile_instr_cnt;
 }
 
@@ -207,6 +232,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_snapld_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
   FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()     );
+  ctx->rd_buf = FD_SCRATCH_ALLOC_APPEND( l, FD_SNAPLD_READ_ALIGN, FD_SNAPLD_READ_SZ );
 
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
   ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
@@ -313,6 +339,51 @@ check_download_progress( fd_snapld_tile_t *  ctx,
   return 0;
 }
 
+/* read_full reads up to sz bytes at off, stopping early only at end of
+   file.  Returns the bytes read, or -1 on error. */
+
+static long
+read_full( int     fd,
+           uchar * buf,
+           ulong   sz,
+           ulong   off ) {
+  ulong got = 0UL;
+  while( got<sz ) {
+    struct iovec iov = { .iov_base = buf+got, .iov_len = sz-got };
+    long r = preadv2( fd, &iov, 1, (long)( off+got ), 0 );
+    if( FD_UNLIKELY( r<0L && errno==EINTR ) ) continue;
+    if( FD_UNLIKELY( r<0L ) ) return -1L;
+    if( !r ) break;
+    got += (ulong)r;
+  }
+  return (long)got;
+}
+
+/* read_chunk refills rd_buf from the snapshot file at rd_off.  Returns
+   the bytes read (0 at end of file), or -1 on error. */
+
+static long
+read_chunk( fd_snapld_tile_t * ctx ) {
+  int fd  = ctx->load_full ? ctx->local_full_fd  : ctx->local_incr_fd;
+  int dfd = ctx->load_full ? ctx->local_full_dfd : ctx->local_incr_dfd;
+  if( FD_UNLIKELY( -1==dfd ) ) return read_full( fd, ctx->rd_buf, FD_SNAPLD_READ_SZ, ctx->rd_off );
+
+  struct iovec iov = { .iov_base = ctx->rd_buf, .iov_len = FD_SNAPLD_READ_SZ };
+  long cached = preadv2( fd, &iov, 1, (long)ctx->rd_off, RWF_NOWAIT );
+  if( FD_UNLIKELY( cached<0L ) ) {
+    if( FD_UNLIKELY( errno!=EAGAIN && errno!=EOPNOTSUPP ) ) return -1L;
+    cached = 0L;
+  }
+  ulong got = (ulong)cached;
+  if( got==FD_SNAPLD_READ_SZ || ( got && ctx->rd_off+got>=ctx->file_sz ) ) return (long)got;
+
+  /* The page cache stops at a page boundary, so the rest is aligned for
+     O_DIRECT, which reads short at end of file. */
+  int  rest_fd = fd_ulong_is_aligned( got, FD_SNAPLD_READ_ALIGN ) ? dfd : fd;
+  long r       = read_full( rest_fd, ctx->rd_buf+got, FD_SNAPLD_READ_SZ-got, ctx->rd_off+got );
+  return r<0L ? -1L : (long)got+r;
+}
+
 static void
 after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -342,20 +413,27 @@ after_credit( fd_snapld_tile_t *  ctx,
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
       return;
     }
-    long result = read( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, out, ctx->out_dc.mtu );
-    if( FD_UNLIKELY( result<=0L ) ) {
-      if( result==0L ) {
-        FD_LOG_INFO(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
-        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
-      } else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
+    if( ctx->rd_pos==ctx->rd_len ) {
+      long r = read_chunk( ctx );
+      if( FD_UNLIKELY( r<0L ) ) {
         FD_LOG_WARNING(( "read() failed on %s snapshot file (%i-%s)", ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
         transition_malformed( ctx, stem );
         return; /* verbose return */
       }
+      ctx->rd_off += (ulong)r;
+      ctx->rd_len  = (ulong)r;
+      ctx->rd_pos  = 0UL;
+    }
+    if( FD_UNLIKELY( ctx->rd_pos==ctx->rd_len ) ) {
+      FD_LOG_INFO(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
     } else {
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, (ulong)result, 0UL, 0UL, 0UL );
-      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, (ulong)result, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+      ulong sz = fd_ulong_min( ctx->out_dc.mtu, ctx->rd_len-ctx->rd_pos );
+      fd_memcpy( out, ctx->rd_buf+ctx->rd_pos, sz );
+      ctx->rd_pos += sz;
+      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, sz, 0UL, 0UL, 0UL );
+      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sz, ctx->out_dc.chunk0, ctx->out_dc.wmark );
       *charge_busy = 1;
       return; /* verbose return */
     }
@@ -537,11 +615,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
       ctx->bytes_in_batch  = 0UL;
-      if( ctx->load_file ) {
-        if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
-          FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
-                       ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
-      }
+      ctx->rd_off = ctx->rd_len = ctx->rd_pos = 0UL;
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
       fd_memcpy( msg_out, msg_in, sz );
       fd_stem_publish( stem, 0UL, sig, ctx->out_dc.chunk, sz, 0UL, 0UL, 0UL );
