@@ -473,7 +473,9 @@ FD_UNIT_TEST( resolv_alut ) {
   test_env_t env[1];
   test_env_create( env );
   env->ctx->accdb = mini->runtime->accdb;
-  env->ctx->bank  = fd_svm_mini_bank( mini, child_idx );
+  env->ctx->banks = mini->banks;
+  env->ctx->_rooted_slot_msg.bank_idx = child_idx;
+  after_frag( env->ctx, 1UL, 0UL, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, env->stem );
 
   fd_hash_t hash = { .ul = { 0xa1a1UL } };
   test_add_blockhash( env, &hash, 125UL );

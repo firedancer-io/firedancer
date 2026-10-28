@@ -19,7 +19,8 @@ fd_sysvar_cache_new( void * mem ) {
   }
 
   fd_sysvar_cache_t * sysvar_cache = mem;
-  sysvar_cache->magic = 0UL;
+  sysvar_cache->magic    = 0UL;
+  sysvar_cache->bank_seq = 0UL;
   memset( sysvar_cache->desc, 0, FD_SYSVAR_CACHE_ENTRY_CNT*sizeof(fd_sysvar_desc_t) );
 
   FD_COMPILER_MFENCE();

@@ -212,6 +212,7 @@ execute_txn( fd_svm_mini_t * mini,
   fd_txn_in_t txn_in = {0};
   txn_in.txn              = txn_p;
   txn_in.bundle.is_bundle = 0;
+  fd_sysvar_cache_sync( mini->runtime->sysvar_cache, mini->runtime->accdb, bank );
   fd_runtime_prepare_and_execute_txn( mini->runtime, bank, &txn_in, txn_out );
 }
 

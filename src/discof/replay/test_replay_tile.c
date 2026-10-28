@@ -17,6 +17,7 @@
 #include "../../flamenco/runtime/fd_runtime_helpers.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h" /* IWYU pragma: keep */
 #include "../../flamenco/rewards/fd_rewards.h" /* IWYU pragma: keep */
@@ -257,7 +258,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
 #define fd_sched_block_start_pending(s)      ( (s) ? (fd_sched_block_start_pending)(s) : 0 )
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
-#define fd_sysvar_cache_restore(bank,accdb)  (mock_snapshot_boot ? 1 : (fd_sysvar_cache_restore)(bank,accdb))
+#define fd_sysvar_stake_history_read(a,f,d,v)  (mock_snapshot_boot ? NULL : (fd_sysvar_stake_history_read)(a,f,d,v))
+#define fd_sysvar_cache_validate(bank,accdb) (mock_snapshot_boot ? 1 : (fd_sysvar_cache_validate)(bank,accdb))
 #define fd_sysvar_rent_read(accdb,fork,rent) (mock_snapshot_boot ? (rent) : (fd_sysvar_rent_read)(accdb,fork,rent))
 #define fd_sched_block_add_done(s,b,p,slot)   do { if( !mock_snapshot_boot ) mock_sched_add_done_idx = (b); } while(0)
 #define fd_runtime_update_next_leaders(b,s)  do { if( !mock_snapshot_boot ) (fd_runtime_update_next_leaders)(b,s); } while(0)
@@ -265,7 +267,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_multi_epoch_leaders_epoch_msg_init(m,msg) do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_init)(m,msg); } while(0)
 #define fd_multi_epoch_leaders_epoch_msg_fini(m)     do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_fini)(m); } while(0)
 #define fd_progcache_reset(cache)                    do { if( !mock_snapshot_boot ) (fd_progcache_reset)(cache); } while(0)
-#define fd_sysvar_cache_stake_history_view(cache,view) (mock_snapshot_boot ? NULL : (fd_sysvar_cache_stake_history_view)(cache,view))
 #define fd_stake_delegations_refresh(d,e,h,w,f,r)     do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,f,r); } while(0)
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
 #define fd_rewards_recalculate_partitioned_rewards(k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(k,a,s,c); } while(0)

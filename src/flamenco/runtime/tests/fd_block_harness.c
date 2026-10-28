@@ -274,10 +274,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   bank->f.warmup_cooldown_rate_epoch = 0UL;
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore_fuzz( bank, accdb );
+  fd_sysvar_cache_restore_fuzz( runner->runtime->sysvar_cache, accdb, bank->accdb_fork_id );
 
   /* Epoch schedule */
-  FD_TEST( fd_sysvar_cache_epoch_schedule_read( &bank->f.sysvar_cache, &bank->f.epoch_schedule ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( runner->runtime->sysvar_cache, &bank->f.epoch_schedule ) );
 
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */
@@ -300,7 +300,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
      loaded stake delegations.  These are read by fd_stakes_activate_epoch
      at epoch boundary instead of re-scanning all delegations. */
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( runner->runtime->sysvar_cache, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
   fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
@@ -351,7 +351,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_lthash_end_locking_modify( bank );
 
   /* Rent */
-  FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
+  FD_TEST( fd_sysvar_cache_rent_read( runner->runtime->sysvar_cache, &runner->bank->f.rent ) );
 
   /* Prepare raw transaction pointers and block / microblock infos */
   ulong        txn_cnt  = test_ctx->txns_count;
@@ -421,6 +421,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
     fd_runtime_block_execute_prepare( runner->banks, runner->bank, runner->accdb, runner->runtime_stack, capture_ctx, &is_epoch_boundary );
+    fd_sysvar_cache_sync( runner->runtime->sysvar_cache, runner->accdb, runner->bank );
 
     /* Sequential transaction execution.  Continue processing
        transactions even if a prior one was uncommitable. */
@@ -576,7 +577,7 @@ fd_solfuzz_pb_collect_stake_delegations( fd_solfuzz_runner_t *             runne
   fd_bank_t * bank = runner->bank;
 
   fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( runner->runtime->sysvar_cache, stake_history_ );
   ulong * warmup_cooldown_rate_epoch = &bank->f.warmup_cooldown_rate_epoch;
   int     use_fixed_point            = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
 

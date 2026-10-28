@@ -74,9 +74,10 @@
 */
 
 struct fd_runtime {
-  fd_accdb_t *     accdb;
-  fd_txncache_t *  status_cache;
-  fd_progcache_t * progcache;
+  fd_accdb_t *      accdb;
+  fd_txncache_t *   status_cache;
+  fd_progcache_t *  progcache;
+  fd_sysvar_cache_t sysvar_cache[1]; /* sysvars of the last bank executed against */
 
   struct {
     uchar               stack_sz;                                /* Current depth of the instruction execution stack. */

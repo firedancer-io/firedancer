@@ -34,6 +34,11 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
 void
 test_sysvar_cache_env_destroy( test_sysvar_cache_env_t * env );
 
+/* test_sysvar_cache_reload re-reads env's sysvar cache from accdb. */
+
+void
+test_sysvar_cache_reload( test_sysvar_cache_env_t * env );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_test_sysvar_cache_util_h */

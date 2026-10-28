@@ -1451,7 +1451,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
     fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
     fd_stake_history_t stake_history_[1];
     fd_stake_history_t const * stake_history =
-        fd_sysvar_cache_stake_history_view( &root_bank->f.sysvar_cache, stake_history_ );
+        fd_sysvar_cache_stake_history_view( fd_sysvar_cache_sync( mini->runtime->sysvar_cache, mini->runtime->accdb, root_bank ), stake_history_ );
     fd_stake_delegations_t * stake_delegations =
         fd_banks_stake_delegations_root_query( mini->banks );
 
@@ -1517,7 +1517,7 @@ test_snapshot_refresh_prunes_inactive_stakes( fd_svm_mini_t * mini ) {
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   fd_stake_history_t stake_history_[1];
   fd_stake_history_t const * stake_history =
-      fd_sysvar_cache_stake_history_view( &root_bank->f.sysvar_cache, stake_history_ );
+      fd_sysvar_cache_stake_history_view( fd_sysvar_cache_sync( mini->runtime->sysvar_cache, mini->runtime->accdb, root_bank ), stake_history_ );
   fd_stake_delegations_refresh(
       spill_delegations,
       root_bank->f.epoch,

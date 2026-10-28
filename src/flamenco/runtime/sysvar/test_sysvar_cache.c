@@ -68,6 +68,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
   FD_TEST( bank );
   memset( bank, 0, sizeof(fd_bank_t) );
+  bank->bank_seq = 1UL;
   fd_rwlock_new( &bank->lthash_lock );
 
   /* Attach a single root fork.  All sysvar reads/writes will use this
@@ -80,7 +81,8 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   env->accdb_join_mem  = join_mem;
   env->accdb           = accdb;
   env->bank            = bank;
-  env->sysvar_cache    = fd_sysvar_cache_join( fd_sysvar_cache_new( &bank->f.sysvar_cache ) );
+  env->sysvar_cache    = fd_sysvar_cache_join( fd_sysvar_cache_new(
+      fd_wksp_alloc_laddr( wksp, alignof(fd_sysvar_cache_t), sizeof(fd_sysvar_cache_t), wksp_tag ) ) );
 
   return env;
 }
@@ -88,7 +90,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
 void
 test_sysvar_cache_env_destroy( test_sysvar_cache_env_t * env ) {
   FD_TEST( env );
-  FD_TEST( fd_sysvar_cache_delete( fd_sysvar_cache_leave( env->sysvar_cache ) ) );
+  fd_wksp_free_laddr( fd_sysvar_cache_delete( fd_sysvar_cache_leave( env->sysvar_cache ) ) );
   fd_wksp_free_laddr( env->bank );
   /* The accdb has no leave/delete API; rely on process exit to reclaim
      the shmem and join allocations.  Match the cleanup pattern used by
@@ -97,6 +99,12 @@ test_sysvar_cache_env_destroy( test_sysvar_cache_env_t * env ) {
   free( env->accdb_shmem_mem );
   close( env->accdb_fd );
   memset( env, 0, sizeof(test_sysvar_cache_env_t) );
+}
+
+void
+test_sysvar_cache_reload( test_sysvar_cache_env_t * env ) {
+  fd_sysvar_cache_new( env->sysvar_cache );
+  fd_sysvar_cache_sync( env->sysvar_cache, env->accdb, env->bank );
 }
 
 static void

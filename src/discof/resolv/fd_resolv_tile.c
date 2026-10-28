@@ -10,6 +10,7 @@
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/fd_hash32.h"
@@ -201,6 +202,10 @@ typedef struct {
      bytes synchronously inside fd_alut_interp_next. */
   uchar alut_owner[ 32UL ];
   uchar alut_data[ FD_RUNTIME_ACC_SZ_MAX ];
+
+  /* SlotHashes of bank, read from accdb when the root advances. */
+  ulong slot_hashes_sz;
+  uchar slot_hashes[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ];
 } fd_resolv_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -327,9 +332,8 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   uchar const *             txn_payload  = fd_txn_m_payload_const( txnm );
   ulong const               alut_cnt     = txn->addr_table_lookup_cnt;
   ulong const               slot         = ctx->bank->f.slot;
-  fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache;
   fd_slot_hashes_t slot_hashes_view[1];
-  if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( sysvar_cache, slot_hashes_view ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_slot_hashes_view( slot_hashes_view, ctx->slot_hashes, ctx->slot_hashes_sz ) ) ) {
     ctx->metrics.lut[ FD_METRICS_ENUM_LUT_RESOLVE_RESULT_V_ACCOUNT_NOT_FOUND_IDX ]++;
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
@@ -474,6 +478,13 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
+
+        ulong lamports;
+        int   executable;
+        fd_accdb_read_one_nocache( ctx->accdb, ctx->bank->accdb_fork_id, fd_sysvar_slot_hashes_id.uc,
+                                   &lamports, &executable, ctx->alut_owner, ctx->alut_data, &ctx->slot_hashes_sz );
+        ctx->slot_hashes_sz = lamports ? fd_ulong_min( ctx->slot_hashes_sz, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) : 0UL;
+        fd_memcpy( ctx->slot_hashes, ctx->alut_data, ctx->slot_hashes_sz );
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */

@@ -170,7 +170,7 @@ FD_PROTOTYPES_BEGIN
    To advance the root bank.  This assumes that the bank index is "safe"
    to advance to.  This means that none of the ancestors of the bank
    index have a non-zero reference count.
-   fd_banks_advance_root( banks, bank_index );
+   fd_banks_advance_root( banks, bank_index, stake_history );
 
    To query some arbitrary bank:
    fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
@@ -319,7 +319,6 @@ struct fd_bank {
     fd_hash_t              prev_bank_hash;
     fd_epoch_schedule_t    epoch_schedule;
     fd_rent_t              rent;
-    fd_sysvar_cache_t      sysvar_cache;
     fd_features_t          features;
     ulong                  txn_count;
     ulong                  nonvote_txn_count;
@@ -573,11 +572,15 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
    the new root bank should be a child of the current root bank.
 
    All banks that are ancestors or siblings of the new root bank will be
-   cancelled and their resources will be released back to the pool. */
+   cancelled and their resources will be released back to the pool.
+
+   stake_history is the StakeHistory of the new root, or NULL if it has
+   none. */
 
 void
-fd_banks_advance_root( fd_banks_t * banks,
-                       ulong        bank_idx );
+fd_banks_advance_root( fd_banks_t *               banks,
+                       ulong                      bank_idx,
+                       fd_stake_history_t const * stake_history );
 
 /* fd_banks_clear releases all banks back to the pool and resets the
    banks manager to its post-new state.  Assumes no active references to

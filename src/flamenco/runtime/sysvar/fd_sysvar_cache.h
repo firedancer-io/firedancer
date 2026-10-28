@@ -44,7 +44,8 @@ typedef struct fd_sysvar_desc fd_sysvar_desc_t;
 #define FD_SYSVAR_FLAG_VALID (0x1u)
 
 struct fd_sysvar_cache {
-  ulong magic; /* ==FD_SYSVAR_CACHE_MAGIC */
+  ulong magic;    /* ==FD_SYSVAR_CACHE_MAGIC */
+  ulong bank_seq; /* bank whose sysvars fd_sysvar_cache_sync read, 0 if none */
 
   fd_sysvar_desc_t desc[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 
@@ -111,23 +112,34 @@ fd_sysvar_cache_leave_const( fd_sysvar_cache_t const * sysvar_cache );
 void *
 fd_sysvar_cache_delete( void * mem );
 
-/* fd_sysvar_cache_restore rebuilds the sysvar cache from the account
-   database.  Does blocking account database queries.  Returns 1 on
-   success (missing sysvars fine), or 0 if any present sysvar account
-   fails validation (logs details at DEBUG level). */
+/* fd_sysvar_cache_sync makes cache hold the sysvars of bank, reading
+   them from accdb (blocking) unless it already does, and returns it.  A bank's
+   sysvar accounts change while its block is prepared and again when it
+   is frozen, so bank should be synced only between those points or
+   after freezing. */
+
+fd_sysvar_cache_t *
+fd_sysvar_cache_sync( fd_sysvar_cache_t * cache,
+                      fd_accdb_t *        accdb,
+                      fd_bank_t const *   bank );
+
+/* fd_sysvar_cache_validate checks that every present sysvar account of
+   bank decodes, without keeping a copy.  Returns 1 if so, 0 otherwise
+   (logs details at DEBUG level). */
 
 int
-fd_sysvar_cache_restore( fd_bank_t *  bank,
-                         fd_accdb_t * accdb );
+fd_sysvar_cache_validate( fd_bank_t const * bank,
+                          fd_accdb_t *      accdb );
 
-/* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
-   with solfuzz/protosol conformance tooling.  This version works around
-   bugs in that tooling that create invalid sysvars and suppresses
-   missing-sysvar logs. */
+/* fd_sysvar_cache_restore_fuzz rebuilds cache from the sysvar accounts
+   of fork_id, for solfuzz/protosol conformance tooling.  It works
+   around bugs in that tooling that create invalid sysvars and
+   suppresses missing-sysvar logs. */
 
 void
-fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
-                              fd_accdb_t * accdb );
+fd_sysvar_cache_restore_fuzz( fd_sysvar_cache_t * cache,
+                              fd_accdb_t *        accdb,
+                              fd_accdb_fork_id_t  fork_id );
 
 /* fd_sysvar_cache_restore_one restores a single sysvar cache entry from
    raw account fields (as opposed to a full fd_acc_t).  If pubkey is not

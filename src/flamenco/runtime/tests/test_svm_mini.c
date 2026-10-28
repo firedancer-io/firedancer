@@ -1,6 +1,8 @@
 #include "fd_svm_mini.h"
 #include "../../accdb/fd_accdb.h"
 #include "../../runtime/fd_bank.h"
+#include "../../runtime/fd_system_ids.h"
+#include "../../runtime/sysvar/fd_sysvar.h"
 #include "../../leaders/fd_leaders.h"
 
 static const fd_pubkey_t test_pubkey  = {{ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
@@ -184,6 +186,22 @@ main( int     argc,
   }
 
   FD_TEST( fd_vote_stakes_cnt_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id )==4UL );
+
+  /* fd_sysvar_cache_sync keeps one bank's sysvars until another bank is
+     synced. */
+  ulong       slot0 = bank->f.slot;
+  fd_bank_t * a     = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, slot0+1UL ) );
+  fd_bank_t * b     = fd_svm_mini_bank( mini, fd_svm_mini_attach_child( mini, root_idx, slot0+2UL ) );
+  fd_sol_sysvar_clock_t clock[1];
+  FD_TEST( fd_sysvar_cache_clock_read( fd_sysvar_cache_sync( mini->runtime->sysvar_cache, mini->runtime->accdb, a ), clock ) && clock->slot==a->f.slot );
+
+  fd_sol_sysvar_clock_t updated = *clock;
+  updated.unix_timestamp++;
+  fd_sysvar_account_update( a, mini->runtime->accdb, NULL, &fd_sysvar_clock_id, &updated, sizeof(updated) );
+  FD_TEST( fd_sysvar_cache_clock_read( fd_sysvar_cache_sync( mini->runtime->sysvar_cache, mini->runtime->accdb, a ), clock ) && clock->unix_timestamp==updated.unix_timestamp-1L );
+
+  FD_TEST( fd_sysvar_cache_clock_read( fd_sysvar_cache_sync( mini->runtime->sysvar_cache, mini->runtime->accdb, b ), clock ) && clock->slot==b->f.slot );
+  FD_TEST( fd_sysvar_cache_clock_read( fd_sysvar_cache_sync( mini->runtime->sysvar_cache, mini->runtime->accdb, a ), clock ) && clock->unix_timestamp==updated.unix_timestamp );
 
   /* Mock validators must fit the vote-account/epoch-credit capacity. */
   params->mock_validator_cnt = limits->max_vote_accounts + 1UL;

@@ -213,6 +213,12 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
                          fd_pubkey_t const * collector_id,
                          fd_pubkey_t const * leader_vote,
                          ulong               fees ) {
+  /* Read before the collector is opened, since its handle must not be
+     held across another account database read. */
+  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_stake_history_t   stake_history_[1];
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
+
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
   int burn;
@@ -232,7 +238,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
       acc.lamports += fees; /* guaranteed to not overflow, checked above */
     }
   }
-  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, NULL );
+  if( FD_LIKELY( !burn ) ) fd_stakes_update_stake_delegation( collector_id, &acc, bank, stake_history, NULL );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   return burn;
 }
@@ -725,8 +731,9 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
+  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_delegations_history_[1];
-  fd_stake_history_t * stake_delegations_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_delegations_history_ );
+  fd_stake_history_t * stake_delegations_history = fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history_data, stake_delegations_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
@@ -758,7 +765,7 @@ fd_runtime_process_new_epoch( fd_bank_t *          bank,
     fd_stake_delegations_invalidate_warmed( stake_delegations );
   }
 
-  fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,
+  fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations, stake_delegations_history,
                             &bank->f.warmup_cooldown_rate_epoch );
 
   /* Distribute rewards.  This involves calculating the rewards for
@@ -954,7 +961,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
   fd_features_prepopulate_upcoming( bank, accdb );
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, capture_ctx );
-  FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
+  FD_TEST( fd_sysvar_cache_validate( bank, accdb ) );
 }
 
 static void
@@ -1255,7 +1262,8 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
-        fd_stakes_update_stake_delegation( pubkey, account, bank, txn_in );
+        fd_stake_history_t stake_history[1];
+        fd_stakes_update_stake_delegation( pubkey, account, bank, fd_sysvar_cache_stake_history_view( runtime->sysvar_cache, stake_history ), txn_in );
       }
 
       if( txn_out->accounts.vote_update[i] ) {
@@ -1455,6 +1463,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
                                     fd_bank_t *         bank,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
+  fd_sysvar_cache_sync( runtime->sysvar_cache, runtime->accdb, bank );
   fd_runtime_reset_runtime( runtime );
 
   fd_runtime_new_txn_out( txn_in, txn_out );
@@ -2093,6 +2102,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
 
 # define FD_BUNDLE_ACCT_MAX (FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS)
 
+  fd_sysvar_cache_sync( runtime->sysvar_cache, runtime->accdb, bank );
   runtime->accounts.account_cnt    = 0UL;
   runtime->accounts.executable_cnt = 0UL;
 

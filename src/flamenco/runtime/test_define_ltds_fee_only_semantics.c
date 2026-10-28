@@ -28,6 +28,7 @@ setup_env( fd_svm_mini_t *      mini,
   ulong bank_idx = fd_svm_mini_attach_child( mini, root_idx, 10UL );
   fd_bank_t *        bank    = fd_svm_mini_bank( mini, bank_idx );
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
+  fd_sysvar_cache_sync( mini->runtime->sysvar_cache, mini->runtime->accdb, bank );
 
   set_gate( bank, feature_on );
 

@@ -273,7 +273,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_t * sysvar_cache = &runner->bank->f.sysvar_cache;
+  fd_sysvar_cache_t * sysvar_cache = fd_sysvar_cache_new( runner->runtime->sysvar_cache );
   ctx->sysvar_cache = sysvar_cache;
   for( ulong i=0UL; i<test_ctx->accounts_count; i++ ) {
     fd_exec_test_acct_state_t const * account = &test_ctx->accounts[i];

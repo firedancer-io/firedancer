@@ -119,6 +119,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_accdb_t *                   accdb,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t *       stake_delegations,
+                          fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch );
 
 /* fd_stakes_vote_account_is_admissible returns 1 if a vote account
@@ -149,10 +150,11 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
    the stake account. */
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
-                                   fd_acc_t const *    acc,
-                                   fd_bank_t *         bank,
-                                   fd_txn_in_t const * txn_in );
+fd_stakes_update_stake_delegation( fd_pubkey_t const *        pubkey,
+                                   fd_acc_t const *           acc,
+                                   fd_bank_t *                bank,
+                                   fd_stake_history_t const * stake_history,
+                                   fd_txn_in_t const *        txn_in );
 
 FD_PROTOTYPES_END
 

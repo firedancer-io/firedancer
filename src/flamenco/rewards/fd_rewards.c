@@ -1679,13 +1679,10 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
   fd_stake_history_t stake_history[1];
   read_stake_history( accdb, bank->accdb_fork_id, stake_history_data, stake_history );
 
-  fd_stake_history_t   frontier_stake_history_[1];
-  fd_stake_history_t * frontier_stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, frontier_stake_history_ );
-
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_view_begin( stake_delegations,
                                    bank->f.epoch,
-                                   frontier_stake_history,
+                                   stake_history,
                                    &bank->f.warmup_cooldown_rate_epoch,
                                    FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                    bank->stake_delegations_fork_id );
@@ -1727,7 +1724,7 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
       epoch_rewards_sysvar->total_rewards );
 
   fd_stake_delegations_view_end( stake_delegations,
-                                 frontier_stake_history,
+                                 stake_history,
                                  &bank->f.warmup_cooldown_rate_epoch,
                                  FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
   return 1;
