@@ -1,4 +1,5 @@
 #include "fd_event_report.h"
+#include "../../util/pod/fd_pod_format.h"
 
 static FD_TL fd_event_reporter_t fd_event_tl_storage[1];
 
@@ -20,6 +21,9 @@ fd_event_reporter_join( fd_event_reporter_t * r,
   r->wmark  = fd_dcache_compact_wmark ( r->mem, link->dcache, link->mtu );
   r->chunk  = r->chunk0;
   r->mtu    = link->mtu;
+  r->max_sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.event_max_sz", link->dcache_obj_id );
+  r->ev_seq = 0UL;
+  FD_TEST( r->max_sz!=ULONG_MAX && r->mtu && r->mtu<=FD_EVENT_FRAG_MTU );
 
   r->sleep    = NULL;
   r->link_id  = link->id;
