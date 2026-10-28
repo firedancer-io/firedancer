@@ -49,62 +49,18 @@ achieved with lower cost hardware. This should encourage additional
 validator operators to join the network who were otherwise prohibited by
 current hardware requirements.
 
-## What does the Firedancer team aim to deliver?
-At a high level, the three functional blocks of Solana are network,
-runtime, and the consensus mechanism.
+## Firedancer
+Firedancer is a fully independent Solana validator. Networking, block
+production, the runtime, and consensus are all implemented in
+Firedancer's own codebase, and it does not run Agave alongside it.
 
-The network layer is essentially code complete, and is being tuned and
-undergoing reviews by auditors.
+Firedancer is released as tagged versions in the `vYY.MM.PATCH` format.
+A new release line starts every month with new features and performance
+improvements, and patch releases carry occasional fixes for active
+release lines. Operators should run a tagged release rather than `main`.
+See [Releases](./getting-started.md#releases) for details.
 
-The first Firedancer validator to go into testnet [is version 0.1 and]
-is nicknamed Frankendancer. It is Firedancer’s networking layer grafted
-onto the Agave runtime and consensus code. Although the networking
-layer will be much faster, it is likely that the performance of the
-Frankendancer validator will be bottlenecked by the legacy runtime and
-consensus code. Frankendancer still offers an advantage with DoS
-mitigation.
-
-This document explains how to bring up Frankendancer in testnet. We hope
-to get feedback from validators while we go through security audits and
-continue to refine the codebase. The goal is to get Frankendancer to
-mainnet in Q2 2024.
-
-In parallel the team has been working on replicating the functionality
-of the runtime and consensus code, with the goal of delivering a fully
-independent validator by the end of 2024.
-
-## Frankendancer
-Firedancer is a new Solana validator with a new codebase, but it is
-being developed incrementally. To enable testing and deployment before
-the entire Solana protocol has been implemented we rely on the existing
-Agave validator code to provide functionality that is missing.
-This side-by-side configuration is referred to as "frankendancer".
-
-Currently, Firedancer has implemented the following parts:
-
- * The QUIC and UDP ingress networking pieces, using high performance
-   kernel bypass networking.
-
- * The block distribution engine and egress networking, also using
-   kernel bypass. The engine contains a full reimplementation of erasure
-   coding and the Solana turbine protocol for packet routing.
-
- * Signature verification with a custom AVX512 ED25519 implementation.
-
- * The block packing logic.
-
-All other functionality is retained by Agave, including the
-runtime itself which tracks account state and executes transactions.
-
-This means building and running a Firedancer validator also builds a
-Agave validator and runs it as a child process. The Solana
-process is fully built into and managed by Firedancer and you do not
-need to start it up or otherwise configure it.
-
-Because of this side by side operation, existing knowledge and processes
-you have from running an Agave validator will likely apply to
-Firedancer too. For example, the monitoring and metrics are left the
-same, and you will run the same `solana` CLI command.
+Frankendancer is no longer supported.
 
 ## This Book
 This book is intended for operators and administrators already familiar
