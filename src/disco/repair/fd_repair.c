@@ -56,7 +56,7 @@ blk_insert( fd_repair_t *     self,
   memset( &blk->telemetry, 0, sizeof(blk->telemetry) );
   blk->telemetry.last_cmpl_fec_idx = UINT_MAX;
   blk->eager_ts      = 0L;
-  for( ulong k=0UL; k<self->fec_blk_max; k++ ) blk->fecs[ k ] = fd_repair_fec_pool_idx_null( self->fec_pool );
+  for( ulong k=0UL; k<self->fec_blk_max; k++ ) blk->fecs[ k ] = (uint)fd_repair_fec_pool_idx_null( self->fec_pool );
   fd_repair_blk_map_ele_insert( self->blk_map, blk, self->blk_pool );
   fd_repair_blk_orphan_map_ele_insert( self->orphan_map, blk, self->blk_pool );
   if     ( !memcmp( dmr, &hash_null, sizeof(fd_mr32_t) ) )               meta->eager_blk_idx = (uint)fd_repair_blk_pool_idx( self->blk_pool, blk );
@@ -438,7 +438,7 @@ fd_repair_footprint( ulong slot_max,
       fd_repair_align(),                sizeof(fd_repair_t)                                                                     ),
       alignof(fd_repair_slot_meta_t),   sizeof(fd_repair_slot_meta_t)*slot_max                                                  ),
       fd_repair_blk_pool_align(),       fd_repair_blk_pool_footprint      ( blk_max                                           ) ),
-      alignof(ulong),                   sizeof(ulong)*blk_max*fec_blk_max                                                       ),
+      alignof(uint),                    sizeof(uint)*blk_max*fec_blk_max                                                        ),
       fd_repair_blk_map_align(),        fd_repair_blk_map_footprint       ( fd_repair_blk_map_chain_cnt_est( blk_max )        ) ),
       fd_repair_blk_orphan_map_align(), fd_repair_blk_orphan_map_footprint( fd_repair_blk_orphan_map_chain_cnt_est( blk_max ) ) ),
       fd_repair_fec_pool_align(),       fd_repair_fec_pool_footprint      ( fec_max                                           ) ),
@@ -471,7 +471,7 @@ fd_repair_new( void * shmem,
   repair             = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),                sizeof(fd_repair_t)                                                                     );
   void * slot_meta   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_slot_meta_t),   sizeof(fd_repair_slot_meta_t)*slot_max                                                  );
   void * blk_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_blk_pool_align(),       fd_repair_blk_pool_footprint      ( blk_max                                           ) );
-  ulong * blk_fecs   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                   sizeof(ulong)*blk_max*fec_blk_max                                                       );
+  uint *  blk_fecs   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    sizeof(uint)*blk_max*fec_blk_max                                                        );
   void * blk_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_blk_map_align(),        fd_repair_blk_map_footprint       ( fd_repair_blk_map_chain_cnt_est( blk_max )        ) );
   void * orphan_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_blk_orphan_map_align(), fd_repair_blk_orphan_map_footprint( fd_repair_blk_orphan_map_chain_cnt_est( blk_max ) ) );
   void * fec_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_fec_pool_align(),       fd_repair_fec_pool_footprint      ( fec_max                                           ) );
@@ -809,7 +809,7 @@ fd_repair_fec_notarized( fd_repair_t *     self,
     fd_repair_fec_map_ele_insert( self->fec_map, fec, self->fec_pool );
   }
   fec->is_notar        = 1;
-  blk->fecs[ fec_idx ] = fd_repair_fec_pool_idx( self->fec_pool, fec );
+  blk->fecs[ fec_idx ] = (uint)fd_repair_fec_pool_idx( self->fec_pool, fec );
 
   if( FD_UNLIKELY( fec->update_parent.new_parent_slot!=ULONG_MAX ) ) update_parent( self, slot, fec_idx,    ts );
   if( FD_UNLIKELY( fec->data_complete                            ) ) update_parent( self, slot, fec_idx+1U, ts );
@@ -847,7 +847,7 @@ fd_repair_root_advanced( fd_repair_t *     self,
       if( FD_UNLIKELY( !blk->telemetry.reported && self->telemetry.report ) ) { blk->telemetry.reported = 1; self->telemetry.report( self->telemetry.ctx, blk ); }
       for( ulong k=0UL; k<self->fec_blk_max; k++ ) {
         ulong idx = blk->fecs[ k ];
-        blk->fecs[ k ] = fd_repair_fec_pool_idx_null( self->fec_pool );
+        blk->fecs[ k ] = (uint)fd_repair_fec_pool_idx_null( self->fec_pool );
         if( FD_LIKELY( idx==fd_repair_fec_pool_idx_null( self->fec_pool ) ) ) continue;
         fd_repair_fec_t * fec = fd_repair_fec_pool_ele( self->fec_pool, idx );
         if( FD_LIKELY( fd_repair_fec_map_ele_query( self->fec_map, &fec->mr, NULL, self->fec_pool )!=fec ) ) continue; /* freed through a sibling */
@@ -970,7 +970,7 @@ fd_repair_shred_insert( fd_repair_t *      self,
     fec->update_parent.new_parent_slot = ULONG_MAX;
     fd_repair_fec_map_ele_insert( self->fec_map, fec, self->fec_pool );
   }
-  blk->fecs[ fec_idx ] = fd_repair_fec_pool_idx( self->fec_pool, fec );
+  blk->fecs[ fec_idx ] = (uint)fd_repair_fec_pool_idx( self->fec_pool, fec );
   blk->rcvd_fec_cnt    = fd_uint_max( blk->rcvd_fec_cnt, fec_idx+1U );
   fec->data_rcvd       = fd_uint_if( fec->fec_complete, fec->data_rcvd, fd_uint_set_bit( fec->data_rcvd, (int)( shred->idx - fec_idx*FD_FEC_SHRED_CNT ) ) );
 
