@@ -709,10 +709,19 @@ snapmk_status_cache_tar_hdr( fd_tar_meta_t * meta,
 static void
 snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
   fd_bank_t * bank = ctx->bank;
-  ulong         slot_history_sz = 0UL;
-  uchar const * slot_history    =
-      fd_sysvar_cache_data_query( &bank->f.sysvar_cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
-  if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id, bank->f.slot, slot_history, slot_history_sz, ctx->status_cache_writer_arena, ctx->status_cache_writer_arena_sz ) ) ) {
+
+  /* The raw buffer is discarded by zip_reset below, borrow it to read
+     the SlotHistory sysvar. */
+  ulong slot_history_lamports;
+  int   slot_history_exec;
+  uchar slot_history_owner[ 32UL ];
+  ulong slot_history_sz = 0UL;
+  FD_STATIC_ASSERT( RAW_BUF_SZ>=FD_RUNTIME_ACC_SZ_MAX, raw_buf_sz );
+  fd_accdb_read_one_nocache( ctx->accdb, bank->accdb_fork_id, fd_sysvar_slot_history_id.uc,
+                             &slot_history_lamports, &slot_history_exec, slot_history_owner,
+                             ctx->raw, &slot_history_sz );
+  if( FD_UNLIKELY( !slot_history_lamports ) ) slot_history_sz = 0UL;
+  if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id, bank->f.slot, ctx->raw, slot_history_sz, ctx->status_cache_writer_arena, ctx->status_cache_writer_arena_sz ) ) ) {
     FD_LOG_CRIT(( "cannot serialize txncache fork %hu of snapshot bank at slot %lu because the root moved or SlotHistory lacks execution slots", bank->txncache_fork_id.val, bank->f.slot ));
   }
   ctx->status_cache_sz          = 0UL;
