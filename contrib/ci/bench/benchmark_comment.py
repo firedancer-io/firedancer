@@ -28,6 +28,12 @@ def snapshot_load(d, s):
     log = read(d, s, "snapshot.log")
     return (stamp(log, "replay ready at slot") - stamp(log, "reading full snapshot from file")) % 86400  # midnight
 
+def epoch_boundary(d, s):  # ms fd_runtime_process_new_epoch() took at the boundary the epoch ledger crosses
+    log = re.sub(r"\x1b\[[0-9;]*m", "", read(d, s, "epoch.log"))  # the runtime styles this line when colorized
+    took = re.findall(r"starting epoch \d+ at slot \d+ \(took ([0-9.]+) seconds\)", log)
+    if not took: raise LookupError("epoch.log: no epoch boundary")
+    return float(took[-1]) * 1e3
+
 def mem(d, s, cluster):
     return json.loads(read(d, s, f"build.mem.{cluster}.json"))["summary"]["total_memory_locked_bytes"] / 2**30
 
@@ -36,12 +42,13 @@ ROWS = (
     ("replay_tps",    "replay tps, mainnet",       "replay",   lambda d, s: summary(d, s, "replay")["tps"],                ",.0f tps",  1.25,  2.5, True),
     ("bench_tps",     "bench tps, localnet",       "bench",    lambda d, s: summary(d, s, "bench")["tps"],                 ",.0f tps",  1.75,  3.5, True),
     ("snapshot_load", "snapshot load, testnet",    "snapshot", snapshot_load,                                              ".2f s",      1.5,  3.0, False),
+    ("epoch_boundary","epoch boundary, mainnet",   "snapshot", epoch_boundary,                                             ".1f ms",     5.0, 10.0, False),
     ("mem_mainnet",   "mem total, mainnet",        "replay",   lambda d, s: mem(d, s, "mainnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_testnet",   "mem total, testnet",        "replay",   lambda d, s: mem(d, s, "testnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("compile",       "clean compile, firedancer", "*",        lambda d, s: float(read(d, s, "build.time").split()[0]),   ".2f s",       1.5,  3.0, False),
     ("binsize",       "binary size, firedancer",   "replay",   lambda d, s: os.path.getsize(f"{d}/{s}/bin/firedancer") / 1e6, ".2f MB",  0.5,  2.0, False),
 )
-HIST_HDR = ("TPS", "BENCH", "SNAP", "MEM·M", "MEM·T", "COMPILE", "BINARY")
+HIST_HDR = ("TPS", "BENCH", "SNAP", "EPOCH", "MEM·M", "MEM·T", "COMPILE", "BINARY")
 
 def tier(row, d):
     _, _, _, _, _, warn, red, up = row
