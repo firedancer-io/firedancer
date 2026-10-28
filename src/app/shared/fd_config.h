@@ -543,6 +543,15 @@ fd_config_load( int           is_local_cluster,
 int
 fd_config_to_memfd( fd_config_t const * config );
 
+/* fd_config_from_memfd reads a config written by fd_config_to_memfd
+   into config, touching only the pages that hold data.  config must
+   already be zero (holes are not written).  Logs and terminates on
+   error. */
+
+void
+fd_config_from_memfd( int           config_memfd,
+                      fd_config_t * config );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_shared_fd_config_h */
