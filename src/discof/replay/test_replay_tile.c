@@ -13,6 +13,7 @@
    will be a no-op. ---- */
 
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_bank_sysvars.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_helpers.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h" /* IWYU pragma: keep */
@@ -257,7 +258,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
 #define fd_sched_block_start_pending(s)      ( (s) ? (fd_sched_block_start_pending)(s) : 0 )
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
-#define fd_sysvar_cache_restore(c,a,f)       (mock_snapshot_boot ? 1 : (fd_sysvar_cache_restore)(c,a,f))
+#define fd_bank_sysvars_refresh(s,b)         (mock_snapshot_boot ? NULL : (fd_bank_sysvars_refresh)(s,b))
 #define fd_sysvar_rent_read(accdb,fork,rent) (mock_snapshot_boot ? (rent) : (fd_sysvar_rent_read)(accdb,fork,rent))
 #define fd_sched_block_add_done(s,b,p,slot)   do { if( !mock_snapshot_boot ) mock_sched_add_done_idx = (b); } while(0)
 #define fd_runtime_update_next_leaders(b,s)  do { if( !mock_snapshot_boot ) (fd_runtime_update_next_leaders)(b,s); } while(0)

@@ -955,8 +955,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
   fd_features_prepopulate_upcoming( bank, accdb );
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, capture_ctx );
-  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache( bank );
-  FD_TEST( fd_sysvar_cache_restore( sysvar_cache ? sysvar_cache : runtime_stack->sysvar_cache, accdb, bank->accdb_fork_id ) );
 }
 
 static void
@@ -2338,18 +2336,4 @@ fd_runtime_setup_bundle_executables( fd_runtime_t * runtime,
   }
   txn_out->accounts.executable_cnt = exe_cnt;
   return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
-fd_sysvar_cache_t const *
-fd_runtime_sysvar_cache( fd_bank_t const *   bank,
-                         fd_accdb_t *        accdb,
-                         fd_sysvar_cache_t * scratch,
-                         ulong *             scratch_bank_seq ) {
-  fd_sysvar_cache_t const * cache = fd_bank_sysvar_cache( bank );
-  if( FD_LIKELY( cache ) ) return cache;
-  if( *scratch_bank_seq!=bank->bank_seq ) {
-    fd_sysvar_cache_restore( scratch, accdb, bank->accdb_fork_id );
-    *scratch_bank_seq = bank->bank_seq;
-  }
-  return scratch;
 }

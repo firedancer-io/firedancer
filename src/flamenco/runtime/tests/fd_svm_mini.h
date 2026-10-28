@@ -22,6 +22,7 @@
 #include "../../progcache/fd_progcache_user.h"
 #include "../../log_collector/fd_log_collector_base.h"
 #include "../fd_runtime.h"
+#include "../fd_bank_sysvars.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_txncache.h"
 #include "../../vm/fd_vm.h"
@@ -37,6 +38,7 @@ struct fd_svm_mini {
   fd_txncache_shmem_t * txncache_shmem;
   fd_txncache_t *       txncache;
   fd_vm_t *             vm;
+  fd_bank_sysvars_t     sysvars[1];
 
   fd_progcache_t     progcache[1];
   fd_log_collector_t log_collector[1];

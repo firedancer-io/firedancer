@@ -5,6 +5,7 @@
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_bank_sysvars.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_executor.h"
@@ -75,8 +76,7 @@ struct fd_execrp_tile {
 
   fd_runtime_t runtime[1];
 
-  ulong             sysvar_bank_seq;
-  fd_sysvar_cache_t sysvar_cache[1];
+  fd_bank_sysvars_t sysvars[1];
 
   struct {
     ulong sigverify_cnt;
@@ -249,7 +249,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         fd_execrp_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
-        ctx->runtime->sysvar_cache = fd_runtime_sysvar_cache( ctx->bank, ctx->accdb, ctx->sysvar_cache, &ctx->sysvar_bank_seq );
+        ctx->runtime->sysvar_cache = fd_bank_sysvars_query( ctx->sysvars, ctx->bank );
         ctx->txn_in.txn = msg->txn;
         memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
         ctx->txn_in.index_in_slot = msg->index_in_slot;
@@ -506,7 +506,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
-  ctx->sysvar_bank_seq                   = 0UL;
+  fd_bank_sysvars_init( ctx->sysvars, ctx->accdb, NULL );
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = &ctx->log_collector;
   ctx->runtime->log.dumping_mem          = _dumping;

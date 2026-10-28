@@ -18,6 +18,7 @@
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_bank_sysvars.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
@@ -181,6 +182,8 @@ struct fd_replay_tile {
   fd_store_map_t  map_join[1];
   int             store_disk_fd;
   fd_banks_t *    banks;
+
+  fd_bank_sysvars_t sysvars[1];
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.

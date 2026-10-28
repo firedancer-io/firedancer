@@ -152,6 +152,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
   if( FD_UNLIKELY( !fd_runtime_stack_join( fd_runtime_stack_new( runner->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) ) ) goto bail2;
+  runner->sysvar_cache = fd_sysvar_cache_new( fd_wksp_alloc_laddr( wksp, alignof(fd_sysvar_cache_t), sizeof(fd_sysvar_cache_t), wksp_tag ) );
+  if( FD_UNLIKELY( !runner->sysvar_cache ) ) goto bail2;
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;

@@ -2367,8 +2367,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
-  FD_TEST( fd_sysvar_cache_restore( fd_bank_sysvar_cache( bank ), ctx->accdb, bank->accdb_fork_id ) );
-  fd_banks_stake_history_init( ctx->banks, bank );
+  fd_banks_stake_history_init( ctx->banks, bank->f.epoch, fd_bank_sysvars_refresh( ctx->sysvars, bank ) );
 
   bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache, (fd_txncache_fork_id_t){USHORT_MAX} );
   bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, fd_progcache_fork_id_initial()     );
@@ -2584,8 +2583,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        from repair. */
     fd_hash_t manifest_block_id = ctx->has_manifest_block_id ? ctx->manifest_block_id : ctx->initial_block_id;
 
-    FD_TEST( fd_sysvar_cache_restore( fd_bank_sysvar_cache( bank ), ctx->accdb, bank->accdb_fork_id ) );
-    fd_banks_stake_history_init( ctx->banks, bank );
+    fd_banks_stake_history_init( ctx->banks, bank->f.epoch, fd_bank_sysvars_refresh( ctx->sysvars, bank ) );
     /* Agave zeroes manifest rent_params; reload from sysvar account */
     FD_TEST( fd_sysvar_rent_read( ctx->accdb, bank->accdb_fork_id, &bank->f.rent ) );
 
@@ -4515,6 +4513,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
   FD_TEST( ctx->accdb );
+  fd_bank_sysvars_init( ctx->sysvars, ctx->accdb, NULL );
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {

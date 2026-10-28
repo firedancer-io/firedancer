@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h
 
 #include "sysvar/fd_sysvar_clock.h"
-#include "sysvar/fd_sysvar_cache.h"
 #include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders_base.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
@@ -130,9 +129,6 @@ struct fd_runtime_stack {
     fd_stake_weight_t      next_id_weights[ MAX_STAKE_WEIGHTS ];
     ulong                  next_id_weights_cnt;
   } epoch_weights;
-
-  /* Sysvars of a bank that holds no sysvar cache. */
-  fd_sysvar_cache_t sysvar_cache[1];
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;
 

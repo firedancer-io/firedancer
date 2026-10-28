@@ -83,7 +83,7 @@ verify_rent( fd_svm_mini_t * mini,
   verify_minimum_balance( sysvar_rent, expected_lamports_per_byte );
 
   fd_rent_t cache_rent[1];
-  FD_TEST( fd_sysvar_cache_rent_read( fd_bank_sysvar_cache( bank ), cache_rent ) );
+  FD_TEST( fd_sysvar_cache_rent_read( fd_bank_sysvars_query( mini->sysvars, bank ), cache_rent ) );
   FD_TEST( cache_rent->lamports_per_uint8_year==expected_lamports_per_byte );
   FD_TEST( cache_rent->exemption_threshold==TEST_EXEMPTION_THRESHOLD );
   FD_TEST( cache_rent->burn_percent==TEST_BURN_PERCENT );

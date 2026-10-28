@@ -51,8 +51,9 @@ create_test_account( fd_accdb_t *        accdb,
 
 static fd_stake_delegations_t *
 test_stake_delegations_frontier_mark( fd_bank_t * bank ) {
+  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache( bank ), stake_history_ );
+  fd_stake_history_t * stake_history = fd_bank_stake_history( bank, stake_history_data, stake_history_ );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_view_begin( stake_delegations,
@@ -66,8 +67,9 @@ test_stake_delegations_frontier_mark( fd_bank_t * bank ) {
 
 static void
 test_stake_delegations_frontier_unmark( fd_bank_t * bank ) {
+  uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t   stake_history_[1];
-  fd_stake_history_t * stake_history = fd_sysvar_cache_stake_history_view( fd_bank_sysvar_cache( bank ), stake_history_ );
+  fd_stake_history_t * stake_history = fd_bank_stake_history( bank, stake_history_data, stake_history_ );
 
   fd_stake_delegations_view_end( fd_bank_stake_delegations_modify( bank ),
                                  stake_history,
@@ -91,7 +93,7 @@ setup_env( test_env_t * env, fd_svm_mini_t * mini ) {
 
   ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_CHILD_SLOT );
   env->bank    = fd_svm_mini_bank( mini, child_idx );
-  mini->runtime->sysvar_cache = fd_bank_sysvar_cache( env->bank );
+  mini->runtime->sysvar_cache = fd_bank_sysvars_query( mini->sysvars, env->bank );
   env->fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
   fd_features_enable_cleaned_up( &env->bank->f.features );
@@ -1004,7 +1006,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     ulong sh_sz = sizeof(ulong) + sh_cnt * sizeof(fd_slot_hash_t);
     fd_sysvar_account_update( env->bank, env->runtime->accdb, NULL, &fd_sysvar_slot_hashes_id, slot_hashes_data, sh_sz );
 
-    fd_sysvar_cache_restore( fd_bank_sysvar_cache( env->bank ), env->mini->runtime->accdb, env->bank->accdb_fork_id );
+    fd_bank_sysvars_refresh( env->mini->sysvars, env->bank );
 
     fd_pubkey_t alut_key = { .ul[0] = 0xA107UL };
     ulong num_alut_addrs = 4UL;

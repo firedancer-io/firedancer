@@ -1151,39 +1151,6 @@ test_bank_epoch_credits_init_bank_set( void * mem ) {
    TEST_BANK_CACHE_CNT sets stay in memory.  More live sets spill and
    reload without evicting a pinned reader. */
 
-/* Up to cache_cnt banks hold a sysvar cache.  Banks cloned while the
-   pool is exhausted hold none, and pruning a bank or advancing the
-   root past it returns its sysvar cache to the pool. */
-
-static void
-test_bank_sysvar_cache_pool( void * mem ) {
-  ulong const max_total_banks = 2UL*TEST_BANK_CACHE_CNT;
-  fd_banks_t * banks = fd_banks_join(
-      fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, TEST_BANK_CACHE_CNT, 16UL, 256UL, 4UL, 0, 7779UL ) );
-  FD_TEST( banks );
-
-  fd_bank_t * root = fd_banks_init_bank( banks );
-  FD_TEST( fd_bank_sysvar_cache( root ) );
-
-  fd_bank_t * child[ TEST_BANK_CACHE_CNT+1UL ];
-  for( ulong i=0UL; i<TEST_BANK_CACHE_CNT+1UL; i++ ) {
-    child[ i ] = fd_banks_clone_from_parent( banks, fd_banks_new_bank( banks, root->idx, 0L, 0 )->idx );
-    FD_TEST( !!fd_bank_sysvar_cache( child[ i ] )==(i<TEST_BANK_CACHE_CNT-1UL) );
-  }
-
-  fd_banks_mark_bank_dead( banks, child[ 0 ]->idx, NULL, NULL );
-  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
-  fd_bank_t * reuse = fd_banks_clone_from_parent( banks, fd_banks_new_bank( banks, root->idx, 0L, 0 )->idx );
-  FD_TEST( fd_bank_sysvar_cache( reuse ) );
-  FD_TEST( !fd_sysvar_cache_clock_is_valid( fd_bank_sysvar_cache( reuse ) ) );
-
-  fd_banks_mark_bank_frozen( child[ 1 ] );
-  fd_banks_advance_root( banks, child[ 1 ]->idx );
-  for( ulong i=0UL; i<TEST_BANK_CACHE_CNT-1UL; i++ ) {
-    FD_TEST( fd_bank_sysvar_cache( fd_banks_clone_from_parent( banks, fd_banks_new_bank( banks, child[ 1 ]->idx, 0L, 0 )->idx ) ) );
-  }
-}
-
 static void
 test_bank_epoch_credits_disk_cache( void * mem ) {
   ulong const max_total_banks = TEST_BANK_CACHE_CNT+1UL;
@@ -1768,7 +1735,6 @@ main( int argc, char ** argv ) {
   test_bank_epoch_credits_init_bank_set( mem );
   test_bank_epoch_credits_disk_cache( mem );
   test_bank_epoch_credits_fork_id_width();
-  test_bank_sysvar_cache_pool( mem );
 
   FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )==fd_vote_stakes_footprint( 1UL, 1UL ) );
   FD_TEST( fd_vote_stakes_footprint( 1UL, 0UL )==0UL );

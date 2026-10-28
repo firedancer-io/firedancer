@@ -133,9 +133,9 @@ fd_txncache_writer_arena_align( void );
 /* fd_txncache_writer_init prepares writer to serialize the status
    cache of tc as of the rooted fork fork_id, which must be the most
    recent root.  snapshot_slot is the fork's slot.  slot_history points
-   to the slot_history_sz byte bincode encoding of the SlotHistory
-   sysvar in the bank's sysvar cache, which decides which slots get a
-   slot delta and names each execution slot.  arena is the arena_sz byte
+   to the slot_history_sz byte bincode encoding of the bank's
+   SlotHistory sysvar, which decides which slots get a slot delta and
+   names each execution slot.  arena is the arena_sz byte
    staging area.
 
    Walks the whole txncache once to count the transactions of every

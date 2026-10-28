@@ -113,11 +113,8 @@ FD_PROTOTYPES_BEGIN
   The memory for the banks is bounded by the max number of unrooted
   blocks at any given time.  Large per-fork state (vote stakes t-1
   sets, epoch credits, cost trackers) is backed by a file with an
-  in-memory cache of cache_cnt entries.  Up to cache_cnt banks hold a
-  sysvar cache, taken when the bank is cloned from its parent and
-  returned when the bank is pruned.  Banks without one read their
-  sysvars from the account database instead.  See fd_banks_footprint()
-  for more details.
+  in-memory cache of cache_cnt entries.  See fd_banks_footprint() for
+  more details.
 
   There are also some important states that a bank can be in:
   - Initialized: This bank has been created and linked to a parent bank
@@ -268,7 +265,6 @@ struct fd_bank {
   ushort                 stake_delegations_fork_id;
   ushort                 epoch_credits_fork_id;
   ushort                 cost_tracker_fork_id;
-  ushort                 sysvar_cache_idx; /* USHORT_MAX if the bank holds no sysvar cache */
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
@@ -394,8 +390,6 @@ struct fd_banks {
 
   ulong epoch_credits_offset;
 
-  ulong sysvar_cache_pool_offset;
-
   /* The set of epoch leaders for the current and previous epochs is
      allocated out-of-line and tracked by epoch_leaders_offset.  Only
      two need to be stored because in the worst case we will have a root
@@ -461,12 +455,6 @@ fd_bank_vote_stakes( fd_bank_t const * bank );
 fd_cost_tracker_store_t *
 fd_bank_cost_tracker( fd_bank_t const * bank );
 
-/* fd_bank_sysvar_cache returns the sysvar cache held by bank, or NULL
-   if bank holds none. */
-
-fd_sysvar_cache_t *
-fd_bank_sysvar_cache( fd_bank_t const * bank );
-
 /* fd_bank_stake_history returns a view of the StakeHistory of bank, or
    NULL if it has none.  The view points into banks, or into buf if
    bank is past an epoch boundary the root has not crossed.  It stays
@@ -484,13 +472,14 @@ void
 fd_bank_stake_history_add( fd_bank_t *                      bank,
                            fd_stake_history_entry_t const * entry );
 
-/* fd_banks_stake_history_init sets the StakeHistory of the root bank
-   to that of bank, or to none if bank is NULL.  Called at boot once
-   bank's epoch is set and its sysvar cache is restored. */
+/* fd_banks_stake_history_init sets the StakeHistory of the root bank,
+   which is in epoch, to the one in sysvars, or to none if sysvars is
+   NULL.  Called at boot. */
 
 void
-fd_banks_stake_history_init( fd_banks_t *      banks,
-                             fd_bank_t const * bank );
+fd_banks_stake_history_init( fd_banks_t *              banks,
+                             ulong                     epoch,
+                             fd_sysvar_cache_t const * sysvars );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );
@@ -548,8 +537,8 @@ fd_banks_align( void );
    of banks that the bank manages.  This is an analog for the max number
    of unrooted blocks the bank can manage at any given time.  Large
    per-fork structs (cost trackers, epoch credits and t-1 vote stakes)
-   keep cache_cnt entries in memory and spill the rest to disk.  There
-   are cache_cnt sysvar caches.  Returns 0 if cache_cnt is 0. */
+   keep cache_cnt entries in memory and spill the rest to disk.  Returns
+   0 if cache_cnt is 0. */
 
 ulong
 fd_banks_footprint( ulong max_total_banks,

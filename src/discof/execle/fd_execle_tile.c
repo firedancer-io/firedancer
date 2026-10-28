@@ -13,6 +13,7 @@
 #include "../../discof/fd_startup.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_bank_sysvars.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include <time.h>
@@ -74,8 +75,7 @@ struct fd_execle_tile {
 
   fd_runtime_t runtime[1];
 
-  ulong             sysvar_bank_seq;
-  fd_sysvar_cache_t sysvar_cache[1];
+  fd_bank_sysvars_t sysvars[1];
 
   /* For bundle execution, we need to execute each transaction against
      a separate transaction context and a set of accounts, but the exec
@@ -293,7 +293,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
   FD_TEST( bank );
   ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
-  ctx->runtime->sysvar_cache = fd_runtime_sysvar_cache( bank, ctx->accdb, ctx->sysvar_cache, &ctx->sysvar_bank_seq );
+  ctx->runtime->sysvar_cache = fd_bank_sysvars_query( ctx->sysvars, bank );
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt        = (fd_txn_ns_dt_t){0};
@@ -519,7 +519,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   FD_TEST( bank );
   ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
-  ctx->runtime->sysvar_cache = fd_runtime_sysvar_cache( bank, ctx->accdb, ctx->sysvar_cache, &ctx->sysvar_bank_seq );
+  ctx->runtime->sysvar_cache = fd_bank_sysvars_query( ctx->sysvars, bank );
 
   fd_acct_addr_t const * writable_alt [ MAX_TXN_PER_MICROBLOCK ];
   ulong                  tips         [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
@@ -829,7 +829,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = txncache;
-  ctx->sysvar_bank_seq                   = 0UL;
+  fd_bank_sysvars_init( ctx->sysvars, ctx->accdb, NULL );
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->fuzz.enabled             = 0;

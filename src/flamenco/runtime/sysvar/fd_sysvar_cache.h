@@ -122,6 +122,16 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_accdb_t *        accdb,
                          fd_accdb_fork_id_t  fork_id );
 
+/* fd_sysvar_cache_restore_nocache is fd_sysvar_cache_restore for a
+   readonly accdb join.  Accounts are read through buf, which holds
+   FD_RUNTIME_ACC_SZ_MAX bytes. */
+
+int
+fd_sysvar_cache_restore_nocache( fd_sysvar_cache_t * cache,
+                                 fd_accdb_t *        accdb,
+                                 fd_accdb_fork_id_t  fork_id,
+                                 uchar *             buf );
+
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
    with solfuzz/protosol conformance tooling.  This version works around
    bugs in that tooling that create invalid sysvars and suppresses

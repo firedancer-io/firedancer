@@ -60,8 +60,8 @@ $(call make-unit-test,test_runtime_alut,test_runtime_alut,fd_flamenco_test fd_fl
 $(call run-unit-test,test_runtime_alut)
 endif
 
-$(call add-hdrs,fd_bank.h)
-$(call add-objs,fd_bank,fd_flamenco)
+$(call add-hdrs,fd_bank.h fd_bank_sysvars.h)
+$(call add-objs,fd_bank fd_bank_sysvars,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_bank)

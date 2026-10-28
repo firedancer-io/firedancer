@@ -76,13 +76,13 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
   runner->bank->f.slot_params_default        = runner->bank->f.slot_params;
 
-  fd_sysvar_cache_restore_fuzz( fd_bank_sysvar_cache( runner->bank ), runner->accdb, runner->bank->accdb_fork_id );
+  fd_sysvar_cache_restore_fuzz( runner->sysvar_cache, runner->accdb, runner->bank->accdb_fork_id );
 
-  FD_TEST( fd_sysvar_cache_epoch_schedule_read( fd_bank_sysvar_cache( runner->bank ), &runner->bank->f.epoch_schedule ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( runner->sysvar_cache, &runner->bank->f.epoch_schedule ) );
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
-  fd_banks_stake_history_init( runner->banks, runner->bank );
+  fd_banks_stake_history_init( runner->banks, runner->bank->f.epoch, runner->sysvar_cache );
 
-  FD_TEST( fd_sysvar_cache_rent_read( fd_bank_sysvar_cache( runner->bank ), &runner->bank->f.rent ) );
+  FD_TEST( fd_sysvar_cache_rent_read( runner->sysvar_cache, &runner->bank->f.rent ) );
 
   runner->bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( runner->bank, accdb );
 
@@ -206,7 +206,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
   int bundle_prep_ok = 1;
   if( is_bundle ) {
     runtime->accdb        = runner->accdb;
-    runtime->sysvar_cache = fd_bank_sysvar_cache( runner->bank );
+    runtime->sysvar_cache = runner->sysvar_cache;
     if( FD_LIKELY( txn_cnt ) ) {
       int prepare_err = fd_runtime_prepare_bundle_accounts( runtime, runner->bank, txn_ins, txn_outs, txn_cnt );
       if( FD_UNLIKELY( prepare_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {

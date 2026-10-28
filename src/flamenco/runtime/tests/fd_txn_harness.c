@@ -97,17 +97,17 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   runner->bank->f.slot_params_default        = runner->bank->f.slot_params;
 
   /* Restore sysvars from account context */
-  fd_sysvar_cache_restore_fuzz( fd_bank_sysvar_cache( runner->bank ), runner->accdb, runner->bank->accdb_fork_id );
+  fd_sysvar_cache_restore_fuzz( runner->sysvar_cache, runner->accdb, runner->bank->accdb_fork_id );
 
   /* Epoch schedule */
-  FD_TEST( fd_sysvar_cache_epoch_schedule_read( fd_bank_sysvar_cache( runner->bank ), &runner->bank->f.epoch_schedule ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( runner->sysvar_cache, &runner->bank->f.epoch_schedule ) );
 
   /* Epoch */
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
-  fd_banks_stake_history_init( runner->banks, runner->bank );
+  fd_banks_stake_history_init( runner->banks, runner->bank->f.epoch, runner->sysvar_cache );
 
   /* Rent */
-  FD_TEST( fd_sysvar_cache_rent_read( fd_bank_sysvar_cache( runner->bank ), &runner->bank->f.rent ) );
+  FD_TEST( fd_sysvar_cache_rent_read( runner->sysvar_cache, &runner->bank->f.rent ) );
 
   /* Alpenglow migration slot */
   runner->bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( runner->bank, accdb );
@@ -387,7 +387,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
   runtime->log.txn_dump_ctx      = NULL;
   runtime->fuzz.enabled          = 1;
   runtime->fuzz.reclaim_accounts = reclaim_accounts;
-  runtime->sysvar_cache          = fd_bank_sysvar_cache( runner->bank );
+  runtime->sysvar_cache          = runner->sysvar_cache;
 
   fd_runtime_prepare_and_execute_txn( runtime, runner->bank, txn_in, txn_out );
   *exec_res = txn_out->err.txn_err;

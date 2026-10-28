@@ -72,7 +72,7 @@ setup_test( test_env_t * env, fd_svm_mini_t * mini, int enable_feature ) {
 
   ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_SLOT );
   env->bank = fd_svm_mini_bank( mini, child_idx );
-  mini->runtime->sysvar_cache = fd_bank_sysvar_cache( env->bank );
+  mini->runtime->sysvar_cache = fd_bank_sysvars_query( mini->sysvars, env->bank );
   env->fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
   fd_features_enable_cleaned_up( &env->bank->f.features );

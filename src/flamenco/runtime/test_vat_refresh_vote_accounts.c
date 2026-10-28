@@ -383,8 +383,9 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   fd_sysvar_stake_history_init( env->bank, env->accdb, NULL );
   fd_sysvar_clock_init( env->bank, env->accdb, NULL );
   init_blockhash_queue( env );
-  FD_TEST( fd_sysvar_cache_restore( fd_bank_sysvar_cache( env->bank ), env->accdb, env->bank->accdb_fork_id ) );
-  fd_banks_stake_history_init( env->banks, env->bank );
+  static fd_sysvar_cache_t sysvar_cache[1];
+  FD_TEST( fd_sysvar_cache_restore( sysvar_cache, env->accdb, env->bank->accdb_fork_id ) );
+  fd_banks_stake_history_init( env->banks, env->bank->f.epoch, sysvar_cache );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( env->bank );
   fd_vote_stakes_reset( vote_stakes );

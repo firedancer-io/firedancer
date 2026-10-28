@@ -240,6 +240,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   FD_TEST( mini->banks );
 
   mini->runtime = runtime;
+  fd_bank_sysvars_init( mini->sysvars, accdb, NULL );
 
   runtime->accdb        = accdb;
   runtime->status_cache = mini->txncache;
@@ -495,6 +496,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   FD_TEST( accdb );
   mini->runtime->accdb        = accdb;
   mini->runtime->sysvar_cache = NULL;
+  fd_bank_sysvars_init( mini->sysvars, accdb, NULL );
 
   fd_progcache_reset( mini->progcache->join );
   fd_txncache_reset( mini->txncache );
@@ -668,8 +670,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
     free( slot_history_enc );
 
-    FD_TEST( fd_sysvar_cache_restore( fd_bank_sysvar_cache( bank ), accdb, bank->accdb_fork_id ) );
-    fd_banks_stake_history_init( mini->banks, bank );
+    fd_banks_stake_history_init( mini->banks, bank->f.epoch, fd_bank_sysvars_refresh( mini->sysvars, bank ) );
   }
 
   fd_epoch_credits_view_t epoch_credits_view[1];
