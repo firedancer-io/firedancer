@@ -7,6 +7,8 @@
 
 #include <stdlib.h>
 
+static uchar dctx_scratch[ 9UL<<20 ] __attribute__((aligned(128)));
+
 /* Builds a ConfigProgram account: ConfigKeys of length 2 with the
    Va1idator1nfo key first and the identity second, then the bincode
    length-prefixed JSON.  Returns the account size. */
@@ -51,7 +53,7 @@ test_newest_copy( void ) {
   fd_pubkey_t id; memset( id.uc, 0x42, 32UL );
 
   for( int order=0; order<2; order++ ) {
-    fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, 1UL, "", 0UL, 0L ) );
+    fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, 1UL, "", 0UL, 0L ) );
     FD_TEST( peers );
     if( order ) { fd_gui_peers_handle_config_account( peers, cleared,   csz, 200UL ); fd_gui_peers_handle_config_account( peers, populated, psz, 100UL ); }
     else        { fd_gui_peers_handle_config_account( peers, populated, psz, 100UL ); fd_gui_peers_handle_config_account( peers, cleared,   csz, 200UL ); }
@@ -66,7 +68,7 @@ test_newest_copy( void ) {
   }
 
   /* a known peer: populated@100, cleared@200, populated@300 each broadcast */
-  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, 1UL, "", 0UL, 0L ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, 1UL, "", 0UL, 0L ) );
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ 0 ];
   peer->row.valid  = 1;
   peer->row.pubkey = id;
@@ -110,7 +112,7 @@ test_delinquent( void ) {
   void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, params, callbacks, NULL ) );
   void * peers_mem = aligned_alloc( fd_gui_peers_align(), fd_gui_peers_footprint( 1UL ) );
-  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, 1UL, "", 0UL, 0L ) );
+  fd_gui_peers_ctx_t * peers = fd_gui_peers_join( fd_gui_peers_new( peers_mem, http, NULL, dctx_scratch, 1UL, "", 0UL, 0L ) );
 
   fd_pubkey_t id; memset( id.uc, 0x42, sizeof(fd_pubkey_t) );
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ 0 ];
