@@ -213,17 +213,14 @@ struct fd_repair_tile {
 
   /* Links */
 
-  int in_kind[32];
-  union {
-    struct {
-      fd_wksp_t * mem;
-      ulong       chunk0;
-      ulong       wmark;
-      ulong       mtu;
-      ulong       sign_idx; /* IN_KIND_SIGN, its sign tile in sign */
-    };
-    fd_net_rx_bounds_t net_rx; /* IN_KIND_NET */
-  } in[ 32 ];
+  int in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       mtu;
+    ulong       sign_idx; /* IN_KIND_SIGN, its sign tile in sign */
+  } in[ FD_TOPO_MAX_TILE_IN_LINKS ];
   ulong chunk; /* reliable ins, after_frag */
 
   ulong       net_out_idx;
@@ -1349,10 +1346,14 @@ during_frag( fd_repair_tile_t * ctx,
              ulong              sig FD_PARAM_UNUSED,
              ulong              chunk,
              ulong              sz,
-             ulong              ctl ) {
+             ulong              ctl FD_PARAM_UNUSED ) {
   switch( ctx->in_kind[ in_idx  ] ) {
   case IN_KIND_NET:
-    memcpy( ctx->net_buf, fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz ), sz );
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
+      FD_LOG_ERR(( "chunk %lu sz %lu from in_kind %d out of bounds, chunk0 %lu wmark %lu",
+                   chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    }
+    memcpy( ctx->net_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
     break;
   case IN_KIND_SIGN:
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
@@ -1562,18 +1563,13 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_manif"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( FD_LIKELY( !strcmp( link->name, "votor_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
-    else if( FD_LIKELY( !strcmp( link->name, "net_repair"    ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_rotor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_ciaddr" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_slot"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "replay_rotor"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "sign_repair"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else FD_LOG_ERR(( "rotor tile has unexpected input link %lu %s", i, link->name ));
-    if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_NET ) ) { /* net frags are bounded by fd_net_rx, not a dcache */
-      fd_net_rx_bounds_init( &ctx->in[ i ].net_rx, link->dcache );
-      continue;
-    }
-
     ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );

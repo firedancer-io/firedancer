@@ -1,7 +1,6 @@
 #define _GNU_SOURCE /* dup3 */
 #include "fd_sock_tile_private.h"
 #include "../../fd_disco_base.h"
-#include "../../../disco/repair/fd_repair_serde.h"
 #include "../../topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
@@ -208,7 +207,6 @@ privileged_init( fd_topo_t const *      topo,
   ctx->tx_scratch0 = tx_scratch;
   ctx->tx_scratch1 = tx_scratch + tx_sz;
   ctx->tx_ptr      = tx_scratch;
-  ctx->repair_shred_sock_idx = UINT_MAX;
   ctx->tx_sock = -1;
   ctx->bind_address = tile->sock.net.bind_address;
   ctx->tick_per_ns  = fd_tempo_tick_per_ns( NULL );
@@ -275,12 +273,6 @@ privileged_init( fd_topo_t const *      topo,
       continue;
     }
 
-    /* Record the socket index of the repair intake socket, so repair
-       ping packets can be routed to the repair tile at runtime. */
-    if( tile->sock.net.repair_client_listen_port &&
-        udp_port_candidates[ candidate_idx ]==tile->sock.net.repair_client_listen_port )
-      ctx->repair_shred_sock_idx = sock_idx;
-
     int sock_fd = sock_fd_min + (int)sock_idx;
     create_udp_socket( sock_fd, tile->sock.net.bind_address, port, tile->sock.so_rcvbuf, ctx->lo_ifindex );
     ctx->pollfd[ sock_idx ].fd     = sock_fd;
@@ -320,14 +312,9 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->link_rx_cnt = tile->out_cnt;
-  ctx->repair_rx = 0xFF;
   for( ulong i=0UL; i<(tile->out_cnt); i++ ) {
     if( 0!=strncmp( topo->links[ tile->out_link_id[ i ] ].name, "net_", 4 ) ) {
       FD_LOG_ERR(( "out link %lu is not a net RX link", i ));
-    }
-    if( 0==strcmp( topo->links[ tile->out_link_id[ i ] ].name, "net_repair" ) ) {
-      if( FD_UNLIKELY( ctx->repair_rx!=0xFF ) ) FD_LOG_ERR(( "multiple net_repair out links" ));
-      ctx->repair_rx = (uchar)i;
     }
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
     ctx->link_rx[ i ].base   = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -338,10 +325,6 @@ unprivileged_init( fd_topo_t const *      topo,
       FD_LOG_ERR(( "link %lu dcache burst is too low (%lu<%lu)",
                    tile->out_link_id[ i ], link->burst, STEM_BURST ));
     }
-  }
-
-  if( FD_UNLIKELY( ctx->repair_shred_sock_idx!=UINT_MAX && ctx->repair_rx==0xFF ) ) {
-    FD_LOG_ERR(( "repair intake socket configured but no net_repair out link was found" ));
   }
 
   FD_CHECK_ERR( tile->in_cnt<=MAX_NET_INS, "too many input links" );
@@ -487,24 +470,11 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
-    /* When a message arrives on the repair intake port, it is sent to
-       the shred tile, unless it is a ping message or an alpenglow
-       repair response (identified by the frame size), then it is sent
-       to the repair tile.  The repair tile does not own any sockets, so
-       we look up the net_repair link directly. */
-    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && payload_sz<=FD_REPAIR_RES_DE_MAX ) ) {
-      fd_sock_link_rx_t * repair_link = ctx->link_rx + ctx->repair_rx;
-      uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
-      memcpy( repair_buf, eth_hdr, frame_sz );
-      fd_stem_publish( stem, ctx->repair_rx, sig, repair_link->chunk, frame_sz, 0UL, 0UL, tspub );
-      repair_link->chunk = fd_dcache_compact_next( repair_link->chunk, FD_NET_MTU, repair_link->chunk0, repair_link->wmark );
-    } else {
-      if( FD_UNLIKELY( chunk!=chunk_pub ) ) {
-        memcpy( fd_chunk_to_laddr( base, chunk_pub ), eth_hdr, frame_sz );
-      }
-      fd_stem_publish( stem, rx_link, sig, chunk_pub, frame_sz, 0UL, 0UL, tspub );
-      chunk_pub = fd_dcache_compact_next( chunk_pub, FD_NET_MTU, chunk0, wmark );
+    if( FD_UNLIKELY( chunk!=chunk_pub ) ) {
+      memcpy( fd_chunk_to_laddr( base, chunk_pub ), eth_hdr, frame_sz );
     }
+    fd_stem_publish( stem, rx_link, sig, chunk_pub, frame_sz, 0UL, 0UL, tspub );
+    chunk_pub = fd_dcache_compact_next( chunk_pub, FD_NET_MTU, chunk0, wmark );
   }
 
   /* Rewind the chunk index to the first free index. */

@@ -1151,7 +1151,7 @@ write_repair( config_t const * config,
          K( "repair slot" ) "%lu %s%+03ld" RESET
          K( "turbine slot" ) "%lu" CLEARLN "\n",
     repair_label,
-    DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
+    DIFF_LINK_BYTES( "shred_rotor", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     repair_slot,
     repair_lag<-4L ? RED : DIM,

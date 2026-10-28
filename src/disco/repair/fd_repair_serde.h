@@ -98,7 +98,7 @@ typedef struct fd_repair_shred_for_block_id fd_repair_shred_for_block_id_t;
 #define FD_REPAIR_SIG_SER_MAX ( FD_REPAIR_SER_MAX - FD_ED25519_SIG_SZ )
 
 /* FD_REPAIR_RES_DE_MAX bounds the size of a block id metadata response
-   the net tiles route to repair and rserve serializes into: a parent
+   the shred tiles forward to repair and rserve serializes into: a parent
    and FEC set count response whose proof has a node for each layer of
    the largest block any configuration allows.  Shred responses are
    always larger. */
@@ -110,6 +110,13 @@ typedef struct fd_repair_shred_for_block_id fd_repair_shred_for_block_id_t;
                                sizeof(ulong)     /* proof_sz        */ + \
                                (1UL+(63UL-(ulong)__builtin_clzl( FD_SHRED_BLK_MAX_RAISED/FD_FEC_SHRED_CNT )))*FD_SHRED_MERKLE_NODE_SZ /* proof */ + \
                                sizeof(uint)      /* nonce           */ )
+
+FD_STATIC_ASSERT( FD_REPAIR_RES_DE_MAX<FD_SHRED_MIN_SZ, repair_res_de_max );
+
+/* FD_REPAIR_NET_FRAME_MAX bounds a forwarded repair frame: the largest
+   Ethernet, IP and UDP header a netmux sig encodes, plus the payload. */
+
+#define FD_REPAIR_NET_FRAME_MAX (42UL+4UL*15UL+FD_REPAIR_RES_DE_MAX)
 
 FD_PROTOTYPES_BEGIN
 

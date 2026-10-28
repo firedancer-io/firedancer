@@ -32,6 +32,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/fd_slot_params.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../repair/fd_repair_serde.h"
 #if FD_HAS_AVX
 #include "../../util/simd/fd_nt_memcpy.h"
 #else
@@ -177,6 +178,7 @@ typedef struct {
 
   int skip_frag;
   int parse_failed; /* during_frag's parse failed and this tile owns the frag, counted in after_frag once not overrun */
+  int fwd_meta;     /* during_frag copied a repair ping or metadata response this tile owns, forwarded in after_frag */
 
   ulong                    adtl_dests_leader_cnt;
   fd_shred_dest_weighted_t adtl_dests_leader    [ FD_TOPO_ADTL_DESTS_MAX ];
@@ -234,6 +236,14 @@ typedef struct {
   ulong       shred_out_chunk0;
   ulong       shred_out_wmark;
   ulong       shred_out_chunk;
+
+  /* Repair pings and metadata responses arrive on the repair client
+     port with repair shreds, and are forwarded to the repair tile. */
+  ulong       repair_out_idx;
+  fd_wksp_t * repair_out_mem;
+  ulong       repair_out_chunk0;
+  ulong       repair_out_wmark;
+  ulong       repair_out_chunk;
 
   /* Highest slot relayed on turbine, published for rpc
      (getMaxRetransmitSlot).  NULL if rpc is disabled. */
@@ -442,6 +452,7 @@ during_frag( fd_shred_ctx_t * ctx,
 
   ctx->skip_frag    = 0;
   ctx->parse_failed = 0;
+  ctx->fwd_meta     = 0;
 
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -744,6 +755,18 @@ alpenglow_marker:
     uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
+    fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)( dcache_entry + hdr_sz - sizeof(fd_udp_hdr_t) );
+    ulong dgram_sz = fd_ulong_min( fd_ulong_sat_sub( fd_ushort_bswap( udp_hdr->net_len ), sizeof(fd_udp_hdr_t) ), sz-hdr_sz );
+    if( FD_UNLIKELY( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR && dgram_sz<=FD_REPAIR_RES_DE_MAX ) ) {
+      ctx->skip_frag = 1;
+      ctx->fwd_meta  = ctx->repair_out_idx!=ULONG_MAX &&
+                       fd_disco_netmux_sig_hash( sig )%ctx->round_robin_cnt==ctx->round_robin_id;
+      if( ctx->fwd_meta ) { /* trim trailing bytes outside the datagram */
+        fd_memcpy( ctx->shred_buffer, dcache_entry, hdr_sz+dgram_sz );
+        ctx->shred_buffer_sz = hdr_sz+dgram_sz;
+      }
+      return;
+    }
     /* ctx->shred_limit is the smallest per-slot max_shred_idx, so no
        later parse is stricter.  The result may be garbage if the frag
        is overrun meanwhile, which the stem detects before after_frag. */
@@ -1022,15 +1045,19 @@ after_frag( fd_shred_ctx_t *    ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
-            ulong               _tspub,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)sz;
   (void)tsorig;
-  (void)_tspub;
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) {
     ctx->metrics->shred_processing_result[ FD_METRICS_ENUM_SHRED_PROCESS_RESULT_V_PARSE_FAILED_IDX ] += (ulong)ctx->parse_failed;
+    if( FD_UNLIKELY( ctx->fwd_meta ) ) {
+      fd_memcpy( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ), ctx->shred_buffer, ctx->shred_buffer_sz );
+      fd_stem_publish( stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, ctx->shred_buffer_sz, 0UL, 0UL, tspub );
+      ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, ctx->shred_buffer_sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
+    }
     return;
   }
 
@@ -1336,6 +1363,16 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( rtx_obj_id!=ULONG_MAX ) ) {
     ctx->rtx_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, rtx_obj_id ) );
     FD_TEST( ctx->rtx_fseq );
+  }
+
+  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_rotor", ctx->round_robin_id );
+  if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
+    FD_TEST( repair_out->mtu>=FD_REPAIR_NET_FRAME_MAX );
+    ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->repair_out_chunk0 = fd_dcache_compact_chunk0( ctx->repair_out_mem, repair_out->dcache );
+    ctx->repair_out_wmark  = fd_dcache_compact_wmark ( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu );
+    ctx->repair_out_chunk  = ctx->repair_out_chunk0;
   }
 
   ctx->shred_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_out", ctx->round_robin_id );

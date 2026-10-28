@@ -805,7 +805,7 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * repair = &topo->tiles[ repair_tile_idx ];
 
     for( ulong i=0UL; i<repair->in_cnt; i++ ) {
-      if( FD_UNLIKELY( !strcmp( topo->links[ repair->in_link_id[ i ] ].name, "net_repair" ) ) ) {
+      if( FD_UNLIKELY( !strcmp( topo->links[ repair->in_link_id[ i ] ].name, "shred_rotor" ) ) ) {
           cur->in.repair += fd_metrics_link_in( repair->metrics, i )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       }
     }
