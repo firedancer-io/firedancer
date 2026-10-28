@@ -40,6 +40,7 @@
 
 
 #define FUZZ_SLOT_MAX  (FD_VOTOR_SLOTS_PER_WINDOW+FD_VOTOR_REWARD_SLOT_DELTA) /* smallest pool fd_votor_pool_footprint accepts */
+#define FUZZ_SIG_PG_MAX (FUZZ_SLOT_MAX*FD_VOTOR_VOTES_PER_SLOT_MAX*fd_bls_set_word_cnt) /* every sig in RAM, so the pool never spills */
 
 /* Pool event-queue capacity, for the burst-bound oracle below.  Mirrors
    POOL_EVENT_MAX in fd_votor_pool.c (private there) and must stay in
@@ -274,7 +275,7 @@ LLVMFuzzerInitialize( int *    pargc,
   ulong fp = fd_quic_footprint( &quic_server_limits );
   FD_TEST( fp );
   quic_mem = aligned_alloc( FD_QUIC_ALIGN, fd_ulong_align_up( fp, FD_QUIC_ALIGN ) );
-  fp = fd_votor_pool_footprint( FUZZ_SLOT_MAX, QUIC_DGRAM_BURST );
+  fp = fd_votor_pool_footprint( FUZZ_SLOT_MAX, QUIC_DGRAM_BURST, FUZZ_SIG_PG_MAX );
   FD_TEST( fp );
   pool_mem = aligned_alloc( fd_votor_pool_align(), fd_ulong_align_up( fp, fd_votor_pool_align() ) );
   votor_mem = aligned_alloc( fd_votor_loop_align(), fd_ulong_align_up( fd_votor_loop_footprint( FUZZ_SLOT_MAX ), fd_votor_loop_align() ) );
@@ -293,7 +294,7 @@ LLVMFuzzerInitialize( int *    pargc,
   epoch_ctx->peers            = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   epoch_ctx->contact_infos    = contact_infos_join( contact_infos_new( contact_infos_mem, CONTACT_INFOS_LG_SLOT_CNT, 42UL ) );
   epoch_ctx->mleaders         = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
-  epoch_ctx->pool             = fd_votor_pool_join( fd_votor_pool_new( pool_mem, FUZZ_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  epoch_ctx->pool             = fd_votor_pool_join( fd_votor_pool_new( pool_mem, FUZZ_SLOT_MAX, QUIC_DGRAM_BURST, FUZZ_SIG_PG_MAX, 42UL, -1 ) );
   epoch_ctx->votor            = fd_votor_loop_join( fd_votor_loop_new( votor_mem, FUZZ_SLOT_MAX, 42UL ) );
   epoch_ctx->next_epoch_slot  = ULONG_MAX;
   epoch_ctx->next_leader_slot = ULONG_MAX;
@@ -399,7 +400,7 @@ fuzz_ctx_reset( uint sender_sel ) {
   }
 
   /* Pool rooted at FUZZ_ROOT_SLOT, current epoch advanced. */
-  ctx->pool = fd_votor_pool_join( fd_votor_pool_new( pool_mem, FUZZ_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->pool = fd_votor_pool_join( fd_votor_pool_new( pool_mem, FUZZ_SLOT_MAX, QUIC_DGRAM_BURST, FUZZ_SIG_PG_MAX, 42UL, -1 ) );
   FD_TEST( ctx->pool );
   fd_votor_pool_from_genesis( ctx->pool, &(fd_block_id_t){ .slot = FUZZ_ROOT_SLOT } );
   fd_votor_pool_advance_epoch( ctx->pool, ctx->curr_epoch_info, USHORT_MAX, ctx->curr_epoch_slot );
