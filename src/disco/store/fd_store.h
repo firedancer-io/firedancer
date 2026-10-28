@@ -193,7 +193,8 @@ FD_STATIC_ASSERT( sizeof(fd_store_fec_t)==FD_STORE_ALIGN, fd_store_fec_footprint
 /* slot_to_fecs has one partition per shred tile.  Each inserter
    appends only to its own partition, so concurrent inserts under the
    shared fec_lock never touch the same chain.  Only fd_store_publish
-   removes, under the exclusive fec_lock. */
+   removes, under the exclusive fec_lock.  Keys are slots, so chains are
+   sized by the blocks fec_max covers. */
 
 #define MAP_NAME     fd_store_slot_to_fecs
 #define MAP_ELE_T    fd_store_fec_t
@@ -332,8 +333,8 @@ fd_store_footprint( ulong fec_max,
                     ulong shred_tile_cnt ) {
   if( FD_UNLIKELY( !fec_max || !fec_data_max || fec_max>UINT_MAX || fec_data_max>UINT_MAX ||
                    shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ) ) return 0UL;
-  ulong chain_cnt = fd_store_map_chain_cnt_est( fec_max );
-  ulong slot_to_fecs_sz = fd_ulong_align_up( fd_store_slot_to_fecs_footprint( fd_store_slot_to_fecs_chain_cnt_est( fec_max ) ), fd_store_slot_to_fecs_align() );
+  ulong chain_cnt = fd_store_map_chain_cnt_est( fec_max>>1 );
+  ulong slot_to_fecs_sz = fd_ulong_align_up( fd_store_slot_to_fecs_footprint( fd_store_slot_to_fecs_chain_cnt_est( 8UL*(fec_max/FD_FEC_BLK_MAX) ) ), fd_store_slot_to_fecs_align() );
   ulong payload_slot_sz = fd_store_payload_slot_sz( fec_data_max );
   if( FD_UNLIKELY( !payload_slot_sz ) ) return 0UL;
   ulong cache_slot_cnt = shred_cache_bytes
