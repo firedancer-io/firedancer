@@ -9,10 +9,8 @@ struct test_live_table_row {
     ulong parent;
     ulong left;
     ulong right;
-    ulong prio;
-    ulong next;
-    ulong prev;
   } treaps[ TEST_LIVE_TABLE_MAX_SORT_KEY_CNT ];
+  ulong prio;
   ulong sort_keys;
   struct {
     ulong prev;
@@ -44,10 +42,8 @@ struct test_live_table32_row {
     uint parent;
     uint left;
     uint right;
-    uint prio;
-    uint next;
-    uint prev;
   } treaps[ TEST_LIVE_TABLE32_MAX_SORT_KEY_CNT ];
+  uint prio;
   ulong sort_keys;
   struct {
     ulong prev;
