@@ -164,7 +164,7 @@ struct fd_repair_blk {
   uchar highest_req  : 1; /* tile: a HIGHEST req was made */
   uchar orphan_req   : 1; /* tile: an ORPHAN req was made */
 
-  ulong * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
+  uint * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
 
   long eager_ts; /* eager_ts + eager_delta signals when to start eagerly repairing */
 
