@@ -1401,7 +1401,6 @@ test_copy_out( void ) {
 
       /* A three transaction bundle, copied by fd_pack_try_schedule_bundle */
       pack = init_all( 1024UL, 1UL, 8UL, &outcome );
-      fd_pack_set_initializer_bundles_ready( pack );
 
       make_wide_transaction( 0UL, payload_sz, alt_cnt, "A", "B" );
       make_wide_transaction( 1UL, payload_sz, alt_cnt, "C", "D" );
@@ -1412,6 +1411,9 @@ test_copy_out( void ) {
       for( ulong j=0UL; j<3UL; j++ ) fill_slot( bundle[ j ], j );
       FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted )>=0 );
 
+      /* The previous iteration left pack_scratch READY */
+      FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==0UL );
+      fd_pack_set_initializer_bundles_ready( pack );
       fd_memset( outcome.results, COPY_OUT_CANARY, 3UL*sizeof(fd_txn_e_t) );
       FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==3UL );
       for( ulong j=0UL; j<3UL; j++ ) check_slot( outcome.results+j, j );
