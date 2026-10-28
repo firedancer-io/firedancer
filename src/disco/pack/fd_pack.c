@@ -184,19 +184,20 @@ typedef struct fd_pack_expq fd_pack_expq_t;
    bitset, if any. */
 struct fd_pack_bitset_acct_mapping {
   fd_acct_addr_t key; /* account address */
-  ulong          ref_cnt;
+  uint           ref_cnt; /* < trp_pool max: a txn references an account at most once */
 
-  /* first_instance and first_instance_was_write are only valid when
-     bit==FD_PACK_BITSET_FIRST_INSTANCE, which is set when ref_cnt
-     transitions from 0 to 1.  These just exist to implement the
-     optimization that accounts referenced a single time aren't
-     allocated a bit, but this seems to be an important optimization. */
-  fd_pack_ord_txn_t * first_instance;
-  int                 first_instance_was_write;
+  /* first_instance (a trp_pool index) and first_instance_was_write are
+     only valid when bit==FD_PACK_BITSET_FIRST_INSTANCE, which is set
+     when ref_cnt transitions from 0 to 1.  These just exist to
+     implement the optimization that accounts referenced a single time
+     aren't allocated a bit, but this seems to be an important
+     optimization. */
+  ushort         first_instance;
 
   /* bit is in [0, FD_PACK_BITSET_MAX) U
      { FD_PACK_BITSET_FIRST_INSTANCE, FD_PACK_BITSET_SLOWPATH }. */
-  ushort              bit;
+  ushort         bit;
+  uchar          first_instance_was_write;
 };
 typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 
@@ -250,6 +251,7 @@ typedef struct fd_pack_wcost_ele fd_pack_wcost_ele_t;
 #define POOL_IDX_T      ushort
 #define POOL_NEXT       parent
 #include "../../util/tmpl/fd_pool.c"
+FD_STATIC_ASSERT( sizeof(((fd_pack_bitset_acct_mapping_t *)0)->first_instance)==sizeof(ushort), trp_pool_idx );
 
 #define TREAP_T         fd_pack_ord_txn_t
 #define TREAP_NAME      treap
@@ -1462,16 +1464,17 @@ populate_bitsets( fd_pack_t         * pack,
     fd_pack_bitset_acct_mapping_t * q = bitset_map_probe( pack->acct_to_bitset, acct );
     if( FD_UNLIKELY( bitset_map_key_inval( q->key ) ) ) {
       q = bitset_map_fill( pack->acct_to_bitset, q, acct );
-      q->ref_cnt                  = 0UL;
-      q->first_instance           = ord;
+      q->ref_cnt                  = 0U;
+      q->first_instance           = (ushort)trp_pool_idx( pack->pool, ord );
       q->first_instance_was_write = 1;
       q->bit                      = FD_PACK_BITSET_FIRST_INSTANCE;
     } else if( FD_UNLIKELY( q->bit == FD_PACK_BITSET_FIRST_INSTANCE ) ) {
       q->bit = pack->bitset_avail[ pack->bitset_avail_cnt ];
       pack->bitset_avail_cnt = fd_ulong_if( !!pack->bitset_avail_cnt, pack->bitset_avail_cnt-1UL, 0UL );
 
-      FD_PACK_BITSET_SETN( q->first_instance->rw_bitset, q->bit );
-      if( q->first_instance_was_write ) FD_PACK_BITSET_SETN( q->first_instance->w_bitset, q->bit );
+      fd_pack_ord_txn_t * first = pack->pool + q->first_instance;
+      FD_PACK_BITSET_SETN( first->rw_bitset, q->bit );
+      if( q->first_instance_was_write ) FD_PACK_BITSET_SETN( first->w_bitset, q->bit );
     }
     ulong penalty = fd_ulong_max( q->ref_cnt, PENALTY_TREAP_THRESHOLD )-PENALTY_TREAP_THRESHOLD;
     if( FD_UNLIKELY( penalty ) ) {
@@ -1495,16 +1498,17 @@ populate_bitsets( fd_pack_t         * pack,
     fd_pack_bitset_acct_mapping_t * q = bitset_map_probe( pack->acct_to_bitset, acct );
     if( FD_UNLIKELY( bitset_map_key_inval( q->key ) ) ) {
       q = bitset_map_fill( pack->acct_to_bitset, q, acct );
-      q->ref_cnt                  = 0UL;
-      q->first_instance           = ord;
+      q->ref_cnt                  = 0U;
+      q->first_instance           = (ushort)trp_pool_idx( pack->pool, ord );
       q->first_instance_was_write = 0;
       q->bit                      = FD_PACK_BITSET_FIRST_INSTANCE;
     } else if( FD_UNLIKELY( q->bit == FD_PACK_BITSET_FIRST_INSTANCE ) ) {
       q->bit = pack->bitset_avail[ pack->bitset_avail_cnt ];
       pack->bitset_avail_cnt = fd_ulong_if( !!pack->bitset_avail_cnt, pack->bitset_avail_cnt-1UL, 0UL );
 
-      FD_PACK_BITSET_SETN( q->first_instance->rw_bitset, q->bit );
-      if( q->first_instance_was_write ) FD_PACK_BITSET_SETN( q->first_instance->w_bitset, q->bit );
+      fd_pack_ord_txn_t * first = pack->pool + q->first_instance;
+      FD_PACK_BITSET_SETN( first->rw_bitset, q->bit );
+      if( q->first_instance_was_write ) FD_PACK_BITSET_SETN( first->w_bitset, q->bit );
     }
 
     q->ref_cnt++;
@@ -2229,7 +2233,7 @@ release_bit_reference( fd_pack_t            * pack,
 
   q->ref_cnt--;
 
-  if( FD_UNLIKELY( q->ref_cnt==0UL ) ) {
+  if( FD_UNLIKELY( q->ref_cnt==0U ) ) {
     ushort bit = q->bit;
     bitset_map_remove( pack->acct_to_bitset, q );
     if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
