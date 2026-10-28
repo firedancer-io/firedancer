@@ -466,6 +466,8 @@ test_telemetry_final_src( void ) {
   shred0( rotor, 1UL, 0UL, &root, &m10 );
   fd_repair_fec_t const * f10 = fd_repair_fec_map_ele_query_const( rotor->fec_map, &k10, NULL, rotor->fec_pool );
   FD_TEST( f10 && !f10->final_src ); /* shred0 gives no source */
+  fd_mr32_t zero = {0};
+  FD_TEST( !memcmp( fd_repair_fec_mr32( f10 ).uc, zero.uc, sizeof(fd_mr32_t) ) ); /* incomplete: no root yet */
 
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
   shred->slot            = 1UL;
@@ -478,6 +480,7 @@ test_telemetry_final_src( void ) {
 
   shred->idx = FD_FEC_SHRED_CNT-1U;
   FD_TEST( fd_repair_fec_complete( rotor, shred, &m10, 0, 0U, 0U, 0U, 0U, 0U, 0U, 4L )==f10 && f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+  FD_TEST( !memcmp( fd_repair_fec_mr32( f10 ).uc, m10.uc, sizeof(fd_mr32_t) ) ); /* key||tail is the full root */
   shred->idx = 4U; fd_repair_shred_insert( rotor, shred, &m10, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE, 5L );
   FD_TEST( f10->final_src==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR ); /* frozen */
 

@@ -34,37 +34,53 @@ fd_repair_blk_max( ulong slot_max ) {
 
 typedef struct fd_repair_blk fd_repair_blk_t;
 
+/* The full merkle root is key (its first 20 B) then mr_tail, valid
+   once complete. */
+
 struct fd_repair_fec {
   fd_mr20_t key;
-  fd_mr32_t mr32;
-  uint      fec_idx;
+  uchar     mr_tail[ sizeof(fd_mr32_t)-sizeof(fd_mr20_t) ];
   ulong     slot;
+  long      first_ts;      /* when its first shred arrived, 0 if none yet */
+  long      cmpl_ts;       /* when it first completed, 0 if not yet */
+  uint      next;
+  uint      prev;
   uint      rcvd;
+  uint      data_rcvd;     /* shred tile masks at first completion: bit j set if the data shred with in-type index j was received (vs recovered) */
+  uint      parity_rcvd;   /* ... if the parity shred with in-type index j was received */
+  uint      repair_rcvd;   /* ... if the data shred with in-type index j arrived by repair */
+  uint      fec_idx;
+  uchar     final_src;     /* FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_* of the last data shred received before it completed, 0 if none */
   uchar     complete      : 1;
   uchar     data_complete : 1;
   uchar     is_leader     : 1;
   uchar     notarized     : 1;
-  ulong     next;
-  ulong     prev;
-  uint      data_rcvd;     /* shred tile masks at first completion: bit j set if the data shred with in-type index j was received (vs recovered) */
-  uint      parity_rcvd;   /* ... if the parity shred with in-type index j was received */
-  uint      repair_rcvd;   /* ... if the data shred with in-type index j arrived by repair */
-
-  int       final_src;     /* FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_* of the last data shred received before it completed, 0 if none */
-  long      first_ts;      /* when its first shred arrived, 0 if none yet */
-  long      cmpl_ts;       /* when it first completed, 0 if not yet */
 };
 typedef struct fd_repair_fec fd_repair_fec_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_fec_t)==120UL, fd_repair_fec );
+FD_STATIC_ASSERT( sizeof(fd_repair_fec_t)==88UL, fd_repair_fec );
 
-#define POOL_NAME fd_repair_fec_pool
-#define POOL_T    fd_repair_fec_t
+/* fd_repair_fec_mr32 returns fec's merkle root, zero if incomplete. */
+
+static inline fd_mr32_t
+fd_repair_fec_mr32( fd_repair_fec_t const * fec ) {
+  fd_mr32_t mr = {0};
+  if( FD_LIKELY( fec->complete ) ) {
+    memcpy( mr.uc,                   fec->key.uc,  sizeof(fd_mr20_t)    );
+    memcpy( mr.uc+sizeof(fd_mr20_t), fec->mr_tail, sizeof(fec->mr_tail) );
+  }
+  return mr;
+}
+
+#define POOL_NAME  fd_repair_fec_pool
+#define POOL_T     fd_repair_fec_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               fd_repair_fec_map
 #define MAP_ELE_T              fd_repair_fec_t
 #define MAP_KEY_T              fd_mr20_t
 #define MAP_KEY                key
+#define MAP_IDX_T              uint
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_mr20_t)))
 #define MAP_KEY_HASH(key,seed) fd_ulong_hash((seed)^FD_LOAD(ulong,(key)->uc))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
@@ -101,7 +117,7 @@ struct fd_repair_blk {
   uchar highest_req  : 1; /* tile: a HIGHEST req was made */
   uchar orphan_req   : 1; /* tile: an ORPHAN req was made */
 
-  ulong * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
+  uint * fecs; /* fec_pool idx of each FEC set, null if none, fec_blk_max of them */
 
   long rcvd_fec_ts; /* when rcvd_fec_cnt last grew */
   struct {

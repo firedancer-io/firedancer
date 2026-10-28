@@ -469,7 +469,8 @@ report_block_received( void *                  ctx_,
     fd_event_block_received_fec_sets_t * f   = &ev->fec_sets[ k ];
     fd_memset( f, 0, sizeof(fd_event_block_received_fec_sets_t) );
     if( FD_UNLIKELY( !fec ) ) continue; /* an incomplete blk can miss FEC sets */
-    memcpy( f->merkle_root, fec->mr32.uc, sizeof(fd_mr32_t) );
+    fd_mr32_t mr = fd_repair_fec_mr32( fec );
+    memcpy( f->merkle_root, mr.uc, sizeof(fd_mr32_t) );
     f->index                      = (uint)k*FD_FEC_SHRED_CNT;
     f->data_shreds_received_mask   = fec->data_rcvd;
     f->parity_shreds_received_mask = fec->parity_rcvd;
@@ -1070,7 +1071,7 @@ after_credit( fd_repair_tile_t *  ctx,
     msg->slot            = blk->slot;
     msg->parent_off      = (uint)(blk->slot-blk->parent_slot) & ((1U<<31)-1U);
     msg->fec_set_idx     = (uint)fec_set_idx & ((1U<<28)-1U);
-    msg->mr              = fec->mr32;
+    msg->mr              = fd_repair_fec_mr32( fec );
     msg->parent_block_id = blk->parent_blk_mr;
     msg->slot_complete   = out.fec_idx+1U==blk->cmpl_fec_cnt;
     msg->data_complete   = fec->data_complete;

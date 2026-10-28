@@ -384,7 +384,8 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
          set payload */
       fd_shred_completed_fec_t * popped_rec = NULL;
       for( ulong j=0UL; j<completed_cnt; j++ ) {
-        if( FD_LIKELY( !memcmp( completed[ j ].mr.hash, fec->mr32.hash, sizeof(fd_hash_t) ) ) ) {
+        fd_mr32_t fec_mr = fd_repair_fec_mr32( fec );
+        if( FD_LIKELY( !memcmp( completed[ j ].mr.hash, fec_mr.hash, sizeof(fd_hash_t) ) ) ) {
           popped_rec = &completed[ j ];
           break;
         }
