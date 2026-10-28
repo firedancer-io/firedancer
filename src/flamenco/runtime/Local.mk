@@ -81,7 +81,7 @@ $(call run-unit-test,test_bpf_ser_arena)
 endif
 
 $(call add-hdrs,fd_runtime.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h fd_runtime_stack_tmpl.h fd_runtime_helpers.h)
-$(call add-objs,fd_runtime,fd_flamenco)
+$(call add-objs,fd_runtime fd_runtime_stack,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_lamports_per_byte_feature_gates,test_lamports_per_byte_feature_gates,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_lamports_per_byte_feature_gates)

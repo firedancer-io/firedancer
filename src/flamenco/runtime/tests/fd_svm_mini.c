@@ -273,7 +273,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   runtime->bpf_loader_program.programdata = (uchar *)deploy_scratch;
 
   mini->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( rstack_mem,
-      limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts, 42UL ) );
+      limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts, -1, 0UL, 42UL ) );
   FD_TEST( mini->runtime_stack );
 
   fd_log_collector_init( mini->log_collector, 1 );

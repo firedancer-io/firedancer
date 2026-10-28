@@ -9,6 +9,7 @@
 #include "../../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../../../choreo/votor/ag_pool.h"
+#include "../../../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/events/fd_circq.h"
 
@@ -389,6 +390,7 @@ main_pid_namespace( void * _args ) {
   initialize_txncache_fd( config );
   initialize_votor_spill_fd( config );
   initialize_event_spool_fd( config );
+  initialize_stake_accum_fd( config );
   initialize_store_fds( config );
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
   int   has_store     = store_obj_id!=ULONG_MAX;
@@ -519,6 +521,9 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_COST_TRACKER_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+        if( FD_UNLIKELY( -1==fcntl( FD_STAKE_ACCUM_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         int tile_uses_vote_stakes = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
                                     !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapmk" );
         if( FD_UNLIKELY( -1==fcntl( FD_VOTE_STAKES_FD, F_SETFD, tile_uses_vote_stakes ? 0 : FD_CLOEXEC ) ) )
@@ -613,6 +618,7 @@ main_pid_namespace( void * _args ) {
     }
     if( FD_UNLIKELY( -1==close( FD_EPOCH_CREDITS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_COST_TRACKER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_STAKE_ACCUM_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_VOTE_STAKES_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {
@@ -1302,6 +1308,23 @@ initialize_stake_delegations_fd( config_t const * config ) {
 
   if( FD_LIKELY( spill_fd!=FD_STAKE_DELEGATIONS_FD ) ) {
     if( FD_UNLIKELY( -1==dup2( spill_fd, FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+/* Unlinked sparse file, written only when more distinct voters receive
+   delegations than the RAM stake accumulator holds. */
+
+void
+initialize_stake_accum_fd( config_t const * config ) {
+  char spill_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s/stakeaccum.db", config->paths.base ) );
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_LIKELY( spill_fd!=FD_STAKE_ACCUM_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( spill_fd, FD_STAKE_ACCUM_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }

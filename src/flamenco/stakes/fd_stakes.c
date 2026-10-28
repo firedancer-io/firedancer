@@ -557,12 +557,11 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             fork_id     = bank->vote_stakes_fork_id;
 
-  fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
+  fd_runtime_stack_stake_accum_reset( runtime_stack );
   ulong epoch                      = bank->f.epoch;
   ulong total_stake                = 0UL;
   ulong total_activating           = 0UL;
   ulong total_deactivating         = 0UL;
-  ulong staked_accounts            = 0UL;
   int   use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
   int   block_revenue_sharing      = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
   int   accumulate_reward_stakes   = rewarded_epoch!=ULONG_MAX;
@@ -602,22 +601,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     total_deactivating += new_acc.deactivating;
     if( FD_UNLIKELY( !new_acc.effective && !reward_stake ) ) continue;
 
-    fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, &stake_delegation->vote_account, NULL, stake_accum_pool );
-    if( FD_UNLIKELY( !stake_accum ) ) {
-      if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_staked_vote_accounts ) ) {
-        FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
-      }
-      stake_accum               = &runtime_stack->stakes.stake_accum[ staked_accounts ];
-      stake_accum->pubkey       = stake_delegation->vote_account;
-      stake_accum->stake        = new_acc.effective;
-      stake_accum->reward_stake = reward_stake;
-      fd_stake_accum_map_ele_insert( stake_accum_map, stake_accum, stake_accum_pool );
-      staked_accounts++;
-    } else {
-      stake_accum->stake += new_acc.effective;
-      FD_TEST( !__builtin_uaddl_overflow( stake_accum->reward_stake, reward_stake, &stake_accum->reward_stake ) );
-    }
+    fd_runtime_stack_stake_accum_add( runtime_stack, &stake_delegation->vote_account, new_acc.effective, reward_stake );
   }
+  ulong staked_accounts = runtime_stack->stakes.stake_accum_cnt + runtime_stack->stakes.stake_accum_spill_cnt;
 
   /* Only update total_*_stake at the epoch boundary.  These values
      are snapshots of the stake totals for the current epoch. */
@@ -628,11 +614,25 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* Iterate over the valid delegated vote accounts and insert them into
      the top votes set for the t-1 epoch. */
 
+  /* RAM entries in map order, then spilled entries in batches. */
   ulong top_votes_eligible = 0UL;
-  for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
-       !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
-       iter = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool ) ) {
-    fd_stake_accum_t * stake_accum = fd_stake_accum_map_iter_ele( iter, stake_accum_map, stake_accum_pool );
+  fd_stake_accum_t          spill_batch[ 64 ];
+  ulong                     spill_idx  = 0UL;
+  fd_stake_accum_map_iter_t iter       = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
+  for(;;) {
+    fd_stake_accum_t * stake_accum;
+    if( FD_LIKELY( !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool ) ) ) {
+      stake_accum = fd_stake_accum_map_iter_ele( iter, stake_accum_map, stake_accum_pool );
+      iter        = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool );
+    } else if( FD_UNLIKELY( spill_idx<runtime_stack->stakes.stake_accum_spill_cnt ) ) {
+      ulong b = spill_idx % 64UL;
+      if( !b ) fd_runtime_stack_stake_accum_spill_read( runtime_stack, spill_idx, spill_batch,
+                                                        fd_ulong_min( 64UL, runtime_stack->stakes.stake_accum_spill_cnt-spill_idx ) );
+      stake_accum = spill_batch+b;
+      spill_idx++;
+    } else {
+      break;
+    }
 
     fd_pubkey_t node_account_t_1 = {0};
     ulong       stake_t_1        = stake_accum->stake;

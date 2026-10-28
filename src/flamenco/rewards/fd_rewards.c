@@ -379,11 +379,8 @@ calculate_stake_points_for_reward( fd_runtime_stack_t *           runtime_stack,
                                    ulong                          rewarded_epoch,
                                    fd_calculated_stake_points_t * result ) {
   ulong                    validator_reward_epoch_stake = 0UL;
-  fd_stake_accum_t const * accumulated                  = fd_stake_accum_map_ele_query_const(
-      runtime_stack->stakes.stake_accum_map,
-      &stake->vote_account,
-      NULL,
-      runtime_stack->stakes.stake_accum );
+  fd_stake_accum_t         scratch[1];
+  fd_stake_accum_t const * accumulated                  = fd_runtime_stack_stake_accum_query( runtime_stack, &stake->vote_account, scratch );
   if( accumulated ) validator_reward_epoch_stake = accumulated->reward_stake;
   calculate_alpenglow_points( epoch_credits,
                               stake_history,
@@ -493,8 +490,8 @@ calculate_block_reward( fd_bank_t *                   bank,
     return 0UL;
   }
   ulong pending_delegator_rewards = ele->pending_delegator_rewards;
-  fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
-      runtime_stack->stakes.stake_accum_map, vote_pubkey, NULL, runtime_stack->stakes.stake_accum );
+  fd_stake_accum_t         scratch[1];
+  fd_stake_accum_t const * accumulated = fd_runtime_stack_stake_accum_query( runtime_stack, vote_pubkey, scratch );
   ulong total_active_stake = accumulated ? accumulated->reward_stake : 0UL;
   if( total_active_stake==0UL ) return 0UL;
 
@@ -974,8 +971,8 @@ reward_epoch_delegated_stake( fd_bank_t *          bank,
                               fd_runtime_stack_t * runtime_stack,
                               fd_pubkey_t const *  vote_address,
                               ulong *              stake_out ) {
-  fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
-      runtime_stack->stakes.stake_accum_map, vote_address, NULL, runtime_stack->stakes.stake_accum );
+  fd_stake_accum_t         scratch[1];
+  fd_stake_accum_t const * accumulated = fd_runtime_stack_stake_accum_query( runtime_stack, vote_address, scratch );
   *stake_out = accumulated ? accumulated->reward_stake : 0UL;
   return fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_address, NULL ) ? stake_out : NULL;
 }
@@ -1060,7 +1057,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
        stake_accum is free for reuse as scratch here. */
     fd_stake_accum_t *     collector_pool = runtime_stack->stakes.stake_accum;
     fd_stake_accum_map_t * collector_map  = runtime_stack->stakes.stake_accum_map;
-    fd_stake_accum_map_reset( collector_map );
+    fd_runtime_stack_stake_accum_reset( runtime_stack );
     ulong collector_cnt = 0UL;
 
     for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
@@ -1078,7 +1075,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
       fd_stake_accum_t * collector_reward = fd_stake_accum_map_ele_query( collector_map, &collector, NULL, collector_pool );
       if( FD_UNLIKELY( !collector_reward ) ) {
-        FD_TEST( collector_cnt<runtime_stack->max_vote_accounts );
+        FD_TEST( collector_cnt<runtime_stack->max_vote_accounts && collector_cnt<runtime_stack->max_staked_vote_accounts );
         collector_reward         = &collector_pool[ collector_cnt++ ];
         collector_reward->pubkey = collector;
         collector_reward->stake  = rewards;
