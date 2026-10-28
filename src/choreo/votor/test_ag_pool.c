@@ -1344,7 +1344,7 @@ test_parent_ready_upon_finalization( void ) {
     if( event( i )->kind==AG_POOL_EVENT_CERT_CREATED ) cert_created++;
     if( event( i )->kind==AG_POOL_EVENT_PARENT_READY ) parent_ready_cnt++;
   }
-  FD_TEST( cert_created==3UL );
+  FD_TEST( cert_created==2UL );
   FD_TEST( parent_ready_cnt==0UL );
 
   drain_events( pool );
@@ -1928,7 +1928,7 @@ test_standstill_iter_order( void ) {
   add_final_votes( pool, 6UL, 0UL, 7UL );
 
   ag_block_hash_t h7; random_hash( h7 );
-  add_notar_votes( pool, 7UL, h7, 0UL, 7UL ); /* notar and notar-fallback certs */
+  add_notar_votes( pool, 7UL, h7, 0UL, 7UL ); /* notar cert, no notar-fallback cert */
   add_final_votes( pool, 7UL, 0UL, 1UL );
 
   ag_block_hash_t h8[ 4 ]; for( ulong i=0UL; i<4UL; i++ ) random_hash( h8[ i ] );
@@ -1956,7 +1956,6 @@ test_standstill_iter_order( void ) {
     { 6UL, 0, AG_CERT_KIND_FINAL,          NULL },
     { 6UL, 1, AG_VOTE_KIND_FINAL,          NULL },
     { 7UL, 0, AG_CERT_KIND_NOTAR,          h7   },
-    { 7UL, 0, AG_CERT_KIND_NOTAR_FALLBACK, h7   },
     { 7UL, 1, AG_VOTE_KIND_NOTAR,          h7   },
     { 7UL, 1, AG_VOTE_KIND_FINAL,          NULL },
     { 8UL, 0, AG_CERT_KIND_NOTAR_FALLBACK, h8[0]},
@@ -1992,14 +1991,14 @@ test_standstill_iter_order( void ) {
   ag_vote_t skip2 = ag_vote_construct_skip          ( sec_sign_fn, &g_sk[0], test_bls_public_key, 2UL,          (ushort)0, TEST_SHRED_VERSION );
   ag_vote_t nf8   = ag_vote_construct_notar_fallback( sec_sign_fn, &g_sk[0], test_bls_public_key, 8UL, h8[ 3 ], (ushort)0, TEST_SHRED_VERSION );
   ag_standstill_t standstill = recover_from_standstill( pool );
-  FD_TEST( standstill.cert_cnt==11UL && standstill.vote_cnt==12UL );
+  FD_TEST( standstill.cert_cnt==10UL && standstill.vote_cnt==12UL );
   FD_TEST( !memcmp( ag_vote_sig( &standstill.votes[  0 ] ), ag_vote_sig( &skip2 ), sizeof(fd_bls_sig_t) ) );
   FD_TEST( !memcmp( ag_vote_sig( &standstill.votes[  4 ] ), ag_vote_sig( &sf5   ), sizeof(fd_bls_sig_t) ) );
   FD_TEST( !memcmp( ag_vote_sig( &standstill.votes[ 11 ] ), ag_vote_sig( &nf8   ), sizeof(fd_bls_sig_t) ) );
 
   add_notar_votes( pool, 1UL, h1, 0UL, 10UL ); /* fast-finalizes slot 1 too */
   standstill = recover_from_standstill( pool );
-  FD_TEST( standstill.cert_cnt==10UL && standstill.vote_cnt==12UL );
+  FD_TEST( standstill.cert_cnt==9UL && standstill.vote_cnt==12UL );
   FD_TEST( standstill.certs[ 0 ].kind==AG_CERT_KIND_FAST_FINAL && ag_cert_slot( &standstill.certs[ 0 ] )==1UL );
   FD_TEST( ag_cert_slot( &standstill.certs[ 1 ] )==2UL );
 
@@ -2060,12 +2059,12 @@ test_standstill_iter_prune( void ) {
   FD_TEST( ag_pool_finalized_slot( pool )==20UL );
   FD_TEST( !contains_slot( pool, 3UL ) && min_live_slot( pool )==12UL );
 
-  uint const kind[ 3 ] = { AG_CERT_KIND_FAST_FINAL, AG_CERT_KIND_NOTAR, AG_CERT_KIND_NOTAR_FALLBACK }; /* 11 notar votes certify all three */
+  uint const kind[ 2 ] = { AG_CERT_KIND_FAST_FINAL, AG_CERT_KIND_NOTAR }; /* 11 notar votes certify both, notar-fallback is implied */
   ulong cnt = 0UL;
   for( ag_pool_standstill_iter_next( iter, pool ); !ag_pool_standstill_iter_done( iter ); ag_pool_standstill_iter_next( iter, pool ) ) {
-    ulong slot = 12UL + fd_ulong_if( cnt<36UL, cnt/4UL, 9UL+cnt-36UL );
-    ulong pos  = fd_ulong_if( cnt<36UL, cnt%4UL, 3UL );
-    if( pos==3UL ) {
+    ulong slot = 12UL + fd_ulong_if( cnt<27UL, cnt/3UL, 9UL+cnt-27UL );
+    ulong pos  = fd_ulong_if( cnt<27UL, cnt%3UL, 2UL );
+    if( pos==2UL ) {
       FD_TEST( iter->is_vote && iter->vote.kind==AG_VOTE_KIND_NOTAR && ag_vote_slot( &iter->vote )==slot );
       FD_TEST( !memcmp( iter->vote.notar.block_hash, h[ slot ], sizeof(ag_block_hash_t) ) );
     } else {
@@ -2073,7 +2072,7 @@ test_standstill_iter_prune( void ) {
     }
     cnt++;
   }
-  FD_TEST( cnt==9UL*4UL+10UL );
+  FD_TEST( cnt==9UL*3UL+10UL );
 
   ag_standstill_t standstill = recover_from_standstill( pool );
   FD_TEST( standstill.slot==21UL && standstill.cert_cnt==1UL && standstill.vote_cnt==10UL );
