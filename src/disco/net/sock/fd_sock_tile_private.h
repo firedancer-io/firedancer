@@ -83,8 +83,6 @@ struct fd_sock_tile {
   /* RX links */
   ushort            rx_sock_port[ FD_SOCK_TILE_MAX_SOCKETS ];
   uchar             link_rx_map [ FD_SOCK_TILE_MAX_SOCKETS ];
-  uchar             repair_rx;
-  uint              repair_shred_sock_idx;
   ulong             link_rx_cnt;
   fd_sock_link_rx_t link_rx[ MAX_NET_OUTS ];
 

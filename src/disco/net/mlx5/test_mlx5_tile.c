@@ -176,11 +176,9 @@ test_rx_routes( void ) {
   fd_topos_net_rx_link( topo, "net_quic",   0UL, 128UL );
   fd_topos_net_rx_link( topo, "net_shred",  0UL, 128UL );
   fd_topos_net_rx_link( topo, "net_gossvf", 0UL, 128UL );
-  fd_topos_net_rx_link( topo, "net_repair", 0UL, 128UL );
   fd_topos_net_rx_link( topo, "net_rserve", 0UL, 128UL );
   fd_topos_net_rx_link( topo, "net_quic",   1UL, 128UL );
   fd_topos_net_rx_link( topo, "net_shred",  1UL, 128UL );
-  fd_topos_net_rx_link( topo, "net_repair", 1UL, 128UL );
   for( ulong i=0UL; i<topo_tile->out_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ topo_tile->out_link_id[ i ] ];
     FD_TEST( link->dcache_obj_id==umem_obj->id );
@@ -198,18 +196,15 @@ test_rx_routes( void ) {
 
   ulong out_idx;
   ulong proto;
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8001U, 64UL, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8001U, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_gossvf", 0UL ) );
   FD_TEST( proto==DST_PROTO_GOSSIP );
 
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8002U, FD_REPAIR_RES_DE_MAX+1UL, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8002U, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_shred", 0UL ) );
   FD_TEST( proto==DST_PROTO_REPAIR );
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8002U, FD_REPAIR_PING_DE_SZ, &out_idx, &proto ) );
-  FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_repair", 0UL ) );
-  FD_TEST( proto==DST_PROTO_REPAIR );
 
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8003U, 64UL, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8003U, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_rserve", 0UL ) );
   FD_TEST( proto==DST_PROTO_RSERVE );
 
@@ -217,15 +212,12 @@ test_rx_routes( void ) {
   fd_memset( tile1, 0, sizeof(tile1) );
   fd_net_rx_dst_ports_init( &tile1->net, topo, topo_tile1 );
 
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9000U, 64UL, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9000U, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_quic", 1UL ) );
   FD_TEST( proto==DST_PROTO_TPU_UDP );
 
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9001U, FD_REPAIR_RES_DE_MAX+1UL, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9001U, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_shred", 1UL ) );
-  FD_TEST( proto==DST_PROTO_REPAIR );
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9001U, FD_REPAIR_PING_DE_SZ, &out_idx, &proto ) );
-  FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_repair", 1UL ) );
   FD_TEST( proto==DST_PROTO_REPAIR );
 }
 

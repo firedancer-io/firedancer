@@ -10,7 +10,6 @@
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
-#include "../../disco/repair/fd_repair_serde.h"
 
 #include "../../waltz/ip/fd_iproute.h"
 #include "../../util/net/fd_eth.h"
@@ -78,7 +77,6 @@ struct fd_net_tile {
   ushort dst_ports[ FD_NET_RX_PORT_MAX ];
   ulong  dst_protos[ FD_NET_RX_PORT_MAX ];
   ulong  dst_out_idx[ FD_NET_RX_PORT_MAX ];
-  ulong  repair_out_idx;
   ulong  rx_out_cnt;
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
@@ -287,8 +285,7 @@ static inline void
 fd_net_rx_dst_ports_init( fd_net_tile_t *        ctx,
                           fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile ) {
-  ctx->rx_out_cnt     = tile->out_cnt;
-  ctx->repair_out_idx = ULONG_MAX;
+  ctx->rx_out_cnt = tile->out_cnt;
 
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->net.legacy_transaction_listen_port, 1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->net.quic_transaction_listen_port,   1 );
@@ -298,20 +295,11 @@ fd_net_rx_dst_ports_init( fd_net_tile_t *        ctx,
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_RSERVE,   "net_rserve", tile->net.repair_serve_listen_port,       0 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_client_listen_port,  1 );
   fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_server_listen_port,  1 );
-
-  if( tile->net.repair_client_listen_port ) {
-    ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "net_repair", tile->kind_id );
-    if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
-      FD_LOG_ERR(( "net output link `net_repair` is missing for repair pings" ));
-    }
-    ctx->repair_out_idx = out_idx;
-  }
 }
 
 static inline int
 fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
                            ushort                net_dport,
-                           ulong                 payload_sz,
                            ulong *               out_idx,
                            ulong *               dst_proto ) {
   ulong rule_idx = ULONG_MAX;
@@ -325,10 +313,6 @@ fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
 
   *out_idx   = ctx->dst_out_idx[ rule_idx ];
   *dst_proto = ctx->dst_protos [ rule_idx ];
-  if( FD_UNLIKELY( *dst_proto==DST_PROTO_REPAIR && payload_sz<=FD_REPAIR_RES_DE_MAX ) ) {
-    if( FD_UNLIKELY( ctx->repair_out_idx==ULONG_MAX ) ) return 0;
-    *out_idx = ctx->repair_out_idx;
-  }
   return *out_idx<ctx->rx_out_cnt;
 }
 
@@ -434,7 +418,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ushort const dst_port = fd_ushort_bswap( udp_hdr->net_dport );
   ulong out_idx;
   ulong dst_proto;
-  if( FD_UNLIKELY( !fd_net_rx_dst_port_lookup( ctx, dst_port, udp_sz-sizeof(fd_udp_hdr_t), &out_idx, &dst_proto ) ) ) {
+  if( FD_UNLIKELY( !fd_net_rx_dst_port_lookup( ctx, dst_port, &out_idx, &dst_proto ) ) ) {
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]++;
     return 0;
   }

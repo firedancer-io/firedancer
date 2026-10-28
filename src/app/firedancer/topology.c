@@ -351,6 +351,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip_misc"   );
 
   fd_topob_wksp( topo, "shred_out"     );
+  fd_topob_wksp( topo, "shred_rotor"   );
   fd_topob_wksp( topo, "repair_out" );
   fd_topob_wksp( topo, "replay_epoch"  );
   fd_topob_wksp( topo, "replay_execrp" );
@@ -531,6 +532,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",   "sign_repair",   256UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),     FD_SHRED_STEM_BURST );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_rotor",   "shred_rotor",   1024UL,                                   FD_REPAIR_NET_FRAME_MAX,        1UL                 );
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    repair_out_depth,                         sizeof(fd_repair_replay_fec_t), 1UL );
 
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
@@ -571,7 +573,6 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_gossvf", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
-  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, config->net.ingress_buffer_size );
   if( leader_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
 
@@ -638,7 +639,7 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_in(     topo, "gossvf",  i,            "metric_in", "net_gossvf",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(shred_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in (    topo, "shred",   i,            "metric_in", "net_shred",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(net_tile_cnt)   fd_topob_tile_in(     topo, "rotor",   0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(shred_tile_cnt) fd_topob_tile_in(     topo, "rotor",   0UL,          "metric_in", "shred_rotor",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* Repair pings and metadata responses are retried, may be dropped or overrun */
   /**/                fd_topob_tile_out(    topo, "rotor",   0UL,                       "repair_net",    0UL                                                );
   FOR(quic_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in(     topo, "quic",    i,            "metric_in", "net_quic",      j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -877,6 +878,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out(   topo, "shred",   i,                         "shred_sign",   i                                                    );
     /**/               fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "sign_shred",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_shred",   i                                                    );
+    /**/               fd_topob_tile_out(   topo, "shred",   i,                         "shred_rotor",  i                                                    ); /* after the fixed NET_OUT_IDX and SIGN_OUT_IDX */
   }
 
   FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, "rotor",   0UL,                       "repair_sign",  i                                                    );

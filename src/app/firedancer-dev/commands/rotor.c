@@ -30,8 +30,8 @@ struct metrics_src {
   int              net_kind;                                 /* 0 xdp "net", 1 "mlx5", 2 "sock" */
   volatile ulong * net_shred [ ROTOR_METRICS_LINK_MAX ];     /* net->shred links, consumer side (shred tiles) */
   ulong            net_shred_cnt;
-  volatile ulong * net_repair[ ROTOR_METRICS_LINK_MAX ];     /* net->rotor links, consumer side (rotor) */
-  ulong            net_repair_cnt;
+  volatile ulong * shred_rotor[ ROTOR_METRICS_LINK_MAX ];    /* shred->rotor links, consumer side (rotor) */
+  ulong            shred_rotor_cnt;
   volatile ulong * repair_net[ ROTOR_METRICS_LINK_MAX ];     /* rotor->net link, consumer side (net tiles) */
   ulong            repair_net_cnt;
 };
@@ -55,7 +55,7 @@ struct metrics_snap {
   ulong shred_repair_rx, shred_turbine_rx;
   ulong shred_okay, shred_dup, shred_bad_slot, shred_ignored, shred_completes;
 
-  struct { ulong overrun, consumed, filtered; } net_shred, net_repair, repair_net;
+  struct { ulong overrun, consumed, filtered; } net_shred, shred_rotor, repair_net;
   ulong net_rx, net_rx_drop, net_tx, net_tx_drop;
 
   /* tile regime nanos: [0] rotor, [1..] shred tiles.  Same idle
@@ -130,9 +130,9 @@ metrics_src_init( metrics_src_t * src,
     }
   }
   for( ulong j=0UL; j<rotor_tile->in_cnt; j++ ) {
-    if( !strcmp( topo->links[ rotor_tile->in_link_id[ j ] ].name, "net_repair" ) ) {
-      if( FD_UNLIKELY( src->net_repair_cnt>=ROTOR_METRICS_LINK_MAX ) ) FD_LOG_ERR(( "too many net_repair links" ));
-      src->net_repair[ src->net_repair_cnt++ ] = fd_metrics_link_in( rotor_tile->metrics, j );
+    if( !strcmp( topo->links[ rotor_tile->in_link_id[ j ] ].name, "shred_rotor" ) ) {
+      if( FD_UNLIKELY( src->shred_rotor_cnt>=ROTOR_METRICS_LINK_MAX ) ) FD_LOG_ERR(( "too many shred_rotor links" ));
+      src->shred_rotor[ src->shred_rotor_cnt++ ] = fd_metrics_link_in( rotor_tile->metrics, j );
     }
   }
 }
@@ -185,7 +185,7 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
   for( ulong i=0UL; i<src->shred_cnt; i++ ) metrics_snap_regime( src->shred[ i ], &s->regime[ 1UL+i ].total, &s->regime[ 1UL+i ].busy, &s->regime[ 1UL+i ].backp );
 
   metrics_snap_links( (volatile ulong **)src->net_shred,  src->net_shred_cnt,  &s->net_shred.overrun,  &s->net_shred.consumed,  &s->net_shred.filtered  );
-  metrics_snap_links( (volatile ulong **)src->net_repair, src->net_repair_cnt, &s->net_repair.overrun, &s->net_repair.consumed, &s->net_repair.filtered );
+  metrics_snap_links( (volatile ulong **)src->shred_rotor, src->shred_rotor_cnt, &s->shred_rotor.overrun, &s->shred_rotor.consumed, &s->shred_rotor.filtered );
   metrics_snap_links( (volatile ulong **)src->repair_net, src->repair_net_cnt, &s->repair_net.overrun, &s->repair_net.consumed, &s->repair_net.filtered );
 
   for( ulong i=0UL; i<src->net_cnt; i++ ) {
@@ -322,8 +322,8 @@ metrics_snap_print( metrics_snap_t const * s,
   col( "filtered",   T( net_shred.filtered ) );
   printf( "(%lu links, overrun = frags skipped)", src->net_shred_cnt );
   printf( "\n               " );
-  col( "net_repair", T( net_repair.overrun  ) );
-  col( "consumed",   T( net_repair.consumed ) );
+  col( "shred_rotor", T( shred_rotor.overrun ) );
+  col( "consumed",    T( shred_rotor.consumed ) );
   printf( "\n               " );
   col( "repair_net", T( repair_net.overrun  ) );
   col( "consumed",   T( repair_net.consumed ) );
@@ -356,8 +356,8 @@ rotor_metrics_fn( args_t *   args,
                   config_t * config ) {
   metrics_src_t src[1];
   metrics_src_init( src, config );
-  FD_LOG_NOTICE(( "rotor metrics: %lu shred tiles, %lu %s tiles, %lu net_shred links, %lu net_repair links, %lu repair_net links",
-                  src->shred_cnt, src->net_cnt, fd_net_tile_name( config->net.provider ), src->net_shred_cnt, src->net_repair_cnt, src->repair_net_cnt ));
+  FD_LOG_NOTICE(( "rotor metrics: %lu shred tiles, %lu %s tiles, %lu net_shred links, %lu shred_rotor links, %lu repair_net links",
+                  src->shred_cnt, src->net_cnt, fd_net_tile_name( config->net.provider ), src->net_shred_cnt, src->shred_rotor_cnt, src->repair_net_cnt ));
 
   metrics_snap_t prev[1], cur[1];
   metrics_snap_take( prev, src );
@@ -386,7 +386,7 @@ action_t fd_action_rotor = {
   .detail      = "Attaches to a running validator's rotor tile and prints once a second\n"
                  "per-second repair request counters by type, matched responses and\n"
                  "mean latency, shred tile receive counters, and net / link drop\n"
-                 "counters (net_shred, net_repair, repair_net overruns, net tile rx/tx\n"
+                 "counters (net_shred, shred_rotor, repair_net overruns, net tile rx/tx\n"
                  "drops).\n"
                  "\n"
                  "  --once  print a single snapshot and exit",

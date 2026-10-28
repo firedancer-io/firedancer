@@ -9,6 +9,7 @@
 #include "../metrics/fd_metrics_sample.h"
 #include "../net/fd_net_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
+#include "../repair/fd_repair_serde.h"
 #include "generated/fd_event_gen.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
@@ -120,6 +121,7 @@ struct fd_event_tile {
   ulong chunk;
 
   ushort shred_source_port;
+  int    shred_skip; /* repair ping or metadata response, not a shred */
   ulong shred_buf_sz;
   uchar shred_buf[ FD_NET_MTU ];
 
@@ -343,6 +345,9 @@ during_frag( fd_event_tile_t * ctx,
       ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
       FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
       fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)( dcache_entry + hdr_sz - sizeof(fd_udp_hdr_t) );
+      ulong dgram_sz = fd_ulong_min( fd_ulong_sat_sub( fd_ushort_bswap( udp_hdr->net_len ), sizeof(fd_udp_hdr_t) ), sz-hdr_sz );
+      ctx->shred_skip = fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR && dgram_sz<=FD_REPAIR_RES_DE_MAX;
+      if( FD_UNLIKELY( ctx->shred_skip ) ) break;
       ctx->shred_source_port = fd_ushort_bswap( udp_hdr->net_sport );
       // TODO: SHOULD BE RELIABLE. MAKE XDP TILE RELIABLE FIRST.
       fd_memcpy( ctx->shred_buf, dcache_entry+hdr_sz, sz-hdr_sz );
@@ -383,6 +388,7 @@ after_frag( fd_event_tile_t *   ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
+      if( FD_UNLIKELY( ctx->shred_skip ) ) break;
       FD_TEST( ctx->shred_buf_sz<=FD_NET_MTU );
       /* TODO: Currently no way to find a tight bound for the buffer
          size here, but 4096 is guaranteed to fit since sz<=FD_NET_MTU.
