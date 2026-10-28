@@ -377,8 +377,15 @@ test_vote_accounts( fd_snapshot_manifest_t * manifest ) {
   /* epoch_stakes epoch_credits_history_len exceeds max. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = FD_EPOCH_CREDITS_MAX + 1UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->t_1_epoch_credits_len[0] = FD_EPOCH_CREDITS_MAX + 1UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Non-T-1 credits the parser rejected. */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  manifest->epoch_credits_invalid[0] = 1;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   FD_LOG_NOTICE(( "... pass" ));
@@ -391,104 +398,104 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   /* Valid epoch credits with an epoch gap (epoch_stakes path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 3UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits      = 200UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 100UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->t_1_epoch_credits_len[0] = 2UL;
+  manifest->t_1_epoch_credits[0][0].epoch        = 1UL;
+  manifest->t_1_epoch_credits[0][0].credits      = 100UL;
+  manifest->t_1_epoch_credits[0][0].prev_credits = 0UL;
+  manifest->t_1_epoch_credits[0][1].epoch        = 3UL;
+  manifest->t_1_epoch_credits[0][1].credits      = 200UL;
+  manifest->t_1_epoch_credits[0][1].prev_credits = 100UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
   /* Epoch at USHORT_MAX boundary (epoch_stakes path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = (ulong)USHORT_MAX;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->t_1_epoch_credits_len[0] = 1UL;
+  manifest->t_1_epoch_credits[0][0].epoch        = (ulong)USHORT_MAX;
+  manifest->t_1_epoch_credits[0][0].credits      = 100UL;
+  manifest->t_1_epoch_credits[0][0].prev_credits = 0UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
   /* Credits delta at UINT_MAX boundary (epoch_stakes path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = (ulong)UINT_MAX;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->t_1_epoch_credits_len[0] = 1UL;
+  manifest->t_1_epoch_credits[0][0].epoch        = 1UL;
+  manifest->t_1_epoch_credits[0][0].credits      = (ulong)UINT_MAX;
+  manifest->t_1_epoch_credits[0][0].prev_credits = 0UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
   /* Epoch exceeds USHORT_MAX (epoch_stakes path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = (ulong)USHORT_MAX + 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->t_1_epoch_credits_len[0] = 1UL;
+  manifest->t_1_epoch_credits[0][0].epoch        = (ulong)USHORT_MAX + 1UL;
+  manifest->t_1_epoch_credits[0][0].credits      = 100UL;
+  manifest->t_1_epoch_credits[0][0].prev_credits = 0UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Credits delta exceeds UINT_MAX (epoch_stakes path).  Alpenglow
      accumulates reward lamports here, so this is ordinary data. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = (ulong)UINT_MAX + 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->t_1_epoch_credits_len[0] = 1UL;
+  manifest->t_1_epoch_credits[0][0].epoch        = 1UL;
+  manifest->t_1_epoch_credits[0][0].credits      = (ulong)UINT_MAX + 1UL;
+  manifest->t_1_epoch_credits[0][0].prev_credits = 0UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
   /* Prev credits break the chain and exceed the final credits
      (epoch_stakes path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits      = 200UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = (ulong)UINT_MAX + 1UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->t_1_epoch_credits_len[0] = 2UL;
+  manifest->t_1_epoch_credits[0][0].epoch        = 1UL;
+  manifest->t_1_epoch_credits[0][0].credits      = 100UL;
+  manifest->t_1_epoch_credits[0][0].prev_credits = 0UL;
+  manifest->t_1_epoch_credits[0][1].epoch        = 2UL;
+  manifest->t_1_epoch_credits[0][1].credits      = 200UL;
+  manifest->t_1_epoch_credits[0][1].prev_credits = (ulong)UINT_MAX + 1UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Discontinuous credits (epoch_stakes path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits      = 200UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 101UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->t_1_epoch_credits_len[0] = 2UL;
+  manifest->t_1_epoch_credits[0][0].epoch        = 1UL;
+  manifest->t_1_epoch_credits[0][0].credits      = 100UL;
+  manifest->t_1_epoch_credits[0][0].prev_credits = 0UL;
+  manifest->t_1_epoch_credits[0][1].epoch        = 2UL;
+  manifest->t_1_epoch_credits[0][1].credits      = 200UL;
+  manifest->t_1_epoch_credits[0][1].prev_credits = 101UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Duplicate epoch (epoch_stakes path).  Legal: the two entries either
      side of an Alpenglow migration marker both carry the migration
      epoch, so epochs are only required to be non-decreasing. */
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 100UL;
+  manifest->t_1_epoch_credits[0][1].epoch        = 1UL;
+  manifest->t_1_epoch_credits[0][1].prev_credits = 100UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
 
   /* Descending epoch (epoch_stakes path). */
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch = 0UL;
+  manifest->t_1_epoch_credits[0][1].epoch = 0UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Initial credits exceed final credits while continuity holds
      (epoch_stakes path). */
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch   = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits = 99UL;
+  manifest->t_1_epoch_credits[0][1].epoch   = 2UL;
+  manifest->t_1_epoch_credits[0][1].credits = 99UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   FD_LOG_NOTICE(( "... pass" ));
@@ -504,7 +511,7 @@ set_epoch_credit( fd_snapshot_manifest_t * manifest,
                   ulong                    epoch,
                   ulong                    credits,
                   ulong                    prev_credits ) {
-  epoch_credits_t * epc = &manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[k];
+  epoch_credits_t * epc = &manifest->t_1_epoch_credits[0][k];
   epc->epoch        = epoch;
   epc->credits      = credits;
   epc->prev_credits = prev_credits;
@@ -515,9 +522,9 @@ setup_migration_marker_case( fd_snapshot_manifest_t * manifest,
                              ulong                    history_len ) {
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].has_identity_bls = 1;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = history_len;
+  manifest->epoch_stakes[1].vote_stakes_len = 1UL; manifest->epoch_stakes[1].vote_stakes[0].stake = 1UL;
+  manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->t_1_epoch_credits_len[0] = history_len;
 }
 
 static void
