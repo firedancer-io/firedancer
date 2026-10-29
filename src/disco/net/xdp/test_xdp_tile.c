@@ -730,17 +730,19 @@ main( int     argc,
 
   /*
     The test loop tests the XDP tile's packet processing during before_credit,
-    before_frag, during_frag, and after_frag. The loop runs 6 iterations,
-    cycling through 3 different packet configurations twice:
+    before_frag, during_frag, and after_frag. The loop runs 9 iterations,
+    cycling through 3 packet configurations with exact frames, trailing
+    Ethernet padding, and bytes after the UDP datagram inside IPv4:
     - Case 0 (GRE tunnel 0): ETH0 interface with GRE encapsulation
     - Case 1 (GRE tunnel 1): ETH1 interface with GRE encapsulation
     - Case 2 (Non-GRE): ETH1 interface with standard packet processing
   */
 
-  for( uint i=0; i<6; ++i ) {
+  for( uint i=0; i<9; ++i ) {
     int charge_busy            = 1;
     ctx->rr_idx = 0U;
 
+    rx_pkt_gre.udp.net_len = rx_pkt.udp.net_len = fd_ushort_bswap( (ushort)(i>=6U ? 10U : 11U) );
     rx_pkt_gre.data[2]                = (uchar)i;
     rx_pkt.data[2]                    = (uchar)i;
     tx_pkt_before_frag_gre.data[2]    = (uchar)i;
@@ -874,6 +876,8 @@ main( int     argc,
       default: FD_LOG_CRIT(( "invalid test case" ));
     }
 
+    if( i>=6U ) before_credit_expected_sz--;
+
     /* before credit -  test rx path ***********************************
 
        When the NIC receives a packet, the kernel moves a frame from
@@ -888,10 +892,12 @@ main( int     argc,
     /* Write packet into frame */
     uchar * rx_ring_pkt = (uchar *)ctx->umem + rx_frame_off;
     fd_memcpy( rx_ring_pkt, before_credit_input, before_credit_input_sz );
+    ulong const padding_sz = i>=3U && i<6U ? 17UL : 0UL;
+    fd_memset( rx_ring_pkt+before_credit_input_sz, 0xa5, padding_sz );
 
     /* Push frame into RX ring */
     xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].addr = rx_frame_off;
-    xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].len  = (uint)before_credit_input_sz;
+    xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].len  = (uint)(before_credit_input_sz+padding_sz);
     xdp_rx_ring_prod++;
 
     /* Get net tile to move RX frame->mline */
