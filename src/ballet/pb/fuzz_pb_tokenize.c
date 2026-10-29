@@ -25,7 +25,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   FD_TEST( fd_pb_inbuf_init( buf, data, size ) );
   while( fd_pb_inbuf_sz( buf ) ) {
     fd_pb_tlv_t tlv[1];
-    if( !fd_pb_read_tlv( buf, tlv ) ) return 0;
+    if( !fd_pb_tlv_read( buf, tlv ) ) return 0;
     switch( tlv->wire_type ) {
     case FD_PB_WIRE_TYPE_VARINT:
     case FD_PB_WIRE_TYPE_I64:
