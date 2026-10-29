@@ -17,6 +17,7 @@
 #include "generated/block.pb.h"
 #include "../../capture/fd_capture_ctx.h"
 #include "../../capture/fd_solcap_writer.h"
+#include <stdlib.h>
 
 /* Templatized leader schedule sort helper functions */
 typedef struct {
@@ -51,7 +52,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vo
                                            ushort                             vote_stakes_fork_id,
                                            int                                use_t_1,
                                            fd_exec_test_prev_vote_account_t * vote_accounts,
-                                           pb_size_t                          vote_accounts_cnt ) {
+                                           uint                          vote_accounts_cnt ) {
   if( FD_UNLIKELY( !vote_accounts ) ) return;
 
   for( uint i=0U; i<vote_accounts_cnt; i++ ) {
@@ -673,7 +674,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
       ulong cnt = fd_solfuzz_pb_collect_stake_delegations( runner, out, (output_end-_l)/sizeof(fd_exec_test_stake_delegation_t) );
       FD_SCRATCH_ALLOC_APPEND( l, 1UL, cnt*sizeof(fd_exec_test_stake_delegation_t) );
       effects->stake_delegations       = out;
-      effects->stake_delegations_count = (pb_size_t)cnt;
+      effects->stake_delegations_count = (uint)cnt;
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );

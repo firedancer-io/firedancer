@@ -89,7 +89,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
   fd_exec_test_cost_result_t * result =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_cost_result_t), sizeof(fd_exec_test_cost_result_t) );
   FD_TEST( _l <= output_end );
-  *result = (fd_exec_test_cost_result_t)FD_EXEC_TEST_COST_RESULT_INIT_ZERO;
+  *result = (fd_exec_test_cost_result_t){0};
 
   result->has_cost = 1;
   result->signature_cost                    = txn_out->details.txn_cost.transaction.signature_cost;
