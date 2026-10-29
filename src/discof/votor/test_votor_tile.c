@@ -5,6 +5,19 @@
 
 #define TEST_VOTER_MAX (4UL)
 
+static uchar staked_ips_mem[ 2 ][ 1UL<<20 ] __attribute__((aligned(128)));
+
+/* test_staked_ips gives ctx empty staked IP maps. */
+
+static void
+test_staked_ips( fd_votor_tile_t * ctx ) {
+  FD_TEST( staked_ips_footprint( STAKED_IPS_LG_SLOT_CNT )<=sizeof(staked_ips_mem[ 0 ]) );
+  ctx->staked_ips       = staked_ips_join( staked_ips_new( staked_ips_mem[ 0 ], STAKED_IPS_LG_SLOT_CNT, 42UL ) );
+  ctx->staked_ips_spare = staked_ips_join( staked_ips_new( staked_ips_mem[ 1 ], STAKED_IPS_LG_SLOT_CNT, 42UL ) );
+  FD_TEST( ctx->staked_ips && ctx->staked_ips_spare );
+  ctx->staked_ips_dirty = 0;
+}
+
 /* An ag_epoch_info_t is nearly 300 KiB, too big for the stack. */
 
 static ag_epoch_info_t epoch_info_mem;
@@ -407,6 +420,8 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
   ag_votor_advance_epoch    ( ctx.votor, 400000000L, 1UL, 0UL, NULL );
   ctx.pool = test_pool( epoch_info, 1UL );
   ctx.hs_defer = hs_defer_join( hs_defer_new( ctx.hs_defer_mem ) );
+  ctx.hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx.hs_defer_tok_mem ) );
+  test_staked_ips( &ctx );
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_ADD;
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
@@ -467,6 +482,8 @@ test_auth_vtr_keyswitch_clear( void ) {
   ag_votor_advance_epoch    ( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[2] );
   ctx.pool = test_pool( epoch_info, 0UL );
   ctx.hs_defer = hs_defer_join( hs_defer_new( ctx.hs_defer_mem ) );
+  ctx.hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx.hs_defer_tok_mem ) );
+  test_staked_ips( &ctx );
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
@@ -589,6 +606,8 @@ votor_wfs_test_ctx_new( fd_votor_tile_t * ctx,
 
   /* The sentinels unprivileged_init sets, which memset does not. */
   ctx->hs_defer            = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
+  ctx->hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx->hs_defer_tok_mem ) );
+  test_staked_ips( ctx );
   ctx->boot_block_id       = (ag_block_id_t){ .slot = ULONG_MAX };
   ctx->conn_ahead_slot     = ULONG_MAX;
   ctx->next_leader_slot    = ULONG_MAX;
@@ -1029,6 +1048,8 @@ test_id_keyswitch( void ) {
   ctx.init = 1; /* hand-inited above, so the pool event queue drains */
   ctx.pool = test_pool( epoch_info, 0UL );
   ctx.hs_defer = hs_defer_join( hs_defer_new( ctx.hs_defer_mem ) );
+  ctx.hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx.hs_defer_tok_mem ) );
+  test_staked_ips( &ctx );
   ag_block_id_t root = { .slot = 0UL };
   ag_block_id_t b1   = { .slot = 1UL }; memset( b1.hash, 1, sizeof(ag_block_hash_t) );
   FD_TEST( ag_pool_add_block( ctx.pool, &b1, &root, ctx.scratch.bad )==AG_POOL_SUCCESS );
@@ -1446,6 +1467,8 @@ test_ctx_new( fd_votor_tile_t * ctx,
   FD_TEST( ag_pool_footprint( AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST )<=sizeof(pool_scratch) );
   ctx->pool          = ag_pool_join( ag_pool_new( pool_scratch, AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL ) );
   ctx->hs_defer      = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
+  ctx->hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx->hs_defer_tok_mem ) );
+  test_staked_ips( ctx );
   FD_TEST( ctx->peers && ctx->contact_infos && ctx->reconn_prq && ctx->pool );
   ag_pool_from_genesis( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
   fd_clock_tile_init( ctx->clock );
@@ -1604,9 +1627,10 @@ test_net_frame( fd_votor_tile_t * ctx,
 }
 
 /* Server port datagrams starting with a long header wait in hs_defer.
-   The queue drains one datagram per after_credit once a
-   round of polls found no net frag, drops the oldest when full, and
-   empties when no TLS handshake may sign. */
+   The queue drains one datagram per polling after_credit once a round
+   of polls found no net frag to process inline (deferred ones don't
+   count), drops the oldest when full, and empties when no TLS
+   handshake may sign. */
 
 static void
 test_hs_defer_qos( void ) {
@@ -1650,23 +1674,55 @@ test_hs_defer_qos( void ) {
   after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
   FD_TEST( hs_defer_cnt( ctx.hs_defer )==2UL );
 
-  /* The queue waits until in_cnt polls in a row found no net frag, and
-     a net frag restarts the count; then after_credit processes one
+  /* The queue waits until in_cnt polls in a row processed no net frag
+     inline, and an inline frag restarts the count; deferred frags and a
+     pass that does not poll do not.  Then after_credit processes one
      datagram per call. */
-  ulong rx = ctx.quic_server->metrics.net_rx_pkt_cnt;
+  ulong rx;
+  pkt[ 0 ] = 0x40;
+  sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  rx = ctx.quic_server->metrics.net_rx_pkt_cnt;
   poll_in = 1; busy = 0;
-  FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
   for( ulong i=0UL; i<ctx.in_cnt; i++ ) after_credit( &ctx, NULL, &poll_in, &busy );
   FD_TEST( hs_defer_cnt( ctx.hs_defer )==2UL && ctx.quic_server->metrics.net_rx_pkt_cnt==rx );
   FD_TEST( prevent_park( &ctx ) );
-  FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  rx = ctx.quic_server->metrics.net_rx_pkt_cnt;
   for( ulong i=0UL; i<ctx.in_cnt; i++ ) after_credit( &ctx, NULL, &poll_in, &busy );
   FD_TEST( hs_defer_cnt( ctx.hs_defer )==2UL && ctx.quic_server->metrics.net_rx_pkt_cnt==rx );
+  pkt[ 0 ] = 0xc0;
+  sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL ); /* deferred, not busy */
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==3UL );
+  hs_defer_drain( &ctx, NULL, 0, &busy ); /* a pass that did not poll */
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==3UL && ctx.quic_server->metrics.net_rx_pkt_cnt==rx );
+  hs_defer_remove_tail( ctx.hs_defer );
+  busy = 0;
   after_credit( &ctx, NULL, &poll_in, &busy );
   FD_TEST( hs_defer_cnt( ctx.hs_defer )==1UL && ctx.quic_server->metrics.net_rx_pkt_cnt==rx+1UL && busy );
   after_credit( &ctx, NULL, &poll_in, &busy );
   FD_TEST( hs_defer_empty( ctx.hs_defer ) && ctx.quic_server->metrics.net_rx_pkt_cnt==rx+2UL );
   FD_TEST( !prevent_park( &ctx ) );
+
+  /* Initials with a valid Retry token wait in their own queue, which
+     drains first; a long header without one goes to the bulk queue. */
+  FD_TEST( hs_defer_empty( ctx.hs_defer ) && hs_defer_tok_empty( ctx.hs_defer_tok ) );
+  ctx.quic_server->config.retry = 1;
+  pkt[ 0 ] = 0xc0;
+  sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==1UL && hs_defer_tok_empty( ctx.hs_defer_tok ) );
+  hs_defer_t * td = hs_defer_tok_push_tail_nocopy( ctx.hs_defer_tok );
+  td->sz = (ushort)( sz-sizeof(fd_eth_hdr_t) );
+  fd_memcpy( td->buf, ctx.net_buf+sizeof(fd_eth_hdr_t), td->sz );
+  FD_TEST( prevent_park( &ctx ) );
+  ctx.net_idle_cnt = 0UL;
+  for( ulong i=0UL; i<=ctx.in_cnt; i++ ) after_credit( &ctx, NULL, &poll_in, &busy );
+  FD_TEST( hs_defer_tok_empty( ctx.hs_defer_tok ) && hs_defer_cnt( ctx.hs_defer )==1UL );
+  after_credit( &ctx, NULL, &poll_in, &busy );
+  FD_TEST( hs_defer_empty( ctx.hs_defer ) );
+  ctx.quic_server->config.retry = 0;
 
   /* A full queue drops its oldest datagram. */
   pkt[ 0 ] = 0xc0;
@@ -1686,6 +1742,134 @@ test_hs_defer_qos( void ) {
   FD_TEST( hs_defer_empty( ctx.hs_defer ) && ctx.quic_server->metrics.net_rx_pkt_cnt==rx );
   FD_TEST( ctx.metrics.hs_defer_drop==1UL+QUIC_SERVER_DEFER_MAX );
   ctx.keyswitch_state = FD_KEYSWITCH_STATE_UNLOCKED;
+
+  fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx.quic_server ) ) );
+  test_ctx_delete( &ctx );
+}
+
+/* Handshakes from a peer's contact info IP get priority, within a
+   budget per identity behind the IP: QUIC_SERVER_CONN_PER_PEER_MAX open
+   at once, starting one per QUIC_SERVER_HS_RATE_NS.  Past it, and from
+   any other source, a handshake takes the default budget, per source IP
+   and overall, or is refused.  Nothing bans an IP, and changing contact
+   info does not reset its budget. */
+
+static void
+test_hs_prio_budget( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_aio_t        aio;
+  test_ctx_new( &ctx, 4UL );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, fd_aio_join( fd_aio_new( &aio, NULL, drop_aio_send ) ) );
+  long now = fd_clock_tile_now( ctx.clock );
+  fd_quic_get_state( ctx.quic_server )->now = now;
+  static fd_token_bucket_t lo_buckets[ QUIC_SERVER_LO_BUCKET_CNT ];
+  ctx.lo_buckets = memset( lo_buckets, 0, sizeof(lo_buckets) );
+  memset( &ctx.lo_global, 0, sizeof(ctx.lo_global) );
+  ctx.lo_seed = 42UL;
+
+  /* Two identities behind 10.0.0.1, one behind 10.0.0.2.  An IP of a
+     non-peer's contact info gets no priority. */
+  uint     ip_a = FD_IP4_ADDR( 10, 0, 0, 1 );
+  uint     ip_b = FD_IP4_ADDR( 10, 0, 0, 2 );
+  uint     ip_x = FD_IP4_ADDR( 10, 0, 0, 9 );
+  peer_t * a0   = test_peer( &ctx, 2, 0 ); test_ci( &ctx, a0, 8000 );
+  peer_t * a1   = test_peer( &ctx, 3, 1 ); test_ci( &ctx, a1, 8001 );
+  peer_t * b0   = test_peer( &ctx, 4, 2 ); test_ci( &ctx, b0, 8002 )->ip4 = ip_b;
+  fd_pubkey_t x = {0}; x.uc[ 0 ] = 9;
+  contact_info_t * xci = contact_infos_insert( ctx.contact_infos, x );
+  xci->ip4 = ip_x; xci->port = 8003; xci->removed = 0;
+  staked_ips_rebuild( &ctx );
+  FD_TEST( staked_ips_key_cnt( ctx.staked_ips )==2UL );
+  FD_TEST( staked_ips_query( ctx.staked_ips, ip_a, NULL )->id_cnt==2U );
+  FD_TEST( staked_ips_query( ctx.staked_ips, ip_b, NULL )->id_cnt==1U );
+
+  /* Any other source gets the default budget: a burst of 2 per IP. */
+  FD_TEST( quic_server_hs_prio( &ctx, ip_x, 1 )==FD_QUIC_HS_PRIO_LOW    );
+  FD_TEST( quic_server_hs_prio( &ctx, ip_x, 1 )==FD_QUIC_HS_PRIO_LOW    );
+  FD_TEST( quic_server_hs_prio( &ctx, ip_x, 1 )==FD_QUIC_HS_PRIO_REFUSE );
+  FD_TEST( ctx.metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_DEFAULT_IDX ]==2UL );
+  FD_TEST( ctx.metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_REFUSED_IDX ]==1UL );
+
+  /* A new staked IP starts with one token; past it, the default budget. */
+  FD_TEST( quic_server_hs_prio( &ctx, ip_b, 1 )==FD_QUIC_HS_PRIO_HIGH );
+  FD_TEST( quic_server_hs_prio( &ctx, ip_b, 1 )==FD_QUIC_HS_PRIO_LOW  );
+  FD_TEST( ctx.metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_RATE_LIMITED_IDX ]==1UL );
+
+  /* Slots: at most 2 per identity open at once. */
+  staked_ip_t * sa = staked_ips_query( ctx.staked_ips, ip_a, NULL );
+  sa->bucket.balance = sa->bucket.burst;
+  FD_TEST( sa->bucket.burst==4.0f );
+  for( ulong i=0UL; i<4UL; i++ ) FD_TEST( quic_server_hs_prio( &ctx, ip_a, 1 )==FD_QUIC_HS_PRIO_HIGH );
+  FD_TEST( sa->hs_cnt==4U );
+  sa->bucket.balance = sa->bucket.burst;
+  FD_TEST( quic_server_hs_prio( &ctx, ip_a, 1 )==FD_QUIC_HS_PRIO_LOW );
+  FD_TEST( ctx.metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_SLOT_LIMITED_IDX ]==1UL );
+
+  /* Releasing frees a slot whatever the outcome, and bans nothing. */
+  static fd_quic_conn_t failed_conn;
+  quic_server_hs_final( &failed_conn, ip_a, FD_QUIC_HS_PRIO_HIGH, 0, &ctx );
+  quic_server_hs_final( NULL,         ip_a, FD_QUIC_HS_PRIO_HIGH, 0, &ctx );
+  quic_server_hs_final( &failed_conn, ip_a, FD_QUIC_HS_PRIO_LOW,  0, &ctx );
+  FD_TEST( sa->hs_cnt==2U );
+  FD_TEST( quic_server_hs_prio( &ctx, ip_a, 1 )==FD_QUIC_HS_PRIO_HIGH );
+  FD_TEST( sa->hs_cnt==3U );
+
+  /* The server refusing a completed handshake bans nothing either. */
+  static fd_quic_tls_hs_t hs;
+  memcpy( hs.hs.srv.client_pubkey, b0->id_key.uc, 32UL );
+  fd_quic_conn_t * conn[ 3 ];
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ulong             conn_id  = i+1UL;
+    fd_quic_conn_id_t peer_cid = fd_quic_conn_id_new( &conn_id, 8UL );
+    conn[ i ] = fd_quic_conn_create( ctx.quic_server, conn_id, &peer_cid, ip_b, (ushort)( 9000+i ), FD_IP4_ADDR( 127, 0, 0, 1 ), (ushort)8000, 1 );
+    FD_TEST( conn[ i ] );
+    conn[ i ]->state  = FD_QUIC_CONN_STATE_ACTIVE;
+    conn[ i ]->tls_hs = &hs;
+    quic_server_conn_new( conn[ i ], &ctx );
+  }
+  FD_TEST( conn[ 2 ]->state==FD_QUIC_CONN_STATE_CLOSE_PENDING );
+  staked_ip_t * sb = staked_ips_query( ctx.staked_ips, ip_b, NULL );
+  sb->bucket.balance = 1.0f;
+  FD_TEST( quic_server_hs_prio( &ctx, ip_b, 1 )==FD_QUIC_HS_PRIO_HIGH );
+  for( ulong i=0UL; i<3UL; i++ ) conn[ i ]->tls_hs = NULL;
+
+  /* A rebuild keeps an IP's state. */
+  staked_ips_rebuild( &ctx );
+  sa = staked_ips_query( ctx.staked_ips, ip_a, NULL );
+  FD_TEST( sa->hs_cnt==3U && sa->id_cnt==2U );
+
+  /* An IP no peer names any more stays, without priority, while it has
+     handshakes open or its bucket is not full, so flapping contact info
+     does not reset its budget. */
+  contact_info_t * bci = contact_infos_query( ctx.contact_infos, b0->id_key, NULL );
+  bci->ip4 = FD_IP4_ADDR( 10, 0, 0, 3 );
+  staked_ips_rebuild( &ctx );
+  sb = staked_ips_query( ctx.staked_ips, ip_b, NULL );
+  FD_TEST( sb && !sb->id_cnt && sb->hs_cnt==2U );
+  FD_TEST( ctx.staked_ips_zombie_ts );
+  FD_TEST( quic_server_hs_prio( &ctx, ip_b, 1 )!=FD_QUIC_HS_PRIO_HIGH );
+  bci->ip4 = ip_b;
+  staked_ips_rebuild( &ctx );
+  sb = staked_ips_query( ctx.staked_ips, ip_b, NULL );
+  FD_TEST( sb->id_cnt==1U && sb->hs_cnt==2U );
+  FD_TEST( quic_server_hs_prio( &ctx, ip_b, 1 )!=FD_QUIC_HS_PRIO_HIGH ); /* still at its 2 slots */
+
+  /* Once done and refilled, a zombie is dropped. */
+  bci->ip4 = FD_IP4_ADDR( 10, 0, 0, 3 );
+  staked_ips_rebuild( &ctx );
+  sb = staked_ips_query( ctx.staked_ips, ip_b, NULL );
+  sb->hs_cnt = 0U;
+  sb->bucket.balance = sb->bucket.burst;
+  staked_ips_rebuild( &ctx );
+  FD_TEST( !staked_ips_query( ctx.staked_ips, ip_b, NULL ) );
+  quic_server_hs_final( &failed_conn, ip_b, FD_QUIC_HS_PRIO_HIGH, 0, &ctx ); /* no longer tracked */
+
+  /* The global default budget refuses across IPs. */
+  ulong refused = ctx.metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_REFUSED_IDX ];
+  ulong lo_ok   = 0UL;
+  for( uint i=0U; i<2U*(uint)QUIC_SERVER_LO_GLOBAL_BURST; i++ ) lo_ok += (ulong)( quic_server_hs_prio( &ctx, FD_IP4_ADDR( 11, 0, (i>>8)&0xff, i&0xff ), 1 )==FD_QUIC_HS_PRIO_LOW );
+  FD_TEST( lo_ok<=(ulong)QUIC_SERVER_LO_GLOBAL_BURST );
+  FD_TEST( ctx.metrics.hs_class[ FD_METRICS_ENUM_HANDSHAKE_CLASS_V_REFUSED_IDX ]>=refused+(ulong)QUIC_SERVER_LO_GLOBAL_BURST );
 
   fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx.quic_server ) ) );
   test_ctx_delete( &ctx );
@@ -1742,6 +1926,18 @@ test_conn_final_backoff( void ) {
   other->tx_conn = conn;
   quic_client_conn_final( conn, &ctx );
   FD_TEST( reconn_prq_cnt( ctx.reconn_prq )==1UL );
+
+  /* A dial whose server certificate was not the peer's backs off long,
+     until the peer's contact info changes. */
+  reconn_prq_remove_all( ctx.reconn_prq ); other->reconn_pending = 0;
+  hs.hs.base.reason = FD_TLS_REASON_WRONG_PUBKEY;
+  conn->tls_hs = &hs;
+  other->tx_conn = conn;
+  quic_client_conn_final( conn, &ctx );
+  FD_TEST( other->conn_backoff==QUIC_CLIENT_PIN_FAIL_BACKOFF_NS );
+  FD_TEST( ctx.reconn_prq[ 0 ].timeout==other->conn_ts+QUIC_CLIENT_PIN_FAIL_BACKOFF_NS );
+  conn->tls_hs = NULL;
+  hs.hs.base.reason = 0;
 
   /* A conn we closed ourselves (context cleared) queues nothing. */
   reconn_prq_remove_all( ctx.reconn_prq ); other->reconn_pending = 0;
@@ -2009,6 +2205,8 @@ test_park( void ) {
   FD_TEST( peers_footprint( PEERS_LG_SLOT_CNT )<=sizeof(park_peers_mem) );
   ctx->pool        = ag_pool_join ( ag_pool_new ( park_pool_mem,  PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
   ctx->hs_defer    = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
+  ctx->hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx->hs_defer_tok_mem ) );
+  test_staked_ips( ctx );
   ctx->votor       = ag_votor_join( ag_votor_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -2190,6 +2388,8 @@ test_standstill( void ) {
   FD_TEST( pool_mem );
   ctx->pool        = ag_pool_join ( ag_pool_new ( pool_mem,       PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
   ctx->hs_defer    = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
+  ctx->hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx->hs_defer_tok_mem ) );
+  test_staked_ips( ctx );
   ctx->votor       = ag_votor_join( ag_votor_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -2564,6 +2764,8 @@ test_leader_window_superseded( void ) {
   FD_TEST( pool_mem && votor_mem );
   ctx->pool        = ag_pool_join ( ag_pool_new ( pool_mem,  slot_max, QUIC_DGRAM_BURST, 42UL ) );
   ctx->hs_defer    = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
+  ctx->hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx->hs_defer_tok_mem ) );
+  test_staked_ips( ctx );
   ctx->votor       = ag_votor_join( ag_votor_new( votor_mem, slot_max, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -2665,6 +2867,8 @@ test_reward_certs( void ) {
   ctx.shred_version   = 1;
   ctx.pool            = test_pool( epoch_info, 0UL );
   ctx.hs_defer = hs_defer_join( hs_defer_new( ctx.hs_defer_mem ) );
+  ctx.hs_defer_tok = hs_defer_tok_join( hs_defer_tok_new( ctx.hs_defer_tok_mem ) );
+  test_staked_ips( &ctx );
   ctx.peers           = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx.reconn_prq      = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   FD_TEST( ctx.peers && ctx.reconn_prq );
@@ -2764,6 +2968,7 @@ main( int     argc,
   test_sign_bls_request();
   test_connect_peer();
   test_server_conn_slots();
+  test_hs_prio_budget();
   test_hs_defer_qos();
   test_conn_final_backoff();
   test_connect_fail_keeps_backoff();
