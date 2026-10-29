@@ -667,6 +667,21 @@ fd_accdb_prefetch( fd_accdb_t *          accdb,
                    uchar const * const * pubkeys,
                    int                   warm );
 
+/* fd_accdb_fork_freeze parks fork: the caller promises no release
+   targets it until fd_accdb_fork_thaw (block complete, or nothing in
+   flight).  In index mode a parked fork may move to the on-disk
+   overflow tier under memory pressure.  fd_accdb_fork_thaw unparks it
+   and, if it was moved, waits for the accdb tile to bring it back.
+   Single caller (replay).  No-ops in RAM-only mode. */
+
+void
+fd_accdb_fork_freeze( fd_accdb_t *       accdb,
+                      fd_accdb_fork_id_t fork_id );
+
+void
+fd_accdb_fork_thaw( fd_accdb_t *       accdb,
+                    fd_accdb_fork_id_t fork_id );
+
 /* fd_accdb_idx_busy returns non-zero while the accdb tile has index
    requests or pool pressure to serve. */
 

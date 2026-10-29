@@ -96,7 +96,7 @@ test_setup_idx_part( int * out_fd,
   test_shmem_mem = shmem_mem;
   test_idx_fd = memfd_create( "accdb_idx", 0 );
   FD_TEST( test_idx_fd>=0 );
-  FD_TEST( !ftruncate( test_idx_fd, (long)fd_accdb_idx_file_sz( max_accounts, index_ram_entries ) ) );
+  FD_TEST( !ftruncate( test_idx_fd, (long)fd_accdb_idx_file_sz( max_accounts, index_ram_entries, max_live_slots, max_account_writes_per_slot ) ) );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots, 1 ) );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, test_idx_fd ) );
   FD_TEST( accdb );
@@ -2773,6 +2773,168 @@ test_idx_prefetch_and_residual( void ) {
   test_teardown( t2, fd );
 }
 
+/* Overflow tier at its worst case with a tiny pool: a star of frozen
+   sibling leaves, each at the per-slot write cap, overflows RAM into
+   ovl (none has a child).  Readers on every leaf see their own version
+   (newer than a rooted-young one still in acc_map), a descendant
+   unspills, then one leaf roots and the rest purge. */
+
+static int
+idx_fork_spilled( fd_accdb_fork_id_t f ) {
+  fd_accdb_idx_fork_t const * xf = (fd_accdb_idx_fork_t const *)( (uchar *)test_shmem_mem + test_shmem_mem->idx_fork_off )+f.val;
+  return (int)FD_VOLATILE_CONST( xf->spilled );
+}
+
+static void
+test_idx_overflow_worst_case( void ) {
+  int fd;
+  ulong writes = 64UL, leaves = 24UL;
+  fd_accdb_t * t2 = test_setup_idx( &fd, 1UL<<16, 512UL, 64UL, writes );
+  void * fg_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 0 ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1 ) );
+  test_background_ctx_t bg = { .accdb = t2, .stop = 0 };
+  pthread_t thr;
+  FD_TEST( !pthread_create( &thr, NULL, run_background, &bg ) );
+
+  uchar d[ 24 ]; ulong lamports, data_len; uchar owner[ 32 ];
+  uchar key[ 32 ];
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( fg, SENTINEL );
+  /* rooted-young versions of every key, still in acc_map */
+  fd_accdb_fork_id_t base = fd_accdb_attach_child( fg, root );
+  for( ulong k=0UL; k<writes; k++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x77;
+    accdb_write( fg, base, key, 1UL, d, 8UL, owner2 );
+  }
+  fd_accdb_fork_freeze( fg, base );
+  fd_accdb_advance_root( fg, base );
+
+  fd_accdb_fork_id_t leaf[ 32 ];
+  for( ulong l=0UL; l<leaves; l++ ) {
+    leaf[ l ] = fd_accdb_attach_child( fg, base );
+    for( ulong k=0UL; k<writes; k++ ) {
+      memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x77;
+      memset( d, (int)l, sizeof(d) );
+      accdb_write( fg, leaf[ l ], key, 1000UL*(l+1UL)+k, d, sizeof(d), owner2 );
+    }
+    fd_accdb_fork_freeze( fg, leaf[ l ] );
+  }
+  for( ulong i=0UL; i<100000UL && !fd_accdb_metrics( t2 )->forks_spilled; i++ ) FD_SPIN_PAUSE();
+  FD_TEST( fd_accdb_metrics( t2 )->forks_spilled>0UL );
+  FD_TEST( test_shmem_mem->ovl_fork_cnt>0UL );
+
+  for( ulong l=0UL; l<leaves; l++ ) {
+    for( ulong k=0UL; k<writes; k+=7UL ) {
+      memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x77;
+      FD_TEST( fd_accdb_lamports( fg, leaf[ l ], key )==1000UL*(l+1UL)+k );
+    }
+  }
+  /* a spilled descendant that never wrote a key (every bloom bit set,
+     so its bloom says maybe) must not hide a spilled ancestor's
+     version: g1 (child of a spilled leaf) writes key 2 only and
+     spills; g2 reads keys 1 and 3 through it */
+  ulong sl = 1UL;
+  while( sl<leaves && !idx_fork_spilled( leaf[ sl ] ) ) sl++;
+  FD_TEST( sl<leaves );
+  fd_accdb_fork_id_t g1 = fd_accdb_attach_child( fg, leaf[ sl ] );
+  memset( key, 0, 32 ); FD_STORE( ulong, key, 2UL ); key[ 30 ] = 0x77;
+  accdb_write( fg, g1, key, 77UL, d, 4UL, owner2 );
+  for( ulong k=1UL; k<writes; k++ ) { /* as large as a leaf, so spill picks it */
+    memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x79;
+    accdb_write( fg, g1, key, 9UL, d, 4UL, owner2 );
+  }
+  fd_accdb_fork_freeze( fg, g1 );
+  for( ulong p=0UL; p<30UL && !idx_fork_spilled( g1 ); p++ ) {
+    /* 2-version frozen siblings add pool pressure; spill_pick takes g1 */
+    fd_accdb_fork_id_t sib = fd_accdb_attach_child( fg, leaf[ sl ] );
+    for( ulong k=0UL; k<2UL; k++ ) {
+      memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x78;
+      accdb_write( fg, sib, key, 9UL, d, 4UL, owner2 );
+    }
+    fd_accdb_fork_freeze( fg, sib );
+    for( ulong i=0UL; i<2000000UL && !idx_fork_spilled( g1 ); i++ ) FD_SPIN_PAUSE();
+  }
+  FD_TEST( idx_fork_spilled( g1 ) );
+  for( ulong f=0UL; f<test_shmem_mem->max_live_slots; f++ ) {
+    ulong * b = (ulong *)( (uchar *)test_shmem_mem + test_shmem_mem->idx_bloom_off )+f*test_shmem_mem->idx_bloom_words;
+    memset( b, 0xFF, test_shmem_mem->idx_bloom_words*sizeof(ulong) );
+  }
+  fd_accdb_fork_id_t g2 = fd_accdb_attach_child( fg, g1 );
+  memset( key, 0, 32 ); FD_STORE( ulong, key, 1UL ); key[ 30 ] = 0x77;
+  FD_TEST( fd_accdb_lamports( fg, g2, key )==1000UL*(sl+1UL) );
+  FD_TEST( accdb_read( fg, g2, key, &lamports, d, &data_len, owner ) && lamports==1000UL*(sl+1UL) && d[ 0 ]==(uchar)sl );
+  memset( key, 0, 32 ); FD_STORE( ulong, key, 3UL ); key[ 30 ] = 0x77;
+  FD_TEST( fd_accdb_lamports( fg, g2, key )==1000UL*(sl+1UL)+2UL );
+  memset( key, 0, 32 ); FD_STORE( ulong, key, 2UL ); key[ 30 ] = 0x77;
+  FD_TEST( fd_accdb_lamports( fg, g2, key )==77UL );
+  fd_accdb_fork_freeze( fg, g2 );
+
+  /* child of a spilled leaf reads (unspill), then writes its own */
+  fd_accdb_fork_id_t kid = fd_accdb_attach_child( fg, leaf[ 0 ] );
+  memset( key, 0, 32 ); FD_STORE( ulong, key, 1UL ); key[ 30 ] = 0x77;
+  FD_TEST( accdb_read( fg, kid, key, &lamports, d, &data_len, owner ) && lamports==1000UL && data_len==sizeof(d) && d[ 0 ]==0 );
+  accdb_write( fg, kid, key, 5UL, d, 4UL, owner2 );
+  FD_TEST( fd_accdb_lamports( fg, kid, key )==5UL );
+  FD_TEST( fd_accdb_lamports( fg, leaf[ 0 ], key )==1000UL );
+  fd_accdb_fork_freeze( fg, kid );
+
+  /* unspilled copies stay bounded: a child of another spilled leaf
+     reads every key, evicting the oldest copies past the cap */
+  ulong sl2 = 1UL;
+  while( sl2<leaves && ( sl2==sl || !idx_fork_spilled( leaf[ sl2 ] ) ) ) sl2++;
+  FD_TEST( sl2<leaves );
+  fd_accdb_fork_id_t g3 = fd_accdb_attach_child( fg, leaf[ sl2 ] );
+  for( ulong k=0UL; k<writes; k++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x77;
+    FD_TEST( accdb_read( fg, g3, key, &lamports, d, &data_len, owner ) && lamports==1000UL*(sl2+1UL)+k && d[ 0 ]==(uchar)sl2 );
+    FD_TEST( test_shmem_mem->unspill_cnt<=test_shmem_mem->unspill_cap );
+  }
+  FD_TEST( fd_accdb_metrics( t2 )->unspill_evicted>0UL );
+  fd_accdb_fork_freeze( fg, g3 );
+
+  /* a parked fork T2 spilled comes back on thaw and takes writes again
+     (an overwrite of its own version) */
+  ulong sl3 = 1UL;
+  while( sl3<leaves && ( sl3==sl || sl3==sl2 || !idx_fork_spilled( leaf[ sl3 ] ) ) ) sl3++;
+  FD_TEST( sl3<leaves );
+  fd_accdb_fork_thaw( fg, leaf[ sl3 ] );
+  FD_TEST( !idx_fork_spilled( leaf[ sl3 ] ) );
+  for( ulong k=0UL; k<writes; k++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x77;
+    FD_TEST( fd_accdb_lamports( fg, leaf[ sl3 ], key )==1000UL*(sl3+1UL)+k );
+  }
+  memset( key, 0, 32 ); FD_STORE( ulong, key, 5UL ); key[ 30 ] = 0x77;
+  accdb_write( fg, leaf[ sl3 ], key, 42UL, d, 4UL, owner2 );
+  FD_TEST( accdb_read( fg, leaf[ sl3 ], key, &lamports, d, &data_len, owner ) && lamports==42UL && data_len==4UL );
+  fd_accdb_fork_freeze( fg, leaf[ sl3 ] );
+
+  /* root leaf 0 then kid: siblings purge, every key resolves to leaf 0
+     (or kid for key 1) and the totals add up */
+  fd_accdb_advance_root( fg, leaf[ 0 ] );
+  fd_accdb_advance_root( fg, kid );
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( fg, kid );
+  for( ulong k=0UL; k<writes; k++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x77;
+    FD_TEST( fd_accdb_lamports( fg, tip, key )==( k ? 1000UL+k : 5UL ) );
+  }
+  FD_VOLATILE( bg.stop ) = 1;
+  FD_TEST( !pthread_join( thr, NULL ) );
+  for( ulong i=0UL; i<64UL; i++ ) drain_background( t2 );
+  FD_TEST( test_shmem_mem->ovl_fork_cnt==0UL );
+  /* superseded bucket versions settle at the successor's demotion */
+  fd_accdb_advance_root( t2, tip );
+  drain_background( t2 );
+  tip = test_root_n( t2, tip, FD_ACCDB_DEMOTE_AGE+2UL );
+  FD_TEST( fd_accdb_shmetrics( t2 )->accounts_total==writes );
+  for( ulong k=0UL; k<writes; k+=5UL ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 30 ] = 0x77;
+    FD_TEST( fd_accdb_lamports( t2, tip, key )==( k ? 1000UL+k : 5UL ) );
+  }
+
+  free( fg_mem );
+  close( test_idx_fd );
+  test_teardown( t2, fd );
+}
+
 /* Demote FIFO with rewrites every root: 64 roots x 64 rewritten keys
    fill a 4096-entry FIFO with superseded entries and no pool pressure;
    the push compacts them instead of aborting. */
@@ -2932,6 +3094,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_prefetch_and_residual ..." ));
   test_idx_prefetch_and_residual();
+
+  FD_LOG_NOTICE(( "test_idx_overflow_worst_case ..." ));
+  test_idx_overflow_worst_case();
 
   FD_LOG_NOTICE(( "success" ));
 

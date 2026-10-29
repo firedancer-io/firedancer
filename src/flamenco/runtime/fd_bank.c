@@ -499,6 +499,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   bank->state     = FD_BANK_STATE_FROZEN;
   bank->refcnt        = 0UL;
+  bank->exec_task_cnt = 0UL;
   bank->is_leader     = 0;
 
   bank->footer_task_cnt = 0UL;
@@ -828,6 +829,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->next        = null_idx;
   child_bank->state       = FD_BANK_STATE_INIT;
   child_bank->refcnt      = 0UL;
+  child_bank->exec_task_cnt = 0UL;
   child_bank->is_leader   = is_leader;
   child_bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
   child_bank->lthash_rec  = NULL;
