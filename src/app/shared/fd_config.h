@@ -51,6 +51,7 @@ struct fd_configf {
   struct {
     ulong wait_for_supermajority_at_slot;
     char  wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    ulong max_unfinalized_slots;
   } consensus;
 
   struct {

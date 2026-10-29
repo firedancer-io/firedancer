@@ -52,6 +52,7 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  consensus.wait_for_supermajority_at_slot            );
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
+  CFG_POP      ( ulong,  consensus.max_unfinalized_slots                     );
 
   CFG_POP      ( uint,   snapshots.sources.max_local_full_effective_age      );
   CFG_POP      ( uint,   snapshots.sources.max_local_incremental_age         );

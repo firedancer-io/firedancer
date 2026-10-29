@@ -238,7 +238,8 @@ main( int     argc,
   config->firedancer.runtime.program_cache_size_mib            = 32UL;
   config->firedancer.runtime.transaction_cache_size_mib        = 640UL;
   config->firedancer.development.genesis.max_file_size_mib     = 33UL;
-  config->tiles.repair.slot_max                                   = 1UL;
+  config->firedancer.consensus.max_unfinalized_slots           = 2048UL;
+  config->tiles.repair.slot_max                                   = 32UL;
   strcpy( config->firedancer.layout.mode, "performance" );
 
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );

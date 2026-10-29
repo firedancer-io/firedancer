@@ -725,6 +725,17 @@ telemetry = true
     wait_for_supermajority_at_slot = 0
     wait_for_supermajority_with_bank_hash = ""
 
+    # The number of slots past the last finalized slot that the
+    # validator tracks votes and certificates for.  Votes for slots
+    # further ahead are dropped until finality advances, so this bounds
+    # how long the validator can keep voting without finality.  For
+    # example, a value of 2048 means the validator can go without
+    # finality for around eight minutes.
+    #
+    # It is not recommended to change this value, except in development
+    # or test environments to decrease memory usage or test edge cases.
+    max_unfinalized_slots = 2048
+
 # The primary state a validator is required to maintain is the accounts
 # database, a current listing of all "public key" identifiers on the
 # chain, and their associated balance (lamports), owner, and data.
@@ -787,9 +798,7 @@ telemetry = true
     #
     # The execution system bounds all internal limits and structures in
     # terms of this "max live slots" parameter, and it is set large
-    # enough to make the chain impractical to attack.  For example, a
-    # value of 32768 means the validator can go without rooting for
-    # around three and a half hours.
+    # enough to make the chain impractical to attack.
     #
     # On hitting this limit, the validator stops replaying new slots
     # until the root advances.
@@ -1876,12 +1885,12 @@ telemetry = true
         # network.
         repair_client_listen_port = 8701
 
-        # Slot max is the maximum number of slots that repair tile can
-        # maintain at once.  This is expected to be the largest at
-        # startup, when the validator is catching up from the snapshot
-        # slot, but still maintaining and receiving new turbine slots.
-        # Must be power of 2
-        slot_max = 4096
+        # The number of slots past the root that the validator receives,
+        # repairs, and buffers blocks for.  Blocks for slots further
+        # ahead are dropped and fetched again once the root advances,
+        # so this bounds how far ahead of the root the validator can
+        # replay.  Must be a power of 2 and at least 32.
+        slot_max = 2048
 
     [tiles.rserve]
         # If the repair server is enabled.
