@@ -18,17 +18,17 @@ void test_sbpf_version_default( void ) {
   config.sbpf_min_version = FD_SBPF_V0;
   config.sbpf_max_version = FD_SBPF_V0;
 
-  fd_sbpf_elf_peek( &info, hello_solana_program_elf, hello_solana_program_elf_sz, &config );
-  FD_CHECK_ERR( info.sbpf_version==FD_SBPF_V0, "hello_solana_program v0" );
+  int res = fd_sbpf_elf_peek( &info, hello_solana_program_elf, hello_solana_program_elf_sz, &config );
+  FD_CHECK_ERR( res==0 && info.sbpf_version==FD_SBPF_V0, "hello_solana_program v0" );
 
-  fd_sbpf_elf_peek( &info, hello_solana_program_sbpf_v2_elf, hello_solana_program_sbpf_v2_elf_sz, &config );
-  FD_CHECK_ERR( info.sbpf_version==FD_SBPF_V0, "hello_solana_program v2 accepted as v0" );
+  res = fd_sbpf_elf_peek( &info, hello_solana_program_sbpf_v2_elf, hello_solana_program_sbpf_v2_elf_sz, &config );
+  FD_CHECK_ERR( res==FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION, "hello_solana_program v2 unsupported" );
 
-  int res = fd_sbpf_elf_peek( &info, hello_solana_program_old_sbpf_v2_elf, hello_solana_program_old_sbpf_v2_elf_sz, &config );
-  FD_CHECK_ERR( res<0, "hello_solana_program (old) v2 unsupported" );
+  res = fd_sbpf_elf_peek( &info, hello_solana_program_old_sbpf_v2_elf, hello_solana_program_old_sbpf_v2_elf_sz, &config );
+  FD_CHECK_ERR( res==FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION, "hello_solana_program (old) v2 unsupported" );
 
   res = fd_sbpf_elf_peek( &info, ptoken_program_v3_elf, ptoken_program_v3_elf_sz, &config );
-  FD_CHECK_ERR( info.sbpf_version==FD_SBPF_V0, "ptoken_program v3 accepted as v0" );
+  FD_CHECK_ERR( res==FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION, "ptoken_program v3 unsupported" );
 }
 
 void test_sbpf_version_from_elf_header( void ) {
