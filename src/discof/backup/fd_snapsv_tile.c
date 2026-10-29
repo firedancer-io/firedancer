@@ -109,6 +109,9 @@ snap_key_hash( snap_key_t const * key,
 
 #define RES_HDR_MAX (256UL)
 
+#define TRANSFER_DEADLINE_FULL_NANOS (12000L*1000L*1000L*1000L) /* 200 minutes */
+#define TRANSFER_DEADLINE_INCR_NANOS (  250L*1000L*1000L*1000L) /* 250 seconds */
+
 /* conn state */
 
 #define CONN_STATE_FREE          (0U) /* conn slot is unused */
@@ -1006,6 +1009,14 @@ shovel( fd_snapsv_t *       ctx,
         long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_SHOVEL, "conn state confusion" );
+
+  long deadline = conn->req.incremental ? TRANSFER_DEADLINE_INCR_NANOS : TRANSFER_DEADLINE_FULL_NANOS;
+  if( FD_UNLIKELY( !conn->closing && now-conn->res.hdr_ts>deadline ) ) {
+    FD_IP6_ADDR_CSTR( addr_cstr, &conn->peer_ip );
+    FD_LOG_INFO(( "snapshot download peer %s:%u: transfer deadline exceeded", addr_cstr, conn->peer_port ));
+    conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
+    conn->closing        = 1U;
+  }
 
   if( FD_UNLIKELY( conn->closing ) ) {
     if( !conn->disk_inflight && !conn->net_inflight ) {
