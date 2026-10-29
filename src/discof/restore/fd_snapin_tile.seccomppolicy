@@ -5,7 +5,10 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint txncache_fd
+#
+# accdb_idx_fd: The accounts index file (index mode), fallocated as it
+#               grows, explicit positioned I/O only.
+uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint txncache_fd, uint accdb_idx_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -36,14 +39,16 @@ preadv2: (eq (arg 0) accounts_fd)
 #
 # The accounts database allocates more space from the underlying storage
 # device in chunks, as it runs out.
-fallocate: (and (eq (arg 0) accounts_fd)
-                (eq (arg 1) 0))
+fallocate: (or (and (eq (arg 0) accounts_fd)
+                    (eq (arg 1) 0))
+               (eq (arg 0) accdb_idx_fd))
 
 # stake delegations: full root and fork-delta records spilled beyond
 # the in-memory delegation pools.
 # transaction cache: read spilled pages
 pread64: (or (eq (arg 0) stake_spill_fd)
-             (eq (arg 0) txncache_fd))
+             (eq (arg 0) txncache_fd)
+             (eq (arg 0) accdb_idx_fd))
 
 # accounts database: write account records at explicit offsets
 #
@@ -57,6 +62,13 @@ pread64: (or (eq (arg 0) stake_spill_fd)
 pwrite64: (or (eq (arg 0) accounts_direct_fd)
               (eq (arg 0) stake_spill_fd)
               (eq (arg 0) txncache_fd))
+
+# accounts index (index mode): each loader writes its staged index
+# records, and tile 0 builds the on-disk index from them, with explicit
+# positioned I/O on the index file.
+#
+# arg 0 is the file descriptor to write to.
+pwritev2: (eq (arg 0) accdb_idx_fd)
 
 # power saving: sleep when there is no work to do
 #
