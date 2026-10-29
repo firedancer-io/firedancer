@@ -58,6 +58,10 @@ struct fd_accdb_metrics {
   ulong promoted;
   ulong neg_hot;
   ulong warmed;
+  ulong forks_spilled;
+  ulong unspilled;
+  ulong unspill_evicted;
+  ulong forks_thawed;
 
   ulong acquire_failed;
 
@@ -129,7 +133,9 @@ fd_accdb_shmem_new( void * shmem,
 
 ulong
 fd_accdb_idx_file_sz( ulong max_accounts,
-                      ulong index_ram_entries );
+                      ulong index_ram_entries,
+                      ulong max_live_slots,
+                      ulong max_account_writes_per_slot );
 
 /* fd_accdb_scratch_sz returns the size of the scratch spill file
    (full deferred-free capacity, fallocated at boot). */

@@ -54,6 +54,32 @@
 #define FD_ACCDB_CF_KICK_MAX  (500UL)
 #define FD_ACCDB_CF_STASH_MAX (64UL)
 
+/* Overflow log: per-fork chains of OLOG_CHUNK records. */
+#define FD_ACCDB_OLOG_CHUNK   (4096UL)
+#define FD_ACCDB_OVL_BLOOM_SZ (64UL<<20)  /* all forks, mainnet */
+
+struct fd_accdb_olog_rec {
+  uchar pubkey[ 32 ];
+  uint  ram_idx;     /* unspilled accmeta, UINT_MAX = none */
+  uchar pad[ 28 ];
+};
+
+typedef struct fd_accdb_olog_rec fd_accdb_olog_rec_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_olog_rec_t)==64UL, olog_layout );
+
+static FD_FN_CONST inline ulong
+fd_accdb_olog_chunk_cnt( ulong txn_max,
+                         ulong max_live_slots ) {
+  return ( txn_max+FD_ACCDB_OLOG_CHUNK-1UL )/FD_ACCDB_OLOG_CHUNK + max_live_slots;
+}
+
+/* Per-fork bloom words (pow2, >= 8). */
+static FD_FN_CONST inline ulong
+fd_accdb_ovl_bloom_words( ulong max_live_slots ) {
+  return fd_ulong_max( 8UL, fd_ulong_pow2_dn( FD_ACCDB_OVL_BLOOM_SZ/8UL/max_live_slots ) );
+}
+
 struct __attribute__((packed)) fd_accdb_idx_slot {
   uchar  pubkey[ 32UL ];
   ulong  off_plus1;  /* 0 = empty */
