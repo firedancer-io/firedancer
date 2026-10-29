@@ -1134,7 +1134,7 @@ during_frag( fd_pack_ctx_t * ctx,
       fd_replay_txn_executed_t const * txn_executed = fd_type_pun_const( dcache_entry );
       ctx->txn_committed = !!txn_executed->is_committable;
       if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
-      memcpy( ctx->executed_txn_sig, fd_txn_get_signatures( TXN(txn_executed->txn), txn_executed->txn->payload ), FD_TXN_SIGNATURE_SZ );
+      memcpy( ctx->executed_txn_sig, txn_executed->signature, FD_TXN_SIGNATURE_SZ );
       return;
     }
     if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED_BAT ) ) { /* reliable, read in after_frag */
