@@ -732,6 +732,7 @@ init_load( fd_snapct_tile_t *  ctx,
 
   if( !file ) {
     if( full ) FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
+    else       fd_cstr_fini( ctx->http_incr_snapshot_name );
     snapshot_output_prepare( ctx, full );
   }
 
@@ -806,7 +807,10 @@ blacklist_peer( fd_snapct_tile_t * ctx ) {
   fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
 
-  if( ctx->predicted_incremental.peer.addr.l==ctx->peer.addr.l ) ctx->predicted_incremental.peer.addr.l = 0UL;
+  if( ctx->predicted_incremental.peer.addr.l==ctx->peer.addr.l ||
+      fd_sspeer_key_eq( &ctx->predicted_incremental.peer.key, &ctx->peer.key ) ) {
+    ctx->predicted_incremental.peer.addr.l = 0UL;
+  }
 
   if( FD_UNLIKELY( blacklist_map_ele_query( ctx->blacklist_map, &ctx->peer.key, NULL, ctx->blacklist_pool ) ) ) return;
   if( FD_LIKELY( blacklist_pool_free( ctx->blacklist_pool ) ) ) {
@@ -1212,6 +1216,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_INFO(( "reading full snapshot at slot %lu (cluster full %lu incremental %lu) from local file `%s`",
                       ctx->local_in.full_snapshot_slot, cluster.full, cluster.incremental, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
+        predict_incremental( ctx );
         set_state( ctx, FD_SNAPCT_STATE_READING_FULL_FILE );
         init_load( ctx, stem, 1, 1 );
       } else {
@@ -1251,6 +1256,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->peer                            = best;
         set_state( ctx, FD_SNAPCT_STATE_READING_FULL_HTTP );
         ctx->predicted_incremental.full_slot = best.full_slot;
+        predict_incremental( ctx );
         init_load( ctx, stem, 1, 0 );
       }
       break;
@@ -1426,7 +1432,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       ulong fetch_incr = ULONG_MAX;
       if( FD_LIKELY( ctx->download_enabled ) ) {
-        fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot, wfs_floor( ctx ) );
+        fd_sspeer_t best_incr = best_incremental_peer( ctx );
         if( FD_LIKELY( best_incr.addr.l ) ) fetch_incr = best_incr.incr_slot;
       }
 
@@ -1964,6 +1970,7 @@ snapld_frag( fd_snapct_tile_t *  ctx,
         FD_LOG_NOTICE(( "full snapshot resolved to slot %lu instead of %lu, pairing the incremental snapshot with it",
                         meta->resolved_slot, ctx->predicted_incremental.full_slot ));
         ctx->predicted_incremental.full_slot = meta->resolved_slot;
+        ctx->predicted_incremental.slot      = FD_SSPEER_SLOT_UNKNOWN;
         predict_incremental( ctx );
       }
 
