@@ -339,6 +339,7 @@ fd_event_client_new( void *                     shmem,
 
   fd_grpc_client_set_version( client->grpc_client, client->client_version, strlen( client->client_version ) );
   fd_grpc_client_set_authority( client->grpc_client, client->server_fqdn, client->server_fqdn_len, client->server_tcp_port );
+  fd_grpc_client_set_https( client->grpc_client, client->use_tls );
 
   return (void *)client;
 }

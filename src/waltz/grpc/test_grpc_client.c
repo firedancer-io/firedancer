@@ -14,6 +14,7 @@ main( int     argc,
 #else
 
 #include "fd_grpc_client_private.h"
+#include "../h2/fd_hpack.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
 #include <errno.h>
@@ -327,6 +328,37 @@ FD_UNIT_TEST( stream_send_state ) {
   FD_TEST( !client->request_tx_op->chunk_sz );
 
   fd_grpc_client_stream_release( client, stream );
+}
+
+FD_UNIT_TEST( request_scheme ) {
+  for( int https=0; https<=1; https++ ) {
+    fd_grpc_client_set_https( client, https );
+    for( int encoded=0; encoded<=1; encoded++ ) {
+      fd_grpc_client_reset( client );
+      test_grpc_client_mock_conn( client );
+      test_empty_msg_t msg = {0};
+      fd_grpc_h2_stream_t * stream;
+      if( encoded ) stream = fd_grpc_client_request_start1( client, "/test", 5UL, 0UL, NULL, 0UL, NULL, 0UL, 1 );
+      else          stream = fd_grpc_client_request_start ( client, "/test", 5UL, 0UL, &test_empty_msg_t_msg, &msg, NULL, 0UL, 1 );
+      FD_TEST( stream );
+
+      uchar buf[ 4096 ];
+      ulong sz = fd_h2_rbuf_used_sz( client->frame_tx );
+      FD_TEST( sz<=sizeof(buf) && sz>sizeof(fd_h2_frame_hdr_t) );
+      fd_h2_rbuf_pop_copy( client->frame_tx, buf, sz );
+      ulong hdr_sz = ((ulong)buf[0]<<16) | ((ulong)buf[1]<<8) | (ulong)buf[2];
+      FD_TEST( buf[3]==FD_H2_FRAME_TYPE_HEADERS && hdr_sz<=sz-sizeof(fd_h2_frame_hdr_t) );
+      fd_hpack_rd_t rd[1];
+      fd_hpack_rd_init( rd, buf+sizeof(fd_h2_frame_hdr_t), hdr_sz );
+      fd_h2_hdr_t hdr[1];
+      uchar * scratch = NULL;
+      FD_TEST( !fd_hpack_rd_next( rd, hdr, &scratch, 0UL ) ); /* :method */
+      FD_TEST( !fd_hpack_rd_next( rd, hdr, &scratch, 0UL ) );
+      FD_TEST( hdr->name_len==7UL && fd_memeq( hdr->name, ":scheme", 7UL ) );
+      FD_TEST( hdr->value_len==(https ? 5UL : 4UL) );
+      FD_TEST( fd_memeq( hdr->value, https ? "https" : "http", hdr->value_len ) );
+    }
+  }
 }
 
 FD_UNIT_TEST( stream_close_state ) {

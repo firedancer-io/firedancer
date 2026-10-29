@@ -243,6 +243,14 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
                               ulong              host_len,
                               ushort             port );
 
+/* fd_grpc_client_set_https selects the request :scheme header.  Defaults
+   to HTTPS.  Set to zero before sending requests over plaintext HTTP.
+   Preserved by fd_grpc_client_reset. */
+
+void
+fd_grpc_client_set_https( fd_grpc_client_t * client,
+                          int                https );
+
 /* fd_grpc_client_rxtx_socket drives I/O against a TCP socket.
    (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags.
 

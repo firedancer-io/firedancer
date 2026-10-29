@@ -19,7 +19,7 @@ fd_grpc_h2_gen_request_hdrs( fd_grpc_req_hdrs_t const * req,
                              char const *               version,
                              ulong                      version_len ) {
   if( FD_UNLIKELY( !fd_hpack_wr_method_post( rbuf_tx ) ) ) return 0;
-  if( FD_UNLIKELY( !fd_hpack_wr_scheme( rbuf_tx, 1 ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_hpack_wr_scheme( rbuf_tx, req->https ) ) ) return 0;
   if( FD_UNLIKELY( !fd_hpack_wr_path( rbuf_tx, req->path, req->path_len ) ) ) return 0;
   if( req->host_len ) {
     if( FD_UNLIKELY( !fd_hpack_wr_authority( rbuf_tx, req->host, req->host_len, req->port ) ) ) return 0;

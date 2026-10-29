@@ -110,7 +110,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
   fd_h2_hdr_t hdr[1];
   uchar *scratch = NULL;
   expect_hdr( hpack_rd, hdr, &scratch, ":method", "POST" );
-  expect_hdr( hpack_rd, hdr, &scratch, ":scheme", "https" );
+  expect_hdr( hpack_rd, hdr, &scratch, ":scheme", req.https ? "https" : "http" );
   expect_hdr( hpack_rd, hdr, &scratch, ":path", path );
   expect_hdr( hpack_rd, hdr, &scratch, ":authority", host_port );
   expect_hdr( hpack_rd, hdr, &scratch, "te", "trailers" );

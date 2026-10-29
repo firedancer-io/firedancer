@@ -654,6 +654,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   fd_grpc_client_set_version( ctx->grpc_client, fd_version_cstr, strlen( fd_version_cstr ) );
   fd_grpc_client_set_authority( ctx->grpc_client, ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port );
+  fd_grpc_client_set_https( ctx->grpc_client, ctx->is_ssl );
 
   fd_histf_new( ctx->metrics.msg_rx_delay,
       FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ),
