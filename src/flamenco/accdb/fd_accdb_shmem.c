@@ -147,6 +147,9 @@ fd_accdb_shmem_footprint( ulong max_accounts,
     l = FD_LAYOUT_APPEND( l, 64UL,                     FD_ACCDB_CF_STASH_MAX*sizeof(ulong)                     );
     l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
     l = FD_LAYOUT_APPEND( l, alignof(uint),            FD_ACCDB_BG_DEFER_MAX*sizeof(uint)                      );
+    l = FD_LAYOUT_APPEND( l, alignof(uchar),           pool_max                                                );
+    l = FD_LAYOUT_APPEND( l, alignof(uchar),           pool_max                                                );
+    l = FD_LAYOUT_APPEND( l, alignof(ulong),           pool_max*sizeof(ulong)                                  );
   }
   return FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
 }
@@ -348,6 +351,10 @@ fd_accdb_shmem_new( void * shmem,
   void * _cf_stash   = FD_SCRATCH_ALLOC_APPEND( l, 64UL,          FD_ACCDB_CF_STASH_MAX*sizeof(ulong)*!!index_ram_entries );
   void * _hot_map    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), hot_cnt*sizeof(uint)                              );
   void * _bg_defer   = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), FD_ACCDB_BG_DEFER_MAX*sizeof(uint)*!!index_ram_entries );
+  void * _tier       = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), pool_max*!!index_ram_entries                     );
+  void * _hot_ref    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), pool_max*!!index_ram_entries                     );
+  void * _fifo       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), pool_max*sizeof(ulong)*!!index_ram_entries       );
+  if( index_ram_entries ) { memset( _tier, 0, pool_max ); memset( _hot_ref, 0, pool_max ); }
   if( index_ram_entries ) {
     memset( _bkt_seq,  0,    fd_accdb_idx_seq_cnt( bkt_npage )*sizeof(uint) );
     memset( _cf,       0,    cf_nb*sizeof(ulong) );
@@ -459,6 +466,17 @@ fd_accdb_shmem_new( void * shmem,
   accdb->bg_defer_tail     = 0UL;
   accdb->bg_defer_sealed   = 0UL;
   accdb->pool_avail        = pool_max;
+  accdb->idx_tier_off      = (ulong)_tier - (ulong)shmem;
+  accdb->idx_hot_ref_off   = (ulong)_hot_ref - (ulong)shmem;
+  accdb->idx_fifo_off      = (ulong)_fifo - (ulong)shmem;
+  accdb->fifo_head         = 0UL;
+  accdb->fifo_tail         = 0UL;
+  accdb->hot_cursor        = 0UL;
+  /* Every fork that can still commit is on a sched staging lane (4) or
+     is the leader bank. */
+  ulong reserve = fd_ulong_max( 1UL<<20, 5UL*max_account_writes_per_slot );
+  if( index_ram_entries ) reserve = fd_ulong_min( reserve, pool_max/4UL ); /* tiny test pools */
+  accdb->promote_reserve   = reserve;
   accdb->max_account_writes_per_slot = max_account_writes_per_slot;
   accdb->joiner_cnt_max   = joiner_cnt;
   accdb->cache_min_reserved = cache_min_reserved;

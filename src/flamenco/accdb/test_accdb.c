@@ -71,6 +71,37 @@ test_setup_ex( int * out_fd,
   return accdb;
 }
 
+/* Index-mode setup: idx file is a memfd; fd_accdb_t joins T2-style. */
+
+static int test_idx_fd = -1;
+
+static fd_accdb_t *
+test_setup_idx( int * out_fd,
+                ulong max_accounts,
+                ulong index_ram_entries,
+                ulong max_live_slots,
+                ulong max_account_writes_per_slot ) {
+  int fd = memfd_create( "accdb_test", 0 );
+  FD_TEST( fd>=0 );
+  *out_fd = fd;
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, 8192UL, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 4UL, 0UL, index_ram_entries );
+  FD_TEST( shmem_fp );
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( shmem_mem );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, max_account_writes_per_slot, 8192UL,
+                                                                      1UL<<30, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, 4UL, 0UL, index_ram_entries ) );
+  FD_TEST( shmem );
+  FD_TEST( shmem->index_ram_entries==index_ram_entries );
+  test_shmem_mem = shmem_mem;
+  test_idx_fd = memfd_create( "accdb_idx", 0 );
+  FD_TEST( test_idx_fd>=0 );
+  FD_TEST( !ftruncate( test_idx_fd, (long)fd_accdb_idx_file_sz( max_accounts, index_ram_entries ) ) );
+  void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( max_live_slots, 1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, test_idx_fd ) );
+  FD_TEST( accdb );
+  return accdb;
+}
+
 static fd_accdb_t *
 test_setup( int * out_fd,
             ulong max_accounts,
@@ -2432,6 +2463,109 @@ test_idx_primitives( void ) {
   close( fd );
 }
 
+static fd_accdb_idx_region_t
+test_bkt_region( void ) {
+  fd_accdb_shmem_t * s = test_shmem_mem;
+  return (fd_accdb_idx_region_t){ .fd=test_idx_fd, .page0=0UL, .npage=s->idx_bkt_npage,
+                                  .seq=(uint *)( (uchar *)s + s->idx_bkt_seq_off ), .salt=FD_ACCDB_IDX_SALT_B };
+}
+
+/* Advance the root by n empty slots, running T2 after each. */
+
+static fd_accdb_fork_id_t
+test_root_n( fd_accdb_t *       accdb,
+             fd_accdb_fork_id_t tip,
+             ulong              n ) {
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, tip );
+    fd_accdb_advance_root( accdb, c );
+    drain_background( accdb );
+    tip = c;
+  }
+  for( ulong i=0UL; i<64UL; i++ ) drain_background( accdb );
+  return tip;
+}
+
+/* Demotion moves aged rooted versions to the bucket, keeps a hot copy
+   and hands over the data line: reads after demotion cost no pread. */
+
+static void
+test_idx_demote_keeps_lines( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_idx( &fd, 4096UL, 1024UL, 256UL, 64UL );
+  uchar d[ 64 ]; ulong lamports, data_len; uchar owner[ 32 ];
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t a    = fd_accdb_attach_child( accdb, root );
+  uchar key[ 32 ];
+  for( ulong i=0UL; i<16UL; i++ ) {
+    memset( key, 0, 32 ); key[ 0 ] = (uchar)(i+1UL);
+    memset( d, (int)i, sizeof(d) );
+    accdb_write( accdb, a, key, 100UL+i, d, sizeof(d), owner2 );
+  }
+  fd_accdb_advance_root( accdb, a );
+  drain_background( accdb );
+  fd_accdb_fork_id_t tip = test_root_n( accdb, a, FD_ACCDB_DEMOTE_AGE+2UL );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_demoted==16UL );
+
+  fd_accdb_idx_region_t bkt = test_bkt_region();
+  ulong reads0 = fd_accdb_metrics( accdb )->read_ops;
+  for( ulong i=0UL; i<16UL; i++ ) {
+    memset( key, 0, 32 ); key[ 0 ] = (uchar)(i+1UL);
+    fd_accdb_idx_slot_t slot;
+    FD_TEST( fd_accdb_idx_lookup( &bkt, test_shmem_mem->seed, key, 0, &slot ) );
+    FD_TEST( slot.lamports==100UL+i );
+    FD_TEST( accdb_read( accdb, tip, key, &lamports, d, &data_len, owner ) );
+    FD_TEST( lamports==100UL+i && data_len==sizeof(d) && d[ 7 ]==(uchar)i );
+    FD_TEST( fd_accdb_data_len( accdb, tip, key )==sizeof(d) );
+  }
+  FD_TEST( fd_accdb_metrics( accdb )->read_ops==reads0 );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==16UL );
+
+  /* A rewrite supersedes the bucket slot at its own demotion. */
+  memset( key, 0, 32 ); key[ 0 ] = 1;
+  fd_accdb_fork_id_t b = fd_accdb_attach_child( accdb, tip );
+  accdb_write( accdb, b, key, 7UL, d, 8UL, owner2 );
+  fd_accdb_advance_root( accdb, b );
+  drain_background( accdb );
+  tip = test_root_n( accdb, b, FD_ACCDB_DEMOTE_AGE+2UL );
+  fd_accdb_idx_slot_t slot;
+  FD_TEST( fd_accdb_idx_lookup( &bkt, test_shmem_mem->seed, key, 0, &slot ) && slot.lamports==7UL );
+  FD_TEST( accdb_read( accdb, tip, key, &lamports, d, &data_len, owner ) && lamports==7UL && data_len==8UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==16UL );
+
+  close( test_idx_fd );
+  test_teardown( accdb, fd );
+}
+
+/* Demote FIFO with rewrites every root: 64 roots x 64 rewritten keys
+   fill a 4096-entry FIFO with superseded entries and no pool pressure;
+   the push compacts them instead of aborting. */
+
+static void
+test_idx_fifo_rewrite( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_idx( &fd, 16384UL, 4096UL, 256UL, 64UL );
+  uchar d[ 8 ] = {0}; uchar key[ 32 ];
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( accdb, SENTINEL );
+  for( ulong r=0UL; r<FD_ACCDB_DEMOTE_AGE+16UL; r++ ) {
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, tip );
+    for( ulong k=0UL; k<64UL; k++ ) {
+      memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 31 ] = 0x3C;
+      accdb_write( accdb, c, key, 100UL+r, d, sizeof(d), owner2 );
+    }
+    fd_accdb_advance_root( accdb, c );
+    drain_background( accdb );
+    tip = c;
+  }
+  FD_TEST( test_shmem_mem->fifo_head-test_shmem_mem->fifo_tail<test_shmem_mem->acc_pool_max );
+  for( ulong k=0UL; k<64UL; k++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, k+1UL ); key[ 31 ] = 0x3C;
+    FD_TEST( fd_accdb_lamports( accdb, tip, key )==100UL+FD_ACCDB_DEMOTE_AGE+15UL );
+  }
+  close( test_idx_fd );
+  test_teardown( accdb, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2547,6 +2681,12 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_primitives ..." ));
   test_idx_primitives();
+
+  FD_LOG_NOTICE(( "test_idx_demote_keeps_lines ..." ));
+  test_idx_demote_keeps_lines();
+
+  FD_LOG_NOTICE(( "test_idx_fifo_rewrite ..." ));
+  test_idx_fifo_rewrite();
 
   FD_LOG_NOTICE(( "success" ));
 
