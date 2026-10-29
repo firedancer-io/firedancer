@@ -599,11 +599,11 @@ FD_UNIT_TEST( grpc_stream_error_releases_h2_quota ) {
   FD_TEST( fd_uint_bswap( rst_stream.hdr.r_stream_id )==stream_id );
   FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_INTERNAL );
 
-  /* Corrupt headers once END_STREAM closed the stream: no RST_STREAM */
+  /* Invalid :status once END_STREAM closed the stream: no RST_STREAM */
   ulong const rx_end_cnt = g_rx_end_cnt;
   stream = fd_grpc_client_stream_acquire( client, 2UL );
   fd_h2_stream_close_tx( &stream->s, client->conn );
-  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_STREAM|FD_H2_FLAG_END_HEADERS, stream->s.stream_id, (uchar const *)"corrupt", 7UL );
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_STREAM|FD_H2_FLAG_END_HEADERS, stream->s.stream_id, (uchar const *)"\x08\x03" "2x0", 5UL );
   FD_TEST( g_rx_end_cnt==rx_end_cnt+1UL && !client->stream_cnt && fd_h2_rbuf_is_empty( client->frame_tx ) );
 
   /* Zero stream WINDOW_UPDATE: one RST_STREAM, request ended */
@@ -848,7 +848,7 @@ FD_UNIT_TEST( request_deadlines_under_tx_backpressure ) {
   test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,    FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, live->s.stream_id, (uchar const *)"\x88", 1UL );
   test_rx_frame( FD_H2_FRAME_TYPE_DATA,       FD_H2_FLAG_END_STREAM,                        peer->s.stream_id, (uchar const *)"", 0UL );
   test_rx_frame( FD_H2_FRAME_TYPE_RST_STREAM, 0U,                                           peer->s.stream_id, (uchar const *)"\0\0\0\0", 4UL );
-  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,    FD_H2_FLAG_END_HEADERS,                       bad->s.stream_id,  (uchar const *)"corrupt", 7UL );
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,    FD_H2_FLAG_END_HEADERS,                       bad->s.stream_id,  (uchar const *)"\x08\x03" "2x0", 5UL ); /* :status: 2x0 */
   FD_TEST( !g_rx_end_cnt && client->stream_cnt==2UL && fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
 
   fd_grpc_client_service_streams( client, 1235L );

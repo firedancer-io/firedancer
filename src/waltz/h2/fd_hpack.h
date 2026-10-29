@@ -111,7 +111,8 @@ fd_hpack_rd_done( fd_hpack_rd_t const * rd ) {
 
    *scratch is assumed to point to the next free byte in a scratch
    buffer.  scratch_end points one past the last byte of the scratch
-   buffer.
+   buffer.  Encoded and decoded header names are limited to USHORT_MAX
+   bytes (RFC 7541 7.4).
 
    Returns FD_H2_SUCCESS, populates header, and updates *scratch on
    success.  On failure, returns FD_H2_ERR_COMPRESSION and leaves

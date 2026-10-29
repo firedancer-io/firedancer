@@ -237,6 +237,51 @@ FD_UNIT_TEST( h2_wrapped_data_after_conn_error ) {
   FD_TEST( rec.data_sz==5UL && conn->conn_error==FD_H2_ERR_INTERNAL );
 }
 
+/* A DATA frame, including padding, must fit both receive windows when
+   its first chunk arrives, even if credit is replenished before the
+   rest (RFC 9113 6.9.1).  An exact fit survives such a refill. */
+
+FD_UNIT_TEST( h2_data_frame_credit ) {
+  uchar const payload[101] = {0}; /* Pad Length 0 if padded */
+  for( uint mode=0U; mode<3U; mode++ ) /* conn short, stream short, exact fit */
+  for( uint padded=0U; padded<2U; padded++ ) {
+    uchar rx_buf[256], tx_buf[256], scratch[256];
+    fd_h2_rbuf_t rx[1], tx[1];
+    fd_h2_rbuf_init( rx, rx_buf, sizeof(rx_buf) );
+    fd_h2_rbuf_init( tx, tx_buf, sizeof(tx_buf) );
+    fd_h2_conn_t conn[1];
+    fd_h2_conn_init_client( conn );
+    conn->flags = 0U;
+    conn->tx_stream_next = 3U;
+    struct test_h2_lifecycle_rec rec = {0};
+    conn->ctx = &rec;
+    fd_h2_stream_open( &rec.stream, conn, 1U );
+    conn->rx_wnd      = mode==0U ? 100U : 101U;
+    rec.stream.rx_wnd = mode==1U ? 100U : 101U;
+    fd_h2_callbacks_t cb[1];
+    fd_h2_callbacks_init( cb );
+    cb->stream_query = test_h2_stream_query;
+    cb->rst_stream = test_h2_lifecycle_rst;
+    cb->data = test_h2_lifecycle_data;
+    fd_h2_frame_hdr_t hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_DATA, sizeof(payload) ),
+      .flags       = (uchar)( padded ? FD_H2_FLAG_PADDED : 0U ),
+      .r_stream_id = fd_uint_bswap( 1U )
+    };
+    fd_h2_rbuf_push( rx, &hdr, sizeof(hdr) );
+    fd_h2_rbuf_push( rx, payload, 60UL );
+    fd_h2_rx( conn, rx, tx, scratch, sizeof(scratch), cb );
+    FD_TEST( conn->conn_error==(mode ? FD_H2_SUCCESS : FD_H2_ERR_FLOW_CONTROL) );
+    FD_TEST( rec.rst_cnt==(mode==1U) && rec.data_sz==(mode==2U ? 60UL-padded : 0UL) );
+    if( !mode ) continue;
+    fd_h2_tx_control( conn, tx, cb ); /* WINDOW_UPDATE refills conn->rx_wnd */
+    fd_h2_rbuf_push( rx, payload, sizeof(payload)-60UL );
+    fd_h2_rx( conn, rx, tx, scratch, sizeof(scratch), cb );
+    FD_TEST( !conn->conn_error && fd_h2_rbuf_is_empty( rx ) && conn->rx_wnd==65494U-padded );
+    FD_TEST( rec.rst_cnt==(mode==1U) && rec.data_sz==(mode==2U ? 101UL-padded : 0UL) );
+  }
+}
+
 FD_UNIT_TEST( h2_empty_data_tx_backpressure ) {
   uchar const payload[3] = { 2U, 0U, 0U };
   uchar filler[103] = {0}; /* 25 bytes free, less than DATA's control reserve */
@@ -305,7 +350,7 @@ struct test_h2_header_abort_rec {
   fd_h2_stream_t stream;
   fd_h2_rbuf_t * tx;
   uint headers_cnt;
-  uint abort_kind; /* 0=none, 1=reset, 2=error */
+  uint abort_kind; /* 0=none, 1=reset, 2=error, 3=NO_ERROR */
   int abort_in_callback;
 };
 
@@ -313,7 +358,7 @@ static void
 test_h2_header_abort( fd_h2_conn_t * conn ) {
   struct test_h2_header_abort_rec * rec = conn->ctx;
   if( rec->abort_kind==1U ) fd_h2_stream_reset( &rec->stream, conn );
-  else                    fd_h2_stream_error( &rec->stream, conn, rec->tx, FD_H2_ERR_CANCEL );
+  else                    fd_h2_stream_error( &rec->stream, conn, rec->tx, rec->abort_kind==3U ? FD_H2_SUCCESS : FD_H2_ERR_CANCEL );
 }
 
 static void
@@ -372,6 +417,67 @@ FD_UNIT_TEST( h2_retained_stream_abort_mid_headers ) {
   }
 }
 
+/* A complete field block on a live stream is HPACK-validated before
+   delivery, since decoding errors are connection errors (RFC 9113 4.3). */
+
+FD_UNIT_TEST( h2_live_headers_compression_error ) {
+  uchar rx_buf[128], tx_buf[128], scratch[128];
+  fd_h2_rbuf_t rx[1], tx[1];
+  fd_h2_rbuf_init( rx, rx_buf, sizeof(rx_buf) );
+  fd_h2_rbuf_init( tx, tx_buf, sizeof(tx_buf) );
+  fd_h2_conn_t conn[1];
+  fd_h2_conn_init_client( conn );
+  conn->flags = 0U;
+  conn->tx_stream_next = 3U;
+  struct test_h2_header_abort_rec rec = { .tx = tx };
+  conn->ctx = &rec;
+  fd_h2_stream_open( &rec.stream, conn, 1U );
+  fd_h2_callbacks_t cb[1];
+  fd_h2_callbacks_init( cb );
+  cb->stream_query = test_h2_stream_query;
+  cb->headers = test_h2_header_abort_headers;
+  fd_h2_tx( rx, (uchar const *)"\x80", 1UL, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, 1U ); /* index 0 */
+  fd_h2_rx( conn, rx, tx, scratch, sizeof(scratch), cb );
+  FD_TEST( conn->conn_error==FD_H2_ERR_COMPRESSION && !rec.headers_cnt );
+}
+
+/* An explicit abort from the first callback of a DATA chunk that wraps
+   the RX buffer suppresses the tail, even if the closed stream is
+   retained.  END_STREAM, or NO_ERROR after it, still delivers it. */
+
+FD_UNIT_TEST( h2_wrapped_data_abort ) {
+  struct { uint kind; int end_stream; int closing_tx; uint calls; } const cases[] = {
+    { 1U, 0, 0, 1U }, { 2U, 0, 0, 1U }, { 3U, 0, 0, 1U }, /* reset, cancel, NO_ERROR */
+    { 2U, 1, 0, 1U }, { 3U, 1, 0, 2U },                   /* cancel, NO_ERROR after END_STREAM */
+    { 0U, 1, 1, 2U },                                     /* END_STREAM closed it */
+    { 1U, 1, 1, 1U }, { 2U, 1, 1, 1U }, { 3U, 1, 1, 2U }  /* reset, cancel, NO_ERROR after that */
+  };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    uchar rx_buf[64], tx_buf[64], scratch[64] = {0};
+    fd_h2_rbuf_t rx[1], tx[1];
+    fd_h2_rbuf_init( rx, rx_buf, sizeof(rx_buf) );
+    fd_h2_rbuf_init( tx, tx_buf, sizeof(tx_buf) );
+    fd_h2_rbuf_push( rx, scratch, 50UL );
+    fd_h2_rbuf_skip( rx, 50UL );
+    fd_h2_tx( rx, scratch, 10UL, FD_H2_FRAME_TYPE_DATA, cases[i].end_stream ? FD_H2_FLAG_END_STREAM : 0U, 1U ); /* payload at [59,64) and [0,5) */
+    fd_h2_conn_t conn[1];
+    fd_h2_conn_init_client( conn );
+    conn->flags = 0U;
+    conn->tx_stream_next = 3U;
+    struct test_h2_header_abort_rec rec = { .tx = tx, .abort_kind = cases[i].kind,
+                                          .abort_in_callback = !!cases[i].kind };
+    conn->ctx = &rec;
+    fd_h2_stream_open( &rec.stream, conn, 1U );
+    if( cases[i].closing_tx ) fd_h2_stream_close_tx( &rec.stream, conn );
+    fd_h2_callbacks_t cb[1];
+    fd_h2_callbacks_init( cb );
+    cb->stream_query = test_h2_stream_query;
+    cb->data = test_h2_header_abort_headers; /* same signature */
+    fd_h2_rx( conn, rx, tx, scratch, sizeof(scratch), cb );
+    FD_TEST( !conn->conn_error && fd_h2_rbuf_is_empty( rx ) && rec.headers_cnt==cases[i].calls );
+  }
+}
+
 static void
 test_cb_conn_established( fd_h2_conn_t * conn ) {
   (void)conn;
@@ -395,8 +501,7 @@ test_h2_push_settings_max_frame_size( fd_h2_rbuf_t * rbuf,
 }
 
 /* test_h2_client_handshake exercises various client-side handshake
-   state logic.  There are three possible successful client handshake
-   sequences:
+   state logic.  Sequence 1 is a successful client handshake.
 
    Sequence 1:
    - Client: Preface, SETTINGS
@@ -404,11 +509,10 @@ test_h2_push_settings_max_frame_size( fd_h2_rbuf_t * rbuf,
    - Client: SETTINGS ACK
    - Server: SETTINGS ACK
 
-   Sequence 3:
+   Sequence 3 fails, since the server's preface is SETTINGS (RFC 9113
+   Section 3.4):
    - Client: Preface, SETTINGS
-   - Server: SETTINGS ACK
-   - Server: SETTINGS
-   - Client: SETTINGS ACK */
+   - Server: SETTINGS ACK */
 
 FD_UNIT_TEST( h2_client_handshake ) {
   uchar scratch[256];
@@ -525,7 +629,7 @@ FD_UNIT_TEST( h2_client_handshake ) {
   FD_TEST( cb_rec.cb_established_cnt==1 );
 
   /* Retry the scenario, but this time:
-     Server: SETTINGS ACK, SETTINGS */
+     Server: SETTINGS ACK (protocol error) */
 
   cb_rec.cb_established_cnt = 0;
   FD_TEST( fd_h2_conn_init_client( conn )==conn );
@@ -542,16 +646,35 @@ FD_UNIT_TEST( h2_client_handshake ) {
   fd_h2_rbuf_push( rbuf_rx, settings_ack_expected, sizeof(settings_ack_expected) );
   fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
   FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==0 );
-  FD_TEST( conn->flags == FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 );
+  FD_TEST( conn->conn_error==FD_H2_ERR_PROTOCOL );
   FD_TEST( cb_rec.cb_established_cnt==0 );
+}
 
-  fd_h2_rbuf_push( rbuf_rx, server_settings, sizeof(server_settings) );
-  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
-  FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==9 );
-  settings_ack = fd_h2_rbuf_pop( rbuf_tx, scratch, 9UL );
-  FD_TEST( fd_memeq( settings_ack, settings_ack_expected, sizeof(settings_ack_expected) ) );
-  FD_TEST( conn->flags == 0 );
-  FD_TEST( cb_rec.cb_established_cnt==1 );
+/* The peer's first frame must be a non-ACK SETTINGS (RFC 9113 Section
+   3.4).  Frames received before our preface is queued stay buffered. */
+
+FD_UNIT_TEST( h2_initial_peer_settings ) {
+  uchar const ping[8] = {0};
+  for( uint server=0U; server<2U; server++ )
+  for( uint first_ping=0U; first_ping<2U; first_ping++ ) {
+    uchar rx_buf[128], tx_buf[128], scratch[128];
+    fd_h2_rbuf_t rx[1], tx[1];
+    fd_h2_rbuf_init( rx, rx_buf, sizeof(rx_buf) );
+    fd_h2_rbuf_init( tx, tx_buf, sizeof(tx_buf) );
+    fd_h2_conn_t conn[1];
+    if( server ) fd_h2_conn_init_server( conn );
+    else         fd_h2_conn_init_client( conn );
+    if( first_ping ) fd_h2_tx( rx, ping, 8UL, FD_H2_FRAME_TYPE_PING,     0U, 0U );
+    else             fd_h2_tx( rx, NULL, 0UL, FD_H2_FRAME_TYPE_SETTINGS, 0U, 0U );
+    ulong rx_sz = fd_h2_rbuf_used_sz( rx );
+    fd_h2_rx( conn, rx, tx, scratch, sizeof(scratch), &fd_h2_callbacks_noop );
+    FD_TEST( fd_h2_rbuf_used_sz( rx )==rx_sz && fd_h2_rbuf_is_empty( tx ) );
+    fd_h2_tx_control( conn, tx, &fd_h2_callbacks_noop );
+    ulong preface_sz = fd_h2_rbuf_used_sz( tx );
+    fd_h2_rx( conn, rx, tx, scratch, sizeof(scratch), &fd_h2_callbacks_noop );
+    FD_TEST( conn->conn_error==(first_ping ? FD_H2_ERR_PROTOCOL : FD_H2_SUCCESS) );
+    FD_TEST( fd_h2_rbuf_used_sz( tx )==preface_sz+(first_ping ? 0UL : sizeof(fd_h2_frame_hdr_t)) );
+  }
 }
 
 static ulong test_h2_ping_tx_ack_cnt = 0UL;
@@ -565,6 +688,7 @@ test_h2_ping_ack( fd_h2_conn_t * conn ) {
 FD_UNIT_TEST( h2_ping_tx ) {
   fd_h2_conn_t conn[1];
   FD_TEST( fd_h2_conn_init_client( conn )==conn );
+  conn->flags = 0U; /* skip handshake */
   uchar scratch[128];
   conn->self_settings.max_frame_size = sizeof(scratch);
 
