@@ -2013,6 +2013,9 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="IncrementalAccountProgress" summary="Accounts changed since the base snapshot that have been written so far for the incremental snapshot being created. Resets when a snapshot starts, and stays zero for a full snapshot, which has no changed account walk" />
     <gauge name="IncrementalAccountExpected" summary="Accounts changed since the base snapshot, sampled when the incremental snapshot started; 0 for a full snapshot. Replay may record more changes while the job runs, so progress can exceed this" />
     <counter name="IoBlockedDurationNanos" source="ticks" summary="Cumulative time blocked on I/O" />
+    <histogram name="DiskWriteDurationNanos" min="10000" max="10000000000" source="ticks">
+        <summary>Duration of one write to the snapshot file</summary>
+    </histogram>
     <counter name="CompressDurationNanos" source="ticks" summary="Cumulative time spent compressing data" />
     <gauge name="IncrementalAccountUsed" summary="Distinct accounts changed in rooted slots since the last full snapshot job started; saturates at IncrementalAccountCapacity" />
     <gauge name="IncrementalAccountCapacity" summary="Maximum changed accounts that can be tracked; once reached, no incremental snapshot can be created until the next full snapshot" />
@@ -2024,6 +2027,9 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="CompressConsumedBytes" summary="Uncompressed bytes fed to the compressor" />
     <counter name="DiskWrittenBytes" summary="Compressed bytes written to snapshot files" />
     <counter name="IoBlockedDurationNanos" source="ticks" summary="Cumulative time blocked on I/O" />
+    <histogram name="DiskWriteDurationNanos" min="10000" max="10000000000" source="ticks">
+        <summary>Duration of one write to the snapshot file</summary>
+    </histogram>
     <counter name="CompressDurationNanos" source="ticks" summary="Cumulative time spent compressing accounts" />
     <counter name="CacheReadTorn" summary="Cached account reads torn by eviction, handed back to snapmk to un-claim" />
 </tile>
@@ -2033,6 +2039,9 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="ExportProgressBytes" summary="Account database bytes read so far for the current snapshot creation job" />
     <gauge name="ExportExpectedBytes" summary="Account database bytes to read for the current snapshot creation job" />
     <counter name="IoBlockedDurationNanos" source="ticks" summary="Cumulative time blocked on I/O" />
+    <histogram name="DiskReadDurationNanos" min="10000" max="10000000000" source="ticks">
+        <summary>Duration of one read from the account database file</summary>
+    </histogram>
 </tile>
 
 <tile name="snapsv">
@@ -2041,6 +2050,10 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="ConnOpen" summary="Open HTTP connections to the snapshot service" />
     <counter name="HttpRxBytes" summary="Bytes received in requests to the snapshot service" />
     <counter name="HttpTxBytes" summary="Bytes sent in responses from the snapshot service" />
+    <counter name="DiskReadBytes" summary="Bytes read from snapshot files to serve requests" />
+    <histogram name="DiskReadDurationNanos" min="10000" max="10000000000">
+        <summary>Duration of one read from a snapshot file, from queueing the read until the tile sees it complete</summary>
+    </histogram>
 </tile>
 
 <tile name="motor">

@@ -7460,6 +7460,44 @@ message MetricsEventRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one write to the snapshot file
+message MetricsSnapmkDiskWriteDurationNanos {
+  // [0, 10000) nanos
+  uint64 b0 = 1;
+  // [10000, 26827) nanos
+  uint64 b1 = 2;
+  // [26827, 71969) nanos
+  uint64 b2 = 3;
+  // [71969, 193071) nanos
+  uint64 b3 = 4;
+  // [193071, 517950) nanos
+  uint64 b4 = 5;
+  // [517950, 1389502) nanos
+  uint64 b5 = 6;
+  // [1389502, 3727609) nanos
+  uint64 b6 = 7;
+  // [3727609, 10000036) nanos
+  uint64 b7 = 8;
+  // [10000036, 26827041) nanos
+  uint64 b8 = 9;
+  // [26827041, 71968753) nanos
+  uint64 b9 = 10;
+  // [71968753, 193070171) nanos
+  uint64 b10 = 11;
+  // [193070171, 517948269) nanos
+  uint64 b11 = 12;
+  // [517948269, 1389496927) nanos
+  uint64 b12 = 13;
+  // [1389496927, 3727595642) nanos
+  uint64 b13 = 14;
+  // [3727595642, 10000000000) nanos
+  uint64 b14 = 15;
+  // [10000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
 // Slot of the most recently finished snapshot creation, by snapshot type, 0 if none since boot
 message MetricsSnapmkLastFinishedSlot {
   // Full snapshot
@@ -7540,6 +7578,44 @@ message MetricsSnapmkRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one write to the snapshot file
+message MetricsSnapzpDiskWriteDurationNanos {
+  // [0, 10000) nanos
+  uint64 b0 = 1;
+  // [10000, 26827) nanos
+  uint64 b1 = 2;
+  // [26827, 71969) nanos
+  uint64 b2 = 3;
+  // [71969, 193071) nanos
+  uint64 b3 = 4;
+  // [193071, 517950) nanos
+  uint64 b4 = 5;
+  // [517950, 1389502) nanos
+  uint64 b5 = 6;
+  // [1389502, 3727609) nanos
+  uint64 b6 = 7;
+  // [3727609, 10000036) nanos
+  uint64 b7 = 8;
+  // [10000036, 26827041) nanos
+  uint64 b8 = 9;
+  // [26827041, 71968753) nanos
+  uint64 b9 = 10;
+  // [71968753, 193070171) nanos
+  uint64 b10 = 11;
+  // [193070171, 517948269) nanos
+  uint64 b11 = 12;
+  // [517948269, 1389496927) nanos
+  uint64 b12 = 13;
+  // [1389496927, 3727595642) nanos
+  uint64 b13 = 14;
+  // [3727595642, 10000000000) nanos
+  uint64 b14 = 15;
+  // [10000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
 // Times the tile tried to park while idle (efficient mode), by result
 message MetricsSnapzpParkAttempted {
   // Woken by a doorbell ring
@@ -7588,6 +7664,44 @@ message MetricsSnapzpRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one read from the account database file
+message MetricsSnaprdDiskReadDurationNanos {
+  // [0, 10000) nanos
+  uint64 b0 = 1;
+  // [10000, 26827) nanos
+  uint64 b1 = 2;
+  // [26827, 71969) nanos
+  uint64 b2 = 3;
+  // [71969, 193071) nanos
+  uint64 b3 = 4;
+  // [193071, 517950) nanos
+  uint64 b4 = 5;
+  // [517950, 1389502) nanos
+  uint64 b5 = 6;
+  // [1389502, 3727609) nanos
+  uint64 b6 = 7;
+  // [3727609, 10000036) nanos
+  uint64 b7 = 8;
+  // [10000036, 26827041) nanos
+  uint64 b8 = 9;
+  // [26827041, 71968753) nanos
+  uint64 b9 = 10;
+  // [71968753, 193070171) nanos
+  uint64 b10 = 11;
+  // [193070171, 517948269) nanos
+  uint64 b11 = 12;
+  // [517948269, 1389496927) nanos
+  uint64 b12 = 13;
+  // [1389496927, 3727595642) nanos
+  uint64 b13 = 14;
+  // [3727595642, 10000000000) nanos
+  uint64 b14 = 15;
+  // [10000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
 // Times the tile tried to park while idle (efficient mode), by result
 message MetricsSnaprdParkAttempted {
   // Woken by a doorbell ring
@@ -7634,6 +7748,44 @@ message MetricsSnaprdRegimeDurationNanos {
   uint64 caught_up_sleeping = 9;
   // Backpressure + Sleeping
   uint64 backpressure_sleeping = 10;
+}
+
+// Duration of one read from a snapshot file, from queueing the read until the tile sees it complete
+message MetricsSnapsvDiskReadDurationNanos {
+  // [0, 10000) nanos
+  uint64 b0 = 1;
+  // [10000, 26827) nanos
+  uint64 b1 = 2;
+  // [26827, 71969) nanos
+  uint64 b2 = 3;
+  // [71969, 193071) nanos
+  uint64 b3 = 4;
+  // [193071, 517950) nanos
+  uint64 b4 = 5;
+  // [517950, 1389502) nanos
+  uint64 b5 = 6;
+  // [1389502, 3727609) nanos
+  uint64 b6 = 7;
+  // [3727609, 10000036) nanos
+  uint64 b7 = 8;
+  // [10000036, 26827041) nanos
+  uint64 b8 = 9;
+  // [26827041, 71968753) nanos
+  uint64 b9 = 10;
+  // [71968753, 193070171) nanos
+  uint64 b10 = 11;
+  // [193070171, 517948269) nanos
+  uint64 b11 = 12;
+  // [517948269, 1389496927) nanos
+  uint64 b12 = 13;
+  // [1389496927, 3727595642) nanos
+  uint64 b13 = 14;
+  // [3727595642, 10000000000) nanos
+  uint64 b14 = 15;
+  // [10000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
 }
 
 // Snapshot files currently available for download
@@ -12016,6 +12168,8 @@ message MetricsSnapmk {
   uint64 incremental_account_capacity = 39;
   // Logical bytes allocated across managed snapshot files, including partial and retained files
   uint64 disk_allocated_bytes = 40;
+  // Duration of one write to the snapshot file
+  MetricsSnapmkDiskWriteDurationNanos disk_write_duration_nanos = 41;
 }
 
 // Metrics of one snapzp tile instance, one row per sweep
@@ -12080,6 +12234,8 @@ message MetricsSnapzp {
   uint64 compress_duration_nanos = 29;
   // Cached account reads torn by eviction, handed back to snapmk to un-claim
   uint64 cache_read_torn = 30;
+  // Duration of one write to the snapshot file
+  MetricsSnapzpDiskWriteDurationNanos disk_write_duration_nanos = 31;
 }
 
 // Metrics of one snaprd tile instance, one row per sweep
@@ -12140,6 +12296,8 @@ message MetricsSnaprd {
   uint64 export_expected_bytes = 27;
   // Cumulative time blocked on I/O
   uint64 io_blocked_duration_nanos = 28;
+  // Duration of one read from the account database file
+  MetricsSnaprdDiskReadDurationNanos disk_read_duration_nanos = 29;
 }
 
 // Metrics of one snapsv tile instance, one row per sweep
@@ -12202,6 +12360,10 @@ message MetricsSnapsv {
   uint64 http_rx_bytes = 28;
   // Bytes sent in responses from the snapshot service
   uint64 http_tx_bytes = 29;
+  // Bytes read from snapshot files to serve requests
+  uint64 disk_read_bytes = 30;
+  // Duration of one read from a snapshot file, from queueing the read until the tile sees it complete
+  MetricsSnapsvDiskReadDurationNanos disk_read_duration_nanos = 31;
 }
 
 // Input link metrics of one consumer tile instance, one row per link per sweep

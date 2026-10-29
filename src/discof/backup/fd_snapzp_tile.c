@@ -96,12 +96,13 @@ struct fd_snapzp {
   } disk;
 
   struct {
-    ulong accounts_compressed;
-    ulong cache_read_torn;
-    ulong bytes_compressed;
-    ulong bytes_written;
-    ulong io_blocked_ticks;
-    ulong compress_ticks;
+    ulong      accounts_compressed;
+    ulong      cache_read_torn;
+    ulong      bytes_compressed;
+    ulong      bytes_written;
+    ulong      io_blocked_ticks;
+    ulong      compress_ticks;
+    fd_histf_t disk_write_hist[1];
   } metrics;
 
   __attribute__((aligned(4096))) uchar raw_buf1 [ RAW_BUF_SZ  ];
@@ -216,6 +217,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
   FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics.disk_write_hist, FD_MHIST_EDGES_NS( SNAPZP, DISK_WRITE_DURATION_NANOS ) ) );
   ctx->overrun = fd_backup_overrun( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
   ctx->stats   = fd_backup_stats  ( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
   FD_TEST( ctx->overrun );
@@ -437,6 +439,7 @@ zip_flush( fd_snapzp_t * ctx ) {
   }
   ctx->metrics.bytes_written    += comp_asz;
   ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
+  fd_histf_sample( ctx->metrics.disk_write_hist, (ulong)( t1-t0 ) );
 
   /* Free compressed buffer */
   ctx->comp_buf.pos = 0UL;
@@ -883,12 +886,13 @@ returnable_frag( fd_snapzp_t *       ctx,
 
 static void
 metrics_write( fd_snapzp_t * ctx ) {
-  FD_MCNT_SET( SNAPZP, ACCOUNT_COMPRESSED,          ctx->metrics.accounts_compressed );
-  FD_MCNT_SET( SNAPZP, COMPRESS_CONSUMED_BYTES,     ctx->metrics.bytes_compressed    );
-  FD_MCNT_SET( SNAPZP, DISK_WRITTEN_BYTES,          ctx->metrics.bytes_written       );
-  FD_MCNT_SET( SNAPZP, IO_BLOCKED_DURATION_NANOS,   ctx->metrics.io_blocked_ticks    );
-  FD_MCNT_SET( SNAPZP, COMPRESS_DURATION_NANOS,     ctx->metrics.compress_ticks      );
-  FD_MCNT_SET( SNAPZP, CACHE_READ_TORN,             ctx->metrics.cache_read_torn     );
+  FD_MCNT_SET  ( SNAPZP, ACCOUNT_COMPRESSED,        ctx->metrics.accounts_compressed );
+  FD_MCNT_SET  ( SNAPZP, COMPRESS_CONSUMED_BYTES,   ctx->metrics.bytes_compressed    );
+  FD_MCNT_SET  ( SNAPZP, DISK_WRITTEN_BYTES,        ctx->metrics.bytes_written       );
+  FD_MCNT_SET  ( SNAPZP, IO_BLOCKED_DURATION_NANOS, ctx->metrics.io_blocked_ticks    );
+  FD_MHIST_COPY( SNAPZP, DISK_WRITE_DURATION_NANOS, ctx->metrics.disk_write_hist     );
+  FD_MCNT_SET  ( SNAPZP, COMPRESS_DURATION_NANOS,   ctx->metrics.compress_ticks      );
+  FD_MCNT_SET  ( SNAPZP, CACHE_READ_TORN,           ctx->metrics.cache_read_torn     );
 }
 
 #define STEM_BURST 1UL
