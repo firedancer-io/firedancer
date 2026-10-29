@@ -179,6 +179,9 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_accdb_snapshot_reserve_write              mock_accdb_snapshot_reserve_write
 #define fd_accdb_snapshot_write_batch                mock_accdb_snapshot_write_batch
 #define fd_accdb_read_one_nocache                    mock_accdb_read_one_nocache
+#define fd_accdb_index_mode                          mock_accdb_index_mode
+#define fd_accdb_snapshot_stage_flush                mock_accdb_snapshot_stage_flush
+#define fd_accdb_snapshot_stage_discard              mock_accdb_snapshot_stage_discard
 #define fd_txncache_reset                            mock_txncache_reset
 #define fd_txncache_snapin_stage                     mock_txncache_snapin_stage
 #define fd_txncache_snapin_stage_entries             mock_txncache_snapin_stage_entries
@@ -220,6 +223,9 @@ test_padded_sz( ulong used ) {
 #undef fd_txncache_snapin_stage
 #undef fd_txncache_reset
 #undef fd_accdb_read_one_nocache
+#undef fd_accdb_index_mode
+#undef fd_accdb_snapshot_stage_flush
+#undef fd_accdb_snapshot_stage_discard
 #undef fd_accdb_snapshot_write_batch
 #undef fd_accdb_snapshot_reserve_write
 #undef fd_accdb_snapshot_revert_whead
@@ -280,6 +286,9 @@ record_txncache_attach_child( fd_txncache_t *       txncache,
 void mock_accdb_reset                            ( fd_accdb_t * accdb ) { (void)accdb; test_file_off=0UL; test_accdb_reset_cnt++; }
 void mock_accdb_snapshot_load_end                ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_load_end_cnt++;      }
 void mock_accdb_flush_metrics                    ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_flush_metrics_cnt++; }
+int  mock_accdb_index_mode                       ( fd_accdb_t const * accdb ) { (void)accdb; return 0; }
+void mock_accdb_snapshot_stage_flush             ( fd_accdb_t * accdb ) { (void)accdb; }
+void mock_accdb_snapshot_stage_discard           ( fd_accdb_t * accdb ) { (void)accdb; }
 
 fd_accdb_fork_id_t
 mock_accdb_attach_child( fd_accdb_t *       accdb,
@@ -387,8 +396,10 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *                         accdb,
                                  ulong *                              accounts_loaded,
                                  ulong *                              out_replaced_lamports,
                                  ulong *                              out_ignored_lamports,
-                                 uchar *                              results ) {
+                                 uchar *                              results,
+                                 uint const *                         stage_flags ) {
   (void)accdb;
+  (void)stage_flags;
   (void)fork_id;
   (void)pubkeys;
   (void)slots;

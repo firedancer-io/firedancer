@@ -489,7 +489,7 @@ main_pid_namespace( void * _args ) {
 
         /* Index fds: explicit per-tile table, never derived from accdb
            usage, so every holder has a matching seccomp allowlist. */
-        int tile_uses_idx_rw = !strcmp( tile->name, "accdb" );
+        int tile_uses_idx_rw = !strcmp( tile->name, "accdb" ) || !strcmp( tile->name, "snapin" );
         int tile_uses_idx_ro = !strcmp( tile->name, "rpc" ) || !strcmp( tile->name, "resolv" );
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RW, F_SETFD, tile_uses_idx_rw ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
