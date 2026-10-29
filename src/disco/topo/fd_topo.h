@@ -615,7 +615,7 @@ struct fd_topo_tile {
       ushort quic_client_listen_port;
       ushort quic_server_listen_port;
       uint   ip_addr;
-      ulong  max_live_slots;
+      ulong  slot_max;
       ulong  wait_for_supermajority_at_slot;
       int    wait_for_supermajority_hash_is_zero;
       ushort expected_shred_version;

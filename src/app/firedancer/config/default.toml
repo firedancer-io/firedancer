@@ -1844,12 +1844,28 @@ telemetry = true
         # network.
         repair_client_listen_port = 8701
 
-        # Slot max is the maximum number of slots that repair tile can
-        # maintain at once.  This is expected to be the largest at
-        # startup, when the validator is catching up from the snapshot
-        # slot, but still maintaining and receiving new turbine slots.
-        # Must be power of 2
-        slot_max = 4096
+        # The number of slots past the root that the validator receives,
+        # repairs, and buffers blocks for.  Blocks for slots further
+        # ahead are dropped and fetched again once the root advances,
+        # so this bounds how far ahead of the root the validator can
+        # replay.  2048 slots is about 14 minutes of 400ms slots.
+        #
+        # Memory use grows by roughly 0.5 MiB per slot.  Must be a power
+        # of 2.
+        slot_max = 2048
+
+    # The votor tile runs Alpenglow consensus: it tracks votes and
+    # certificates from other validators and casts this validator's
+    # votes.
+    [tiles.votor]
+        # The number of slots past the root that the validator tracks
+        # votes and certificates for.  Votes for slots further ahead are
+        # dropped until the root advances.  2048 slots is about 14
+        # minutes of 400ms slots.
+        #
+        # Memory use grows by roughly 2.5 MiB per slot.  Must be at
+        # least 12.
+        slot_max = 2048
 
     [tiles.rserve]
         # If the repair server is enabled.

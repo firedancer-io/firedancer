@@ -278,7 +278,7 @@ struct fd_votor_tile {
 
   int           init;
   ag_block_id_t boot_block_id;
-  ulong         slot_max; /* max_live_slots */
+  ulong         slot_max; /* tiles.votor.slot_max */
 
   /* Wait-for-supermajority (see fd_wfs.h). */
 
@@ -1650,8 +1650,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                              );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )                          );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
-  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
-  l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
+  l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.slot_max, QUIC_DGRAM_BURST )       );
+  l = FD_LAYOUT_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.slot_max )                        );
   l = FD_LAYOUT_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
   l = FD_LAYOUT_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
   l = FD_LAYOUT_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
@@ -2568,8 +2568,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                              );
   void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )                          );
   void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )                          );
-  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots, QUIC_DGRAM_BURST ) );
-  void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.max_live_slots )                  );
+  void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.slot_max, QUIC_DGRAM_BURST )       );
+  void *            votor         = FD_SCRATCH_ALLOC_APPEND( l, ag_votor_align(),               ag_votor_footprint( tile->votor.slot_max )                        );
   void *            peers         = FD_SCRATCH_ALLOC_APPEND( l, peers_align(),                  peers_footprint( PEERS_LG_SLOT_CNT )                              );
   void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint( CONTACT_INFOS_LG_SLOT_CNT )              );
   void *            reconn_prq    = FD_SCRATCH_ALLOC_APPEND( l, reconn_prq_align(),             reconn_prq_footprint( RECONN_MAX )                                );
@@ -2588,10 +2588,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
 
-  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.max_live_slots, QUIC_DGRAM_BURST, seed ) );
+  ctx->pool = ag_pool_join( ag_pool_new( pool, tile->votor.slot_max, QUIC_DGRAM_BURST, seed ) );
   FD_TEST( ctx->pool );
 
-  ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.max_live_slots, seed ) );
+  ctx->votor = ag_votor_join( ag_votor_new( votor, tile->votor.slot_max, seed ) );
   FD_TEST( ctx->votor );
 
   ctx->prev_epoch_info = NULL;
@@ -2650,7 +2650,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->catchup_slot              = 0UL;
   ctx->catchup_final_slot        = 0UL;
   ctx->catchup_vote_slot         = 0UL;
-  ctx->slot_max                  = tile->votor.max_live_slots;
+  ctx->slot_max                  = tile->votor.slot_max;
   ctx->standstill_slot           = ULONG_MAX;
   ctx->standstill_ts             = LONG_MAX;
   ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );

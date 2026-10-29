@@ -14,6 +14,7 @@
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "../../choreo/votor/ag_votor_base.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
 #include "../../discof/restore/utils/fd_wfs.h"
 #include "../../util/fd_boolau.h"
@@ -631,6 +632,10 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO( tiles.shred.max_pending_shred_sets );
 
   CFG_HAS_POW2( tiles.repair.slot_max );
+
+  if( FD_UNLIKELY( config->tiles.votor.slot_max<AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA ) ) {
+    FD_LOG_ERR(( "`tiles.votor.slot_max` must be at least %lu", AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA ));
+  }
 
   if( FD_UNLIKELY( config->tiles.bundle.keepalive_interval_millis <    3000 ||
                    config->tiles.bundle.keepalive_interval_millis > 3600000 ) ) {

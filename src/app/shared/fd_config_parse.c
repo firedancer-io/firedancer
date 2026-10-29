@@ -233,6 +233,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.repair.repair_client_listen_port           );
   CFG_POP      ( ulong,  tiles.repair.slot_max                            );
 
+  CFG_POP      ( ulong,  tiles.votor.slot_max                             );
+
   CFG_POP      ( bool,   tiles.rserve.enabled                             );
   CFG_POP      ( ushort, tiles.rserve.repair_serve_listen_port            );
   CFG_POP      ( ulong,  tiles.rserve.shred_storage_limit_gib             );
