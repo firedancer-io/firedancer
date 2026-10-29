@@ -404,6 +404,41 @@ FD_UNIT_TEST( rx_headers ) {
   FD_TEST( client->stream_cnt==0 );
 }
 
+FD_UNIT_TEST( compression_flags ) {
+  uchar const flags[] = {0,1,2,255};
+  for( ulong i=0UL; i<sizeof(flags); i++ ) for( int fragmented=0; fragmented<2; fragmented++ ) {
+    fd_grpc_client_reset( client );
+    test_grpc_client_mock_conn( client );
+    fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 1234UL );
+    stream->hdrs.h2_status = 200U;
+    stream->hdrs.is_grpc_proto = 1U;
+    stream->hdrs_received = 1;
+    uint const stream_id = stream->s.stream_id;
+    uchar data[] = {flags[i],0,0,0,1,'x'};
+    ulong const msgs = g_rx_msg_cnt;
+    ulong const ends = g_rx_end_cnt;
+    if( fragmented ) {
+      test_rx_frame( FD_H2_FRAME_TYPE_DATA, 0U, stream_id, data, 1UL );
+      FD_TEST( g_rx_msg_cnt==msgs && g_rx_end_cnt==ends && client->stream_cnt==1UL );
+    }
+    ulong off = fragmented ? 1UL : 0UL;
+    test_rx_frame( FD_H2_FRAME_TYPE_DATA, 0U, stream_id, data+off, sizeof(data)-off );
+    if( flags[i] ) {
+      FD_TEST( g_rx_msg_cnt==msgs && g_rx_end_cnt==ends+1UL );
+      FD_TEST( g_cb_request_ctx==1234UL && g_cb_resp_hdrs.grpc_status==FD_GRPC_STATUS_INTERNAL );
+      FD_TEST( !client->stream_cnt && !client->conn->stream_active_cnt[1] );
+      fd_h2_rst_stream_t rst;
+      FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(rst) );
+      fd_h2_rbuf_pop_copy( client->frame_tx, &rst, sizeof(rst) );
+      FD_TEST( rst.error_code==fd_uint_bswap( FD_H2_ERR_INTERNAL ) );
+    } else {
+      FD_TEST( g_rx_msg_cnt==msgs+1UL && g_rx_end_cnt==ends && client->stream_cnt==1UL );
+      fd_h2_stream_reset( &stream->s, client->conn );
+      fd_grpc_client_stream_release( client, stream );
+    }
+  }
+}
+
 FD_UNIT_TEST( error_data_end_stream_releases_stream ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );

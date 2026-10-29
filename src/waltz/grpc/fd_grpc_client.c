@@ -965,7 +965,14 @@ fd_grpc_h2_cb_data(
       data_sz -= hdr_frag_sz;
       if( FD_UNLIKELY( stream->msg_buf_used < sizeof(fd_grpc_hdr_t) ) ) goto check_end_stream;
 
-      /* Header complete */
+      /* Header complete.  Message compression is not supported. */
+      if( FD_UNLIKELY( stream->msg_buf[0] ) ) {
+        stream->hdrs.grpc_status = FD_GRPC_STATUS_INTERNAL;
+        fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_INTERNAL );
+        client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
+        fd_grpc_client_stream_release( client, stream );
+        return;
+      }
       stream->msg_sz = fd_uint_bswap( FD_LOAD( uint, (void *)( (ulong)stream->msg_buf+1 ) ) );
       if( FD_UNLIKELY( sizeof(fd_grpc_hdr_t)  + stream->msg_sz > stream->msg_buf_max ) ) {
         FD_LOG_WARNING(( "Received oversized gRPC message (%lu bytes), killing request", stream->msg_sz ));
