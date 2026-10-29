@@ -1183,8 +1183,25 @@ test_bank_epoch_credits_disk_cache( void * mem ) {
 
     struct stat spill_stat;
     FD_TEST( !fstat( FD_EPOCH_CREDITS_FD, &spill_stat ) );
-    if( i<TEST_BANK_CACHE_CNT ) FD_TEST( spill_stat.st_size==0L );
-    else                        FD_TEST( spill_stat.st_size>0L  );
+    if( i<4UL ) FD_TEST( spill_stat.st_size==0L ); /* 4 entry RAM window */
+    else        FD_TEST( spill_stat.st_size>0L  );
+  }
+
+  /* 3 pinned views leave the 4th entry to cycle through every other
+     set, each round-tripping through the spill file. */
+  fd_epoch_credits_view_t pin3[3];
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( fd_epoch_credits_view_init( pin3+i, fd_bank_epoch_credits( chain[i] ), chain[i]->epoch_credits_fork_id ) );
+  for( ulong r=0UL; r<2UL; r++ ) {
+    for( ulong i=3UL; i<max_total_banks; i++ ) {
+      fd_epoch_credits_view_t view[1];
+      FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( chain[i] ), chain[i]->epoch_credits_fork_id ) );
+      FD_TEST( view->len==1UL && view->credits[0].base_credits==1000UL+i );
+      fd_epoch_credits_view_fini( view );
+    }
+  }
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_TEST( pin3[i].credits[0].base_credits==1000UL+i );
+    fd_epoch_credits_view_fini( pin3+i );
   }
 
   fd_epoch_credits_view_t pinned[1];
