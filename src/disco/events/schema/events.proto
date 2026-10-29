@@ -5336,6 +5336,56 @@ message MetricsSnapdcRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one write of the account write buffer to the accounts database file
+message MetricsSnapinDiskWriteDurationNanos {
+  // [0, 1000000) nanos
+  uint64 b0 = 1;
+  // [1000000, 1637894) nanos
+  uint64 b1 = 2;
+  // [1637894, 2682696) nanos
+  uint64 b2 = 3;
+  // [2682696, 4393971) nanos
+  uint64 b3 = 4;
+  // [4393971, 7196857) nanos
+  uint64 b4 = 5;
+  // [7196857, 11787687) nanos
+  uint64 b5 = 6;
+  // [11787687, 19306978) nanos
+  uint64 b6 = 7;
+  // [19306978, 31622778) nanos
+  uint64 b7 = 8;
+  // [31622778, 51794749) nanos
+  uint64 b8 = 9;
+  // [51794749, 84834293) nanos
+  uint64 b9 = 10;
+  // [84834293, 138949554) nanos
+  uint64 b10 = 11;
+  // [138949554, 227584598) nanos
+  uint64 b11 = 12;
+  // [227584598, 372759378) nanos
+  uint64 b12 = 13;
+  // [372759378, 610540235) nanos
+  uint64 b13 = 14;
+  // [610540235, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Time this tile spent flushing the account write buffer, by phase; subset of the tile's Busy regime
+message MetricsSnapinFlushRegimeDurationNanos {
+  // Reserving space in the accounts database file, including partition growth
+  uint64 disk_reserve = 1;
+  // Writing the account write buffer to the accounts database file
+  uint64 disk_write = 2;
+  // Inserting written accounts into the accounts database index
+  uint64 index_insert = 3;
+  // Updating stake delegations
+  uint64 stake_delegation = 4;
+}
+
 // Accounts this tile processed in the current load, by result (Ignored accounts are not inserted); sum across tiles, rewinds on retry
 message MetricsSnapinAccountProgress {
   // New account inserted
@@ -10866,6 +10916,10 @@ message MetricsSnapin {
   uint64 account_processed = 29;
   // Account batches processed across all snapshots
   uint64 account_batch_processed = 30;
+  // Time this tile spent flushing the account write buffer, by phase; subset of the tile's Busy regime
+  MetricsSnapinFlushRegimeDurationNanos flush_regime_duration_nanos = 31;
+  // Duration of one write of the account write buffer to the accounts database file
+  MetricsSnapinDiskWriteDurationNanos disk_write_duration_nanos = 32;
 }
 
 // Metrics of one metric tile instance, one row per sweep

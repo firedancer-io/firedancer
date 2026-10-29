@@ -316,6 +316,9 @@ struct fd_snapin_tile {
     ulong total_accounts_processed;
     ulong total_account_batches_processed;
     ulong disk_bytes_written;
+
+    ulong      flush_ticks[ FD_METRICS_ENUM_SNAPIN_FLUSH_REGIME_CNT ];
+    fd_histf_t disk_write_duration[1];
   } metrics;
 
   struct {
@@ -416,15 +419,17 @@ static void
 metrics_write( fd_snapin_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
-  FD_MGAUGE_SET( SNAPIN, STREAM_STATE,                     (ulong)ctx->state                    );
-  FD_MGAUGE_SET( SNAPIN, PARSE_PROGRESS_BYTES_FULL,        ctx->metrics.full_bytes_read         );
-  FD_MGAUGE_SET( SNAPIN, PARSE_PROGRESS_BYTES_INCREMENTAL, ctx->metrics.incremental_bytes_read  );
-  FD_MCNT_SET  ( SNAPIN, DISK_WRITTEN_BYTES,               ctx->metrics.disk_bytes_written      );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNT_PROGRESS_NEW,             ctx->metrics.accounts_loaded         );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNT_PROGRESS_REPLACED,        ctx->metrics.accounts_replaced       );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNT_PROGRESS_IGNORED,         ctx->metrics.accounts_ignored        );
-  FD_MCNT_SET  ( SNAPIN, ACCOUNT_PROCESSED,       ctx->metrics.total_accounts_processed        );
-  FD_MCNT_SET  ( SNAPIN, ACCOUNT_BATCH_PROCESSED, ctx->metrics.total_account_batches_processed );
+  FD_MGAUGE_SET    ( SNAPIN, STREAM_STATE,                     (ulong)ctx->state                            );
+  FD_MGAUGE_SET    ( SNAPIN, PARSE_PROGRESS_BYTES_FULL,        ctx->metrics.full_bytes_read                 );
+  FD_MGAUGE_SET    ( SNAPIN, PARSE_PROGRESS_BYTES_INCREMENTAL, ctx->metrics.incremental_bytes_read          );
+  FD_MCNT_SET      ( SNAPIN, DISK_WRITTEN_BYTES,               ctx->metrics.disk_bytes_written              );
+  FD_MGAUGE_SET    ( SNAPIN, ACCOUNT_PROGRESS_NEW,             ctx->metrics.accounts_loaded                 );
+  FD_MGAUGE_SET    ( SNAPIN, ACCOUNT_PROGRESS_REPLACED,        ctx->metrics.accounts_replaced               );
+  FD_MGAUGE_SET    ( SNAPIN, ACCOUNT_PROGRESS_IGNORED,         ctx->metrics.accounts_ignored                );
+  FD_MCNT_SET      ( SNAPIN, ACCOUNT_PROCESSED,                ctx->metrics.total_accounts_processed        );
+  FD_MCNT_SET      ( SNAPIN, ACCOUNT_BATCH_PROCESSED,          ctx->metrics.total_account_batches_processed );
+  FD_MCNT_ENUM_COPY( SNAPIN, FLUSH_REGIME_DURATION_NANOS,      ctx->metrics.flush_ticks                     );
+  FD_MHIST_COPY    ( SNAPIN, DISK_WRITE_DURATION_NANOS,        ctx->metrics.disk_write_duration             );
 }
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
@@ -1416,13 +1421,21 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
   dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
 
+  ulong * flush_ticks   = ctx->metrics.flush_ticks;
+  long    reserve_start = fd_tickcount();
+
   /* The offset is aligned because partition sizes are multiples of
      FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
      layer-0 writers during the load, and every reservation they make
      is a multiple of FD_SNAPIN_DIRECT_ALIGN. */
   ulong base_off = fd_accdb_snapshot_reserve_write( ctx->accdb, padded, padded-used );
   FD_TEST( fd_ulong_is_aligned( base_off, FD_SNAPIN_DIRECT_ALIGN ) );
+  long write_start = fd_tickcount();
+  flush_ticks[ FD_METRICS_ENUM_SNAPIN_FLUSH_REGIME_V_DISK_RESERVE_IDX ] += (ulong)(write_start-reserve_start);
   writer_pwrite( ctx, ctx->writer.buf, padded, base_off );
+  long insert_start = fd_tickcount();
+  flush_ticks[ FD_METRICS_ENUM_SNAPIN_FLUSH_REGIME_V_DISK_WRITE_IDX ] += (ulong)(insert_start-write_start);
+  fd_histf_sample( ctx->metrics.disk_write_duration, (ulong)(insert_start-write_start) );
 
   fd_accdb_fork_id_t          fork_id    = { .val = ctx->full ? USHORT_MAX : (ushort)ctx->incr_fork };
   ushort                      stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
@@ -1434,7 +1447,8 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   ulong data_lens      [ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong file_offsets   [ FD_SSPARSE_ACC_BATCH_MAX ];
   uchar results        [ FD_SSPARSE_ACC_BATCH_MAX ];
-  ulong buf_off = 0UL;
+  ulong buf_off     = 0UL;
+  long  stake_ticks = 0L;
 
   /* Flush accounts in batches of 8 */
   for( ulong batch_off=0UL; batch_off<batch->cnt; batch_off+=FD_SSPARSE_ACC_BATCH_MAX ) {
@@ -1460,6 +1474,9 @@ writer_flush( fd_snapin_tile_t * ctx ) {
                                                     data_lens, batch->executables+batch_off,
                                                     file_offsets, &accounts_ignored, &accounts_replaced,
                                                     &accounts_loaded, &replaced_lamports, &ignored_lamports, results ) ) ) {
+      long flush_end = fd_tickcount();
+      flush_ticks[ FD_METRICS_ENUM_SNAPIN_FLUSH_REGIME_V_INDEX_INSERT_IDX     ] += (ulong)(flush_end-insert_start-stake_ticks);
+      flush_ticks[ FD_METRICS_ENUM_SNAPIN_FLUSH_REGIME_V_STAKE_DELEGATION_IDX ] += (ulong)stake_ticks;
       return 1;
     }
 
@@ -1477,14 +1494,18 @@ writer_flush( fd_snapin_tile_t * ctx ) {
       if( lamports && !memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) ) {
         fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_lens[ i ] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
+          stake_ticks -= fd_tickcount();
           snoop_stake_delegation( ctx, stake_fork, slots[ i ], pubkey, lamports, stake_state, data_lens[ i ] );
+          stake_ticks += fd_tickcount();
           continue;
         }
       }
 
       int replacing_full_entry = results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS;
       if( FD_UNLIKELY( replacing_full_entry || results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED ) ) {
+        stake_ticks -= fd_tickcount();
         fd_stake_delegations_fork_remove( ctx->stake_delegations, stake_fork, slots[ i ], pubkey, replacing_full_entry );
+        stake_ticks += fd_tickcount();
       }
     }
 
@@ -1500,6 +1521,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     fd_uwide_add( in_hi,  in_lo,  *in_hi,  *in_lo,  input_lamports_hi,     input_lamports,     0UL );
     fd_uwide_add( dup_hi, dup_lo, *dup_hi, *dup_lo, duplicate_lamports_hi, duplicate_lamports, 0UL );
   }
+
+  long flush_end = fd_tickcount();
+  flush_ticks[ FD_METRICS_ENUM_SNAPIN_FLUSH_REGIME_V_INDEX_INSERT_IDX     ] += (ulong)(flush_end-insert_start-stake_ticks);
+  flush_ticks[ FD_METRICS_ENUM_SNAPIN_FLUSH_REGIME_V_STAKE_DELEGATION_IDX ] += (ulong)stake_ticks;
 
   FD_TEST( buf_off==ctx->writer.buf_used );
   ctx->writer.buf_used  = 0UL;
@@ -2365,6 +2390,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->lane_cnt = tile->in_cnt;
   clear_control_barrier( ctx );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics.disk_write_duration, FD_MHIST_EDGES_NS( SNAPIN, DISK_WRITE_DURATION_NANOS ) ) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapin.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
