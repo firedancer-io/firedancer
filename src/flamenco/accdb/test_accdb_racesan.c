@@ -23,6 +23,7 @@
 #include "fd_accdb.h"
 #include "fd_accdb_cache.h"
 #include "fd_accdb_private.h"
+#include "fd_accdb_idx.h"
 #include "../../util/fd_util.h"
 #include "../../util/racesan/fd_racesan_async.h"
 #include "../../util/racesan/fd_racesan_weave.h"
@@ -3849,6 +3850,157 @@ test_walk_vs_deferred_stack( void ) {
   test_shmem_delete();
 }
 
+
+/* M7: a probe that loads i1, is preempted while a kick path moves the
+   key's fingerprint i2 -> i1 and clears i2, then loads i2, must not
+   report absent (cf_seq revalidation). */
+
+struct cf_probe_fiber {
+  fd_racesan_async_t async[1];
+  fd_accdb_cf_t *    cf;
+  uchar              key[ 32 ];
+  int                result;
+};
+typedef struct cf_probe_fiber cf_probe_fiber_t;
+
+static void
+cf_probe_fiber_exec( void * _ctx ) {
+  cf_probe_fiber_t * f = _ctx;
+  f->result = fd_accdb_cf_probe( f->cf, f->key );
+}
+
+static int
+cf_in( fd_accdb_cf_t const * cf, ulong b, ulong fp ) {
+  return fd_accdb_cf_word_has( cf->cf[ b ], fp );
+}
+
+static void
+test_cf_kick_vs_probe( void ) {
+  ulong nb = 509UL; /* non-pow2 */
+  static ulong cfw[ 509 ], stash[ FD_ACCDB_CF_STASH_MAX ];
+  ulong seq = 0UL, stash_cnt = 0UL, disabled = 0UL, rng = 3UL;
+  fd_accdb_cf_t cf = { .cf=cfw, .nb=nb, .seed=11UL, .seq=&seq, .stash=stash, .stash_cnt=&stash_cnt, .disabled=&disabled };
+  ulong races = 0UL;
+  for( ulong it=0UL; it<256UL && races<8UL; it++ ) {
+    memset( cfw, 0, sizeof(cfw) ); memset( stash, 0, sizeof(stash) ); seq = 0UL; stash_cnt = 0UL;
+    uchar k[ 32 ];
+    ulong n = (nb*4UL*80UL)/100UL;
+    for( ulong i=0UL; i<n; i++ ) { memset( k, 0, 32 ); FD_STORE( ulong, k, i+1UL ); FD_STORE( ulong, k+8, it ); fd_accdb_cf_insert( &cf, k, &rng ); }
+    ulong extra = 0UL;
+    for( ulong v=0UL; v<n; v++ ) {
+      static cf_probe_fiber_t pf[1];
+      memset( pf->key, 0, 32 ); FD_STORE( ulong, pf->key, v+1UL ); FD_STORE( ulong, pf->key+8, it );
+      ulong i1, i2, fp;
+      fd_accdb_cf_key( &cf, pf->key, &i1, &i2, &fp );
+      if( i1==i2 || cf_in( &cf, i1, fp ) || !cf_in( &cf, i2, fp ) ) continue; /* only i2 holds it */
+      pf->cf = &cf; pf->result = -1;
+      void * st = fd_racesan_stack_create( 1UL<<16 );
+      fd_racesan_async_new( pf->async, st, 1UL<<16, cf_probe_fiber_exec, pf );
+      FD_TEST( fd_racesan_async_step_until( pf->async, "accdb_cf:probe_mid", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+      /* insert until a kick moves this fingerprint out of i2 */
+      for( ulong j=0UL; j<256UL && cf_in( &cf, i2, fp ); j++ ) {
+        memset( k, 0, 32 ); FD_STORE( ulong, k, 1000000UL+extra++ ); FD_STORE( ulong, k+8, it );
+        fd_accdb_cf_insert( &cf, k, &rng );
+      }
+      races += (ulong)( !cf_in( &cf, i2, fp ) && cf_in( &cf, i1, fp ) );
+      async_finish( pf->async );
+      FD_TEST( pf->result==1 );
+      fd_racesan_async_delete( pf->async );
+      fd_racesan_stack_destroy( st, 1UL<<16 );
+      if( disabled || extra>4UL*nb ) break;
+    }
+  }
+  FD_TEST( races>0UL );
+}
+
+/* M5: a residual waiter has left its epoch, so T2's epoch drain never
+   waits on it, and it resumes once T2 serves its ticket. */
+
+struct residual_fiber {
+  fd_racesan_async_t async[1];
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t fork_id;
+  uchar              key[ 32 ];
+  ulong              lamports;
+};
+typedef struct residual_fiber residual_fiber_t;
+
+static void
+residual_fiber_exec( void * _ctx ) {
+  residual_fiber_t * f = _ctx;
+  f->lamports = fd_accdb_lamports( f->accdb, f->fork_id, f->key );
+}
+
+static void
+test_residual_wait_vs_epoch_drain( void ) {
+  int fd = memfd_create( "accdb_rs_idx", 0 );
+  FD_TEST( fd>=0 );
+  ulong max_acc = 8192UL, ram = 1024UL, mls = 256UL, wps = 64UL, cache_fp = 32UL<<20;
+  ulong fp = fd_accdb_shmem_footprint( max_acc, mls, wps, 8192UL, cache_fp, 2UL, 3UL, 0UL, ram );
+  void * mem = aligned_alloc( fd_accdb_shmem_align(), fp );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_accdb_shmem_new( mem, max_acc, mls, wps, 8192UL, 1UL<<30, cache_fp, 2UL, 0, 42UL, 3UL, 0UL, ram ) );
+  FD_TEST( shmem );
+  int idx_fd = memfd_create( "accdb_rs_idx2", 0 );
+  FD_TEST( !ftruncate( idx_fd, (long)shmem->idx_file_sz ) );
+  ulong jfp = fd_accdb_footprint( mls, 1 );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, idx_fd ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  FD_TEST( t2 && fg );
+
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( t2, SENTINEL );
+  fd_accdb_fork_id_t a   = fd_accdb_attach_child( t2, tip );
+  uchar key[ 32 ] = { 0x33, 0x44 };
+  seq_write_data( t2, a, key, 77UL, NULL, 8UL, 0x11 );
+  fd_accdb_advance_root( t2, a ); drain_background( t2 );
+  tip = a;
+  for( ulong i=0UL; i<FD_ACCDB_DEMOTE_AGE+2UL; i++ ) { fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip ); fd_accdb_advance_root( t2, c ); drain_background( t2 ); tip = c; }
+  for( ulong i=0UL; i<64UL; i++ ) drain_background( t2 );
+  /* evict the hot copy so the key is bucket-only */
+  shmem->pool_avail = shmem->promote_reserve;
+  for( ulong i=0UL; i<4096UL; i++ ) drain_background( t2 );
+  shmem->pool_avail = shmem->acc_pool_max - 2UL;
+
+  static residual_fiber_t rf[1];
+  rf->accdb = fg; rf->fork_id = tip; memcpy( rf->key, key, 32 ); rf->lamports = 0UL;
+  void * st = fd_racesan_stack_create( FIBER_STACK_MAX );
+  fd_racesan_async_new( rf->async, st, FIBER_STACK_MAX, residual_fiber_exec, rf );
+  int r = fd_racesan_async_step_until( rf->async, "accdb_residual:wait", STEP_MAX );
+  FD_TEST( r==FD_RACESAN_ASYNC_RET_HOOK );
+  /* the waiter holds no epoch: T2 bumps and drains without waiting */
+  FD_TEST( FD_VOLATILE_CONST( shmem->joiner_epochs[ 1 ].val )==ULONG_MAX );
+  fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip );
+  fd_accdb_advance_root( t2, c );
+  drain_background( t2 );   /* cmd: epoch drain must not block */
+  /* Pause T2 after publishing its warmed line, but before unpinning.
+     A reader can already pin the published line at this point. */
+  fd_racesan_async_t * bg = fiber_background( &g_fiber[0], t2 );
+  FD_TEST( fd_racesan_async_step_until( bg, "accdb_warm:pre_unpin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  fd_accdb_t * reader = fd_accdb_join( fd_accdb_new( aligned_alloc( fd_accdb_align(), jfp ), shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
+  FD_TEST( reader );
+  fd_acc_t held = fd_accdb_read_one( reader, c, key );
+  FD_TEST( held.lamports==77UL );
+  ulong warm_cls, warm_idx;
+  FD_TEST( fd_accdb_debug_find_line( t2, key, &warm_cls, &warm_idx ) );
+  fd_accdb_cache_line_t * warm_line = fd_accdb_debug_line_addr( t2, warm_cls, warm_idx );
+  FD_TEST( warm_line->state==FD_ACCDB_LINE_SHARED );
+  async_finish( bg );
+  fiber_done( &g_fiber[0] );
+  /* T2 finishing its warm must leave the reader's hold and the line's
+     binding alone */
+  FD_TEST( warm_line->state==FD_ACCDB_LINE_SHARED );
+  FD_TEST( fd_accdb_debug_find_line( t2, key, &warm_cls, &warm_idx ) && fd_accdb_debug_line_addr( t2, warm_cls, warm_idx )==warm_line );
+  FD_TEST( held.lamports==77UL );
+  fd_accdb_unread_one( reader, &held );
+  FD_TEST( warm_line->state==FD_ACCDB_LINE_SHARED );
+  async_finish( rf->async );
+  FD_TEST( rf->lamports==77UL );
+  fd_racesan_async_delete( rf->async );
+
+  fd_racesan_stack_destroy( st, FIBER_STACK_MAX );
+  close( idx_fd ); close( fd );
+}
+
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -3897,6 +4049,8 @@ main( int     argc,
     TEST( test_preevict_batch ),
     TEST( test_reclaim_vs_snapshot_capture ),
     TEST( test_tombstone_orphan_ebr_poison ),
+    TEST( test_cf_kick_vs_probe ),
+    TEST( test_residual_wait_vs_epoch_drain ),
     TEST( test_probe_vs_pd_commit ),
     TEST( test_pd_parent_read_vs_child_write ),
     TEST( test_pd_parent_hold_vs_advance_root ),
