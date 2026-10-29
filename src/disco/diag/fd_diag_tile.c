@@ -144,6 +144,7 @@ struct fd_diag_tile {
       ushort numa_slot;
     } wksp[ FD_TOPO_MAX_WKSPS ];
     ushort stack_numa_slot[ FD_DIAG_SYSTEM_TILE_MAX ];
+    ulong  stack_sz       [ FD_DIAG_SYSTEM_TILE_MAX ];
   } memory;
   struct {
     ulong cnt;
@@ -670,7 +671,7 @@ add_configured_memory_bytes( fd_diag_tile_t * ctx ) {
   for( ulong tile_idx=0UL; tile_idx<ctx->tile_cnt; tile_idx++ ) {
     ushort numa_slot = ctx->memory.stack_numa_slot[ tile_idx ];
     if( FD_UNLIKELY( numa_slot==USHORT_MAX ) ) continue;
-    add_numa_bytes( ctx, tile_idx, numa_slot, FD_TILE_PRIVATE_STACK_SZ );
+    add_numa_bytes( ctx, tile_idx, numa_slot, ctx->memory.stack_sz[ tile_idx ] );
   }
 }
 
@@ -1689,6 +1690,7 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+    ctx->memory.stack_sz[ tile_idx ] = topo->tiles[ tile_idx ].stack_sz;
     /* Keep this placement rule in sync with initialize_stacks(). */
     ulong stack_cpu_idx = topo->tiles[ tile_idx ].cpu_idx<65535UL ? topo->tiles[ tile_idx ].cpu_idx : 0UL;
     FD_TEST( stack_cpu_idx<cpus->cpu_cnt );
