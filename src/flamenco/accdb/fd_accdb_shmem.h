@@ -51,6 +51,13 @@ struct fd_accdb_metrics {
   ulong accounts_demoted;
 
   ulong acquire_pool_waits;
+  ulong residual_waits;
+  ulong residual_wait_ticks;
+  ulong prefetch_pushed;
+  ulong prefetch_dropped;
+  ulong promoted;
+  ulong neg_hot;
+  ulong warmed;
 
   ulong acquire_failed;
 
