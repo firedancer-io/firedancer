@@ -614,6 +614,20 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* Iterate over the valid delegated vote accounts and insert them into
      the top votes set for the t-1 epoch. */
 
+  /* Index mode: queue the RAM entries' vote accounts for promotion
+     before the loop reads them (no-op otherwise). */
+  {
+    uchar const * keys[ 64 ];
+    ulong         n = 0UL;
+    for( fd_stake_accum_map_iter_t it = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
+         !fd_stake_accum_map_iter_done( it, stake_accum_map, stake_accum_pool );
+         it = fd_stake_accum_map_iter_next( it, stake_accum_map, stake_accum_pool ) ) {
+      keys[ n++ ] = fd_stake_accum_map_iter_ele( it, stake_accum_map, stake_accum_pool )->pubkey.uc;
+      if( n==64UL ) { fd_accdb_prefetch( accdb, bank->accdb_fork_id, n, keys, 0 ); n = 0UL; }
+    }
+    fd_accdb_prefetch( accdb, bank->accdb_fork_id, n, keys, 0 );
+  }
+
   /* RAM entries in map order, then spilled entries in batches. */
   ulong top_votes_eligible = 0UL;
   fd_stake_accum_t          spill_batch[ 64 ];
@@ -626,8 +640,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       iter        = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool );
     } else if( FD_UNLIKELY( spill_idx<runtime_stack->stakes.stake_accum_spill_cnt ) ) {
       ulong b = spill_idx % 64UL;
-      if( !b ) fd_runtime_stack_stake_accum_spill_read( runtime_stack, spill_idx, spill_batch,
-                                                        fd_ulong_min( 64UL, runtime_stack->stakes.stake_accum_spill_cnt-spill_idx ) );
+      if( !b ) {
+        ulong bn = fd_ulong_min( 64UL, runtime_stack->stakes.stake_accum_spill_cnt-spill_idx );
+        fd_runtime_stack_stake_accum_spill_read( runtime_stack, spill_idx, spill_batch, bn );
+        uchar const * keys[ 64 ];
+        for( ulong k=0UL; k<bn; k++ ) keys[ k ] = spill_batch[ k ].pubkey.uc;
+        fd_accdb_prefetch( accdb, bank->accdb_fork_id, bn, keys, 0 );
+      }
       stake_accum = spill_batch+b;
       spill_idx++;
     } else {

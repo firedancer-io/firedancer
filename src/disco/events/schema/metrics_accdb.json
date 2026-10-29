@@ -216,6 +216,10 @@
                 "le4_mib":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "2-4 MiB" },
                 "le11_mib":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "4-11 MiB" }
             }
-        }
+        },
+        "index_demoted":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Rooted account versions moved to the on-disk account index", "field_number": 363548297 },
+        "index_promoted":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account index entries brought from the on-disk index into memory", "field_number": 337069626 },
+        "index_negative_recorded":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Lookups recorded in memory as absent from the on-disk account index", "field_number": 503909609 },
+        "index_warmed":               { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Account data loaded into the cache by the accdb tile ahead of use", "field_number": 313725263 }
     }
 }

@@ -785,6 +785,11 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
     FD_MCNT_SET      ( TILE, ACCDB_DISK_WRITTEN_BYTES,          _m->bytes_written                          ); \
     FD_MCNT_SET      ( TILE, ACCDB_DISK_WRITTEN,                _m->write_ops                              ); \
     FD_MCNT_SET      ( TILE, ACCDB_COPIED_BYTES,                _m->bytes_copied                           ); \
+    FD_MCNT_SET      ( TILE, ACCDB_INDEX_RESIDUAL_WAITED,       _m->residual_waits                         ); \
+    FD_MCNT_SET      ( TILE, ACCDB_INDEX_RESIDUAL_WAIT_DURATION_NANOS, _m->residual_wait_ticks                  ); \
+    FD_MCNT_SET      ( TILE, ACCDB_INDEX_PREFETCHED,            _m->prefetch_pushed                        ); \
+    FD_MCNT_SET      ( TILE, ACCDB_INDEX_PREFETCH_DROPPED,      _m->prefetch_dropped                       ); \
+    FD_MCNT_SET      ( TILE, ACCDB_INDEX_POOL_WAITED,           _m->acquire_pool_waits                     ); \
   } while(0)
 
 /* FD_ACCDB_METRICS_WRITE_RO is the read-only joiner subset of

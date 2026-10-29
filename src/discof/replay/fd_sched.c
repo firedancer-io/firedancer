@@ -4494,6 +4494,16 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     return FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS;
   }
 
+  /* Index mode: have the accdb tile bring bucket-only accounts into RAM
+     before dispatch (no-op otherwise). */
+  if( FD_LIKELY( alut_ctx && alut_ctx->accdb ) ) {
+    uchar const * keys[ 2UL*FD_TXN_ACCT_ADDR_MAX ];
+    ulong         key_cnt = 0UL;
+    for( ulong i=0UL; i<imm_cnt && key_cnt<2UL*FD_TXN_ACCT_ADDR_MAX; i++ ) keys[ key_cnt++ ] = imms[ i ].b;
+    for( ulong i=0UL; i<alt_cnt && key_cnt<2UL*FD_TXN_ACCT_ADDR_MAX; i++ ) keys[ key_cnt++ ] = alts[ i ].b;
+    fd_accdb_prefetch( alut_ctx->accdb, alut_ctx->fork_id, key_cnt, keys, 1 );
+  }
+
   ulong bank_idx = (ulong)(block-sched->block_pool);
   fd_rdisp_neww_t neww[ fd_rdisp_neww_word_cnt ];
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing, block->lthash_inband ? NULL : neww );
