@@ -659,6 +659,12 @@ deliberate exception with lint-allow="<rule id>")
 
     <counter name="BundleCrankAttempted" enum="BundleCrankResult" summary="Times pack checked whether the bundle tip state needed cranking, by outcome" />
 
+    <gauge name="PreRotationBundlePending" summary="Bundles that arrived while not leader that pack is holding" />
+    <counter name="PreRotationBundleInserted" summary="Bundles that arrived while not leader that pack kept" />
+    <counter name="PreRotationBundleRejected" summary="Bundles that arrived while not leader that pack dropped because it was full of ones that declare at least as large a tip" />
+    <counter name="PreRotationBundleEvicted" summary="Bundles that arrived while not leader that pack dropped for one that declares a larger tip" />
+    <counter name="PreRotationBundleScheduled" summary="Bundles that arrived while not leader that pack scheduled" />
+
     <gauge name="BlockCost" summary="Cost units used in the current block, 0 if not packing a block" />
     <histogram name="CostScheduledPerBlock" min="1000000" max="240000000">
         <summary>Cost units scheduled for each block pack produced; can exceed the block limit because of rebates</summary>

@@ -436,6 +436,11 @@
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, inf) pct" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (pct)" }
             }
-        }
+        },
+        "pre_rotation_bundle_pending":    { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bundles that arrived while not leader that pack is holding" },
+        "pre_rotation_bundle_inserted":   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bundles that arrived while not leader that pack kept" },
+        "pre_rotation_bundle_rejected":   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bundles that arrived while not leader that pack dropped because it was full of ones that declare at least as large a tip" },
+        "pre_rotation_bundle_evicted":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bundles that arrived while not leader that pack dropped for one that declares a larger tip" },
+        "pre_rotation_bundle_scheduled":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bundles that arrived while not leader that pack scheduled" }
     }
 }
