@@ -857,6 +857,28 @@ ag_slot_state_check_slashable_offence( ag_slot_state_t const *  self,
 }
 
 FD_FN_PURE int
+ag_slot_state_check_conflicting_vote( ag_slot_state_t const *  self,
+                                      ag_slot_states_t const * states,
+                                      ag_vote_t const *        vote ) {
+  ulong                   voter = ag_vote_rank( vote );
+  ag_slot_votes_t const * votes = &self->votes;
+  switch( vote->kind ) {
+  case AG_VOTE_KIND_SKIP:
+    return fd_bls_set_test( votes->skip_fallback_agg.set, voter );
+  case AG_VOTE_KIND_SKIP_FALLBACK:
+    return fd_bls_set_test( votes->skip_agg.set, voter );
+  case AG_VOTE_KIND_NOTAR_FALLBACK:
+    return fd_bls_set_test( votes->notar_set, voter ) && !memcmp( ag_vote_stake_pool_ele_const( states->notar_hash_stake_pool, votes->notar_hash_stake_idx[ voter ] )->block_id.hash, vote->notar_fallback.block_hash, sizeof(ag_block_hash_t) );
+  case AG_VOTE_KIND_NOTAR:
+    for( ulong j=0UL; j<votes->notar_fallback_sig_cnt[ voter ]; j++ )
+      if( FD_UNLIKELY( !memcmp( ag_vote_stake_pool_ele_const( states->notar_fallback_hash_stake_pool, votes->notar_fallback_hash_stake_idx[ voter ][ j ] )->block_id.hash, vote->notar.block_hash, sizeof(ag_block_hash_t) ) ) ) return 1;
+    return 0;
+  default:
+    return 0;
+  }
+}
+
+FD_FN_PURE int
 ag_slot_state_should_ignore_vote( ag_slot_state_t const *  self,
                                   ag_slot_states_t const * states,
                                   ag_vote_t const *        vote ) {
