@@ -85,12 +85,12 @@ setup( void ) {
   FD_TEST( mcache );
 
   /* the read path only looks at accdb's snapshot sync word */
-  ulong shmem_fp = fd_accdb_shmem_footprint( 1024UL, 16UL, 128UL, 32UL, 32UL<<20, 2UL, 1UL, 0UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( 1024UL, 16UL, 128UL, 32UL, 32UL<<20, 2UL, 1UL, 0UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, 1024UL, 16UL, 128UL, 32UL, 32UL<<20,
-                          32UL<<20, 2UL, 0, 42UL, 1UL, 0UL ) );
+                          32UL<<20, 2UL, 0, 42UL, 1UL, 0UL, 0UL ) );
   FD_TEST( shmem );
   shmem->snapshot_sync = FD_ACCDB_SNAPSHOT_SYNC_RUNNING;
 
