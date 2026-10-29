@@ -533,7 +533,7 @@ after_frag( fd_gui_ctx_t *      ctx,
           /* Efficient mode: no execrp_gui, the exec done time is the tick
              replay saw the completion at. */
           long exec_done_ns = fd_clock_tile_tickcount_to_wallclock( ctx->clock, txn_executed->tick_exec_done );
-          fd_gui_handle_exec_txn_done( ctx->gui, txn_executed->slot, txn_executed->txn->start_shred_idx, txn_executed->txn->end_shred_idx, exec_done_ns, exec_done_ns, fd_clock_tile_now( ctx->clock ) );
+          fd_gui_handle_exec_txn_done( ctx->gui, txn_executed->slot, txn_executed->start_shred_idx, txn_executed->end_shred_idx, exec_done_ns, exec_done_ns, fd_clock_tile_now( ctx->clock ) );
         }
       } else {
         return;

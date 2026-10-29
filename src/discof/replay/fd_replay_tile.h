@@ -234,7 +234,10 @@ struct fd_replay_root_advanced {
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 
 struct fd_replay_txn_executed {
-  fd_txn_p_t txn[ 1 ];
+  uchar  signature[ FD_TXN_SIGNATURE_SZ ]; /* first signature */
+  ushort start_shred_idx;
+  ushort end_shred_idx;
+  uint   compute_units_requested; /* cost at requested limits, 0 if unknown */
   int is_committable;
   int is_fees_only;
   int is_noop;
