@@ -1853,6 +1853,7 @@ replay_block_complete( fd_replay_tile_t *        ctx,
   fd_block_id_ele_t const * block_id_ele = &ctx->block_id_arr[ bank->idx ];
   bank->f.block_id = block_id_ele->dmr;
   fd_banks_mark_bank_frozen( bank );
+  fd_accdb_fork_freeze( ctx->accdb, bank->accdb_fork_id );
   bank->block_completed_nanos = fd_clock_tile_now( ctx->clock );
 
   /**********************************************************************/
@@ -2105,6 +2106,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
   ctx->leader_bank->f.block_id = ctx->block_id_arr[ ctx->leader_bank->idx ].dmr;
   fd_banks_mark_bank_frozen( ctx->leader_bank );
+  fd_accdb_fork_freeze( ctx->accdb, ctx->leader_bank->accdb_fork_id );
   ctx->leader_bank->block_completed_nanos = fd_clock_tile_now( ctx->clock );
 
   publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */, execution_fees_pre_settle, priority_fees_pre_settle, ctx->leader_footer );
@@ -2831,6 +2833,8 @@ dispatch_task( fd_replay_tile_t *  ctx,
       }
 
       bank->refcnt++;
+      /* parked while idle: bring it back before a release can target it */
+      if( !bank->exec_task_cnt++ ) fd_accdb_fork_thaw( ctx->accdb, bank->accdb_fork_id );
 
       fd_cost_tracker_store_pin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
 
@@ -2999,13 +3003,22 @@ try_replay( fd_replay_tile_t *  ctx,
       end->leader_credits = 0UL;
       end->cert_next      = 0UL;
       end->finalized      = 0;
+      /* parked until its first exec dispatch (a stalled block may wait
+         on FECs indefinitely) */
+      fd_accdb_fork_freeze( ctx->accdb, bank->accdb_fork_id );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
       int dead = 0;
-      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) dead = replay_block_finalize( ctx, stem, bank );
+      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) {
+        fd_accdb_fork_thaw( ctx->accdb, bank->accdb_fork_id );
+        dead = replay_block_finalize( ctx, stem, bank );
+        /* footer reward slices out on exec tiles still write the fork;
+           replay_block_complete parks it after the last one */
+        if( !bank->footer_task_cnt ) fd_accdb_fork_freeze( ctx->accdb, bank->accdb_fork_id );
+      }
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
       if( FD_UNLIKELY( dead ) ) fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       break;
@@ -3617,6 +3630,9 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
   switch( sig>>32 ) {
     case FD_EXECRP_TT_TXN_EXEC: {
       ulong txn_idx           = msg->txn_exec->txn_idx;
+      /* no release in flight: spillable until the next dispatch */
+      FD_TEST( bank->exec_task_cnt );
+      if( !--bank->exec_task_cnt ) fd_accdb_fork_freeze( ctx->accdb, bank->accdb_fork_id );
       ulong max_compute_units = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id )->block_cost_limit;
       fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
 

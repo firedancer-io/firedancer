@@ -1279,7 +1279,8 @@ initialize_accdb_fd( config_t const * config ) {
   int idx_fd = open( idx_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME|O_CLOEXEC, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==idx_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==unlink( idx_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
-  ulong idx_sz = fd_accdb_idx_file_sz( config->firedancer.accounts.max_accounts, config->firedancer.accounts.index_ram_entries );
+  ulong idx_sz = fd_accdb_idx_file_sz( config->firedancer.accounts.max_accounts, config->firedancer.accounts.index_ram_entries,
+                                       config->firedancer.runtime.max_live_slots, FD_RUNTIME_MAX_ACC_WRITES_PER_SLOT );
   if( FD_LIKELY( idx_sz ) && FD_UNLIKELY( -1==fallocate( idx_fd, 0, 0L, (long)idx_sz ) ) ) {
     if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "fallocate() failed (%d-%s). The accounts index file needs %lu GiB of "
                                                   "disk space at `%s`. Free up disk space, or set "

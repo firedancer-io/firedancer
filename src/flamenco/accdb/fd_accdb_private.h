@@ -210,7 +210,9 @@ struct __attribute__((aligned(64))) fd_accdb_req {
   ulong seq;      /* ticket+1 once published */
   uint  joiner;   /* residual: epoch slot index */
   uint  flags;
-  uchar pad[ 16 ];
+  ushort ovl_fork; /* REQ_UNSPILL: spilled fork to search */
+  ushort slot;     /* residual: index into the joiner's answer row */
+  uchar pad[ 12 ];
 };
 
 typedef struct fd_accdb_req fd_accdb_req_t;
@@ -234,6 +236,25 @@ struct fd_accdb_prot {
 typedef struct fd_accdb_prot fd_accdb_prot_t;
 
 #define FD_ACCDB_HOT_REF_PROT (2)
+
+#define FD_ACCDB_REQ_UNSPILL   (2U)     /* also look in spilled forks */
+#define FD_ACCDB_TIER_UNSPILL  (3)      /* acc_map copy of a spilled version */
+#define FD_ACCDB_SPILL_SLICE   (256UL)  /* versions per background call */
+#define FD_ACCDB_UNSPILL_MAX   (1UL<<15) /* unspill FIFO slots; live copies <= half */
+FD_STATIC_ASSERT( FD_ACCDB_UNSPILL_MAX/2UL>FD_ACCDB_PROT_MAX, unspill_victim ); /* an unprotected copy always exists at the cap */
+
+/* idx_fork.frozen: 0 live (releases may target it), 1 parked or
+   complete (no release until fd_accdb_fork_thaw), 2 claimed by T2 for
+   spill.  Only 1 is spillable; thawing a 2 has T2 restore the fork. */
+struct fd_accdb_idx_fork {
+  uint  frozen;
+  uint  spilled;    /* versions live in ovl + olog        */
+  uint  olog_head;  /* chunk, UINT_MAX = none             */
+  uint  olog_tail;
+  ulong olog_cnt;
+};
+
+typedef struct fd_accdb_idx_fork fd_accdb_idx_fork_t;
 
 /* tier[pool] (T2 only): where T2 last put a slot. */
 #define FD_ACCDB_TIER_NONE    (0)
@@ -672,6 +693,28 @@ struct fd_accdb_shmem_private {
   fd_accdb_ring_t ring_res [1];
   fd_accdb_ring_t ring_hint[1];
   ulong res_ack[ FD_ACCDB_MAX_JOINERS ]; /* joiner: last ticket re-walked */
+
+  ulong idx_ovl_npage;
+  ulong idx_ovl_seq_off;
+  ulong idx_olog_byte0;     /* file offset of chunk 0              */
+  ulong idx_olog_chunk_cnt;
+  ulong idx_olog_next_off;  /* uint per chunk                      */
+  uint  olog_free;          /* T2 only, chunk free list head       */
+  ulong idx_fork_off;       /* fd_accdb_idx_fork_t per fork        */
+  ulong idx_bloom_off;
+  ulong idx_bloom_words;    /* per fork                            */
+  ulong spill_fork;         /* USHORT_MAX = none in progress       */
+  uint  spill_txn;          /* next txn record to persist          */
+  ulong ovl_fork_cnt __attribute__((aligned(64)));
+  ulong ovl_epoch;
+  ulong thaw_fork;          /* replay: fork to restore, USHORT_MAX = none */
+  ulong unspill_off;        /* FD_ACCDB_UNSPILL_MAX ulongs: idx<<32 | gen */
+  ulong unspill_head;       /* T2 only                             */
+  ulong unspill_tail;
+  ulong unspill_cnt;        /* live TIER_UNSPILL copies            */
+  ulong unspill_cap;
+  ulong ovl_ans_off;        /* uint [MAX_JOINERS][MAX_ACQUIRE_CNT]: T2's
+                               newest visible generation per request */
   ulong bg_defer_head;      /* T2 only: total appended             */
   ulong bg_defer_tail;      /* T2 only: total released             */
   ulong bg_defer_sealed;    /* T2 only: entries below are tagged   */

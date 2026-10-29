@@ -133,6 +133,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   /* Disk index views, zero in RAM-only mode. */
   fd_accdb_idx_region_t bkt[1];
+  fd_accdb_idx_region_t ovl[1];
   fd_accdb_cf_t         cf[1];
   uint *                hot_map;
   uchar *               tier;
@@ -142,6 +143,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int                   readonly;
   uint                  joiner_idx;      /* UINT_MAX for RO joiners */
   ulong                 residual_ticket; /* ULONG_MAX = none to ack */
+  struct { uchar pubkey[ 32 ]; uint fork_gen; uint gen; ulong epoch; } ovl_res[ 32 ]; /* R4: ovl resolved by T2 */
 
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
@@ -265,11 +267,29 @@ idx_enabled( fd_accdb_t const * accdb ) {
   return !!accdb->shmem->index_ram_entries;
 }
 
+static inline fd_accdb_idx_fork_t *
+idx_fork( fd_accdb_t const * accdb,
+          ulong              fork_id ) {
+  return (fd_accdb_idx_fork_t *)( (uchar *)accdb->shmem + accdb->shmem->idx_fork_off )+fork_id;
+}
+
+static inline ulong *
+ovl_bloom( fd_accdb_t const * accdb,
+           ulong              fork_id ) {
+  return (ulong *)( (uchar *)accdb->shmem + accdb->shmem->idx_bloom_off )+fork_id*accdb->shmem->idx_bloom_words;
+}
+
+static void idx_spilled_purge( fd_accdb_t * accdb, ushort f );
+static inline int ovl_bloom_op( fd_accdb_t const * accdb, ulong fork_id, uchar const pubkey[ 32 ], int insert );
+static void idx_spilled_root ( fd_accdb_t * accdb, ushort f );
+
 static void
 idx_join( fd_accdb_t * accdb,
           int          idx_fd ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
   memset( accdb->bkt, 0, sizeof(accdb->bkt) );
+  memset( accdb->ovl, 0, sizeof(accdb->ovl) );
+  memset( accdb->ovl_res, 0xFF, sizeof(accdb->ovl_res) );
   memset( accdb->cf,  0, sizeof(accdb->cf)  );
   accdb->hot_map = NULL;
   accdb->tier    = NULL;
@@ -286,6 +306,14 @@ idx_join( fd_accdb_t * accdb,
     .npage = shmem->idx_bkt_npage,
     .seq   = (uint *)( (uchar *)shmem + shmem->idx_bkt_seq_off ),
     .salt  = FD_ACCDB_IDX_SALT_B
+  };
+  *accdb->ovl = (fd_accdb_idx_region_t){
+    .fd         = idx_fd,
+    .page0      = shmem->idx_bkt_npage,
+    .npage      = shmem->idx_ovl_npage,
+    .seq        = (uint *)( (uchar *)shmem + shmem->idx_ovl_seq_off ),
+    .salt       = FD_ACCDB_IDX_SALT_O,
+    .keyed_fork = 1
   };
   *accdb->cf = (fd_accdb_cf_t){
     .cf        = (ulong *)( (uchar *)shmem + shmem->idx_cf_off ),
@@ -959,6 +987,7 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
 
   fork->shmem->generation = accdb->shmem->generation++;
   fork->shmem->txn_head = UINT_MAX;
+  if( FD_UNLIKELY( accdb->tier ) ) idx_fork( accdb, idx )->frozen = 0U;
 
   FD_TEST( !descends_set_test( fork->descends, fork_id.val ) );
 
@@ -1693,6 +1722,8 @@ purge_inner( fd_accdb_t *              accdb,
     child = next;
   }
 
+  if( FD_UNLIKELY( accdb->tier ) ) idx_spilled_purge( accdb, fork_id.val );
+
   uint txn = fork->shmem->txn_head;
   if( txn!=UINT_MAX ) {
     fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
@@ -1807,6 +1838,8 @@ background_advance_root( fd_accdb_t *       accdb,
      removed as they will not be needed again.  This includes child
      forks of the pruned siblings as well. */
   remove_children( accdb, parent_fork, fork, &fork_head, &fork_tail );
+
+  if( FD_UNLIKELY( accdb->tier ) ) idx_spilled_root( accdb, fork_id.val );
 
   /* And for any accounts which were updated in the newly rooted slot,
      we will now never need to access any older version, so we can
@@ -2428,7 +2461,8 @@ background_compact( fd_accdb_t * accdb,
                                           compact_base+compact->compaction_offset, FD_ACCDB_BOUNCE_SZ ));
 
   fd_accdb_accmeta_t * live_accmeta[ IOV_MAX ];
-  uchar                live_kind   [ IOV_MAX ]; /* 0 acc_map, 1 hot, 2 bucket only */
+  uchar                live_kind   [ IOV_MAX ]; /* 0 acc_map, 1 hot, 2 bucket only, 3 ovl only */
+  ushort               live_fork   [ IOV_MAX ];
   ulong                live_packed [ IOV_MAX ];
   ulong                live_src    [ IOV_MAX ];
   ulong                live_sz     [ IOV_MAX ];
@@ -2458,6 +2492,7 @@ background_compact( fd_accdb_t * accdb,
 
     ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)meta->size;
     uchar kind      = 0;
+    ushort fork     = USHORT_MAX;
     if( FD_UNLIKELY( !accmeta && idx_enabled( accdb ) ) ) {
       /* Live iff some tier names this exact offset (§5.6). */
       ulong rec_off = compact_base+compact->compaction_offset+off;
@@ -2476,12 +2511,15 @@ background_compact( fd_accdb_t * accdb,
         }
         h = hm->map.next;
       }
+      /* Bounded preads per call and never ahead of a cmd, checked only
+         before a record's first lookup so every record completes. */
+      int spilled_any = FD_VOLATILE_CONST( accdb->shmem->ovl_fork_cnt ) || accdb->shmem->spill_fork!=USHORT_MAX;
+      int need_io     = !accmeta && ( spilled_any || ( !hot_key && fd_accdb_cf_probe( accdb->cf, meta->pubkey ) ) );
+      if( need_io && idx_io && ( idx_io>=FD_ACCDB_COMPACT_IDX_IO || FD_VOLATILE_CONST( accdb->shmem->cmd_op )!=FD_ACCDB_CMD_IDLE ) ) {
+        span = off;
+        break;
+      }
       if( !accmeta && !hot_key && fd_accdb_cf_probe( accdb->cf, meta->pubkey ) ) {
-        /* bounded preads per call, and never ahead of a cmd */
-        if( idx_io && ( idx_io>=FD_ACCDB_COMPACT_IDX_IO || FD_VOLATILE_CONST( accdb->shmem->cmd_op )!=FD_ACCDB_CMD_IDLE ) ) {
-          span = off;
-          break;
-        }
         idx_io++;
         fd_accdb_idx_slot_t slot;
         if( fd_accdb_idx_lookup( accdb->bkt, accdb->shmem->seed, meta->pubkey, 0, &slot ) && slot.off_plus1==rec_off+1UL ) {
@@ -2489,10 +2527,25 @@ background_compact( fd_accdb_t * accdb,
           source_packed = rec_off;
         }
       }
+      if( FD_UNLIKELY( !accmeta && kind!=2 && spilled_any ) ) {
+        /* a spilled version lives only in its ovl slot */
+        for( ulong f=0UL; f<accdb->shmem->max_live_slots && kind!=3; f++ ) {
+          if( !idx_fork( accdb, f )->spilled && f!=accdb->shmem->spill_fork ) continue;
+          if( !ovl_bloom_op( accdb, f, meta->pubkey, 0 ) ) continue;
+          idx_io++;
+          fd_accdb_idx_slot_t slot;
+          if( fd_accdb_idx_lookup( accdb->ovl, accdb->shmem->seed, meta->pubkey, (ushort)f, &slot ) && slot.off_plus1==rec_off+1UL ) {
+            kind          = 3;
+            fork          = (ushort)f;
+            source_packed = rec_off;
+          }
+        }
+      }
     }
     if( FD_UNLIKELY( !accmeta && kind!=2 ) ) compact->compaction_dead_records++; /* index entry gone, extent is garbage */
     else {
       live_kind   [ live_cnt ] = kind;
+      live_fork   [ live_cnt ] = fork;
       live_accmeta[ live_cnt ] = accmeta;
       live_packed [ live_cnt ] = source_packed;
       live_src    [ live_cnt ] = off;
@@ -2555,17 +2608,24 @@ background_compact( fd_accdb_t * accdb,
          so the fork_id is preserved. */
       ulong new_packed = ( live_packed[ i ] & ~FD_ACCDB_OFF_MASK ) | ( live_dst[ i ] & FD_ACCDB_OFF_MASK );
 #if FD_HAS_RACESAN
-      fd_memcpy( fd_accdb_dbg_reloc_pubkey, live_accmeta[ i ]->key.pubkey, 32UL );
+      fd_memcpy( fd_accdb_dbg_reloc_pubkey, ((fd_accdb_disk_meta_t const *)( accdb->bounce+live_src[ i ] ))->pubkey, 32UL );
       fd_accdb_dbg_reloc_dest = live_dst[ i ];
       fd_accdb_dbg_reloc_cnt++;
 #endif
       fd_racesan_hook( "accdb_compact:pre_offset_cas" );
       fd_accdb_disk_meta_t const * rmeta = (fd_accdb_disk_meta_t const *)( accdb->bounce+live_src[ i ] );
-      if( FD_UNLIKELY( live_kind[ i ]==2 ) ) {
-        if( FD_UNLIKELY( !fd_accdb_idx_resync( accdb->bkt, accdb->shmem->seed, rmeta->pubkey, 0, live_packed[ i ]+1UL, live_dst[ i ]+1UL ) ) )
+      if( FD_UNLIKELY( live_kind[ i ]>=2 ) ) {
+        fd_accdb_idx_region_t const * r = live_kind[ i ]==2 ? accdb->bkt : accdb->ovl;
+        ushort                        f = live_kind[ i ]==2 ? (ushort)0 : live_fork[ i ];
+        if( FD_UNLIKELY( !fd_accdb_idx_resync( r, accdb->shmem->seed, rmeta->pubkey, f, live_packed[ i ]+1UL, live_dst[ i ]+1UL ) ) )
           fd_accdb_shmem_bytes_freed( accdb->shmem, live_dst[ i ], live_sz[ i ] );
       } else if( FD_UNLIKELY( FD_ATOMIC_CAS( &live_accmeta[ i ]->offset_fork, live_packed[ i ], new_packed )!=live_packed[ i ] ) ) {
         fd_accdb_shmem_bytes_freed( accdb->shmem, live_dst[ i ], live_sz[ i ] );
+      } else if( live_kind[ i ]==0 && accdb->tier && ( accdb->tier[ live_accmeta[ i ]-accdb->acc_pool ]==FD_ACCDB_TIER_UNSPILL ||
+                                                       ( accdb->shmem->spill_fork!=USHORT_MAX && fd_accdb_acc_fork_id( live_accmeta[ i ] )==accdb->shmem->spill_fork ) ) ) {
+        /* unspilled copy, or a version logged by an unfinished spill */
+        fd_accdb_idx_resync( accdb->ovl, accdb->shmem->seed, rmeta->pubkey, fd_accdb_acc_fork_id( live_accmeta[ i ] ),
+                             (live_packed[ i ]&FD_ACCDB_OFF_MASK)+1UL, live_dst[ i ]+1UL );
       } else if( live_kind[ i ]==1 ) {
         /* hot copies always mirror the bucket slot (I8) */
         fd_accdb_idx_resync( accdb->bkt, accdb->shmem->seed, rmeta->pubkey, 0, (live_packed[ i ]&FD_ACCDB_OFF_MASK)+1UL, live_dst[ i ]+1UL );
@@ -2745,6 +2805,104 @@ cold_load_acc( fd_accdb_t *     accdb,
 #define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1)
 #define RESERVATION_TYPE_ALREADY_RESERVED  (2)
 
+static inline int
+ovl_bloom_op( fd_accdb_t const * accdb,
+              ulong              fork_id,
+              uchar const        pubkey[ 32 ],
+              int                insert ) {
+  ulong * b = ovl_bloom( accdb, fork_id );
+  ulong   m = accdb->shmem->idx_bloom_words*64UL-1UL;
+  ulong   h = fd_hash32( pubkey, accdb->shmem->seed^0x626c6f6f6d5f6f76UL );
+  int hit = 1;
+  for( ulong k=0UL; k<4UL; k++ ) {
+    ulong bit = ( h>>(16UL*k) ) & m;
+    if( insert ) b[ bit>>6 ] |= 1UL<<(bit&63UL);
+    else         hit &= !!( FD_VOLATILE_CONST( b[ bit>>6 ] ) & (1UL<<(bit&63UL)) );
+  }
+  return hit;
+}
+
+/* ovl_candidate (any joiner, epoch held): could pubkey have a version
+   newer than gen_floor in a spilled fork visible from fork? */
+
+static int
+ovl_candidate( fd_accdb_t const *      accdb,
+               fd_accdb_fork_t const * fork,
+               ushort                  fork_id,
+               uchar const             pubkey[ 32 ],
+               uint                    gen_floor ) {
+  ulong max = accdb->shmem->max_live_slots;
+  for( ulong f=0UL; f<max; f++ ) {
+    if( f!=fork_id && !descends_set_test( fork->descends, f ) ) continue;
+    if( !FD_VOLATILE_CONST( idx_fork( accdb, f )->spilled ) ) continue;
+    if( accdb->fork_pool[ f ].shmem->generation<=gen_floor ) continue;
+    if( ovl_bloom_op( accdb, f, pubkey, 0 ) ) return 1;
+  }
+  return 0;
+}
+
+/* ovl_search (index fd holders): newest version of pubkey above
+   gen_floor in any spilled fork visible from fork.  Every bloom hit is
+   looked up, so a false positive never hides an older fork.  Returns
+   its fork id and slot, or USHORT_MAX. */
+
+static ushort
+ovl_search( fd_accdb_t const *      accdb,
+            fd_accdb_fork_t const * fork,
+            ushort                  fork_id,
+            uchar const             pubkey[ 32 ],
+            uint                    gen_floor,
+            fd_accdb_idx_slot_t *   out ) {
+  ushort best = USHORT_MAX; uint best_gen = gen_floor;
+  ulong max = accdb->shmem->max_live_slots;
+  for( ulong f=0UL; f<max; f++ ) {
+    if( f!=fork_id && !descends_set_test( fork->descends, f ) ) continue;
+    if( !FD_VOLATILE_CONST( idx_fork( accdb, f )->spilled ) ) continue;
+    if( accdb->fork_pool[ f ].shmem->generation<=best_gen ) continue;
+    if( !ovl_bloom_op( accdb, f, pubkey, 0 ) ) continue;
+    fd_accdb_idx_slot_t s;
+    if( !fd_accdb_idx_lookup( accdb->ovl, accdb->shmem->seed, pubkey, (ushort)f, &s ) ) continue;
+    best = (ushort)f; best_gen = s.generation; *out = s;
+  }
+  return best;
+}
+
+/* ovl_res: T2 searched every spilled fork visible from the reader fork
+   (identified by its generation) for pubkey and unspilled the newest
+   hit, of generation gen.  Valid while ovl_epoch is unchanged and the
+   walk still finds a version at least that new (an evicted unspilled
+   copy fails this).  Exact keys; a slot eviction only costs a wait. */
+
+static inline ulong
+ovl_res_slot( uchar const pubkey[ 32 ],
+              uint        fork_gen ) {
+  return ( FD_LOAD( ulong, pubkey+8 ) ^ (ulong)fork_gen ) & 31UL;
+}
+
+static inline int
+ovl_res_test( fd_accdb_t const * accdb,
+              uchar const        pubkey[ 32 ],
+              uint               fork_gen,
+              uint               floor ) {
+  ulong i = ovl_res_slot( pubkey, fork_gen );
+  return accdb->ovl_res[ i ].epoch==FD_VOLATILE_CONST( accdb->shmem->ovl_epoch ) &&
+         accdb->ovl_res[ i ].fork_gen==fork_gen && floor>=accdb->ovl_res[ i ].gen &&
+         !memcmp( accdb->ovl_res[ i ].pubkey, pubkey, 32UL );
+}
+
+static inline void
+ovl_res_insert( fd_accdb_t * accdb,
+                uchar const  pubkey[ 32 ],
+                uint         fork_gen,
+                uint         gen,
+                ulong        epoch ) {
+  ulong i = ovl_res_slot( pubkey, fork_gen );
+  memcpy( accdb->ovl_res[ i ].pubkey, pubkey, 32UL );
+  accdb->ovl_res[ i ].fork_gen = fork_gen;
+  accdb->ovl_res[ i ].gen      = gen;
+  accdb->ovl_res[ i ].epoch    = epoch;
+}
+
 /* idx_resolve returns the pool index of the first fork-visible version
    of pubkey on fork, or UINT_MAX.  Every read API resolves through
    here.  Caller holds an epoch.  See fd_accdb_acquire_inner STEP 1 for
@@ -2758,7 +2916,10 @@ idx_resolve( fd_accdb_t *            accdb,
              uchar const *           pubkey,
              ulong                   map_idx,
              int                     hook,
-             int *                   known ) {
+             int                     skip_ovl,
+             int *                   known,
+             ushort *                ovl_f ) {
+  *ovl_f = USHORT_MAX;
   uint acc = FD_VOLATILE_CONST( accdb->acc_map[ map_idx ] );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -2774,6 +2935,16 @@ idx_resolve( fd_accdb_t *            accdb,
       continue;
     }
     break;
+  }
+  if( FD_UNLIKELY( accdb->hot_map && !skip_ovl && FD_VOLATILE_CONST( accdb->shmem->ovl_fork_cnt ) ) ) {
+    /* A spilled visible fork newer than the acc_map match wins (R5).
+       *ovl_f is the reader fork: the search covers every spilled one. */
+    uint floor = acc==UINT_MAX ? 0U : accdb->acc_pool[ acc ].key.generation;
+    if( !ovl_res_test( accdb, pubkey, fork->shmem->generation, floor ) && ovl_candidate( accdb, fork, fork_id, pubkey, floor ) ) {
+      *ovl_f = fork_id;
+      *known = 0;
+      return UINT_MAX;
+    }
   }
   if( FD_UNLIKELY( acc==UINT_MAX && accdb->hot_map ) ) {
     /* Hot (rooted) tier: older than anything in acc_map for the key. */
@@ -2794,7 +2965,7 @@ idx_resolve( fd_accdb_t *            accdb,
   return acc;
 }
 
-static void idx_residual_wait( fd_accdb_t * accdb, ulong cnt, uchar const * const * keys );
+static void idx_residual_wait( fd_accdb_t * accdb, ulong cnt, uchar const * const * keys, ushort const * ovl_forks );
 
 /* idx_maybe_bucket: RAM tiers missed; might the key be bucket-only? */
 
@@ -2847,7 +3018,12 @@ restart:
   fd_accdb_accmeta_t * accmetas[ FD_ACCDB_MAX_ACQUIRE_CNT ];
   ulong acc_map_idxs[ FD_ACCDB_MAX_ACQUIRE_CNT ];
   uchar const * miss_keys[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ushort        miss_ovl [ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong         miss_idx [ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  uchar         ovl_done [ FD_ACCDB_MAX_ACQUIRE_CNT ];
   ulong miss_cnt;
+  ulong ovl_done_epoch = ULONG_MAX;
+  memset( ovl_done, 0, pubkeys_cnt );
 
 step1:
   miss_cnt = 0UL;
@@ -2871,9 +3047,14 @@ step1:
      concurrent releases serialize on the CAS of the chain head. */
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     acc_map_idxs[ i ] = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-    int  known;
-    uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], acc_map_idxs[ i ], 1, &known );
-    if( FD_UNLIKELY( !known && idx_maybe_bucket( accdb, pubkeys[ i ] ) ) ) {
+    int    known;
+    ushort ovl_f;
+    /* keys T2 resolved this call skip ovl while no spill intervened */
+    int skip_ovl = ovl_done[ i ] && ovl_done_epoch==FD_VOLATILE_CONST( accdb->shmem->ovl_epoch );
+    uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], acc_map_idxs[ i ], 1, skip_ovl, &known, &ovl_f );
+    if( FD_UNLIKELY( ovl_f!=USHORT_MAX || ( !known && idx_maybe_bucket( accdb, pubkeys[ i ] ) ) ) ) {
+      miss_ovl [ miss_cnt   ] = ovl_f;
+      miss_idx [ miss_cnt   ] = i;
       miss_keys[ miss_cnt++ ] = pubkeys[ i ];
       continue;
     }
@@ -2907,7 +3088,11 @@ step1:
   if( FD_UNLIKELY( miss_cnt ) ) {
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    idx_residual_wait( accdb, miss_cnt, miss_keys );
+    ulong ovl_epoch = FD_VOLATILE_CONST( accdb->shmem->ovl_epoch );
+    idx_residual_wait( accdb, miss_cnt, miss_keys, miss_ovl );
+    if( ovl_epoch!=ovl_done_epoch ) memset( ovl_done, 0, pubkeys_cnt );
+    ovl_done_epoch = ovl_epoch;
+    for( ulong m=0UL; m<miss_cnt; m++ ) ovl_done[ miss_idx[ m ] ] |= (uchar)( miss_ovl[ m ]!=USHORT_MAX );
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
     FD_HW_MFENCE();
@@ -4203,15 +4388,28 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  int  known;
-  uint acc_idx = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, &known );
+  int    known;
+  ushort ovl_f;
+  uint acc_idx = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, 0, &known, &ovl_f );
+  fd_accdb_idx_slot_t ovl_slot;
+  int                 ovl_hit = 0;
+  if( FD_UNLIKELY( ovl_f!=USHORT_MAX && accdb->bkt->fd>=0 ) ) {
+    /* search every spilled fork, else the older tiers answer */
+    acc_idx = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, 1, &known, &ovl_f );
+    uint floor = acc_idx==UINT_MAX ? 0U : accdb->acc_pool[ acc_idx ].key.generation;
+    ovl_hit = ovl_search( accdb, fork, fork_id.val, pubkey, floor, &ovl_slot )!=USHORT_MAX;
+    ovl_f   = USHORT_MAX;
+    if( ovl_hit ) { acc_idx = UINT_MAX; known = 1; }
+  }
   fd_accdb_accmeta_t const * accmeta = acc_idx==UINT_MAX ? NULL : &accdb->acc_pool[ acc_idx ];
 
-  /* Bucket-only (index mode): read the slot, then the record. */
+  /* Bucket-only or spilled (index mode, joiners with an index fd):
+     read the slot, then the record. */
   fd_accdb_accmeta_t bkt_meta[1];
-  if( FD_UNLIKELY( !accmeta && !known && idx_maybe_bucket( accdb, pubkey ) && accdb->bkt->fd>=0 ) ) {
+  if( FD_UNLIKELY( !accmeta && ( ovl_hit || ( !known && idx_maybe_bucket( accdb, pubkey ) ) ) && accdb->bkt->fd>=0 ) ) {
     fd_accdb_idx_slot_t slot;
-    if( fd_accdb_idx_lookup( accdb->bkt, accdb->shmem->seed, pubkey, 0, &slot ) ) {
+    int hit = ovl_hit ? ( slot = ovl_slot, 1 ) : fd_accdb_idx_lookup( accdb->bkt, accdb->shmem->seed, pubkey, 0, &slot );
+    if( hit && slot.lamports ) {
       memset( bkt_meta, 0, sizeof(bkt_meta) );
       memcpy( bkt_meta->key.pubkey, pubkey, 32UL );
       bkt_meta->key.generation  = slot.generation;
@@ -4226,8 +4424,8 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   if( FD_UNLIKELY( !accmeta ) ) {
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    if( FD_UNLIKELY( !known && !accdb->readonly && accdb->bkt->fd<0 && idx_maybe_bucket( accdb, pubkey ) ) ) {
-      idx_residual_wait( accdb, 1UL, &pubkey );
+    if( FD_UNLIKELY( !accdb->readonly && ( ovl_f!=USHORT_MAX || ( !known && accdb->bkt->fd<0 && idx_maybe_bucket( accdb, pubkey ) ) ) ) ) {
+      idx_residual_wait( accdb, 1UL, &pubkey, &ovl_f );
       int r = fd_accdb_read_one_nocache( accdb, fork_id, pubkey, out_lamports, out_executable, out_owner, out_data, out_data_len );
       idx_residual_ack( accdb );
       return r;
@@ -4390,10 +4588,25 @@ idx_meta( fd_accdb_t *       accdb,
     FD_HW_MFENCE();
     uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
     fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-    int  known;
-    uint acc   = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, &known );
+    int    known;
+    ushort ovl_f;
+    uint acc   = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, 0, &known, &ovl_f );
     int  found = 0;
-    if( acc!=UINT_MAX ) {
+    fd_accdb_idx_slot_t slot;
+    if( FD_UNLIKELY( ovl_f!=USHORT_MAX && accdb->bkt->fd>=0 ) ) {
+      acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, 1, &known, &ovl_f );
+      uint floor = acc==UINT_MAX ? 0U : accdb->acc_pool[ acc ].key.generation;
+      ovl_f = USHORT_MAX;
+      if( ovl_search( accdb, fork, fork_id.val, pubkey, floor, &slot )!=USHORT_MAX ) {
+        *out_lamports = slot.lamports;
+        *out_es       = slot.exec_size;
+        found = 1;
+        known = 1;
+        acc   = UINT_MAX;
+      }
+    }
+    if( found ) {
+    } else if( acc!=UINT_MAX ) {
       *out_lamports = FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
       *out_es       = FD_VOLATILE_CONST( accdb->acc_pool[ acc ].executable_size );
       found = 1;
@@ -4408,11 +4621,11 @@ idx_meta( fd_accdb_t *       accdb,
     }
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    if( found || known || !idx_maybe_bucket( accdb, pubkey ) || accdb->readonly ) {
+    if( found || ( ovl_f==USHORT_MAX && ( known || !idx_maybe_bucket( accdb, pubkey ) ) ) || accdb->readonly ) {
       idx_residual_ack( accdb );
       return found;
     }
-    idx_residual_wait( accdb, 1UL, &pubkey );
+    idx_residual_wait( accdb, 1UL, &pubkey, &ovl_f );
   }
 }
 
@@ -4438,8 +4651,9 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  int  known;
-  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, &known );
+  int    known;
+  ushort ovl_f;
+  uint acc = idx_resolve( accdb, fork, fork_id.val, root_generation, pubkey, hash, 0, 0, &known, &ovl_f );
 
   int   pd        = 0;
   int   gen_match = 0;
@@ -5253,6 +5467,486 @@ background_hot_evict( fd_accdb_t * accdb ) {
   return evicted;
 }
 
+/* ---- Overflow tier for unrooted versions (§8, §15 R4-R9) ------------ */
+
+static inline ulong
+olog_rec_off( fd_accdb_t const * accdb,
+              uint               chunk,
+              ulong              i ) {
+  return accdb->shmem->idx_olog_byte0 + ( (ulong)chunk*FD_ACCDB_OLOG_CHUNK + i )*sizeof(fd_accdb_olog_rec_t);
+}
+
+static inline uint *
+olog_next( fd_accdb_t const * accdb ) {
+  return (uint *)( (uchar *)accdb->shmem + accdb->shmem->idx_olog_next_off );
+}
+
+static void
+olog_append( fd_accdb_t *          accdb,
+             fd_accdb_idx_fork_t * f,
+             uchar const           pubkey[ 32 ] ) {
+  ulong i = f->olog_cnt % FD_ACCDB_OLOG_CHUNK;
+  if( !i ) {
+    uint c = accdb->shmem->olog_free;
+    FD_TEST( c!=UINT_MAX ); /* sized txn_max/chunk + one per fork */
+    accdb->shmem->olog_free = olog_next( accdb )[ c ];
+    olog_next( accdb )[ c ] = UINT_MAX;
+    if( f->olog_tail==UINT_MAX ) f->olog_head = c;
+    else                         olog_next( accdb )[ f->olog_tail ] = c;
+    f->olog_tail = c;
+  }
+  fd_accdb_olog_rec_t rec = {0};
+  memcpy( rec.pubkey, pubkey, 32UL );
+  rec.ram_idx = UINT_MAX;
+  fd_accdb_idx_io( accdb->bkt->fd, 1, &rec, sizeof(rec), olog_rec_off( accdb, f->olog_tail, i ) );
+  f->olog_cnt++;
+}
+
+/* fd_accdb_fork_freeze / fd_accdb_fork_thaw: replay parks a fork no
+   release can target (complete, or nothing in flight) and unparks it
+   before the next release.  T2 claims parked forks (1->2) to spill. */
+
+void
+fd_accdb_fork_freeze( fd_accdb_t *       accdb,
+                      fd_accdb_fork_id_t fork_id ) {
+  if( FD_LIKELY( !idx_enabled( accdb ) ) ) return;
+  FD_ATOMIC_CAS( &idx_fork( accdb, fork_id.val )->frozen, 0U, 1U );
+}
+
+void
+fd_accdb_fork_thaw( fd_accdb_t *       accdb,
+                    fd_accdb_fork_id_t fork_id ) {
+  if( FD_LIKELY( !idx_enabled( accdb ) ) ) return;
+  fd_accdb_idx_fork_t * xf = idx_fork( accdb, fork_id.val );
+  uint cur = FD_VOLATILE_CONST( xf->frozen );
+  if( FD_LIKELY( !cur || ( cur==1U && FD_ATOMIC_CAS( &xf->frozen, 1U, 0U )==1U ) ) ) return;
+  /* claimed: T2 discards or restores the spill, then clears thaw_fork */
+  FD_VOLATILE( accdb->shmem->thaw_fork ) = fork_id.val;
+  if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+  while( FD_VOLATILE_CONST( accdb->shmem->thaw_fork )!=USHORT_MAX ) FD_SPIN_PAUSE();
+}
+
+/* ---- T2: spill one frozen fork (sliced, §15 R9/R10/R20) ------------- */
+
+static ushort
+spill_pick( fd_accdb_t * accdb ) {
+  ulong max = accdb->shmem->max_live_slots;
+  ushort best = USHORT_MAX; ulong best_n = 0UL;
+  for( ulong f=0UL; f<max; f++ ) {
+    fd_accdb_idx_fork_t * xf = idx_fork( accdb, f );
+    if( FD_VOLATILE_CONST( xf->frozen )!=1U || xf->spilled || f==accdb->shmem->root_fork_id.val ) continue;
+    if( accdb->fork_pool[ f ].shmem->txn_head==UINT_MAX ) continue;
+    ulong n = 0UL;
+    for( uint t=accdb->fork_pool[ f ].shmem->txn_head; t!=UINT_MAX && n<=best_n; t=txn_pool_ele( accdb->txn_pool, t )->fork.next ) n++;
+    if( n>best_n ) { best = (ushort)f; best_n = n; }
+  }
+  return best;
+}
+
+/* background_spill: persists and logs up to SPILL_SLICE versions of the
+   fork being spilled; when all are persisted, publishes spilled and
+   unlinks them.  Returns work done. */
+
+static ulong
+background_spill( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( shmem->spill_fork==USHORT_MAX ) {
+    if( idx_pool_free( accdb )>=shmem->promote_reserve ) return 0UL;
+    ushort f = spill_pick( accdb );
+    if( f==USHORT_MAX ) return 0UL;
+    if( FD_ATOMIC_CAS( &idx_fork( accdb, f )->frozen, 1U, 2U )!=1U ) return 1UL; /* thawed meanwhile */
+    shmem->spill_fork = f;
+    shmem->spill_txn  = accdb->fork_pool[ f ].shmem->txn_head;
+    memset( ovl_bloom( accdb, f ), 0, shmem->idx_bloom_words*sizeof(ulong) );
+  }
+  ushort                f  = (ushort)shmem->spill_fork;
+  fd_accdb_idx_fork_t * xf = idx_fork( accdb, f );
+  fd_accdb_fork_t *     fk = &accdb->fork_pool[ f ];
+  ulong work = 0UL;
+  while( shmem->spill_txn!=UINT_MAX && work<FD_ACCDB_SPILL_SLICE ) {
+    fd_accdb_txn_t *     t = txn_pool_ele( accdb->txn_pool, shmem->spill_txn );
+    fd_accdb_accmeta_t * a = &accdb->acc_pool[ t->acc_pool_idx ];
+    if( fd_accdb_acc_offset( a )==FD_ACCDB_OFF_INVAL && a->lamports && !idx_writeback( accdb, a ) ) return work+1UL; /* retry */
+    fd_accdb_idx_slot_t rec = {0}, old;
+    memcpy( rec.pubkey, a->key.pubkey, 32UL );
+    rec.off_plus1  = a->lamports ? fd_accdb_acc_offset( a )+1UL : 1UL;
+    rec.lamports   = a->lamports;
+    rec.exec_size  = a->executable_size & (FD_ACCDB_SIZE_EXEC_BIT|FD_ACCDB_SIZE_MASK);
+    rec.generation = a->key.generation;
+    rec.fork_id    = f;
+    rec.pd_write   = (uchar)FD_ACCDB_SIZE_PD_WRITE( a->executable_size );
+    FD_TEST( !fd_accdb_idx_upsert( accdb->ovl, shmem->seed, &rec, &old ) );
+    olog_append( accdb, xf, a->key.pubkey );
+    ovl_bloom_op( accdb, f, a->key.pubkey, 1 );
+    shmem->spill_txn = t->fork.next;
+    work++;
+  }
+  if( shmem->spill_txn!=UINT_MAX ) return work;
+  if( !bg_defer_room( accdb, xf->olog_cnt ) ) return work;
+
+  /* Publish before any unlink: a reader either still finds the RAM
+     version or sees spilled and checks ovl. */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( xf->spilled ) = 1U;
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->ovl_fork_cnt, 1UL );
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->ovl_epoch, 1UL );
+  FD_COMPILER_MFENCE();
+
+  uint txn = fk->shmem->txn_head;
+  fd_accdb_txn_t * th = txn==UINT_MAX ? NULL : txn_pool_ele( accdb->txn_pool, txn );
+  fd_accdb_txn_t * tt = NULL;
+  while( txn!=UINT_MAX ) {
+    fd_accdb_txn_t * t = txn_pool_ele( accdb->txn_pool, txn );
+    uint idx = t->acc_pool_idx;
+    fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
+    ulong chain = idx_chain_of( accdb, a->key.pubkey );
+    uint prev = UINT_MAX, cur = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
+    while( cur!=idx ) { prev = cur; cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next ); }
+    acc_chain_splice( accdb, (uint)chain, prev, idx );
+    acc_cache_teardown( accdb, a, 0 );
+    FD_TEST( bg_defer_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ) );
+    tt  = t;
+    txn = t->fork.next;
+  }
+  if( th ) txn_pool_release_chain( accdb->txn_pool, th, tt );
+  fk->shmem->txn_head = UINT_MAX;
+  shmem->spill_fork = USHORT_MAX;
+  accdb->metrics->forks_spilled++;
+  return work+1UL;
+}
+
+/* olog_walk calls fn on each logged record of fork f, then frees the
+   log.  T2 only. */
+
+typedef void (* olog_fn_t)( fd_accdb_t * accdb, ushort f, fd_accdb_olog_rec_t const * rec );
+
+static void
+olog_walk( fd_accdb_t * accdb,
+           ushort       f,
+           olog_fn_t    fn ) {
+  fd_accdb_idx_fork_t * xf = idx_fork( accdb, f );
+  fd_accdb_olog_rec_t * buf = (fd_accdb_olog_rec_t *)accdb->stage; /* idle outside preevict */
+  ulong left = xf->olog_cnt;
+  uint  c    = xf->olog_head;
+  while( c!=UINT_MAX ) {
+    ulong n = fd_ulong_min( left, FD_ACCDB_OLOG_CHUNK );
+    fd_accdb_idx_io( accdb->bkt->fd, 0, buf, n*sizeof(fd_accdb_olog_rec_t), olog_rec_off( accdb, c, 0UL ) );
+    for( ulong i=0UL; i<n; i++ ) fn( accdb, f, &buf[ i ] );
+    left -= n;
+    uint nx = olog_next( accdb )[ c ];
+    olog_next( accdb )[ c ] = accdb->shmem->olog_free;
+    accdb->shmem->olog_free = c;
+    c = nx;
+  }
+  *xf = (fd_accdb_idx_fork_t){ .olog_head = UINT_MAX, .olog_tail = UINT_MAX };
+}
+
+/* unspilled RAM copy (if any) leaves acc_map first, without freeing
+   bytes (the ovl action below owns them). */
+
+/* unspill_live: idx still holds the copy of (pubkey, f); at most one
+   copy per version exists and eviction clears its tier. */
+
+static inline int
+unspill_live( fd_accdb_t const * accdb,
+              uint               idx,
+              ushort             f,
+              uchar const        pubkey[ 32 ] ) {
+  fd_accdb_accmeta_t const * a = &accdb->acc_pool[ idx ];
+  return accdb->tier[ idx ]==FD_ACCDB_TIER_UNSPILL && fd_accdb_acc_fork_id( a )==f && !memcmp( a->key.pubkey, pubkey, 32UL );
+}
+
+static void
+olog_drop_ram( fd_accdb_t *                accdb,
+               ushort                      f,
+               fd_accdb_olog_rec_t const * rec ) {
+  if( rec->ram_idx==UINT_MAX || !unspill_live( accdb, rec->ram_idx, f, rec->pubkey ) ) return;
+  uint idx = rec->ram_idx;
+  accdb->shmem->unspill_cnt--;
+  fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
+  ulong chain = idx_chain_of( accdb, a->key.pubkey );
+  uint prev = UINT_MAX, cur = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
+  while( cur!=idx ) { prev = cur; cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next ); }
+  acc_chain_splice( accdb, (uint)chain, prev, idx );
+  acc_cache_teardown( accdb, a, 0 );
+  accdb->tier[ idx ] = FD_ACCDB_TIER_NONE;
+  deferred_acc_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED );
+}
+
+/* Spill aborted before publish: RAM still owns the versions, so only
+   the ovl slots go. */
+
+static void
+olog_discard_one( fd_accdb_t *                accdb,
+                  ushort                      f,
+                  fd_accdb_olog_rec_t const * rec ) {
+  fd_accdb_idx_slot_t old;
+  fd_accdb_idx_delete( accdb->ovl, accdb->shmem->seed, rec->pubkey, f, UINT_MAX, &old );
+}
+
+static void
+olog_purge_one( fd_accdb_t *                accdb,
+                ushort                      f,
+                fd_accdb_olog_rec_t const * rec ) {
+  olog_drop_ram( accdb, f, rec );
+  fd_accdb_idx_slot_t old;
+  if( !fd_accdb_idx_delete( accdb->ovl, accdb->shmem->seed, rec->pubkey, f, UINT_MAX, &old ) ) return;
+  if( old.lamports ) {
+    ulong sz = sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( old.exec_size );
+    fd_accdb_shmem_bytes_freed( accdb->shmem, old.off_plus1-1UL, sz );
+    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, sz );
+  }
+  FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->accounts_total, 1UL );
+}
+
+/* Rooting a spilled fork: older acc_map versions of the key are now
+   superseded (upstream cleanup), then the version goes straight to the
+   bucket with the same hot fix-up as demotion (I8). */
+
+/* Order keeps the version reachable at every step: older acc_map
+   versions go first (readers then reach V through its RAM copy or
+   ovl), the bucket and hot tiers next, the RAM copy and ovl slot
+   last. */
+
+static void
+olog_root_one( fd_accdb_t *                accdb,
+               ushort                      f,
+               fd_accdb_olog_rec_t const * rec ) {
+  fd_accdb_idx_slot_t s, old;
+  delta_insert( accdb, rec->pubkey ); /* the fork's txn list went with the spill */
+  if( !fd_accdb_idx_lookup( accdb->ovl, accdb->shmem->seed, rec->pubkey, f, &s ) ) { olog_drop_ram( accdb, f, rec ); return; }
+  ulong chain = idx_chain_of( accdb, rec->pubkey );
+  uint prev = UINT_MAX, cur = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
+  while( cur!=UINT_MAX ) {
+    fd_accdb_accmeta_t * c = &accdb->acc_pool[ cur ];
+    uint nx = FD_VOLATILE_CONST( c->map.next );
+    if( !memcmp( c->key.pubkey, rec->pubkey, 32UL ) && c->key.generation<s.generation ) {
+      acc_unlink( accdb, (uint)chain, prev, cur );
+      deferred_acc_append( accdb, cur );
+      accdb->tier[ cur ] = FD_ACCDB_TIER_NONE;
+    } else {
+      prev = cur;
+    }
+    cur = nx;
+  }
+  if( !s.lamports ) {
+    idx_root_tomb( accdb, rec->pubkey, s.generation );
+    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->accounts_total, 1UL );
+  } else {
+    fd_accdb_accmeta_t tmp = {0};
+    memcpy( tmp.key.pubkey, rec->pubkey, 32UL );
+    tmp.key.generation  = s.generation;
+    tmp.lamports        = s.lamports;
+    tmp.executable_size = s.exec_size;
+    bkt_commit( accdb, &tmp, s.off_plus1-1UL );
+    hot_purge( accdb, rec->pubkey, 1 );
+  }
+  olog_drop_ram( accdb, f, rec );
+  fd_accdb_idx_delete( accdb->ovl, accdb->shmem->seed, rec->pubkey, f, UINT_MAX, &old );
+}
+
+static void
+ovl_fork_done( fd_accdb_t * accdb,
+               ushort       f FD_FN_UNUSED ) {
+  FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->ovl_fork_cnt, 1UL );
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->ovl_epoch, 1UL );
+}
+
+/* idx_spilled_purge / idx_spilled_root (T2, inside a cmd). */
+
+static void
+idx_spilled_purge( fd_accdb_t * accdb,
+                   ushort       f ) {
+  fd_accdb_idx_fork_t * xf = idx_fork( accdb, f );
+  int was = (int)xf->spilled;
+  if( accdb->shmem->spill_fork==f ) { accdb->shmem->spill_fork = USHORT_MAX; olog_walk( accdb, f, olog_discard_one ); return; }
+  if( was ) { olog_walk( accdb, f, olog_purge_one ); ovl_fork_done( accdb, f ); }
+  else *xf = (fd_accdb_idx_fork_t){ .olog_head = UINT_MAX, .olog_tail = UINT_MAX };
+}
+
+static void
+idx_spilled_root( fd_accdb_t * accdb,
+                  ushort       f ) {
+  fd_accdb_idx_fork_t * xf = idx_fork( accdb, f );
+  if( accdb->shmem->spill_fork==f ) { /* logged, not published: RAM intact */
+    accdb->shmem->spill_fork = USHORT_MAX;
+    olog_walk( accdb, f, olog_discard_one );
+    return;
+  }
+  int was = (int)xf->spilled;
+  if( was ) { olog_walk( accdb, f, olog_root_one ); ovl_fork_done( accdb, f ); }
+  else *xf = (fd_accdb_idx_fork_t){ .olog_head = UINT_MAX, .olog_tail = UINT_MAX };
+}
+
+/* acc_map_insert_ordered (T2): publishes initialized node idx before
+   the first same-key node with a lower generation (§15 R6).  T2 is the
+   only interior mutator; releases only prepend. */
+
+static void
+acc_map_insert_ordered( fd_accdb_t * accdb,
+                        ulong        chain,
+                        uint         idx ) {
+  fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
+  uint prev = UINT_MAX, cur = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
+  while( cur!=UINT_MAX ) {
+    fd_accdb_accmeta_t const * c = &accdb->acc_pool[ cur ];
+    if( !memcmp( c->key.pubkey, a->key.pubkey, 32UL ) && c->key.generation<a->key.generation ) break;
+    prev = cur; cur = c->map.next;
+  }
+  if( prev==UINT_MAX ) {
+    for(;;) {
+      uint head = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
+      if( head!=cur ) { /* a release prepended: re-find from the new head */
+        prev = head;
+        while( accdb->acc_pool[ prev ].map.next!=cur ) prev = accdb->acc_pool[ prev ].map.next;
+        a->map.next = cur;
+        FD_COMPILER_MFENCE();
+        FD_VOLATILE( accdb->acc_pool[ prev ].map.next ) = idx;
+        return;
+      }
+      a->map.next = cur;
+      FD_COMPILER_MFENCE();
+      if( FD_ATOMIC_CAS( &accdb->acc_map[ chain ], cur, idx )==cur ) return;
+    }
+  }
+  a->map.next = cur;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( accdb->acc_pool[ prev ].map.next ) = idx;
+}
+
+/* unspill_evict_one (T2): drops the oldest live unspilled copy not
+   protected for a residual waiter (the ovl slot still holds the
+   version, so a later reader unspills again).  0 if none qualifies. */
+
+static int
+unspill_evict_one( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong * fifo = (ulong *)( (uchar *)shmem + shmem->unspill_off );
+  ulong   n    = shmem->unspill_head-shmem->unspill_tail;
+  for( ulong k=0UL; k<n; k++ ) {
+    ulong e   = fifo[ (shmem->unspill_tail++) % FD_ACCDB_UNSPILL_MAX ];
+    uint  idx = (uint)(e>>32);
+    if( accdb->tier[ idx ]!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ idx ].key.generation!=(uint)e ) continue; /* stale */
+    if( accdb->hot_ref[ idx ]==FD_ACCDB_HOT_REF_PROT ) { fifo[ (shmem->unspill_head++) % FD_ACCDB_UNSPILL_MAX ] = e; continue; }
+    fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
+    ulong chain = idx_chain_of( accdb, a->key.pubkey );
+    uint prev = UINT_MAX, cur = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
+    while( cur!=idx ) { prev = cur; cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next ); }
+    acc_chain_splice( accdb, (uint)chain, prev, idx );
+    acc_cache_teardown( accdb, a, 0 );
+    accdb->tier[ idx ] = FD_ACCDB_TIER_NONE;
+    shmem->unspill_cnt--;
+    FD_TEST( bg_defer_append( accdb, idx | FD_ACCDB_DEFER_MIGRATED ) );
+    accdb->metrics->unspill_evicted++;
+    return 1;
+  }
+  return 0;
+}
+
+/* idx_unspill (T2): re-materializes the version of pubkey in spilled
+   fork f into acc_map, in generation order (§15 R6), and records the
+   RAM copy in f's log (R8).  Returns 1 if found, 0 if absent, -1 if
+   resources are short (retry). */
+
+static int
+idx_unspill( fd_accdb_t * accdb,
+             ushort       f,
+             uchar const  pubkey[ 32 ],
+             uint *       out_idx ) {
+  fd_accdb_idx_slot_t s;
+  if( !fd_accdb_idx_lookup( accdb->ovl, accdb->shmem->seed, pubkey, f, &s ) ) return 0;
+  ulong chain = idx_chain_of( accdb, pubkey );
+  for( uint cur=FD_VOLATILE_CONST( accdb->acc_map[ chain ] ); cur!=UINT_MAX; cur=accdb->acc_pool[ cur ].map.next ) {
+    fd_accdb_accmeta_t const * c = &accdb->acc_pool[ cur ];
+    if( !memcmp( c->key.pubkey, pubkey, 32UL ) && c->key.generation==s.generation && fd_accdb_acc_fork_id( c )==f ) {
+      if( accdb->tier[ cur ]==FD_ACCDB_TIER_UNSPILL ) *out_idx = cur;
+      return 1;
+    }
+  }
+  if( !bg_defer_room( accdb, 2UL ) ) return -1;
+  if( accdb->shmem->unspill_cnt>=accdb->shmem->unspill_cap && !unspill_evict_one( accdb ) ) return -1;
+  fd_accdb_accmeta_t * a = idx_pool_take( accdb, accdb->shmem->promote_reserve/2UL );
+  if( FD_UNLIKELY( !a ) ) { unspill_evict_one( accdb ); return -1; } /* slot returns at the next drain */
+  uint idx = (uint)acc_pool_idx( accdb->acc_pool_join, a );
+  memcpy( a->key.pubkey, pubkey, 32UL );
+  a->key.generation  = s.generation;
+  a->lamports        = s.lamports;
+  a->executable_size = s.exec_size | ( s.pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U );
+  a->offset_fork     = fd_accdb_acc_pack_offset_fork( s.lamports ? s.off_plus1-1UL : FD_ACCDB_OFF_INVAL, f );
+  a->cache_idx       = FD_ACCDB_ACC_CIDX_INVAL;
+
+  acc_map_insert_ordered( accdb, chain, idx );
+  accdb->tier[ idx ] = FD_ACCDB_TIER_UNSPILL;
+  accdb->hot_ref[ idx ] = 0;
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong * fifo = (ulong *)( (uchar *)shmem + shmem->unspill_off );
+  if( FD_UNLIKELY( shmem->unspill_head-shmem->unspill_tail>=FD_ACCDB_UNSPILL_MAX ) ) {
+    /* drop stale and duplicate entries (mark bit 7 of hot_ref, which
+       FG never touches for acc_map nodes), order kept; distinct live
+       copies <= cap < MAX leaves room */
+    ulong w = shmem->unspill_tail;
+    for( ulong r=shmem->unspill_tail; r<shmem->unspill_head; r++ ) {
+      ulong e = fifo[ r % FD_ACCDB_UNSPILL_MAX ];
+      uint  i = (uint)(e>>32);
+      if( accdb->tier[ i ]!=FD_ACCDB_TIER_UNSPILL || accdb->acc_pool[ i ].key.generation!=(uint)e || (accdb->hot_ref[ i ] & 0x80) ) continue;
+      accdb->hot_ref[ i ] |= 0x80;
+      fifo[ (w++) % FD_ACCDB_UNSPILL_MAX ] = e;
+    }
+    for( ulong r=shmem->unspill_tail; r<w; r++ ) accdb->hot_ref[ fifo[ r % FD_ACCDB_UNSPILL_MAX ]>>32 ] &= 0x7F;
+    shmem->unspill_head = w;
+  }
+  fifo[ (shmem->unspill_head++) % FD_ACCDB_UNSPILL_MAX ] = ((ulong)idx<<32) | s.generation;
+  shmem->unspill_cnt++;
+
+  /* record ram_idx on the log entry */
+  fd_accdb_idx_fork_t * xf = idx_fork( accdb, f );
+  fd_accdb_olog_rec_t * buf = (fd_accdb_olog_rec_t *)accdb->stage; /* idle outside preevict */
+  ulong left = xf->olog_cnt;
+  for( uint c=xf->olog_head; c!=UINT_MAX; c=olog_next( accdb )[ c ] ) {
+    ulong n = fd_ulong_min( left, FD_ACCDB_OLOG_CHUNK );
+    fd_accdb_idx_io( accdb->bkt->fd, 0, buf, n*sizeof(fd_accdb_olog_rec_t), olog_rec_off( accdb, c, 0UL ) );
+    for( ulong i=0UL; i<n; i++ ) {
+      if( memcmp( buf[ i ].pubkey, pubkey, 32UL ) ) continue;
+      buf[ i ].ram_idx = idx;
+      fd_accdb_idx_io( accdb->bkt->fd, 1, &buf[ i ], sizeof(fd_accdb_olog_rec_t), olog_rec_off( accdb, c, i ) );
+      accdb->metrics->unspilled++;
+      *out_idx = idx;
+      return 1;
+    }
+    left -= n;
+  }
+  FD_LOG_CRIT(( "ovl version without a log record" ));
+}
+
+FD_STATIC_ASSERT( FD_ACCDB_OLOG_CHUNK*sizeof(fd_accdb_olog_rec_t)<=PREEVICT_STAGE_SZ, olog_buf );
+
+/* idx_ovl_serve (T2): a reader on fork_id missed with a possible ovl
+   version.  Unspills the newest visible spilled version if it is newer
+   than the reader's acc_map match.  Returns as idx_unspill. */
+
+static int
+idx_ovl_serve( fd_accdb_t * accdb,
+               ushort       fork_id,
+               uchar const  pubkey[ 32 ],
+               uint *       out_idx,
+               uint *       out_gen ) {
+  fd_accdb_fork_t const * fork = &accdb->fork_pool[ fork_id ];
+  uint root_gen = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+  uint floor    = 0U;
+  for( uint cur=accdb->acc_map[ idx_chain_of( accdb, pubkey ) ]; cur!=UINT_MAX; cur=accdb->acc_pool[ cur ].map.next ) {
+    fd_accdb_accmeta_t const * c = &accdb->acc_pool[ cur ];
+    if( memcmp( c->key.pubkey, pubkey, 32UL ) ) continue;
+    if( c->key.generation>root_gen && fd_accdb_acc_fork_id( c )!=fork_id && !descends_set_test( fork->descends, fd_accdb_acc_fork_id( c ) ) ) continue;
+    floor = c->key.generation;
+    if( accdb->tier[ cur ]==FD_ACCDB_TIER_UNSPILL ) *out_idx = cur;
+    break;
+  }
+  fd_accdb_idx_slot_t s;
+  ushort f = ovl_search( accdb, fork, fork_id, pubkey, floor, &s );
+  *out_gen = f==USHORT_MAX ? floor : s.generation;
+  return f==USHORT_MAX ? 0 : idx_unspill( accdb, f, pubkey, out_idx );
+}
+
 /* ---- Promote rings (§6.2, §6.3, §15 R3/R12/R14/R16) ----------------- */
 
 /* ring_push: reserve with a CAS after the fullness check, publish seq.
@@ -5263,6 +5957,8 @@ ring_push( fd_accdb_t *  accdb,
            fd_accdb_ring_t * ring,
            uchar const   pubkey[ 32 ],
            uint          flags,
+           ushort        ovl_fork,
+           ushort        slot,
            int           wait ) {
   fd_accdb_req_t * ele = (fd_accdb_req_t *)( (uchar *)accdb->shmem + ring->ele_off );
   ulong t;
@@ -5278,8 +5974,10 @@ ring_push( fd_accdb_t *  accdb,
   }
   fd_accdb_req_t * r = &ele[ t & (ring->cap-1UL) ];
   memcpy( r->pubkey, pubkey, 32UL );
-  r->flags  = flags;
-  r->joiner = accdb->joiner_idx;
+  r->flags    = flags;
+  r->ovl_fork = ovl_fork;
+  r->slot     = slot;
+  r->joiner   = accdb->joiner_idx;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( r->seq ) = t+1UL;
   return t;
@@ -5302,11 +6000,12 @@ fd_accdb_prefetch( fd_accdb_t *          accdb,
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   for( ulong i=0UL; i<cnt; i++ ) {
     ulong hash = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-    int known;
-    idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], hash, 0, &known );
-    if( known ) continue;
+    int    known;
+    ushort ovl_f;
+    idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], hash, 0, 0, &known, &ovl_f );
+    if( known || ovl_f!=USHORT_MAX ) continue;
     if( !fd_accdb_cf_probe( accdb->cf, pubkeys[ i ] ) ) continue;
-    if( ring_push( accdb, accdb->shmem->ring_hint, pubkeys[ i ], warm ? FD_ACCDB_REQ_WARM_PD : 0U, 0 )==ULONG_MAX ) accdb->metrics->prefetch_dropped++;
+    if( ring_push( accdb, accdb->shmem->ring_hint, pubkeys[ i ], warm ? FD_ACCDB_REQ_WARM_PD : 0U, USHORT_MAX, 0, 0 )==ULONG_MAX ) accdb->metrics->prefetch_dropped++;
     else                                                                                                           accdb->metrics->prefetch_pushed++;
   }
   FD_COMPILER_MFENCE();
@@ -5321,17 +6020,29 @@ fd_accdb_prefetch( fd_accdb_t *          accdb,
 static void
 idx_residual_wait( fd_accdb_t *          accdb,
                    ulong                 cnt,
-                   uchar const * const * keys ) {
+                   uchar const * const * keys,
+                   ushort const *        ovl_forks ) {
   FD_TEST( FD_VOLATILE_CONST( *accdb->my_epoch_slot )==ULONG_MAX );
   fd_accdb_ring_t * ring = accdb->shmem->ring_res;
-  ulong last = 0UL;
-  for( ulong i=0UL; i<cnt; i++ ) last = ring_push( accdb, ring, keys[ i ], FD_ACCDB_REQ_WARM_PD, 1 );
+  ulong last  = 0UL;
+  ulong epoch = FD_VOLATILE_CONST( accdb->shmem->ovl_epoch );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ushort f = ovl_forks ? ovl_forks[ i ] : USHORT_MAX;
+    last = ring_push( accdb, ring, keys[ i ], FD_ACCDB_REQ_WARM_PD | (f!=USHORT_MAX ? FD_ACCDB_REQ_UNSPILL : 0U), f, (ushort)i, 1 );
+  }
   long t0 = fd_tickcount();
   if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
   while( FD_VOLATILE_CONST( ring->done )<=last ) FD_SPIN_PAUSE();
   accdb->metrics->residual_waits++;
   accdb->metrics->residual_wait_ticks += (ulong)( fd_tickcount()-t0 );
   accdb->residual_ticket = last;
+  /* T2 searched every visible spilled fork and unspilled the newest
+     hit, so acc_map now answers for these keys until the next spill
+     or spilled-fork root/purge (R4). */
+  uint const * ans = (uint const *)( (uchar const *)accdb->shmem + accdb->shmem->ovl_ans_off )+accdb->joiner_idx*FD_ACCDB_MAX_ACQUIRE_CNT;
+  for( ulong i=0UL; ovl_forks && i<cnt; i++ ) {
+    if( ovl_forks[ i ]!=USHORT_MAX ) ovl_res_insert( accdb, keys[ i ], accdb->fork_pool[ ovl_forks[ i ] ].shmem->generation, FD_VOLATILE_CONST( ans[ i ] ), epoch );
+  }
 }
 
 /* T2 side ---------------------------------------------------------- */
@@ -5356,9 +6067,10 @@ idx_promote( fd_accdb_t * accdb,
   uint  prev;
   uint  idx = hot_find( accdb, chain, pubkey, &prev );
   if( idx==UINT_MAX ) {
-    /* acc_map first: a version there makes the request moot */
+    /* a rooted acc_map version (visible to every fork) makes it moot */
+    uint root_gen = accdb->fork_pool[ shmem->root_fork_id.val ].shmem->generation;
     uint a = FD_VOLATILE_CONST( accdb->acc_map[ chain ] );
-    while( a!=UINT_MAX && memcmp( accdb->acc_pool[ a ].key.pubkey, pubkey, 32UL ) ) a = accdb->acc_pool[ a ].map.next;
+    while( a!=UINT_MAX && ( memcmp( accdb->acc_pool[ a ].key.pubkey, pubkey, 32UL ) || accdb->acc_pool[ a ].key.generation>root_gen ) ) a = accdb->acc_pool[ a ].map.next;
     if( a!=UINT_MAX ) return UINT_MAX;
     if( !bg_defer_room( accdb, 1UL ) ) return UINT_MAX;
     fd_accdb_accmeta_t * h = idx_pool_take( accdb, residual ? shmem->promote_reserve/2UL : shmem->promote_reserve );
@@ -5492,9 +6204,28 @@ ring_serve( fd_accdb_t *      accdb,
     if( FD_VOLATILE_CONST( r->seq )!=h+1UL ) break;
     FD_COMPILER_MFENCE();
     uchar key[ 32 ]; memcpy( key, r->pubkey, 32UL );
-    uint flags  = r->flags;
-    uint joiner = r->joiner;
+    uint   flags  = r->flags;
+    uint   joiner = r->joiner;
+    ushort of     = r->ovl_fork;
+    ushort slot   = r->slot;
     FD_COMPILER_MFENCE();
+    if( FD_UNLIKELY( flags & FD_ACCDB_REQ_UNSPILL ) ) {
+      uint uidx = UINT_MAX, ugen = 0U;
+      int ok = idx_ovl_serve( accdb, of, key, &uidx, &ugen );
+      if( FD_UNLIKELY( ok<0 ) ) break; /* pool or defer ring short: drains free both, retry next call */
+      FD_VOLATILE( ((uint *)( (uchar *)accdb->shmem + accdb->shmem->ovl_ans_off ))[ joiner*FD_ACCDB_MAX_ACQUIRE_CNT+slot ] ) = ugen;
+      if( uidx!=UINT_MAX && accdb->shmem->prot_head-accdb->shmem->prot_tail<FD_ACCDB_PROT_MAX ) {
+        fd_accdb_prot_t * prot = (fd_accdb_prot_t *)( (uchar *)accdb->shmem + accdb->shmem->prot_off );
+        prot[ accdb->shmem->prot_head % FD_ACCDB_PROT_MAX ] = (fd_accdb_prot_t){ .idx=uidx, .joiner=joiner, .ticket=h };
+        accdb->shmem->prot_head++;
+        accdb->hot_ref[ uidx ] = FD_ACCDB_HOT_REF_PROT;
+      }
+      FD_VOLATILE( ring->head ) = h+1UL;
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( ring->done ) = h+1UL;
+      n++;
+      continue;
+    }
     FD_VOLATILE( ring->head ) = h+1UL;
     uint idx = idx_promote( accdb, key, flags, residual );
     if( residual && idx!=UINT_MAX && accdb->shmem->prot_head-accdb->shmem->prot_tail<FD_ACCDB_PROT_MAX ) {
@@ -5520,7 +6251,8 @@ prot_release( fd_accdb_t * accdb ) {
   while( shmem->prot_tail<shmem->prot_head ) {
     fd_accdb_prot_t * p = &prot[ shmem->prot_tail % FD_ACCDB_PROT_MAX ];
     if( FD_VOLATILE_CONST( shmem->res_ack[ p->joiner ] )<=p->ticket ) break;
-    if( accdb->tier[ p->idx ]==FD_ACCDB_TIER_HOT && accdb->hot_ref[ p->idx ]==FD_ACCDB_HOT_REF_PROT ) accdb->hot_ref[ p->idx ] = 1;
+    uchar t = accdb->tier[ p->idx ];
+    if( ( t==FD_ACCDB_TIER_HOT || t==FD_ACCDB_TIER_UNSPILL ) && accdb->hot_ref[ p->idx ]==FD_ACCDB_HOT_REF_PROT ) accdb->hot_ref[ p->idx ] = t==FD_ACCDB_TIER_HOT;
     shmem->prot_tail++;
   }
 }
@@ -5534,6 +6266,110 @@ fd_accdb_idx_busy( fd_accdb_t const * accdb ) {
          FD_VOLATILE_CONST( shmem->pool_avail )<2UL*shmem->promote_reserve;
 }
 
+/* idx_write_tomb (T2): a tombstone that lost its line (spill) gets a
+   72 B record, so an overwrite on a thawed fork never waits on an
+   offset nobody will publish (acquire STEP 11). */
+
+static void
+idx_write_tomb( fd_accdb_t *         accdb,
+                fd_accdb_accmeta_t * a ) {
+  fd_accdb_disk_meta_t meta = {0};
+  memcpy( meta.pubkey, a->key.pubkey, 32UL );
+  meta.generation = a->key.generation;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+  ulong off = allocate_next_write( accdb, sizeof(meta) );
+  for( ulong put=0UL; put<sizeof(meta); ) {
+    struct iovec v = { .iov_base = (uchar *)&meta+put, .iov_len = sizeof(meta)-put };
+    long r = pwritev2( accdb->fd, &v, 1, (long)(off+put), 0 );
+    if( FD_UNLIKELY( -1==r && errno==EINTR ) ) continue;
+    if( FD_UNLIKELY( r<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    put += (ulong)r;
+  }
+  accdb->metrics->write_ops++;
+  accdb->metrics->bytes_written += sizeof(meta);
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_used_bytes, sizeof(meta) );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( a->offset_fork ) = fd_accdb_acc_pack_offset_fork( off, fd_accdb_acc_fork_id( a ) );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+}
+
+/* background_thaw (T2): replay unparks a fork T2 claimed.  A spill in
+   progress is discarded.  A spilled fork's versions return to acc_map
+   with txn records (reusing live unspilled copies), one olog chunk per
+   call; a record is done once its ovl slot is gone, so a slice cut
+   short by the pool resumes where it stopped.  Returns work done. */
+
+static ulong
+background_thaw( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong tf = FD_VOLATILE_CONST( shmem->thaw_fork );
+  if( FD_LIKELY( tf==USHORT_MAX ) ) return 0UL;
+  ushort                f  = (ushort)tf;
+  fd_accdb_idx_fork_t * xf = idx_fork( accdb, f );
+  fd_accdb_fork_t *     fk = &accdb->fork_pool[ f ];
+  ulong work = 1UL;
+  if( shmem->spill_fork==f ) {
+    shmem->spill_fork = USHORT_MAX;
+    olog_walk( accdb, f, olog_discard_one ); /* resets frozen */
+  } else if( xf->spilled ) {
+    fd_accdb_olog_rec_t * buf = (fd_accdb_olog_rec_t *)accdb->stage; /* idle outside preevict */
+    if( xf->olog_head!=UINT_MAX ) {
+      uint  c = xf->olog_head;
+      ulong n = fd_ulong_min( xf->olog_cnt, FD_ACCDB_OLOG_CHUNK );
+      fd_accdb_idx_io( accdb->bkt->fd, 0, buf, n*sizeof(fd_accdb_olog_rec_t), olog_rec_off( accdb, c, 0UL ) );
+      for( ulong i=0UL; i<n; i++ ) {
+        fd_accdb_olog_rec_t const * rec = &buf[ i ];
+        fd_accdb_idx_slot_t s, old;
+        if( !fd_accdb_idx_lookup( accdb->ovl, shmem->seed, rec->pubkey, f, &s ) ) continue; /* restored */
+        uint idx;
+        if( rec->ram_idx!=UINT_MAX && unspill_live( accdb, rec->ram_idx, f, rec->pubkey ) ) {
+          idx = rec->ram_idx;
+          shmem->unspill_cnt--;
+        } else {
+          fd_accdb_accmeta_t * a = idx_pool_take( accdb, 0UL );
+          if( FD_UNLIKELY( !a ) ) return work; /* spill and eviction free more */
+          idx = (uint)acc_pool_idx( accdb->acc_pool_join, a );
+          memcpy( a->key.pubkey, rec->pubkey, 32UL );
+          a->key.generation  = s.generation;
+          a->lamports        = s.lamports;
+          a->executable_size = s.exec_size | ( s.pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U );
+          a->offset_fork     = fd_accdb_acc_pack_offset_fork( s.lamports ? s.off_plus1-1UL : FD_ACCDB_OFF_INVAL, f );
+          a->cache_idx       = FD_ACCDB_ACC_CIDX_INVAL;
+          acc_map_insert_ordered( accdb, idx_chain_of( accdb, rec->pubkey ), idx );
+        }
+        accdb->tier   [ idx ] = FD_ACCDB_TIER_NONE;
+        accdb->hot_ref[ idx ] = 0;
+        fd_accdb_accmeta_t * a = &accdb->acc_pool[ idx ];
+        if( !a->lamports && fd_accdb_acc_offset( a )==FD_ACCDB_OFF_INVAL ) idx_write_tomb( accdb, a );
+        fd_accdb_txn_t * t = txn_pool_acquire( accdb->txn_pool );
+        FD_TEST( t ); /* records <= RAM versions <= pool */
+        t->acc_pool_idx = idx;
+        t->fork.next    = fk->shmem->txn_head;
+        FD_VOLATILE( fk->shmem->txn_head ) = (uint)txn_pool_idx( accdb->txn_pool, t );
+        fd_accdb_idx_delete( accdb->ovl, shmem->seed, rec->pubkey, f, UINT_MAX, &old ); /* bytes now owned by idx */
+        work++;
+      }
+      xf->olog_head = olog_next( accdb )[ c ];
+      olog_next( accdb )[ c ] = shmem->olog_free;
+      shmem->olog_free = c;
+      xf->olog_cnt -= n;
+      if( xf->olog_head!=UINT_MAX ) return work;
+    }
+    FD_COMPILER_MFENCE();
+    *xf = (fd_accdb_idx_fork_t){ .olog_head = UINT_MAX, .olog_tail = UINT_MAX };
+    ovl_fork_done( accdb, f );
+  } else {
+    FD_VOLATILE( xf->frozen ) = 0U;
+  }
+  accdb->metrics->forks_thawed++;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->thaw_fork ) = USHORT_MAX;
+  return work;
+}
+
 /* background_idx: index-mode T2 maintenance, one bounded slice per
    call.  Bucket writes stop while a snapshot is being produced. */
 
@@ -5542,7 +6378,21 @@ background_idx( fd_accdb_t * accdb,
                 int *        charge_busy ) {
   int producing = fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE;
   prot_release( accdb );
-  ulong work = background_hot_evict( accdb );
+  ulong work = background_thaw( accdb );
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_UNLIKELY( idx_pool_free( accdb )<2UL*shmem->promote_reserve &&
+                   ( shmem->deferred_acc_buf_cnt || accdb->deferred_fork_head ) ) ) {
+    /* under pressure, return the last cmd's batch without waiting for
+       the next cmd, once no joiner can still see it */
+    ulong min_ep = min_joiner_epoch( accdb );
+    if( ( !shmem->deferred_acc_buf_cnt || shmem->deferred_acc_epoch<min_ep ) &&
+        ( !accdb->deferred_fork_head   || accdb->deferred_fork_epoch<min_ep ) ) {
+      drain_deferred_frees( accdb );
+      work++;
+    }
+  }
+  work += background_hot_evict( accdb );
+  work += background_spill( accdb );
   if( !producing ) work += background_demote( accdb );
   bg_defer_seal( accdb );
   work += bg_defer_drain( accdb );

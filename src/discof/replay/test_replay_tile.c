@@ -268,6 +268,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
 #define fd_accdb_flush_metrics(a)            do { if( a ) (fd_accdb_flush_metrics)(a); } while(0)
+#define fd_accdb_fork_freeze(a,f)            do { if( a ) (fd_accdb_fork_freeze)(a,f); } while(0)
+#define fd_accdb_fork_thaw(a,f)              do { if( a ) (fd_accdb_fork_thaw)(a,f); } while(0)
 #define fd_txncache_metrics_snap(t,o)        do { if( t ) (fd_txncache_metrics_snap)(t,o); else memset( (o), 0, sizeof(*(o)) ); } while(0)
 #define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
@@ -613,7 +615,8 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   fd_bank_t * bank = fd_banks_root( ctx->banks );
   FD_TEST( bank );
   FD_TEST( bank->cost_tracker_fork_id==USHORT_MAX );
-  bank->refcnt = 1UL;
+  bank->refcnt        = 1UL;
+  bank->exec_task_cnt = 1UL;
 
   /* Dispatch pins the bank's cost tracker until the task is done. */
   fd_cost_tracker_store_t * cost_tracker_store = fd_bank_cost_tracker( bank );
@@ -684,6 +687,7 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
                              sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
 
   FD_TEST( bank->refcnt==0UL );
+  FD_TEST( bank->exec_task_cnt==0UL );
   FD_TEST( mock_sched_task_done_cnt==1UL );
   FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_EXEC );
   FD_TEST( mock_sched_task_done_txn_idx==mock_sched_txn_idx );
