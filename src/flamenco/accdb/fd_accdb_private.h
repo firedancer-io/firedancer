@@ -572,6 +572,28 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_resident; /* RAM entries before the spill tier  */
   ulong deferred_acc_stage;    /* stage chunk entries, 0 = no spill  */
 
+  /* Disk index (index_ram_entries!=0).  RAM-only mode keeps every
+     field below at its RAM-only value and appends no region. */
+
+  ulong index_ram_entries;  /* 0 = RAM-only                        */
+  ulong acc_pool_max;       /* acc_pool capacity                   */
+  ulong txn_pool_max;       /* txn_pool capacity                   */
+  ulong acc_map_off;        /* region offsets for layout mirrors   */
+  ulong acc_pool_off;
+
+  ulong idx_bkt_npage;      /* bkt region pages                    */
+  ulong idx_bkt_seq_off;
+  ulong idx_cf_nb;          /* cuckoo buckets                      */
+  ulong idx_cf_off;
+  ulong idx_cf_stash_off;
+  ulong idx_cf_stash_cnt;
+  ulong idx_cf_disabled;
+  ulong idx_hot_chain_cnt;  /* pow2                                */
+  ulong idx_hot_map_off;
+  ulong idx_file_sz;        /* bytes fallocated at boot            */
+
+  ulong idx_cf_seq __attribute__((aligned(64)));
+
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];
   txn_pool_shmem_t  txn_pool [1];

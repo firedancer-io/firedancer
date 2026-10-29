@@ -42,7 +42,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
                                              TEST_SYSVAR_WRITES_PER_SLOT,
                                              TEST_SYSVAR_PARTITION_CNT,
                                              TEST_SYSVAR_CACHE_FOOTPRINT,
-                                             TEST_SYSVAR_CACHE_MIN_RESERVED, 1UL, 0UL );
+                                             TEST_SYSVAR_CACHE_MIN_RESERVED, 1UL, 0UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
@@ -53,14 +53,14 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
                           TEST_SYSVAR_PARTITION_CNT,
                           TEST_SYSVAR_PARTITION_SZ,
                           TEST_SYSVAR_CACHE_FOOTPRINT,
-                          TEST_SYSVAR_CACHE_MIN_RESERVED, 0, 42UL, 1UL, 0UL ) );
+                          TEST_SYSVAR_CACHE_MIN_RESERVED, 0, 42UL, 1UL, 0UL, 0UL ) );
   FD_TEST( shmem );
 
   ulong join_fp = fd_accdb_footprint( TEST_SYSVAR_MAX_LIVE_SLOTS, 0 );
   FD_TEST( join_fp );
   void * join_mem = aligned_alloc( fd_accdb_align(), join_fp );
   FD_TEST( join_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( join_mem, shmem, accdb_fd, -1, 0UL, NULL, NULL, 0UL, 0 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( join_mem, shmem, accdb_fd, -1, 0UL, NULL, NULL, 0UL, 0, -1 ) );
   FD_TEST( accdb );
 
   /* Allocate a single bank in the test wksp. */

@@ -485,6 +485,15 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_SCRATCH_FD, F_SETFD, !strcmp( tile->name, "accdb" ) ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+        /* Index fds: explicit per-tile table, never derived from accdb
+           usage, so every holder has a matching seccomp allowlist. */
+        int tile_uses_idx_rw = !strcmp( tile->name, "accdb" );
+        int tile_uses_idx_ro = !strcmp( tile->name, "rpc" ) || !strcmp( tile->name, "resolv" );
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RW, F_SETFD, tile_uses_idx_rw ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_IDX_FD_RO, F_SETFD, tile_uses_idx_ro ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         } else {
@@ -610,6 +619,8 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_SCRATCH_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_TXNCACHE_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_VOTOR_SPILL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_EVENT_SPOOL_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1259,6 +1270,30 @@ initialize_accdb_fd( config_t const * config ) {
   }
   if( FD_UNLIKELY( -1==dup2( spill_fd, FD_ACCDB_SCRATCH_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Index file: rebuilt from the snapshot every boot, so it is
+     truncated and unlinked at once (dev included) and fallocated in
+     full.  Zero length in RAM-only mode. */
+  char idx_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( idx_path, sizeof(idx_path), NULL, "%s.idx", config->paths.accounts ) );
+  int idx_fd = open( idx_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==idx_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( idx_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", idx_path, errno, fd_io_strerror( errno ) ));
+  ulong idx_sz = fd_accdb_idx_file_sz( config->firedancer.accounts.max_accounts, config->firedancer.accounts.index_ram_entries );
+  if( FD_LIKELY( idx_sz ) && FD_UNLIKELY( -1==fallocate( idx_fd, 0, 0L, (long)idx_sz ) ) ) {
+    if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "fallocate() failed (%d-%s). The accounts index file needs %lu GiB of "
+                                                  "disk space at `%s`. Free up disk space, or set "
+                                                  "[accounts.index_ram_entries] to 0 to keep the index in memory.",
+                                                  errno, fd_io_strerror( errno ), (idx_sz+(1UL<<30)-1UL)>>30, idx_path ));
+    else FD_LOG_ERR(( "fallocate() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==dup2( idx_fd, FD_ACCDB_IDX_FD_RW ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( idx_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  FD_TEST( fd_cstr_printf_check( proc_path, sizeof(proc_path), NULL, "/proc/self/fd/%d", FD_ACCDB_IDX_FD_RW ) );
+  int idx_ro_fd = open( proc_path, O_RDONLY|O_NOATIME );
+  if( FD_UNLIKELY( -1==idx_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts index read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( idx_ro_fd, FD_ACCDB_IDX_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( idx_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void

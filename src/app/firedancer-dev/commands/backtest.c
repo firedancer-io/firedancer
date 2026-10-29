@@ -133,6 +133,7 @@ backtest_topo( config_t * config ) {
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
       execrp_tile_cnt+2UL+fd_ulong_if( disable_snap_loader, 1UL, snapin_tile_cnt ),
+      0UL,
       0UL );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 

@@ -129,6 +129,7 @@ snapshot_load_topo( config_t * config ) {
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
       1UL+config->firedancer.layout.snapin_tile_count,
+      0UL,
       0UL );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
@@ -403,20 +404,11 @@ accounts_hist( accounts_hist_t * hist,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( shmem );
 
-  /* Recompute the shmem layout to locate acc_map and acc_pool element
-     storage without taking a writer joiner slot.  This mirrors the
-     layout in fd_accdb_shmem_new and fd_accdb_join_readonly. */
+  /* Locate acc_map and acc_pool without taking a writer joiner slot. */
 
-  ulong max_live_slots              = shmem->max_live_slots;
-  ulong max_accounts                = shmem->max_accounts;
-  ulong chain_cnt                   = shmem->chain_cnt;
-
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-                                  FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-                                  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
-                                  FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
-  uint *               acc_map  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  fd_accdb_accmeta_t * acc_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)                 );
+  ulong                chain_cnt = shmem->chain_cnt;
+  uint *               acc_map   = (uint *)              ( (uchar *)shmem + shmem->acc_map_off  );
+  fd_accdb_accmeta_t * acc_pool  = (fd_accdb_accmeta_t *)( (uchar *)shmem + shmem->acc_pool_off );
 
   /* Walk every hash chain.  Each non-UINT_MAX head index yields a
      linked list of live acc_pool elements via map.next. */

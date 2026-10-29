@@ -2,6 +2,7 @@
 #include "fd_accdb.h"
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_private.h"
+#include "fd_accdb_idx.h"
 #include "../../util/fd_hash32.h"
 
 #if FD_TMPL_USE_HANDHOLDING
@@ -129,6 +130,12 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   /* Preevict write staging, PREEVICT_STAGE_SZ bytes. */
   uchar * stage;
 
+  /* Disk index views, zero in RAM-only mode. */
+  fd_accdb_idx_region_t bkt[1];
+  fd_accdb_cf_t         cf[1];
+  uint *                hot_map;
+  ulong                 idx_rng;
+
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
      snapshot (including tombstones for accounts no longer present in
@@ -246,6 +253,39 @@ fd_accdb_ptr_in_region( fd_accdb_t const * accdb,
 }
 #endif
 
+static inline int
+idx_enabled( fd_accdb_t const * accdb ) {
+  return !!accdb->shmem->index_ram_entries;
+}
+
+static void
+idx_join( fd_accdb_t * accdb,
+          int          idx_fd ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  memset( accdb->bkt, 0, sizeof(accdb->bkt) );
+  memset( accdb->cf,  0, sizeof(accdb->cf)  );
+  accdb->hot_map = NULL;
+  accdb->idx_rng = shmem->seed;
+  if( !shmem->index_ram_entries ) return;
+  *accdb->bkt = (fd_accdb_idx_region_t){
+    .fd    = idx_fd,
+    .page0 = 0UL,
+    .npage = shmem->idx_bkt_npage,
+    .seq   = (uint *)( (uchar *)shmem + shmem->idx_bkt_seq_off ),
+    .salt  = FD_ACCDB_IDX_SALT_B
+  };
+  *accdb->cf = (fd_accdb_cf_t){
+    .cf        = (ulong *)( (uchar *)shmem + shmem->idx_cf_off ),
+    .nb        = shmem->idx_cf_nb,
+    .seed      = shmem->seed,
+    .seq       = &shmem->idx_cf_seq,
+    .stash     = (ulong *)( (uchar *)shmem + shmem->idx_cf_stash_off ),
+    .stash_cnt = &shmem->idx_cf_stash_cnt,
+    .disabled  = &shmem->idx_cf_disabled
+  };
+  accdb->hot_map = (uint *)( (uchar *)shmem + shmem->idx_hot_map_off );
+}
+
 FD_FN_CONST ulong
 fd_accdb_align( void ) {
   return FD_ACCDB_ALIGN;
@@ -271,7 +311,8 @@ fd_accdb_new( void *              ljoin,
               ulong const **      external_epoch_slots,
               fd_sleep_t *        sleep,
               ulong               sleep_tile_id,
-              int                 compaction ) {
+              int                 compaction,
+              int                 idx_fd ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -293,19 +334,18 @@ fd_accdb_new( void *              ljoin,
   }
 
   ulong max_live_slots = shmem->max_live_slots;
-  ulong max_accounts = shmem->max_accounts;
-  ulong max_account_writes_per_slot = shmem->max_account_writes_per_slot;
-  ulong partition_cnt = shmem->partition_cnt;
+  ulong pool_max       = shmem->acc_pool_max;
+  ulong partition_cnt  = shmem->partition_cnt;
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
-  ulong txn_max = max_live_slots * max_account_writes_per_slot;
+  ulong chain_cnt = shmem->chain_cnt;
+  ulong txn_max   = shmem->txn_pool_max;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
                              FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),        max_accounts*sizeof(fd_accdb_accmeta_t)             );
+  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    pool_max*sizeof(fd_accdb_accmeta_t)                     );
   void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
@@ -326,10 +366,11 @@ fd_accdb_new( void *              ljoin,
   accdb->sleep_tile_id = sleep_tile_id;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
-  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, pool_max ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map = _acc_map;
   FD_TEST( txn_pool_join( accdb->txn_pool, shmem->txn_pool, _txn_pool_ele, txn_max ) );
+  idx_join( accdb, idx_fd );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
   accdb->partition_pool = partition_pool_join( _partition_pool );
   FD_TEST( accdb->partition_pool );
@@ -709,7 +750,8 @@ fd_accdb_t *
 fd_accdb_join_readonly( void *             ljoin,
                         fd_accdb_shmem_t * shmem,
                         ulong *            my_epoch_slot_rw,
-                        int                fd_ro ) {
+                        int                fd_ro,
+                        int                idx_fd_ro ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -725,13 +767,12 @@ fd_accdb_join_readonly( void *             ljoin,
     return NULL;
   }
 
-  ulong max_live_slots               = shmem->max_live_slots;
-  ulong max_accounts                 = shmem->max_accounts;
-  ulong max_account_writes_per_slot  = shmem->max_account_writes_per_slot;
-  ulong partition_cnt                = shmem->partition_cnt;
+  ulong max_live_slots = shmem->max_live_slots;
+  ulong pool_max       = shmem->acc_pool_max;
+  ulong partition_cnt  = shmem->partition_cnt;
 
-  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
-  ulong txn_max   = max_live_slots * max_account_writes_per_slot;
+  ulong chain_cnt = shmem->chain_cnt;
+  ulong txn_max   = shmem->txn_pool_max;
 
   /* Recompute the same shmem scratch layout that fd_accdb_shmem_new
      used.  All FD_SCRATCH_ALLOC_APPEND calls here only compute pointer
@@ -741,7 +782,7 @@ fd_accdb_join_readonly( void *             ljoin,
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)                 );
+  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    pool_max*sizeof(fd_accdb_accmeta_t)                     );
                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
                              FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -757,7 +798,8 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->scratch_fd = -1;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
-  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, pool_max ) );
+  idx_join( accdb, idx_fd_ro );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];

@@ -92,7 +92,8 @@ fd_accdb_shmem_footprint( ulong max_accounts,
                           ulong cache_footprint,
                           ulong cache_min_reserved,
                           ulong joiner_cnt,
-                          ulong max_incremental_accounts );
+                          ulong max_incremental_accounts,
+                          ulong index_ram_entries );
 
 void *
 fd_accdb_shmem_new( void * shmem,
@@ -106,7 +107,19 @@ fd_accdb_shmem_new( void * shmem,
                     int    bundle_enabled,
                     ulong  seed,
                     ulong  joiner_cnt,
-                    ulong  max_incremental_accounts );
+                    ulong  max_incremental_accounts,
+                    ulong  index_ram_entries );
+
+/* index_ram_entries: 0 keeps the whole index in the workspace (pool
+   sized max_accounts, the historical layout).  Otherwise the accmeta
+   pool holds that many entries and rooted index slots live in the
+   index file (fd_accdb_idx_file_sz bytes, explicit I/O on
+   FD_ACCDB_IDX_FD_RW).  Index regions are appended after every
+   RAM-only region, so existing offsets never move. */
+
+ulong
+fd_accdb_idx_file_sz( ulong max_accounts,
+                      ulong index_ram_entries );
 
 /* fd_accdb_scratch_sz returns the size of the scratch spill file
    (full deferred-free capacity, fallocated at boot). */

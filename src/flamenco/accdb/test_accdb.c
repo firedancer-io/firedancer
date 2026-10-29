@@ -3,6 +3,7 @@
 #include "fd_accdb.h"
 #include "fd_accdb_cache.h"
 #include "fd_accdb_private.h"
+#include "fd_accdb_idx.h"
 #include "../../util/fd_util.h"
 
 #include <stdlib.h>
@@ -50,14 +51,14 @@ test_setup_ex( int * out_fd,
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL, 0UL ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
 
@@ -65,7 +66,7 @@ test_setup_ex( int * out_fd,
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -86,7 +87,7 @@ test_join_writer( int fd ) {
   ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots, 1 );
   void * mem = aligned_alloc( fd_accdb_align(), fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -919,7 +920,7 @@ test_purge_deep_subtree( void ) {
   FD_TEST( !ftruncate( scratch_fd, (long)fd_accdb_scratch_sz( 64UL, 8192UL ) ) );
   void * t2_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 64UL, 1 ) );
   FD_TEST( t2_mem );
-  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1 ) );
+  fd_accdb_t * t2 = fd_accdb_join( fd_accdb_new( t2_mem, test_shmem_mem, fd, scratch_fd, 0UL, NULL, NULL, 0UL, 1, -1 ) );
   FD_TEST( t2 );
   test_shmem_mem->deferred_acc_resident = 8UL;
   test_shmem_mem->deferred_acc_stage    = 4UL;
@@ -1083,7 +1084,7 @@ test_mainnet_footprint( void ) {
   FD_TEST( max_account_writes_per_slot==321280UL );
   FD_TEST( sizeof(fd_accdb_txn_t)==8UL );
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL, 0UL );
   FD_TEST( shmem_fp );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots, 1 );
@@ -2345,22 +2346,90 @@ test_sentinel_index_wrap( void ) {
      default), so the wrap above is a reachable configuration, not a
      rejected one. */
   ulong fp = fd_accdb_shmem_footprint( 1024UL, 64UL, 8192UL, max_cnt,
-                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL, 0UL );
   FD_TEST( fp ); /* 0 would mean partition_cnt==8192 was rejected */
 }
 
 static void
 test_txn_footprint_growth( void ) {
   ulong fp_64 = fd_accdb_shmem_footprint( 1024UL, 1UL, 64UL, 64UL,
-                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL, 0UL );
   ulong fp_96 = fd_accdb_shmem_footprint( 1024UL, 1UL, 96UL, 64UL,
-                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
+                                          TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL, 0UL );
   FD_TEST( fp_64 );
   FD_TEST( fp_96 );
 
   /* Each additional transaction needs an 8-byte fork-list entry and a
      4-byte deferred-free index.  Both counts increase by 32 here. */
   FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
+}
+
+/* Index primitives: bucket pages with overflow chains and the cuckoo
+   filter at full load, including deletes and a non-pow2 bucket count. */
+
+static void
+test_idx_primitives( void ) {
+  ulong key_max = 4000UL;
+  ulong npage   = fd_accdb_idx_npage( key_max );
+  int fd = memfd_create( "accdb_idx_test", 0 );
+  FD_TEST( fd>=0 );
+  FD_TEST( !ftruncate( fd, (long)(npage*FD_ACCDB_IDX_PAGE_SZ) ) );
+  uint * seq = calloc( fd_accdb_idx_seq_cnt( npage ), sizeof(uint) );
+  fd_accdb_idx_region_t r = { .fd=fd, .page0=0UL, .npage=npage, .seq=seq, .salt=FD_ACCDB_IDX_SALT_B };
+
+  ulong nb = fd_accdb_cf_nb( key_max );
+  FD_TEST( !fd_ulong_is_pow2( nb ) );
+  ulong cf_seq = 0UL, stash_cnt = 0UL, disabled = 0UL;
+  ulong * cfw   = calloc( nb, sizeof(ulong) );
+  ulong * stash = calloc( FD_ACCDB_CF_STASH_MAX, sizeof(ulong) );
+  fd_accdb_cf_t cf = { .cf=cfw, .nb=nb, .seed=7UL, .seq=&cf_seq, .stash=stash, .stash_cnt=&stash_cnt, .disabled=&disabled };
+  ulong rng = 1UL;
+
+  /* involution on a non-pow2 nb */
+  for( ulong b=0UL; b<nb; b+=97UL ) for( ulong fp=1UL; fp<65536UL; fp+=4099UL ) FD_TEST( fd_accdb_cf_alt( &cf, fd_accdb_cf_alt( &cf, b, fp ), fp )==b );
+
+  /* All keys land on few pages via a narrow region to force overflow */
+  fd_accdb_idx_region_t narrow = r; narrow.npage = 8UL;
+  uchar key[ 32 ];
+  for( ulong i=0UL; i<300UL; i++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, i+1UL );
+    fd_accdb_idx_slot_t rec = {0}, old;
+    memcpy( rec.pubkey, key, 32 ); rec.off_plus1 = i+10UL; rec.lamports = i+1UL; rec.generation = 1U;
+    FD_TEST( !fd_accdb_idx_upsert( &narrow, 9UL, &rec, &old ) );
+  }
+  for( ulong i=0UL; i<300UL; i++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, i+1UL );
+    fd_accdb_idx_slot_t got;
+    FD_TEST( fd_accdb_idx_lookup( &narrow, 9UL, key, 0, &got ) );
+    FD_TEST( got.off_plus1==i+10UL );
+  }
+  /* replace, guarded delete, then the probe chain still finds the rest */
+  memset( key, 0, 32 ); FD_STORE( ulong, key, 5UL );
+  fd_accdb_idx_slot_t rec = {0}, old;
+  memcpy( rec.pubkey, key, 32 ); rec.off_plus1 = 999UL; rec.lamports = 1UL; rec.generation = 4U;
+  FD_TEST( fd_accdb_idx_upsert( &narrow, 9UL, &rec, &old ) && old.off_plus1==14UL );
+  FD_TEST( !fd_accdb_idx_delete( &narrow, 9UL, key, 0, 4U, &old ) );
+  FD_TEST(  fd_accdb_idx_delete( &narrow, 9UL, key, 0, 5U, &old ) && old.off_plus1==999UL );
+  for( ulong i=0UL; i<300UL; i++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, i+1UL );
+    fd_accdb_idx_slot_t got;
+    FD_TEST( fd_accdb_idx_lookup( &narrow, 9UL, key, 0, &got )==(i!=4UL) );
+  }
+
+  /* cuckoo at the 0.9 design load: no false negatives, deletes exact */
+  ulong n = (nb*FD_ACCDB_CF_LANES*FD_ACCDB_CF_LOAD_PCT)/100UL;
+  for( ulong i=0UL; i<n; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); fd_accdb_cf_insert( &cf, key, &rng ); }
+  FD_TEST( !disabled );
+  FD_TEST( !(cf_seq&1UL) );
+  for( ulong i=0UL; i<n; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
+  ulong fp_hits = 0UL;
+  for( ulong i=0UL; i<100000UL; i++ ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); key[ 31 ] = 1; fp_hits += (ulong)fd_accdb_cf_probe( &cf, key ); }
+  FD_TEST( fp_hits<100000UL/1000UL );
+  for( ulong i=0UL; i<n; i+=2UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); fd_accdb_cf_delete( &cf, key ); }
+  for( ulong i=1UL; i<n; i+=2UL ) { memset( key, 0, 32 ); FD_STORE( ulong, key+8, i ); FD_TEST( fd_accdb_cf_probe( &cf, key ) ); }
+
+  free( stash ); free( cfw ); free( seq );
+  close( fd );
 }
 
 int
@@ -2475,6 +2544,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
+
+  FD_LOG_NOTICE(( "test_idx_primitives ..." ));
+  test_idx_primitives();
 
   FD_LOG_NOTICE(( "success" ));
 

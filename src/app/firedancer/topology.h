@@ -69,7 +69,8 @@ setup_topo_accdb( fd_topo_t *  topo,
                   ulong        cache_footprint,
                   int          bundle_enabled,
                   ulong        joiner_cnt,
-                  ulong        max_incremental_accounts );
+                  ulong        max_incremental_accounts,
+                  ulong        index_ram_entries );
 
 fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,

@@ -23,6 +23,12 @@
 
 #define FD_ACCDB_SCRATCH_FD (123450)
 
+/* Well-known fds for the accounts index file (index mode).  Opened
+   O_TRUNC, unlinked and fallocated at boot; explicit I/O only. */
+
+#define FD_ACCDB_IDX_FD_RW (123447)
+#define FD_ACCDB_IDX_FD_RO (123446)
+
 struct fd_accdb_entry {
   uchar   pubkey[ 32UL ];
   uchar   owner[ 32UL ];
@@ -95,7 +101,10 @@ fd_accdb_footprint( ulong max_live_slots,
    (fd_accdb_scratch_sz bytes, fallocated), required on the joiner
    that runs fd_accdb_background; -1 on every other joiner.
 
-   compaction must match the value given to fd_accdb_footprint. */
+   compaction must match the value given to fd_accdb_footprint.
+
+   idx_fd is the index file fd (FD_ACCDB_IDX_FD_RW) for joiners that do
+   index I/O in index mode (the accdb tile, snapin), else -1. */
 
 struct fd_sleep_private;
 
@@ -108,7 +117,8 @@ fd_accdb_new( void *                    ljoin,
               ulong const **            external_epoch_slots,
               struct fd_sleep_private * sleep,
               ulong                     sleep_tile_id,
-              int                       compaction );
+              int                       compaction,
+              int                       idx_fd );
 
 fd_accdb_t *
 fd_accdb_join( void * shaccdb );
@@ -135,7 +145,8 @@ fd_accdb_t *
 fd_accdb_join_readonly( void *             ljoin,
                         fd_accdb_shmem_t * shmem_ro,
                         ulong *            my_epoch_slot_rw,
-                        int                fd_ro );
+                        int                fd_ro,
+                        int                idx_fd_ro );
 
 /* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
    writers build the index.  New layer-0 partitions are tagged Cold;

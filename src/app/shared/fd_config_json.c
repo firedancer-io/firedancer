@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24536288UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24536296UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -381,6 +381,7 @@ fd_config_to_json( fd_config_t const * config,
   jw_obj_open( &w, "accounts" );
     jw_ulong( &w, "max_accounts",   f->accounts.max_accounts );
     jw_ulong( &w, "cache_size_gib", f->accounts.cache_size_gib );
+    jw_ulong( &w, "index_ram_entries", f->accounts.index_ram_entries );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "runtime" );
