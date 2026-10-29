@@ -5294,7 +5294,7 @@ fd_accdb_prefetch( fd_accdb_t *          accdb,
                    ulong                 cnt,
                    uchar const * const * pubkeys,
                    int                   warm ) {
-  if( FD_LIKELY( !idx_enabled( accdb ) ) ) return;
+  if( FD_LIKELY( !idx_enabled( accdb ) || accdb->readonly ) ) return;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE();

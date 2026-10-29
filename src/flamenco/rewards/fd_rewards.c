@@ -1329,6 +1329,21 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
     writable   [ i ] = 1;
   }
 
+  /* Index mode: queue this partition (if cold) and the next one so the
+     accdb tile promotes them ahead of the acquires (no-op otherwise). */
+  for( ulong p=partition_idx; p<=partition_idx+1UL; p++ ) {
+    if( p>(ulong)fd_stake_rewards_window_hi( stake_rewards, bank->stake_rewards_fork_id ) ) break;
+    fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)p );
+    while( !fd_stake_rewards_iter_done( stake_rewards ) ) {
+      ulong n = 0UL;
+      for( ; n<STAKE_REWARD_ACC_BATCH_SZ && !fd_stake_rewards_iter_done( stake_rewards );
+           n++, fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id ) ) {
+        fd_stake_rewards_iter_ele( stake_rewards, bank->stake_rewards_fork_id, &pubkeys[ n ], &reward_lamports[ n ], &credits_observed[ n ], NULL );
+      }
+      fd_accdb_prefetch( accdb, bank->accdb_fork_id, n, pubkey_ptrs, 1 );
+    }
+  }
+
   fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, (ushort)partition_idx );
   while( !fd_stake_rewards_iter_done( stake_rewards ) ) {
 

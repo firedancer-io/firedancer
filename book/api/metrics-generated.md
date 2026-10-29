@@ -695,6 +695,11 @@
 | <span class="metrics-name">execle_&#8203;txncache_&#8203;operation_&#8203;stalled</span> | counter | Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it |
 | <span class="metrics-name">execle_&#8203;txncache_&#8203;query_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache query |
 | <span class="metrics-name">execle_&#8203;txncache_&#8203;insert_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache insert |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;index_&#8203;residual_&#8203;waited</span> | counter | Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;index_&#8203;residual_&#8203;wait_&#8203;duration_&#8203;nanos</span> | counter | Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;index_&#8203;prefetched</span> | counter | Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;index_&#8203;prefetch_&#8203;dropped</span> | counter | Prefetch requests dropped because the queue to the accdb tile was full |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;index_&#8203;pool_&#8203;waited</span> | counter | Releases that waited for free account index slots |
 | <span class="metrics-name">execle_&#8203;ser_&#8203;arena_&#8203;promoted</span> | counter | Transactions promoted to a full-size shared BPF serialization arena bundle |
 | <span class="metrics-name">execle_&#8203;ser_&#8203;top_&#8203;frame_&#8203;peak_&#8203;bytes</span> | gauge | Largest top-level (depth 1) BPF serialization frame observed |
 | <span class="metrics-name">execle_&#8203;ser_&#8203;window_&#8203;peak_&#8203;bytes</span> | gauge | Largest deep-CPI (depth 2+) BPF serialization window fill observed |
@@ -1246,6 +1251,11 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;disk_&#8203;written_&#8203;bytes</span> | counter | Bytes written to the account database file |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;disk_&#8203;written</span> | counter | Writes to the account database file |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;copied_&#8203;bytes</span> | counter | Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;index_&#8203;residual_&#8203;waited</span> | counter | Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;index_&#8203;residual_&#8203;wait_&#8203;duration_&#8203;nanos</span> | counter | Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;index_&#8203;prefetched</span> | counter | Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;index_&#8203;prefetch_&#8203;dropped</span> | counter | Prefetch requests dropped because the queue to the accdb tile was full |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;index_&#8203;pool_&#8203;waited</span> | counter | Releases that waited for free account index slots |
 | <span class="metrics-name">replay_&#8203;is_&#8203;runtime_&#8203;loaded</span> | gauge | Whether the runtime has loaded a bank and can replay |
 
 </div>
@@ -1398,6 +1408,11 @@
 | <span class="metrics-name">execrp_&#8203;txncache_&#8203;operation_&#8203;stalled</span> | counter | Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it |
 | <span class="metrics-name">execrp_&#8203;txncache_&#8203;query_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache query |
 | <span class="metrics-name">execrp_&#8203;txncache_&#8203;insert_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one transaction cache insert |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;index_&#8203;residual_&#8203;waited</span> | counter | Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;index_&#8203;residual_&#8203;wait_&#8203;duration_&#8203;nanos</span> | counter | Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;index_&#8203;prefetched</span> | counter | Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;index_&#8203;prefetch_&#8203;dropped</span> | counter | Prefetch requests dropped because the queue to the accdb tile was full |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;index_&#8203;pool_&#8203;waited</span> | counter | Releases that waited for free account index slots |
 | <span class="metrics-name">execrp_&#8203;ser_&#8203;arena_&#8203;promoted</span> | counter | Transactions promoted to a full-size shared BPF serialization arena bundle |
 | <span class="metrics-name">execrp_&#8203;ser_&#8203;top_&#8203;frame_&#8203;peak_&#8203;bytes</span> | gauge | Largest top-level (depth 1) BPF serialization frame observed |
 | <span class="metrics-name">execrp_&#8203;ser_&#8203;window_&#8203;peak_&#8203;bytes</span> | gauge | Largest deep-CPI (depth 2+) BPF serialization window fill observed |
@@ -1433,6 +1448,10 @@
 | <span class="metrics-name">accdb_&#8203;writeback_&#8203;written</span> | counter | Write syscalls that wrote evicted cache lines back to the account database file |
 | <span class="metrics-name">accdb_&#8203;compaction_&#8203;written</span> | counter | Writes that relocated a batch of records during compaction |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;version_&#8203;removed</span> | counter | Account versions removed from the account database index |
+| <span class="metrics-name">accdb_&#8203;index_&#8203;demoted</span> | counter | Rooted account versions moved to the on-disk account index |
+| <span class="metrics-name">accdb_&#8203;index_&#8203;promoted</span> | counter | Account index entries brought from the on-disk index into memory |
+| <span class="metrics-name">accdb_&#8203;index_&#8203;negative_&#8203;recorded</span> | counter | Lookups recorded in memory as absent from the on-disk account index |
+| <span class="metrics-name">accdb_&#8203;index_&#8203;warmed</span> | counter | Account data loaded into the cache by the accdb tile ahead of use |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le128_&#8203;b</span>"} | gauge | Cache lines in use, by size class (0-128 B) |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le512_&#8203;b</span>"} | gauge | Cache lines in use, by size class (129-512 B) |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">le2_&#8203;kib</span>"} | gauge | Cache lines in use, by size class (513 B-2 KiB) |

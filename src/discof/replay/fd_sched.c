@@ -4579,6 +4579,16 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   /* After any error return but before poisoning. */
   sched->metrics->alut_serializing_cnt += (uint)serializing;
 
+  /* Index mode: have the accdb tile bring bucket-only accounts into RAM
+     before dispatch (no-op otherwise). */
+  if( FD_LIKELY( alut_ctx && alut_ctx->accdb ) ) {
+    uchar const * keys[ 2UL*FD_TXN_ACCT_ADDR_MAX ];
+    ulong         key_cnt = 0UL;
+    for( ulong i=0UL; i<imm_cnt && key_cnt<2UL*FD_TXN_ACCT_ADDR_MAX; i++ ) keys[ key_cnt++ ] = imms[ i ].b;
+    for( ulong i=0UL; i<alt_cnt && key_cnt<2UL*FD_TXN_ACCT_ADDR_MAX; i++ ) keys[ key_cnt++ ] = alts[ i ].b;
+    fd_accdb_prefetch( alut_ctx->accdb, alut_ctx->fork_id, key_cnt, keys, 1 );
+  }
+
   /* At this point, we've decided whether the transaction is
      ALT-serializing or not.  If it didn't get serialized by ALT
      expansion failure, check if it should be serialized by poisoning.
