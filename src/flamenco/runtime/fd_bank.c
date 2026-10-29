@@ -17,6 +17,11 @@
 
 #define FD_BANKS_STAKE_REWARDS_CACHE_CNT (2UL)
 
+/* At most 2 epoch credits views are pinned at once (snapmk's long view
+   plus one function-scoped rewards/stakes view), all on replay.  Sets
+   beyond the window spill to FD_EPOCH_CREDITS_FD. */
+#define FD_BANKS_EPOCH_CREDITS_CACHE_CNT(cache_cnt) fd_ulong_min( (cache_cnt), 4UL )
+
 FD_STATIC_ASSERT( FD_BANKS_MAX_BANKS<USHORT_MAX, epoch_credits_fork_id_width );
 
 fd_lthash_value_t const *
@@ -222,7 +227,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),          fd_banks_dead_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_cost_tracker_store_align(),  fd_cost_tracker_store_footprint( max_total_banks, cache_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),       fd_stake_rewards_footprint( max_stake_accounts, max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
-  l = FD_LAYOUT_APPEND( l, fd_epoch_credits_store_align(), fd_epoch_credits_store_footprint( max_total_banks, cache_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_epoch_credits_store_align(), fd_epoch_credits_store_footprint( max_total_banks, FD_BANKS_EPOCH_CREDITS_CACHE_CNT( cache_cnt ) ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -266,7 +271,7 @@ fd_banks_new( void * shmem,
   void *       dead_banks_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),          fd_banks_dead_footprint() );
   void *       cost_tracker_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_store_align(),  fd_cost_tracker_store_footprint( max_total_banks, cache_cnt ) );
   void *       stake_rewards_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),       fd_stake_rewards_footprint( max_stake_accounts, max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
-  void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_credits_store_align(), fd_epoch_credits_store_footprint( max_total_banks, cache_cnt ) );
+  void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_credits_store_align(), fd_epoch_credits_store_footprint( max_total_banks, FD_BANKS_EPOCH_CREDITS_CACHE_CNT( cache_cnt ) ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, cache_cnt, max_stake_accounts, max_vote_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -330,7 +335,7 @@ fd_banks_new( void * shmem,
   }
   banks_data->stake_rewards_offset = (ulong)stake_rewards - (ulong)banks_data;
 
-  fd_epoch_credits_store_t * epoch_credits = fd_epoch_credits_store_join( fd_epoch_credits_store_new( epoch_credits_mem, FD_EPOCH_CREDITS_FD, max_total_banks, cache_cnt ), FD_EPOCH_CREDITS_FD );
+  fd_epoch_credits_store_t * epoch_credits = fd_epoch_credits_store_join( fd_epoch_credits_store_new( epoch_credits_mem, FD_EPOCH_CREDITS_FD, max_total_banks, FD_BANKS_EPOCH_CREDITS_CACHE_CNT( cache_cnt ) ), FD_EPOCH_CREDITS_FD );
   if( FD_UNLIKELY( !epoch_credits ) ) {
     FD_LOG_WARNING(( "Failed to create epoch credits" ));
     return NULL;
@@ -400,7 +405,7 @@ fd_banks_join( void * banks_data_mem ) {
   void * dead_banks_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),          fd_banks_dead_footprint() );
   void * cost_tracker_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_store_align(),  fd_cost_tracker_store_footprint( banks_data->max_total_banks, banks_data->cache_cnt ) );
   void * stake_rewards_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),       fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
-  void * epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_credits_store_align(), fd_epoch_credits_store_footprint( banks_data->max_total_banks, banks_data->cache_cnt ) );
+  void * epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_credits_store_align(), fd_epoch_credits_store_footprint( banks_data->max_total_banks, FD_BANKS_EPOCH_CREDITS_CACHE_CNT( banks_data->cache_cnt ) ) );
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
