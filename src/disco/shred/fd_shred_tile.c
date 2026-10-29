@@ -966,10 +966,11 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
 
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX && replay_fwd ) ) {
 
-    /* Send all of the data shreds we recovered (weren't received).
-       The chunks are all written before any is published, so the
-       link burst must cover them or a chunk could be reused while
-       an unreliable consumer still sees its old seq. */
+    /* Send all of the data shreds we recovered (weren't received), or
+       all of them when we are the leader.  The chunks are all written
+       before any is published, so the link burst must cover them or a
+       chunk could be reused while an unreliable consumer still sees
+       its old seq. */
     FD_STATIC_ASSERT( FD_SHRED_STEM_BURST>=32UL, shred_out_burst );
     ulong missing_chunk[ 32 ];
     ulong missing_cnt = 0UL;
@@ -988,7 +989,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
 
     if( FD_LIKELY( missing_cnt ) ) {
       _mm_sfence();
-      ulong sig   = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
+      ulong sig   = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | ( is_leader ? SHRED_SIG_SRC_LEADER : SHRED_SIG_SRC_RECONSTRUCTED );
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       for( ulong i=0UL; i<missing_cnt; i++ ) fd_stem_publish( stem, ctx->shred_out_idx, sig, missing_chunk[ i ], sizeof(fd_shred_base_t), 0UL, tsorig, tspub );
     }
