@@ -133,6 +133,8 @@ FD_UNIT_TEST( header_deadline ) {
   FD_TEST( client->stream_cnt==1 );
 
   /* Deadline should deactivate after headers were received */
+  stream->hdrs.h2_status = 200U;
+  stream->hdrs.is_grpc_proto = 1U;
   fd_grpc_h2_cb_headers( client->conn, &stream->s, NULL, 0UL, FD_H2_FLAG_END_HEADERS );
   fd_grpc_client_service_streams( client, deadline+1L );
   FD_TEST( client->stream_cnt==1 );
@@ -198,6 +200,8 @@ FD_UNIT_TEST( rx_end_deadline ) {
   FD_TEST( !fd_grpc_client_stream_acquire_is_safe( client ) );
 
   /* Deadline should still fire after headers were received */
+  stream->hdrs.h2_status = 200U;
+  stream->hdrs.is_grpc_proto = 1U;
   fd_grpc_h2_cb_headers( client->conn, &stream->s, NULL, 0UL, FD_H2_FLAG_END_HEADERS );
   fd_grpc_client_service_streams( client, deadline+1L );
   FD_TEST( client->stream_cnt==0 );
@@ -360,6 +364,9 @@ FD_UNIT_TEST( stream_close_state ) {
 }
 
 FD_UNIT_TEST( rx_headers ) {
+  g_rx_start_cnt = 0UL;
+  g_rx_end_cnt   = 0UL;
+
   /* Header-only response */
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
@@ -402,6 +409,41 @@ FD_UNIT_TEST( rx_headers ) {
   FD_TEST( g_rx_start_cnt==2 );
   FD_TEST( g_rx_end_cnt  ==2 ); /* FIXME does it make sense to issue rx_end without rx_start? */
   FD_TEST( client->stream_cnt==0 );
+}
+
+FD_UNIT_TEST( invalid_response_headers ) {
+  static uchar const grpc[] = {0x88,0x5f,0x10,'a','p','p','l','i','c','a','t','i','o','n','/','g','r','p','c'};
+  static uchar const html[] = {0x88,0x5f,0x09,'t','e','x','t','/','h','t','m','l'};
+  for( int c=0; c<3; c++ ) {
+    fd_grpc_client_reset( client );
+    test_grpc_client_mock_conn( client );
+    fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 1234UL );
+    uint stream_id = stream->s.stream_id;
+    fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, 1234L );
+    uchar headers[sizeof(grpc)];
+    ulong sz = c==0 ? sizeof(html) : sizeof(grpc);
+    fd_memcpy( headers, c==0 ? html : grpc, sz );
+    if( c==1 ) headers[0] = 0x8e; /* :status 500 */
+    ulong const starts = g_rx_start_cnt;
+    ulong const ends   = g_rx_end_cnt;
+    test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, stream_id, headers, sz );
+    if( c<2 ) {
+      FD_TEST( g_rx_start_cnt==starts && g_rx_end_cnt==ends+1UL );
+      FD_TEST( !client->stream_cnt && !client->conn->stream_active_cnt[1] );
+      FD_TEST( g_cb_request_ctx==1234UL && g_cb_resp_hdrs.h2_status==(c==1 ? 500U : 200U) );
+      fd_h2_rst_stream_t rst;
+      FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(rst) );
+      fd_h2_rbuf_pop_copy( client->frame_tx, &rst, sizeof(rst) );
+      FD_TEST( rst.error_code==fd_uint_bswap( FD_H2_ERR_CANCEL ) );
+      fd_grpc_client_service_streams( client, 1235L );
+      FD_TEST( g_rx_end_cnt==ends+1UL );
+    } else {
+      FD_TEST( g_rx_start_cnt==starts+1UL && g_rx_end_cnt==ends );
+      FD_TEST( client->stream_cnt==1UL && !stream->has_header_deadline );
+      fd_h2_stream_reset( &stream->s, client->conn );
+      fd_grpc_client_stream_release( client, stream );
+    }
+  }
 }
 
 FD_UNIT_TEST( error_data_end_stream_releases_stream ) {
