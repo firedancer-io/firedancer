@@ -249,8 +249,8 @@ during_frag( fd_execle_tile_t * ctx,
     fd_memcpy( d->payload,     s->payload,     payload_sz );
     fd_memcpy( &d->payload_sz, &s->payload_sz, offsetof(fd_txn_p_t, _)-offsetof(fd_txn_p_t, payload_sz) );
     fd_memcpy( d->_,           s->_,           txn_sz );
-    ulong alt_cnt = fd_ulong_min( (ulong)t->addr_table_adtl_cnt, FD_TXN_ACCT_ADDR_MAX );
-    fd_memcpy( ctx->_alt_accts[i], src_txn_e[i].alt_accts, alt_cnt * sizeof(fd_acct_addr_t) );
+    ulong alt_cnt = fd_ulong_min( (ulong)t->addr_table_adtl_cnt, (FD_TPU_MTU-payload_sz)/sizeof(fd_acct_addr_t) );
+    fd_memcpy( ctx->_alt_accts[i], s->payload+payload_sz, alt_cnt * sizeof(fd_acct_addr_t) );
   }
 
   fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );

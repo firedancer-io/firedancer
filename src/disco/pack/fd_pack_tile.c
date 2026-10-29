@@ -1092,6 +1092,7 @@ during_frag( fd_pack_ctx_t * ctx,
 
     ulong addr_table_sz = 32UL*txn->addr_table_adtl_cnt;
     FD_TEST( addr_table_sz<=32UL*FD_TXN_ACCT_ADDR_MAX );
+    FD_TEST( payload_sz+addr_table_sz<=FD_TPU_MTU ); /* ALTs follow the payload in fd_txn_e_t */
 
     if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->highest_observed_block_height) ) ) {
       /* Using the resolv tile's knowledge of the current block height
@@ -1150,9 +1151,9 @@ during_frag( fd_pack_ctx_t * ctx,
        The transactions should have been parsed and verified. */
     FD_MCNT_INC( PACK, TXN_RX, 1UL );
 
-    fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
-    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
-    fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    addr_table_sz );
+    fd_memcpy( ctx->cur_spot->txnp->payload,             fd_txn_m_payload( txnm ), payload_sz    );
+    fd_memcpy( TXN(ctx->cur_spot->txnp),                 txn,                      txn_t_sz      );
+    fd_memcpy( ctx->cur_spot->txnp->payload+payload_sz, fd_txn_m_alut( txnm ),    addr_table_sz );
     ctx->cur_spot->txnp->scheduler_arrival_time_nanos = fd_clock_tile_now( ctx->clock );
     ctx->cur_spot->txnp->first_seen_nanos = txnm->first_seen_nanos;
     ctx->cur_spot->txnp->payload_sz  = (ushort)payload_sz;
