@@ -65,8 +65,8 @@ struct fd_compute_budget_program_private_state {
      parsed so far? compute_budget_instr_cnt in [0, 4]. */
   ushort  compute_budget_instr_cnt;
   /* compute_units: if SET_CU is in flags, this stores the total requested
-     compute units for the whole transaction. Otherwise 0. Realistically should
-     be less than 12M, but there's nothing enforcing that at this stage. */
+     compute units for the whole transaction, clamped by parse to
+     FD_COMPUTE_BUDGET_MAX_CU_LIMIT.  Otherwise 0. */
   uint    compute_units;
   /* loaded_acct_data_sz: if SET_LOADED_DATA_SZ is in flags, this stores
      the max total data (in bytes) that the transaction will load from

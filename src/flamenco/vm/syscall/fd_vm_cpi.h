@@ -160,10 +160,10 @@ typedef struct fd_vm_rc_refcell_ref fd_vm_rc_refcell_ref_t;
    It serves the same purpose as the corresponding struct in Agave.
    Essentially, it caches the results of translations that have been
    performed leading up to the CPI.
-   Or, in the case of direct mapping, it sometimes stores the vm
-   virtual addresses for translation later on.
-   In direct mapping, translation is sometimes delayed because
-   "permissions on the realloc region can change during CPI".
+   vm_data_vaddr retains the caller's VM data address for account
+   synchronization.  With direct mapping, serialized_data is NULL;
+   account data uses the mapped account region rather than a separate
+   serialized copy.
  */
 struct fd_vm_cpi_caller_account {
   void *        lamports;         /* ulong, possibly unaligned */

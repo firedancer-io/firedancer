@@ -21,7 +21,7 @@ FD_PROTOTYPES_BEGIN
 
 /* Append message:
    - pubkey
-   - ciphertext (twisted elgamal 64 bytes: handle + commitment)
+   - ciphertext (twisted elgamal 64 bytes: commitment first, then handle)
    - commitment
    - handle
  */

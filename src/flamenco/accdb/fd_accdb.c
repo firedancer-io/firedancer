@@ -830,10 +830,9 @@ submit_cmd( fd_accdb_t * accdb,
 fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id ) {
-  /* fork_pool_acquire is not NULL-checked: replay gates attaches on
-     fd_banks_can_start_bank, and wait_cmd ensures the prior
-     advance_root has fully run on T2, so
-     live + deferred forks <= max_live_slots. */
+  /* Replay gates attaches on fd_banks_can_start_bank.  wait_cmd waits
+     for the prior background command; on pool exhaustion, drain
+     deferred forks on T2 before retrying fork_pool_acquire. */
   wait_cmd( accdb );
 
   if( FD_UNLIKELY( accdb->shmem->generation==UINT_MAX ) ) FD_LOG_ERR(( "accdb ran out of generation sequence numbers, restart required" ));
@@ -903,10 +902,11 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
 
    We close both races by acquiring CACHE_CLAIM_BIT before mutating
    acc->cache_idx.  cold_load_acc spins while CLAIM is held, so it
-   cannot enter the publish path concurrently.  If CLAIM is already
-   held, a cold-loader is already mid-publish; in that case
-   acc->cache_idx is being repointed away from our line, and we must
-   not touch it.  After mutation we release CLAIM.
+   cannot enter the publish path concurrently.  If CLAIM is held with
+   VALID clear, the binding is being replaced or has already been
+   cleared, so we return.  If CLAIM is held with VALID set, wait for
+   its holder, then retry acquiring CLAIM and checking the binding.
+   After mutation we release CLAIM.
 
    Verifies acc->cache_idx still encodes (size_class, line_idx) before
    clobbering, in case the acc was concurrently re-published into a
@@ -2324,8 +2324,8 @@ background_compact( fd_accdb_t * accdb,
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 }
 
-/* cold_load_acc resolves the cache slot for `acc` when STEP 1's
-   cache_try_pin failed.  It uses bit 29 of executable_size as a
+/* cold_load_acc resolves the cache slot for `acc` when cache_try_pin
+   failed.  It uses bit 29 of executable_size as a
    single-claimer lock so that two concurrent acquirers cannot each
    install their own cache slot for the same acc (which would orphan
    one slot with a dangling line->acc_idx and eventually corrupt
@@ -2334,16 +2334,15 @@ background_compact( fd_accdb_t * accdb,
    Protocol per acc:
      - If cache_valid is set, retry cache_try_pin (another thread
        finished the cold-load while we were here).  On success, mark
-       exists_in_cache so STEP 4 will not write back the slot.
+       exists_in_cache so the eviction-write phase skips the slot.
      - If claim is set, spin (another thread is mid-cold-load).
      - Otherwise CAS-set the claim bit.  Winner allocates a cache
        line, populates the placeholder (acc_idx=UINT_MAX), publishes
        cache_idx, then atomically (CAS-loop) sets cache_valid and
        clears claim.
 
-   The eviction sites that clear cache_valid must use FETCH_AND with
-   ~CACHE_VALID_BIT (preserving the claim bit) to interact correctly
-   with this protocol. */
+   Eviction sites must acquire the claim bit before clearing
+   cache_valid and release it after updating the cache binding. */
 
 static fd_accdb_cache_line_t *
 cold_load_acc( fd_accdb_t *     accdb,
@@ -2403,10 +2402,9 @@ cold_load_acc( fd_accdb_t *     accdb,
     fd_racesan_hook( "accdb_cold_load:pre_valid" );
 
     /* Atomically set CACHE_VALID_BIT and clear CACHE_CLAIM_BIT.
-       Eviction may have flipped CACHE_VALID_BIT on us between our
-       claim and now (it preserves CLAIM but can clear VALID); the
-       CAS loop tolerates that.  The data length and exec bits stay
-       unchanged. */
+       Evictors acquire CLAIM before clearing VALID, so they cannot
+       clear it while this cold-loader holds CLAIM.  Preserve the
+       data length, executable bit and other unrelated flags. */
     for(;;) {
       uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
       uint nxt = (cur & ~FD_ACCDB_SIZE_CACHE_CLAIM_BIT) | FD_ACCDB_SIZE_CACHE_VALID_BIT;
@@ -3187,7 +3185,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] ) ) continue;
     fd_racesan_hook( "accdb_acquire:pre_step14_owner" );
-    /* Tombstone reset: see STEP 7 comment. */
+    /* Tombstone reset: clear the owner of a zero-lamport account. */
     if( FD_UNLIKELY( accmetas[ i ]->lamports==0UL ) ) {
       memset( out_accs[ i ].owner,       0, 32UL );
       memset( out_accs[ i ].prior_owner, 0, 32UL );
@@ -3376,7 +3374,7 @@ release_inner( fd_accdb_t * accdb,
            at the prior owner.  cache_free_push consumers (CLOCK,
            background_preevict) skip lines only when acc_idx==UINT_MAX
            AND gen==UINT_MAX; if we leave the stale acc_idx, a future
-           CLOCK pick would call line 849/853 against the wrong acc
+           CLOCK pick would call evict_clear_acc_cache_ref on the wrong acc
            and corrupt its cache_idx/valid. */
         destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
         destination_cache_lines[ j ]->key.generation = UINT_MAX;
@@ -3768,10 +3766,8 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            uchar *            out_data,
                            ulong *            out_data_len ) {
   /* Publish epoch — protects against compaction freeing the partition
-     under us during the preadv2 path.  This is the only write the
-     readonly joiner makes into accdb shmem (and the pointer it stores
-     through is mapped through a separately-mmap'd writable page that
-     aliases shmem->joiner_epochs[idx]). */
+     under us during the preadv2 path.  Readonly joiners publish to a
+     separate writable fseq scanned via external_epoch_slots. */
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE();

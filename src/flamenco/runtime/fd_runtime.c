@@ -1522,32 +1522,12 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
    parity in terms of error codes. Sigverify is kept separate from the rest
    of the transaction checks for fuzzing convenience.
 
-   For reference this is the general code path which contains all relevant
-   pre-transactions checks in the v2.0.x Agave client from upstream
-   to downstream is as follows:
-
-   confirm_slot_entries() which calls verify_ticks() and
-   verify_transaction(). verify_transaction() calls verify_and_hash_message()
-   and verify_precompiles() which parallels fd_executor_txn_verify() and
-   fd_executor_verify_transaction().
-
-   process_entries() contains a duplicate account check which is part of
-   agave account lock acquiring. This is checked inline in
-   fd_runtime_pre_execute_check().
-
-   load_and_execute_transactions() contains the function check_transactions().
-   This contains check_age() and check_status_cache() which is paralleled by
-   fd_executor_check_transaction_age_and_compute_budget_limits() and
-   fd_executor_check_status_cache() respectively.
-
-   load_and_execute_sanitized_transactions() contains validate_fees()
-   which is responsible for executing the compute budget instructions,
-   validating the fee payer and collecting the fee. This is mirrored in
-   firedancer with fd_executor_compute_budget_program_execute_instructions()
-   and fd_executor_collect_fees(). load_and_execute_sanitized_transactions()
-   also checks the total data size of the accounts in load_accounts() and
-   validates the program accounts in load_transaction_accounts(). This
-   is paralled by fd_executor_load_transaction_accounts(). */
+   fd_runtime_pre_execute_check processes compute-budget instructions
+   (or v1 configuration), sets up accounts, checks transaction age and
+   status, validates the fee payer, then loads transaction accounts.
+   See its calls to fd_executor_verify_transaction,
+   fd_executor_check_transactions, fd_executor_validate_transaction_fee_payer
+   and fd_executor_load_transaction_accounts. */
 
 
 /******************************************************************************/

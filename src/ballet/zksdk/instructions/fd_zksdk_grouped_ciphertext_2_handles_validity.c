@@ -76,7 +76,9 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
     When batched==false, C, h1, h2 are given and C_hi, h1_hi, h2_hi are NULL.
     When batched==true, they are computed as C = C_lo + t C_hi.
 
-    When pubkey2 is 0, also proof->y2, handle2 and handle2_hi should be 0.
+    An honest proof with identity pubkey2 has identity Y_2 and handles.
+    Verification must not assume this for untrusted proofs: keep those
+    terms in the MSM even when pubkey2 is identity.
 
     Because of batched, the length of the MSM varies between 9 and 12.
     Points/scalars 7-8 (if batched) and 11 (if batched) are only

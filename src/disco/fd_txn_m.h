@@ -38,8 +38,8 @@ struct fd_txn_m {
 
   struct {
     /* If the transaction is part of a bundle, the bundle_id will be
-       non-zero, and if this transaction is the first one in the
-       bundle, bundle_txn_cnt will be non-zero.
+       non-zero.  The bundle tile sets bundle_txn_cnt on every
+       transaction in the bundle; pack reads it from the first one.
 
        The pack tile can accumulate transactions from a bundle until
        it has all of them, at which point the bundle is schedulable.
@@ -54,8 +54,8 @@ struct fd_txn_m {
        The commission and commission_pubkey fields are provided by
        the block engine, and the validator will crank the tip payment
        program with these values, if it is not using them already.
-       These fields are only provided on the first transaction in a
-       bundle. */
+       These fields are provided on every transaction in a bundle;
+       pack uses the values from the first transaction. */
     ulong bundle_id;
     ulong bundle_txn_cnt;
     uchar commission;

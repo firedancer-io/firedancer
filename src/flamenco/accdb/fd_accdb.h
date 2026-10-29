@@ -219,8 +219,10 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
 
    Any competing sibling forks (and their entire subtrees) are removed.
    For accounts updated on the newly rooted fork, any older versions on
-   ancestor forks are tombstoned for later compaction.  After this call
-   the old root fork slot is freed and fork_id becomes the new root.
+   ancestor forks are tombstoned for later compaction.
+
+   Completion is asynchronous; use fd_accdb_cmd_pending to check it.
+   The old root fork slot is recycled after reader epochs drain.
 
    IMPORTANT: The caller must guarantee that all outstanding
    acquire/release pairs on every sibling of fork_id (and their entire
@@ -386,10 +388,11 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
    bit set, the cache will write the changes back to the database.  The
    caller must guarantee that the accs being released were previously
    acquired and not yet released, and that the pubkeys in the accs
-   match the pubkeys of the acquired accounts.  The accs need not be
-   a specific set that was acquired together, although this is
-   recommended.  The fork that each acc refers to must still exist
-   (not yet purged or advanced past) at the time of release.  This
+   match the pubkeys of the acquired accounts.  Release the complete set
+   from one acquire on the same joiner; do not split or combine sets.
+   Use fd_accdb_release_ab for a two-phase acquire.  The fork that each
+   acc refers to must still exist (not yet purged or advanced past) at
+   the time of release.  This
    includes forks that would be implicitly purged by a concurrent
    advance_root on a sibling — the caller must ensure advance_root
    is not called until all releases on affected forks have completed.
@@ -462,11 +465,10 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
 /* fd_accdb_read_one_nocache reads one account at fork_id into
    caller-provided output buffers.  Suitable for processes that mmap the
    accdb data region read-only: it never mutates any cache line, index
-   entry, or record.  The only write it makes into accdb shmem is
-   publishing this joiner's epoch (to hold off compaction for the
-   duration of the read), and that is done through a separately-mmap'd
-   writable page aliasing the joiner's own epoch slot, not the read-only
-   region.
+   entry, or record.  It publishes this joiner's epoch to hold off
+   compaction for the duration of the read.  Read-only joiners publish
+   to a separate writable fseq supplied at join time and scanned via
+   external_epoch_slots.
 
    out_owner must point at a 32-byte buffer.  out_data must point at a
    buffer of at least FD_RUNTIME_ACC_SZ_MAX (10 MiB) bytes, the maximum

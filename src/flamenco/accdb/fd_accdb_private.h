@@ -204,8 +204,8 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 #define FD_ACCDB_OFF_MASK  ((1UL<<FD_ACCDB_OFF_BITS)-1UL)       /* 0x0000_FFFF_FFFF_FFFF */
 #define FD_ACCDB_OFF_INVAL FD_ACCDB_OFF_MASK                    /* sentinel: offset bits all-ones */
 
-/* The `size` field in fd_accdb_disk_meta_t (named executable_size in
-   fd_accdb_accmeta_t) packs five things into 32 bits:
+/* The in-memory executable_size field in fd_accdb_accmeta_t packs
+   five things into 32 bits:
 
      bit  31     executable flag                       (FD_ACCDB_SIZE_EXEC_BIT)
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
@@ -233,10 +233,10 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
        live fork.  Carried explicitly by the two commit sites in
        fd_accdb_release and nowhere else.
 
-   The on-disk representation (written via SIZE_PACK / SIZE_DATA) carries
-   no in-memory flag: persisted bytes are unchanged, and compaction's
-   copy_file_range preserves the record headers verbatim without
-   rewriting them. */
+   The on-disk fd_accdb_disk_meta_t.size is only the raw data length,
+   written via FD_ACCDB_SIZE_DATA.  It includes neither the executable
+   bit nor the cache/PD flags.  Compaction preserves these record
+   headers verbatim with copy_file_range. */
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)

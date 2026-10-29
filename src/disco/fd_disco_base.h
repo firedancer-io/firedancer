@@ -55,7 +55,7 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT>=FD_MAX_TXN_PER_SLOT_CU||FD_MAX_TXN_PER_SL
 FD_PROTOTYPES_BEGIN
 
  /* hdr_sz is the total size of network headers, including eth, ip, udp.
-    Ignored for outgoing packets.
+    Also required for outgoing packets consumed by the socket tile.
     For incoming packets, hash_{ip_addr,port} are the source IP and port,
     for outgoing packets, they are the destination IP and port. */
 FD_FN_CONST static inline ulong

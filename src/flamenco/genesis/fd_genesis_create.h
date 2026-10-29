@@ -58,10 +58,11 @@ FD_PROTOTYPES_BEGIN
    success.  On failure, returns 0UL and logs reason for error.
 
    Assumes that caller is attached to an fd_scratch with sufficient
-   memory to buffer intermediate data.  Without token accounts, allow
-   16384 + 128*n bytes for n funded accounts.  With token accounts,
-   allow 16384 + 704*n + token_program_elf_sz bytes.  Requires 2
-   frames.
+   memory to buffer intermediate data.  For n funded accounts, allow
+   16384 + 160*FD_FEATURE_ID_CNT + 128*n bytes without token accounts,
+   or 16384 + 160*FD_FEATURE_ID_CNT + 704*n + token_program_elf_sz bytes
+   with token accounts.  The feature term covers the temporary pubkey
+   array and feature accounts.  Requires 2 frames.
 
    THIS METHOD IS NOT SAFE FOR PRODUCTION USE.
    It is intended for development only. */
