@@ -615,6 +615,8 @@ struct fd_replay_tile {
 
     ulong slots_total;
     ulong transactions_total;
+    ulong bank_hash_mismatch_cnt;
+    long  last_bank_hash_mismatch_nanos;
 
     ulong reasm_latest_slot;
     ulong reasm_latest_fec_idx;
