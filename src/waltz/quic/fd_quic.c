@@ -3541,10 +3541,17 @@ fd_quic_gen_close_frame( fd_quic_conn_t             * conn,
   if( conn->flags & FD_QUIC_CONN_FLAGS_CLOSE_SENT ) return 0UL;
   conn->flags |= FD_QUIC_CONN_FLAGS_CLOSE_SENT;
 
+  uint reason = conn->reason;
+  if( !reason && conn->state!=FD_QUIC_CONN_STATE_PEER_CLOSE &&
+      ( pkt_meta_tmpl->enc_level==fd_quic_enc_level_initial_id ||
+        pkt_meta_tmpl->enc_level==fd_quic_enc_level_handshake_id ) ) {
+    reason = FD_QUIC_CONN_REASON_APPLICATION_ERROR;
+  }
+
   ulong frame_sz;
-  if( conn->reason != 0u || conn->state == FD_QUIC_CONN_STATE_PEER_CLOSE ) {
+  if( reason != 0u || conn->state == FD_QUIC_CONN_STATE_PEER_CLOSE ) {
     fd_quic_conn_close_0_frame_t frame = {
-      .error_code           = conn->reason,
+      .error_code           = reason,
       .frame_type           = 0u, /* we do not know the frame in question */
       .reason_phrase_length = 0u  /* no reason phrase */
     };
