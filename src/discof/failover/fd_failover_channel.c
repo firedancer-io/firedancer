@@ -39,6 +39,7 @@
 
 /* Bounds. */
 FD_STATIC_ASSERT( FD_FAILOVER_CHANNEL_CANDIDATE_MAX>UNAUTHENTICATED_IDX, admission_pool_capacity );
+FD_STATIC_ASSERT( FD_FAILOVER_CHANNEL_SESSION_MAX>=2UL, session_pool_capacity );
 FD_STATIC_ASSERT( FD_FAILOVER_CHANNEL_KEEPALIVE_NANOS>=2L && FD_FAILOVER_CHANNEL_IDLE_NANOS>0L, keepalive_params );
 
 FD_STATIC_ASSERT( FD_KEYGUARD_FAILOVER_PROOF_SZ<=FD_TLS_CV_SIGN_SZ, admission_sign_mtu );
@@ -51,23 +52,30 @@ struct candidate {
   int                               fd;          /* -1 for an unused candidate. */
   int                               phase;       /* PHASE_* */
   int                               dialed;      /* we dialed it, else the listener accepted it */
+  int                               session;     /* ch->sessions index once TLS starts, else -1 */
   uint                              address;
   long                              deadline;
   long                              admission_until;
-  int                               tls_started; /* tls is initialized, close_candidate must fini it */
   fd_failover_hello_t               local_hello;
   fd_failover_admission_start_t     start;
   fd_failover_admission_challenge_t challenge;
   uchar                             client_hello[ FD_FAILOVER_CLIENT_HELLO_MAX+sizeof(fd_tlsrec_hdr_t) ];
   uchar                             transcript[ 32 ];
   uchar                             client_proof[ 64 ];
-  fd_failover_tls_t                 tls;
   fd_failover_hello_t               hello;
-  uchar                             rx[ FD_FAILOVER_FRAME_MAX ];
-  uchar                             tx[ FD_FAILOVER_FRAME_MAX ];
+  uchar                             rx[ FD_FAILOVER_ADMISSION_MAX ];
+  uchar                             tx[ FD_FAILOVER_ADMISSION_MAX ];
   ulong                             rx_used;
   ulong                             tx_used;
   ulong                             tx_sent;
+};
+
+/* Expensive TLS state only for admitted candidates. */
+struct session {
+  int               owner; /* the candidate index that holds this session, -1 when free */
+  fd_failover_tls_t tls;
+  uchar             rx[ FD_FAILOVER_FRAME_MAX ];
+  uchar             tx[ FD_FAILOVER_FRAME_MAX ];
 };
 
 struct fd_failover_channel {
@@ -88,13 +96,14 @@ struct fd_failover_channel {
   fd_sha512_t                    sha[ 1 ];           /* scratch hash for checking admission proofs */
 
   /* Connections */
-  struct candidate               candidates[ FD_FAILOVER_CHANNEL_CANDIDATE_MAX ]; /* connections that are handshaking or paired */
+  struct candidate               candidates[ FD_FAILOVER_CHANNEL_CANDIDATE_MAX ]; /* connections that are being admitted or paired */
+  struct session                 sessions[ FD_FAILOVER_CHANNEL_SESSION_MAX ];     /* TLS state, only for the dialer and verified candidates */
+  ulong                          live;               /* candidates with an open socket */
   uint                           known_addr;         /* the last address that authenticated, gets the ADMITTED slot ahead of admission */
   long                           known_until;        /* until when */
 
   /* Rate limits */
   fd_token_bucket_t              accept_bucket;      /* accept syscalls */
-  fd_token_bucket_t              admit_bucket;       /* candidates started */
   fd_token_bucket_t              verify_bucket;      /* Ed25519 proof checks and signs, at most one per poll */
   int                            verify_budget;      /* proof checks left this poll */
 
@@ -129,12 +138,12 @@ fd_failover_channel_new( void * shmem ) {
   fd_memset( ch, 0, sizeof(*ch) );
   ch->listen_fd  = -1;
   ch->paired_idx = -1;
-  for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) ch->candidates[i].fd = -1;
+  for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) { ch->candidates[i].fd = -1; ch->candidates[i].session = -1; }
+  for( ulong i=0; i<FD_FAILOVER_CHANNEL_SESSION_MAX;   i++ )   ch->sessions[i].owner = -1;
   ch->backoff = FD_FAILOVER_CHANNEL_BACKOFF_MIN_NANOS;
 
   /* Rate limiting */
   ch->accept_bucket = token_bucket_new( FD_FAILOVER_ACCEPT_RATE, FD_FAILOVER_ACCEPT_BURST );
-  ch->admit_bucket  = token_bucket_new( FD_FAILOVER_ADMIT_RATE,  FD_FAILOVER_ADMIT_BURST  );
   ch->verify_bucket = token_bucket_new( FD_FAILOVER_VERIFY_RATE, FD_FAILOVER_VERIFY_BURST );
 
   /* Set up secure randomness */
@@ -154,13 +163,34 @@ fd_failover_channel_join( void * shmem ) {
   return ch->magic==FD_FAILOVER_CHANNEL_MAGIC ? ch : NULL;
 }
 
+/* Gives candidate idx a TLS session.  Returns 1 once it owns one,
+   0 when every session is busy so the caller should try again later,
+   and -1 when starting TLS failed. */
+static int
+acquire_session( fd_failover_channel_t * ch, ulong idx, int dial ) {
+  struct candidate * c = &ch->candidates[idx];
+  if( c->session!=-1 ) return 1;
+  ulong lo = idx==OUTBOUND_IDX ? OUTBOUND_IDX   : OUTBOUND_IDX+1UL;
+  ulong hi = idx==OUTBOUND_IDX ? OUTBOUND_IDX+1UL : FD_FAILOVER_CHANNEL_SESSION_MAX;
+  for( ulong i=lo; i<hi; i++ ) {
+    if( ch->sessions[i].owner!=-1 ) continue;
+    if( fd_failover_tls_new( &ch->sessions[i].tls, &ch->tls_ctx, c->fd, dial ) ) return -1;
+    ch->sessions[i].owner = (int)idx;
+    c->session            = (int)i;
+    return 1;
+  }
+  return 0;
+}
+
 static void
-close_candidate( struct candidate * c ) {
-  if( c->tls_started ) fd_failover_tls_fini( &c->tls );
-  c->tls_started = 0;
-  if( c->fd!=-1 ) close( c->fd );
+close_candidate( fd_failover_channel_t * ch, struct candidate * c ) {
+  if( c->session!=-1 ) {
+    fd_failover_tls_fini( &ch->sessions[ c->session ].tls );
+    ch->sessions[ c->session ].owner = -1;
+    c->session = -1;
+  }
   /* Closing a candidate frees its slot. */
-  c->fd      = -1;
+  if( c->fd!=-1 ) { close( c->fd ); c->fd = -1; ch->live--; }
   c->dialed  = 0;
   c->rx_used = c->tx_used = c->tx_sent = 0UL;
 }
@@ -168,7 +198,7 @@ close_candidate( struct candidate * c ) {
 /* Discards every candidate and the pairing. */
 static void
 discard( fd_failover_channel_t * ch ) {
-  for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) close_candidate( &ch->candidates[i] );
+  for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) close_candidate( ch, &ch->candidates[i] );
   ch->paired_idx = -1;
   fd_memset( &ch->peer_hello, 0, sizeof(ch->peer_hello) );
 }
@@ -185,7 +215,7 @@ reset( fd_failover_channel_t * ch ) {
   if( ch->paired_idx>=0 ) return;
   for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) {
     if( ch->candidates[i].dialed ) {
-      close_candidate( &ch->candidates[i] );
+      close_candidate( ch, &ch->candidates[i] );
     }
   }
   ch->dial_peer = want_dial( ch );
@@ -209,6 +239,10 @@ fd_failover_channel_init_listener( fd_failover_channel_t * ch,
   }
   if( setsockopt( ch->listen_fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes) ) ) {
     FD_LOG_ERR(( "failover setsockopt(TCP_NODELAY) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  int defer = (int)(FD_FAILOVER_ADMISSION_START_NANOS/(long)FD_FAILOVER_NANOS_PER_SECOND);
+  if( setsockopt( ch->listen_fd, IPPROTO_TCP, TCP_DEFER_ACCEPT, &defer, sizeof(defer) ) ) {
+    FD_LOG_ERR(( "failover setsockopt(TCP_DEFER_ACCEPT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   struct sockaddr_in addr = { .sin_family=AF_INET, .sin_port=fd_ushort_bswap( port ), .sin_addr.s_addr=address };
   if( bind( ch->listen_fd, fd_type_pun( &addr ), sizeof(addr) ) || listen( ch->listen_fd, FD_FAILOVER_LISTEN_BACKLOG ) ) {
@@ -260,7 +294,7 @@ fd_failover_channel_set_holds( fd_failover_channel_t * ch,
   if( ch->self_hello.holds==(uchar)!!holds ) return;
   ch->self_hello.holds = (uchar)!!holds;
   for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ )
-    if( (int)i!=ch->paired_idx ) close_candidate( &ch->candidates[i] );
+    if( (int)i!=ch->paired_idx ) close_candidate( ch, &ch->candidates[i] );
   if( ch->paired_idx<0 ) reset( ch );
 }
 
@@ -281,7 +315,7 @@ FD_FN_PURE int
 fd_failover_channel_tx_pending( fd_failover_channel_t const * ch ) {
   if( ch->paired_idx<0 ) return 0;
   struct candidate const * c = &ch->candidates[ch->paired_idx];
-  return !!c->tx_used || fd_tlsrec_sock_tx_pending( &c->tls.sock );
+  return !!c->tx_used || fd_tlsrec_sock_tx_pending( &ch->sessions[ c->session ].tls.sock );
 }
 
 FD_FN_PURE fd_failover_hello_t const *           fd_failover_channel_peer_hello( fd_failover_channel_t const * ch ) { return &ch->peer_hello; }
@@ -302,7 +336,7 @@ drop( fd_failover_channel_t * ch,
   struct candidate * c        = &ch->candidates[idx];
   int                paired   = ch->paired_idx==(int)idx;
   int                accepted = c->fd!=-1 && !c->dialed;
-  close_candidate( c );
+  close_candidate( ch, c );
   if( paired ) {
     ch->paired_idx = -1;
     fd_memset( &ch->peer_hello, 0, sizeof(ch->peer_hello) );
@@ -396,16 +430,17 @@ start( fd_failover_channel_t * ch,
        long                    now,
        int                     phase ) {
   struct candidate * c = &ch->candidates[idx];
-  /* Inbound sockets do not initialize TLS until admission succeeds. */
+  /* Inbound sockets do not acquire a TLS session until admission succeeds. */
+  if( c->fd==-1 ) ch->live++;
   c->fd       = fd;
   c->address  = address;
   c->phase    = phase;
   c->dialed   = phase==PHASE_CONNECT;
+  c->session  = -1;
   c->deadline = fd_long_sat_add( now, FD_FAILOVER_CHANNEL_HELLO_TIMEOUT_NANOS );
   c->admission_until = c->dialed ? c->deadline : fd_long_min( c->deadline, fd_long_sat_add( now, FD_FAILOVER_ADMISSION_START_NANOS ) );
   c->local_hello = ch->self_hello;
   c->rx_used     = c->tx_used = c->tx_sent = 0UL;
-  c->tls_started = 0;
 }
 
 static void
@@ -422,8 +457,7 @@ accept_candidates( fd_failover_channel_t * ch,
     uint  address = addr.sin_addr.s_addr;
     ulong idx     = listen_slot( ch, address, now );
     if( ch->paired_idx>=0 || len!=sizeof(addr) || addr.sin_family!=AF_INET ||
-        idx==FD_FAILOVER_CHANNEL_CANDIDATE_MAX || !admit( ch, address ) ||
-        !fd_token_bucket_consume( &ch->admit_bucket, 1.0f, now ) ) {
+        idx==FD_FAILOVER_CHANNEL_CANDIDATE_MAX || !admit( ch, address ) ) {
       close( fd );
       continue;
     }
@@ -437,19 +471,20 @@ flush( fd_failover_channel_t * ch,
        long                    now,
        int *                   busy ) {
   struct candidate * c = &ch->candidates[idx];
+  struct session   * s = &ch->sessions[ c->session ];
   if( !c->tx_used ) {
-    int rc = fd_tlsrec_sock_flush( &c->tls.sock, c->tls.fd );
+    int rc = fd_tlsrec_sock_flush( &s->tls.sock, s->tls.fd );
     if( rc<0 ) { lose( ch, idx, now, "flushing TLS output failed" ); return -1; }
     return rc;
   }
-  long n = fd_failover_tls_write( &c->tls, c->tx+c->tx_sent, c->tx_used-c->tx_sent );
+  long n = fd_failover_tls_write( &s->tls, s->tx+c->tx_sent, c->tx_used-c->tx_sent );
   if( n<0L ) { lose( ch, idx, now, "writing to it failed" ); return -1; }
   if( !n ) return 1;
   *busy = 1;
   c->tx_sent += (ulong)n;
   if( c->tx_sent<c->tx_used ) return 1;
   c->tx_used = c->tx_sent = 0UL;
-  return fd_tlsrec_sock_tx_pending( &c->tls.sock ) ? 1 : 0;
+  return fd_tlsrec_sock_tx_pending( &s->tls.sock ) ? 1 : 0;
 }
 
 static int
@@ -461,13 +496,14 @@ decode( fd_failover_channel_t * ch,
         uchar *                 payload,
         ulong *                 payload_sz ) {
   struct candidate * c   = &ch->candidates[idx];
+  uchar *            rx  = ch->sessions[ c->session ].rx;
   uchar const *      data;
   ulong              frame_sz;
-  int                err = fd_failover_wire_decode( c->rx, c->rx_used, type, &data, payload_sz, &frame_sz );
+  int                err = fd_failover_wire_decode( rx, c->rx_used, type, &data, payload_sz, &frame_sz );
   if( err==FD_FAILOVER_WIRE_ERR_AGAIN ) return 0;
   if( err ) { lose( ch, idx, now, "it sent a malformed frame" ); return -1; }
   fd_memcpy( payload, data, *payload_sz );
-  memmove( c->rx, c->rx+frame_sz, c->rx_used-frame_sz );
+  memmove( rx, rx+frame_sz, c->rx_used-frame_sz );
   c->rx_used -= frame_sz;
   *busy = 1;
   return 1;
@@ -505,24 +541,25 @@ read_frame( fd_failover_channel_t * ch,
             uchar *                 payload,
             ulong *                 payload_sz ) {
   struct candidate * c  = &ch->candidates[idx];
+  struct session   * s  = &ch->sessions[ c->session ];
   int                rc = decode( ch, idx, now, busy, type, payload, payload_sz );
   if( rc ) return rc;
-  ulong max = ch->paired_idx==(int)idx ? sizeof(c->rx) : FD_FAILOVER_FRAME_HDR_SZ+sizeof(fd_failover_hello_t);
+  ulong max = ch->paired_idx==(int)idx ? sizeof(s->rx) : FD_FAILOVER_FRAME_HDR_SZ+sizeof(fd_failover_hello_t);
   if( c->rx_used>=max ) { drop( ch, idx, now ); return -1; }
-  long n = fd_failover_tls_read( &c->tls, c->rx+c->rx_used, max-c->rx_used );
+  long n = fd_failover_tls_read( &s->tls, s->rx+c->rx_used, max-c->rx_used );
   if( n<0L ) {
     if( FD_UNLIKELY( c->dialed && c->phase==PHASE_HELLO ) ) {
       FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` closed the connection before answering our HELLO",
                        FD_IP4_ADDR_FMT_ARGS( c->address ) ));
     }
-    if( ch->paired_idx==(int)idx && ch->expected_close && c->tls.peer_closed && !fd_failover_channel_tx_pending( ch ) ) {
+    if( ch->paired_idx==(int)idx && ch->expected_close && s->tls.peer_closed && !fd_failover_channel_tx_pending( ch ) ) {
       drop( ch, idx, now );
       return -1;
     }
-    if( fd_tlsrec_conn_is_failed( &c->tls.conn ) ) {
+    if( fd_tlsrec_conn_is_failed( &s->tls.conn ) ) {
       char why[ 192 ];
       fd_cstr_printf( why, sizeof(why), NULL, "TLS record rejected (%s)",
-                      fd_tls_reason_cstr( c->tls.conn.hs.base.reason ) );
+                      fd_tls_reason_cstr( s->tls.conn.hs.base.reason ) );
       lose( ch, idx, now, why );
     } else {
       lose( ch, idx, now, "the connection closed" );
@@ -554,13 +591,12 @@ connect_candidate( fd_failover_channel_t * ch,
 
   /* Only operator-initiated outbound work prepares a TLS key share here. */
   ulong hello_sz = sizeof(c->client_hello);
-  if( fd_failover_tls_new( &c->tls, &ch->tls_ctx, c->fd, 1 ) ) {
+  if( acquire_session( ch, idx, 1 )<=0 ) {
     drop( ch, idx, now );
     return 0;
   }
-  c->tls_started = 1;
 
-  if( fd_failover_tls_client_hello( &c->tls, c->client_hello, &hello_sz ) ||
+  if( fd_failover_tls_client_hello( &ch->sessions[ c->session ].tls, c->client_hello, &hello_sz ) ||
       hello_sz>sizeof(c->client_hello) ) {
     drop( ch, idx, now );
     return 0;
@@ -588,9 +624,10 @@ handshake_candidate( fd_failover_channel_t * ch,
                      long                    now,
                      int *                   busy ) {
   struct candidate * c = &ch->candidates[idx];
-  int rc = fd_failover_tls_handshake( &c->tls );
+  struct session   * s = &ch->sessions[ c->session ];
+  int rc = fd_failover_tls_handshake( &s->tls );
   if( rc<0 ) {
-    uint reason = c->tls.conn.hs.base.reason;
+    uint reason = s->tls.conn.hs.base.reason;
     FD_LOG_WARNING(( "TLS handshake with `" FD_IP4_ADDR_FMT "` failed (%s)",
                      FD_IP4_ADDR_FMT_ARGS( c->address ), reason ? fd_tls_reason_cstr( reason ) : "connection closed or socket error" ));
     drop( ch, idx, now );
@@ -602,7 +639,7 @@ handshake_candidate( fd_failover_channel_t * ch,
   /* TLS authenticated a key, send the HELLO! */
   c->phase = PHASE_HELLO;
   if( c->dialed ) {
-    c->tx_used = fd_failover_wire_encode( c->tx, FD_FAILOVER_MSG_HELLO,
+    c->tx_used = fd_failover_wire_encode( s->tx, FD_FAILOVER_MSG_HELLO,
                                           (uchar const *)&c->local_hello, sizeof(c->local_hello) );
   }
   return 1;
@@ -626,7 +663,7 @@ read_candidate_hello( fd_failover_channel_t * ch,
 
   /* HELLO and TLS must match admission. */
   int err = fd_memeq( payload, &c->hello, sizeof(c->hello) ) &&
-            fd_memeq( c->hello.staked_pubkey, c->tls.peer_pubkey, 32UL )
+            fd_memeq( c->hello.staked_pubkey, ch->sessions[ c->session ].tls.peer_pubkey, 32UL )
           ? fd_failover_hello_check( &c->local_hello, &c->hello ) : HELLO_ERR_TLS_KEY;
   if( err!=FD_FAILOVER_HELLO_OK ) {
     refuse_hello( c->address, err );
@@ -637,7 +674,7 @@ read_candidate_hello( fd_failover_channel_t * ch,
   /* The peer is authenticated. */
   c->phase = PHASE_READY;
   if( !c->dialed ) {
-    c->tx_used = fd_failover_wire_encode( c->tx, FD_FAILOVER_MSG_HELLO,
+    c->tx_used = fd_failover_wire_encode( ch->sessions[ c->session ].tx, FD_FAILOVER_MSG_HELLO,
                                           (uchar const *)&c->local_hello, sizeof(c->local_hello) );
     if( flush( ch, idx, now, busy )!=0 ) return 0; /* Remain READY until output drains, unless the write fails. */
   }
@@ -651,12 +688,12 @@ pair_candidate( fd_failover_channel_t * ch,
                 int *                   busy ) {
   struct candidate * c = &ch->candidates[idx];
   /* The first session that authenticates wins. */
-  for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) if( i!=idx ) close_candidate( &ch->candidates[i] );
+  for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) if( i!=idx ) close_candidate( ch, &ch->candidates[i] );
 
   if( !c->dialed ) ch->dial_peer = 0;
 
   ch->paired_idx = (int)idx;
-  c->tls.paired  = 1;
+  ch->sessions[ c->session ].tls.paired = 1;
   ch->peer_hello = c->hello;
   ch->generation++;
   remember_source( ch, c->address, now );
@@ -824,7 +861,7 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
       refuse_hello( c->address, FD_FAILOVER_HELLO_ERR_PROOF );
       break;
     }
-    if( fd_failover_tls_accept_flight( &c->tls, c->rx+sizeof(response), response.server_flight_sz ) ) break;
+    if( fd_failover_tls_accept_flight( &ch->sessions[ c->session ].tls, c->rx+sizeof(response), response.server_flight_sz ) ) break;
     c->phase = PHASE_TLS;
     c->rx_used = 0UL;
     *busy = 1;
@@ -842,13 +879,6 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
     c->rx_used         = 0UL;
     c->admission_until = c->deadline;
     c->phase           = PHASE_TLS_START;
-    /* Only a verified proof can claim a protected slot. */
-    if( idx!=ADMITTED_IDX ) {
-      if( ch->candidates[ ADMITTED_IDX ].fd!=-1 ) break;
-      ch->candidates[ ADMITTED_IDX ] = *c;
-      c->fd = -1;
-      c->tls_started = 0;
-    }
     *busy = 1;
     return;
   case PHASE_RESPONSE_SIGN: {
@@ -862,19 +892,22 @@ service_admission( fd_failover_channel_t * ch, ulong idx, long now, int * busy )
     *busy = 1;
     return;
   }
-  case PHASE_TLS_START:
-    if( fd_failover_tls_new( &c->tls, &ch->tls_ctx, c->fd, 0 ) ) break;
-    c->tls_started = 1;
-    if( fd_failover_tls_accept_flight( &c->tls, c->client_hello, c->start.client_hello_sz ) ) break;
-    if( !c->tls.sock.tx_sz || c->tls.sock.tx_sz>FD_FAILOVER_SERVER_FLIGHT_MAX ) break;
-    fd_failover_response_hash( c->transcript, c->client_proof, c->tls.sock.tx_buf,
-                               (ushort)c->tls.sock.tx_sz, c->transcript );
-    fd_memcpy( c->tx+sizeof(fd_failover_admission_response_t), c->tls.sock.tx_buf, c->tls.sock.tx_sz );
-    c->tx_used = sizeof(fd_failover_admission_response_t)+c->tls.sock.tx_sz;
-    c->tls.sock.tx_off = c->tls.sock.tx_sz = 0UL;
+  case PHASE_TLS_START: {
+    int got = acquire_session( ch, idx, 0 );
+    if( !got ) return;
+    if( got<0 ) break;
+    struct session * s = &ch->sessions[ c->session ];
+    if( fd_failover_tls_accept_flight( &s->tls, c->client_hello, c->start.client_hello_sz ) ) break;
+    if( !s->tls.sock.tx_sz || s->tls.sock.tx_sz>FD_FAILOVER_SERVER_FLIGHT_MAX ) break;
+    fd_failover_response_hash( c->transcript, c->client_proof, s->tls.sock.tx_buf,
+                               (ushort)s->tls.sock.tx_sz, c->transcript );
+    fd_memcpy( c->tx+sizeof(fd_failover_admission_response_t), s->tls.sock.tx_buf, s->tls.sock.tx_sz );
+    c->tx_used = sizeof(fd_failover_admission_response_t)+s->tls.sock.tx_sz;
+    s->tls.sock.tx_off = s->tls.sock.tx_sz = 0UL;
     c->phase = PHASE_RESPONSE_SIGN;
     *busy = 1;
     return;
+  }
   default:
     break;
   }
@@ -1004,15 +1037,17 @@ fd_failover_channel_poll( fd_failover_channel_t * ch,
   }
 
   /* Expire every slot each poll, independently of round-robin service. */
-  for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) {
-    struct candidate * c = &ch->candidates[i];
-    if( c->fd!=-1 && (int)i!=ch->paired_idx && ( now>=c->deadline || now>=c->admission_until ) ) {
-      if( c->dialed ) {
-        FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not finish the handshake in time",
-                         FD_IP4_ADDR_FMT_ARGS( c->address ) ));
+  if( ch->live > (ulong)( ch->paired_idx>=0 ) ) {
+    for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) {
+      struct candidate * c = &ch->candidates[i];
+      if( c->fd!=-1 && (int)i!=ch->paired_idx && ( now>=c->deadline || now>=c->admission_until ) ) {
+        if( c->dialed ) {
+          FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not finish the handshake in time",
+                           FD_IP4_ADDR_FMT_ARGS( c->address ) ));
+        }
+        drop( ch, i, now );
+        *busy = 1;
       }
-      drop( ch, i, now );
-      *busy = 1;
     }
   }
 
@@ -1029,7 +1064,9 @@ fd_failover_channel_poll( fd_failover_channel_t * ch,
     if( ch->paired_idx>=0 ) return delivered;
   }
 
-  for( ulong n=0UL; n<FD_FAILOVER_CHANNEL_CANDIDATE_MAX-UNAUTHENTICATED_IDX && serviced<4UL; n++ ) {
+  /* Round-robin the shared pool. */
+  ulong reserved = (ulong)( ch->candidates[OUTBOUND_IDX].fd!=-1 ) + (ulong)( ch->candidates[ADMITTED_IDX].fd!=-1 );
+  for( ulong n=0UL; ch->live>reserved && n<FD_FAILOVER_CHANNEL_CANDIDATE_MAX-UNAUTHENTICATED_IDX && serviced<FD_FAILOVER_SERVICE_PER_POLL; n++ ) {
     ulong idx = UNAUTHENTICATED_IDX+ch->cursor;
     ch->cursor = (ch->cursor+1UL)%(FD_FAILOVER_CHANNEL_CANDIDATE_MAX-UNAUTHENTICATED_IDX);
     if( ch->candidates[idx].fd==-1 ) continue;
@@ -1059,7 +1096,7 @@ fd_failover_channel_send( fd_failover_channel_t * ch,
   struct candidate * c   = &ch->candidates[idx];
 
   if( c->tx_used ) return -1;
-  c->tx_used = fd_failover_wire_encode( c->tx, type, payload, sz );
+  c->tx_used = fd_failover_wire_encode( ch->sessions[ c->session ].tx, type, payload, sz );
   if( !c->tx_used ) {
     lose( ch, idx, now, "we could not encode a frame for it" );
     return -1;

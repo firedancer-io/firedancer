@@ -92,16 +92,20 @@ pair( fd_failover_tile_ctx_t * ctx,
       long                     now ) {
   fd_failover_channel_t * ch = ctx->channel;
   struct candidate *      c  = &ch->candidates[ ADMITTED_IDX ];
+  struct session *        s  = &ch->sessions[ ADMITTED_IDX ];
   if( c->fd==-1 ) {
     int sv[ 2 ];
     FD_TEST( !socketpair( AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0, sv ) );
     fd_memset( c, 0, sizeof(*c) );
-    c->fd  = sv[ 0 ];
-    c->tls.fd = sv[ 0 ];
-    c->phase  = PHASE_READY;
-    c->tls.conn.hs.base.state = FD_TLS_HS_CONNECTED;
-    c->tls.paired = 1;
+    c->fd      = sv[ 0 ];
+    c->session = (int)ADMITTED_IDX;
+    c->phase   = PHASE_READY;
+    s->owner   = (int)ADMITTED_IDX;
+    s->tls.fd  = sv[ 0 ];
+    s->tls.conn.hs.base.state = FD_TLS_HS_CONNECTED;
+    s->tls.paired = 1;
     c->local_hello = ctx->hello;
+    ch->live++;
     fake_peer_fd = sv[ 1 ];
   }
   ch->paired_idx         = (int)ADMITTED_IDX;
@@ -803,10 +807,66 @@ fill( fd_failover_channel_t * ch,
   fd_memset( c, 0, sizeof(*c) );
   c->fd       = open( "/dev/null", O_RDONLY|O_CLOEXEC );
   FD_TEST( c->fd!=-1 );
-  c->tls.fd   = -1;
+  c->session  = -1;
   c->phase    = PHASE_TLS;
   c->address  = address;
   c->deadline = deadline;
+}
+
+/* Session OUTBOUND_IDX is reserved for our own dial; inbound verified
+   peers share the rest.  When the shared sessions are all busy an inbound
+   candidate keeps its small slot and waits rather than being dropped, and
+   it cannot take the reserved dial session.  The fixture has no real TLS
+   context, so this fakes session ownership (as pair() does). */
+static void
+test_session_wait( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( 1 );
+  fd_failover_channel_t  * ch  = ctx->channel;
+  long now = FD_FAILOVER_ADMISSION_START_NANOS;
+
+  /* Reserve the dial session, then fill every shared session with a
+     verified inbound candidate. */
+  start( ch, OUTBOUND_IDX, open( "/dev/null", O_RDONLY|O_CLOEXEC ), FD_IP4_ADDR(10,9,0,1), now, PHASE_TLS );
+  ch->candidates[ OUTBOUND_IDX ].session = (int)OUTBOUND_IDX;
+  ch->sessions[ OUTBOUND_IDX ].owner     = (int)OUTBOUND_IDX;
+  for( ulong i=OUTBOUND_IDX+1UL; i<FD_FAILOVER_CHANNEL_SESSION_MAX; i++ ) {
+    ulong idx = UNAUTHENTICATED_IDX+i;
+    start( ch, idx, open( "/dev/null", O_RDONLY|O_CLOEXEC ), FD_IP4_ADDR(10,3,0,(uint)i), now, PHASE_TLS_START );
+    ch->candidates[ idx ].session = (int)i;
+    ch->sessions[ i ].owner       = (int)idx;
+  }
+
+  /* A further verified inbound candidate finds no shared session free, so
+     acquire_session returns 0: it keeps its slot and is not dropped. */
+  ulong waiter = UNAUTHENTICATED_IDX+FD_FAILOVER_CHANNEL_SESSION_MAX;
+  start( ch, waiter, open( "/dev/null", O_RDONLY|O_CLOEXEC ), FD_IP4_ADDR(10,3,0,250), now, PHASE_TLS_START );
+  FD_TEST( acquire_session( ch, waiter, 0 )==0 );
+  FD_TEST( ch->candidates[ waiter ].fd!=-1 && ch->candidates[ waiter ].session==-1 );
+
+  /* Freeing the reserved dial session does not help an inbound waiter:
+     it is reserved for OUTBOUND_IDX only. */
+  ch->sessions[ OUTBOUND_IDX ].owner       = -1;
+  ch->candidates[ OUTBOUND_IDX ].session   = -1;
+  FD_TEST( acquire_session( ch, waiter, 0 )==0 );
+  FD_TEST( ch->candidates[ waiter ].session==-1 );
+
+  /* Freeing a shared session lets the waiter claim it. */
+  ulong freed = UNAUTHENTICATED_IDX+OUTBOUND_IDX+1UL;
+  ch->sessions[ ch->candidates[ freed ].session ].owner = -1;
+  ch->candidates[ freed ].session = -1;
+  ulong free_shared = 0UL;
+  for( ulong i=OUTBOUND_IDX+1UL; i<FD_FAILOVER_CHANNEL_SESSION_MAX; i++ ) free_shared += ch->sessions[ i ].owner==-1;
+  FD_TEST( free_shared==1UL );
+
+  /* The candidate pool is far larger than the session pool. */
+  FD_TEST( FD_FAILOVER_CHANNEL_CANDIDATE_MAX>=256UL*FD_FAILOVER_CHANNEL_SESSION_MAX );
+
+  for( ulong i=0UL; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) {
+    ch->candidates[ i ].session = -1;
+    if( ch->candidates[ i ].fd!=-1 ) close_candidate( ch, &ch->candidates[ i ] );
+  }
+  FD_TEST( ch->live==0UL );
+  controller_fini( ctx );
 }
 
 static void
@@ -856,6 +916,7 @@ main( int argc, char ** argv ) {
   test_restarted_peer_new_request();
   test_force_empty_bound();
   test_adopt_capacity_retry();
+  test_session_wait();
   test_listen_slot();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

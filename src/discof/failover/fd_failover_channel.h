@@ -10,8 +10,9 @@
 
 #define FD_FAILOVER_CHANNEL_MAGIC         (0xF17EDA2CE5FA170AUL)
 
-/* Candidate slots */
-#define FD_FAILOVER_CHANNEL_CANDIDATE_MAX (16UL)
+/* Candidate and TLS session slots */
+#define FD_FAILOVER_CHANNEL_CANDIDATE_MAX (1024UL)
+#define FD_FAILOVER_CHANNEL_SESSION_MAX   (4UL) /* OUTBOUND_IDX, ADMITTED_IDX, two spares */
 
 #define FD_FAILOVER_NANOS_PER_SECOND   (1000000000UL)
 #define FD_FAILOVER_LOG_INTERVAL_NANOS (60L*(long)FD_FAILOVER_NANOS_PER_SECOND)
@@ -19,11 +20,10 @@
 /* Rate limits */
 #define FD_FAILOVER_ACCEPT_RATE           (8192UL) /* number of num accept4 calls */
 #define FD_FAILOVER_ACCEPT_BURST          (128UL)
-#define FD_FAILOVER_ADMIT_RATE            (128UL)  /* number of candidates started */
-#define FD_FAILOVER_ADMIT_BURST           (16UL)
-#define FD_FAILOVER_VERIFY_RATE           (128UL)  /* number of Ed25519 proofs */
-#define FD_FAILOVER_VERIFY_BURST          (16UL)
+#define FD_FAILOVER_VERIFY_RATE           (2048UL) /* number of Ed25519 proofs */
+#define FD_FAILOVER_VERIFY_BURST          (128UL)
 #define FD_FAILOVER_ACCEPT_PER_POLL       (16UL)
+#define FD_FAILOVER_SERVICE_PER_POLL      (4UL)
 #define FD_FAILOVER_LISTEN_BACKLOG        (256)
 
 #define FD_FAILOVER_ADMISSION_START_NANOS ((long)FD_FAILOVER_NANOS_PER_SECOND)

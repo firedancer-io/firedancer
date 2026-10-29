@@ -30,7 +30,8 @@ connect
 
 # the dialed socket disables TCP Nagle
 setsockopt: (and (eq (arg 1) IPPROTO_TCP)
-                 (eq (arg 2) TCP_NODELAY))
+                 (or (eq (arg 2) TCP_NODELAY)
+                     (eq (arg 2) TCP_DEFER_ACCEPT)))
 
 # every member accepts candidate connections on its listener
 accept4: (and (eq (arg 0) listen_fd)
