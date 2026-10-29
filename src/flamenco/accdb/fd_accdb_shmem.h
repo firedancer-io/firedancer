@@ -48,6 +48,7 @@ struct fd_accdb_metrics {
   ulong accounts_not_found_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_waited;
   ulong accounts_deleted;
+  ulong accounts_demoted;
 
   ulong acquire_pool_waits;
 
