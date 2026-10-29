@@ -142,6 +142,8 @@ fd_disco_tpu_is_durable_nonce( fd_txn_t const * txn,
      little-endian uint value 4 */
   if( FD_UNLIKELY( (ix0->data_sz!=4) | (ix0->acct_cnt!=3) ) ) return 0;
 
+  if( FD_UNLIKELY( !fd_txn_is_writable( txn, payload[ ix0->acct_off ] ) ) ) return 0;
+
   return fd_uint_load_4( payload + ix0->data_off )==4U;
 }
 
