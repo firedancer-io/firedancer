@@ -1056,10 +1056,17 @@ after_credit( fd_repair_tile_t *  ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
 
-  /* Send one reassembled FEC to replay, then repair, which publishes
-     only on unreliable links. */
+  /* Tell replay about one block the rotor dropped, or send it one
+     reassembled FEC, then repair, which publishes only on unreliable
+     links. */
 
-  if( FD_LIKELY( !fd_repair_deque_empty( ctx->rotor->reasm_deque ) ) ) {
+  if( FD_UNLIKELY( ctx->rotor->dropped_cnt ) ) {
+    *opt_poll_in = 0;
+    fd_repair_dropped_t * msg = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+    *msg = ctx->rotor->dropped[ --ctx->rotor->dropped_cnt ];
+    fd_stem_publish( stem, ctx->replay_out_idx, ROTOR_SIG_BLOCK_DROPPED, ctx->replay_out_chunk, sizeof(fd_repair_dropped_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_repair_dropped_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  } else if( FD_LIKELY( !fd_repair_deque_empty( ctx->rotor->reasm_deque ) ) ) {
     *opt_poll_in = 0;
 
     fd_repair_deque_t        out = fd_repair_deque_pop_head( ctx->rotor->reasm_deque );

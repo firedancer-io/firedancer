@@ -109,6 +109,8 @@
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
 /* alpenglow type - completed block metadata, on rotor_rserve */
 #define ROTOR_SIG_BLOCK       (4UL)
+/* alpenglow type - a consumed block the rotor freed, on repair_out, an fd_repair_dropped_t */
+#define ROTOR_SIG_BLOCK_DROPPED (5UL)
 
 struct fd_repair_fec_metrics {
   uint  stats_valid;         /* 1 if the counters below are populated */

@@ -2651,6 +2651,61 @@ test_orphan_map_slot_mismatch( void ) {
   orphan_cnt( rotor );
 }
 
+/* Finalizing a slot, or skipping it, lists the competing blks replay
+   has started consuming in rotor->dropped for the tile to forward.
+   Blks replay never saw are not listed.  A turbine copy that completes
+   as a block other than the finalized one is listed too, under both
+   of its keys. */
+
+static void
+test_dropped_listed( void ) {
+  fd_repair_t *     rotor = setup();
+  fd_repair_blk_t * a     = notar( rotor, 1UL, 0x10 );
+  fd_repair_blk_t * b     = notar( rotor, 1UL, 0x40 );
+  notar( rotor, 1UL, 0x50 );
+  parented( rotor, 1UL, 0x10, 0UL, 0xEE, 1U );
+  parented( rotor, 1UL, 0x40, 0UL, 0xEE, 1U );
+  parented( rotor, 1UL, 0x50, 0UL, 0xEE, 1U );
+  fecs( rotor, 1UL, 0x40, 1U );
+  fd_mr32_t m41 = hash( 0x41 ); complete( rotor, 1UL, 0UL, 0U, 1, &m41 );
+  expect( rotor, b, 0U );
+  FD_TEST( b->cons_fec_cnt==1U && !rotor->dropped_cnt );
+
+  fd_mr32_t h10 = hash( 0x10 ), h40 = hash( 0x40 );
+  FD_TEST( fd_repair_blk_finalized( rotor, 1UL, &h10, 0L )==a );
+  FD_TEST( rotor->dropped_cnt==1UL );
+  FD_TEST( rotor->dropped[ 0 ].slot==1UL && !memcmp( &rotor->dropped[ 0 ].block_id, &h40, sizeof(fd_mr32_t) ) );
+  rotor->dropped_cnt = 0UL;
+
+  /* The eager blk of slot 2 is consumed, then the slot is skipped: it
+     is listed under the zero id, having none yet. */
+  fd_mr32_t root = hash( 0xEE ), m20 = hash( 0x20 );
+  shred0  ( rotor, 2UL, 0UL, &root, &m20 );
+  complete( rotor, 2UL, 0UL, 0U, 0, &m20 );
+  fd_repair_blk_t * e2 = fd_repair_blk_pool_ele( rotor->blk_pool, fd_repair_slot_meta( rotor, 2UL )->eager );
+  expect( rotor, e2, 0U );
+  FD_TEST( e2->cons_fec_cnt==1U );
+  fd_repair_slot_skipped( rotor, 2UL );
+  FD_TEST( rotor->dropped_cnt==1UL );
+  FD_TEST( rotor->dropped[ 0 ].slot==2UL && !memcmp( &rotor->dropped[ 0 ].block_id, &hash_null, sizeof(fd_mr32_t) ) );
+  rotor->dropped_cnt = 0UL;
+
+  /* The eager blk of slot 3 is consumed, the slot is finalized as a
+     blk we do not hold, and the eager blk then completes as another
+     block: listed under its id and under the zero id. */
+  fd_mr32_t m30 = hash( 0x30 ), m31 = hash( 0x31 ), h3f = hash( 0x3F );
+  shred0  ( rotor, 3UL, 0UL, &root, &m30 );
+  complete( rotor, 3UL, 0UL, 0U, 0, &m30 );
+  fd_repair_blk_t * e3 = fd_repair_blk_pool_ele( rotor->blk_pool, fd_repair_slot_meta( rotor, 3UL )->eager );
+  expect( rotor, e3, 0U );
+  FD_TEST( fd_repair_blk_finalized( rotor, 3UL, &h3f, 0L ) && !rotor->dropped_cnt );
+  complete( rotor, 3UL, 0UL, 1U, 1, &m31 );
+  FD_TEST( rotor->dropped_cnt==2UL );
+  FD_TEST( rotor->dropped[ 0 ].slot==3UL &&  memcmp( &rotor->dropped[ 0 ].block_id, &hash_null, sizeof(fd_mr32_t) ) );
+  FD_TEST( rotor->dropped[ 1 ].slot==3UL && !memcmp( &rotor->dropped[ 1 ].block_id, &hash_null, sizeof(fd_mr32_t) ) );
+  orphan_cnt( rotor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2719,6 +2774,7 @@ main( int     argc,
   test_orphan_map_root_advanced();
   test_root_advanced_unheld();
   test_orphan_map_slot_mismatch();
+  test_dropped_listed();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
