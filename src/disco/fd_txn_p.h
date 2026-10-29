@@ -86,12 +86,18 @@ fd_txn_p_copy( fd_txn_p_t *       dst,
   fd_memcpy( dst->_, src->_, desc_sz );
 }
 
-/* fd_txn_e_t: An fd_txn_p_t with expanded address lookup tables */
+/* fd_txn_e_t: An fd_txn_p_t with expanded address lookup tables.  The
+   addr_table_adtl_cnt ALT accounts follow the payload: legacy/V0
+   payloads are <=FD_TXN_MTU_V0 and V1 has no ALTs (fd_txn_parse), so
+   payload_sz+64*32<=FD_TPU_MTU for every valid transaction. */
 struct __attribute__((aligned(64))) fd_txn_e {
    fd_txn_p_t     txnp[1];
-   fd_acct_addr_t alt_accts[FD_TXN_ACCT_ADDR_MAX]; /* The used account is in the fd_txn_t*/
 };
 
 typedef struct fd_txn_e fd_txn_e_t;
+
+FD_STATIC_ASSERT( FD_TXN_MTU_V0+FD_TXN_ACCT_ADDR_MAX*sizeof(fd_acct_addr_t)<=FD_TPU_MTU, fd_txn_e_alt_fits );
+
+#define fd_txn_e_alt( e ) ((fd_acct_addr_t *)( (e)->txnp->payload + (e)->txnp->payload_sz ))
 
 #endif /* HEADER_fd_src_disco_fd_txn_p_h */

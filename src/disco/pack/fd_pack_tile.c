@@ -980,7 +980,7 @@ after_credit( fd_pack_ctx_t *     ctx,
             bundle[0]->txnp->payload+65UL, txn_sz-65UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
         memcpy( ctx->crank->last_sig, bundle[0]->txnp->payload+1UL, 64UL );
-        fd_pack_est_txn( ctx->est, TXN(bundle[0]->txnp), bundle[0]->txnp->payload, bundle[0]->alt_accts, &bundle[0]->txnp->pack_est );
+        fd_pack_est_txn( ctx->est, TXN(bundle[0]->txnp), bundle[0]->txnp->payload, fd_txn_e_alt( bundle[0] ), &bundle[0]->txnp->pack_est );
 
         ctx->crank->ib_inserted = 1;
         ulong deleted;
@@ -1189,6 +1189,7 @@ during_frag( fd_pack_ctx_t * ctx,
 
     ulong addr_table_sz = 32UL*txn->addr_table_adtl_cnt;
     FD_TEST( addr_table_sz<=32UL*FD_TXN_ACCT_ADDR_MAX );
+    FD_TEST( payload_sz+addr_table_sz<=FD_TPU_MTU ); /* ALTs follow the payload in fd_txn_e_t */
 
     if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->highest_observed_block_height) ) ) {
       /* Using the resolv tile's knowledge of the current block height
@@ -1250,9 +1251,9 @@ during_frag( fd_pack_ctx_t * ctx,
     /* From the source, which nothing here has stored to */
     fd_pack_insert_txn_prefetch( ctx->pack, txn, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
 
-    fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
-    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
-    fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    addr_table_sz );
+    fd_memcpy( ctx->cur_spot->txnp->payload,             fd_txn_m_payload( txnm ), payload_sz    );
+    fd_memcpy( TXN(ctx->cur_spot->txnp),                 txn,                      txn_t_sz      );
+    fd_memcpy( ctx->cur_spot->txnp->payload+payload_sz, fd_txn_m_alut( txnm ),    addr_table_sz );
     /* scheduler_arrival_time_nanos is stamped in after_frag */
     ctx->cur_spot->txnp->first_seen_nanos = txnm->first_seen_nanos;
     ctx->cur_spot->txnp->payload_sz  = (ushort)payload_sz;

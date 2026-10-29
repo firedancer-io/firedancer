@@ -168,14 +168,18 @@ fd_txn_m_realized_footprint( fd_txn_m_t const * txnm,
                               +FD_TXN_MAX_SZ,                   \
                               alignof(fd_txn_m_t) )
 
-#define FD_TPU_RESOLVED_MTU FD_ULONG_ALIGN_UP(                              \
-                              FD_ULONG_ALIGN_UP(                            \
-                                 FD_ULONG_ALIGN_UP(                         \
-                                    sizeof(fd_txn_m_t)+FD_TPU_MTU,          \
-                                    alignof(fd_txn_t) )                     \
-                                 +FD_TXN_MAX_SZ,                            \
-                                 alignof(fd_acct_addr_t) )                  \
-                              +FD_TXN_ACCT_ADDR_MAX*sizeof(fd_acct_addr_t), \
-                              alignof(fd_txn_m_t) )
+/* Resolved frags carry ALTs only for legacy/V0 payloads, which
+   fd_txn_parse caps at FD_TXN_MTU_V0 (V1 has no ALTs).  Resolv copies
+   whole dedup frags (<=FD_TPU_PARSED_MTU) into this link first. */
+#define FD_TPU_RESOLVED_ALT_MTU FD_ULONG_ALIGN_UP(                              \
+                                  FD_ULONG_ALIGN_UP(                            \
+                                     FD_ULONG_ALIGN_UP(                         \
+                                        sizeof(fd_txn_m_t)+FD_TXN_MTU_V0,       \
+                                        alignof(fd_txn_t) )                     \
+                                     +FD_TXN_MAX_SZ,                            \
+                                     alignof(fd_acct_addr_t) )                  \
+                                  +FD_TXN_ACCT_ADDR_MAX*sizeof(fd_acct_addr_t), \
+                                  alignof(fd_txn_m_t) )
+#define FD_TPU_RESOLVED_MTU fd_ulong_max( FD_TPU_PARSED_MTU, FD_TPU_RESOLVED_ALT_MTU )
 
 #endif /* HEADER_fd_src_disco_fd_txn_m_h */
