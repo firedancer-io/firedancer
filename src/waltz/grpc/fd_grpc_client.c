@@ -93,6 +93,7 @@ fd_grpc_client_new( void *                             mem,
     .frame_rx_buf_max  = buf_max,
     .frame_tx_buf      = frame_tx_buf,
     .frame_tx_buf_max  = buf_max,
+    .https             = 1,
     .metrics           = metrics
   };
 
@@ -141,6 +142,12 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( client->host ), host, host_len ) );
   client->host_len = (uchar)host_len;
   client->port     = (ushort)port;
+}
+
+void
+fd_grpc_client_set_https( fd_grpc_client_t * client,
+                          int                https ) {
+  client->https = !!https;
 }
 
 int
@@ -603,7 +610,7 @@ fd_grpc_client_request_start(
     .port     = client->port,
     .path     = path,
     .path_len = path_len,
-    .https    = 1, /* grpc_client assumes TLS encryption for now */
+    .https    = client->https,
 
     .bearer_auth     = auth_token,
     .bearer_auth_len = auth_token_sz
@@ -689,7 +696,7 @@ fd_grpc_client_request_start1(
     .port     = client->port,
     .path     = path,
     .path_len = path_len,
-    .https    = 1, /* grpc_client assumes TLS encryption for now */
+    .https    = client->https,
 
     .bearer_auth     = auth_token,
     .bearer_auth_len = auth_token_sz
