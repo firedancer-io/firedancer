@@ -599,7 +599,7 @@ fd_topo_initialize( config_t * config ) {
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
                        fd_topob_link( topo, "gossip_ciseen", "gossip_ciseen", 65536UL*2UL,                              FD_GOSSIP_UPDATE_SZ_CONTACT_INFO, 1UL ); /* CONTACT_INFO and CONTACT_INFO_REMOVE only */
   }
-  /**/                 fd_topob_link( topo, "gossip_misc",   "gossip_misc",   65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
+  /**/                 fd_topob_link( topo, "gossip_misc",   "gossip_misc",   65536UL*2UL,                              0UL,                                1UL ); /* WFS_DONE only, no duplicate-shred reader */
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, sizeof(fd_tpu_msg_t),          config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt*dedup_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", 1024UL, FD_TPU_PARSED_MTU, FD_VERIFY_BATCH_TXN_MAX+1UL ); /* shallow enough to stay in cache */ /* verify i, dedup d is i*dedup_cnt+d */
