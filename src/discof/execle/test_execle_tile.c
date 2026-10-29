@@ -1021,7 +1021,6 @@ FD_UNIT_TEST( execle_vote ) {
   ulong in_chunk = env->execle->pack_in_chunk0;
   fd_txn_e_t * in_txn = fd_chunk_to_laddr( env->execle->pack_in_mem, in_chunk );
   test_build_vote_txn( in_txn->txnp, bank );
-  fd_memset( in_txn->alt_accts, 0, sizeof(in_txn->alt_accts) );
 
   fd_microblock_execle_trailer_t * in_trailer = (fd_microblock_execle_trailer_t *)( in_txn+1UL );
   *in_trailer = (fd_microblock_execle_trailer_t) {

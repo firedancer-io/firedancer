@@ -43,7 +43,7 @@ int extra_verify;
 
 /* Stands in for the resolv tile: what pack's insert expects precomputed */
 fd_pack_est_ctx_t est_ctx[1];
-static inline void est( fd_txn_e_t * e ) { fd_pack_est_txn( est_ctx, TXN(e->txnp), e->txnp->payload, e->alt_accts, &e->txnp->pack_est ); }
+static inline void est( fd_txn_e_t * e ) { fd_pack_est_txn( est_ctx, TXN(e->txnp), e->txnp->payload, fd_txn_e_alt( e ), &e->txnp->pack_est ); }
 static inline void est_bundle( fd_txn_e_t * const * b, ulong cnt ) { for( ulong i=0UL; i<cnt; i++ ) est( b[ i ] ); }
 
 #define SET_NAME aset
@@ -1384,7 +1384,10 @@ make_wide_transaction( ulong        i,
   txn->transaction_version   = FD_TXN_V1;
   txn->addr_table_lookup_cnt = (uchar)!!alt_cnt;
   txn->addr_table_adtl_cnt   = (uchar)alt_cnt;
-  for( ulong a=0UL; a<alt_cnt; a++ ) fd_memset( e->alt_accts+a, (int)(16UL*i+a+1UL), sizeof(fd_acct_addr_t) );
+  for( ulong a=0UL; a<alt_cnt; a++ ) {
+    fd_memset( fd_txn_e_alt( e )+a, (int)(64UL*i+a+1UL), sizeof(fd_acct_addr_t) );
+    fd_txn_e_alt( e )[ a ].b[ 0 ] = 0xEE; /* disjoint from make_transaction1 accounts */
+  }
 }
 
 static void
@@ -1392,7 +1395,6 @@ fill_slot( fd_txn_e_t * slot,
            ulong        i ) {
   fd_txn_e_t const * e = copy_out_expected + i;
   fd_memcpy( slot->txnp, e->txnp, sizeof(fd_txn_p_t) );
-  fd_memcpy( slot->alt_accts, e->alt_accts, (ulong)TXN( e->txnp )->addr_table_adtl_cnt*sizeof(fd_acct_addr_t) );
 }
 
 #define COPY_OUT_CANARY (0xa5)
@@ -1406,28 +1408,31 @@ check_slot( fd_txn_e_t const * out,
 
   FD_TEST( out->txnp->payload_sz==payload_sz );
   FD_TEST( !memcmp( out->txnp->payload, e->txnp->payload, payload_sz ) );
-  FD_TEST( !memcmp( out->alt_accts,     e->alt_accts,     alt_cnt*sizeof(fd_acct_addr_t) ) );
+  FD_TEST( !memcmp( fd_txn_e_alt( out ), fd_txn_e_alt( e ), alt_cnt*sizeof(fd_acct_addr_t) ) );
 
-  /* Nothing past the end of either may be written, or an
-     implementation that rounds up to a whole cache line passes the
-     comparisons above. */
-  for( ulong b=payload_sz; b<fd_ulong_min( payload_sz+64UL, FD_TPU_MTU ); b++ ) FD_TEST( out->txnp->payload[ b ]==COPY_OUT_CANARY );
-  for( ulong a=alt_cnt; a<fd_ulong_min( alt_cnt+2UL, FD_TXN_ACCT_ADDR_MAX ); a++ )
-    for( ulong b=0UL; b<sizeof(fd_acct_addr_t); b++ ) FD_TEST( out->alt_accts[ a ].b[ b ]==COPY_OUT_CANARY );
+  /* Nothing past the ALT tail may be written, or an implementation
+     that rounds up to a whole cache line passes the comparisons above. */
+  ulong end = payload_sz+alt_cnt*sizeof(fd_acct_addr_t);
+  for( ulong b=end; b<fd_ulong_min( end+64UL, FD_TPU_MTU ); b++ ) FD_TEST( out->txnp->payload[ b ]==COPY_OUT_CANARY );
 }
 
 static void
 test_copy_out( void ) {
   FD_LOG_NOTICE(( "TEST COPY OUT" ));
 
+  /* ALTs follow the payload; the widest case is a V0 payload of
+     FD_TXN_MTU_V0 whose ALTs fill the account limit (5 immediates). */
+  static ulong const alt_cnts[ 5 ] = { 0UL, 1UL, 2UL, 3UL, FD_TXN_ACCT_ADDR_MAX-5UL };
   for( ulong payload_sz=1024UL; payload_sz<=FD_TPU_MTU; payload_sz+=311UL ) {
-    for( ulong alt_cnt=0UL; alt_cnt<4UL; alt_cnt++ ) {
+    for( ulong k=0UL; k<5UL; k++ ) {
+      ulong alt_cnt = alt_cnts[ k ];
+      ulong psz     = k==4UL ? FD_TXN_MTU_V0 : fd_ulong_min( payload_sz, FD_TPU_MTU-alt_cnt*sizeof(fd_acct_addr_t) );
       ulong _deleted;
 
       /* One transaction, copied by fd_pack_schedule_impl */
       fd_pack_t * pack = init_all( 1024UL, 1UL, 8UL, &outcome );
 
-      make_wide_transaction( 0UL, payload_sz, alt_cnt, "A", "B" );
+      make_wide_transaction( 0UL, psz, alt_cnt, "A", "B" );
       fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
       fill_slot( slot, 0UL );
       est( slot );
@@ -1442,9 +1447,9 @@ test_copy_out( void ) {
       /* A three transaction bundle, copied by fd_pack_try_schedule_bundle */
       pack = init_all( 1024UL, 1UL, 8UL, &outcome );
 
-      make_wide_transaction( 0UL, payload_sz, alt_cnt, "A", "B" );
-      make_wide_transaction( 1UL, payload_sz, alt_cnt, "C", "D" );
-      make_wide_transaction( 2UL, payload_sz, alt_cnt, "E", "F" );
+      make_wide_transaction( 0UL, psz, alt_cnt, "A", "B" );
+      make_wide_transaction( 1UL, psz, alt_cnt, "C", "D" );
+      make_wide_transaction( 2UL, psz, alt_cnt, "E", "F" );
 
       fd_txn_e_t *        _bundle[ 3 ];
       fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
