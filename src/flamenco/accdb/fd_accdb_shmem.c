@@ -162,6 +162,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
     l = FD_LAYOUT_APPEND( l, alignof(uint),            fd_accdb_olog_chunk_cnt( txn_max, max_live_slots )*sizeof(uint) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_idx_fork_t), max_live_slots*sizeof(fd_accdb_idx_fork_t)          );
     l = FD_LAYOUT_APPEND( l, 64UL,                     max_live_slots*fd_accdb_ovl_bloom_words( max_live_slots )*sizeof(ulong) );
+    l = FD_LAYOUT_APPEND( l, 4096UL,                   FD_ACCDB_PLACE_WINDOW                                   );
   }
   return FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
 }
@@ -378,6 +379,7 @@ fd_accdb_shmem_new( void * shmem,
   void * _olog_next  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), olog_cnt*sizeof(uint) );
   void * _idx_fork   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_idx_fork_t), max_live_slots*sizeof(fd_accdb_idx_fork_t)*!!index_ram_entries );
   void * _bloom      = FD_SCRATCH_ALLOC_APPEND( l, 64UL,          max_live_slots*bloom_words*sizeof(ulong) );
+  void * _window     = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,        FD_ACCDB_PLACE_WINDOW*!!index_ram_entries );
   if( index_ram_entries ) {
     memset( _tier,    0, pool_max );
     memset( _hot_ref, 0, pool_max );
@@ -538,6 +540,11 @@ fd_accdb_shmem_new( void * shmem,
   accdb->unspill_cap        = pool_max>=(FD_ACCDB_UNSPILL_MAX<<4) ? FD_ACCDB_UNSPILL_MAX/2UL : fd_ulong_max( 4UL, pool_max/16UL ); /* tiny test pools */
   accdb->ovl_ans_off        = (ulong)_ovl_ans - (ulong)shmem;
   accdb->olog_free          = olog_cnt ? 0U : UINT_MAX;
+  accdb->stage_base         = accdb->idx_olog_byte0 + olog_cnt*FD_ACCDB_OLOG_CHUNK*sizeof(fd_accdb_olog_rec_t);
+  accdb->stage_head         = 0UL;
+  accdb->stage_falloc       = 0UL;
+  accdb->stage_full_end     = 0UL;
+  accdb->window_off         = (ulong)_window - (ulong)shmem;
   if( index_ram_entries ) {
     memset( _ovl_seq, 0, fd_accdb_idx_seq_cnt( ovl_npage )*sizeof(uint) );
     uint * nx = (uint *)_olog_next;

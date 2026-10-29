@@ -1411,7 +1411,7 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   int result = fd_accdb_snapshot_write_batch( accdb, fork_id, 1UL, pubkeys, slots, lamports_arr,
                                                data_lens, executables, file_offsets, &ignored,
                                                &replaced, &loaded, out_replaced_lamports,
-                                               &ignored_lamports, results );
+                                               &ignored_lamports, results , NULL);
   FD_TEST( !result );
   if( ignored ) return -1;
   if( replaced ) return 2;
@@ -1765,7 +1765,7 @@ test_write_batch( fd_accdb_t *                         accdb,
   result.err = fd_accdb_snapshot_write_batch( accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
                                                executables, file_offsets, &result.ignored, &result.replaced,
                                                &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
-                                               result.results );
+                                               result.results , NULL);
   return result;
 }
 
@@ -2490,7 +2490,7 @@ test_idx_primitives( void ) {
   FD_TEST( fd>=0 );
   FD_TEST( !ftruncate( fd, (long)(npage*FD_ACCDB_IDX_PAGE_SZ) ) );
   uint * seq = calloc( fd_accdb_idx_seq_cnt( npage ), sizeof(uint) );
-  fd_accdb_idx_region_t r = { .fd=fd, .page0=0UL, .npage=npage, .seq=seq, .salt=FD_ACCDB_IDX_SALT_B };
+  fd_accdb_idx_region_t r = { .fd=fd, .page0=0UL, .npage=npage, .nhome=npage-FD_ACCDB_IDX_PROBE_MAX, .seq=seq, .salt=FD_ACCDB_IDX_SALT_B };
 
   ulong nb = fd_accdb_cf_nb( key_max );
   FD_TEST( !fd_ulong_is_pow2( nb ) );
@@ -2504,7 +2504,7 @@ test_idx_primitives( void ) {
   for( ulong b=0UL; b<nb; b+=97UL ) for( ulong fp=1UL; fp<65536UL; fp+=4099UL ) FD_TEST( fd_accdb_cf_alt( &cf, fd_accdb_cf_alt( &cf, b, fp ), fp )==b );
 
   /* All keys land on few pages via a narrow region to force overflow */
-  fd_accdb_idx_region_t narrow = r; narrow.npage = 8UL;
+  fd_accdb_idx_region_t narrow = r; narrow.nhome = 2UL; narrow.npage = 2UL+FD_ACCDB_IDX_PROBE_MAX;
   uchar key[ 32 ];
   for( ulong i=0UL; i<300UL; i++ ) {
     memset( key, 0, 32 ); FD_STORE( ulong, key, i+1UL );
@@ -2550,7 +2550,7 @@ test_idx_primitives( void ) {
 static fd_accdb_idx_region_t
 test_bkt_region( void ) {
   fd_accdb_shmem_t * s = test_shmem_mem;
-  return (fd_accdb_idx_region_t){ .fd=test_idx_fd, .page0=0UL, .npage=s->idx_bkt_npage,
+  return (fd_accdb_idx_region_t){ .fd=test_idx_fd, .page0=0UL, .npage=s->idx_bkt_npage, .nhome=s->idx_bkt_npage-FD_ACCDB_IDX_PROBE_MAX,
                                   .seq=(uint *)( (uchar *)s + s->idx_bkt_seq_off ), .salt=FD_ACCDB_IDX_SALT_B };
 }
 

@@ -652,7 +652,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
                                ulong *             out_ignored_lamports,
-                               uchar *             results );
+                               uchar *             results,
+                               uint const *        stage_flags );
 
 /* fd_accdb_prefetch asks the accdb tile to bring keys that may live
    only in the on-disk index into RAM ahead of an acquire (index mode;
@@ -687,6 +688,71 @@ fd_accdb_fork_thaw( fd_accdb_t *       accdb,
 
 int
 fd_accdb_idx_busy( fd_accdb_t const * accdb );
+
+/* Index-mode snapshot loading.  fd_accdb_snapshot_write_batch stages
+   records instead of indexing them (every result is LOADED).  Each
+   writer calls fd_accdb_snapshot_stage_flush before acking FINI.  The
+   lead then calls fd_accdb_snapshot_place once:
+
+     FULL        dedup + build the bucket from the full stage
+     INCR_CHECK  dedup the incremental against the bucket, compute
+                 capitalization inputs, no mutation; watched keys
+                 become readable via read_one_nocache
+     INCR_APPLY  apply the checked incremental
+
+   A failed check calls fd_accdb_snapshot_stage_discard.  tomb_fn is
+   called for each winner that is not a stake delegation and supersedes
+   one (cross: it replaces a full-snapshot version).  All are no-ops in
+   RAM-only mode. */
+
+#define FD_ACCDB_PLACE_FULL       (0)
+#define FD_ACCDB_PLACE_INCR_CHECK (1)
+#define FD_ACCDB_PLACE_INCR_APPLY (2)
+
+#define FD_ACCDB_PEND_MAX (16UL)
+
+struct fd_accdb_snapshot_placement {
+  ulong loaded;
+  ulong removed;
+  ulong duplicates;
+  ulong dup_lamports;
+  ulong dup_lamports_hi;
+  ulong disk_freed;
+};
+
+typedef struct fd_accdb_snapshot_placement fd_accdb_snapshot_placement_t;
+
+typedef void (* fd_accdb_place_tomb_fn_t)( void * ctx, uchar const pubkey[ 32 ], ulong slot, int cross );
+
+void
+fd_accdb_snapshot_stage_flush( fd_accdb_t * accdb );
+
+int
+fd_accdb_snapshot_place( fd_accdb_t *                    accdb,
+                         int                             phase,
+                         fd_accdb_place_tomb_fn_t        tomb_fn,
+                         void *                          tomb_ctx,
+                         fd_accdb_snapshot_placement_t * out );
+
+void
+fd_accdb_snapshot_stage_discard( fd_accdb_t * accdb );
+
+/* fd_accdb_snapshot_stage_drop discards this joiner's staged records
+   not yet flushed.  Every writer calls it when a load attempt ends
+   without FINI (fail) or a new one starts. */
+
+void
+fd_accdb_snapshot_stage_drop( fd_accdb_t * accdb );
+
+void
+fd_accdb_snapshot_pending_watch( fd_accdb_t *          accdb,
+                                 ulong                 cnt,
+                                 uchar const * const * pubkeys );
+
+/* fd_accdb_index_mode returns non-zero if the on-disk index is on. */
+
+int
+fd_accdb_index_mode( fd_accdb_t const * accdb );
 
 /* fd_accdb_background performs one unit of background work.
 
