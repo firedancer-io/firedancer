@@ -457,7 +457,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "progcache"     )->demote_ok = 1; /* miss-path only, ~450 2MiB pages, within STLB reach */
   fd_topob_wksp( topo, "txncache"      );
   fd_topob_wksp( topo, "accdb_data"    )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
-  fd_topob_wksp( topo, "banks"         );
+  fd_topob_wksp( topo, "banks"         )->demote_ok = 1; /* exec hot set (bank, cost tracker, lthash) ~460 2MiB pages, within STLB reach */
   fd_topo_wksp_t * store_wksp = fd_topob_wksp( topo, "store" );
   store_wksp->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
   store_wksp->demote_ok = 1; /* bulk sequential FEC payload copies */
