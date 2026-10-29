@@ -7,6 +7,8 @@
 #include <unistd.h>
 
 #include "fd_snapin_tile.c"
+#include "../../flamenco/stakes/test_stake_delegations_util.h"
+#include "../../flamenco/accdb/fd_accdb_private.h"
 
 #define TEST_APPENDVEC_CNT   (9UL)
 #define TEST_ACCOUNT_CNT     (FD_SSPARSE_ACC_BATCH_MAX+TEST_APPENDVEC_CNT-1UL)
@@ -99,9 +101,10 @@ build_snapshot( uchar *          tar,
 }
 
 static void
-test_env_init( test_env_t * env,
-               ulong        worker_cnt ) {
-  FD_TEST( worker_cnt==1UL || worker_cnt==9UL );
+test_env_init_ex( test_env_t * env,
+                  ulong        worker_cnt,
+                  ulong        index_ram_entries ) {
+  FD_TEST( worker_cnt==1UL || worker_cnt==2UL || worker_cnt==9UL );
   fd_memset( env, 0, sizeof(*env) );
   env->worker_cnt = worker_cnt;
 
@@ -117,14 +120,21 @@ test_env_init( test_env_t * env,
 
   ulong shmem_fp = fd_accdb_shmem_footprint( TEST_MAX_ACCOUNTS, 16UL, 128UL, 32UL,
                                              TEST_CACHE_FOOTPRINT, 2UL,
-                                             worker_cnt, 0UL, 0UL );
+                                             worker_cnt, 0UL, index_ram_entries );
   env->shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( env->shmem_mem );
   env->shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( env->shmem_mem, TEST_MAX_ACCOUNTS, 16UL, 128UL, 32UL,
                           TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 2UL,
-                          0, 42UL, worker_cnt, 0UL, 0UL ) );
+                          0, 42UL, worker_cnt, 0UL, index_ram_entries ) );
   FD_TEST( env->shmem );
+  if( index_ram_entries ) {
+    int idx_fd = memfd_create( "snapin_accdb_idx", 0 );
+    FD_TEST( idx_fd>=0 );
+    FD_TEST( dup2( idx_fd, FD_ACCDB_IDX_FD_RW )==FD_ACCDB_IDX_FD_RW );
+    if( idx_fd!=FD_ACCDB_IDX_FD_RW ) FD_TEST( !close( idx_fd ) );
+    FD_TEST( !ftruncate( FD_ACCDB_IDX_FD_RW, (long)env->shmem->idx_file_sz ) );
+  }
 
   env->snapin_shmem_mem = aligned_alloc( alignof(fd_snapin_shmem_t), sizeof(fd_snapin_shmem_t) );
   FD_TEST( env->snapin_shmem_mem );
@@ -152,7 +162,8 @@ test_env_init( test_env_t * env,
 
     fd_snapin_tile_t * ctx = &env->worker[ i ];
     ctx->accdb = fd_accdb_join( fd_accdb_new( env->join_mem[ i ], env->shmem,
-                                               FD_ACCDB_FD_RW, -1, 0UL, NULL, NULL, 0UL, 0, -1 ) );
+                                               FD_ACCDB_FD_RW, -1, 0UL, NULL, NULL, 0UL, 0,
+                                               index_ram_entries ? FD_ACCDB_IDX_FD_RW : -1 ) );
     FD_TEST( ctx->accdb );
     ctx->full              = 1;
     ctx->tile_idx          = i;
@@ -174,6 +185,12 @@ test_env_init( test_env_t * env,
 
   env->root = fd_accdb_attach_child( env->worker[ 0 ].accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
   fd_accdb_snapshot_load_begin( env->worker[ 0 ].accdb );
+}
+
+static void
+test_env_init( test_env_t * env,
+               ulong        worker_cnt ) {
+  test_env_init_ex( env, worker_cnt, 0UL );
 }
 
 static void
@@ -281,6 +298,7 @@ test_env_free( test_env_t * env ) {
   free( env->worker );
   free( env->stake_mem );
   free( env->snapin_shmem_mem );
+  if( env->shmem->index_ram_entries ) FD_TEST( !close( FD_ACCDB_IDX_FD_RW ) );
   free( env->shmem_mem );
   FD_TEST( !close( FD_ACCDB_FD_RW ) );
   FD_TEST( !close( FD_STAKE_DELEGATIONS_FD ) );
@@ -445,6 +463,187 @@ test_capitalization_crafted_mismatch( void ) {
   test_env_free( env );
 }
 
+/* Index mode, N=2 writers: records are staged per writer and placed by
+   the lead after every flush.  Duplicate versions resolve to the
+   newest slot in either processing order, a stake delegation followed
+   by a newer closed version is tombstoned (in both orders), capital
+   duplicates match, and an incremental is checked, discarded on a
+   failed verification, then re-checked and applied. */
+
+static void
+idx_stake( uchar * data,
+           uchar   voter ) {
+  fd_memset( data, 0, FD_STAKE_STATE_SZ );
+  fd_stake_state_t * st = (fd_stake_state_t *)data;
+  st->stake_type = FD_STAKE_STATE_STAKE;
+  st->stake.stake.delegation.voter_pubkey.uc[ 0 ] = voter;
+  st->stake.stake.delegation.stake              = 5000UL;
+  st->stake.stake.delegation.activation_epoch   = 1UL;
+  st->stake.stake.delegation.deactivation_epoch = ULONG_MAX;
+}
+
+static void
+idx_put( fd_snapin_tile_t * ctx,
+         ulong              id,
+         ulong              slot,
+         ulong              lamports,
+         int                stake ) {
+  uchar pubkey[ 32UL ] = {0};
+  uchar data  [ FD_STAKE_STATE_SZ ];
+  FD_STORE( ulong, pubkey, id );
+  pubkey[ 31 ] = 0xD7U;
+  if( stake ) idx_stake( data, (uchar)id );
+  else        fd_memset( data, (int)(slot&0xFF), 16UL );
+  FD_TEST( !writer_append_account( ctx, pubkey, stake ? fd_solana_stake_program_id.uc : (uchar const *)"\x42", data, slot, lamports,
+                                   stake ? FD_STAKE_STATE_SZ : 16UL, 0 ) );
+}
+
+static ulong
+idx_lamports( test_env_t * env,
+              ulong        id ) {
+  uchar pubkey[ 32UL ] = {0};
+  FD_STORE( ulong, pubkey, id );
+  pubkey[ 31 ] = 0xD7U;
+  ulong lamports, data_len; int exec; uchar owner[ 32 ]; uchar data[ 256 ];
+  int r = fd_accdb_read_one_nocache( env->worker[ 0 ].accdb, env->root, pubkey, &lamports, &exec, owner, data, &data_len );
+  return r==FD_ACCDB_READ_ONE_NOCACHE_MISS ? 0UL : lamports;
+}
+
+static int
+idx_has_deleg( test_env_t * env,
+               ulong        id ) {
+  fd_pubkey_t pk = {0};
+  FD_STORE( ulong, pk.uc, id );
+  pk.uc[ 31 ] = 0xD7U;
+  fd_stake_delegation_t d;
+  if( !test_stake_delegations_find_copy( env->worker[ 0 ].stake_delegations, &pk, &d ) ) return 0;
+  return d.stake!=0UL; /* a root tombstone keeps its slot and zero stake */
+}
+
+static void
+idx_flush_all( test_env_t * env ) {
+  for( ulong i=0UL; i<env->worker_cnt; i++ ) {
+    FD_TEST( !writer_flush( &env->worker[ i ] ) );
+    fd_accdb_snapshot_stage_flush( env->worker[ i ].accdb );
+  }
+}
+
+static void
+test_snapin_index_mode( void ) {
+  test_env_t env[1];
+  test_env_init_ex( env, 2UL, 4096UL );
+  fd_snapin_tile_t * lead = &env->worker[ 0 ];
+  fd_snapin_tile_t * w1   = &env->worker[ 1 ];
+  FD_TEST( fd_accdb_index_mode( lead->accdb ) );
+
+  /* full: 1 plain; 2 dup newer on w1; 3 dup newer on lead; 4 stake then
+     closed (new on w1); 5 closed first then stake older (lead); 6 stake
+     kept; 7 zero-lamport only */
+  idx_put( lead, 1UL, 10UL, 100UL, 0 );
+  idx_put( lead, 2UL, 10UL, 200UL, 0 ); idx_put( w1,   2UL, 12UL, 201UL, 0 );
+  idx_put( w1,   3UL, 10UL, 300UL, 0 ); idx_put( lead, 3UL, 14UL, 301UL, 0 );
+  idx_put( lead, 4UL, 10UL, 400UL, 1 ); idx_put( w1,   4UL, 20UL,   0UL, 0 );
+  idx_put( lead, 5UL, 30UL,   0UL, 0 ); idx_put( w1,   5UL, 11UL, 500UL, 1 );
+  idx_put( w1,   6UL, 10UL, 600UL, 1 );
+  idx_put( lead, 7UL, 10UL,   0UL, 0 );
+  idx_flush_all( env );
+  /* every record reported LOADED: the snoop saw both delegations */
+  FD_TEST( idx_has_deleg( env, 4UL ) && idx_has_deleg( env, 5UL ) && idx_has_deleg( env, 6UL ) );
+
+  ulong full_cap = 100UL+201UL+301UL+600UL;
+  lead->full = 1;
+  lead->lead.manifest_capitalization = full_cap;
+  FD_TEST( !snapin_place( lead, FD_ACCDB_PLACE_FULL ) );
+  FD_TEST( !validate_capitalization( lead ) );
+  FD_TEST( idx_lamports( env, 1UL )==100UL && idx_lamports( env, 2UL )==201UL && idx_lamports( env, 3UL )==301UL );
+  FD_TEST( !idx_lamports( env, 4UL ) && !idx_lamports( env, 5UL ) && !idx_lamports( env, 7UL ) );
+  FD_TEST( !idx_has_deleg( env, 4UL ) && !idx_has_deleg( env, 5UL ) && idx_has_deleg( env, 6UL ) );
+  FD_TEST( env->shmem->shmetrics->accounts_total==4UL );
+  lead->lead.recovery.capitalization = full_cap;
+
+  /* incremental: 1 updated; 6 closed (cross tombstone); 8 new; 2 updated
+     twice across writers */
+  fd_memset( &env->snapin_shmem->values, 0, sizeof(env->snapin_shmem->values) );
+  env->snapin_shmem->stake_fork = fd_stake_delegations_new_fork( lead->stake_delegations, USHORT_MAX );
+  for( ulong i=0UL; i<2UL; i++ ) env->worker[ i ].full = 0;
+  idx_put( lead, 1UL, 50UL, 110UL, 0 );
+  idx_put( w1,   6UL, 51UL,   0UL, 0 );
+  idx_put( w1,   8UL, 52UL, 800UL, 0 );
+  idx_put( lead, 2UL, 53UL, 210UL, 0 ); idx_put( w1, 2UL, 54UL, 220UL, 0 );
+  idx_flush_all( env );
+  ulong incr_cap = full_cap+10UL-600UL+800UL+19UL;
+
+  /* failed verification: check, discard, bucket untouched */
+  lead->lead.manifest_capitalization = incr_cap+1UL;
+  FD_TEST( !snapin_place( lead, FD_ACCDB_PLACE_INCR_CHECK ) );
+  FD_TEST( validate_capitalization( lead ) );
+  fd_accdb_snapshot_stage_discard( lead->accdb );
+  FD_TEST( idx_lamports( env, 1UL )==100UL && idx_lamports( env, 6UL )==600UL && !idx_lamports( env, 8UL ) );
+
+  /* retry the same incremental, succeed */
+  fd_memset( &env->snapin_shmem->values, 0, sizeof(env->snapin_shmem->values) );
+  idx_put( lead, 1UL, 50UL, 110UL, 0 );
+  idx_put( w1,   6UL, 51UL,   0UL, 0 );
+  idx_put( w1,   8UL, 52UL, 800UL, 0 );
+  idx_put( lead, 2UL, 53UL, 210UL, 0 ); idx_put( w1, 2UL, 54UL, 220UL, 0 );
+  idx_flush_all( env );
+  lead->lead.manifest_capitalization = incr_cap;
+  FD_TEST( !snapin_place( lead, FD_ACCDB_PLACE_INCR_CHECK ) );
+  FD_TEST( !validate_capitalization( lead ) );
+  FD_TEST( !snapin_place( lead, FD_ACCDB_PLACE_INCR_APPLY ) );
+  FD_TEST( idx_lamports( env, 1UL )==110UL && idx_lamports( env, 2UL )==220UL && idx_lamports( env, 8UL )==800UL );
+  FD_TEST( !idx_lamports( env, 6UL ) );
+  FD_TEST( env->shmem->shmetrics->accounts_total==4UL );
+
+  /* attempt failure with unflushed stage records on both writers: the
+     retry (a different incremental) must not place them (key 9 would
+     appear, key 1 would take the stale lamports) */
+  fd_memset( &env->snapin_shmem->values, 0, sizeof(env->snapin_shmem->values) );
+  idx_put( lead, 1UL, 60UL, 999UL, 0 );
+  idx_put( w1,   9UL, 61UL, 900UL, 0 );
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !writer_flush( &env->worker[ i ] ) ); /* staged, not flushed */
+  for( ulong i=0UL; i<2UL; i++ ) fd_accdb_snapshot_stage_drop( env->worker[ i ].accdb ); /* CTRL_FAIL: reset_attempt_state */
+  fd_accdb_snapshot_stage_discard( lead->accdb ); /* INIT rollback */
+  fd_memset( &env->snapin_shmem->values, 0, sizeof(env->snapin_shmem->values) );
+  idx_put( lead, 1UL, 62UL, 120UL, 0 );
+  idx_flush_all( env );
+  lead->lead.manifest_capitalization = incr_cap+10UL;
+  lead->lead.recovery.capitalization = incr_cap;
+  FD_TEST( !snapin_place( lead, FD_ACCDB_PLACE_INCR_CHECK ) );
+  FD_TEST( !validate_capitalization( lead ) );
+  FD_TEST( !snapin_place( lead, FD_ACCDB_PLACE_INCR_APPLY ) );
+  FD_TEST( idx_lamports( env, 1UL )==120UL && !idx_lamports( env, 9UL ) );
+  FD_TEST( env->shmem->shmetrics->accounts_total==4UL );
+
+  fd_accdb_snapshot_load_end( lead->accdb );
+  test_env_free( env );
+}
+
+/* Streaming placement with duplicates split across writers in both
+   orders: every winner reads back and capitalization matches. */
+
+static void
+test_snapin_index_mode_ranges( void ) {
+  test_env_t env[1];
+  test_env_init_ex( env, 2UL, 4096UL );
+  fd_snapin_tile_t * lead = &env->worker[ 0 ];
+  ulong n = 3000UL, cap = 0UL;
+  for( ulong i=1UL; i<=n; i++ ) {
+    idx_put( &env->worker[ i&1UL ], i, 10UL+(i%7UL), 1000UL+i, 0 );
+    if( !(i%5UL) ) idx_put( &env->worker[ (i+1UL)&1UL ], i, 30UL, 2000UL+i, 0 ); /* newer dup on the other writer */
+    cap += (i%5UL) ? 1000UL+i : 2000UL+i;
+  }
+  idx_flush_all( env );
+  lead->full = 1;
+  lead->lead.manifest_capitalization = cap;
+  FD_TEST( !snapin_place( lead, FD_ACCDB_PLACE_FULL ) );
+  FD_TEST( !validate_capitalization( lead ) );
+  FD_TEST( env->shmem->shmetrics->accounts_total==n );
+  for( ulong i=1UL; i<=n; i++ ) FD_TEST( idx_lamports( env, i )==( (i%5UL) ? 1000UL+i : 2000UL+i ) );
+  fd_accdb_snapshot_load_end( lead->accdb );
+  test_env_free( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -454,6 +653,8 @@ main( int     argc,
   test_snapin_accdb( 9UL );
   test_capitalization_versions_past_2_64();
   test_capitalization_crafted_mismatch();
+  test_snapin_index_mode();
+  test_snapin_index_mode_ranges();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
