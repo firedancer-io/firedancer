@@ -1,0 +1,2 @@
+$ firedancer keys new /home/firedancer/junk.json --config config.toml
+[32mNOTICE [0m successfully created keypair in [2m/home/firedancer/junk.json[0m

@@ -259,8 +259,8 @@ test_failover_command( ulong cmd_id,
     ulong  slot_idx = fd_adminctl_reserve( ctx.adminctl, &payload, &payload_max );
     FD_TEST( slot_idx!=ULONG_MAX && payload_max>=sizeof(fd_adminctl_failover_req_t) );
     fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=payload_cmd, .flags=flags };
-    /* A status command must not carry a promotion, or vice versa. */
-    if( i==3UL ) req.cmd = payload_cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS ? FD_ADMINCTL_FAILOVER_CMD_HANDOFF : FD_ADMINCTL_FAILOVER_CMD_STATUS;
+    /* An unknown command. */
+    if( i==3UL ) req.cmd = FD_ADMINCTL_FAILOVER_CMD_CNT;
     fd_memcpy( payload, &req, sizeof(req) );
     fd_adminctl_publish( ctx.adminctl, slot_idx, cmd_id, i==2UL ? 0UL : sizeof(req) );
     int   poll_in    = 1;
@@ -292,8 +292,7 @@ test_failover_command( ulong cmd_id,
     fd_memcpy( &event, event_mem, sizeof(event) );
     FD_TEST( event.type==event_type && event.result==event_result );
     if( i<2UL ) {
-      char const * args = payload_cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS ? "{}" :
-                         flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ? "{\"yes\":true,\"force\":true}" : "{\"yes\":false,\"force\":false}";
+      char const * args = flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE ? "{\"yes\":true,\"force\":true}" : "{\"yes\":false,\"force\":false}";
       FD_TEST( event.args_json_len==strlen( args ) && !memcmp( event.args_json, args, event.args_json_len ) );
     }
   }
@@ -401,7 +400,6 @@ main( int     argc,
   test_add_authorized_voter();
   test_remove_all_authorized_voters();
   test_set_identity();
-  test_failover_command( FD_ADMINCTL_CMD_FAILOVER_STATUS,  FD_ADMINCTL_FAILOVER_CMD_STATUS,  0UL, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS );
   test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );
   test_failover_command( FD_ADMINCTL_CMD_FAILOVER_PROMOTE, FD_ADMINCTL_FAILOVER_CMD_PROMOTE,
                          FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE, FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE );

@@ -4,12 +4,12 @@
 /* The admin and failover tiles talk over the admin_failov and
    failov_admin links.  The admin tile is the only adminctl poller.  It
    forwards failover commands with a nonce and parks the adminctl slot
-   until the response comes back or the deadline passes.  The failover
-   tile asks for identity switches the same way.  Every frame is one
-   fd_failover_bus_msg_t.  Each side has at most one request outstanding,
-   even past the deadline, so neither link has more than two frames in
-   flight and neither tile can backpressure the other, even behind an
-   identity switch that never terminates. */
+   until the response comes back, which for a handoff or promotion is
+   when its outcome is known.  The failover tile asks for identity
+   switches the same way.  Every frame is one fd_failover_bus_msg_t.
+   Each side has at most one request outstanding, so neither link has
+   more than two frames in flight and neither tile can backpressure the
+   other, even behind an identity switch that never terminates. */
 
 #include "../admin/fd_adminctl.h"
 
@@ -20,8 +20,11 @@
 #define FD_FAILOVER_BUS_SWITCH_REQ      (1UL) /* failov to admin: fd_failover_switch_req_t */
 #define FD_FAILOVER_BUS_SWITCH_RESP     (2UL) /* admin to failov: fd_failover_switch_resp_t */
 #define FD_FAILOVER_BUS_REQUEST         (3UL) /* admin to failov: fd_adminctl_failover_req_t */
-#define FD_FAILOVER_BUS_RESPONSE        (4UL) /* failov to admin: the requested command's response */
+#define FD_FAILOVER_BUS_RESPONSE        (4UL) /* failov to admin: the result of the command with the corresponding nonce and payload */
 #define FD_FAILOVER_BUS_OPERATOR_ACTION (5UL) /* admin to failov: fd_failover_operator_t, set-identity ran */
+#define FD_FAILOVER_BUS_STEP            (6UL) /* failov to admin: a step of the command with that nonce, a cstr payload */
+
+#define FD_FAILOVER_BUS_STEP_MAX (FD_ADMINCTL_STEP_MAX)
 
 /* result codes */
 
@@ -67,12 +70,7 @@ typedef struct fd_failover_bus_msg fd_failover_bus_msg_t;
 #define FD_FAILOVER_BUS_MTU (sizeof(fd_failover_bus_msg_t))
 FD_STATIC_ASSERT( sizeof(fd_failover_bus_msg_t)==272UL, bus_layout );
 
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t         )<=FD_FAILOVER_BUS_PAYLOAD_MAX, command_fits      );
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, control_resp_fits );
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t )<=FD_FAILOVER_BUS_PAYLOAD_MAX, status_resp_fits  );
-
-/* How long the admin tile waits for a failover command response
-   before it responds to the operator itself. */
-#define FD_FAILOVER_BUS_DEADLINE_NANOS (2000000000L)
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, command_fits );
+FD_STATIC_ASSERT( FD_FAILOVER_BUS_STEP_MAX<=FD_FAILOVER_BUS_PAYLOAD_MAX, step_fits );
 
 #endif /* HEADER_fd_src_discof_failover_fd_failover_bus_h */

@@ -302,6 +302,8 @@ prints diagnostic messages to `stderr`.
 | `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
 | `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
 
+<<< @/snippets/commands/get-identity.ansi
+
 ## `add-authorized-voter`
 Adds an authorized voter to the running validator. The `<keypair>`
 argument is required and must be the path to an Agave style
@@ -376,9 +378,7 @@ name instead, for example when connecting over a private network. Use
 For example, to connect to a known failover listener over a private
 network, run the following on the machine that should take over.
 
-```sh
-firedancer failover promote /path/to/identity.json --address 192.0.2.10 --port 8010
-```
+<<< @/snippets/commands/failover-promote-address.ansi
 
 ### Setup
 
@@ -389,9 +389,7 @@ identity's keypair there. On every other machine, create a random unstaked
 placeholder keypair of its own and point `[paths.identity_key]` at it, so
 it replays without voting until it takes over.
 
-```sh
-firedancer keys new /home/firedancer/junk.json --config config.toml
-```
+<<< @/snippets/commands/keys-new-junk.ansi
 
 Alternatively, set `[failover.boot_to_standby]` to `true` on the other
 machine and keep the identity's keypair in its `[paths.identity_key]`.
@@ -404,15 +402,22 @@ is ephemeral and not written to a file. This requires `[failover.enabled]`.
 To hand the identity over, run the following on the machine that should
 take it, with the keypair of the identity to take.
 
-```sh
-firedancer failover promote /path/to/identity.json
-firedancer failover status
-```
-
-For example, an accepted request prints the handoff ID and the status
-needed to confirm completion.
-
 <<< @/snippets/commands/failover-promote.ansi
+
+The command waits for the outcome. It exits with code 0 once this
+machine runs the identity, and with a non-zero code and the reason on
+`stderr` when it does not. Each step of a handoff gives up after 64
+seconds, so a machine that cannot be reached is reported after about a
+minute. If the machine running the identity did not answer in time, the
+request stays open on this validator and running `failover promote`
+again resumes it, since that machine may already have given up the
+identity. Ctrl-C stops waiting, but not the handoff. Use
+[`get-identity`](#get-identity) to see which key a machine runs.
+
+When the handoff fails, the command prints the reason and exits with a
+non-zero code. Nothing changed on either machine.
+
+<<< @/snippets/commands/failover-promote-failed.ansi
 
 The machine that gave it up then runs its junk key. To take the identity
 back, run `failover promote` again on the demoted machine.
@@ -456,6 +461,8 @@ Never force promotion on both machines at once.
 
 :::
 
+<<< @/snippets/commands/failover-promote-force.ansi
+
 | Arguments             | Description |
 |-----------------------|-------------|
 | `<keypair>`           | Path to the `identity.json` keypair file of the identity to take, or `-` to read the JSON formatted key from `stdin` |
@@ -465,33 +472,6 @@ Never force promotion on both machines at once.
 | `--force`             | Forcibly take the identity without cooperation with the machine running it, allowing incomplete or empty vote history. |
 | `--address <address>` | Use this IPv4 address or host name for the machine running the identity instead of the address found through gossip. |
 | `--port <port>`       | Set the failover TCP port of the machine running the identity. The default is 8010. |
-
-## `failover status`
-This command prints the local running validator's failover status. Use
-it to check progress after [`failover promote`](#failover-promote).
-
-```sh
-firedancer failover status [--name <name>]
-```
-
-The command discovers the local running validator automatically. If more
-than one is running, pass `--name <name>` to select one (see [`ps`](#ps)).
-It exits with code 0 if status was retrieved, including when failover
-is disabled. Otherwise it exits with a non-zero code and prints the
-reason to `stderr`.
-
-The following example shows a completed handoff. The last handoff ID
-matches the ID printed by `failover promote` above. The connection closes
-after completion, so `peer runs target identity` is unknown until another
-authenticated session is established. The machine that handed over its
-identity reconnects once it is discoverable through gossip.
-
-<<< @/snippets/commands/failover-status.ansi
-
-| Arguments             | Description |
-|-----------------------|-------------|
-| `--name <name>`       | Select the validator instance to attach to if more than one is running on this host. |
-| `--config <path>`     | Optionally use the configuration TOML file the validator was started with. |
 
 ## `remove-all-authorized-voters`
 Removes all authorized voters from the running validator, including any
