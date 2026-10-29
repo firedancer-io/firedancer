@@ -1171,10 +1171,10 @@ initialize_store_fds( config_t const * config ) {
   ulong fec_max = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.fec_max", store_obj_id );
   ulong fec_data_max = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.fec_data_max", store_obj_id );
   ulong shred_storage_gib = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.shred_storage_gib", store_obj_id );
-  ulong payload_slot_sz = fd_store_payload_slot_sz( fec_data_max );
+  ulong fec_slot_sz = fd_store_fec_slot_sz( fec_data_max );
   ulong wire_off;
-  if( FD_UNLIKELY( !path || !fec_max || !payload_slot_sz || shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ||
-                   __builtin_umull_overflow( fec_max, payload_slot_sz, &wire_off ) ) )
+  if( FD_UNLIKELY( !path || !fec_max || !fec_slot_sz || shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ||
+                   __builtin_umull_overflow( fec_max, fec_slot_sz, &wire_off ) ) )
     FD_LOG_ERR(( "invalid Store backing-file configuration" ));
 
   int store_fd = fd_store_file_create( path, wire_off, fd_shredb_max_shreds( shred_storage_gib ) );

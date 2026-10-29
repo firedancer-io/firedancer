@@ -153,6 +153,7 @@ typedef struct fd_repair_fec_metrics fd_repair_fec_metrics_t;
 struct fd_repair_replay_fec {
    ulong     slot;
    uint      fec_set_idx;
+   uint      shred_cnt; /* data shreds; legacy backtest FECs can exceed 32 */
    fd_hash_t mr;
 
    /* conditional fields */

@@ -269,35 +269,32 @@ static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
-  ulong store_fec_spilled    = 0UL;
-  ulong store_fec_spill_bytes= 0UL;
-  ulong store_fec_spill_reads= 0UL;
-  ulong store_fec_spill_read_bytes = 0UL;
-  ulong store_fec_cache_used = 0UL;
-  ulong store_fec_cache_max  = 0UL;
-  ulong store_fec_cache_pinned = 0UL;
+  /* Store-wide counters and gauges are relaxed atomics: never take the
+     store lock here. */
   if( FD_LIKELY( ctx->store ) ) {
-    store_fec_spilled          = FD_VOLATILE_CONST( ctx->store->fec_spill_cnt );
-    store_fec_spill_bytes      = FD_VOLATILE_CONST( ctx->store->fec_spill_bytes );
-    store_fec_spill_reads      = FD_VOLATILE_CONST( ctx->store->fec_spill_read_cnt );
-    store_fec_spill_read_bytes = FD_VOLATILE_CONST( ctx->store->fec_spill_read_bytes );
-    store_fec_cache_pinned     = FD_VOLATILE_CONST( ctx->store->cache_pinned_cnt );
-
-    store_fec_cache_max = FD_VOLATILE_CONST( ctx->store->cache_slot_cnt );
-    ulong store_fec_cache_free = fd_ulong_min( FD_VOLATILE_CONST( ctx->store->cache_free_cnt ), store_fec_cache_max );
-    store_fec_cache_used = store_fec_cache_max - store_fec_cache_free;
+    fd_store_t * store = ctx->store;
+    ulong cache_max  = store->cache_max;
+    ulong cache_free = fd_ulong_min( atomic_load_explicit( &store->cache_free_cnt, memory_order_relaxed ), cache_max );
+    FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILLED,          atomic_load_explicit( &store->spill_cnt,        memory_order_relaxed ) );
+    FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILLED_BYTES,    atomic_load_explicit( &store->spill_bytes,      memory_order_relaxed ) );
+    FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_READ,       atomic_load_explicit( &store->spill_read_cnt,   memory_order_relaxed ) );
+    FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_READ_BYTES, atomic_load_explicit( &store->spill_read_bytes, memory_order_relaxed ) );
+    FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_CANCELLED,  atomic_load_explicit( &store->spill_cancel_cnt, memory_order_relaxed ) );
+    FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_USED,       cache_max - cache_free );
+    FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_CAPACITY,   cache_max );
+    FD_MGAUGE_SET( REPLAY, STORE_FEC_USED,             atomic_load_explicit( &store->fec_live_cnt,     memory_order_relaxed ) );
+    FD_MGAUGE_SET( REPLAY, STORE_FEC_PEAK,             atomic_load_explicit( &store->fec_live_peak,    memory_order_relaxed ) );
+    FD_MGAUGE_SET( REPLAY, STORE_FEC_CAPACITY,         store->fec_max );
+    FD_MGAUGE_SET( REPLAY, STORE_FEC_DISK_COUNT,       atomic_load_explicit( &store->disk_live_cnt,    memory_order_relaxed ) );
   }
 
-  FD_MHIST_COPY( REPLAY, STORE_QUERY_DURATION_NANOS,     ctx->metrics.store_query_work        );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_QUERIED,              ctx->metrics.store_query_cnt         );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_QUERY_MISSED,        ctx->metrics.store_query_missing_cnt );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILLED,          store_fec_spilled                    );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILLED_BYTES,      store_fec_spill_bytes                );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_READ,       store_fec_spill_reads                );
-  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILL_READ_BYTES, store_fec_spill_read_bytes           );
-  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_USED,       store_fec_cache_used                 );
-  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_CAPACITY,   store_fec_cache_max                  );
-  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_PINNED,     store_fec_cache_pinned               );
+  FD_MHIST_COPY    ( REPLAY, STORE_QUERY_DURATION_NANOS,         ctx->metrics.store_query_work          );
+  FD_MHIST_COPY    ( REPLAY, STORE_FEC_SPILL_READ_DURATION_NANOS, ctx->metrics.store_spill_read_work    );
+  FD_MHIST_COPY    ( REPLAY, STORE_FEC_MAP_PROBE_PER_QUERY,      ctx->metrics.store_map_probe           );
+  FD_MCNT_SET      ( REPLAY, STORE_FEC_QUERIED,                  ctx->metrics.store_query_cnt           );
+  FD_MCNT_SET      ( REPLAY, STORE_FEC_QUERY_MISSED,             ctx->metrics.store_query_missing_cnt   );
+  FD_MCNT_ENUM_COPY( REPLAY, STORE_FEC_QUERY_HIT,                ctx->metrics.store_query_hit_cnt       );
+  FD_MCNT_SET      ( REPLAY, STORE_FEC_PUBLISH_REMOVED,          ctx->metrics.store_publish_removed_cnt );
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
   ulong leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot : 0UL;
@@ -2072,7 +2069,9 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
 
   /* Drop every FEC set below the new root from the store. */
 
-  fd_store_publish( ctx->store, ctx->map_join, bank->f.slot );
+  fd_store_publish_stats_t publish_stats[1];
+  fd_store_publish( ctx->store, bank->f.slot, publish_stats );
+  ctx->metrics.store_publish_removed_cnt += publish_stats->removed_cnt;
 }
 
 /* publish_boot_slot announces the snapshot slot, which the validator
@@ -3632,19 +3631,17 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
 
   long work = fd_tickcount();
 
-  fd_store_fec_data_view_t data_view[1];
-  fd_rwlock_read( &ctx->store->fec_lock );
-  fd_store_fec_t * store_fec = fd_store_query( ctx->map_join, &fec->mr );
+  fd_store_lookup_stats_t lookup[1];
+  fd_store_view_t view = fd_store_query_acquire( ctx->store, &fec->mr, lookup );
   ctx->metrics.store_query_cnt++;
-  int view_err = store_fec ? fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, data_view ) : -1;
-  fd_rwlock_unread( &ctx->store->fec_lock );
+  fd_histf_sample( ctx->metrics.store_map_probe, lookup->probe_cnt );
 
-  /* A missing store entry is expected: replay removes FEC sets when
-     publishing the root, so a FEC delivered for a slice that has
-     since been pruned/rooted is no longer in the store.  The lookup and
-     payload pin are one lifetime transaction under fec_lock: remove may
-     unlink the key only after the view has pinned the pool element. */
-  if( FD_UNLIKELY( !store_fec || view_err ) ) {
+  /* A missing store entry is expected: replay publishes the store on
+     root advance, so a FEC delivered for a slice that has since been
+     pruned/rooted is no longer in the store.  The view stays pinned (and
+     must be released on every path below) until sched has read it; the
+     store is never published while it is pinned. */
+  if( FD_UNLIKELY( view==FD_STORE_VIEW_NULL ) ) {
     ctx->metrics.store_query_missing_cnt++;
     FD_BASE58_ENCODE_32_BYTES( fec->mr.key, key_b58 );
     FD_LOG_INFO(( "store fec for slot: %lu unavailable (pruned by publish); abandoning slice. root: %lu. merkle: %s", fec->slot, ctx->consensus_root_slot, key_b58 ));
@@ -3725,7 +3722,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
   if( FD_UNLIKELY( fec->is_leader ) ) {
-    fd_store_fec_data_view_release( ctx->store, data_view );
+    fd_store_query_release( ctx->store, view );
     return;
   }
 
@@ -3733,7 +3730,7 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
      delivers FEC sets in-order per fork, but FEC set ordering across
      forks is arbitrary */
   fd_sched_fec_t sched_fec[ 1 ];
-  sched_fec->shred_cnt         = FD_FEC_SHRED_CNT;
+  sched_fec->shred_cnt         = fec->shred_cnt;
   sched_fec->is_last_in_batch  = !!fec->data_complete;
   sched_fec->is_last_in_block  = !!fec->slot_complete;
   sched_fec->bank_idx          = bank->idx;
@@ -3741,8 +3738,9 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   sched_fec->slot              = fec->slot;
   sched_fec->parent_slot       = fec->parent_slot;
   sched_fec->is_first_in_block = fec->fec_set_idx==0U;
-  sched_fec->fec               = store_fec;
-  sched_fec->data              = data_view->data;
+  sched_fec->read.store        = ctx->store;
+  sched_fec->read.disk_fd      = ctx->store_disk_fd;
+  sched_fec->read.view         = view;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
@@ -3754,7 +3752,11 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   }
 
   int ingested = fd_sched_fec_ingest( ctx->sched, sched_fec );
-  fd_store_fec_data_view_release( ctx->store, data_view );
+  int spilled  = fd_store_view_spilled( view );
+  if( FD_UNLIKELY( spilled && sched_fec->read.read_ticks ) ) fd_histf_sample( ctx->metrics.store_spill_read_work, (ulong)sched_fec->read.read_ticks );
+  ctx->metrics.store_query_hit_cnt[ spilled ? FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_DISK_IDX
+                                            : FD_METRICS_ENUM_STORE_FEC_SOURCE_TYPE_V_CACHE_IDX ]++;
+  fd_store_query_release( ctx->store, view );
 
   if( FD_UNLIKELY( !ingested ) ) {
     int dr = sched_block_dead_reason_to_event( ctx, sched_fec->bank_idx );
@@ -4412,7 +4414,6 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( store_obj_id!=ULONG_MAX );
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
-  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
@@ -4752,6 +4753,9 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics.store_query_work,   FD_MHIST_EDGES_NS( REPLAY, STORE_QUERY_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics.store_spill_read_work, FD_MHIST_EDGES_NS( REPLAY, STORE_FEC_SPILL_READ_DURATION_NANOS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_map_probe, FD_MHIST_MIN( REPLAY, STORE_FEC_MAP_PROBE_PER_QUERY ),
+                                                             FD_MHIST_MAX( REPLAY, STORE_FEC_MAP_PROBE_PER_QUERY ) ) );
 
   /* Ensure precompiles are available, crash fast otherwise */
   fd_precompiles();

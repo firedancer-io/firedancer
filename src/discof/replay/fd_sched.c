@@ -28,7 +28,7 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_SHRED==((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLO
    straddle FEC set boundaries.  Other minimally parseable units of data
    include the microblock header and the microblock count within a
    batch. */
-#define FD_SCHED_MAX_PAYLOAD_PER_FEC       (63985UL)
+#define FD_SCHED_MAX_PAYLOAD_PER_FEC       FD_STORE_MAX_FEC_DATA_SZ
 FD_STATIC_ASSERT( FD_SCHED_MAX_PAYLOAD_PER_FEC>=FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, bump sched fec size bound ); /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ is the bound we want, but older ledgers have larger FEC sets. */
 #define FD_SCHED_MAX_RESIDUAL_SZ           (FD_TXN_MTU>FD_BLOCK_MARKER_SER_MAX ? FD_TXN_MTU : FD_BLOCK_MARKER_SER_MAX)
 #define FD_SCHED_MAX_FEC_BUF_SZ            (FD_SCHED_MAX_PAYLOAD_PER_FEC+FD_SCHED_MAX_RESIDUAL_SZ)
@@ -275,7 +275,7 @@ struct fd_sched_metrics {
   ulong mblk_poh_done_cnt;
   ulong bytes_ingested_cnt;
   ulong bytes_ingested_unparsed_cnt;
-  ulong bytes_dropped_cnt;
+  ulong fecs_dropped_cnt;
   ulong fec_cnt;
 };
 typedef struct fd_sched_metrics fd_sched_metrics_t;
@@ -701,8 +701,8 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, fecs_dropped_cnt %lu, fec_cnt %lu\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->fecs_dropped_cnt, sched->metrics->fec_cnt );
 }
 
 FD_FN_UNUSED static void
@@ -991,13 +991,9 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   FD_TEST( fec->bank_idx<sched->block_cnt_max );
   FD_TEST( fec->parent_bank_idx<sched->block_cnt_max );
 
-  if( FD_UNLIKELY( fec->fec->data_sz>FD_SCHED_MAX_PAYLOAD_PER_FEC ) ) {
-    sched->print_buf_sz = 0UL;
-    print_metrics( sched );
-    print_sched( sched );
-    FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %u, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
-  }
+  /* The store bounds data_sz by FD_STORE_MAX_FEC_DATA_SZ at creation. */
+  ulong data_sz = fd_store_query_data_sz( fec->read.store, fec->read.view );
+  FD_TEST( data_sz<=FD_SCHED_MAX_PAYLOAD_PER_FEC );
 
   ulong fec_buf_sz = 0UL;
   fd_sched_block_t * block = block_pool_ele( sched, fec->bank_idx );
@@ -1008,7 +1004,7 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   }
   /* Addition is safe and won't overflow because we checked the FEC set
      size above. */
-  fec_buf_sz += fec->fec->data_sz;
+  fec_buf_sz += data_sz;
   /* Assuming every transaction is min size, do we have enough free
      entries in the txn pool?  For a more precise txn count, we would
      have to do some parsing. */
@@ -1066,14 +1062,12 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   fd_sched_block_t * block = block_pool_ele( sched, fec->bank_idx );
 
-  if( FD_UNLIKELY( fec->fec->data_sz>FD_SCHED_MAX_PAYLOAD_PER_FEC ) ) {
-    sched->print_buf_sz = 0UL;
-    print_all( sched, block );
-    FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %u, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
-  }
+  /* The store bounds data_sz by FD_STORE_MAX_FEC_DATA_SZ at creation. */
+  ulong data_sz = fd_store_query_data_sz( fec->read.store, fec->read.view );
+  FD_TEST( data_sz<=FD_SCHED_MAX_PAYLOAD_PER_FEC );
 
   sched->metrics->fec_cnt++;
+  fec->read.read_ticks = 0L;
 
   if( FD_UNLIKELY( fec->is_first_in_block ) ) {
     /* This is a new block. */
@@ -1097,7 +1091,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       subtree_release_refcnt( sched, block );
 
       /* Ignore the FEC set for a dead block. */
-      sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
+      sched->metrics->fecs_dropped_cnt++;
       return 0;
     }
 
@@ -1186,7 +1180,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   if( FD_UNLIKELY( block->dying ) ) {
     /* Ignore the FEC set for a dead block. */
-    sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
+    sched->metrics->fecs_dropped_cnt++;
     return 1;
   }
 
@@ -1242,7 +1236,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   block->fec_buf_soff  = 0;
   /* Addition is safe and won't overflow because we checked the FEC
      set size above. */
-  if( FD_UNLIKELY( block->fec_buf_sz+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
+  if( FD_UNLIKELY( block->fec_buf_sz+data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
     /* The residual carried over from the previous parse is bounded: it
        can only be a partial transaction or a microblock/batch header
        that straddles a FEC set boundary.  Any trailing bytes past the
@@ -1252,16 +1246,29 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
        the buffer is sized to always fit the residual plus a single FEC
        set.  Otherwise, it's a bad block.  Instead of crashing, we
        should refuse to replay down the fork. */
-    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, fec_buf_sz %u, fec->data_sz %u, slot %lu, parent slot %lu", block->fec_buf_sz, fec->fec->data_sz, fec->slot, fec->parent_slot ));
+    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, fec_buf_sz %u, data_sz %lu, slot %lu, parent slot %lu", block->fec_buf_sz, data_sz, fec->slot, fec->parent_slot ));
     handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT );
-    sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
+    sched->metrics->fecs_dropped_cnt++;
     return 0;
   }
 
-  /* Append the new FEC set to the end of the buffer. */
-  fd_memcpy( block->fec_buf+block->fec_buf_sz, fec->data, fec->fec->data_sz );
-  block->fec_buf_sz += (uint)fec->fec->data_sz;
-  sched->metrics->bytes_ingested_cnt += fec->fec->data_sz;
+  /* Append the new FEC set to the end of the buffer.  The store checks
+     the capacity again before touching the buffer. */
+  ushort fec_shred_sz[ FD_FEC_SHRED_CNT ];
+  long   read_ts = fd_tickcount();
+  long   read_sz = fd_store_query_read( fec->read.store, fec->read.disk_fd, fec->read.view,
+                                        block->fec_buf+block->fec_buf_sz, FD_SCHED_MAX_FEC_BUF_SZ-block->fec_buf_sz,
+                                        fec_shred_sz, NULL );
+  fec->read.read_ticks = fd_tickcount() - read_ts;
+  if( FD_UNLIKELY( read_sz<0L ) ) {
+    FD_LOG_INFO(( "bad block: UNPARSEABLE_CONTENT, fec_buf_sz %u, store read err %ld, slot %lu, parent slot %lu", block->fec_buf_sz, read_sz, fec->slot, fec->parent_slot ));
+    handle_bad_block( sched, block, FD_SCHED_DEAD_REASON_UNPARSEABLE_CONTENT );
+    sched->metrics->fecs_dropped_cnt++;
+    return 0;
+  }
+  uint n = (uint)read_sz;
+  block->fec_buf_sz += n;
+  sched->metrics->bytes_ingested_cnt += n;
 
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
@@ -1269,25 +1276,25 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   ushort * shred_sz = sched->shred_sz + fec->bank_idx*sched->max_shreds_per_block;
   ulong tracked_shred_cnt = fd_ulong_min( fec->shred_cnt, FD_FEC_SHRED_CNT );
   uint  tracked_data_sz   = 0U;
-  for( ulong i=0UL; i<tracked_shred_cnt; i++ ) tracked_data_sz += fec->fec->shred_sz[ i ];
-  if( FD_LIKELY( fec->shred_cnt<=FD_FEC_SHRED_CNT ) ) FD_TEST( tracked_data_sz==fec->fec->data_sz );
-  else                                                FD_TEST( tracked_data_sz<=fec->fec->data_sz );
+  for( ulong i=0UL; i<tracked_shred_cnt; i++ ) tracked_data_sz += fec_shred_sz[ i ];
+  if( FD_LIKELY( fec->shred_cnt<=FD_FEC_SHRED_CNT ) ) FD_TEST( tracked_data_sz==n );
+  else                                                FD_TEST( tracked_data_sz<=n );
 
   uint prev_shred_off = 0U;
   for( ulong i=0; i<fec->shred_cnt; i++ ) {
     FD_TEST( block->shred_cnt<sched->max_shreds_per_block );
     uint shred_off;
     if( FD_LIKELY( i<FD_FEC_SHRED_CNT ) ) {
-      shred_off = prev_shred_off + fec->fec->shred_sz[ i ];
+      shred_off = prev_shred_off + fec_shred_sz[ i ];
     } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
       /* We don't track shred boundaries after 32 shreds, assume they're
          sized uniformly */
       ulong num_overflow_shreds = fec->shred_cnt-FD_FEC_SHRED_CNT;
       ulong overflow_idx        = i-FD_FEC_SHRED_CNT;
-      ulong overflow_data_sz    = (ulong)fec->fec->data_sz-tracked_data_sz;
+      ulong overflow_data_sz    = (ulong)n-tracked_data_sz;
       shred_off = tracked_data_sz + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
     } else {
-      shred_off = (uint)fec->fec->data_sz;
+      shred_off = n;
     }
     FD_TEST( shred_off>=prev_shred_off && shred_off-prev_shred_off<=USHORT_MAX );
     shred_sz[ block->shred_cnt++ ] = (ushort)(shred_off-prev_shred_off);
@@ -1300,7 +1307,6 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   if( FD_UNLIKELY( err!=FD_SCHED_DEAD_REASON_NONE ) ) {
     handle_bad_block( sched, block, err );
-    sched->metrics->bytes_dropped_cnt += block->fec_buf_sz-block->fec_buf_soff;
     return 0;
   }
 
@@ -2188,7 +2194,7 @@ fd_sched_metrics_write( fd_sched_t *            sched,
   FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_DONE, sched->metrics->mblk_poh_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_INGESTED_BYTES, sched->metrics->bytes_ingested_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TRAILING_SKIPPED_BYTES, sched->metrics->bytes_ingested_unparsed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_DROPPED_BYTES, sched->metrics->bytes_dropped_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_FEC_DROPPED, sched->metrics->fecs_dropped_cnt );
   FD_MCNT_SET( REPLAY, SCHED_FEC_INGESTED, sched->metrics->fec_cnt );
 }
 

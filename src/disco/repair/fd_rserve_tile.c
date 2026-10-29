@@ -90,6 +90,7 @@ typedef struct ctx {
   fd_blockdb_t *  blockdb; /* NULL if disabled */
   fd_store_t *    store;
   int             disk_fd;
+  int             preevict_active; /* fd_store_preevict hysteresis state */
   ulong           max_shreds_per_block;
 
   /* Used for verifying incoming requests, and signing outgoing responses. */
@@ -676,8 +677,8 @@ static inline void
 before_credit( ctx_t             * ctx,
                fd_stem_context_t * stem FD_PARAM_UNUSED,
                int               * charge_busy ) {
-  fd_store_fec_spill_stats_t spill[1];
-  if( FD_UNLIKELY( fd_store_fec_data_preevict( ctx->store, ctx->disk_fd, spill ) ) ) {
+  fd_store_spill_stats_t spill[1];
+  if( FD_UNLIKELY( fd_store_preevict( ctx->store, ctx->disk_fd, &ctx->preevict_active, spill ) ) ) {
     fd_histf_sample( ctx->metrics->fec_preevict_timing, spill->write_ticks );
     ctx->metrics->fec_preevict_write_cnt   += spill->write_cnt;
     ctx->metrics->fec_preevict_write_bytes += spill->write_bytes;
@@ -820,6 +821,7 @@ unprivileged_init( fd_topo_t      const * topo,
     FD_LOG_ERR(( "rserve could not open the store disk file" ));
   }
 
+  ctx->preevict_active      = 0;
   ctx->max_shreds_per_block = tile->rserve.max_shreds_per_block;
   ctx->rserve    = fd_rserve_join   ( fd_rserve_new( ctx->rserve, ping_cache_entries, ctx->seed, ctx->rserve_secret ) );
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );

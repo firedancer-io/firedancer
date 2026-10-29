@@ -34,54 +34,36 @@ static fd_validator_location_t const no_loc = {0};
 
 /* ---- Mock store ---- */
 
-static fd_store_fec_t mock_store_fec;
-static uchar          mock_store_data[ 4096 ];
-static ulong          mock_store_view_call_cnt;
-static ulong          mock_store_view_success_cnt;
-static ulong          mock_store_view_release_cnt;
-static int            mock_store_view_fail;
+static ulong mock_store_view_call_cnt;
+static ulong mock_store_view_success_cnt;
+static ulong mock_store_view_release_cnt;
+static int   mock_store_view_fail;
 
-fd_store_fec_t *
-mock_store_query_fn( fd_store_map_t *  map FD_PARAM_UNUSED,
-                     fd_hash_t const * merkle_root FD_PARAM_UNUSED ) {
-  return &mock_store_fec;
-}
-
-int
-mock_store_fec_data_view_fn( fd_store_t *               store FD_PARAM_UNUSED,
-                             int                        disk_fd FD_PARAM_UNUSED,
-                             fd_store_fec_t *           fec FD_PARAM_UNUSED,
-                             fd_store_fec_data_view_t * view ) {
+fd_store_view_t
+mock_store_query_acquire_fn( fd_store_t *              store       FD_PARAM_UNUSED,
+                             fd_hash_t const *         merkle_root FD_PARAM_UNUSED,
+                             fd_store_lookup_stats_t * opt_stats ) {
   mock_store_view_call_cnt++;
-  if( FD_UNLIKELY( mock_store_view_fail ) ) {
-    view->data  = NULL;
-    view->fec   = NULL;
-    view->flags = 0U;
-    return -1;
-  }
-  view->data = mock_store_data;
-  view->fec = &mock_store_fec;
-  view->flags = 0U;
+  if( opt_stats ) opt_stats->probe_cnt = 1UL;
+  if( FD_UNLIKELY( mock_store_view_fail ) ) return FD_STORE_VIEW_NULL;
   mock_store_view_success_cnt++;
-  return 0;
+  return fd_store_view_pack( 0U, 0U, 0 );
 }
 
 void
-mock_store_fec_data_view_release_fn( fd_store_t *                     store FD_PARAM_UNUSED,
-                                     fd_store_fec_data_view_t *       view ) {
-  FD_TEST( view && view->fec );
+mock_store_query_release_fn( fd_store_t *    store FD_PARAM_UNUSED,
+                             fd_store_view_t view ) {
+  FD_TEST( view!=FD_STORE_VIEW_NULL );
   mock_store_view_release_cnt++;
-  view->data = NULL;
-  view->fec  = NULL;
 }
 
-#define fd_store_query mock_store_query_fn
-#define fd_store_fec_data_view mock_store_fec_data_view_fn
-#define fd_store_fec_data_view_release mock_store_fec_data_view_release_fn
+#define fd_store_query_acquire mock_store_query_acquire_fn
+#define fd_store_query_release mock_store_query_release_fn
 
 /* ---- Mock sched ---- */
 
 static ulong          mock_sched_fec_ingest_cnt;
+static ulong          mock_sched_last_shred_cnt;
 static ulong          mock_sched_abandon_cnt;
 static ulong          mock_sched_abandon_idx;
 static ulong          mock_sched_root_notify_cnt;
@@ -100,7 +82,8 @@ static ulong          mock_sched_task_done_exec_idx;
 static long           mock_sched_task_done_tick;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s, fd_sched_fec_t * f ) {
-  (void)s; (void)f;
+  (void)s;
+  mock_sched_last_shred_cnt = f->shred_cnt;
   mock_sched_fec_ingest_cnt++;
   return 1;
 }
@@ -1243,11 +1226,10 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->block_id_len   = bank_cnt;
   ctx->max_live_slots = bank_cnt;
 
-  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL, 4UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL, 4UL ) );
   FD_TEST( ctx->store );
-  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   ctx->store_disk_fd = -1;
 
   static fd_runtime_stack_t runtime_stack[ 1 ];
@@ -1399,11 +1381,10 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
   setup_stem( ctx, wksp );
   setup_votor_input( ctx, wksp );
 
-  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL, 4UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL, 4UL ) );
   FD_TEST( ctx->store );
-  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
 
   ulong const bank_cnt = 8UL;
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, 8UL, 8UL, 8UL ), 1UL );
@@ -2181,19 +2162,21 @@ test_slot_completed_keeps_leader_sentinel( fd_wksp_t * wksp ) {
    handler (it lives under IN_KIND_REPAIR, dispatched by sig).  Returns
    returnable_frag's value: 0 = frag consumed, 1 = kept for retry. */
 static int
-deliver_rotor_fec( fd_replay_tile_t * ctx,
-                   ulong              slot,
-                   uint               fec_set_idx,
-                   ulong              parent_slot,
-                   fd_hash_t const *  parent_block_id,
-                   fd_hash_t const *  mr,
-                   int                slot_complete,
-                   int                verified ) {
+deliver_rotor_fec_count( fd_replay_tile_t * ctx,
+                         ulong              slot,
+                         uint               fec_set_idx,
+                         ulong              parent_slot,
+                         fd_hash_t const *  parent_block_id,
+                         fd_hash_t const *  mr,
+                         int                slot_complete,
+                         int                verified,
+                         uint               shred_cnt ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
   fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
   fec->fec_set_idx     = fec_set_idx;
+  fec->shred_cnt       = shred_cnt;
   fec->mr              = *mr;
   fec->parent_slot     = parent_slot;
   fec->parent_block_id = *parent_block_id;
@@ -2208,6 +2191,19 @@ deliver_rotor_fec( fd_replay_tile_t * ctx,
   return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ROTOR_SIG_FEC_REPLAY, chunk,
                           sizeof(fd_repair_replay_fec_t), 0UL, 0UL,
                           fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
+}
+
+static int
+deliver_rotor_fec( fd_replay_tile_t * ctx,
+                   ulong              slot,
+                   uint               fec_set_idx,
+                   ulong              parent_slot,
+                   fd_hash_t const *  parent_block_id,
+                   fd_hash_t const *  mr,
+                   int                slot_complete,
+                   int                verified ) {
+  return deliver_rotor_fec_count( ctx, slot, fec_set_idx, parent_slot, parent_block_id, mr,
+                                  slot_complete, verified, FD_FEC_SHRED_CNT );
 }
 
 /* Like deliver_rotor_fec, but also sets fec->block_id -- the field the
@@ -2228,6 +2224,7 @@ deliver_rotor_fec_bid( fd_replay_tile_t * ctx,
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
   fec->fec_set_idx     = fec_set_idx;
+  fec->shred_cnt       = FD_FEC_SHRED_CNT;
   fec->mr              = *mr;
   fec->parent_slot     = parent_slot;
   fec->parent_block_id = *parent_block_id;
@@ -2558,9 +2555,10 @@ test_rotor_fec_turbine_keying( fd_wksp_t * wksp ) {
   FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
 
   /* The live turbine FEC 32 (no block_id) finds the block. */
-  FD_TEST( deliver_rotor_fec( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &mr32, 0, 0 )==0 );
+  /* A legacy FEC's count must reach sched, not be replaced by 32. */
+  FD_TEST( deliver_rotor_fec_count( ctx, 5UL, FD_FEC_SHRED_CNT, 0UL, &parent_bid, &mr32, 0, 0, 40U )==0 );
   FD_TEST( ele5->latest_fec_idx==FD_FEC_SHRED_CNT );
-  FD_TEST( mock_sched_fec_ingest_cnt==ing0+2UL );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+2UL && mock_sched_last_shred_cnt==40UL );
   FD_TEST( ctx->drain_rotor_fecs==0 && test_stem_seqs[ out_idx ]==seq0 );
 
   /* (b) A redelivered duplicate of FEC 32 is SKIPped on {5, 0}: no store
@@ -2688,6 +2686,7 @@ deliver_rotor_fec_final( fd_replay_tile_t * ctx,
   fd_repair_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
+  fec->shred_cnt       = FD_FEC_SHRED_CNT;
   fec->mr              = *mr;
   fec->parent_slot     = 0UL;
   fec->parent_block_id = *parent_block_id;
@@ -3081,6 +3080,7 @@ deliver_leader_fec( fd_replay_tile_t * ctx,
   memset( fec, 0, sizeof(*fec) );
   fec->slot            = slot;
   fec->fec_set_idx     = fec_set_idx;
+  fec->shred_cnt       = FD_FEC_SHRED_CNT;
   fec->mr              = *mr;
   fec->parent_slot     = parent_slot;
   fec->parent_block_id = *parent_block_id;
@@ -3436,11 +3436,10 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
 
   ctx->block_id_len = bank_cnt;
 
-  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 1UL, 4UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 1UL, 4UL ) );
   FD_TEST( ctx->store );
-  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
 
   fd_memset( runtime_stack, 0, sizeof(fd_runtime_stack_t) );
   ctx->runtime_stack                  = runtime_stack;
