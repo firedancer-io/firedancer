@@ -15,7 +15,7 @@ test_pb_tokenize1( void ) {
 # define EXPECT_TLV( in, ... ) do {           \
     fd_pb_tlv_t expected = __VA_ARGS__;       \
     fd_pb_tlv_t actual;                       \
-    FD_TEST( fd_pb_read_tlv( in, &actual ) ); \
+    FD_TEST( fd_pb_tlv_read( in, &actual ) ); \
     if( FD_UNLIKELY( !fd_memeq( &expected, &actual, sizeof(fd_pb_tlv_t) ) ) ) { \
       FD_LOG_HEXDUMP_NOTICE(( "exp", &expected, sizeof(fd_pb_tlv_t) ));\
       FD_LOG_HEXDUMP_ERR   (( "act", &actual,   sizeof(fd_pb_tlv_t) ));\
@@ -58,7 +58,7 @@ test_pb_corrupt( void ) {
     fd_pb_inbuf_t inbuf[1];
     fd_pb_inbuf_init( inbuf, corrupt_cases[i].p, corrupt_cases[i].sz );
     fd_pb_tlv_t tlv;
-    FD_TEST( !fd_pb_read_tlv( inbuf, &tlv ) );
+    FD_TEST( !fd_pb_tlv_read( inbuf, &tlv ) );
   }
 }
 

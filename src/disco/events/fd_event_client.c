@@ -620,7 +620,7 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   ulong         body_cap  = FD_EVENT_CLIENT_STREAM_BODY_CAP;
   while( fd_pb_inbuf_sz( inbuf ) ) {
     fd_pb_tlv_t tlv;
-    if( FD_UNLIKELY( !fd_pb_read_tlv( inbuf, &tlv ) ) ) {
+    if( FD_UNLIKELY( !fd_pb_tlv_read( inbuf, &tlv ) ) ) {
       FD_LOG_WARNING(( "Failed to parse auth challenge response" ));
       client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
       return;
@@ -742,7 +742,7 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
   ulong nonce_ack = 0UL;
   if( FD_LIKELY( protobuf_sz ) ) {
     fd_pb_tlv_t event_id;
-    if( FD_UNLIKELY( !fd_pb_read_tlv( inbuf, &event_id ) ||
+    if( FD_UNLIKELY( !fd_pb_tlv_read( inbuf, &event_id ) ||
                      event_id.field_id!=1U /* event_id */ ||
                      event_id.wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) {
       FD_LOG_WARNING(( "Event gRPC rx msg: invalid Protobuf" ));

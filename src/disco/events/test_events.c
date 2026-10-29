@@ -42,26 +42,26 @@ test_admin_command_fields( fd_circq_t *        circq,
   fd_pb_inbuf_t envelope[1];
   fd_pb_inbuf_init( envelope, msg, msg_sz );
   fd_pb_tlv_t tlv[1];
-  for( uint id=1U; id<=4U; id++ ) FD_TEST( fd_pb_read_tlv( envelope, tlv ) && tlv->field_id==id );
-  FD_TEST( fd_pb_read_tlv( envelope, tlv ) && tlv->field_id==5U && tlv->wire_type==FD_PB_WIRE_TYPE_LEN );
+  for( uint id=1U; id<=4U; id++ ) FD_TEST( fd_pb_tlv_read( envelope, tlv ) && tlv->field_id==id );
+  FD_TEST( fd_pb_tlv_read( envelope, tlv ) && tlv->field_id==5U && tlv->wire_type==FD_PB_WIRE_TYPE_LEN );
 
   fd_pb_inbuf_t event_msg[1];
   fd_pb_inbuf_init( event_msg, envelope->cur, tlv->len );
-  FD_TEST( fd_pb_read_tlv( event_msg, tlv ) && tlv->field_id==12U && tlv->wire_type==FD_PB_WIRE_TYPE_LEN );
+  FD_TEST( fd_pb_tlv_read( event_msg, tlv ) && tlv->field_id==12U && tlv->wire_type==FD_PB_WIRE_TYPE_LEN );
 
   fd_pb_inbuf_t command[1];
   fd_pb_inbuf_init( command, event_msg->cur, tlv->len );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==1U );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==2U && tlv->varint==FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==3U && tlv->len==4UL );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==1U );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==2U && tlv->varint==FD_EVENT_ADMIN_COMMAND_RESULT_CUSTOM );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==3U && tlv->len==4UL );
   FD_TEST( !memcmp( command->cur, "busy", 4UL ) );
   fd_pb_inbuf_skip( command, 4UL );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==4U && tlv->varint==123UL );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==5U && tlv->varint==456UL );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==6U && tlv->varint==7UL );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==7U && tlv->varint==1UL );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==8U && tlv->varint==88UL );
-  FD_TEST( fd_pb_read_tlv( command, tlv ) && tlv->field_id==9U && tlv->len==2UL );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==4U && tlv->varint==123UL );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==5U && tlv->varint==456UL );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==6U && tlv->varint==7UL );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==7U && tlv->varint==1UL );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==8U && tlv->varint==88UL );
+  FD_TEST( fd_pb_tlv_read( command, tlv ) && tlv->field_id==9U && tlv->len==2UL );
   FD_TEST( !memcmp( command->cur, "{}", 2UL ) );
   fd_pb_inbuf_skip( command, 2UL );
   FD_TEST( !fd_pb_inbuf_sz( command ) );
