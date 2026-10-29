@@ -1,7 +1,10 @@
 #include "fd_keyguard.h"
+#include "../bundle/fd_bundle_crank.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/gossip/fd_gossip_value.h"
 #include "../../disco/repair/fd_repair_serde.h"
+
+#include <stddef.h>
 
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
@@ -340,10 +343,48 @@ test_vote_history_authorize( void ) {
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, 133UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 }
 
+static void
+test_bundle_crank_authorize( void ) {
+  FD_STATIC_ASSERT( offsetof(fd_bundle_crank_3_t, init_tip_distribution_acct.merkle_root_upload_authority)==FD_BUNDLE_CRANK_UPLOAD_AUTHORITY_OFFSET, authority_offset );
+  FD_STATIC_ASSERT( offsetof(fd_bundle_crank_3_t, init_tip_distribution_acct.commission_bps)==FD_BUNDLE_CRANK_COMMISSION_BPS_OFFSET, commission_offset );
+
+  uchar crank2[ FD_BUNDLE_CRANK_2_SZ ] = { FD_BUNDLE_CRANK_2_VALS };
+  uchar crank3[ FD_BUNDLE_CRANK_3_SZ ] = { FD_BUNDLE_CRANK_3_VALS };
+  fd_bundle_crank_2_t * txn2 = (fd_bundle_crank_2_t *)crank2;
+  fd_bundle_crank_3_t * txn3 = (fd_bundle_crank_3_t *)crank3;
+
+  fd_keyguard_authority_t authority = {0};
+  memset( authority.identity_pubkey,            0x11, 32UL );
+  memset( authority.tip_payment_program,        0x22, 32UL );
+  memset( authority.tip_distribution_program,   0x33, 32UL );
+  memset( authority.tip_distribution_authority, 0x44, 32UL );
+  authority.tip_distribution_commission_bps = 1000;
+
+  memcpy( txn2->authorized_voter, authority.identity_pubkey, 32UL );
+  memcpy( txn3->authorized_voter, authority.identity_pubkey, 32UL );
+  memcpy( txn2->tip_payment_program, authority.tip_payment_program, 32UL );
+  memcpy( txn3->tip_payment_program, authority.tip_payment_program, 32UL );
+  memcpy( txn3->tip_distribution_program, authority.tip_distribution_program, 32UL );
+  memcpy( txn3->init_tip_distribution_acct.merkle_root_upload_authority, authority.tip_distribution_authority, 32UL );
+  txn3->init_tip_distribution_acct.commission_bps = authority.tip_distribution_commission_bps;
+
+  FD_TEST( fd_keyguard_payload_authorize( &authority, crank2+65UL, sizeof(crank2)-65UL, FD_KEYGUARD_ROLE_BUNDLE_CRANK, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, crank3+65UL, sizeof(crank3)-65UL, FD_KEYGUARD_ROLE_BUNDLE_CRANK, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  /* A compromised pack tile must not change either configured field. */
+  for( ulong i=FD_BUNDLE_CRANK_UPLOAD_AUTHORITY_OFFSET; i<FD_BUNDLE_CRANK_COMMISSION_BPS_OFFSET+2UL; i++ ) {
+    crank3[ i ] ^= 1U;
+    FD_TEST( !fd_keyguard_payload_authorize( &authority, crank3+65UL, sizeof(crank3)-65UL, FD_KEYGUARD_ROLE_BUNDLE_CRANK, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+    crank3[ i ] ^= 1U;
+  }
+  FD_TEST( fd_keyguard_payload_authorize( &authority, crank3+65UL, sizeof(crank3)-65UL, FD_KEYGUARD_ROLE_BUNDLE_CRANK, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_log_private_boot( &argc, &argv );
+  test_bundle_crank_authorize();
   test_vote_txn_oob();
   test_txn_v1_match();
   test_ag_vote_authorize();

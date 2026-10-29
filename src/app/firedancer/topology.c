@@ -1782,6 +1782,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
       PARSE_BUNDLE_PUBKEY( sign, tip_distribution_program_addr );
       PARSE_BUNDLE_PUBKEY( sign, tip_payment_program_addr      );
+      PARSE_BUNDLE_PUBKEY( sign, tip_distribution_authority    );
+      tile->sign.bundle.commission_bps = config->tiles.bundle.commission_bps;
     } else {
       /* 0xFF.. is not an invocable program */
       memset( tile->sign.bundle.tip_distribution_program_addr, '\xFF', 32UL );
