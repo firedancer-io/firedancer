@@ -715,6 +715,15 @@ struct fd_accdb_shmem_private {
   ulong unspill_cap;
   ulong ovl_ans_off;        /* uint [MAX_JOINERS][MAX_ACQUIRE_CNT]: T2's
                                newest visible generation per request */
+
+  /* Snapshot staging (index mode).  Stage bytes live in the index file
+     at [stage_base, stage_base+stage_head); the region grows by
+     fallocate under grow_lock. */
+  ulong stage_base;
+  ulong stage_head __attribute__((aligned(64)));   /* FAA by writers */
+  ulong stage_falloc;                              /* grow_lock      */
+  ulong stage_full_end;                            /* full load's records end here */
+  ulong window_off;                                /* FD_ACCDB_PLACE_WINDOW bytes */
   ulong bg_defer_head;      /* T2 only: total appended             */
   ulong bg_defer_tail;      /* T2 only: total released             */
   ulong bg_defer_sealed;    /* T2 only: entries below are tagged   */

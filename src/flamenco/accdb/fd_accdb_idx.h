@@ -54,6 +54,34 @@
 #define FD_ACCDB_CF_KICK_MAX  (500UL)
 #define FD_ACCDB_CF_STASH_MAX (64UL)
 
+/* Snapshot stage record (index mode loads): one per account version
+   read from a snapshot.  flags bit0: the writer snooped a stake
+   delegation from it. */
+
+struct fd_accdb_stage_rec {
+  uchar pubkey[ 32 ];
+  ulong off_plus1;   /* 0 = padding */
+  ulong lamports;
+  uint  exec_size;
+  uint  slot;
+  uint  flags;
+  uint  pad;
+};
+
+typedef struct fd_accdb_stage_rec fd_accdb_stage_rec_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_stage_rec_t)==64UL, stage_layout );
+
+#define FD_ACCDB_STAGE_DELEG     (1U)
+#define FD_ACCDB_STAGE_CHUNK     (1UL<<20)                 /* bytes per writer flush */
+#define FD_ACCDB_STAGE_CHUNK_REC (FD_ACCDB_STAGE_CHUNK/64UL)
+#define FD_ACCDB_PLACE_RANGE_PG  (49152UL)                  /* 192 MiB of pages */
+#define FD_ACCDB_PLACE_PG_MAX    (FD_ACCDB_PLACE_RANGE_PG+FD_ACCDB_IDX_PROBE_MAX)
+#define FD_ACCDB_PLACE_RANGE_MAX (1UL<<16)
+#define FD_ACCDB_PLACE_WINDOW    (256UL<<20)
+/* pass 2: pages, a >=32 MiB record buffer, the per-range counters */
+FD_STATIC_ASSERT( FD_ACCDB_PLACE_PG_MAX*FD_ACCDB_IDX_PAGE_SZ+(32UL<<20)+3UL*FD_ACCDB_PLACE_RANGE_MAX*8UL<=FD_ACCDB_PLACE_WINDOW, place_window );
+
 /* Overflow log: per-fork chains of OLOG_CHUNK records. */
 #define FD_ACCDB_OLOG_CHUNK   (4096UL)
 #define FD_ACCDB_OVL_BLOOM_SZ (64UL<<20)  /* all forks, mainnet */
@@ -112,7 +140,8 @@ FD_STATIC_ASSERT( sizeof(fd_accdb_idx_page_t)==FD_ACCDB_IDX_PAGE_SZ, idx_page_la
 struct fd_accdb_idx_region {
   int    fd;
   ulong  page0;
-  ulong  npage;
+  ulong  npage;      /* nhome + FD_ACCDB_IDX_PROBE_MAX: probes never wrap */
+  ulong  nhome;
   uint * seq;
   ulong  salt;
   int    keyed_fork; /* ovl: slot matches (pubkey, fork_id) */
@@ -129,8 +158,15 @@ fd_accdb_idx_fastrange( ulong h,
 }
 
 static FD_FN_CONST inline ulong
-fd_accdb_idx_npage( ulong key_max ) {
+fd_accdb_idx_nhome( ulong key_max ) {
   return fd_ulong_max( 1UL, ( key_max*100UL + FD_ACCDB_IDX_SLOT_CNT*FD_ACCDB_IDX_LOAD_PCT-1UL )/( FD_ACCDB_IDX_SLOT_CNT*FD_ACCDB_IDX_LOAD_PCT ) );
+}
+
+/* Allocated pages: home pages plus probe slack, so a probe run never
+   wraps (a run of PROBE_MAX pages at load 0.6 is not reachable). */
+static FD_FN_CONST inline ulong
+fd_accdb_idx_npage( ulong key_max ) {
+  return fd_accdb_idx_nhome( key_max )+FD_ACCDB_IDX_PROBE_MAX;
 }
 
 static FD_FN_CONST inline ulong
@@ -170,7 +206,7 @@ fd_accdb_idx_home( fd_accdb_idx_region_t const * r,
                    ulong                         seed ) {
   ulong h = fd_hash32( pubkey, seed^r->salt );
   if( r->keyed_fork ) h ^= (ulong)fork_id*0x9E3779B97F4A7C15UL;
-  return fd_accdb_idx_fastrange( h, r->npage );
+  return fd_accdb_idx_fastrange( h, r->nhome );
 }
 
 /* page_read validates against the group seqlock (any reader);
@@ -238,7 +274,7 @@ fd_accdb_idx_lookup( fd_accdb_idx_region_t const * r,
     fd_accdb_idx_slot_t * s = fd_accdb_idx_page_find( r, buf, pubkey, fork_id );
     if( s ) { *out = *s; return 1; }
     if( FD_LIKELY( !(buf->flags & FD_ACCDB_IDX_OVERFLOWED) ) ) return 0;
-    page = page+1UL==r->npage ? 0UL : page+1UL;
+    if( FD_UNLIKELY( ++page>=r->npage ) ) return 0;
   }
   return 0;
 }
@@ -271,7 +307,7 @@ fd_accdb_idx_upsert( fd_accdb_idx_region_t const * r,
       }
     }
     if( FD_LIKELY( !(buf->flags & FD_ACCDB_IDX_OVERFLOWED) ) ) break;
-    page = page+1UL==r->npage ? 0UL : page+1UL;
+    if( FD_UNLIKELY( ++page>=r->npage ) ) break;
   }
   if( FD_UNLIKELY( epage==ULONG_MAX ) ) FD_LOG_ERR(( "accounts index region over-full" ));
   fd_accdb_idx_page_read_raw( r, epage, buf );
@@ -309,7 +345,7 @@ fd_accdb_idx_delete( fd_accdb_idx_region_t const * r,
       return 1;
     }
     if( FD_LIKELY( !(buf->flags & FD_ACCDB_IDX_OVERFLOWED) ) ) return 0;
-    page = page+1UL==r->npage ? 0UL : page+1UL;
+    if( FD_UNLIKELY( ++page>=r->npage ) ) break;
   }
   return 0;
 }
@@ -336,7 +372,7 @@ fd_accdb_idx_resync( fd_accdb_idx_region_t const * r,
       return 1;
     }
     if( FD_LIKELY( !(buf->flags & FD_ACCDB_IDX_OVERFLOWED) ) ) return 0;
-    page = page+1UL==r->npage ? 0UL : page+1UL;
+    if( FD_UNLIKELY( ++page>=r->npage ) ) break;
   }
   return 0;
 }
