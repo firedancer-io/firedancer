@@ -8,6 +8,13 @@
 #include "fd_txncache_private.h"
 
 #include <sys/mman.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+#if FD_HAS_RACESAN
+#include "../../util/racesan/fd_racesan.h"
+#endif
 
 FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 
@@ -18,12 +25,293 @@ FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 #define NULL_FORK ((fd_txncache_fork_id_t){ .val = USHORT_MAX })
 
 static void
+test_spill( void ) {
+  ulong live = 4UL, txns = 256UL;
+  FD_TEST( !fd_txncache_shmem_footprint( live, txns, 0UL ) );
+  ulong shsz = fd_txncache_shmem_footprint( live, txns, 1UL*sizeof(fd_txncache_txnpage_t) );
+  FD_TEST( fd_txncache_shmem_footprint( live, txns, 1UL )==shsz );
+  FD_TEST( fd_txncache_shmem_footprint( live, txns, sizeof(fd_txncache_txnpage_t)+1UL )>shsz );
+  ulong sz = shsz+fd_txncache_footprint( live );
+  uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( mem!=MAP_FAILED );
+  FD_TEST( !fd_txncache_shmem_new( mem, live, txns, 0UL, 0UL ) );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, live, txns, 1UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
+  FD_TEST( sh->frames_max==1UL );
+  char path[] = "/tmp/fd-txncache-test-XXXXXX";
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  FD_TEST( !fcntl( fd, F_SETFL, O_DIRECT ) );
+  FD_TEST( !unlink( path ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+shsz, sh, fd ) );
+
+  for( ulong round=0UL; round<2UL; round++ ) {
+    fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+    fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+    fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, root );
+    fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, root );
+    for( ulong i=0UL; i<FD_TXNCACHE_TXNS_PER_PAGE+1UL; i++ ) fd_txncache_insert( tc, a, BLOCKHASH(1UL), TXNHASH(i) );
+    fd_txncache_insert( tc, b, BLOCKHASH(1UL), TXNHASH(99999UL) );
+    for( ulong i=0UL; i<FD_TXNCACHE_TXNS_PER_PAGE+1UL; i+=127UL ) {
+      FD_TEST( fd_txncache_query( tc, a, BLOCKHASH(1UL), TXNHASH(i) ) );
+      FD_TEST( !fd_txncache_query( tc, b, BLOCKHASH(1UL), TXNHASH(i) ) );
+    }
+    FD_TEST( fd_txncache_query( tc, b, BLOCKHASH(1UL), TXNHASH(99999UL) ) );
+    fd_txncache_cancel_fork( tc, a );
+    a = fd_txncache_attach_child( tc, root );
+    FD_TEST( !fd_txncache_query( tc, a, BLOCKHASH(1UL), TXNHASH(0UL) ) );
+    for( ulong i=0UL; i<4UL*FD_TXNCACHE_TXNS_PER_PAGE; i++ ) fd_txncache_insert( tc, a, BLOCKHASH(1UL), TXNHASH(100000UL+i) );
+    FD_TEST( fd_txncache_query( tc, b, BLOCKHASH(1UL), TXNHASH(99999UL) ) );
+    for( ulong i=0UL; i<4UL*FD_TXNCACHE_TXNS_PER_PAGE; i+=127UL )
+      FD_TEST( fd_txncache_query( tc, a, BLOCKHASH(1UL), TXNHASH(100000UL+i) ) );
+    fd_txncache_reset( tc );
+    ulong scratch_sz;
+    void * scratch = fd_txncache_snapin_scratch( tc, &scratch_sz );
+    FD_TEST( scratch_sz==sizeof(fd_txncache_txnpage_t) );
+    memset( scratch, 0xA5, scratch_sz );
+  }
+  FD_TEST( lseek( fd, 0, SEEK_END )>0 );
+  FD_TEST( !close( fd ) );
+  FD_TEST( !munmap( mem, sz ) );
+  ulong cache_footprint = 640UL<<20; /* default runtime.transaction_cache_size_mib */
+  ulong production_sz = fd_txncache_shmem_footprint( 2048UL, 196078UL, cache_footprint );
+  FD_LOG_NOTICE(( "production txncache footprint %lu bytes", production_sz ));
+  FD_TEST( production_sz<(1UL<<30) );
+}
+
+static void
+test_spill_page_reuse( void ) {
+  ulong shsz = fd_txncache_shmem_footprint( 4UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t) );
+  ulong sz = shsz+fd_txncache_footprint( 4UL );
+  uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( mem!=MAP_FAILED );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, 2UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
+  char path[] = "/tmp/fd-txncache-free-XXXXXX";
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  FD_TEST( !fcntl( fd, F_SETFL, O_DIRECT ) );
+  FD_TEST( !unlink( path ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+shsz, sh, fd ) );
+
+  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+  for( ulong i=0UL; i<8UL; i++ ) {
+    fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, root );
+    fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(2UL) );
+    fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, a );
+    fd_txncache_insert( tc, child, BLOCKHASH(1UL), TXNHASH(1UL+i) );
+    fd_txncache_insert( tc, child, BLOCKHASH(2UL), TXNHASH(10UL+i) );
+    FD_TEST( fd_txncache_query( tc, child, BLOCKHASH(2UL), TXNHASH(10UL+i) ) );
+    FD_TEST( !fd_txncache_query( tc, child, BLOCKHASH(2UL), TXNHASH(9UL+i) ) );
+    /* A returned frame must be reused before evicting a live dirty page. */
+    FD_TEST( lseek( fd, 0, SEEK_END )==0L );
+    fd_txncache_cancel_fork( tc, a );
+    FD_TEST( sh->frames_free_cnt==1UL );
+  }
+  fd_txncache_reset( tc );
+  FD_TEST( sh->txnpages_free_cnt==sh->txnpages_max );
+  FD_TEST( sh->frames_free_cnt==2UL );
+  root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, root );
+  fd_txncache_insert( tc, child, BLOCKHASH(1UL), TXNHASH(99UL) );
+  FD_TEST( !fd_txncache_query( tc, child, BLOCKHASH(1UL), TXNHASH(1UL) ) );
+  FD_TEST( lseek( fd, 0, SEEK_END )==0L );
+  FD_TEST( !close( fd ) );
+  FD_TEST( !munmap( mem, sz ) );
+}
+
+/* Cached pages need no file access; eviction writes and later reloads whole pages. */
+static void
+test_spill_page_cache( void ) {
+  ulong shsz = fd_txncache_shmem_footprint( 4UL, 4UL, sizeof(fd_txncache_txnpage_t) );
+  ulong lsz = fd_txncache_footprint( 4UL );
+  ulong sz = shsz+2UL*lsz;
+  uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( mem!=MAP_FAILED );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 4UL, sizeof(fd_txncache_txnpage_t), 0UL ) );
+  char path[] = "/tmp/fd-txncache-query-XXXXXX";
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  FD_TEST( !fcntl( fd, F_SETFL, O_DIRECT ) );
+  FD_TEST( !unlink( path ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+shsz, sh, fd ) );
+  fd_txncache_t * cached = fd_txncache_join( fd_txncache_new( mem+shsz+lsz, sh, -1 ) );
+
+  fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+  fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, root );
+  fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(2UL) );
+  fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, a );
+  fd_txncache_insert( tc, b, BLOCKHASH(1UL), TXNHASH(1UL) );
+  FD_TEST( lseek( fd, 0, SEEK_END )==0L );
+  FD_TEST( fd_txncache_query( cached, b, BLOCKHASH(1UL), TXNHASH(1UL) ) );
+  fd_txncache_insert( cached, b, BLOCKHASH(1UL), TXNHASH(2UL) );
+
+  /* One frame forces blockhash 1 out when blockhash 2 first gets a page. */
+  fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(3UL) );
+  FD_TEST( lseek( fd, 0, SEEK_END )>0L );
+  FD_TEST( fd_txncache_query( cached, b, BLOCKHASH(2UL), TXNHASH(3UL) ) );
+  fd_txncache_insert( cached, b, BLOCKHASH(2UL), TXNHASH(4UL) );
+  for( ulong i=5UL; i<100UL; i++ ) fd_txncache_insert( cached, b, BLOCKHASH(2UL), TXNHASH(i) );
+
+  /* Reload after eviction and check the complete chain through another join. */
+  FD_TEST( fd_txncache_query( tc, b, BLOCKHASH(1UL), TXNHASH(1UL) ) );
+  FD_TEST( fd_txncache_query( cached, b, BLOCKHASH(1UL), TXNHASH(2UL) ) );
+  FD_TEST( fd_txncache_query( tc, b, BLOCKHASH(2UL), TXNHASH(3UL) ) );
+  for( ulong i=4UL; i<100UL; i++ ) FD_TEST( fd_txncache_query( cached, b, BLOCKHASH(2UL), TXNHASH(i) ) );
+  FD_TEST( !fd_txncache_query( cached, b, BLOCKHASH(2UL), TXNHASH(100UL) ) );
+  FD_TEST( !close( fd ) );
+  FD_TEST( !munmap( mem, sz ) );
+}
+
+static void
+test_spill_io_failure( int read_failure ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    ulong shsz = fd_txncache_shmem_footprint( 4UL, 256UL, 1UL*sizeof(fd_txncache_txnpage_t) );
+    ulong sz = shsz+fd_txncache_footprint( 4UL );
+    uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+    FD_TEST( mem!=MAP_FAILED );
+    fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, 1UL*sizeof(fd_txncache_txnpage_t), 0UL ) );
+    char path[] = "/tmp/fd-txncache-error-XXXXXX";
+    int fd = mkstemp( path );
+    FD_TEST( fd>=0 );
+    FD_TEST( !fcntl( fd, F_SETFL, O_DIRECT ) );
+    FD_TEST( !unlink( path ) );
+    fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+shsz, sh, fd ) );
+
+    fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
+    fd_txncache_finalize_fork( tc, root, 0UL, BLOCKHASH(1UL) );
+    fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, root );
+    fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(2UL) );
+    fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, a );
+    fd_txncache_insert( tc, b, BLOCKHASH(1UL), TXNHASH(1UL) );
+    if( !read_failure ) FD_TEST( !close( fd ) );
+    fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(2UL) );
+    if( read_failure ) {
+      FD_TEST( !ftruncate( fd, 0 ) );
+      (void)fd_txncache_query( tc, b, BLOCKHASH(1UL), TXNHASH(1UL) );
+    }
+    _exit( 0 ); /* A disk failure must never return to its caller. */
+  }
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );
+}
+
+#if FD_HAS_RACESAN
+
+struct fetch_io_inject {
+  fd_txncache_t * tc;
+  ulong           cnt;
+};
+
+static void
+inject_fetch_io( void * ctx,
+                 ulong  name_hash ) {
+  (void)name_hash;
+  struct fetch_io_inject * inject = ctx;
+  FD_TEST( fd_rwlock_trywrite( inject->tc->shmem->lock ) );
+  fd_rwlock_unwrite( inject->tc->shmem->lock );
+  inject->cnt++;
+}
+
+/* A query that misses does its spill I/O without the lock. */
+
+static void
+test_fetch_unlocked( void ) {
+  ulong shsz = fd_txncache_shmem_footprint( 4UL, 256UL, sizeof(fd_txncache_txnpage_t) );
+  ulong sz   = shsz+fd_txncache_footprint( 4UL );
+  uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( mem!=MAP_FAILED );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, sizeof(fd_txncache_txnpage_t), 0UL ) );
+  char path[] = "/tmp/fd-txncache-fetch-XXXXXX";
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  FD_TEST( !fcntl( fd, F_SETFL, O_DIRECT ) );
+  FD_TEST( !unlink( path ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+shsz, sh, fd ) );
+  fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(1UL) );
+  fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, a );
+  fd_txncache_finalize_fork( tc, b, 0UL, BLOCKHASH(2UL) );
+  fd_txncache_fork_id_t c = fd_txncache_attach_child( tc, b );
+  fd_txncache_insert( tc, c, BLOCKHASH(1UL), TXNHASH(1UL) );
+  fd_txncache_insert( tc, c, BLOCKHASH(2UL), TXNHASH(2UL) ); /* evicts the page of blockhash 1 */
+
+  struct fetch_io_inject inject = { .tc = tc };
+  fd_racesan_t racesan[ 1 ];
+  FD_TEST( fd_racesan_new( racesan, &inject ) );
+  fd_racesan_inject( racesan, "txncache:fetch_io", inject_fetch_io );
+  FD_RACESAN_INJECT_BEGIN( racesan ) {
+    FD_TEST( fd_txncache_query( tc, c, BLOCKHASH(1UL), TXNHASH(1UL) ) );
+  } FD_RACESAN_INJECT_END;
+  FD_TEST( inject.cnt==1UL );
+  fd_racesan_delete( racesan );
+  FD_TEST( !close( fd ) );
+  FD_TEST( !munmap( mem, sz ) );
+}
+
+#endif
+
+static ulong
+histf_cnt( fd_histf_t const * hist ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<FD_HISTF_BUCKET_CNT; i++ ) cnt += fd_histf_cnt( hist, i );
+  return cnt;
+}
+
+/* With one frame, a miss on each side is counted, and a query whose
+   chain spans two pages cannot finish without holding the write lock. */
+
+static void
+test_join_metrics( void ) {
+  ulong shsz = fd_txncache_shmem_footprint( 4UL, 256UL, sizeof(fd_txncache_txnpage_t) );
+  ulong sz   = shsz+fd_txncache_footprint( 4UL );
+  uchar * mem = mmap( NULL, sz, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( mem!=MAP_FAILED );
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, 4UL, 256UL, sizeof(fd_txncache_txnpage_t), 0UL ) );
+  char path[] = "/tmp/fd-txncache-metrics-XXXXXX";
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  FD_TEST( !fcntl( fd, F_SETFL, O_DIRECT ) );
+  FD_TEST( !unlink( path ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+shsz, sh, fd ) );
+  fd_txncache_join_metrics_t const * m = fd_txncache_join_metrics( tc );
+  fd_txncache_fork_id_t a = fd_txncache_attach_child( tc, NULL_FORK );
+  fd_txncache_finalize_fork( tc, a, 0UL, BLOCKHASH(1UL) );
+  fd_txncache_fork_id_t b = fd_txncache_attach_child( tc, a );
+  fd_txncache_finalize_fork( tc, b, 0UL, BLOCKHASH(2UL) );
+  fd_txncache_fork_id_t c = fd_txncache_attach_child( tc, b );
+
+  fd_txncache_insert( tc, c, BLOCKHASH(1UL), TXNHASH(1UL) );
+  FD_TEST( !m->insert_miss_cnt && !m->query_miss_cnt && !m->stalled_cnt );
+  fd_txncache_insert( tc, c, BLOCKHASH(2UL), TXNHASH(2UL) ); /* new page, no free frame */
+  FD_TEST( m->insert_miss_cnt==1UL );
+  FD_TEST( fd_txncache_query( tc, c, BLOCKHASH(1UL), TXNHASH(1UL) ) );
+  FD_TEST( m->query_miss_cnt==1UL && !m->stalled_cnt );
+
+  ulong const fill_cnt = FD_TXNCACHE_TXNS_PER_PAGE+FD_TXNCACHE_TXNS_PER_PAGE/2UL;
+  for( ulong i=0UL; i<fill_cnt; i++ ) fd_txncache_insert( tc, c, BLOCKHASH(1UL), TXNHASH(100UL+i) );
+  FD_TEST( tc->blockcache_pool[ a.val ].shmem->pages_cnt==2UL );
+  ulong query_miss_cnt = m->query_miss_cnt;
+  FD_TEST( !fd_txncache_query( tc, c, BLOCKHASH(1UL), TXNHASH(999999UL) ) );
+  FD_TEST( m->query_miss_cnt==query_miss_cnt+1UL && m->stalled_cnt==1UL );
+
+  FD_TEST( histf_cnt( m->query_ticks  )==2UL );
+  FD_TEST( histf_cnt( m->insert_ticks )==2UL+fill_cnt );
+  FD_TEST( !close( fd ) );
+  FD_TEST( !munmap( mem, sz ) );
+}
+
+static void
 test_bucket_cnt( void ) {
   FD_TEST( fd_txncache_bucket_cnt( 0UL )==1UL );
   FD_TEST( fd_txncache_bucket_cnt( 1UL )==1UL );
-  FD_TEST( fd_txncache_bucket_cnt( 8UL )==1UL );
-  FD_TEST( fd_txncache_bucket_cnt( 9UL )==2UL );
-  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==12255UL );
+  FD_TEST( fd_txncache_bucket_cnt( 32UL )==1UL );
+  FD_TEST( fd_txncache_bucket_cnt( 33UL )==2UL );
+  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==3064UL );
 }
 
 static void
@@ -33,34 +321,26 @@ test_page_sizing( void ) {
 
   FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot )==17158UL );
   FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot )==17158UL );
-  FD_TEST( fd_txncache_txnpage_idx_sz( 17158UL )==sizeof(ushort) );
-  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot )==4401349504UL ); /* production, ushort page indices */
+  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot, ULONG_MAX )==4316078080UL ); /* production */
 
   /* development.bench.max_cost_per_block = 540M: 2*529,411 txns per
-     slot.  The pool exceeds the ushort range, so page indices widen to
-     uint. */
+     slot. */
   ulong const bench_txn_per_slot = 1058822UL;
   FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, bench_txn_per_slot )==163762UL );
   FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, bench_txn_per_slot )==163762UL );
-  FD_TEST( fd_txncache_txnpage_idx_sz( 163762UL )==sizeof(uint) );
   FD_TEST( 163762UL<=FD_TXNCACHE_MAX_TXNPAGES );
-  FD_TEST( fd_txncache_shmem_footprint( 2048UL, bench_txn_per_slot )==42854135296UL );
-
-  FD_TEST( fd_txncache_txnpage_idx_sz( USHORT_MAX-2UL )==sizeof(ushort) );
-  FD_TEST( fd_txncache_txnpage_idx_sz( USHORT_MAX-1UL )==sizeof(uint)   );
+  FD_TEST( fd_txncache_shmem_footprint( 2048UL, bench_txn_per_slot, ULONG_MAX )==41215467520UL );
 }
 
 static void
-test_bench_sizing( ulong max_live_slots,
-                   ulong expected_idx_sz ) {
+test_bench_sizing( ulong max_live_slots ) {
   FD_LOG_NOTICE(( "TEST BENCH SIZING (max_live_slots=%lu)", max_live_slots ));
 
-  /* The pool is tens of GiB at bench sizes but only the pages touched
-     by the inserts below are ever faulted in, so back it with a lazily
-     committed anonymous mapping rather than locked shmem. */
+  /* Only the pages touched by the inserts below are faulted in, so
+     use a lazily committed anonymous mapping rather than locked shmem. */
 
   ulong const max_txn_per_slot = 1058822UL;
-  ulong footprint_shmem = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot );
+  ulong footprint_shmem = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot, ULONG_MAX );
   ulong footprint_local = fd_txncache_footprint( max_live_slots );
   FD_TEST( footprint_shmem );
 
@@ -69,17 +349,14 @@ test_bench_sizing( ulong max_live_slots,
   FD_TEST( mem!=MAP_FAILED );
   FD_TEST( fd_ulong_is_aligned( (ulong)mem, FD_TXNCACHE_SHMEM_ALIGN ) );
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, max_live_slots, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, max_live_slots, max_txn_per_slot, ULONG_MAX, 0UL ) );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+fd_ulong_align_up( footprint_shmem, FD_TXNCACHE_ALIGN ), shtc ) );
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem+fd_ulong_align_up( footprint_shmem, FD_TXNCACHE_ALIGN ), shtc, -1 ) );
   FD_TEST( tc );
-  ulong mutation_gen = shtc->mutation_gen;
-  ulong root_gen     = shtc->root_gen;
 
   ulong const max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
-  FD_TEST( shtc->max_txnpages==fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot ) );
-  FD_TEST( shtc->txnpage_idx_sz==expected_idx_sz );
-  FD_TEST( shtc->txnpages_free_cnt==shtc->max_txnpages );
+  FD_TEST( shtc->txnpages_max==fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot ) );
+  FD_TEST( shtc->txnpages_free_cnt==shtc->txnpages_max );
 
   /* Root -> a -> b.  Inserts on b under a's blockhash land in a's
      blockcache and span three pages; cancelling a returns them. */
@@ -92,13 +369,12 @@ test_bench_sizing( ulong max_live_slots,
 
   ulong const txn_cnt = 2UL*FD_TXNCACHE_TXNS_PER_PAGE+1UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) fd_txncache_insert( tc, b, BLOCKHASH(2UL), TXNHASH(i) );
-  FD_TEST( shtc->txnpages_free_cnt==shtc->max_txnpages-3UL );
+  FD_TEST( shtc->txnpages_free_cnt==shtc->txnpages_max-3UL );
   for( ulong i=0UL; i<txn_cnt; i++ ) FD_TEST(  fd_txncache_query( tc, b, BLOCKHASH(2UL), TXNHASH(i)         ) );
   for( ulong i=0UL; i<64UL;     i++ ) FD_TEST( !fd_txncache_query( tc, b, BLOCKHASH(2UL), TXNHASH(txn_cnt+i) ) );
 
   fd_txncache_cancel_fork( tc, a );
-  FD_TEST( shtc->txnpages_free_cnt==shtc->max_txnpages );
-  FD_TEST( shtc->mutation_gen==mutation_gen && shtc->root_gen==root_gen ); /* unrooted attach, finalize, insert and cancel bump neither */
+  FD_TEST( shtc->txnpages_free_cnt==shtc->txnpages_max );
 
   fd_txncache_fork_id_t c = fd_txncache_attach_child( tc, root );
   fd_txncache_insert( tc, c, BLOCKHASH(1UL), TXNHASH(7UL) );
@@ -106,9 +382,29 @@ test_bench_sizing( ulong max_live_slots,
   FD_TEST( !fd_txncache_query( tc, c, BLOCKHASH(1UL), TXNHASH(8UL) ) );
 
   fd_txncache_reset( tc );
-  FD_TEST( shtc->txnpages_free_cnt==shtc->max_txnpages );
+  FD_TEST( shtc->txnpages_free_cnt==shtc->txnpages_max );
 
   FD_TEST( !munmap( mem, sz ) );
+}
+
+/* Run the existing pruning/compaction regressions with one RAM page
+   as well as the fully resident configuration. */
+static int test_spill_fd = -1;
+static fd_txncache_shmem_t *
+test_shmem_new( void * mem,
+                ulong  live,
+                ulong  txns,
+                ulong  seed ) {
+  ulong cache_footprint = test_spill_fd>=0 ? sizeof(fd_txncache_txnpage_t) : ULONG_MAX;
+  fd_txncache_shmem_t * sh = fd_txncache_shmem_join( fd_txncache_shmem_new( mem, live, txns, cache_footprint, seed ) );
+  return sh;
+}
+
+static fd_txncache_t *
+test_join( void *                mem,
+           fd_txncache_shmem_t * sh ) {
+  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( mem, sh, test_spill_fd ) );
+  return tc;
 }
 
 void
@@ -116,9 +412,9 @@ test0( uchar * scratch0,
        uchar * scratch1 ) {
   FD_LOG_NOTICE(( "TEST 0" ));
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0UL ) );
+  fd_txncache_shmem_t * shtc = test_shmem_new( scratch0, 4UL, 4UL, 0UL );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = test_join( scratch1, shtc );
   FD_TEST( tc );
 
   fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
@@ -143,18 +439,18 @@ void
 test_new_join( uchar * scratch0 ) {
   FD_LOG_NOTICE(( "TEST NEW" ));
 
-  FD_TEST( fd_txncache_shmem_new( NULL, 1UL, 1UL, 0UL )==NULL );          /* null shmem         */
-  FD_TEST( fd_txncache_shmem_new( (void *)0x1UL, 1UL, 1UL, 0UL )==NULL ); /* misaligned shmem   */
-  FD_TEST( fd_txncache_shmem_new( scratch0, 0UL, 1UL, 0UL )==NULL );  /* 0 max_live_slots */
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 0UL, 0UL )==NULL );  /* 0 max_txn_per_slot */
+  FD_TEST( fd_txncache_shmem_new( NULL, 1UL, 1UL, ULONG_MAX, 0UL )==NULL );          /* null shmem         */
+  FD_TEST( fd_txncache_shmem_new( (void *)0x1UL, 1UL, 1UL, ULONG_MAX, 0UL )==NULL ); /* misaligned shmem   */
+  FD_TEST( fd_txncache_shmem_new( scratch0, 0UL, 1UL, ULONG_MAX, 0UL )==NULL );  /* 0 max_live_slots */
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 0UL, ULONG_MAX, 0UL )==NULL );  /* 0 max_txn_per_slot */
 
-  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, 1UL, 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, 1UL, ULONG_MAX, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, ULONG_MAX, 0UL ) );
 
   FD_LOG_NOTICE(( "TEST JOIN" ));
 
@@ -177,9 +473,9 @@ test_scratch( uchar * scratch0,
   ulong const max_live_slots   = 4UL;
   ulong const max_txn_per_slot = FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, max_live_slots, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = test_shmem_new( scratch0, max_live_slots, max_txn_per_slot, 0UL );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = test_join( scratch1, shtc );
   FD_TEST( tc );
 
   ulong sz = 0UL;
@@ -187,16 +483,13 @@ test_scratch( uchar * scratch0,
   FD_TEST( scratch );
   FD_TEST( sz );
 
-  ulong footprint = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot );
+  ulong footprint = fd_txncache_shmem_footprint( max_live_slots, max_txn_per_slot, ULONG_MAX );
   FD_TEST( scratch>=scratch0 );
   FD_TEST( scratch+sz<=scratch0+footprint );
 
   FD_TEST( sz>=FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot*sizeof(fd_txncache_single_txn_t) );
 
-  ulong mutation_gen = shtc->mutation_gen;
-  ulong root_gen     = shtc->root_gen;
   fd_txncache_reset( tc );
-  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen+1UL );
   fd_memset( scratch, 0xFF, sz );
 
   fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
@@ -211,15 +504,9 @@ test_scratch( uchar * scratch0,
   FD_TEST( !fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(2UL) ) );
   FD_TEST(  fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(5UL) ) );
 
-  mutation_gen = shtc->mutation_gen;
-  root_gen     = shtc->root_gen;
   fd_txncache_reset( tc );
-  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen+1UL );
   fd_memset( scratch, 0xA5, 4096UL );
-  mutation_gen = shtc->mutation_gen;
-  root_gen     = shtc->root_gen;
   fd_txncache_reset( tc );
-  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen+1UL );
   for( ulong i=0UL; i<4096UL; i++ ) FD_TEST( scratch[ i ]==0xA5 );
 
   ulong sz2 = 0UL;
@@ -232,24 +519,19 @@ test_advance_root( uchar * scratch0,
                    uchar * scratch1 ) {
   FD_LOG_NOTICE(( "TEST ADVANCE ROOT" ));
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0UL ) );
+  fd_txncache_shmem_t * shtc = test_shmem_new( scratch0, 4UL, 4UL, 0UL );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = test_join( scratch1, shtc );
   FD_TEST( tc );
 
   fd_txncache_fork_id_t slot = fd_txncache_attach_child( tc, NULL_FORK );
   fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(0UL) );
-  ulong mutation_gen = shtc->mutation_gen;
-  ulong root_gen     = shtc->root_gen;
 
   for( ulong i=0UL; i<8192UL; i++ ) {
     slot = fd_txncache_attach_child( tc, slot );
     fd_txncache_insert( tc, slot, BLOCKHASH(i), TXNHASH(i) );
     fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(i+1UL) );
     fd_txncache_advance_root( tc, slot );
-    mutation_gen += 2UL;
-    root_gen++;
-    FD_TEST( shtc->mutation_gen==mutation_gen && shtc->root_gen==root_gen );
   }
 
   FD_TEST( !fd_txncache_query( tc, slot, BLOCKHASH(8191UL), TXNHASH(8190UL) ) );
@@ -263,7 +545,6 @@ test_advance_root( uchar * scratch0,
   slot = fd_txncache_attach_child( tc, slot );
   fd_txncache_finalize_fork( tc, slot, 0UL, BLOCKHASH(8193UL) );
   fd_txncache_advance_root( tc, slot );
-  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen+1UL );
 }
 
 void
@@ -282,9 +563,9 @@ test_purge_stale( uchar * scratch0,
      returns the rest to the pool: only the valid_pre_purge txns survive
      the purge, so ceil(valid_pre_purge/txns_per_page)==1. */
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = test_shmem_new( scratch0, 4UL, max_txn_per_slot, 0UL );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = test_join( scratch1, shtc );
   FD_TEST( tc );
 
   ulong const max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+4UL;
@@ -366,10 +647,7 @@ test_purge_stale( uchar * scratch0,
      retries and succeeds. */
 
   FD_LOG_NOTICE(( "inserting trigger txn (should trigger purge_stale)" ));
-  ulong mutation_gen = shtc->mutation_gen;
-  ulong root_gen     = shtc->root_gen;
   fd_txncache_insert( tc, query_fork, BLOCKHASH(0UL), TXNHASH(valid_pre_purge) );
-  FD_TEST( shtc->mutation_gen==mutation_gen+2UL && shtc->root_gen==root_gen );
 
   FD_TEST( (ulong)shtc->txnpages_free_cnt==max_txnpages-1UL );
 
@@ -394,6 +672,17 @@ test_purge_stale( uchar * scratch0,
 
   for( ulong i=0UL; i<10UL; i++ ) {
     FD_TEST( !fd_txncache_query( tc, query_fork, BLOCKHASH(0UL), TXNHASH(stale_id_base + i) ) );
+  }
+
+  if( test_spill_fd>=0 ) {
+    /* Compaction with one frame must preserve both old and new blockcaches. */
+    fd_txncache_finalize_fork( tc, query_fork, 0UL, BLOCKHASH(20000UL) );
+    fd_txncache_fork_id_t child = fd_txncache_attach_child( tc, query_fork );
+    fd_txncache_insert( tc, child, BLOCKHASH(20000UL), TXNHASH(20000UL) );
+    uint page = tc->blockcache_pool[ query_fork.val ].shmem->page_head;
+    while( tc->page_meta[ page ].next!=UINT_MAX ) page = tc->page_meta[ page ].next;
+    FD_TEST( tc->page_meta[ page ].frame!=UINT_MAX );
+    FD_TEST( fd_txncache_query( tc, child, BLOCKHASH(20000UL), TXNHASH(20000UL) ) );
   }
 }
 
@@ -422,9 +711,9 @@ test_purge_stale_global( uchar * scratch0,
   ulong const max_txnpages               = fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot );
   ulong const max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot );
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, max_live_slots, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = test_shmem_new( scratch0, max_live_slots, max_txn_per_slot, 0UL );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = test_join( scratch1, shtc );
   FD_TEST( tc );
 
   /* Step 1: Create root R0 with blockhash 0. */
@@ -556,9 +845,9 @@ test_advance_past_minority_then_purge( uchar * scratch0,
      repointed from loser_b to winner) and winner->sibling_id (must
      have been reset from loser_a to none). */
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0UL ) );
+  fd_txncache_shmem_t * shtc = test_shmem_new( scratch0, 4UL, 4UL, 0UL );
   FD_TEST( shtc );
-  fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
+  fd_txncache_t * tc = test_join( scratch1, shtc );
   FD_TEST( tc );
 
   fd_txncache_fork_id_t root = fd_txncache_attach_child( tc, NULL_FORK );
@@ -662,15 +951,26 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  test_spill_page_cache();
+  test_spill_page_reuse();
+  test_spill_io_failure( 0 );
+  test_spill_io_failure( 1 );
+  test_spill();
+# if FD_HAS_RACESAN
+  test_fetch_unlocked();
+# endif
+  test_join_metrics();
   test_bucket_cnt();
   test_page_sizing();
 
-  ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, FD_MAX_TXN_PER_SLOT );
+  ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), ULONG_MAX );
   ulong max_footprint_local = fd_txncache_footprint( FD_MAX_TXN_PER_SLOT );
 
   ulong max_footprint = fd_ulong_align_up( max_footprint_shmem, 4096UL ) + max_footprint_local;
-  uchar * scratch0 = fd_shmem_acquire( 4096UL, 1UL+(max_footprint/4096UL), 0UL );
-  FD_TEST( scratch0 );
+  /* Fully in-memory sizing tests reserve a large pool but touch only
+     a small fraction of its pages. */
+  uchar * scratch0 = mmap( NULL, max_footprint, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0 );
+  FD_TEST( scratch0!=MAP_FAILED );
 
   uchar * scratch1 = scratch0+fd_ulong_align_up( max_footprint_shmem, 4096UL );
 
@@ -682,8 +982,20 @@ main( int     argc,
   test_purge_stale( scratch0, scratch1, 256UL, 2000000UL ); /* Several pages per blockhash. */
   test_purge_stale_global( scratch0, scratch1 );
   test_advance_past_minority_then_purge( scratch0, scratch1 );
-  test_bench_sizing( 4UL,   sizeof(ushort) ); /* 29,624 txnpages */
-  test_bench_sizing( 560UL, sizeof(uint)   ); /* 66,111 txnpages, just past the ushort range */
+  char path[] = "/tmp/fd-txncache-purge-XXXXXX";
+  test_spill_fd = mkstemp( path );
+  FD_TEST( test_spill_fd>=0 );
+  FD_TEST( !fcntl( test_spill_fd, F_SETFL, O_DIRECT ) );
+  FD_TEST( !unlink( path ) );
+  test0( scratch0, scratch1 );
+  test_advance_root( scratch0, scratch1 );
+  test_purge_stale( scratch0, scratch1, 256UL, 2000000UL );
+  test_advance_past_minority_then_purge( scratch0, scratch1 );
+  FD_TEST( !close( test_spill_fd ) );
+  test_spill_fd = -1;
+  test_bench_sizing( 4UL   ); /* 29,624 txnpages */
+  test_bench_sizing( 560UL ); /* 66,111 txnpages */
+  FD_TEST( !munmap( scratch0, max_footprint ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

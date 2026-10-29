@@ -146,6 +146,13 @@ metrics_write( fd_execle_tile_t * ctx ) {
 
   FD_PROGCACHE_METRICS_WRITE( EXECLE, ctx->progcache->metrics );
 
+  fd_txncache_join_metrics_t const * txncache = fd_txncache_join_metrics( ctx->runtime->status_cache );
+  FD_MCNT_SET  ( EXECLE, TXNCACHE_QUERY_MISS,             txncache->query_miss_cnt  );
+  FD_MCNT_SET  ( EXECLE, TXNCACHE_INSERT_MISS,            txncache->insert_miss_cnt );
+  FD_MCNT_SET  ( EXECLE, TXNCACHE_OPERATION_STALLED,      txncache->stalled_cnt     );
+  FD_MHIST_COPY( EXECLE, TXNCACHE_QUERY_DURATION_NANOS,   txncache->query_ticks     );
+  FD_MHIST_COPY( EXECLE, TXNCACHE_INSERT_DURATION_NANOS,  txncache->insert_ticks    );
+
   FD_ACCDB_METRICS_WRITE( EXECLE, fd_accdb_metrics( ctx->accdb ) );
 }
 
@@ -807,8 +814,11 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execle.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
-  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( txncache );
+  fd_txncache_join_metrics_t * txncache_metrics = fd_txncache_join_metrics( txncache );
+  fd_histf_join( fd_metrics_histf_new_ns( txncache_metrics->query_ticks,  FD_MHIST_EDGES_NS( EXECLE, TXNCACHE_QUERY_DURATION_NANOS  ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( txncache_metrics->insert_ticks, FD_MHIST_EDGES_NS( EXECLE, TXNCACHE_INSERT_DURATION_NANOS ) ) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->execle.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
@@ -872,7 +882,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, FD_VOTE_STAKES_FD );
+  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, FD_VOTE_STAKES_FD, (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_execle_tile_instr_cnt;
 }
 
@@ -884,7 +894,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -893,6 +903,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
 
   return out_cnt;
 }

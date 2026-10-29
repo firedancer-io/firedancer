@@ -17,11 +17,11 @@
          anything twice.  The replay stage queries to make sure that
          blocks do not contain duplicate transactions.
 
-   Both of these operations are concurrent and lockless, assuming there
-   are no other (non-insert/query) operations occurring on the txn
-   cache. Most other operations lock the entire structure and will
-   prevent both insertion and query from proceeding, but are rare
-   (once per slot) so it's OK.
+   Queries and inserts on resident pages run concurrently under the
+   shared lock.  A cache miss takes the exclusive lock only to reserve a
+   frame and reads or writes the spill file without the lock, so it
+   does not stall other threads.  Structural operations take the
+   exclusive lock.  Dirty pages are written back on eviction.
 
    The txn cache is somewhat CPU and memory sensitive.  To store message
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
@@ -108,8 +108,15 @@
    are nonce blockhashes (not in the recent blockhashes sysvar). */
 
 #include "fd_txncache_shmem.h"
+#include "../../util/hist/fd_histf.h"
 
 #define FD_TXNCACHE_ALIGN (128UL)
+
+/* 123454 is vote stakes, 123455 is cost tracker, 123456 is epoch
+   credits, 123457 is stake delegations, 123458/123459 are store,
+   123460/123461 are accdb, and 123462+ are reserved by XDP. */
+
+#define FD_TXNCACHE_FD (123453)
 
 struct fd_txncache_private;
 typedef struct fd_txncache_private fd_txncache_t;
@@ -139,6 +146,10 @@ FD_PROTOTYPES_BEGIN
    with a matching max_live_slots.  Returns ljoin on success and NULL
    on failure (logs details).  The caller is not joined on return.
 
+   spill_fd is the read/write spill file shared by all joins, opened
+   with O_DIRECT and kept open by the caller.  Pass -1 if the cache is
+   fully in memory.
+
    fd_txncache_join joins the caller to a txn cache.  Assumes ljoin
    points to the first byte of the local join region holding the state.
    Returns a local handle to the join on success (this is not
@@ -153,13 +164,62 @@ fd_txncache_footprint( ulong max_live_slots );
 
 void *
 fd_txncache_new( void *                ljoin,
-                 fd_txncache_shmem_t * shmem );
+                 fd_txncache_shmem_t * shmem,
+                 int                   spill_fd );
 
 fd_txncache_t *
 fd_txncache_join( void * ljoin );
 
 void
 fd_txncache_reset( fd_txncache_t * tc );
+
+/* fd_txncache_metrics_t holds the txncache's spill and lock metrics.
+   Counts only grow; *_ticks are in fd_tickcount() units. */
+
+struct fd_txncache_metrics {
+  ulong page_miss_cnt;
+  ulong page_spilled_cnt;
+  ulong page_spill_read_cnt;
+  ulong frame_evicted_cnt;
+  ulong spill_ticks;
+  ulong lock_read_wait_ticks;
+  ulong lock_write_wait_ticks;
+  ulong page_used;
+  ulong page_capacity;
+  ulong frame_used;
+  ulong frame_capacity;
+};
+
+typedef struct fd_txncache_metrics fd_txncache_metrics_t;
+
+/* fd_txncache_metrics_snap copies the metrics of tc into out without
+   taking the lock, so values from different fields may be slightly
+   out of step. */
+
+void
+fd_txncache_metrics_snap( fd_txncache_t const *   tc,
+                          fd_txncache_metrics_t * out );
+
+/* fd_txncache_join_metrics_t holds the metrics of the queries and
+   inserts made through one join, so each tile can report its own.
+   Counts only grow.  The histograms sample fd_tickcount() durations;
+   fd_txncache_new formats them with placeholder buckets, which the
+   tile reformats with its metric's edges before its first query. */
+
+struct fd_txncache_join_metrics {
+  ulong      query_miss_cnt;  /* Queries that found a page not resident. */
+  ulong      insert_miss_cnt; /* Inserts that found a page not resident. */
+  ulong      stalled_cnt;     /* Queries and inserts that fell back to the write lock. */
+  fd_histf_t query_ticks [1]; /* Duration of each query. */
+  fd_histf_t insert_ticks[1]; /* Duration of each insert. */
+};
+
+typedef struct fd_txncache_join_metrics fd_txncache_join_metrics_t;
+
+/* fd_txncache_join_metrics returns the metrics of the join tc. */
+
+fd_txncache_join_metrics_t *
+fd_txncache_join_metrics( fd_txncache_t * tc );
 
 /* fd_txncache_snapin_scratch returns the txncache's transaction page
    pool for use as scratch memory during snapshot loading, and sets
@@ -170,16 +230,26 @@ fd_txncache_reset( fd_txncache_t * tc );
    contents.  A page is fully reinitialized when an insert allocates it.
    A caller that has just reset the txncache may therefore use the
    region freely until it performs the first insert, at which point the
-   contents should be assumed clobbered.
-
-   The pool is sized to hold at least
-   FD_TXNCACHE_MAX_SLOT_DELTAS*max_txn_per_slot transactions, so the
-   region is at least that many times sizeof(fd_txncache_single_txn_t)
-   bytes regardless of max_live_slots. */
+   contents should be assumed clobbered. */
 
 void *
 fd_txncache_snapin_scratch( fd_txncache_t * tc,
                             ulong *         out_sz );
+
+/* FD_TXNCACHE_SNAPIN_GROUP_SZ is the size of one status cache blockhash
+   group that snapshot loading stages in the scratch region. */
+
+#define FD_TXNCACHE_SNAPIN_GROUP_SZ (40UL)
+
+/* fd_txncache_snapin_scratch_min_sz returns the scratch size snapshot
+   loading needs to stage the status cache, one group per transaction
+   for each slot delta.  max_txn_per_slot is the value passed to
+   fd_txncache_shmem_new, which counts each transaction twice. */
+
+FD_FN_CONST static inline ulong
+fd_txncache_snapin_scratch_min_sz( ulong max_txn_per_slot ) {
+  return FD_TXNCACHE_MAX_SLOT_DELTAS*(max_txn_per_slot/2UL)*FD_TXNCACHE_SNAPIN_GROUP_SZ;
+}
 
 /* fd_txncache_attach_child notifies the txncache that a new child bank
    has been created, off some parent.  This must be called before any
