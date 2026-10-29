@@ -2613,6 +2613,111 @@ test_idx_compact_bucket_only( void ) {
   test_teardown( accdb, fd );
 }
 
+static int
+test_is_hot( uchar const key[ 32 ] ) {
+  fd_accdb_shmem_t * s = test_shmem_mem;
+  uint const *               hot  = (uint const *)( (uchar *)s + s->idx_hot_map_off );
+  fd_accdb_accmeta_t const * pool = (fd_accdb_accmeta_t const *)( (uchar *)s + s->acc_pool_off );
+  uint cur = hot[ fd_hash32( key, s->seed )&(s->chain_cnt-1UL) ];
+  while( cur!=UINT_MAX ) { if( !memcmp( pool[ cur ].key.pubkey, key, 32 ) ) return 1; cur = pool[ cur ].map.next; }
+  return 0;
+}
+
+/* Bucket-only accounts: an FG joiner (no index fd) reaches them by
+   prefetch (zero FG preads, no wait) or by the residual wait, and
+   data_len sees them. */
+
+static void
+test_idx_prefetch_and_residual( void ) {
+  int fd;
+  fd_accdb_t * t2 = test_setup_idx( &fd, 8192UL, 1024UL, 256UL, 64UL );
+  void * fg_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 256UL, 0 ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1 ) );
+  FD_TEST( fg );
+
+  uchar d[ 40 ]; ulong lamports, data_len; uchar owner[ 32 ];
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( t2, SENTINEL );
+  ulong n = 600UL;
+  uchar key[ 32 ];
+  for( ulong i=0UL; i<n; i+=8UL ) {
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip );
+    for( ulong j=i; j<i+8UL && j<n; j++ ) {
+      memset( key, 0, 32 ); FD_STORE( ulong, key, j+1UL ); key[ 31 ] = 0x5A;
+      memset( d, (int)j, sizeof(d) );
+      accdb_write( t2, c, key, 10UL+j, d, sizeof(d), owner2 );
+    }
+    fd_accdb_advance_root( t2, c );
+    drain_background( t2 );
+    tip = c;
+  }
+  tip = test_root_n( t2, tip, FD_ACCDB_DEMOTE_AGE+2UL );
+  for( ulong i=0UL; i<256UL; i++ ) drain_background( t2 );
+  FD_TEST( fd_accdb_metrics( t2 )->accounts_demoted==n );
+
+  uchar cold[ 600 ][ 32 ]; ulong cold_cnt = 0UL;
+  for( ulong j=0UL; j<n; j++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, j+1UL ); key[ 31 ] = 0x5A;
+    if( !test_is_hot( key ) ) memcpy( cold[ cold_cnt++ ], key, 32 );
+  }
+  FD_TEST( cold_cnt>=16UL );
+
+  /* data_len on a bucket-only account through the index-fd joiner */
+  FD_TEST( fd_accdb_data_len( t2, tip, cold[ 0 ] )==sizeof(d) );
+  FD_TEST( test_is_hot( cold[ 0 ] )==0 );
+
+  /* prefetch: FG pushes hints, T2 promotes + warms, FG reads from RAM */
+  uchar const * pk[ 8 ];
+  for( ulong i=0UL; i<8UL; i++ ) pk[ i ] = cold[ i ];
+  fd_accdb_prefetch( fg, tip, 8UL, pk, 1 );
+  FD_TEST( fd_accdb_metrics( fg )->prefetch_pushed==8UL );
+  for( ulong i=0UL; i<4UL; i++ ) drain_background( t2 );
+  for( ulong i=0UL; i<8UL; i++ ) FD_TEST( test_is_hot( cold[ i ] ) );
+  ulong reads0 = fd_accdb_metrics( fg )->read_ops;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    FD_TEST( accdb_read( fg, tip, cold[ i ], &lamports, d, &data_len, owner ) );
+    ulong j = FD_LOAD( ulong, cold[ i ] )-1UL;
+    FD_TEST( lamports==10UL+j && data_len==sizeof(d) && d[ 3 ]==(uchar)j );
+  }
+  FD_TEST( fd_accdb_metrics( fg )->read_ops==reads0 );
+  FD_TEST( fd_accdb_metrics( fg )->residual_waits==0UL );
+
+  /* residual: no prefetch, T2 on a thread; one batched wait for 8 keys */
+  test_background_ctx_t bg = { .accdb = t2, .stop = 0 };
+  pthread_t thr;
+  FD_TEST( !pthread_create( &thr, NULL, run_background, &bg ) );
+  uchar const * pk2[ 8 ];
+  for( ulong i=0UL; i<8UL; i++ ) pk2[ i ] = cold[ 8UL+i ];
+  int wr[ 8 ] = {0};
+  fd_acc_t accs[ 8 ];
+  memset( accs, 0, sizeof(accs) );
+  fd_accdb_acquire( fg, tip, 8UL, pk2, wr, accs );
+  for( ulong i=0UL; i<8UL; i++ ) FD_TEST( accs[ i ].lamports==10UL+FD_LOAD( ulong, cold[ 8UL+i ] )-1UL );
+  fd_accdb_release( fg, 8UL, accs );
+  FD_TEST( fd_accdb_metrics( fg )->residual_waits==1UL );
+  FD_TEST( fd_accdb_data_len( fg, tip, cold[ 16 ] )==sizeof(d) );
+  FD_TEST( fd_accdb_lamports( fg, tip, cold[ 16 ] )==10UL+FD_LOAD( ulong, cold[ 16 ] )-1UL );
+  /* never-written keys: a cuckoo negative never waits, a false
+     positive waits once and is then a NEG hot entry */
+  fd_accdb_shmem_t * sm = test_shmem_mem;
+  fd_accdb_cf_t cf = { .cf=(ulong *)( (uchar *)sm + sm->idx_cf_off ), .nb=sm->idx_cf_nb, .seed=sm->seed, .seq=&sm->idx_cf_seq,
+                       .stash=(ulong *)( (uchar *)sm + sm->idx_cf_stash_off ), .stash_cnt=&sm->idx_cf_stash_cnt, .disabled=&sm->idx_cf_disabled };
+  for( ulong i=0UL; i<64UL; i++ ) {
+    memset( key, 0xEE, 32 ); FD_STORE( ulong, key, i );
+    int   maybe = fd_accdb_cf_probe( &cf, key );
+    ulong waits = fd_accdb_metrics( fg )->residual_waits;
+    FD_TEST( !fd_accdb_exists( fg, tip, key ) );
+    FD_TEST( fd_accdb_metrics( fg )->residual_waits==waits+(ulong)maybe );
+    FD_TEST( !fd_accdb_exists( fg, tip, key ) );
+    FD_TEST( fd_accdb_metrics( fg )->residual_waits==waits+(ulong)maybe );
+  }
+  FD_VOLATILE( bg.stop ) = 1;
+  FD_TEST( !pthread_join( thr, NULL ) );
+
+  free( fg_mem );
+  close( test_idx_fd );
+  test_teardown( t2, fd );
+}
+
 /* Demote FIFO with rewrites every root: 64 roots x 64 rewritten keys
    fill a 4096-entry FIFO with superseded entries and no pool pressure;
    the push compacts them instead of aborting. */
@@ -2766,6 +2871,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_compact_bucket_only ..." ));
   test_idx_compact_bucket_only();
+
+  FD_LOG_NOTICE(( "test_idx_prefetch_and_residual ..." ));
+  test_idx_prefetch_and_residual();
 
   FD_LOG_NOTICE(( "success" ));
 

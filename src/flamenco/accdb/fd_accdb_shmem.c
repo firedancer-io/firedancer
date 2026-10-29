@@ -150,6 +150,8 @@ fd_accdb_shmem_footprint( ulong max_accounts,
     l = FD_LAYOUT_APPEND( l, alignof(uchar),           pool_max                                                );
     l = FD_LAYOUT_APPEND( l, alignof(uchar),           pool_max                                                );
     l = FD_LAYOUT_APPEND( l, alignof(ulong),           pool_max*sizeof(ulong)                                  );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_req_t),  (FD_ACCDB_RING_RES_CAP+FD_ACCDB_RING_HINT_CAP)*sizeof(fd_accdb_req_t) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_prot_t), FD_ACCDB_PROT_MAX*sizeof(fd_accdb_prot_t)               );
   }
   return FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
 }
@@ -354,7 +356,13 @@ fd_accdb_shmem_new( void * shmem,
   void * _tier       = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), pool_max*!!index_ram_entries                     );
   void * _hot_ref    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar), pool_max*!!index_ram_entries                     );
   void * _fifo       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), pool_max*sizeof(ulong)*!!index_ram_entries       );
-  if( index_ram_entries ) { memset( _tier, 0, pool_max ); memset( _hot_ref, 0, pool_max ); }
+  void * _ring       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_req_t),  (FD_ACCDB_RING_RES_CAP+FD_ACCDB_RING_HINT_CAP)*sizeof(fd_accdb_req_t)*!!index_ram_entries );
+  void * _prot       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_prot_t), FD_ACCDB_PROT_MAX*sizeof(fd_accdb_prot_t)*!!index_ram_entries );
+  if( index_ram_entries ) {
+    memset( _tier,    0, pool_max );
+    memset( _hot_ref, 0, pool_max );
+    memset( _ring,    0, (FD_ACCDB_RING_RES_CAP+FD_ACCDB_RING_HINT_CAP)*sizeof(fd_accdb_req_t) );
+  }
   if( index_ram_entries ) {
     memset( _bkt_seq,  0,    fd_accdb_idx_seq_cnt( bkt_npage )*sizeof(uint) );
     memset( _cf,       0,    cf_nb*sizeof(ulong) );
@@ -477,6 +485,16 @@ fd_accdb_shmem_new( void * shmem,
   ulong reserve = fd_ulong_max( 1UL<<20, 5UL*max_account_writes_per_slot );
   if( index_ram_entries ) reserve = fd_ulong_min( reserve, pool_max/4UL ); /* tiny test pools */
   accdb->promote_reserve   = reserve;
+  accdb->prot_off          = (ulong)_prot - (ulong)shmem;
+  accdb->prot_head         = 0UL;
+  accdb->prot_tail         = 0UL;
+  memset( accdb->ring_res,  0, sizeof(fd_accdb_ring_t) );
+  memset( accdb->ring_hint, 0, sizeof(fd_accdb_ring_t) );
+  accdb->ring_res ->cap     = FD_ACCDB_RING_RES_CAP;
+  accdb->ring_res ->ele_off = (ulong)_ring - (ulong)shmem;
+  accdb->ring_hint->cap     = FD_ACCDB_RING_HINT_CAP;
+  accdb->ring_hint->ele_off = (ulong)_ring + FD_ACCDB_RING_RES_CAP*sizeof(fd_accdb_req_t) - (ulong)shmem;
+  memset( accdb->res_ack, 0, sizeof(accdb->res_ack) );
   accdb->max_account_writes_per_slot = max_account_writes_per_slot;
   accdb->joiner_cnt_max   = joiner_cnt;
   accdb->cache_min_reserved = cache_min_reserved;
