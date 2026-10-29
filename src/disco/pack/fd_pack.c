@@ -342,7 +342,7 @@ noncemap_extract( fd_txn_e_t const   * k,
 
   ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, k->txnp->payload );
-  out->nonce_acct = nonce_idx<imm_cnt ? accts+nonce_idx : k->alt_accts+(nonce_idx-imm_cnt);
+  out->nonce_acct = nonce_idx<imm_cnt ? accts+nonce_idx : fd_txn_e_alt( k )+(nonce_idx-imm_cnt);
   /* The nonce authority must be a signer, so it must be an immediate
      account. */
   out->nonce_auth = accts+autho_idx;
@@ -1366,7 +1366,7 @@ delete_worst( fd_pack_t * pack,
       case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
         fd_txn_t * txn = TXN( sample->txn );
         fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, sample->txn->payload );
-        fd_acct_addr_t const * alt     = sample->txn_e->alt_accts;
+        fd_acct_addr_t const * alt     = fd_txn_e_alt( sample->txn_e );
         fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
         fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
         FD_TEST( q );
@@ -1453,7 +1453,7 @@ populate_bitsets( fd_pack_t         * pack,
   uchar * payload  = ord->txn->payload;
 
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
+  fd_acct_addr_t const * alt     = fd_txn_e_alt( ord->txn_e );
 
   ulong  cumulative_penalty = 0UL;
   ulong  penalty_i          = 0UL;
@@ -1530,7 +1530,7 @@ insert_txn( fd_pack_t         * pack,
 
   fd_txn_t *             txn     = TXN( ord->txn );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, ord->txn->payload );
-  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
+  fd_acct_addr_t const * alt     = fd_txn_e_alt( ord->txn_e );
 
   /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
      Each transaction can reference an account at most once, which means
@@ -1685,7 +1685,7 @@ bundle_txn_declared_tip( fd_pack_ord_txn_t const * ord ) {
   fd_txn_t       const * txn     = TXN( ord->txn );
   uchar          const * payload = ord->txn->payload;
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-  fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
+  fd_acct_addr_t const * alt     = fd_txn_e_alt( ord->txn_e );
 
   ulong tip = 0UL;
   for( ulong i=0UL; i<(ulong)txn->instr_cnt; i++ ) {
@@ -2273,7 +2273,7 @@ copy_txn_out( fd_pack_ord_txn_t const * cur,
 
   /* Copy the ALT accounts from the source fd_txn_e_t */
   ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
-  if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
+  if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( fd_txn_e_alt( out ), fd_txn_e_alt( cur->txn_e ), alt_acct_cnt*sizeof(fd_acct_addr_t) );
 }
 
 typedef struct {
@@ -2410,7 +2410,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     fd_txn_t const * txn = TXN(cur->txn);
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
-    fd_acct_addr_t const * alt     = cur->txn_e->alt_accts;
+    fd_acct_addr_t const * alt     = fd_txn_e_alt( cur->txn_e );
     /* Check conflicts between this transaction's writable accounts and
        current readers.  The probes are kept for the take below. */
     use_found = 0UL;
@@ -2831,7 +2831,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     fd_txn_t const * txn = TXN(cur->txn);
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
-    fd_acct_addr_t const * alt     = cur->txn_e->alt_accts;
+    fd_acct_addr_t const * alt     = fd_txn_e_alt( cur->txn_e );
 
     /* Check conflicts between this transaction's writable accounts and
        current readers */
@@ -2962,7 +2962,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     out_txnp->flags                           = cur->txn->flags;
     /* Copy the ALT accounts from the source fd_txn_e_t */
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
-    if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
+    if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( fd_txn_e_alt( out ), fd_txn_e_alt( cur->txn_e ), alt_acct_cnt*sizeof(fd_acct_addr_t) );
     out++;
 
     pack->cumulative_block_cost += cur->compute_est;
@@ -3124,7 +3124,7 @@ fd_pack_insert_txn_fini_express( fd_pack_t  * pack,
   fd_txn_t * txn   = TXN(txne->txnp);
   uchar * payload  = txne->txnp->payload;
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-  fd_acct_addr_t const * alt     = txne->alt_accts;
+  fd_acct_addr_t const * alt     = fd_txn_e_alt( txne );
 
   /* insert_txn_fini's checks; nonces and rejects take that path */
   if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim )                    ) ) return 0;
@@ -3483,7 +3483,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
       fd_pack_ord_txn_t * const del = pack->pool + i;
       fd_txn_t * txn = TXN( del->txn );
       fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, del->txn->payload );
-      fd_acct_addr_t const * alt     = del->txn_e->alt_accts;
+      fd_acct_addr_t const * alt     = fd_txn_e_alt( del->txn_e );
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( del->root ) );
       fd_pack_penalty_treap_t * penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
       FD_TEST( penalty_treap );
@@ -3531,7 +3531,7 @@ delete_transaction( fd_pack_t         * pack,
 
   fd_txn_t * txn = TXN( containing->txn );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, containing->txn->payload );
-  fd_acct_addr_t const * alt     = containing->txn_e->alt_accts;
+  fd_acct_addr_t const * alt     = fd_txn_e_alt( containing->txn_e );
 
   treap_t * root = NULL;
   int root_idx = containing->root;
@@ -3810,7 +3810,7 @@ fd_pack_verify( fd_pack_t * pack,
       fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
       fd_txn_t const * txn = TXN(cur->txn);
       fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
-      fd_acct_addr_t const * alt     = cur->txn_e->alt_accts;
+      fd_acct_addr_t const * alt     = fd_txn_e_alt( cur->txn_e );
 
       fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, &cur->_txn_e, NULL, pool );
       VERIFY_TEST( in_tbl, "signature missing from sig2txn" );
