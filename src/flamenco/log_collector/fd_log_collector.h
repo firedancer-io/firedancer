@@ -208,7 +208,7 @@ fd_log_collector_msg_many( fd_exec_instr_ctx_t * ctx, int num_buffers, ... ) {
     for (int i = 0; i < num_buffers; i++) {
         char const *msg = va_arg( args, char const * );
         ulong msg_sz_part = va_arg( args, ulong );
-        fd_memcpy( buf + offset, msg, msg_sz_part );
+        if( FD_LIKELY( msg_sz_part ) ) fd_memcpy( buf + offset, msg, msg_sz_part );
         offset += msg_sz_part;
     }
     va_end(args);
