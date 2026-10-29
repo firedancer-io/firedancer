@@ -226,7 +226,8 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
     ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]++;
     return 0;
   }
-  if( FD_UNLIKELY( !route->gre_outer_src_ip || !route->gre_outer_dst_ip ) ) {
+  /* VLAN packets are sent via the kernel which will fill in the outer saddr */
+  if( FD_UNLIKELY( ( !route->use_vlan && !route->gre_outer_src_ip ) || !route->gre_outer_dst_ip ) ) {
     ctx->metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_GRE_NO_ROUTE_IDX ]++;
     return 0;
   }

@@ -238,6 +238,7 @@ test_rx_routes( void ) {
 
 static uint const vlan_src_ip = FD_IP4_ADDR( 10,100,0,1 );
 static uint const vlan_dst_ip = FD_IP4_ADDR( 10,100,0,2 );
+static uint const vlan_noprefsrc_dst_ip = FD_IP4_ADDR( 10,100,0,3 );
 
 /* Mock net_sock ops.  mock_sock records the most recent sendto call.
    If short_write is set, sendto reports one byte fewer than requested
@@ -670,18 +671,22 @@ add_netdev( fd_netdev_tbl_join_t * tbl,
   tbl->hdr->dev_cnt = (ushort)(idx+1U);
 }
 
-/* send_vlan_pkt sends one UDP packet to vlan_dst_ip through
-   before_frag, during_frag and after_frag, using the TX input link
-   position *tx_seq / *tx_chunk (both advanced on return).  If
-   send_fail is non-zero, the mock sendto reports a short write.
+/* send_vlan_pkt sends one UDP packet with a zero source address to
+   dst_ip through before_frag, during_frag and after_frag, using the TX
+   input link position *tx_seq / *tx_chunk (both advanced on return).
+   If send_fail is non-zero, the mock sendto reports a short write.
    Asserts the behavior common to a successful and a failed send: one
    sendto from the IPv4 header in the SQ buffer with the routed
-   addresses, no WQE submitted to the SQ, and the buffer returned to
-   the SQ slot.  Returns the size of the packet sent. */
+   addresses and source address exp_saddr (zero leaves source
+   selection to the kernel), no WQE submitted to the SQ, and the
+   buffer returned to the SQ slot.  Returns the size of the packet
+   sent. */
 
 static ulong
 send_vlan_pkt( fd_mlx5_tile_t *            tile,
                fd_mlx5_tile_mock_t const * mock,
+               uint                        dst_ip,
+               uint                        exp_saddr,
                ulong *                     tx_seq,
                ulong *                     tx_chunk,
                int                         send_fail ) {
@@ -698,7 +703,7 @@ send_vlan_pkt( fd_mlx5_tile_t *            tile,
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
       .net_tot_len = fd_ushort_bswap( 31 ),
-      .daddr       = vlan_dst_ip
+      .daddr       = dst_ip
     },
     .udp = {
       .net_len   = fd_ushort_bswap( 11 ),
@@ -715,7 +720,7 @@ send_vlan_pkt( fd_mlx5_tile_t *            tile,
   memset( &mock_sock, 0, sizeof(mock_sock) );
   mock_sock.short_write = send_fail;
 
-  ulong sig = fd_disco_netmux_sig( 0, SHRED_PORT, vlan_dst_ip, DST_PROTO_OUTGOING, vlan_pkt_sz );
+  ulong sig = fd_disco_netmux_sig( 0, SHRED_PORT, dst_ip, DST_PROTO_OUTGOING, vlan_pkt_sz );
   FD_TEST( before_frag( tile, 0UL, *tx_seq, sig )==0 );
   FD_TEST( tile->net.tx_route.use_vlan==1U );
   uchar * frame = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, chunk_before );
@@ -730,11 +735,11 @@ send_vlan_pkt( fd_mlx5_tile_t *            tile,
   FD_TEST( mock_sock.len==vlan_pkt_sz-sizeof(fd_eth_hdr_t) );
   FD_TEST( mock_sock.flags==0 );
   FD_TEST( mock_sock.addr.sin_family==AF_INET );
-  FD_TEST( mock_sock.addr.sin_addr.s_addr==vlan_dst_ip );
+  FD_TEST( mock_sock.addr.sin_addr.s_addr==dst_ip );
 
   /* fd_net_tx_pkt_prep filled the source address and checksum */
   fd_ip4_hdr_t const * sent_ip4 = (fd_ip4_hdr_t const *)mock_sock.buf;
-  FD_TEST( sent_ip4->saddr==vlan_src_ip );
+  FD_TEST( sent_ip4->saddr==exp_saddr );
   FD_TEST( fd_ip4_hdr_check( sent_ip4 )==0 );
 
   /* Nothing was submitted to the SQ */
@@ -973,6 +978,9 @@ main( int     argc,
   FD_TEST( fd_fib4_insert( tile->router.fib_main, FD_IP4_ADDR( 192,168,1,0 ), 24, 0U, &hop ) );
   hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_VLAN0, .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_src=vlan_src_ip };
   FD_TEST( fd_fib4_insert( tile->router.fib_main, vlan_dst_ip, 32, 0U, &hop ) );
+  /* VLAN route without a preferred source address */
+  hop = (fd_fib4_hop_t) { .if_idx=IF_IDX_VLAN0, .rtype=FD_FIB4_RTYPE_UNICAST };
+  FD_TEST( fd_fib4_insert( tile->router.fib_main, vlan_noprefsrc_dst_ip, 32, 0U, &hop ) );
 
   /* Verify initial assignment */
   FD_TEST( test_rx_wq_cnt( mock, tile )==rx_fill_cnt );
@@ -1618,12 +1626,29 @@ main( int     argc,
     ulong   sock_before      = tile->net.metrics.tx_sock_cnt;
     ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
 
-    ulong vlan_pkt_sz = send_vlan_pkt( tile, mock, &tx_seq, &tx_chunk, /*send_fail=*/0 );
+    ulong vlan_pkt_sz = send_vlan_pkt( tile, mock, vlan_dst_ip, vlan_src_ip, &tx_seq, &tx_chunk, /*send_fail=*/0 );
 
     FD_TEST( tile->net.metrics.tx_pkt_cnt    ==pkt_before+1UL                           );
     FD_TEST( tile->net.metrics.tx_bytes_total==bytes_before+vlan_pkt_sz+FD_VLAN_TAG_SZ );
     FD_TEST( tile->net.metrics.tx_sock_cnt   ==sock_before+1UL                          );
     FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]==sock_fail_before );
+  }
+
+  /* A VLAN route without a preferred source and no bind address sends
+     the packet with a zero source address, leaving source selection
+     to the kernel, instead of dropping it as SourceIpMissing. */
+  {
+    FD_TEST( !tile->router.bind_address && !tile->net.bind_address );
+    ulong * drop_cnt           = tile->net.metrics.tx_drop_cnt;
+    ulong   pkt_before         = tile->net.metrics.tx_pkt_cnt;
+    ulong   sock_before        = tile->net.metrics.tx_sock_cnt;
+    ulong   src_missing_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ];
+
+    send_vlan_pkt( tile, mock, vlan_noprefsrc_dst_ip, 0U, &tx_seq, &tx_chunk, /*send_fail=*/0 );
+
+    FD_TEST( tile->net.metrics.tx_pkt_cnt ==pkt_before+1UL  );
+    FD_TEST( tile->net.metrics.tx_sock_cnt==sock_before+1UL );
+    FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]==src_missing_before );
   }
 
   /* A failed VLAN socket send is counted as a SocketSendFailure drop,
@@ -1635,7 +1660,7 @@ main( int     argc,
     ulong   sock_before      = tile->net.metrics.tx_sock_cnt;
     ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
 
-    send_vlan_pkt( tile, mock, &tx_seq, &tx_chunk, /*send_fail=*/1 );
+    send_vlan_pkt( tile, mock, vlan_dst_ip, vlan_src_ip, &tx_seq, &tx_chunk, /*send_fail=*/1 );
 
     FD_TEST( tile->net.metrics.tx_pkt_cnt    ==pkt_before   );
     FD_TEST( tile->net.metrics.tx_bytes_total==bytes_before );
@@ -1657,7 +1682,7 @@ main( int     argc,
 
   metrics_write( tile );
   FD_TEST( FD_MCNT_GET( MLX5, SOCKET_PKT_TX_SUBMITTED )==tile->net.metrics.tx_sock_cnt );
-  FD_TEST( tile->net.metrics.tx_sock_cnt==1UL );
+  FD_TEST( tile->net.metrics.tx_sock_cnt==2UL );
   FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_MLX5_PKT_TX_DROPPED_SOCKET_SEND_FAILURE_OFF ]==
            tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ] );
 

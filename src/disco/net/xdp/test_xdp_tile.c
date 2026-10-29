@@ -42,6 +42,7 @@ static uint const gre1_outer_src_ip      = FD_IP4_ADDR( 11,1,0,1 );
 static uint const gre1_outer_dst_ip      = FD_IP4_ADDR( 11,1,0,2 );
 static uint const vlan_src_ip            = FD_IP4_ADDR( 10,100,0,1 );
 static uint const vlan_dst_ip            = FD_IP4_ADDR( 10,100,0,2 );
+static uint const vlan_noprefsrc_dst_ip  = FD_IP4_ADDR( 10,100,0,3 );
 
 static uchar eth0_dst_mac_addr[6] = {0xa,0xb,0xc,0xd,0xe,0xf};
 static uchar eth0_src_mac_addr[6] = {0x1,0x2,0x3,0x4,0x5,0x6};
@@ -181,6 +182,11 @@ setup_routing_table( fd_net_ctx_t * ctx,
     .rtype   = FD_FIB4_RTYPE_UNICAST,
     .ip4_src = vlan_src_ip
   };
+  /* VLAN route without a preferred source address */
+  fd_fib4_hop_t hop9 = (fd_fib4_hop_t) {
+    .if_idx  = IF_IDX_VLAN0,
+    .rtype   = FD_FIB4_RTYPE_UNICAST
+  };
 
   FD_TEST( fd_fib4_insert( fib_local, FD_IP4_ADDR( 127,0,0,1 ), 32, 0U, &hop1 ) );
   FD_TEST( fd_fib4_insert( fib_main,  FD_IP4_ADDR( 0,0,0,0 ), 0, 0U, &hop2 ) );
@@ -190,6 +196,7 @@ setup_routing_table( fd_net_ctx_t * ctx,
   FD_TEST( fd_fib4_insert( fib_main,  gre1_dst_ip, 32, 0U, &hop6 ) );
   FD_TEST( fd_fib4_insert( fib_main,  gre1_outer_dst_ip, 32, 0U, &hop7 ) );
   FD_TEST( fd_fib4_insert( fib_main,  vlan_dst_ip, 32, 0U, &hop8 ) );
+  FD_TEST( fd_fib4_insert( fib_main,  vlan_noprefsrc_dst_ip, 32, 0U, &hop9 ) );
 }
 
 static void
@@ -331,17 +338,21 @@ setup_netdev_table( fd_net_ctx_t * ctx ) {
   fd_memcpy( eth1->mac_addr, eth1_src_mac_addr, 6 );
 }
 
-/* send_vlan_pkt sends one UDP packet to vlan_dst_ip through
-   before_frag, during_frag and after_frag, using the TX input link
-   position *tx_seq / *tx_chunk (both advanced on return).  If
-   send_fail is non-zero, the mock sendto reports a short write.
+/* send_vlan_pkt sends one UDP packet with a zero source address to
+   dst_ip through before_frag, during_frag and after_frag, using the TX
+   input link position *tx_seq / *tx_chunk (both advanced on return).
+   If send_fail is non-zero, the mock sendto reports a short write.
    Asserts the behavior common to a successful and a failed send: one
    sendto from the IPv4 header in the UMEM frame with the routed
-   addresses, nothing submitted to the XSK TX ring, and the frame
-   returned to free_tx.  Returns the size of the packet sent. */
+   addresses and source address exp_saddr (zero leaves source
+   selection to the kernel), nothing submitted to the XSK TX ring, and
+   the frame returned to free_tx.  Returns the size of the packet
+   sent. */
 
 static ulong
 send_vlan_pkt( fd_net_ctx_t * ctx,
+               uint           dst_ip,
+               uint           exp_saddr,
                ulong *        tx_seq,
                ulong *        tx_chunk,
                int            send_fail ) {
@@ -358,7 +369,7 @@ send_vlan_pkt( fd_net_ctx_t * ctx,
       .verihl      = FD_IP4_VERIHL( 4, 5 ),
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
       .net_tot_len = fd_ushort_bswap( 31 ),
-      .daddr       = vlan_dst_ip
+      .daddr       = dst_ip
     },
     .udp = {
       .net_len   = fd_ushort_bswap( 11 ),
@@ -368,7 +379,7 @@ send_vlan_pkt( fd_net_ctx_t * ctx,
   };
   ulong const vlan_pkt_sz = sizeof(vlan_pkt);
 
-  fd_xsk_t * xsk             = &ctx->xsk[ XSK_IDX_MAIN ];
+  fd_xsk_t * xsk            = &ctx->xsk[ XSK_IDX_MAIN ];
   long       free_cnt_before = fd_seq_diff( ctx->free_tx.prod, ctx->free_tx.cons );
   uint       tx_prod_before  = xsk->ring_tx.cached_prod;
   ulong      pending_before  = ctx->tx_flusher[ XSK_IDX_MAIN ].pending_cnt;
@@ -376,7 +387,7 @@ send_vlan_pkt( fd_net_ctx_t * ctx,
   memset( &mock_sock, 0, sizeof(mock_sock) );
   mock_sock.short_write = send_fail;
 
-  ulong sig = fd_disco_netmux_sig( 0, SHRED_PORT, vlan_dst_ip, DST_PROTO_OUTGOING, vlan_pkt_sz );
+  ulong sig = fd_disco_netmux_sig( 0, SHRED_PORT, dst_ip, DST_PROTO_OUTGOING, vlan_pkt_sz );
   FD_TEST( before_frag( ctx, 0, *tx_seq, sig )==0 );
   FD_TEST( ctx->net.tx_route.use_vlan==1U );
   FD_TEST( ctx->tx_op.xsk_idx==XSK_IDX_MAIN );
@@ -393,11 +404,11 @@ send_vlan_pkt( fd_net_ctx_t * ctx,
   FD_TEST( mock_sock.len==vlan_pkt_sz-sizeof(fd_eth_hdr_t) );
   FD_TEST( mock_sock.flags==0 );
   FD_TEST( mock_sock.addr.sin_family==AF_INET );
-  FD_TEST( mock_sock.addr.sin_addr.s_addr==vlan_dst_ip );
+  FD_TEST( mock_sock.addr.sin_addr.s_addr==dst_ip );
 
   /* fd_net_tx_pkt_prep filled the source address and checksum */
   fd_ip4_hdr_t const * sent_ip4 = (fd_ip4_hdr_t const *)mock_sock.buf;
-  FD_TEST( sent_ip4->saddr==vlan_src_ip );
+  FD_TEST( sent_ip4->saddr==exp_saddr );
   FD_TEST( fd_ip4_hdr_check( sent_ip4 )==0 );
 
   /* Nothing was submitted to XDP */
@@ -1227,13 +1238,30 @@ main( int     argc,
     ulong   sock_before      = ctx->net.metrics.tx_sock_cnt;
     ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
 
-    ulong vlan_pkt_sz = send_vlan_pkt( ctx, &tx_seq, &tx_chunk, /*send_fail=*/0 );
+    ulong vlan_pkt_sz = send_vlan_pkt( ctx, vlan_dst_ip, vlan_src_ip, &tx_seq, &tx_chunk, /*send_fail=*/0 );
 
     FD_TEST( ctx->metrics.tx_submit_cnt     ==submit_before+1UL                        );
     FD_TEST( ctx->net.metrics.tx_pkt_cnt    ==pkt_before+1UL                           );
     FD_TEST( ctx->net.metrics.tx_bytes_total==bytes_before+vlan_pkt_sz+FD_VLAN_TAG_SZ );
     FD_TEST( ctx->net.metrics.tx_sock_cnt   ==sock_before+1UL                          );
     FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ]==sock_fail_before );
+  }
+
+  /* A VLAN route without a preferred source and no bind address sends
+     the packet with a zero source address, leaving source selection
+     to the kernel, instead of dropping it as SourceIpMissing. */
+  {
+    FD_TEST( !ctx->net.bind_address );
+    ulong * drop_cnt           = ctx->net.metrics.tx_drop_cnt;
+    ulong   pkt_before         = ctx->net.metrics.tx_pkt_cnt;
+    ulong   sock_before        = ctx->net.metrics.tx_sock_cnt;
+    ulong   src_missing_before =drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ];
+
+    send_vlan_pkt( ctx, vlan_noprefsrc_dst_ip, 0U, &tx_seq, &tx_chunk, /*send_fail=*/0 );
+
+    FD_TEST( ctx->net.metrics.tx_pkt_cnt ==pkt_before+1UL  );
+    FD_TEST( ctx->net.metrics.tx_sock_cnt==sock_before+1UL );
+    FD_TEST( drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]==src_missing_before );
   }
 
   /* A failed VLAN socket send is counted as a SocketSendFailure drop,
@@ -1246,7 +1274,7 @@ main( int     argc,
     ulong   sock_before      = ctx->net.metrics.tx_sock_cnt;
     ulong   sock_fail_before = drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ];
 
-    send_vlan_pkt( ctx, &tx_seq, &tx_chunk, /*send_fail=*/1 );
+    send_vlan_pkt( ctx, vlan_dst_ip, vlan_src_ip, &tx_seq, &tx_chunk, /*send_fail=*/1 );
 
     FD_TEST( ctx->metrics.tx_submit_cnt     ==submit_before );
     FD_TEST( ctx->net.metrics.tx_pkt_cnt    ==pkt_before    );
@@ -1480,7 +1508,7 @@ main( int     argc,
   FD_TEST( FD_MCNT_GET( NET, VLAN_PKT_RX        )==ctx->net.metrics.rx_vlan_cnt        );
   FD_TEST( ctx->net.metrics.rx_vlan_cnt==1UL );
   FD_TEST( FD_MCNT_GET( NET, SOCKET_PKT_TX_SUBMITTED )==ctx->net.metrics.tx_sock_cnt );
-  FD_TEST( ctx->net.metrics.tx_sock_cnt==1UL );
+  FD_TEST( ctx->net.metrics.tx_sock_cnt==2UL );
   FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_NET_PKT_TX_DROPPED_SOCKET_SEND_FAILURE_OFF ]==
            ctx->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOCKET_SEND_FAILURE_IDX ] );
   fd_metrics_tl = saved_metrics;
