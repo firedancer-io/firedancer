@@ -564,6 +564,7 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
-        "server_conn_retry_expired_rejected":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" }
+        "server_conn_retry_expired_rejected":  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects" },
+        "server_handshake_pkt_dropped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Connection setup packets from peers dropped before processing, because vote traffic kept the tile busy for too long or the identity was being switched. Peers retry, but sustained growth means new connections are being delayed" }
     }
 }

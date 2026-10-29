@@ -406,6 +406,7 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
   ag_votor_arm_skip_timeouts( ctx.votor, 0L );
   ag_votor_advance_epoch    ( ctx.votor, 400000000L, 1UL, 0UL, NULL );
   ctx.pool = test_pool( epoch_info, 1UL );
+  ctx.hs_defer = hs_defer_join( hs_defer_new( ctx.hs_defer_mem ) );
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_ADD;
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
@@ -465,6 +466,7 @@ test_auth_vtr_keyswitch_clear( void ) {
   ag_votor_arm_skip_timeouts( ctx.votor, 0L );
   ag_votor_advance_epoch    ( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[2] );
   ctx.pool = test_pool( epoch_info, 0UL );
+  ctx.hs_defer = hs_defer_join( hs_defer_new( ctx.hs_defer_mem ) );
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
@@ -586,6 +588,7 @@ votor_wfs_test_ctx_new( fd_votor_tile_t * ctx,
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
 
   /* The sentinels unprivileged_init sets, which memset does not. */
+  ctx->hs_defer            = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
   ctx->boot_block_id       = (ag_block_id_t){ .slot = ULONG_MAX };
   ctx->conn_ahead_slot     = ULONG_MAX;
   ctx->next_leader_slot    = ULONG_MAX;
@@ -1025,6 +1028,7 @@ test_id_keyswitch( void ) {
   ag_votor_advance_epoch    ( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[0] );
   ctx.init = 1; /* hand-inited above, so the pool event queue drains */
   ctx.pool = test_pool( epoch_info, 0UL );
+  ctx.hs_defer = hs_defer_join( hs_defer_new( ctx.hs_defer_mem ) );
   ag_block_id_t root = { .slot = 0UL };
   ag_block_id_t b1   = { .slot = 1UL }; memset( b1.hash, 1, sizeof(ag_block_hash_t) );
   FD_TEST( ag_pool_add_block( ctx.pool, &b1, &root, ctx.scratch.bad )==AG_POOL_SUCCESS );
@@ -1441,6 +1445,7 @@ test_ctx_new( fd_votor_tile_t * ctx,
   ctx->reconn_prq    = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   FD_TEST( ag_pool_footprint( AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST )<=sizeof(pool_scratch) );
   ctx->pool          = ag_pool_join( ag_pool_new( pool_scratch, AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->hs_defer      = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
   FD_TEST( ctx->peers && ctx->contact_infos && ctx->reconn_prq && ctx->pool );
   ag_pool_from_genesis( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
   fd_clock_tile_init( ctx->clock );
@@ -1577,6 +1582,129 @@ test_server_conn_slots( void ) {
   FD_TEST( peer->rx_conn[ 0 ]==conn[ 2 ] && peer->rx_conn[ 1 ]==conn[ 1 ] );
 
   for( ulong i=0UL; i<3UL; i++ ) conn[ i ]->tls_hs = NULL;
+  fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx.quic_server ) ) );
+  test_ctx_delete( &ctx );
+}
+
+/* test_net_frame writes an Ethernet/IPv4/UDP frame to dport carrying
+   payload[0,payload_sz) into ctx->net_buf, returning its size. */
+
+static ulong
+test_net_frame( fd_votor_tile_t * ctx,
+                ushort            dport,
+                uchar const *     payload,
+                ulong             payload_sz ) {
+  memset( ctx->net_buf, 0, sizeof(fd_eth_hdr_t) );
+  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)fd_type_pun( ctx->net_buf );
+  fd_ip4_udp_hdr_init( hdr, payload_sz, FD_IP4_ADDR( 10, 0, 0, 2 ), (ushort)9000 );
+  hdr->ip4->daddr     = FD_IP4_ADDR( 127, 0, 0, 1 );
+  hdr->udp->net_dport = fd_ushort_bswap( dport );
+  fd_memcpy( ctx->net_buf+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
+  return sizeof(fd_ip4_udp_hdrs_t)+payload_sz;
+}
+
+/* Server port datagrams starting with a long header wait in hs_defer.
+   The queue drains one datagram in place of an in poll once a round of
+   polls processed no net frag immediately, drops the oldest when full,
+   and empties when no TLS handshake may sign. */
+
+static void
+test_hs_defer_qos( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_aio_t        aio;
+  static ag_epoch_info_t epoch_info;
+  test_ctx_new( &ctx, 4UL );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, fd_aio_join( fd_aio_new( &aio, NULL, drop_aio_send ) ) );
+  fd_quic_get_state( ctx.quic_server )->now = fd_clock_tile_now( ctx.clock );
+  ctx.quic_client_listen_port = 8001;
+  ctx.quic_server_listen_port = 8000;
+  ctx.curr_epoch_info         = &epoch_info;
+  ctx.in_kind[ 0 ]            = IN_KIND_NET;
+  ctx.in_cnt                  = 2UL;
+
+  ulong  net_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR, FD_NETMUX_SIG_MIN_HDR_SZ );
+  uchar  pkt[ 64 ] = {0};
+  ulong  base_rx   = ctx.quic_server->metrics.net_rx_pkt_cnt;
+  ulong  sz;
+  int    poll_in, busy;
+
+  /* Long header to the server port waits; short header goes through. */
+  pkt[ 0 ] = 0xc0;
+  sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==1UL && ctx.quic_server->metrics.net_rx_pkt_cnt==base_rx );
+  pkt[ 0 ] = 0x40;
+  sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==1UL && ctx.quic_server->metrics.net_rx_pkt_cnt==base_rx+1UL );
+
+  /* The client port is never deferred. */
+  ulong base_client_rx = ctx.quic_client->metrics.net_rx_pkt_cnt;
+  pkt[ 0 ] = 0xc0;
+  sz = test_net_frame( &ctx, 8001, pkt, sizeof(pkt) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==1UL && ctx.quic_client->metrics.net_rx_pkt_cnt==base_client_rx+1UL );
+
+  pkt[ 0 ] = 0xc0;
+  sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==2UL );
+
+  /* The queue waits until in_cnt polls in a row processed no net frag
+     immediately, and a short header restarts the count; then
+     after_credit processes one datagram, skips the poll, and the count
+     starts over.  A nonempty queue is due now. */
+  FD_TEST( next_deadline( &ctx )==0L );
+  ctx.net_idle_cnt = 0UL;
+  busy = 0;
+  for( ulong i=0UL; i<ctx.in_cnt; i++ ) { poll_in = 1; after_credit( &ctx, NULL, &poll_in, &busy ); FD_TEST( poll_in ); }
+  pkt[ 0 ] = 0x40;
+  sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+  after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  ulong rx = ctx.quic_server->metrics.net_rx_pkt_cnt;
+  for( ulong i=0UL; i<ctx.in_cnt; i++ ) { poll_in = 1; after_credit( &ctx, NULL, &poll_in, &busy ); FD_TEST( poll_in ); }
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==2UL && ctx.quic_server->metrics.net_rx_pkt_cnt==rx );
+  poll_in = 1; after_credit( &ctx, NULL, &poll_in, &busy );
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==1UL && ctx.quic_server->metrics.net_rx_pkt_cnt==rx+1UL && busy && !poll_in );
+  for( ulong i=0UL; i<ctx.in_cnt; i++ ) { poll_in = 1; after_credit( &ctx, NULL, &poll_in, &busy ); FD_TEST( poll_in ); }
+  FD_TEST( hs_defer_cnt( ctx.hs_defer )==1UL && ctx.quic_server->metrics.net_rx_pkt_cnt==rx+1UL );
+  poll_in = 1; after_credit( &ctx, NULL, &poll_in, &busy );
+  FD_TEST( hs_defer_empty( ctx.hs_defer ) && ctx.quic_server->metrics.net_rx_pkt_cnt==rx+2UL && !poll_in );
+  FD_TEST( next_deadline( &ctx )!=0L );
+
+  /* A continuous long header flood, one per polled pass, does not hold
+     the queue: one datagram goes through every in_cnt+1 passes. */
+  rx = ctx.quic_server->metrics.net_rx_pkt_cnt;
+  ulong flood_pass_cnt = 8UL*( ctx.in_cnt+1UL );
+  for( ulong i=0UL; i<flood_pass_cnt; i++ ) {
+    poll_in = 1; after_credit( &ctx, NULL, &poll_in, &busy );
+    if( !poll_in ) continue;
+    pkt[ 0 ] = 0xc0;
+    sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+    after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  }
+  FD_TEST( ctx.quic_server->metrics.net_rx_pkt_cnt==rx+8UL );
+  hs_defer_remove_all( ctx.hs_defer );
+
+  /* A full queue drops its oldest datagram. */
+  pkt[ 0 ] = 0xc0;
+  for( ulong i=0UL; i<QUIC_SERVER_DEFER_MAX+1UL; i++ ) {
+    pkt[ 1 ] = (uchar)i;
+    sz = test_net_frame( &ctx, 8000, pkt, sizeof(pkt) );
+    after_frag( &ctx, 0UL, 0UL, net_sig, sz, 0UL, 0UL, NULL );
+  }
+  FD_TEST( hs_defer_full( ctx.hs_defer ) );
+  FD_TEST( ctx.metrics.hs_defer_drop==1UL );
+  FD_TEST( hs_defer_peek_head( ctx.hs_defer )->buf[ sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)+1UL ]==1 );
+
+  /* Halted, the queue empties without signing. */
+  ctx.keyswitch_state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+  rx = ctx.quic_server->metrics.net_rx_pkt_cnt;
+  after_credit( &ctx, NULL, &poll_in, &busy );
+  FD_TEST( hs_defer_empty( ctx.hs_defer ) && ctx.quic_server->metrics.net_rx_pkt_cnt==rx );
+  FD_TEST( ctx.metrics.hs_defer_drop==1UL+QUIC_SERVER_DEFER_MAX );
+  ctx.keyswitch_state = FD_KEYSWITCH_STATE_UNLOCKED;
+
   fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx.quic_server ) ) );
   test_ctx_delete( &ctx );
 }
@@ -1898,6 +2026,7 @@ test_park( void ) {
   FD_TEST( ag_votor_footprint( PARK_SLOT_MAX )<=sizeof(park_votor_mem) );
   FD_TEST( peers_footprint( PEERS_LG_SLOT_CNT )<=sizeof(park_peers_mem) );
   ctx->pool        = ag_pool_join ( ag_pool_new ( park_pool_mem,  PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->hs_defer    = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
   ctx->votor       = ag_votor_join( ag_votor_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -1984,14 +2113,19 @@ test_park( void ) {
      broadcast them against, so the stem never parks with votes queued.
      Then the passes go quiet. */
   fd_clock_tile_set( ctx->clock, timeout1 );
+  hs_defer_push_tail_nocopy( ctx->hs_defer )->sz = 0; /* a deferred datagram waits until the queued events drain */
+  ctx->in_cnt = 0UL;
   ulong busy_cnt = 0UL;
   for( ulong i=0UL; i<16UL; i++ ) {
     charge_busy = 0;
+    poll_in     = 1;
     after_credit( ctx, NULL, &poll_in, &charge_busy );
     if( !charge_busy ) break;
+    FD_TEST( !poll_in && hs_defer_cnt( ctx->hs_defer )==1UL );
     busy_cnt++;
   }
   FD_TEST( busy_cnt==3UL ); /* the pop sends the first vote in the same pass */
+  FD_TEST( hs_defer_empty( ctx->hs_defer ) && ctx->metrics.hs_defer_drop==1UL ); /* no epoch info, dropped */
   FD_TEST( !ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) );
   long next = ag_votor_next_skip_timeout( ctx->votor );
   FD_TEST( next==timeout1+ctx->ns_per_slot ); /* slot 2: still set, a no-op when it fires */
@@ -2078,6 +2212,7 @@ test_standstill( void ) {
   void * pool_mem = aligned_alloc( ag_pool_align(), fd_ulong_align_up( ag_pool_footprint( PARK_SLOT_MAX, QUIC_DGRAM_BURST ), ag_pool_align() ) );
   FD_TEST( pool_mem );
   ctx->pool        = ag_pool_join ( ag_pool_new ( pool_mem,       PARK_SLOT_MAX, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->hs_defer    = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
   ctx->votor       = ag_votor_join( ag_votor_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -2451,6 +2586,7 @@ test_leader_window_superseded( void ) {
   void * votor_mem = aligned_alloc( ag_votor_align(), fd_ulong_align_up( ag_votor_footprint( slot_max                   ), ag_votor_align() ) );
   FD_TEST( pool_mem && votor_mem );
   ctx->pool        = ag_pool_join ( ag_pool_new ( pool_mem,  slot_max, QUIC_DGRAM_BURST, 42UL ) );
+  ctx->hs_defer    = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
   ctx->votor       = ag_votor_join( ag_votor_new( votor_mem, slot_max, 42UL ) );
   ctx->peers       = peers_join( peers_new( park_peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
@@ -2551,6 +2687,7 @@ test_reward_certs( void ) {
   ctx.next_epoch_slot = ULONG_MAX;
   ctx.shred_version   = 1;
   ctx.pool            = test_pool( epoch_info, 0UL );
+  ctx.hs_defer = hs_defer_join( hs_defer_new( ctx.hs_defer_mem ) );
   ctx.peers           = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
   ctx.reconn_prq      = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
   FD_TEST( ctx.peers && ctx.reconn_prq );
@@ -2650,6 +2787,7 @@ main( int     argc,
   test_sign_bls_request();
   test_connect_peer();
   test_server_conn_slots();
+  test_hs_defer_qos();
   test_conn_final_backoff();
   test_connect_fail_keeps_backoff();
   test_gossip_connects_new_address();

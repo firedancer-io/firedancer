@@ -1885,6 +1885,7 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="ServerPktRxDurationNanos" min="10" max="100000000" source="ticks">
         <summary>Duration of processing one received packet</summary>
     </histogram>
+    <counter name="ServerHandshakePktDropped" summary="Connection setup packets from peers dropped before processing, because vote traffic kept the tile busy for too long or the identity was being switched. Peers retry, but sustained growth means new connections are being delayed" />
 
     <!-- Vote history file -->
 

@@ -11780,6 +11780,8 @@ message MetricsVotor {
   MetricsVotorServerPktRxDurationNanos server_pkt_rx_duration_nanos = 101;
   // Initials with an expired Retry token, also counted in ServerConnRetryRejected. Each gets an INVALID_TOKEN close so the client reconnects
   uint64 server_conn_retry_expired_rejected = 102;
+  // Connection setup packets from peers dropped before processing, because vote traffic kept the tile busy for too long or the identity was being switched. Peers retry, but sustained growth means new connections are being delayed
+  uint64 server_handshake_pkt_dropped = 103;
 }
 
 // Metrics of one gui tile instance, one row per sweep

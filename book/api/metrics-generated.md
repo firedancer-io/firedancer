@@ -2215,6 +2215,7 @@
 | <span class="metrics-name">votor_&#8203;server_&#8203;pkt_&#8203;ack_&#8203;processed</span><br/>{ack_&#8203;result="<span class="metrics-enum">cancelled</span>"} | counter | Received packets processed for acknowledgement, by result (ACK suppressed by handler) |
 | <span class="metrics-name">votor_&#8203;server_&#8203;service_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one fd_quic_service call that processed a due connection timer |
 | <span class="metrics-name">votor_&#8203;server_&#8203;pkt_&#8203;rx_&#8203;duration_&#8203;nanos</span> | histogram | Duration of processing one received packet |
+| <span class="metrics-name">votor_&#8203;server_&#8203;handshake_&#8203;pkt_&#8203;dropped</span> | counter | Connection setup packets from peers dropped before processing, because vote traffic kept the tile busy for too long or the identity was being switched. Peers retry, but sustained growth means new connections are being delayed |
 | <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;written</span> | counter | Times the vote history file was written |
 | <span class="metrics-name">votor_&#8203;wait_&#8203;to_&#8203;vote_&#8203;slot</span> | gauge | First slot votor may vote in, past the vote history file and the votes it sent |
 
