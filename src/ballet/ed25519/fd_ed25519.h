@@ -254,6 +254,34 @@ fd_ed25519_verify_batch_single_msg_cached( uchar const          msg[], /* msg_sz
                                            uchar const          batch_sz,
                                            fd_ed25519_cache_t * cache );
 
+/* fd_ed25519_verify_batch_multi_msg independently verifies batch_sz
+   signatures.  results[j] is the return code of fd_ed25519_verify for
+   (msgs[j], msg_szs[j], sigs[j], public_keys[j], shas[j]).  All arrays
+   have batch_sz entries and the shas[j] are distinct calculators.
+   batch_sz may be zero, in which case nothing is dereferenced. */
+
+void
+fd_ed25519_verify_batch_multi_msg( uchar const * const msgs[],
+                                   ulong const         msg_szs[],
+                                   uchar const * const sigs[],
+                                   uchar const * const public_keys[],
+                                   fd_sha512_t *       shas[],
+                                   int                 results[],
+                                   ulong               batch_sz );
+
+/* fd_ed25519_verify_batch_multi_msg_cached is
+   fd_ed25519_verify_batch_multi_msg using fd_ed25519_verify_cached. */
+
+void
+fd_ed25519_verify_batch_multi_msg_cached( uchar const * const  msgs[],
+                                          ulong const          msg_szs[],
+                                          uchar const * const  sigs[],
+                                          uchar const * const  public_keys[],
+                                          fd_sha512_t *        shas[],
+                                          int                  results[],
+                                          ulong                batch_sz,
+                                          fd_ed25519_cache_t * cache );
+
 /* fd_ed25519_strerror converts an FD_ED25519_SUCCESS / FD_ED25519_ERR_*
    code into a human readable cstr.  The lifetime of the returned
    pointer is infinite.  The returned pointer is always to a non-NULL

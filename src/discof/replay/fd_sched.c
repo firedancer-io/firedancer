@@ -79,8 +79,9 @@ struct fd_sched_block {
   /*                  txn_queued_cnt = txn_parsed_cnt-txn_in_flight_cnt-txn_done_cnt */
   uint                txn_exec_in_flight_cnt;
   uint                txn_exec_done_cnt;
-  uint                txn_sigverify_in_flight_cnt;
+  uint                txn_sigverify_in_flight_cnt;  /* number of individual transactions in in-flight sigverify batches */
   uint                txn_sigverify_done_cnt;
+  uint                sigverify_task_in_flight_cnt; /* number of in-flight sigverify batch tasks */
   uint                poh_hashing_in_flight_cnt; /* number of in-flight PoH batch tasks */
   uint                poh_mblk_in_flight_cnt;    /* number of individual in-flight PoH jobs across batches */
   uint                poh_hashing_done_cnt;
@@ -326,6 +327,7 @@ struct fd_sched {
   uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
   fd_sched_poh_hash_t   poh_inflight[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* PoH dispatch metadata, indexed by exec tile. */
+  fd_sched_txn_sigverify_t sigverify_inflight[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* indexed by exec tile */
   txn_bitset_t          exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
   txn_bitset_t          sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
   txn_bitset_t          poh_mixin_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
@@ -688,8 +690,8 @@ print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, cert_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->cert_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, sigverify_task_in_flight_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, cert_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->sigverify_task_in_flight_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->cert_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -1463,7 +1465,8 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
       if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 ) ) ) {
         dispatch_sigverify( sched, block, bank_idx, fd_ulong_find_lsb( sigverify_ready_bitset ), out );
-        sched->next_ready_last_tick = sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
+        sched->next_ready_last_tick = fd_tickcount();
+        for( ulong i=0UL; i<out->txn_sigverify->cnt; i++ ) sched->txn_info_pool[ out->txn_sigverify->txn_idx[ i ] ].tick_sigverify_disp = sched->next_ready_last_tick;
         sched->next_ready_last_bank_idx = bank_idx;
         return 1UL;
       }
@@ -1494,7 +1497,7 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 
     if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
     ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
-    if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->txn_sigverify_in_flight_cnt+block->poh_hashing_in_flight_cnt!=total_exec_busy_cnt ) ) {
+    if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->sigverify_task_in_flight_cnt+block->poh_hashing_in_flight_cnt!=total_exec_busy_cnt ) ) {
       /* Ideally we'd simply assert that the two sides of the equation
          are equal.  But abandoned blocks throw a wrench into this.  We
          allow abandoned blocks to have in-flight transactions that are
@@ -1517,7 +1520,7 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
             FD_LOG_CRIT(( "invariant violation: in-flight block is neither active nor dying" ));
           }
           total_in_flight += staged_block->txn_exec_in_flight_cnt;
-          total_in_flight += staged_block->txn_sigverify_in_flight_cnt;
+          total_in_flight += staged_block->sigverify_task_in_flight_cnt;
           total_in_flight += staged_block->poh_hashing_in_flight_cnt;
         }
       }
@@ -1555,7 +1558,8 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
   if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 ) ) ) {
     dispatch_sigverify( sched, block, bank_idx, fd_ulong_find_lsb( sigverify_ready_bitset ), out );
-    sched->next_ready_last_tick     = sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
+    sched->next_ready_last_tick = fd_tickcount();
+    for( ulong i=0UL; i<out->txn_sigverify->cnt; i++ ) sched->txn_info_pool[ out->txn_sigverify->txn_idx[ i ] ].tick_sigverify_disp = sched->next_ready_last_tick;
     sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
   }
@@ -1637,13 +1641,13 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       bank_idx = sched->active_bank_idx;
       break;
     }
-    case FD_SCHED_TT_TXN_EXEC:
-    case FD_SCHED_TT_TXN_SIGVERIFY: {
+    case FD_SCHED_TT_TXN_EXEC: {
       (void)data;
       FD_TEST( txn_idx < sched->depth );
       bank_idx = sched->tile_to_bank_idx[ exec_idx ];
       break;
     }
+    case FD_SCHED_TT_TXN_SIGVERIFY:
     case FD_SCHED_TT_POH_HASH:
     case FD_SCHED_TT_CERT_VERIFY: {
       (void)txn_idx;
@@ -1725,23 +1729,31 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
-      sched->txn_info_pool[ txn_idx ].tick_sigverify_done = fd_tickcount();
-      block->txn_sigverify_done_cnt++;
-      block->txn_sigverify_in_flight_cnt--;
+      fd_sched_txn_sigverify_t const * task = sched->sigverify_inflight+exec_tile_idx;
+      FD_TEST( task->cnt && task->cnt<=FD_SCHED_SIGVERIFY_SIG_PARA );
+      block->sigverify_task_in_flight_cnt--;
       FD_TEST( !fd_ulong_extract_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx ) );
       sched->sigverify_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
-      sched->metrics->txn_sigverify_done_cnt++;
-      txn_bitset_insert( sched->sigverify_done_set, txn_idx );
-      sched->txn_info_pool[ txn_idx ].flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
-      if( txn_bitset_test( sched->exec_done_set, txn_idx ) && txn_bitset_test( sched->poh_mixin_done_set, txn_idx ) ) {
-        /* Release the txn_idx if all tasks on it are done.  This is
-           guaranteed to only happen once per transaction because
-           whichever one completed first would not release. */
-        if( FD_UNLIKELY( block->txn_idx_tail==(uint)txn_idx ) ) block->txn_idx_tail = 0U;
-        fd_rdisp_complete_txn( sched->rdisp, txn_idx, 1 );
-        sched->txn_pool_free_cnt++;
-        block->txn_done_cnt++;
-        sched->metrics->txn_done_cnt++;
+      long now = fd_tickcount();
+      for( ulong i=0UL; i<task->cnt; i++ ) {
+        ulong sv_txn_idx = task->txn_idx[ i ];
+        FD_TEST( sv_txn_idx && sv_txn_idx<sched->depth );
+        sched->txn_info_pool[ sv_txn_idx ].tick_sigverify_done = now;
+        block->txn_sigverify_done_cnt++;
+        block->txn_sigverify_in_flight_cnt--;
+        sched->metrics->txn_sigverify_done_cnt++;
+        txn_bitset_insert( sched->sigverify_done_set, sv_txn_idx );
+        sched->txn_info_pool[ sv_txn_idx ].flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
+        if( txn_bitset_test( sched->exec_done_set, sv_txn_idx ) && txn_bitset_test( sched->poh_mixin_done_set, sv_txn_idx ) ) {
+          /* Release the txn_idx if all tasks on it are done.  This is
+             guaranteed to only happen once per transaction because
+             whichever one completed first would not release. */
+          if( FD_UNLIKELY( block->txn_idx_tail==(uint)sv_txn_idx ) ) block->txn_idx_tail = 0U;
+          fd_rdisp_complete_txn( sched->rdisp, sv_txn_idx, 1 );
+          sched->txn_pool_free_cnt++;
+          block->txn_done_cnt++;
+          sched->metrics->txn_done_cnt++;
+        }
       }
       break;
     }
@@ -2219,6 +2231,7 @@ add_block( fd_sched_t * sched,
   block->txn_exec_done_cnt           = 0U;
   block->txn_sigverify_in_flight_cnt = 0U;
   block->txn_sigverify_done_cnt      = 0U;
+  block->sigverify_task_in_flight_cnt = 0U;
   block->poh_hashing_in_flight_cnt   = 0U;
   block->poh_mblk_in_flight_cnt      = 0U;
   block->poh_hashing_done_cnt        = 0U;
@@ -2925,17 +2938,27 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 static void
 dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out ) {
   /* Dispatch transactions for sigverify in parse order. */
-  uint txn_idx = block->txn_sigverify_next_idx;
-  FD_TEST( txn_idx && txn_idx<sched->depth );
+  fd_sched_txn_sigverify_t * sigverify = out->txn_sigverify;
   out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
-  out->txn_sigverify->bank_idx = bank_idx;
-  out->txn_sigverify->txn_idx  = txn_idx;
-  out->txn_sigverify->exec_idx = (ulong)exec_tile_idx;
-  sched->txn_info_pool[ out->txn_sigverify->txn_idx ].sigverify_exec_tile_idx = (ulong)exec_tile_idx;
+  sigverify->bank_idx = bank_idx;
+  sigverify->exec_idx = (ulong)exec_tile_idx;
+  sigverify->cnt      = 0UL;
+  ulong queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
+  ulong sig_cnt    = 0UL;
+  uint  txn_idx    = block->txn_sigverify_next_idx;
+  while( sigverify->cnt<queued_cnt && sig_cnt<FD_SCHED_SIGVERIFY_SIG_PARA ) {
+    FD_TEST( txn_idx && txn_idx<sched->depth );
+    sig_cnt += (ulong)TXN( sched->txn_pool+txn_idx )->signature_cnt;
+    sigverify->txn_idx[ sigverify->cnt++ ] = txn_idx;
+    sched->txn_info_pool[ txn_idx ].sigverify_exec_tile_idx = (ulong)exec_tile_idx;
+    txn_idx = sched->txn_info_pool[ txn_idx ].next_idx;
+  }
+  sched->sigverify_inflight[ exec_tile_idx ] = *sigverify;
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
-  block->txn_sigverify_in_flight_cnt++;
-  block->txn_sigverify_next_idx = sched->txn_info_pool[ txn_idx ].next_idx;
+  block->sigverify_task_in_flight_cnt++;
+  block->txn_sigverify_in_flight_cnt += (uint)sigverify->cnt;
+  block->txn_sigverify_next_idx = txn_idx;
   if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
 }
 
