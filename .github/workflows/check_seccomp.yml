@@ -27,7 +27,7 @@ jobs:
         run: |
           set -e
           source venv/bin/activate
-          make seccomp-policies
+          make seccomp-policies CC=clang
           if [ -n "$(git status --porcelain)" ]; then
             echo "Generated seccomp files are out of date. Please run 'make seccomp-policies' and commit the changes."
             git --no-pager diff
