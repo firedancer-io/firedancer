@@ -54,6 +54,8 @@ struct fd_accdb_metrics {
   ulong accounts_waited;
   ulong accounts_deleted;
 
+  ulong acquire_pool_waits;
+
   ulong acquire_failed;
 
   ulong bytes_read;

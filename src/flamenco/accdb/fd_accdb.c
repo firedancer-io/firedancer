@@ -493,6 +493,10 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   fd_spinlock_acquire( &shmem->grow_lock );
   acc_pool_reset( accdb->acc_pool_join );
   txn_pool_reset( accdb->txn_pool );
+  shmem->pool_avail    = shmem->acc_pool_max;
+  shmem->bg_defer_head   = 0UL;
+  shmem->bg_defer_tail   = 0UL;
+  shmem->bg_defer_sealed = 0UL;
   fork_pool_reset( accdb->fork_shmem_pool );
   partition_pool_reset( accdb->partition_pool );
 
@@ -1645,6 +1649,24 @@ res_steal( fd_accdb_t * accdb,
   }
 }
 
+/* min_joiner_epoch returns the smallest published epoch over every
+   joiner and external epoch slot. */
+
+static ulong
+min_joiner_epoch( fd_accdb_t const * accdb ) {
+  ulong min_epoch = ULONG_MAX;
+  ulong joiner_cnt = FD_VOLATILE_CONST( accdb->shmem->joiner_cnt );
+  for( ulong t=0UL; t<joiner_cnt; t++ ) {
+    ulong e = FD_VOLATILE_CONST( accdb->shmem->joiner_epochs[ t ].val );
+    if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
+  }
+  for( ulong t=0UL; t<accdb->external_epoch_cnt; t++ ) {
+    ulong e = FD_VOLATILE_CONST( *accdb->external_epoch_slots[ t ] );
+    if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
+  }
+  return min_epoch;
+}
+
 /* epoch_drained returns 1 if every joiner's published epoch exceeds
    tag, meaning all readers that were active at epoch=tag have since
    exited their critical sections. */
@@ -1652,14 +1674,7 @@ res_steal( fd_accdb_t * accdb,
 static int
 epoch_drained( fd_accdb_t * accdb,
                ulong        tag ) {
-  ulong joiner_cnt = FD_VOLATILE_CONST( accdb->shmem->joiner_cnt );
-  for( ulong t=0UL; t<joiner_cnt; t++ ) {
-    if( FD_VOLATILE_CONST( accdb->shmem->joiner_epochs[ t ].val )<=tag ) return 0;
-  }
-  for( ulong t=0UL; t<accdb->external_epoch_cnt; t++ ) {
-    if( FD_VOLATILE_CONST( *accdb->external_epoch_slots[ t ] )<=tag ) return 0;
-  }
-  return 1;
+  return tag<min_joiner_epoch( accdb );
 }
 
 /* drain_deferred_frees releases the accs and fork slots retired by the
@@ -1680,16 +1695,110 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
   uint head_idx = shmem->deferred_acc_head;
   if( FD_LIKELY( head_idx==UINT_MAX ) ) return;
 
-  /* All readers that could have been holding a captured pointer to any
-     of these accs at unlink time have now exited their epoch sections.
-     The stack is already linked through map.next, the acc_pool link, so
-     it goes back to the pool as one chain, head to tail. */
+  /* Every reader that could still be standing on one of these accs at
+     unlink time has exited its epoch section.  The stack is already
+     linked through map.next, the acc_pool link, so it goes back to the
+     pool as one chain, head to tail.  acc_unlink set each offset DEAD,
+     so a late writeback frees its own record (off_publish) and nothing
+     is left to sweep.  In index mode pool_avail counts the released
+     accs, so the chain is walked for its length. */
   uint tail_idx = shmem->deferred_acc_tail;
   FD_TEST( (ulong)head_idx<acc_pool_ele_max( accdb->acc_pool_join ) );
   FD_TEST( (ulong)tail_idx<acc_pool_ele_max( accdb->acc_pool_join ) );
-  acc_pool_release_chain( accdb->acc_pool_join, &accdb->acc_pool[ head_idx ], &accdb->acc_pool[ tail_idx ] );
+  if( idx_enabled( accdb ) ) {
+    fd_accdb_accmeta_t * acc_pool     = accdb->acc_pool;
+    ulong                acc_pool_cap = acc_pool_ele_max( accdb->acc_pool_join );
+    ulong                n            = 0UL;
+    for( uint idx=head_idx; idx!=UINT_MAX; idx=acc_pool[ idx ].map.next ) {
+      FD_TEST( (ulong)idx<acc_pool_cap );
+      n++;
+    }
+    acc_pool_release_chain( accdb->acc_pool_join, &acc_pool[ head_idx ], &acc_pool[ tail_idx ] );
+    FD_ATOMIC_FETCH_AND_ADD( &shmem->pool_avail, n );
+  } else {
+    acc_pool_release_chain( accdb->acc_pool_join, &accdb->acc_pool[ head_idx ], &accdb->acc_pool[ tail_idx ] );
+  }
   shmem->deferred_acc_head = UINT_MAX;
   shmem->deferred_acc_tail = UINT_MAX;
+}
+
+/* bg_defer_append (T2, index mode): records a background unlink.
+   Returns 0 if the ring is full; the caller stops unlinking.  The ring
+   holds indices, so an entry's map.next is left alone until its chunk
+   drains (no walker can be standing on it by then): no unlinked mark
+   is needed. */
+
+static inline int
+bg_defer_append( fd_accdb_t * accdb,
+                 uint         v ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong head = shmem->bg_defer_head;
+  if( FD_UNLIKELY( head-shmem->bg_defer_tail>=FD_ACCDB_BG_DEFER_MAX-FD_ACCDB_BG_DEFER_CHUNK ) ) return 0;
+  uint * ring = (uint *)( (uchar *)shmem + shmem->idx_bg_defer_off );
+  ring[ head & (FD_ACCDB_BG_DEFER_MAX-1UL) ] = v;
+  shmem->bg_defer_head = head+1UL;
+  return 1;
+}
+
+static inline int
+bg_defer_room( fd_accdb_t const * accdb,
+               ulong              n ) {
+  fd_accdb_shmem_t const * shmem = accdb->shmem;
+  return shmem->bg_defer_head-shmem->bg_defer_tail+n<FD_ACCDB_BG_DEFER_MAX-FD_ACCDB_BG_DEFER_CHUNK;
+}
+
+/* bg_defer_seal tags every unsealed entry with a fresh epoch, padding
+   the open chunk so chunks stay aligned.  bg_defer_drain releases
+   sealed chunks whose tag every joiner has passed.  Both T2 only.
+   Entries may carry FD_ACCDB_DEFER_MIGRATED; the drain frees no bytes
+   either way (the unlinker settled the record), so it only strips it. */
+
+static void
+bg_defer_seal( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong head = shmem->bg_defer_head;
+  if( head==shmem->bg_defer_sealed ) return;
+  uint * ring = (uint *)( (uchar *)shmem + shmem->idx_bg_defer_off );
+  while( head & (FD_ACCDB_BG_DEFER_CHUNK-1UL) ) ring[ (head++) & (FD_ACCDB_BG_DEFER_MAX-1UL) ] = UINT_MAX;
+  /* every chunk filled since the last seal, not just the open one */
+  ulong tag = FD_ATOMIC_FETCH_AND_ADD( &shmem->epoch, 1UL );
+  for( ulong c=shmem->bg_defer_sealed/FD_ACCDB_BG_DEFER_CHUNK; c<head/FD_ACCDB_BG_DEFER_CHUNK; c++ ) shmem->bg_defer_tag[ c % FD_ACCDB_BG_DEFER_CHUNKS ] = tag;
+  shmem->bg_defer_head   = head;
+  shmem->bg_defer_sealed = head;
+}
+
+static ulong
+bg_defer_drain( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  ulong released = 0UL;
+  uint * ring    = (uint *)( (uchar *)shmem + shmem->idx_bg_defer_off );
+  ulong  min_ep  = ULONG_MAX;
+  ulong  cap     = acc_pool_ele_max( accdb->acc_pool_join );
+  while( shmem->bg_defer_sealed-shmem->bg_defer_tail>=FD_ACCDB_BG_DEFER_CHUNK ) {
+    ulong tail = shmem->bg_defer_tail;
+    ulong tag  = shmem->bg_defer_tag[ (tail/FD_ACCDB_BG_DEFER_CHUNK) % FD_ACCDB_BG_DEFER_CHUNKS ];
+    if( min_ep==ULONG_MAX ) min_ep = min_joiner_epoch( accdb );
+    if( tag>=min_ep ) break;
+    uint head_idx = UINT_MAX, prev = UINT_MAX;
+    ulong n = 0UL;
+    for( ulong i=0UL; i<FD_ACCDB_BG_DEFER_CHUNK; i++ ) {
+      uint raw = ring[ (tail+i) & (FD_ACCDB_BG_DEFER_MAX-1UL) ];
+      if( raw==UINT_MAX ) continue;
+      uint v = raw & ~FD_ACCDB_DEFER_MIGRATED;
+      FD_TEST( (ulong)v<cap );
+      if( prev!=UINT_MAX ) accdb->acc_pool[ prev ].map.next = acc_pool_private_cidx( (ulong)v );
+      else                 head_idx = v;
+      prev = v;
+      n++;
+    }
+    if( n ) {
+      acc_pool_release_chain( accdb->acc_pool_join, &accdb->acc_pool[ head_idx ], &accdb->acc_pool[ prev ] );
+      FD_ATOMIC_FETCH_AND_ADD( &shmem->pool_avail, n );
+    }
+    shmem->bg_defer_tail = tail+FD_ACCDB_BG_DEFER_CHUNK;
+    released += n;
+  }
+  return released;
 }
 
 /* deferred_acc_append pushes an acc that acc_unlink spliced out of its
@@ -1711,11 +1820,17 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
 
    The stack links are acc_pool links (map.next is the pool's POOL_NEXT),
    so drain_deferred_frees releases the stack as is.  The first acc
-   pushed onto an empty stack stays its bottom, so it is the tail. */
+   pushed onto an empty stack stays its bottom, so it is the tail.
+
+   acc_idx may carry FD_ACCDB_DEFER_MIGRATED (a tier move whose bytes
+   live on in the new slot).  The drain frees no bytes either way, so
+   the tag is stripped. */
+
 static inline void
 deferred_acc_append( fd_accdb_t * accdb,
                      uint         acc_idx ) {
   fd_accdb_shmem_t *   shmem   = accdb->shmem;
+  acc_idx &= ~FD_ACCDB_DEFER_MIGRATED;
   fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
   FD_ATOMIC_FETCH_AND_OR( &accmeta->data, FD_ACCDB_DATA( 0U, FD_ACCDB_SIZE_UNLINKED_BIT ) );
   fd_racesan_hook( "accdb_defer:post_mark" );
@@ -2841,6 +2956,21 @@ static void
 release_inner( fd_accdb_t * accdb,
                ulong        accs_cnt,
                fd_acc_t *   accs ) {
+  /* Index mode: reserve one pool slot per new version before taking
+     the epoch, so T2 never waits on us while we wait on it. */
+  if( FD_UNLIKELY( idx_enabled( accdb ) ) ) {
+    FD_TEST( FD_VOLATILE_CONST( *accdb->my_epoch_slot )==ULONG_MAX );
+    ulong need = 0UL;
+    for( ulong i=0UL; i<accs_cnt; i++ ) need += (ulong)( accs[ i ]._writable && accs[ i ].commit && !accs[ i ]._overwrite );
+    while( need ) {
+      ulong avail = FD_VOLATILE_CONST( accdb->shmem->pool_avail );
+      if( FD_LIKELY( avail>=need && FD_ATOMIC_CAS( &accdb->shmem->pool_avail, avail, avail-need )==avail ) ) break;
+      accdb->metrics->acquire_pool_waits++;
+      if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
+      FD_SPIN_PAUSE();
+    }
+  }
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE(); /* StoreLoad: our epoch before we touch accmetas */
@@ -3429,6 +3559,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   if( FD_UNLIKELY( !acc_pool_acquire_batch( accdb->acc_pool_join, cnt, acquired ) ) ) {
     FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
   }
+  if( FD_UNLIKELY( idx_enabled( accdb ) ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->pool_avail, cnt );
 
   /* Phase 2: walk and commit under the account chain lock. */
 
@@ -3557,6 +3688,7 @@ fini:
   for( ulong i=acquired_used; i<cnt; i++ ) {
     acc_pool_release( accdb->acc_pool_join, acquired[ i ] );
   }
+  if( FD_UNLIKELY( idx_enabled( accdb ) ) ) FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->pool_avail, cnt-acquired_used );
 
   accdb->write_stats.disk_used_added      += used_bytes_added;
   accdb->write_stats.disk_used_removed    += used_bytes_removed;
@@ -3585,6 +3717,16 @@ delta_reset( fd_accdb_t * accdb ) {
 static int
 delta_is_valid( fd_accdb_shmem_t const * accdb ) {
   return accdb->delta.head < accdb->delta.ele_max;
+}
+
+/* background_idx: index-mode T2 maintenance, one bounded slice per
+   call. */
+
+static void
+background_idx( fd_accdb_t * accdb,
+                int *        charge_busy ) {
+  bg_defer_seal( accdb );
+  if( bg_defer_drain( accdb ) ) *charge_busy = 1;
 }
 
 void
@@ -3644,6 +3786,8 @@ fd_accdb_background( fd_accdb_t * accdb,
   }
 
   background_preevict( accdb, charge_busy, 0 );
+
+  if( FD_UNLIKELY( idx_enabled( accdb ) ) ) background_idx( accdb, charge_busy );
 
   /* Keep one partition allocated ahead so a write head rotating into a
      new partition never waits on fallocate. */
