@@ -63,10 +63,8 @@ typedef struct {
   uchar *           public_key;
   uchar *           private_key;
 
-  uchar const *     failover_junk_key;     /* read only copies loaded at boot under failover */
-  uchar const *     failover_boot_key;
-  uchar *           failover_target_key;   /* a target key other than the junk and boot keys, zero while there is none */
-  uchar const *     failover_key;          /* the failover target, either failover_boot_key or failover_target_key */
+  uchar const *     failover_junk_key;     /* the junk key that failover installs after it hands away its staked identity, NULL if none */
+  uchar *           failover_key;          /* the staked identity failover hands off */
 
   fd_keyguard_bls_key_t * bls_keys;
 
@@ -113,10 +111,8 @@ derive_fields( fd_sign_ctx_t * ctx ) {
 static void FD_FN_SENSITIVE
 failover_select( fd_sign_ctx_t * ctx ) {
   uchar const * selected = NULL;
-  if( FD_LIKELY( ctx->failover_key ) ) {
-    if(      fd_memeq( ctx->keyswitch->bytes, ctx->failover_junk_key+32UL, 32UL ) ) selected = ctx->failover_junk_key;
-    else if( fd_memeq( ctx->keyswitch->bytes, ctx->failover_key+32UL,      32UL ) ) selected = ctx->failover_key;
-  }
+  if(      fd_memeq( ctx->keyswitch->bytes, ctx->failover_junk_key+32UL, 32UL ) ) selected = ctx->failover_junk_key;
+  else if( fd_memeq( ctx->keyswitch->bytes, ctx->failover_key+32UL,      32UL ) ) selected = ctx->failover_key;
   if( FD_UNLIKELY( !selected ) ) FD_LOG_ERR(( "identity switch selects a key that is neither the junk key nor the failover identity" ));
   fd_memzero_explicit( ctx->keyswitch->bytes, 64UL );
   fd_memcpy( ctx->private_key, selected,       32UL );
@@ -128,21 +124,18 @@ failover_select( fd_sign_ctx_t * ctx ) {
 static int
 failover_identity_allowed( fd_sign_ctx_t const * ctx,
                            uchar const *         pubkey ) {
-  /* Selecting junk keeps the existing failover identity. */
-  if( fd_memeq( pubkey, ctx->failover_junk_key+32UL, 32UL ) ) return 1;
   for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
     if( fd_memeq( pubkey, ctx->authorized_voter_pubkeys[ i ], 32UL ) ) return 0;
   }
   return 1;
 }
 
-/* failover_keyswitch runs the keyswitches the failover way before
-   the normal keyswitch code sees them.  A failover switch selects the junk key
-   or the failover target.  A prepare loads a new target without installing
-   it.  set-identity also makes the new key the target, unless it is our junk
-   key.  The boot key keeps its read only page from boot, another key is
-   copied into its own, and the normal switch installs it.  Return 0 only
-   when the normal switch must install this request.  Once acknowledged, the
+/* failover_keyswitch runs the keyswitches the failover way before the
+   normal keyswitch code sees them.  A failover switch selects the junk
+   key or the failover identity.  A prepare loads a new failover identity
+   without installing it, and set-identity makes its key the failover
+   identity before the normal switch installs it.  Return 0 only when
+   the normal switch must install this request.  Once acknowledged, the
    keyswitch belongs to Admin and must not be read again in this
    housekeeping call. */
 
@@ -151,12 +144,8 @@ failover_keyswitch( fd_sign_ctx_t * ctx ) {
   if( FD_LIKELY( fd_keyswitch_state_query( ctx->keyswitch )!=FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) return 1;
   ulong param = fd_keyswitch_param_query( ctx->keyswitch );
   if( FD_UNLIKELY( param==FD_KEYSWITCH_PARAM_IDENTITY_PREPARE ) ) {
-    int allowed = failover_identity_allowed( ctx, ctx->keyswitch->bytes+32UL ) &&
-                  !fd_memeq( ctx->keyswitch->bytes+32UL, ctx->failover_junk_key+32UL, 32UL );
-    if( FD_LIKELY( allowed ) ) {
-      fd_memcpy( ctx->failover_target_key, ctx->keyswitch->bytes, 64UL );
-      ctx->failover_key = ctx->failover_target_key;
-    }
+    int allowed = failover_identity_allowed( ctx, ctx->keyswitch->bytes+32UL );
+    if( FD_LIKELY( allowed ) ) fd_memcpy( ctx->failover_key, ctx->keyswitch->bytes, 64UL );
     fd_memzero_explicit( ctx->keyswitch->bytes, 64UL );
     ctx->keyswitch->result = allowed ? FD_ADMINCTL_RESULT_SUCCESS : FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER;
     fd_keyswitch_state( ctx->keyswitch, allowed ? FD_KEYSWITCH_STATE_COMPLETED : FD_KEYSWITCH_STATE_FAILED );
@@ -174,15 +163,7 @@ failover_keyswitch( fd_sign_ctx_t * ctx ) {
     return 1;
   }
   FD_TEST( param==FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR );
-  if( FD_UNLIKELY( !fd_memeq( ctx->keyswitch->bytes+32UL, ctx->failover_junk_key+32UL, 32UL ) ) ) {
-    if( fd_memeq( ctx->keyswitch->bytes+32UL, ctx->failover_boot_key+32UL, 32UL ) ) {
-      ctx->failover_key = ctx->failover_boot_key;
-      fd_memzero_explicit( ctx->failover_target_key, 64UL );
-    } else {
-      fd_memcpy( ctx->failover_target_key, ctx->keyswitch->bytes, 64UL );
-      ctx->failover_key = ctx->failover_target_key;
-    }
-  }
+  fd_memcpy( ctx->failover_key, ctx->keyswitch->bytes, 64UL );
   return 0;
 }
 
@@ -294,22 +275,13 @@ during_frag( void * _ctx,
   during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz );
 }
 
-/* The junk key signs TLS. */
+/* The failover identity signs the admission proofs and the TLS
+   handshakes of the failover channel. */
 
 static void FD_FN_SENSITIVE
 failover_sign( fd_sign_ctx_t * ctx,
                uchar *         dst,
                ulong           sz ) {
-  ulong payload = fd_keyguard_payload_match( ctx->_data, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  if( payload==FD_KEYGUARD_PAYLOAD_TLS_CV ) {
-    fd_ed25519_sign( dst, ctx->_data, sz, ctx->failover_junk_key+32UL, ctx->failover_junk_key, ctx->sha512 );
-    return;
-  }
-  if( FD_UNLIKELY( payload!=FD_KEYGUARD_PAYLOAD_FAILOV ) ) FD_LOG_EMERG(( "invalid failover signing domain" ));
-  if( FD_UNLIKELY( !fd_memeq( ctx->_data+FD_KEYGUARD_FAILOVER_DOMAIN_SZ, ctx->failover_junk_key+32UL, 32UL ) ) ) {
-    FD_LOG_EMERG(( "admission proof request is not for our junk key" ));
-  }
-  if( FD_UNLIKELY( !ctx->failover_key ) ) FD_LOG_EMERG(( "admission proof requested before preparing a failover identity" ));
   fd_ed25519_sign( dst, ctx->_data, sz, ctx->failover_key+32UL, ctx->failover_key, ctx->sha512 );
 }
 
@@ -443,36 +415,32 @@ after_frag( void *              _ctx,
   after_frag_sensitive( _ctx, in_idx, seq, sig, sz, tsorig, tspub, stem );
 }
 
-/* failover_load_keys sets the failover keys, all NULL unless failover
-   is enabled. */
-
-static void FD_FN_SENSITIVE
-failover_load_keys( fd_sign_ctx_t *        ctx,
-                    fd_topo_tile_t const * tile ) {
-  ctx->failover_junk_key     = NULL;
-  ctx->failover_boot_key     = NULL;
-  ctx->failover_target_key   = NULL;
-  ctx->failover_key          = NULL;
-  if( FD_LIKELY( !tile->sign.failover_enabled ) ) return;
-
-  ctx->failover_junk_key     = fd_keyload_load( FD_KEYLOAD_FAILOVER_JUNK, /* pubkey only: */ 0 );
-  uchar * boot_key           = fd_keyload_alloc_protected_pages( 1UL, 2UL );
-  fd_memcpy( boot_key, ctx->private_key, 64UL );
-  ctx->failover_boot_key     = fd_keyload_mprotect_ro( boot_key, /* public_key_only: */ 0 );
-  ctx->failover_target_key   = fd_keyload_alloc_protected_pages( 1UL, 2UL );
-  ctx->failover_key          = ctx->failover_boot_key;
-  if( FD_UNLIKELY( fd_memeq( ctx->failover_junk_key+32UL, ctx->failover_boot_key+32UL, 32UL ) ) ) {
-    FD_LOG_ERR(( "the failover junk key must differ from the [paths.identity_key] key" ));
-  }
-  if( FD_UNLIKELY( tile->sign.failover_boot_to_standby ) ) {
-    fd_memcpy( ctx->private_key, ctx->failover_junk_key, 64UL );
-  }
-}
-
 static void FD_FN_SENSITIVE
 load_keys( fd_sign_ctx_t *        ctx,
+           fd_topo_t const *      topo,
            fd_topo_tile_t const * tile ) {
-  uchar * identity_key = fd_keyload_mprotect_wr( fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 ), /* public_key_only: */ 0 );
+  ctx->failover_junk_key = NULL;
+  ctx->failover_key      = NULL;
+  int standby = !strcmp( tile->sign.identity_key_path, FD_KEYLOAD_FAILOVER_JUNK );
+  if( FD_UNLIKELY( tile->sign.failover_enabled ) ) {
+    ulong failov_idx = fd_topo_find_tile( topo, "failov", 0UL );
+    FD_TEST( failov_idx!=ULONG_MAX );
+    ctx->failover_junk_key = fd_keyload_load( FD_KEYLOAD_FAILOVER_JUNK, /* pubkey only: */ 0 );
+    ctx->failover_key      = fd_keyload_mprotect_wr( fd_keyload_load( topo->tiles[ failov_idx ].failov.target_key_path, /* pubkey only: */ 0 ), /* public_key_only: */ 0 );
+    if( FD_UNLIKELY( fd_memeq( ctx->failover_junk_key+32UL, ctx->failover_key+32UL, 32UL ) ) ) {
+      FD_LOG_ERR(( "the failover junk key must differ from the [paths.identity_key] key" ));
+    }
+  } else {
+    FD_TEST( !standby );
+  }
+
+  uchar * identity_key;
+  if( FD_UNLIKELY( standby ) ) {
+    identity_key = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+    fd_memcpy( identity_key, ctx->failover_junk_key, 64UL );
+  } else {
+    identity_key = fd_keyload_mprotect_wr( fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 ), /* public_key_only: */ 0 );
+  }
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
@@ -485,8 +453,6 @@ load_keys( fd_sign_ctx_t *        ctx,
     memcpy( ctx->authorized_voter_private_keys[ i ], authorized_voter_key, 32UL );
     memcpy( ctx->authorized_voter_pubkeys[ i ], authorized_voter_key + 32UL, 32UL );
   }
-
-  failover_load_keys( ctx, tile );
 }
 
 static void FD_FN_SENSITIVE
@@ -496,7 +462,7 @@ privileged_init_sensitive( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
 
-  load_keys( ctx, tile );
+  load_keys( ctx, topo, tile );
 
   /* The stack can be taken over and reorganized by under AddressSanitizer,
      which causes this code to fail.  */
@@ -617,7 +583,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
       FD_TEST( !strcmp( out_link->name, "sign_failov" ) );
       FD_TEST( in_link->mtu==130UL );
       FD_TEST( out_link->mtu==64UL );
-      FD_TEST( ctx->failover_junk_key );
+      FD_TEST( ctx->failover_junk_key && ctx->failover_key );
     } else {
       FD_LOG_CRIT(( "unexpected link %s", in_link->name ));
     }

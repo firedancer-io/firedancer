@@ -39,11 +39,12 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_ROLE_FAILOV       (11) /* Failover admission proof and TLS */
 #define FD_KEYGUARD_ROLE_CNT          (12) /* number of known roles */
 
-/* Admission proofs use the prepared failover key. */
+/* The failover identity signs admission proofs, TLS, and the
+   admission payload. */
 #define FD_KEYGUARD_FAILOVER_CLIENT_DOMAIN "FD_FAILOVER_CLI1"
 #define FD_KEYGUARD_FAILOVER_SERVER_DOMAIN "FD_FAILOVER_SRV1"
 #define FD_KEYGUARD_FAILOVER_DOMAIN_SZ     (16UL)
-#define FD_KEYGUARD_FAILOVER_PROOF_SZ      (FD_KEYGUARD_FAILOVER_DOMAIN_SZ+32UL+32UL)
+#define FD_KEYGUARD_FAILOVER_PROOF_SZ      (FD_KEYGUARD_FAILOVER_DOMAIN_SZ+32UL)
 
 /* Payload types ******************************************************/
 

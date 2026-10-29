@@ -30,8 +30,7 @@ struct fd_admin_tile_ctx {
   int   failover_switch;       /* a failover identity switch is in progress */
   ulong failover_epoch;        /* failover epoch, bumped by every set-identity under failover */
   int   failover_pending;      /* the failover tile has not been told about the last set-identity yet */
-  uchar junk_pubkey[ 32 ];     /* the junk key generated at boot, a completed handover switches to it */
-  uchar failover_pubkey[ 32 ]; /* the key failover hands off, the boot identity until set-identity or a prepare picks another */
+  uchar failover_pubkey[ 32 ]; /* the key failover hands off, [paths.identity_key] until set-identity or a prepare picks another */
 
   /* Failover commands go to the failover tile over the bus, one at a
      time like snapshot creation. */
@@ -122,19 +121,12 @@ privileged_init( fd_topo_t const *      topo,
   fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
 
   /* With failover, the configured identity is the key that failover
-     hands off, and a handoff switches to the junk key generated at boot.  */
+     hands off, whichever key this machine booted under. */
   ulong failov_idx = fd_topo_find_tile( topo, "failov", 0UL );
   if( FD_UNLIKELY( failov_idx!=ULONG_MAX ) ) {
-    FD_TEST( !fd_memeq( topo->failover_junk, (uchar[ 32 ]){0}, 32UL ) );
-    fd_memcpy( ctx->junk_pubkey, topo->failover_junk, 32UL );
-    fd_topo_tile_t const * failov = &topo->tiles[ failov_idx ];
-    if( FD_UNLIKELY( failov->failov.boot_to_standby ) ) {
-      uchar const * target = fd_keyload_load( failov->failov.identity_key_path, /* pubkey only: */ 1 );
-      fd_memcpy( ctx->failover_pubkey, target, 32UL );
-      fd_keyload_unload( target, 1 );
-    } else {
-      fd_memcpy( ctx->failover_pubkey, ctx->identity_pubkey, 32UL );
-    }
+    uchar const * target = fd_keyload_load( topo->tiles[ failov_idx ].failov.target_key_path, /* pubkey only: */ 1 );
+    fd_memcpy( ctx->failover_pubkey, target, 32UL );
+    fd_keyload_unload( target, 1 );
   }
 }
 
@@ -706,7 +698,7 @@ static void
 failover_operator_begin( fd_admin_tile_ctx_t * ctx,
                          uchar const *         identity ) {
   ctx->failover_epoch++;
-  if( !fd_memeq( identity, ctx->junk_pubkey, 32UL ) ) fd_memcpy( ctx->failover_pubkey, identity, 32UL );
+  fd_memcpy( ctx->failover_pubkey, identity, 32UL );
   FD_BASE58_ENCODE_32_BYTES( identity,              new_identity );
   FD_BASE58_ENCODE_32_BYTES( ctx->failover_pubkey, failover_identity );
   FD_LOG_NOTICE(( "set-identity switches to `%s`, failover restarts on this machine for identity `%s`", new_identity, failover_identity ));
@@ -1377,7 +1369,6 @@ failover_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "no_final_history";
     case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "replay_behind";
     case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "no_holder_address";
-    case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "key_conflict";
     case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "input_lost";
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "keypair_mismatch";
     case FD_SET_IDENTITY_RESULT_SAME_IDENTITY:         return "same_identity";
@@ -1436,7 +1427,6 @@ failover_prepare( fd_admin_tile_ctx_t * ctx,
   uchar pubkey[ 32 ];
   fd_ed25519_public_from_private( pubkey, keypair, ctx->sha512 );
   if( FD_UNLIKELY( !fd_memeq( pubkey, keypair+32UL, 32UL ) ) ) return FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH;
-  if( FD_UNLIKELY( fd_memeq( pubkey, ctx->junk_pubkey, 32UL ) ) ) return FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT;
   if( fd_memeq( pubkey, ctx->failover_pubkey, 32UL ) ) return FD_ADMINCTL_RESULT_SUCCESS;
   ulong result = failover_identity_check( ctx, pubkey );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
@@ -1631,8 +1621,7 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     response.operator.epoch = ctx->failover_epoch;
     fd_memcpy( response.operator.identity,          ctx->identity_pubkey, 32UL );
     fd_memcpy( response.operator.failover_identity, ctx->failover_pubkey, 32UL );
-  } else if( FD_UNLIKELY( ctx->failover_enabled && !fd_memeq( req.identity, ctx->junk_pubkey, 32UL ) &&
-                          failover_identity_check( ctx, req.identity )!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
+  } else if( FD_UNLIKELY( ctx->failover_enabled && failover_identity_check( ctx, req.identity )!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
     FD_BASE58_ENCODE_32_BYTES( req.identity, target );
     FD_LOG_WARNING(( "refusing the failover tile's identity switch to `%s`, it is one of the authorized voters, remove it with remove-all-authorized-voters first", target ));
     response.result = FD_FAILOVER_SWITCH_ERR_AUTHORIZED_VOTER;

@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_failover_channel.h"
 #include "fd_failover_tls.h"
-#include "../../ballet/base58/fd_base58.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
@@ -45,7 +44,7 @@ FD_STATIC_ASSERT( FD_FAILOVER_CHANNEL_KEEPALIVE_NANOS>=2L && FD_FAILOVER_CHANNEL
 FD_STATIC_ASSERT( FD_KEYGUARD_FAILOVER_PROOF_SZ<=FD_TLS_CV_SIGN_SZ, admission_sign_mtu );
 FD_STATIC_ASSERT( FD_FAILOVER_CLIENT_HELLO_MAX+sizeof(fd_tlsrec_hdr_t)+sizeof(fd_failover_admission_start_t)<=FD_FAILOVER_ADMISSION_MAX, admission_buffer );
 
-/* A HELLO whose junk key does not match the key that was TLS authenticated */
+/* A HELLO whose identity does not match the key that was TLS authenticated */
 #define HELLO_ERR_TLS_KEY (-1)
 
 struct candidate {
@@ -234,20 +233,17 @@ fd_failover_channel_init_dialer( fd_failover_channel_t * ch,
 
 int
 fd_failover_channel_set_identity( fd_failover_channel_t *     ch,
-                                  uchar const                 junk_pubkey[ 32 ],
                                   fd_tls_sign_t               signer,
                                   fd_failover_proof_signer_t  proof_signer,
                                   fd_failover_hello_t const * hello ) {
-  if( !proof_signer.sign_fn || !signer.sign_fn ||
-      !fd_memeq( junk_pubkey, hello->junk_pubkey, 32UL ) ||
-      fd_memeq( hello->junk_pubkey, hello->staked_pubkey, 32UL ) ) return -1;
+  if( !proof_signer.sign_fn || !signer.sign_fn ) return -1;
   discard( ch );
   /* An identity change requires a fresh session. */
   ch->known_addr   = 0U;
   ch->known_until  = 0L;
   ch->self_hello   = *hello;
   ch->proof_signer = proof_signer;
-  return fd_failover_tls_ctx_init( &ch->tls_ctx, junk_pubkey, signer );
+  return fd_failover_tls_ctx_init( &ch->tls_ctx, hello->staked_pubkey, signer );
 }
 
 void
@@ -480,12 +476,11 @@ decode( fd_failover_channel_t * ch,
 static char const *
 hello_err_cstr( int err ) {
   switch( err ) {
-  case HELLO_ERR_TLS_KEY:                return "its junk key is not the key TLS authenticated";
+  case HELLO_ERR_TLS_KEY:                return "the key TLS authenticated is not the failover identity";
   case FD_FAILOVER_HELLO_ERR_VERSION:    return "the protocol version differs";
   case FD_FAILOVER_HELLO_ERR_STAKED:     return "the failover identity differs";
   case FD_FAILOVER_HELLO_ERR_VOTE_ACCT:  return "the vote account differs";
-  case FD_FAILOVER_HELLO_ERR_JUNK_EQ:    return "its junk key is ours";
-  case FD_FAILOVER_HELLO_ERR_JUNK_STAKE: return "a junk key is the identity being handed off";
+  case FD_FAILOVER_HELLO_ERR_SELF:       return "its boot id is ours, this machine dialed itself";
   case FD_FAILOVER_HELLO_ERR_BOTH_HOLD:  return "both machines run the identity";
   case FD_FAILOVER_HELLO_ERR_HOLDS:      return "it sent an unknown value";
   case FD_FAILOVER_HELLO_ERR_BOOT_ID:    return "the boot id is zero";
@@ -631,7 +626,7 @@ read_candidate_hello( fd_failover_channel_t * ch,
 
   /* HELLO and TLS must match admission. */
   int err = fd_memeq( payload, &c->hello, sizeof(c->hello) ) &&
-            fd_memeq( c->hello.junk_pubkey, c->tls.peer_pubkey, 32UL )
+            fd_memeq( c->hello.staked_pubkey, c->tls.peer_pubkey, 32UL )
           ? fd_failover_hello_check( &c->local_hello, &c->hello ) : HELLO_ERR_TLS_KEY;
   if( err!=FD_FAILOVER_HELLO_OK ) {
     refuse_hello( c->address, err );
@@ -672,10 +667,8 @@ pair_candidate( fd_failover_channel_t * ch,
   ch->expected_close = 0;
   *busy = 1;
 
-  char member[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( c->hello.junk_pubkey, NULL, member );
-  FD_LOG_NOTICE(( "paired with the failover peer at `" FD_IP4_ADDR_FMT "` via %s, authenticated member %s, %s, boot id %016lx",
-                  FD_IP4_ADDR_FMT_ARGS( c->address ), c->dialed ? "outbound dial" : "listener", member,
+  FD_LOG_NOTICE(( "paired with the failover peer at `" FD_IP4_ADDR_FMT "` via %s, %s, boot id %016lx",
+                  FD_IP4_ADDR_FMT_ARGS( c->address ), c->dialed ? "outbound dial" : "listener",
                   c->hello.holds ? "it runs the identity" : "it does not run the identity", c->hello.boot_id ));
 }
 
@@ -707,14 +700,14 @@ write_admission( struct candidate * c, int * busy ) {
 static int
 verify_admission_proof( fd_failover_channel_t * ch, struct candidate * c, int server, uchar const sig[ 64 ] ) {
   uchar msg[ FD_KEYGUARD_FAILOVER_PROOF_SZ ];
-  fd_failover_proof_msg( msg, server, c->hello.junk_pubkey, c->transcript );
+  fd_failover_proof_msg( msg, server, c->transcript );
   return fd_ed25519_verify( msg, sizeof(msg), sig, c->local_hello.staked_pubkey, ch->sha )==FD_ED25519_SUCCESS;
 }
 
 static int
 sign_admission_proof( fd_failover_channel_t * ch, struct candidate * c, int server ) {
   uchar msg[ FD_KEYGUARD_FAILOVER_PROOF_SZ ];
-  fd_failover_proof_msg( msg, server, c->local_hello.junk_pubkey, c->transcript );
+  fd_failover_proof_msg( msg, server, c->transcript );
   ch->proof_signer.sign_fn( ch->proof_signer.ctx, c->tx, msg );
   if( fd_ed25519_verify( msg, sizeof(msg), c->tx, c->local_hello.staked_pubkey, ch->sha )!=FD_ED25519_SUCCESS ) return 0;
   c->tx_used = 64UL;

@@ -1752,7 +1752,6 @@ hist_setup( fd_votor_tile_t * ctx ) {
   build_stakes( stakes, 3UL, 10UL );
   ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL, NULL, NULL );
   memcpy( ctx->id_key.uc, epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
-  ctx->junk_key                 = ctx->id_key;
   ctx->curr_epoch_info          = epoch_info;
   ctx->failover_enabled         = 1;
   ctx->hist_out_idx             = ULONG_MAX;
@@ -2813,8 +2812,7 @@ test_failover_off( void ) {
 }
 
 /* Test that with failover a failover identity switch starts voting only
-   after adoption, and that set-identity votes as on main, even to the junk
-   key. */
+   after adoption, and that set-identity votes as on main, to any key. */
 
 static void
 operator_switch( int    operator,
@@ -2875,8 +2873,9 @@ test_switch_runs_the_failover_rule( void ) {
   FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
   fd_clock_tile_init( ctx.clock );
 
-  /* A failover switch to the junk key we booted under, no adoption. */
-  memcpy( ctx.id_keyswitch->bytes, ctx.junk_key.uc, sizeof(fd_pubkey_t) );
+  /* A failover switch back to the key we booted under, as a demotion
+     to the junk key, no adoption. */
+  memcpy( ctx.id_keyswitch->bytes, ctx.id_key.uc, sizeof(fd_pubkey_t) );
   ctx.id_keyswitch->failover = 1UL;
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
   during_housekeeping( &ctx );
@@ -2890,7 +2889,7 @@ static void
 test_operator_switch_votes( void ) {
   operator_switch( 0, 1UL, 0 ); /* staked, no adoption */
   operator_switch( 1, 1UL, 1 ); /* staked, by set-identity */
-  operator_switch( 1, 0UL, 1 ); /* to the junk key, by set-identity */
+  operator_switch( 1, 0UL, 1 ); /* back to the boot key, by set-identity */
 }
 
 /* Test that an adoption is rejected while this machine votes as an

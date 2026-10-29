@@ -79,7 +79,6 @@
 #define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x400AUL) /* the machine running the identity has no eligible final vote state, see its local voting diagnostics */
 #define FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS (0x400BUL) /* gossip has no address for the machine running the identity */
 #define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x400CUL) /* this machine's replay is too far behind the last vote of the machine running the identity */
-#define FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT      (0x400DUL) /* the keypair is the junk key */
 #define FD_FAILOVER_CONTROL_RESULT_INPUT_LOST        (0x400EUL) /* failover input overrun, restart required */
 
 struct fd_adminctl_add_auth_voter_v1 {
@@ -164,7 +163,6 @@ fd_adminctl_failover_result_cstr( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over, its log says why";
     case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or pass --address";
     case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine's replay is too far behind the last vote of the machine running the identity, retry once caught up";
-    case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "the keypair is this machine's current junk key";
     case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "failover lost an input update and is disabled until restart";
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
     case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";

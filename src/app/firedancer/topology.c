@@ -1433,10 +1433,11 @@ void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
   /* With [failover.boot_to_standby] every tile boots under the junk key
-     generated at boot, and [paths.identity_key] is only the handoff
-     target.  The sign and failov tiles keep the configured path, they
-     load the target from it. */
-  int          boot_to_standby   = config->firedancer.failover.boot_to_standby && fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
+     generated at boot, and [paths.identity_key] is only the identity
+     failover hands off.  The sign and failov tiles get that path too,
+     they load the failover identity from it. */
+  int          failover_enabled  = fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
+  int          boot_to_standby   = config->firedancer.failover.boot_to_standby && failover_enabled;
   char const * identity_key_path = boot_to_standby ? FD_KEYLOAD_FAILOVER_JUNK : config->paths.identity_key;
 
   if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
@@ -1515,9 +1516,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
 
-    fd_cstr_ncpy( tile->failov.identity_key_path, config->paths.identity_key, sizeof(tile->failov.identity_key_path) );
-    fd_cstr_ncpy( tile->failov.vote_account_path, config->paths.vote_account, sizeof(tile->failov.vote_account_path) );
-    tile->failov.boot_to_standby = boot_to_standby;
+    fd_cstr_ncpy( tile->failov.identity_key_path, identity_key_path,           sizeof(tile->failov.identity_key_path) );
+    fd_cstr_ncpy( tile->failov.target_key_path,   config->paths.identity_key,  sizeof(tile->failov.target_key_path)   );
+    fd_cstr_ncpy( tile->failov.vote_account_path, config->paths.vote_account,  sizeof(tile->failov.vote_account_path) );
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.listen_address, &tile->failov.listen_addr ) ) )
       FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", config->firedancer.failover.listen_address ));
     tile->failov.port = config->firedancer.failover.listen_port;
@@ -1855,10 +1856,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
 
-    fd_cstr_ncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
-    tile->sign.failover_junk_fd         = -1;
-    tile->sign.failover_enabled         = fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
-    tile->sign.failover_boot_to_standby = boot_to_standby;
+    fd_cstr_ncpy( tile->sign.identity_key_path, identity_key_path, sizeof(tile->sign.identity_key_path) );
+    tile->sign.failover_junk_fd = -1;
+    tile->sign.failover_enabled = failover_enabled;
 
     tile->sign.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
