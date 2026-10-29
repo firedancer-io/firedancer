@@ -107,6 +107,9 @@ struct fd_keyguard_authority {
      program which drains the identity key. */
   uchar tip_payment_program[32];
   uchar tip_distribution_program[32];
+  /* Operator-configured parameters for tip distribution account creation. */
+  uchar tip_distribution_authority[32];
+  ushort tip_distribution_commission_bps;
 };
 
 typedef struct fd_keyguard_authority fd_keyguard_authority_t;

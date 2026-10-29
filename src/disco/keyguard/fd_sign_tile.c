@@ -65,8 +65,10 @@ typedef struct {
 
   fd_keyguard_bls_key_t * bls_keys;
 
-  uchar tip_payment_program     [32];
-  uchar tip_distribution_program[32];
+  uchar tip_payment_program       [32];
+  uchar tip_distribution_program  [32];
+  uchar tip_distribution_authority[32];
+  ushort tip_distribution_commission_bps;
 
   ulong             authorized_voters_cnt;
   uchar             authorized_voter_pubkeys[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ 32UL ];
@@ -246,9 +248,11 @@ after_frag_sensitive( void *              _ctx,
   int role = ctx->in[ in_idx ].role;
 
   fd_keyguard_authority_t authority = {0};
-  memcpy( authority.identity_pubkey,          ctx->public_key,               32UL );
-  memcpy( authority.tip_payment_program,      ctx->tip_payment_program,      32UL );
-  memcpy( authority.tip_distribution_program, ctx->tip_distribution_program, 32UL );
+  memcpy( authority.identity_pubkey,            ctx->public_key,                 32UL );
+  memcpy( authority.tip_payment_program,        ctx->tip_payment_program,        32UL );
+  memcpy( authority.tip_distribution_program,   ctx->tip_distribution_program,   32UL );
+  memcpy( authority.tip_distribution_authority, ctx->tip_distribution_authority, 32UL );
+  authority.tip_distribution_commission_bps = ctx->tip_distribution_commission_bps;
 
   if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, ctx->_data, sz, role, sign_type ) ) ) {
     FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
@@ -412,8 +416,10 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
     ctx->av_keyswitch = NULL;
   }
 
-  memcpy( ctx->tip_payment_program,      tile->sign.bundle.tip_payment_program_addr,      32UL );
-  memcpy( ctx->tip_distribution_program, tile->sign.bundle.tip_distribution_program_addr, 32UL );
+  memcpy( ctx->tip_payment_program,        tile->sign.bundle.tip_payment_program_addr,      32UL );
+  memcpy( ctx->tip_distribution_program,   tile->sign.bundle.tip_distribution_program_addr, 32UL );
+  memcpy( ctx->tip_distribution_authority, tile->sign.bundle.tip_distribution_authority,    32UL );
+  ctx->tip_distribution_commission_bps = (ushort)tile->sign.bundle.commission_bps;
 
   for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
 

@@ -407,6 +407,8 @@ struct fd_topo_tile {
       struct {
         uchar tip_payment_program_addr[ 32 ];
         uchar tip_distribution_program_addr[ 32 ];
+        uchar tip_distribution_authority[ 32 ];
+        ulong commission_bps;
       } bundle;
     } sign;
 
