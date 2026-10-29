@@ -1,24 +1,17 @@
 #ifndef HEADER_fd_src_discof_replay_fd_replay_tile_h
 #define HEADER_fd_src_discof_replay_fd_replay_tile_h
 
-/* Banks and Reasm
+/* Banks and Rotor
    =================
 
    OVERVIEW
 
-   Reasm maintains a tree of FEC sets organized as a main tree (rooted
-   at the published root) plus orphan trees.  Each FEC set in the
-   connected tree may be associated with a bank via bank_idx, or be
-   still unreplayed.  In general, reasm tries to approximate the state
-   of banks as closely as possible.  It's inexact, because reasm is
-   stored at the FEC unit, while banks are stored at the slot unit.
-
-   When reasm delivers a FEC set (via fd_reasm_pop), the replay tile
-   processes it by assigning it a bank.  If it's the first FEC in a
-   slot (fec_set_idx==0), a new bank is provisioned from the parent's
-   bank.  Subsequent FECs in the same slot inherit the bank_idx from
-   the preceding FEC.  This means all FEC sets within a single slot
-   share the same bank_idx, with the exception of equivocating FECs.
+   When rotor delivers a FEC set, the replay tile processes it by
+   assigning it a bank.  If it's the first FEC in a slot
+   (fec_set_idx==0), a new bank is provisioned from the parent's bank.
+   Subsequent FECs in the same slot inherit the bank_idx from the
+   preceding FEC.  This means all FEC sets within a single slot share
+   the same bank_idx, with the exception of equivocating FECs.
 
    PUBLISHING (ROOT ADVANCEMENT)
 
@@ -29,35 +22,6 @@
    fd_store_publish to prune the store of any FEC sets below the new
    root.
 
-   REASM EVICTION (POOL-PRESSURE EVICTION)
-
-   When the reasm pool is nearly full (1 free element remaining) and a
-   new FEC needs to be inserted, reasm runs its eviction policy to free
-   space.  The eviction in general prioritizes orphans first, and then
-   frontier slots that are incomplete.
-
-   If eviction succeeds, the evicted chain is returned as a linked
-   list of pool elements (removed from maps but still acquired in
-   the pool).  The replay tile is responsible for:
-     1. Publishing each evicted FEC to repair (REPLAY_SIG_REASM_EVICTED)
-        so repair can re-request the data.
-     2. Releasing each evicted element back to the reasm pool before
-        the next insert.
-
-   It's important to note that replay bank eviction is NOT coupled with
-   reasm FEC eviction.  Reasm FEC eviction is triggered by the reasm pool
-   being full, and is independent of the replay bank eviction.  Reasm
-   FEC eviction is triggered by the reasm pool being full while banks
-   eviction is triggered by the banks being full and the scheduler
-   being drained.
-
-   By evicting and publishing evicted FECs to repair, replay is
-   attempting a "go-around" strategy to ensure progress is made even
-   when memory pressure is high.  An evicted FEC - if valid - will be
-   requested by repair and eventually re-delivered to replay, where
-   hopefully by then there will be pool capacity to insert and replay
-   the FEC.
-
    SNAPSHOT PRODUCTION
 
    Snapshot production is either periodically scheduled (driven by
@@ -67,14 +31,12 @@
 
    ALPENGLOW
 
-   Under alpenglow, the replay tile doesn't use the reasm, but rather
-   relies on rotor to deliver FECs. Similar to reasm, rotor delivers
-   FECs in replayable order, with no restrictions on interleaving
-   between forks. Every delivered FEC is already in store. Alpenglow
-   also introduces the double merkle root, which uniquely identifies
-   each FEC set as part of one slot version. For equivocating slots, the
-   block_id is known before delivery, and so replay can identify how to
-   allocate banks in the equivocation case.
+   Rotor delivers FECs in replayable order, with no restrictions on
+   interleaving between forks. Every delivered FEC is already in store.
+   Alpenglow also introduces the double merkle root, which uniquely
+   identifies each FEC set as part of one slot version. For equivocating
+   slots, the block_id is known before delivery, and so replay can
+   identify how to allocate banks in the equivocation case.
 
    Replay can rely on the fact that any new version of the slot
    (equivocations or not) is delivered from FEC 0 — blocks are never
@@ -84,17 +46,10 @@
    the block arrives before the turbine copy is complete, the turbine
    copy is abandoned, and will never finish delivering to replay.
 
-   Alpenglow simplifies eviction logic by removing the notion of reasm
-   evictions.  Rotor is sized to protocol limits and will not have
-   evictions; and thus can be relied on to always have all data since
-   the root. Banks can still evict.  On an eviction, some context in the
-   replayable chain of FECs is lost, and newer incoming FECs may be
-   unlinked.  When this happens, replay sends a signal to rotor to send
-   the next FEC with the full replayable path from root. Replay will
-   need to drain the rotor dcache until it receives a FEC that is
-   connected, and then resume normal replay.  It may need to drop FECs
-   that have already been replayed, or send multiple signals to rotor to
-   re-deliver. */
+   Rotor is sized to protocol limits and will not have evictions; and
+   thus can be relied on to always have all data since the root.  A FEC
+   whose parent bank is gone (dead, pruned with its fork, or rooted
+   past) can never be replayed, so replay skips it. */
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
@@ -109,15 +64,12 @@
 #define REPLAY_SIG_BECAME_LEADER  (4)
 #define REPLAY_SIG_OC_ADVANCED    (5)
 #define REPLAY_SIG_TXN_EXECUTED   (6)
-#define REPLAY_SIG_REASM_EVICTED  (7)
-#define REPLAY_SIG_WFS_DONE       (8)
-#define REPLAY_SIG_DROP_BANK_REF  (9)
-#define REPLAY_SIG_SNAP_START     (10)
-#define REPLAY_SIG_FINAL_CERT     (11)
-#define REPLAY_SIG_LEADER_FOOTER  (12)
-#define REPLAY_SIG_MISSING_FEC    (13)
-#define REPLAY_SIG_NEXT_LEADER    (14)
-#define REPLAY_SIG_SLOT_STATES    (15)
+#define REPLAY_SIG_WFS_DONE       (7)
+#define REPLAY_SIG_SNAP_START     (8)
+#define REPLAY_SIG_FINAL_CERT     (9)
+#define REPLAY_SIG_LEADER_FOOTER  (10)
+#define REPLAY_SIG_NEXT_LEADER    (11)
+#define REPLAY_SIG_SLOT_STATES    (12)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -266,22 +218,6 @@ struct fd_replay_txn_executed {
 };
 typedef struct fd_replay_txn_executed fd_replay_txn_executed_t;
 
-struct fd_replay_fec_evicted {
-  fd_hash_t mr;
-  ulong     slot;
-  uint      fec_set_idx;
-  ulong     bank_idx;
-};
-typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
-
-/* Only rpc needs to consume this message since the resolv tile holds
-   onto a bank reference based on the root, which will never be forced
-   to drop its bank reference. */
-struct fd_replay_drop_bank_ref {
-  ulong bank_idx;
-};
-typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
-
 /* The replay tile broadcasts fd_replay_snap_start_t
    (REPLAY_SIG_SNAP_START) just before starting snapshot creation.
    Replay keeps the bank's epoch credits pinned in memory until the
@@ -330,8 +266,6 @@ union fd_replay_message {
   fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
-  fd_replay_fec_evicted_t     reasm_evicted;
-  fd_replay_drop_bank_ref_t   drop_bank_ref;
   fd_replay_leader_footer_t   leader_footer;
   fd_replay_next_leader_t     next_leader;
   fd_replay_slot_states_t     slot_states;

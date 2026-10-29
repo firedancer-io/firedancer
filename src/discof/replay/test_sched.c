@@ -864,61 +864,24 @@ drive_ticks_until_start( fd_sched_t * sched,
   }
 }
 
-/* A block given up on without fault keeps a clean dead reason and
-   raises the discarded flag, and blocks that later arrive under it
-   inherit that flavor rather than looking ruled-invalid.  A block ruled
-   invalid stays un-discarded, so the flag never masks a verdict. */
+/* A block ruled invalid keeps a clean dead reason (the replay tile owns
+   the specific reason) and stays un-discarded, and blocks that later
+   arrive under it come back DEAD_ANCESTOR, un-discarded. */
 static void
 run_abandon_flavor_case( void ) {
-  /* Discarded lineage: eviction, then two generations arriving under
-     it.  Both must come back DEAD_ANCESTOR and discarded. */
-  {
-    fd_sched_t * sched = new_sched( 8UL );
-    FD_TEST( add_live_block( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
+  fd_sched_t * sched = new_sched( 8UL );
+  FD_TEST( add_live_block( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
 
-    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_DISCARDED );
-    /* The block the discard was called on went down on its own, so it
-       must not pick up its live parent's flavor. */
-    FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_NONE );
-    FD_TEST( fd_sched_block_is_discarded( sched, 2UL )==1 );
+  fd_sched_block_abandon( sched, 2UL );
+  FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_NONE );
+  FD_TEST( fd_sched_block_is_discarded( sched, 2UL )==0 );
 
-    FD_TEST( !add_live_block( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
-    FD_TEST( fd_sched_get_dead_reason( sched, 3UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
-    FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==1 );
+  FD_TEST( !add_live_block( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
+  FD_TEST( fd_sched_get_dead_reason( sched, 3UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+  FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==0 );
 
-    FD_TEST( !add_live_block( sched, 4UL, 3UL, TEST_ROOT_SLOT+3UL, TEST_ROOT_SLOT+2UL ) );
-    FD_TEST( fd_sched_get_dead_reason( sched, 4UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
-    FD_TEST( fd_sched_block_is_discarded( sched, 4UL )==1 );
-
-    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
-    delete_sched( sched );
-  }
-
-  /* Invalid lineage: the replay tile owns the specific reason, so the
-     scheduler records none of its own, and nothing is discarded. */
-  {
-    fd_sched_t * sched = new_sched( 8UL );
-    FD_TEST( add_live_block( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
-
-    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
-    FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==FD_SCHED_DEAD_REASON_NONE );
-    FD_TEST( fd_sched_block_is_discarded( sched, 2UL )==0 );
-
-    FD_TEST( !add_live_block( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
-    FD_TEST( fd_sched_get_dead_reason( sched, 3UL )==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
-    FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==0 );
-
-    /* Discarding a block that is already going down must not relabel
-       it.  The scheduler records no reason for a ruling the replay tile
-       made, so dead_reason alone cannot tell this apart from a block
-       that is still healthy. */
-    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_DISCARDED );
-    FD_TEST( fd_sched_block_is_discarded( sched, 2UL )==0 );
-    FD_TEST( fd_sched_block_is_discarded( sched, 3UL )==0 );
-
-    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
-    delete_sched( sched );
-  }
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  delete_sched( sched );
 }
 
 /* A minority fork loses the fork race rather than violating the
@@ -939,7 +902,7 @@ run_root_notify_flavor_case( void ) {
   /* Minority fork already ruled invalid by the replay tile before the
      root moved. */
   FD_TEST( add_live_block( sched, 5UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
-  fd_sched_block_abandon( sched, 5UL, FD_SCHED_ABANDON_INVALID );
+  fd_sched_block_abandon( sched, 5UL );
 
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
   fd_sched_root_notify( sched, 2UL );
@@ -973,7 +936,7 @@ run_late_ancestor_discard_case( void ) {
   FD_TEST( add_live_block( sched, 4UL, 3UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL ) );
 
   /* The replay tile rules the child invalid. */
-  fd_sched_block_abandon( sched, 4UL, FD_SCHED_ABANDON_INVALID );
+  fd_sched_block_abandon( sched, 4UL );
   FD_TEST( fd_sched_get_dead_reason( sched, 4UL )==FD_SCHED_DEAD_REASON_NONE );
   FD_TEST( fd_sched_block_is_discarded( sched, 4UL )==0 );
 
@@ -2098,7 +2061,7 @@ run_lthash_abandon_in_flight_case( int last_is_add ) {
   pending[ exec_at ] = *task;
   FD_TEST( 0UL==fd_sched_task_next_ready( sched, task ) );
 
-  fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+  fd_sched_block_abandon( sched, 2UL );
   FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX ); /* still in flight */
 
   /* Land the subtraction and the addition in the requested order.
@@ -3225,7 +3188,7 @@ run_lthash_batch_abandon_case( void ) {
   fd_sched_task_t on_tile[ 3 ]; fd_acct_addr_t held_acct[ 1 ];
   lthash_batch_hold( sched, ctx, on_tile, held_acct );
 
-  fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+  fd_sched_block_abandon( sched, 2UL );
   char * state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "lthash_add_batch_cnt 0," ) );
   FD_TEST( strstr( state, "lthash_discarded_add_held_cnt 2," ) );
@@ -4103,7 +4066,7 @@ run_lthash_dying_parent_case( void ) {
   FD_TEST( lthash_block_drain_line_has( sched, 3UL, TEST_WIDE_ACCT_CNT, 0UL ) );
 
   /* Abandoning block 2 leaves no block active and takes block 3 out. */
-  fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+  fd_sched_block_abandon( sched, 2UL );
   FD_TEST( fd_sched_pruned_block_next( sched )==3UL );
   FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
   state = fd_sched_get_state_cstr( sched );
@@ -4207,7 +4170,7 @@ run_lthash_drain_active_first_case( void ) {
   ingest_lthash_fec( sched, 3UL, 2UL, TEST_ROOT_SLOT+2UL, TEST_ROOT_SLOT+1UL, encoded3, sz3, 1, 1 );
   fd_sched_set_poh_params( sched, 3UL, TEST_ROOT_TICK_HEIGHT+1UL, TEST_ROOT_TICK_HEIGHT+2UL, start_poh );
   FD_TEST( strstr( fd_sched_get_state_cstr( sched ), "active_idx 5, staged_bitset 3," ) );
-  fd_sched_block_abandon( sched, 5UL, FD_SCHED_ABANDON_DISCARDED );
+  fd_sched_block_abandon( sched, 5UL );
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
   char * state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "active_idx 3, staged_bitset 2," ) );
@@ -4473,7 +4436,7 @@ run_cert_verify_case( int abandon ) {
   FD_TEST( !fd_sched_is_drained( sched ) );
 
   if( abandon ) {
-    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+    fd_sched_block_abandon( sched, 2UL );
     FD_TEST( fd_sched_pruned_block_next( sched )==3UL ); /* the child only, 2 released at BLOCK_END */
     FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
   }
@@ -4591,7 +4554,7 @@ run_cert_dying_dispatch_case( int root_notify ) {
   int t1_tile = fd_ulong_find_msb( tiles );
 
   if( !root_notify ) {
-    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+    fd_sched_block_abandon( sched, 2UL );
     FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, (ulong)t0, NULL ) );
   } else {
     fd_sched_root_notify( sched, 4UL );

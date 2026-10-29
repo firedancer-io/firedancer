@@ -217,7 +217,6 @@ struct fd_repair {
   ulong             root;
   fd_repair_blk_t * root_blk;     /* the root's blk, NULL if not held */
   ulong             catchup_slot;
-  int               reconsume;    /* replay sent a MISSING_FEC: the next FEC pushed onto reasm_deque goes with its ancestry from the root */
   ulong             slot_max;
   ulong             fec_blk_max;  /* FEC sets per blk */
 
@@ -389,8 +388,9 @@ fd_repair_fec_notarized( fd_repair_t *     rotor,
 
 /* replay_slot   REPLAY_SIG_ROOT_ADVANCED
 
-   wait for replay's signal to advance root because of redelivery
-   nonsense.  TODO remove this. */
+   roots on replay's signal rather than on finalization: replay can be
+   finalized ahead of the blocks it has executed, and still needs their
+   data delivered. */
 
 void
 fd_repair_root_advanced( fd_repair_t *     rotor,

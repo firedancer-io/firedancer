@@ -265,7 +265,6 @@ struct fd_repair_tile {
     ulong      fec_root_ok;
     ulong      fec_root_failed;
     ulong      replay_root_advanced;
-    ulong      replay_missing_fec;
     ulong      ping_malformed;
     ulong      ping_unknown_peer;
     ulong      ping_signature_failed;
@@ -722,10 +721,6 @@ handle_replay( fd_repair_tile_t * ctx,
     fd_repair_blk_dead( ctx->rotor, dead->slot, &dead->block_id );
     break;
   }
-  case REPLAY_SIG_MISSING_FEC:
-    ctx->metrics->replay_missing_fec++;
-    ctx->rotor->reconsume = 1;
-    break;
   default: FD_LOG_ERR(( "unhandled replay sig %lu", sig ));
   }
 }
@@ -1006,8 +1001,6 @@ metrics_write( fd_repair_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, FEC_SET_ROOT_FAILED,         ctx->metrics->fec_root_failed         );
 
   FD_MCNT_SET( ROTOR, REPLAY_ROOT_ADVANCED_RX, ctx->metrics->replay_root_advanced );
-  FD_MCNT_SET( ROTOR, REPLAY_MISSING_FEC_RX,   ctx->metrics->replay_missing_fec   );
-
   FD_MCNT_SET( ROTOR, PING_REJECTED_MALFORMED,        ctx->metrics->ping_malformed        );
   FD_MCNT_SET( ROTOR, PING_REJECTED_UNKNOWN_PEER,     ctx->metrics->ping_unknown_peer     );
   FD_MCNT_SET( ROTOR, PING_REJECTED_SIGNATURE_FAILED, ctx->metrics->ping_signature_failed );
@@ -1326,7 +1319,7 @@ before_frag( fd_repair_tile_t * ctx,
     if( FD_UNLIKELY( ctx->rotor->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
     return sig!=FD_VOTOR_SIG_CERTED && sig!=FD_VOTOR_SIG_REPAIR && sig!=FD_VOTOR_SIG_QUORUM;
   case IN_KIND_REPLAY:
-    return sig!=REPLAY_SIG_ROOT_ADVANCED && sig!=REPLAY_SIG_SLOT_DEAD && sig!=REPLAY_SIG_MISSING_FEC;
+    return sig!=REPLAY_SIG_ROOT_ADVANCED && sig!=REPLAY_SIG_SLOT_DEAD;
   case IN_KIND_EPOCH:
     return 0;
   case IN_KIND_GOSSIP:
@@ -1364,7 +1357,7 @@ during_frag( fd_repair_tile_t * ctx,
     memcpy( ctx->sign_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), FD_ED25519_SIG_SZ );
     break;
   case IN_KIND_REPLAY:
-    if( FD_UNLIKELY( sz!=0UL && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof(ctx->replay_buf) ) ) ) { /* a missing FEC has no payload */
+    if( FD_UNLIKELY( sz!=0UL && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof(ctx->replay_buf) ) ) ) {
       FD_LOG_ERR(( "chunk %lu sz %lu from in_kind %d out of bounds, chunk0 %lu wmark %lu",
                    chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
     }
@@ -1574,7 +1567,6 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "shred_rotor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_ciaddr" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_slot"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_rotor"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "sign_repair"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else FD_LOG_ERR(( "rotor tile has unexpected input link %lu %s", i, link->name ));

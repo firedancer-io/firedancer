@@ -767,7 +767,7 @@ before_frag( fd_rpc_tile_t *   ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
     return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_OC_ADVANCED &&
-           sig!=REPLAY_SIG_ROOT_ADVANCED  && sig!=REPLAY_SIG_DROP_BANK_REF;
+           sig!=REPLAY_SIG_ROOT_ADVANCED;
   }
 
   if( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) return sig!=FD_VOTOR_SIG_CERTED;
@@ -891,22 +891,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         ctx->confirmed_idx = msg->bank_idx;
 
         if( FD_LIKELY( ctx->cluster_confirmed_slot!=ULONG_MAX ) ) fd_rpc_cluster_finalized( ctx, msg->slot );
-        break;
-      }
-      case REPLAY_SIG_DROP_BANK_REF: {
-        fd_replay_drop_bank_ref_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        if( FD_UNLIKELY( ctx->processed_idx==msg->bank_idx ) ) {
-          fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-          ctx->processed_idx = ULONG_MAX;
-        }
-        if( FD_UNLIKELY( ctx->confirmed_idx==msg->bank_idx ) ) {
-          fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-          ctx->confirmed_idx = ULONG_MAX;
-        }
-        if( FD_UNLIKELY( ctx->finalized_idx==msg->bank_idx ) ) {
-          fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-          ctx->finalized_idx = ULONG_MAX;
-        }
         break;
       }
       default: {

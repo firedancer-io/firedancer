@@ -766,7 +766,7 @@ enum {
 
 #define FD_METRICS_COUNTER_REPLAY_FEC_PARENT_MISSING_DROPPED_NAME "replay_fec_parent_missing_dropped"
 #define FD_METRICS_COUNTER_REPLAY_FEC_PARENT_MISSING_DROPPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_REPLAY_FEC_PARENT_MISSING_DROPPED_DESC "FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, evicted with its tracking slot reused, or rooted past"
+#define FD_METRICS_COUNTER_REPLAY_FEC_PARENT_MISSING_DROPPED_DESC "FEC sets dropped because replay could not resolve the block's parent (Alpenglow), which was dropped on a dead lineage, pruned with its fork, or rooted past"
 #define FD_METRICS_COUNTER_REPLAY_FEC_PARENT_MISSING_DROPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_REPLAY_FEC_ROOTED_PAST_SKIPPED_NAME "replay_fec_rooted_past_skipped"

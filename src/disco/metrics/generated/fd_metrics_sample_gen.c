@@ -1981,7 +1981,7 @@ static fd_metrics_sample_field_t const fields_replay[ 296 ] = {
   { FD_METRICS_GAUGE_REPLAY_IS_RUNTIME_LOADED_OFF, 116U, FD_METRICS_SAMPLE_BOOL, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_rotor[ 158 ] = {
+static fd_metrics_sample_field_t const fields_rotor[ 157 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -2052,7 +2052,6 @@ static fd_metrics_sample_field_t const fields_rotor[ 158 ] = {
   { FD_METRICS_COUNTER_ROTOR_FEC_SET_ROOT_ACCEPTED_OFF, 40U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_FEC_SET_ROOT_FAILED_OFF, 41U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_REPLAY_ROOT_ADVANCED_RX_OFF, 42U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_ROTOR_REPLAY_MISSING_FEC_RX_OFF, 43U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_PING_REJECTED_OFF, 44U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_PING_REJECTED_MALFORMED_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_ROTOR_PING_REJECTED_UNKNOWN_PEER_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4671,7 +4670,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 134UL, 1385UL },
   { "replay", 34U, fields_replay, 296UL, 3164UL },
-  { "rotor", 35U, fields_rotor, 158UL, 1769UL },
+  { "rotor", 35U, fields_rotor, 157UL, 1757UL },
   { "rserve", 36U, fields_rserve, 145UL, 1593UL },
   { "gossip", 37U, fields_gossip, 184UL, 1952UL },
   { "gossvf", 38U, fields_gossvf, 124UL, 1416UL },

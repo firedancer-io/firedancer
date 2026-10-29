@@ -326,16 +326,6 @@ typedef struct fd_sched_task fd_sched_task_t;
 #define FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER        (28) /* An Alpenglow block ended without a block footer. */
 #define FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT      (29) /* An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer. */
 #define FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS  (30) /* The block's transactions declare more writable accounts than a valid block can afford. */
-/* Cause to pass to fd_sched_block_abandon().  A block is considered
-   invalid when it violates the protocol, so validity is a function of
-   the block's content.  A block may be discarded (temporarily) because
-   the validator is under resource pressure.  A block may be discarded
-   (permanently) if consensus converged on an alternative fork, which is
-   done implicitly in fd_sched_root_notify() for the minority forks it
-   abandons. */
-#define FD_SCHED_ABANDON_DISCARDED (0)
-#define FD_SCHED_ABANDON_INVALID   (1)
-
 struct __attribute__((packed)) fd_microblock_hdr {
   /* Number of PoH hashes between this and last microblock */
   /* 0x00 */ ulong hash_cnt;
@@ -530,20 +520,17 @@ fd_sched_block_start_writes( fd_sched_t * sched, ulong bank_idx, fd_acct_addr_t 
    prune the block, when all other components release their refcnts on
    said bank.  Then the bank_idx may be recycled for another block.
 
-   Pass FD_SCHED_ABANDON_INVALID if the block is ruled invalid for any
-   reason, or FD_SCHED_ABANDON_DISCARDED if we are merely giving up on
-   it without fault, e.g. eviction under resource pressure.  Descendants
-   inherit the flavor: they record DEAD_ANCESTOR, and are marked
-   discarded iff the lineage was discarded, provided they have no dead
-   reason of their own.  A block that is already going down keeps the
-   flavor it went down with, so a later abandon cannot re-label it. */
+   The block is treated as ruled invalid.  Descendants record
+   DEAD_ANCESTOR, provided they have no dead reason of their own.
+   Discarded lineages only come from fd_sched_root_notify().  A block
+   that is already going down keeps the flavor it went down with. */
 void
-fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx, int cause );
+fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx );
 
 /* fd_sched_get_dead_reason returns the scheduler's reason (one of
    FD_SCHED_DEAD_REASON_*) for why the block at bank_idx went down.
    Returns FD_SCHED_DEAD_REASON_NONE if the block itself was merely
-   discarded (root advance, eviction) or if no block is currently
+   discarded (root advance) or if no block is currently
    tracked at bank_idx.  Descendants of a discarded lineage carry
    DEAD_ANCESTOR like any other lineage death;
    fd_sched_block_is_discarded disambiguates discarded from
