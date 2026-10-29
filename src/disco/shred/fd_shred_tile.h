@@ -12,6 +12,9 @@
    FD_SHRED_SIGN_PEND_MAX. */
 #define FD_SHRED_SIGN_PEND_MAX ( 2UL*FD_SHRED_BATCH_FEC_SETS_MAX )
 
+/* Largest shred_net frame (send_shred). */
+#define FD_SHRED_NET_MTU ( sizeof(fd_ip4_udp_hdrs_t)+FD_SHRED_MAX_SZ )
+
 /* Per-tile FEC arena: fec_exposure+FD_SHRED_SIGN_PEND_MAX full shredder
    sets, then the resolver's views and shred slab, rounded up to whole
    fd_fec_set_t units. */
