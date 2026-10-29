@@ -28,8 +28,20 @@ make run-unit-test
 
 For large page and NUMA configuration, refer to `src/util/shmem/fd_shmem_cfg --help`.
 
+For normal-page workspaces, run
+`make run-unit-test TEST_OPTS="--page-sz normal -j 4"`.
+`test_shmem` acquires huge and gigantic pages regardless of `--page-sz`,
+so it still requires those page pools.  Without reserved hugepages, select
+a subset of the build's `unit-test/automatic.txt` that excludes tests
+requiring those pools, and run
+`contrib/test/run_unit_tests.sh --tests <list> --page-sz normal -j 4`.
+The runner admits jobs by workspace size only (1 GiB per test unless listed in
+`contrib/test/run_unit_tests.sh`), so bound `-j` by the available RAM.
+
 Note: if your MEMLOCK limit is low, it can be increased with
-`sudo prlimit --pid $$ --memlock=$((2*1024*1024*1024))`.
+`sudo prlimit --pid $$ --memlock=$((4*1024*1024*1024))`.  It must cover all
+concurrently locked mappings in each test, not just its largest workspace.
+Allow headroom above the automatic suite's largest workspace (2 GiB).
 
 ## Test Configuration
 
@@ -45,8 +57,11 @@ $(call make-unit-test,test_mymodule,test_module,fd_ballet fd_util)
 
 **Automatic unit tests** are C programs that run without any command-line
 parameters.  They may only run on the main thread and complete successfully
-given 2 GiB memory (backed by any page type).  They are tested on every
-commit as-is, and are run at least weekly with extended instrumentation.
+given a 1 GiB workspace (backed by any page type) or the larger budget
+listed in `contrib/test/run_unit_tests.sh`.  Tests such as `test_shmem`
+additionally require specific page types, as described above.  They are
+tested on every commit as-is, and are run at least weekly with extended
+instrumentation.
 Typically, they only use the main thread and finish in under 5 minutes.
 Example `Local.mk` configuration:
 ```make
