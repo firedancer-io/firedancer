@@ -232,17 +232,14 @@ jobs:
     runs-on:
       labels: ARM64
       group: fd-public-repo
-    if: ${{ false && inputs.build_arm }}
-    strategy:
-      matrix:
-        gcc_version: [12]
+    if: ${{ inputs.build_arm }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: Run build
+      - name: Run gcc build
+        env:
+          MACHINE: linux_gcc_neoverse_n2
         run: |
-          if [ "${{ matrix.gcc_version }}" != "8" ]; then
-            source /opt/rh/gcc-toolset-${{ matrix.gcc_version }}/enable
-          fi
-          make -j clean
+          source /opt/rh/gcc-toolset-13/enable
+          make -j distclean
           make -j all
