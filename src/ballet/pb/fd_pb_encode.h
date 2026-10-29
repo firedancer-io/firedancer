@@ -64,7 +64,7 @@ FD_PROTOTYPES_BEGIN
    less than 32 bytes of space is remaining, even if the field would
    still fit). */
 
-static FD_FN_UNUSED fd_pb_encoder_t *
+static inline fd_pb_encoder_t *
 fd_pb_encoder_init( fd_pb_encoder_t * encoder,
                     uchar *           out,
                     ulong             out_sz ) {
@@ -77,7 +77,7 @@ fd_pb_encoder_init( fd_pb_encoder_t * encoder,
 
 /* fd_pb_encoder_fini clears the encoder state. */
 
-static FD_FN_UNUSED void *
+static inline void *
 fd_pb_encoder_fini( fd_pb_encoder_t * encoder ) {
   encoder->buf0  = NULL;
   encoder->buf1  = NULL;
