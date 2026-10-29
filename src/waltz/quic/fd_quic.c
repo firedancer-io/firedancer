@@ -5043,7 +5043,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
           /* did they ack the first unacked byte? */
           if( FD_LIKELY( range.offset_lo == tx_tail ) ) {
             /* move tail to first unacked byte */
-            tx_tail = range.offset_hi;
+            tx_tail = fd_ulong_max( range.offset_hi, tx_tail );
             while( tx_tail < tx_sent ) {
               /* TODO - optimize this for larger strides */
               /* can we skip a whole byte? */
