@@ -197,15 +197,10 @@ test_handoff( void ) {
   FD_TEST( !ctx->hello.holds && fd_memeq( ctx->installed, ctx->spare_pubkey, 32UL ) );
   fd_failover_demoted_t demoted = pending_demoted( ctx );
   FD_TEST( demoted.handoff_id==42UL && demoted.mode==FD_FAILOVER_MODE_ALPENGLOW && demoted.last_vote_slot==99UL );
-  fd_adminctl_failover_status_resp_t status;
-  failover_status_resp( ctx, 1000L, &status );
-  FD_TEST( status.version==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION && !status.holds );
-  FD_TEST( fd_memeq( status.target, ctx->hello.staked_pubkey, 32UL ) && fd_memeq( status.installed, ctx->spare_pubkey, 32UL ) &&
-           fd_memeq( status.junk, ctx->spare_pubkey, 32UL ) );
   ctx->tx.valid         = 0;
   ctx->handoff.delivery = FD_FAILOVER_DELIVERY_SENT;
   deliver_ack( ctx, 42UL );
-  FD_TEST( ctx->taken && ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN );
+  FD_TEST( ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN );
   controller_fini( ctx );
 }
 
@@ -281,8 +276,8 @@ test_request_replay_behind( void ) {
 }
 
 /* test_demote_drain: after the junk switch the drain is its own action,
-   HELLO already says we do not run the identity, status reports the
-   drain, and an ACK or the same request during it is ignored. */
+   HELLO already says we do not run the identity, and an ACK or the
+   same request during it is ignored. */
 static void
 test_demote_drain( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 1 );
@@ -295,12 +290,9 @@ test_demote_drain( void ) {
   switch_ok( ctx, 800UL );
   step_controller( ctx, stem );
   FD_TEST( !holds_identity( ctx ) && !ctx->hello.holds && ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN );
-  fd_adminctl_failover_status_resp_t status;
-  failover_status_resp( ctx, 1000L, &status );
-  FD_TEST( status.action==(uchar)FD_FAILOVER_ACTION_DEMOTE_DRAIN );
   deliver_ack( ctx, 44UL );
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN && !ctx->taken && !ctx->tx.valid );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_DRAIN && ctx->handoff.result!=FD_FAILOVER_HANDOFF_TAKEN && !ctx->tx.valid );
   ctx->hist_seen_seq = 799UL;
   step_controller( ctx, stem );
   FD_TEST( pending_demoted( ctx ).handoff_id==44UL );
@@ -459,12 +451,9 @@ static void
 open_request( fd_failover_tile_ctx_t * ctx,
               ulong                    action ) {
   ctx->request.id           = 900UL;
-  ctx->request.last_id      = 900UL;
-  ctx->request.result       = FD_FAILOVER_HANDOFF_PENDING;
   ctx->request.addr         = FD_IP4_ADDR(10,0,0,2);
   ctx->request.until        = fd_long_sat_add( 1000L, FD_FAILOVER_CHANNEL_IDLE_NANOS );
   ctx->request.peer.boot_id = 77UL;
-  ctx->last_requested       = 1;
   ctx->action               = action;
 }
 
@@ -484,8 +473,7 @@ test_result_wait_peer_restart( void ) {
       pair( ctx, 78UL, 0, 1000L );
       int busy = 0;
       poll_peer( ctx, 1000L, &busy );
-      FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.last_id==900UL );
-      FD_TEST( ctx->request.result==( holds ? FD_FAILOVER_HANDOFF_TAKEN : FD_FAILOVER_HANDOFF_DECLINED ) );
+      FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id );
       FD_TEST( holds_identity( ctx )==holds );
       FD_TEST( ctx->stuck==!holds );
       controller_fini( ctx );
@@ -522,8 +510,8 @@ test_result_wait_peer_restart( void ) {
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->request.id && !ctx->request.until && ctx->stuck );
   controller_fini( ctx );
 
-  /* `failover promote` that only ends a paused confirmation wait answers
-     with the id of the handoff it ended, not 0. */
+  /* `failover promote` that only ends a paused confirmation wait is
+     answered at once, this machine runs the identity. */
   ctx = controller_init( 1 );
   open_request( ctx, FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
   ctx->request.until          = 0L;
@@ -532,11 +520,9 @@ test_result_wait_peer_restart( void ) {
   ctx->bus_req.nonce = 8UL;
   fd_memcpy( ctx->bus_req.payload, &req, sizeof(req) );
   serve_bus_request( ctx, stem, 1000L );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.last_id==900UL && ctx->request.result==FD_FAILOVER_HANDOFF_TAKEN );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && !ctx->cmd_nonce );
   fd_failover_bus_msg_t const * out = (fd_failover_bus_msg_t const *)bus_mem;
-  fd_adminctl_failover_control_resp_t response;
-  fd_memcpy( &response, out->payload, sizeof(response) );
-  FD_TEST( out->nonce==8UL && out->result==FD_ADMINCTL_RESULT_SUCCESS && response.handoff_id==900UL && response.holds );
+  FD_TEST( out->nonce==8UL && out->result==FD_ADMINCTL_RESULT_SUCCESS );
   controller_fini( ctx );
 }
 
@@ -579,47 +565,36 @@ operator_cmd( fd_failover_tile_ctx_t * ctx,
   return apply_control( ctx, &req, 1000L );
 }
 
-/* test_request_address: status shows where the open request dials, a
-   gossip address fixed when it opened, and after it the live one.  A
-   resume replaces the address or port it gives and keeps the other, one
-   that gives neither keeps both, and a bound request takes a given
-   address too. */
+/* test_request_address: the open request dials the gossip address fixed
+   when it opened.  A resume replaces the address or port it gives and
+   keeps the other, one that gives neither keeps both, and a bound
+   request takes a given address too. */
 static void
 test_request_address( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,3);
-  fd_adminctl_failover_status_resp_t status;
-  failover_status_resp( ctx, 1000L, &status );
-  FD_TEST( status.peer_addr==FD_IP4_ADDR(10,0,0,2) && !status.peer_addr_cmd && status.peer_port==8010 );
+  FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,2) && !ctx->cmd_addr && get_dial_port( ctx )==8010 );
 
-  pause_request( ctx, 1000L, "test" );
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,4), 9001 )==FD_ADMINCTL_RESULT_SUCCESS );
+  pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,4), 9001 )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,4) && get_dial_port( ctx )==9001 );
-  pause_request( ctx, 1000L, "test" );
-  failover_status_resp( ctx, 1000L, &status );
-  FD_TEST( status.request_paused && status.mode==(uchar)FD_FAILOVER_MODE_ALPENGLOW );
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,5), 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,5), 0 )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9001 );
-  failover_status_resp( ctx, 1000L, &status );
-  FD_TEST( status.peer_addr==FD_IP4_ADDR(10,0,0,5) && status.peer_addr_cmd && status.peer_port==9001 && !status.request_paused );
-  pause_request( ctx, 1000L, "test" );
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 9002 )==FD_ADMINCTL_RESULT_SUCCESS );
+  pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 9002 )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9002 );
-  failover_status_resp( ctx, 1000L, &status );
-  FD_TEST( status.peer_addr_cmd );
-  pause_request( ctx, 1000L, "test" );
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,5) && get_dial_port( ctx )==9002 );
   ctx->request.peer.boot_id = 77UL;
-  pause_request( ctx, 1000L, "test" );
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,6), 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  pause_request( ctx, 1000L, FD_FAILOVER_CONTROL_RESULT_TIMEOUT, "test" );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, FD_IP4_ADDR(10,0,0,6), 0 )==FD_FAILOVER_CMD_PENDING );
   FD_TEST( ctx->request.addr==FD_IP4_ADDR(10,0,0,6) && ctx->request.peer.boot_id==77UL );
 
   end_request( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
-  failover_status_resp( ctx, 1000L, &status );
-  FD_TEST( status.peer_addr==FD_IP4_ADDR(10,0,0,3) && !status.peer_addr_cmd && status.peer_port==8010 );
   controller_fini( ctx );
 }
 
@@ -665,61 +640,35 @@ test_wait_result_redials( void ) {
 }
 
 /* test_refused_command_keeps_stuck: only an accepted command clears
-   stuck, and the takeover checks behind a refusal report what they
-   find. */
+   stuck. */
 static void
 test_refused_command_keeps_stuck( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->stuck = 1;
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS && ctx->stuck );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS && !ctx->stuck );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING && !ctx->stuck );
   end_request( ctx, 1000L, FD_FAILOVER_HANDOFF_DECLINED );
-  controller_fini( ctx );
-
-  /* Without --force the takeover checks report SUCCESS when none finds
-     another machine running the identity, and the refusal otherwise. */
-  ctx = controller_init( 0 );
-  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
-  fd_adminctl_failover_status_resp_t status;
-  failover_status_resp( ctx, 1000L, &status );
-  FD_TEST( status.promote_result==FD_ADMINCTL_RESULT_SUCCESS && !status.holds );
-  FD_TEST( fd_memeq( status.installed, ctx->spare_pubkey, 32UL ) && fd_memeq( status.target, ctx->hello.staked_pubkey, 32UL ) );
-  ctx->taken = 1;
-  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_TAKEN );
-  FD_TEST( check_promotion( ctx, 1000L, 1 )==FD_ADMINCTL_RESULT_SUCCESS );
-  ctx->taken = 0;
-  ctx->staked_seen_at = 1000L;
-  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN );
-  FD_TEST( check_promotion( ctx, 1000L+FD_FAILOVER_GOSSIP_FRESH_NANOS, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
-  ctx->staked_seen_at = 0L;
-  pair( ctx, 77UL, 1, 1000L );
-  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS );
-  ctx->channel->peer_hello.holds = 0;
-  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
-  fd_memcpy( ctx->installed, ctx->hello.staked_pubkey, 32UL );
-  FD_TEST( check_promotion( ctx, 1000L, 0 )==FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER );
   controller_fini( ctx );
 }
 
 /* test_dialed_non_holder: a request that pairs with a peer that does not
-   run the identity ends as its own outcome, not as declined. */
+   run the identity ends. */
 static void
 test_dialed_non_holder( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CMD_PENDING );
   pair( ctx, 77UL, 0, 1000L );
   int busy = 0;
   poll_peer( ctx, 1000L, &busy );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && ctx->request.result==FD_FAILOVER_HANDOFF_NOT_HOLDER );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id );
   controller_fini( ctx );
 }
 
 /* test_restarted_peer_new_request: once the peer boot a request is
    bound to restarted, `failover promote` starts a new request instead of
-   resuming one that can never finish, and the accepted command answers
-   with its id. */
+   resuming one that can never finish. */
 static void
 test_restarted_peer_new_request( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( 0 );
@@ -735,11 +684,7 @@ test_restarted_peer_new_request( void ) {
   fd_memcpy( ctx->bus_req.payload, &req, sizeof(req) );
   serve_bus_request( ctx, stem, 1000L );
   FD_TEST( ctx->request.id && ctx->request.id!=900UL && !ctx->request.peer.boot_id && !ctx->request.peer_restarted );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
-  fd_failover_bus_msg_t const * out = (fd_failover_bus_msg_t const *)bus_mem;
-  fd_adminctl_failover_control_resp_t response;
-  fd_memcpy( &response, out->payload, sizeof(response) );
-  FD_TEST( out->nonce==7UL && out->result==FD_ADMINCTL_RESULT_SUCCESS && response.handoff_id==ctx->request.id );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER && ctx->cmd_nonce==7UL );
   controller_fini( ctx );
 }
 

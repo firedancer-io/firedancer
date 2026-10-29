@@ -35,6 +35,36 @@
 
 #define FD_FAILOVER_GOSSIP_FRESH_NANOS (15000000000L)
 #define FD_FAILOVER_REQUEST_RETRIES    (3UL)
+#define FD_FAILOVER_STEP_CNT           (8UL)  /* steps kept for the admin tile */
+
+/* apply_control's result for a pending command */
+#define FD_FAILOVER_CMD_PENDING (ULONG_MAX)
+
+/* What the controller is doing right now */
+#define FD_FAILOVER_ACTION_IDLE                (0UL) /* no local transition is running */
+#define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
+#define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* DEMOTED sent, waiting for the peer */
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the finality anchor */
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for votor to adopt */
+#define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the final history from the machine running the identity */
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the machine that handed it over to record our response */
+#define FD_FAILOVER_ACTION_DEMOTE_DRAIN        (8UL) /* junk key installed, waiting for votor history to drain */
+#define FD_FAILOVER_ACTION_CNT                 (9UL)
+
+/* The history sources a promotion can adopt */
+#define FD_FAILOVER_SOURCE_PEER  (0UL) /* the history the peer's DEMOTED gave us */
+#define FD_FAILOVER_SOURCE_EMPTY (1UL) /* forced empty history with a vote bound */
+
+/* How a handoff this machine requested or gave ended */
+#define FD_FAILOVER_HANDOFF_NONE       (0UL) /* nothing requested or sent */
+#define FD_FAILOVER_HANDOFF_PENDING    (1UL) /* requested or sent, no answer yet */
+#define FD_FAILOVER_HANDOFF_TAKEN      (2UL) /* the requesting machine took the identity */
+#define FD_FAILOVER_HANDOFF_DECLINED   (3UL) /* it did not take the identity, or the machine that handed it over did not record that it did */
+#define FD_FAILOVER_HANDOFF_RESTARTED  (4UL) /* the peer came back with a new boot_id */
+#define FD_FAILOVER_HANDOFF_CANCELLED  (5UL) /* `failover promote --force` stopped waiting for the peer */
+#define FD_FAILOVER_HANDOFF_NOT_HOLDER (6UL) /* the machine we dialed does not run the identity */
+#define FD_FAILOVER_HANDOFF_CNT        (7UL)
 
 /* Which key a switch installs, CNT if no switch is in flight */
 #define FD_FAILOVER_SWITCH_KEY_JUNK   (0UL) /* The junk identity. */
@@ -79,7 +109,6 @@ struct fd_failover_session {
   ulong state;            /* last seen session state */
   ulong generation;       /* catches a replacement paired during one poll */
   ulong peer_boot_id;     /* boot of the peer on this session */
-  int   peer_holds;       /* the peer runs the identity, from its HELLO or an accepted handoff on this session */
   int   close_after_send; /* hang up once the queued message is sent */
 };
 
@@ -93,8 +122,6 @@ struct fd_failover_request {
   long               until;          /* when the request pauses, zero while paused */
   int                sent;           /* sent on this session */
   int                peer_restarted; /* paused because the authenticated member or boot changed */
-  ulong              last_id;        /* id of our latest request, kept for status */
-  ulong              result;         /* FD_FAILOVER_HANDOFF_* of our latest request */
   ulong              send_cnt;       /* how many times we sent it */
 };
 
@@ -184,7 +211,6 @@ struct fd_failover_tile_ctx {
   long                    poll_at;     /* next idle socket poll */
 
   fd_failover_request_t request;               /* our handoff request */
-  int                   last_requested;        /* status describes our request rather than our demotion */
 
   ulong peer_floor; /* highest last vote the peer reported for the target, kept across sessions */
   ulong own_floor;  /* highest vote this machine signed as the target */
@@ -204,8 +230,8 @@ struct fd_failover_tile_ctx {
 
   /* Controller */
   ulong action;        /* FD_FAILOVER_ACTION_* */
-  int   stuck;         /* a transition failed or is overdue, shown to the operator */
-  int   stuck_logged;  /* the stuck value we last told the operator about */
+  int   stuck;         /* a transition failed or is overdue */
+  int   stuck_logged;  /* the stuck value we last logged */
   ulong deadline_slot; /* replay slot past which the current state is overdue, SLOT_NULL before replay started */
   long  deadline_at;   /* our clock past which it is overdue */
 
@@ -213,7 +239,6 @@ struct fd_failover_tile_ctx {
   ulong                 handoff_base; /* random base for our handoff ids */
   ulong                 handoff_cnt;  /* handoff ids issued since boot */
   fd_failover_handoff_t handoff;      /* our demotion */
-  int                   taken;        /* the peer took the identity, our next tenure or a set-identity clears this */
 
   fd_failover_history_t   peer_history; /* stored peer history, from a DEMOTED */
   fd_failover_promotion_t promotion;    /* the promotion in progress */
@@ -234,6 +259,13 @@ struct fd_failover_tile_ctx {
   fd_failover_bus_msg_t  bus_req;       /* the operator command copied in during_frag */
   int                    bus_req_fresh; /* bus_req arrived and is not handled yet */
   fd_failover_operator_t bus_operator;  /* copied in during_frag */
+
+  ulong cmd_nonce;  /* nonce of the command, 0 none */
+  ulong cmd_result; /* cmd outcome once cmd_done */
+  int   cmd_done;   /* cmd is done after_credit publishes it */
+  ulong cmd_step_head; /* steps logged */
+  ulong cmd_step_tail; /* steps sent to the admin tile or dropped */
+  char  cmd_step[ FD_FAILOVER_STEP_CNT ][ FD_FAILOVER_BUS_STEP_MAX ]; /* the last steps, sent while the command waits */
 
   fd_failover_id_switch_t id_switch; /* the identity switch we asked the admin tile for */
 
@@ -502,10 +534,10 @@ unprivileged_init( fd_topo_t const *      topo,
 static void
 on_input_overrun( fd_failover_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->input_lost ) ) return;
-  ctx->input_lost    = 1;
-  ctx->stuck         = 1;
-  ctx->hist_fresh    = 0;
-  ctx->bus_req_fresh = 0;
+  ctx->input_lost = 1;
+  ctx->stuck      = 1;
+  ctx->hist_fresh = 0;
+  finish_cmd( ctx, FD_FAILOVER_CONTROL_RESULT_INPUT_LOST );
   fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
   fd_failover_channel_hangup( ctx->channel, fd_failover_clock() );
   FD_LOG_WARNING(( "failover input overrun, failover is disabled until restart, validator processing continues" ));
@@ -647,6 +679,9 @@ after_credit( fd_failover_tile_ctx_t * ctx,
       serve_bus_request( ctx, stem, fd_failover_clock() );
       *charge_busy = 1;
     }
+    if( FD_UNLIKELY( ctx->cmd_done ) ) {
+      publish_cmd_answer( ctx, stem );
+    }
     return;
   }
   if( FD_UNLIKELY( ctx->hist_fresh ) ) {
@@ -663,6 +698,15 @@ after_credit( fd_failover_tile_ctx_t * ctx,
     if( busy ) *charge_busy = 1;
   }
   flush_pending( ctx, now );
+  if( FD_UNLIKELY( ctx->cmd_nonce && ctx->cmd_step_tail!=ctx->cmd_step_head ) ) {
+    if( stem->cr_avail[ ctx->admin_out_idx ]>=stem->depths[ ctx->admin_out_idx ] ) {
+      publish_cmd_step( ctx, stem );
+      *charge_busy = 1;
+    }
+  } else if( FD_UNLIKELY( ctx->cmd_done ) ) {
+    publish_cmd_answer( ctx, stem );
+    *charge_busy = 1;
+  }
   if( FD_UNLIKELY( ctx->bus_req_fresh ) ) {
     ctx->bus_req_fresh = 0;
     serve_bus_request( ctx, stem, now );

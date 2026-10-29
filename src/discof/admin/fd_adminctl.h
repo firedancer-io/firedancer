@@ -38,11 +38,12 @@
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
 #define FD_ADMINCTL_CMD_FAILOVER_PROMOTE       (6UL)
-#define FD_ADMINCTL_CMD_FAILOVER_STATUS        (7UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (32768UL)
 #define FD_ADMINCTL_SLOT_CNT    (4UL)
+#define FD_ADMINCTL_STEP_MAX    (256UL) /* a step line, with its NUL */
+#define FD_ADMINCTL_STEP_CNT    (16UL)  /* step lines a slot keeps for its command process */
 
 /* Shared command result codes. */
 #define FD_ADMINCTL_RESULT_SUCCESS              (0UL)
@@ -67,19 +68,21 @@
 #define FD_SET_IDENTITY_RESULT_SAME_IDENTITY                (0x3003UL)
 #define FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER             (0x3004UL)
 
-#define FD_FAILOVER_CONTROL_RESULT_BUSY              (0x4001UL) /* another failover command is waiting on the failover tile */
-#define FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE      (0x4002UL) /* the failover tile did not respond in time */
-#define FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER      (0x4003UL) /* this machine already runs the identity, or the one it asked does not */
-#define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS       (0x4004UL) /* a transition or key switch is running */
-#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY      (0x4005UL) /* the bound peer cannot complete this handoff */
-#define FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS        (0x4006UL) /* the authenticated peer runs the identity */
-#define FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING   (0x4007UL) /* the peer has not responded to our handoff */
-#define FD_FAILOVER_CONTROL_RESULT_TAKEN             (0x4008UL) /* the peer took our handoff, cleared once we hold the identity again or set-identity restarts failover */
-#define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN       (0x4009UL) /* gossip has a fresh contact info for the staked identity from another host */
-#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x400AUL) /* the machine running the identity has no eligible final vote state, see its local voting diagnostics */
-#define FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS (0x400BUL) /* gossip has no address for the machine running the identity */
-#define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x400CUL) /* this machine's replay is too far behind the last vote of the machine running the identity */
-#define FD_FAILOVER_CONTROL_RESULT_INPUT_LOST        (0x400EUL) /* failover input overrun, restart required */
+#define FD_FAILOVER_CONTROL_RESULT_BUSY              (0x4001UL)
+#define FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER      (0x4002UL)
+#define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS       (0x4003UL)
+#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY      (0x4004UL)
+#define FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS        (0x4005UL)
+#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY  (0x4006UL)
+#define FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS (0x4007UL)
+#define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x4008UL)
+#define FD_FAILOVER_CONTROL_RESULT_INPUT_LOST        (0x4009UL)
+#define FD_FAILOVER_CONTROL_RESULT_TIMEOUT           (0x400AUL)
+#define FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED    (0x400BUL)
+#define FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED   (0x400CUL)
+#define FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED     (0x400DUL)
+#define FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER       (0x400EUL)
+#define FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED  (0x400FUL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -125,45 +128,41 @@ typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth
 #define FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION (1UL)
 
 /* Failover commands, forwarded to the failover tile. */
-#define FD_ADMINCTL_FAILOVER_CMD_HANDOFF (0UL)
-#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE (1UL)
-#define FD_ADMINCTL_FAILOVER_CMD_STATUS  (2UL)
-#define FD_ADMINCTL_FAILOVER_CMD_CNT     (3UL)
+#define FD_ADMINCTL_FAILOVER_CMD_HANDOFF   (0UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE   (1UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT (2UL)
+#define FD_ADMINCTL_FAILOVER_CMD_CNT       (3UL)
 
 /* The command as the operator typed it. */
 static inline char const *
 fd_adminctl_failover_cmd_typed( ulong cmd ) {
-  switch( cmd ) {
-    case FD_ADMINCTL_FAILOVER_CMD_HANDOFF:
-    case FD_ADMINCTL_FAILOVER_CMD_PROMOTE: return "failover promote";
-    case FD_ADMINCTL_FAILOVER_CMD_STATUS:  return "failover status";
-    default:                               return "unknown";
-  }
+  return cmd<FD_ADMINCTL_FAILOVER_CMD_CNT ? "failover promote" : "unknown";
 }
 
 #define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL) /* confirmation only, does not authorize peer or history overrides */
 #define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL) /* --force, bypass peer guards and accept incomplete or empty vote history */
 
-/* Why a failover command or handoff was refused. */
 static inline char const *
 fd_adminctl_failover_result_cstr( ulong result ) {
   switch( result ) {
     case FD_ADMINCTL_RESULT_SUCCESS:                   return "success";
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:           return "the failover tile does not know this command";
     case FD_ADMINCTL_RESULT_UNSUPPORTED:               return "the failover tile does not support this command";
-    case FD_FAILOVER_CONTROL_RESULT_BUSY:              return "another failover command is in flight, try again";
-    case FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE:      return "the failover tile did not answer in time, the outcome is unknown";
+    case FD_FAILOVER_CONTROL_RESULT_BUSY:              return "another failover command is running on this validator, wait for it";
     case FD_FAILOVER_CONTROL_RESULT_WRONG_HOLDER:      return "this machine already runs the identity, or the machine it asked does not";
     case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "a transition or key switch is running, wait for it";
     case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "the other machine could not finish this handoff and may have given up the identity";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:        return "the authenticated peer runs the identity";
-    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING:   return "the peer has not answered our last handoff and may now run the identity";
-    case FD_FAILOVER_CONTROL_RESULT_TAKEN:             return "the peer took our last handoff and may still be voting";
-    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:       return "gossip showed the identity at another host within 15 seconds";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_HOLDS:        return "another machine runs the identity";
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY:  return "the machine running the identity has no eligible final vote state to hand over, its log says why";
     case FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS: return "gossip has no address for the machine running the identity, wait or pass --address";
     case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this machine's replay is too far behind the last vote of the machine running the identity, retry once caught up";
     case FD_FAILOVER_CONTROL_RESULT_INPUT_LOST:        return "failover lost an input update and is disabled until restart";
+    case FD_FAILOVER_CONTROL_RESULT_TIMEOUT:           return "the machine running the identity did not answer within 64 seconds";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_RESTARTED:    return "the machine running the identity restarted before it answered";
+    case FD_FAILOVER_CONTROL_RESULT_ADOPTION_FAILED:   return "this machine did not adopt the vote history";
+    case FD_FAILOVER_CONTROL_RESULT_SWITCH_FAILED:     return "the identity switch failed";
+    case FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER:       return "this machine votes as the identity failover manages";
+    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED:  return "set-identity changed the identity while the command ran";
     case FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH:      return "the public key in the keypair file does not match its private key";
     case FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER:      return "the keypair is an authorized voter on this validator";
     default:                                           return "unknown result";
@@ -171,11 +170,12 @@ fd_adminctl_failover_result_cstr( ulong result ) {
 }
 
 struct fd_adminctl_failover_req_v1 {
-  ulong  version; /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  ulong  cmd;     /* FD_ADMINCTL_FAILOVER_CMD_* */
-  ulong  flags;   /* FD_ADMINCTL_FAILOVER_FLAG_* */
-  uint   addr;    /* HANDOFF only, the machine running the identity to dial in network byte order, 0 to find it in gossip */
-  ushort port;    /* HANDOFF only, the port to dial it on in host byte order, 0 for the default port */
+  ulong  version;      /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
+  ulong  cmd;          /* FD_ADMINCTL_FAILOVER_CMD_* */
+  ulong  flags;        /* FD_ADMINCTL_FAILOVER_FLAG_* */
+  uint   addr;         /* HANDOFF only, the machine running the identity to dial in network byte order, 0 to find it in gossip */
+  ushort port;         /* HANDOFF only, the port to dial it on in host byte order, 0 for the default port */
+  uchar  target[ 32 ]; /* PREFLIGHT only, the identity the keypair names */
 };
 typedef struct fd_adminctl_failover_req_v1 fd_adminctl_failover_req_t;
 
@@ -187,84 +187,16 @@ struct fd_adminctl_failover_prepare_v1 {
 };
 typedef struct fd_adminctl_failover_prepare_v1 fd_adminctl_failover_prepare_t;
 
-struct fd_adminctl_failover_control_resp_v1 {
-  ulong version;    /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  uchar holds;      /* this machine runs the identity after the command */
-  uchar action;     /* controller action after the command */
-  ulong handoff_id; /* the handoff an accepted promote opened or resumed, 0 none */
+struct fd_adminctl_failover_resp_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
+  uchar identity[ 32 ];
+  ulong slot;    /* on success the last vote cast before hand-over, ULONG_MAX for none */
 };
-typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control_resp_t;
+typedef struct fd_adminctl_failover_resp_v1 fd_adminctl_failover_resp_t;
 #define FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION (1UL)
 
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t         )==32UL, failover_req_v1_layout          );
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_control_resp_v1_layout );
-
-/* What the failover controller is doing right now. */
-#define FD_FAILOVER_ACTION_IDLE                (0UL) /* no local transition is running */
-#define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
-#define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* DEMOTED sent, waiting for the peer */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the finality anchor */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for votor to adopt */
-#define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
-#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the final history from the machine running the identity */
-#define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the machine that handed it over to record our response */
-#define FD_FAILOVER_ACTION_DEMOTE_DRAIN        (8UL) /* junk key installed, waiting for votor history to drain */
-#define FD_FAILOVER_ACTION_CNT                 (9UL)
-
-/* The history sources a promotion can adopt, in order of preference. */
-#define FD_FAILOVER_SOURCE_PEER  (0UL) /* the history the peer's DEMOTED gave us */
-#define FD_FAILOVER_SOURCE_EMPTY (1UL) /* forced empty history with a vote bound */
-#define FD_FAILOVER_SOURCE_CNT   (2UL)
-
-/* The outcome of the last handoff this machine requested or gave. */
-#define FD_FAILOVER_HANDOFF_NONE       (0UL) /* nothing requested or sent */
-#define FD_FAILOVER_HANDOFF_PENDING    (1UL) /* requested or sent, no answer yet */
-#define FD_FAILOVER_HANDOFF_TAKEN      (2UL) /* the requesting machine took the identity */
-#define FD_FAILOVER_HANDOFF_DECLINED   (3UL) /* it did not take the identity, or the machine that handed it over did not record that it did */
-#define FD_FAILOVER_HANDOFF_RESTARTED  (4UL) /* the peer came back with a new boot_id */
-#define FD_FAILOVER_HANDOFF_CANCELLED  (5UL) /* `failover promote --force` stopped waiting for the peer */
-#define FD_FAILOVER_HANDOFF_NOT_HOLDER (6UL) /* the machine we dialed does not run the identity */
-#define FD_FAILOVER_HANDOFF_CNT        (7UL)
-
-/* `failover status`, provided by the failover tile. */
-struct fd_adminctl_failover_status_resp_v1 {
-  ulong  version;          /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  uchar  enabled;          /* 1 when failover runs */
-  uchar  holds;            /* this machine runs the identity */
-  uchar  action;           /* FD_FAILOVER_ACTION_* */
-  uchar  stuck;            /* a transition failed or is overdue */
-  uchar  link_state;       /* FD_FAILOVER_SESSION_* */
-  uchar  peer_holds_valid; /* a peer is authenticated on the current session */
-  uchar  peer_holds;       /* the peer runs the identity, from HELLO or the handoff result */
-  uchar  handoff_result;   /* FD_FAILOVER_HANDOFF_* of our last handoff */
-  ulong  peer_boot_id;     /* boot_id of the last peer we paired with, 0 none */
-  uint   peer_addr;        /* the address we dial, from `failover promote --address` or from gossip, 0 none */
-  ushort peer_port;        /* the failover port we dial it on, in host byte order */
-  uchar  promote_source;   /* FD_FAILOVER_SOURCE_* `failover promote --force` would adopt now */
-  uchar  peer_addr_cmd;    /* peer_addr is from `failover promote --address`, else it came from gossip */
-  ulong  handoff_id;       /* id of our last handoff, 0 none */
-  ulong  promote_floor;    /* coverage floor a promote has to reach, ULONG_MAX none */
-  ulong  promote_result;   /* what the takeover checks report without --force now, SUCCESS when they find no other holder */
-  uchar  mode;             /* FD_FAILOVER_MODE_* the validator runs */
-  uchar  request_paused;   /* our handoff request stopped at its deadline, `failover promote` resumes it */
-  uchar  target[ 32 ];     /* the identity failover hands off, from [paths.identity_key], set-identity or `failover promote <keypair>` */
-  uchar  installed[ 32 ];  /* the identity this machine signs with now */
-  uchar  junk[ 32 ];       /* this boot's junk key, installed when the identity is handed off */
-};
-typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_resp_t;
-
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==160UL, failover_status_resp_v1_layout );
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_resp_fits );
-
-/* fd_adminctl_failover_status_resp_init clears a status response and
-   sets its version and the unknown promote floor. */
-
-static inline void
-fd_adminctl_failover_status_resp_init( fd_adminctl_failover_status_resp_t * resp ) {
-  fd_memset( resp, 0, sizeof(*resp) );
-  resp->version       = FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION;
-  resp->promote_floor = ULONG_MAX;
-}
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t )==64UL, failover_req_v1_layout  );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_resp_t)==48UL, failover_resp_v1_layout );
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 
@@ -316,6 +248,21 @@ ulong
 fd_adminctl_wait( fd_adminctl_t * adminctl,
                   ulong           slot_id );
 
+/* fd_adminctl_wait_steps is fd_adminctl_wait_response that also calls
+   step_fn with each step line the admin tile adds while the command
+   runs, in order.  A command process that falls more than
+   FD_ADMINCTL_STEP_CNT-1 lines behind skips the oldest. */
+
+typedef void (* fd_adminctl_step_fn_t)( char const * step );
+
+ulong
+fd_adminctl_wait_steps( fd_adminctl_t *       adminctl,
+                        ulong                 slot_id,
+                        void *                resp,
+                        ulong                 resp_max,
+                        ulong *               resp_sz_out,
+                        fd_adminctl_step_fn_t step_fn );
+
 /* fd_adminctl_wait_response is fd_adminctl_wait for commands that also
    return a response payload.  Before the slot is reclaimed, up to
    resp_max bytes of the response payload are copied into resp and the
@@ -362,6 +309,16 @@ fd_adminctl_complete_response( fd_adminctl_t * adminctl,
                                ulong           result,
                                void const *    resp,
                                ulong           resp_sz );
+
+/* fd_adminctl_step adds a step line to the command being processed in
+   slot_id, for its command process to show.  Only the app process
+   calls it, between poll and complete.  The line is truncated to
+   FD_ADMINCTL_STEP_MAX-1 bytes. */
+
+void
+fd_adminctl_step( fd_adminctl_t * adminctl,
+                  ulong           slot_id,
+                  char const *    step );
 
 FD_PROTOTYPES_END
 

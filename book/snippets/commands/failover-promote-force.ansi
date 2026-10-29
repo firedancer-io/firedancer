@@ -1,0 +1,8 @@
+$ sudo firedancer failover promote identity.json --yes --force
+[32mNOTICE [0m attached to [32mlive[0m validator [1mfd1[0m version 0.1.1 [2m(babe91c83ca)[0m pid 1983468 up 3m at [2m/mnt/.fd[0m
+[32mNOTICE [0m requesting forced promotion, this machine takes the identity without its peer
+[32mNOTICE [0m operator promotion: adopting an empty history, --force skips the checks on the other machine
+[32mNOTICE [0m operator promotion: asking the votor to adopt an empty history
+[32mNOTICE [0m operator promotion: the votor adopted an empty history, no last vote, no vote at or below slot 389274493
+[32mNOTICE [0m operator promotion: asked the admin tile to install the identity
+[32mNOTICE [0m promotion success (identity now [1m2vJXGJVGTxabY97CtBfby7KcHz3Pb2ZEX8aH6vLbqvTf[0m, no earlier vote)
