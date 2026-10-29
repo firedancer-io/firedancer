@@ -110,7 +110,7 @@ FD_TEMPL_DEF_STRUCT_END(crypto_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(new_token_frame)
   FD_TEMPL_MBR_FRAME_TYPE  ( type, 0x07,0x07 )
-  FD_TEMPL_MBR_ELEM_VARINT ( token_len, uint )
+  FD_TEMPL_MBR_ELEM_VARINT ( token_len, ulong )
   FD_TEMPL_MBR_ELEM_VAR_RAW( token, 1,1024, token_len )
 FD_TEMPL_DEF_STRUCT_END(new_token_frame)
 
