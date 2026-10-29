@@ -193,7 +193,7 @@ will instead be read from `stdin`.
 ::: tip NOTE
 
 Between two Firedancer validators, Firedancer supports a native
-[failover](#failover-promote) mechanism that is faster and easier than
+[failover](#failover-promote) mechanism that is faster and safer than
 `set-identity`, and using `set-identity` between them is heavily
 discouraged. Use `set-identity` primarily for failing over between Agave
 and Firedancer.
@@ -350,7 +350,7 @@ validator. Run this command on the machine that should take over,
 with the target keypair of the identity to take. The machine that
 originally ran it will switch to a random junk key that it generated
 at boot. The validators must use the same vote account and have
-failover enabled, which is on by default.
+failover enabled.
 
 ```sh
 firedancer failover promote [<keypair>] [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]
