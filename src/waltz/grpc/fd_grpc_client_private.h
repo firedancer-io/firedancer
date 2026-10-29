@@ -130,8 +130,8 @@ struct fd_grpc_client_private {
   ulong                 stream_cnt;
 
   /* Buffers */
-  uchar * nanopb_tx;
-  ulong   nanopb_tx_max;
+  uchar * pb_tx;
+  ulong   pb_tx_max;
   uchar * frame_scratch;
   ulong   frame_scratch_max;
 

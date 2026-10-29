@@ -280,7 +280,7 @@ test_connected_client_rate( fd_circq_t * circq,
   FD_TEST( client->event_stream );
   client->event_stream->s.tx_wnd = UINT_MAX>>1;
   FD_TEST( !ZSTD_isError( ZSTD_CCtx_reset( client->zst, ZSTD_reset_session_only ) ) );
-  client->zout = (ZSTD_outBuffer){ .dst = grpc->nanopb_tx+sizeof(fd_grpc_hdr_t), .size = grpc->nanopb_tx_max-sizeof(fd_grpc_hdr_t), .pos = 0UL };
+  client->zout = (ZSTD_outBuffer){ .dst = grpc->pb_tx+sizeof(fd_grpc_hdr_t), .size = grpc->pb_tx_max-sizeof(fd_grpc_hdr_t), .pos = 0UL };
   return client;
 }
 

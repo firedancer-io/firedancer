@@ -6,7 +6,6 @@
 
 #include "fd_grpc_codec.h"
 #include "../fd_fqdn.h"
-#include "../../third_party/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
 #include "../tlsrec/fd_tlsrec.h"
 
 struct fd_grpc_client_private;
@@ -299,9 +298,9 @@ fd_grpc_client_rxtx_tls( fd_grpc_client_t * client,
    request_ctx is an arbitrary number used to identify the request.  It
    echoes in callbacks.
 
-   fields points to a generated nanopb descriptor.  message points to a
-   generated nanopb struct that the user filled in with info.  Calls
-   pb_encode() internally.
+   protobuf points to the serialized Protobuf message (protobuf_sz
+   bytes).  protobuf==NULL sends only the request headers (requires
+   is_streaming).
 
    auth_token is an optional authorization header.  The header value is
    prepended with "Bearer ".  auth_token_sz==0 omits the auth header.
@@ -322,19 +321,6 @@ fd_grpc_client_rxtx_tls( fd_grpc_client_t * client,
 
 fd_grpc_h2_stream_t *
 fd_grpc_client_request_start(
-    fd_grpc_client_t *   client,
-    char const *         path,
-    ulong                path_len, /* in [0,128) */
-    ulong                request_ctx,
-    pb_msgdesc_t const * fields,
-    void const *         message,
-    char const *         auth_token,
-    ulong                auth_token_sz,
-    int                  is_streaming
-);
-
-fd_grpc_h2_stream_t *
-fd_grpc_client_request_start1(
     fd_grpc_client_t *   client,
     char const *         path,
     ulong                path_len, /* in [0,128) */
@@ -361,14 +347,6 @@ fd_grpc_client_request_start1(
 
 int
 fd_grpc_client_stream_send_msg(
-    fd_grpc_client_t *    client,
-    fd_grpc_h2_stream_t * stream,
-    pb_msgdesc_t const *  fields,
-    void const *          message
-);
-
-int
-fd_grpc_client_stream_send_msg1(
     fd_grpc_client_t *    client,
     fd_grpc_h2_stream_t * stream,
     uchar const *         protobuf,
