@@ -58,6 +58,7 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_TXN_WATERFALL    ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TXN_WATERFALL_IDX,
   [ FD_GUI_HIST_TIMELINE_DAY     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_DAY_IDX,
   [ FD_GUI_HIST_REPLAY_TXN       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_IDX,
+  [ FD_GUI_HIST_TIMELINE_TILE_DAY ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_TILE_DAY_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -92,6 +93,9 @@ FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_R
    ulong-string arrays: at most 4*21=84 or 3*23=69 bytes per bucket
    including commas, within the shared 512-byte budget. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
+/* Agg cpu is per tile: at most FD_TOPO_MAX_TILES arrays of 5 bytes
+   ("null," or "250,") per bucket, plus brackets. */
+FD_STATIC_ASSERT( FD_TOPO_MAX_TILES*(FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*5UL+4UL)+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_cpu_response_bound );
 FD_STATIC_ASSERT( 2UL*FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8)<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ,
                   compressed_response_bound );
 
@@ -209,7 +213,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  http_fp );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-  l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30 ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -804,7 +808,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_http_server_t * _gui = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( http_param ) );
                      FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
                      FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-  void * _db       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+  void * _db       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30 ) );
 
   fd_http_server_callbacks_t gui_callbacks = {
     .request    = gui_http_request,
@@ -820,8 +824,8 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_LOG_NOTICE(( "gui server listening at %shttp://" FD_IP4_ADDR_FMT ":%u%s", fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port, fd_log_style_normal() ));
 
-  ctx->db = fd_gui_store_join( fd_gui_store_new( _db, tile->gui.gui_database_path, tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), ctx->seed, fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
-  if( FD_UNLIKELY( !ctx->db ) ) FD_LOG_ERR(( "fd_gui_store_new(%s) failed; gui tile cannot start", tile->gui.gui_database_path ));
+  ctx->db = fd_gui_store_join( fd_gui_hist_store_new( _db, tile->gui.gui_database_path, tile->gui.db_size_gib<<30, ctx->seed ) );
+  if( FD_UNLIKELY( !ctx->db ) ) FD_LOG_ERR(( "fd_gui_hist_store_new(%s) failed; gui tile cannot start", tile->gui.gui_database_path ));
 
   if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -885,7 +889,7 @@ unprivileged_init( fd_topo_t const *      topo,
                        FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( http_param )                    );
   void * _peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt) );
   void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-                       FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+                       FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_hist_store_footprint( tile->gui.db_size_gib<<30 ) );
 
   fd_http_static_file_t const * index_html = index_html_etag_init( ctx );
 

@@ -99,11 +99,11 @@ typedef struct fd_gui_store_private fd_gui_store_t;
 #define FD_GUI_STORE_REGION_SZ  (40UL<<20)
 #define FD_GUI_STORE_MAX_REC_SZ (FD_GUI_STORE_REGION_SZ)
 
-/* Each ring has a protected rolling base.  Unclaimed base regions are
+/* Each ring has a protected rolling base of desc->base_regions (>=1)
+   regions.  Unclaimed base regions are
    reserved lazily; other rings can neither allocate them nor pressure-
-   evict records in the newest BASE_REGIONS regions.  A writer may recycle
+   evict records in the ring's newest base regions.  A writer may recycle
    its own oldest eligible records when shared capacity is exhausted. */
-#define FD_GUI_STORE_BASE_REGIONS (3UL)
 
 /* FD_GUI_STORE_MAX_RINGS is the maximum number of named rings a store
    can host.  It bounds the per-ring metrics arrays below. */
@@ -121,6 +121,7 @@ struct fd_gui_store_desc {
   ulong        ts_off;      /* byte offset, within the value, of the record's `long` timestamp (TS only; pass 0 for KV) */
   ulong        granularity; /* TS window divisor: window = (ulong)(*(long*)(val+ts_off)) / granularity (pass 0 for KV) */
   ulong        max_records; /* enforced KV index budget (0 means 1; ignored for TS) */
+  ulong        base_regions; /* protected base in regions, >=1 */
 };
 
 typedef struct fd_gui_store_desc fd_gui_store_desc_t;
@@ -194,15 +195,17 @@ ulong
 fd_gui_store_shared_free_region_cnt( fd_gui_store_t const * db );
 
 /* fd_gui_store_min_size returns the minimum file size ceiling for
-   ring_cnt rings; zero for an invalid ring count.  new/footprint
-   reject smaller stores before opening a file. */
-FD_FN_CONST ulong
-fd_gui_store_min_size( ulong ring_cnt );
+   ring_cnt rings described by descs: the superblock plus every ring's
+   base regions.  Zero for an invalid ring count or NULL descs.
+   new/footprint reject smaller stores before opening a file. */
+FD_FN_PURE ulong
+fd_gui_store_min_size( ulong                       ring_cnt,
+                       fd_gui_store_desc_t const * descs );
 
 /* fd_gui_store_reclaim performs pressure reclamation, removing at most
    budget records from one oldest region.  ring_idx==ULONG_MAX selects
    the oldest eligible excess region across all rings and protects their
-   newest BASE_REGIONS regions.
+   newest base_regions regions.
    Otherwise only the named writer's own oldest region is considered,
    including its base.  eligible may be NULL (all records eligible).
    A rejected head is never skipped within a ring.  Returns records

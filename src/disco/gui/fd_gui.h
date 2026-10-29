@@ -172,17 +172,19 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 
 #define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ        (256UL<<20)
 
-#define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (7UL)
-#define FD_GUI_TIMELINE_GRANULARITY_CNT        (20UL)
+#define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (8UL)
+#define FD_GUI_TIMELINE_GRANULARITY_CNT        (23UL)
 #define FD_GUI_TIMELINE_QUERY_SHRED_MAX        (262144UL)
 /* At least one bucket per pixel on a 4K display, and enough to cover
    the widest raw txn_batch view (1.5h) at 2s in a single request. */
 #define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (4096UL)
 
+/* fd_gui_timeline_granularities lists the bucket durations accepted by
+   the timeline aggregate queries, in ascending order. */
+
 struct fd_gui_timeline_granularity {
   char const * name;
-  ulong        stored_idx; /* stored granularity the buckets are built from */
-  ulong        merge_cnt;  /* stored buckets merged into one bucket */
+  ulong        ns;   /* bucket duration in nanoseconds */
 };
 typedef struct fd_gui_timeline_granularity fd_gui_timeline_granularity_t;
 extern fd_gui_timeline_granularity_t const fd_gui_timeline_granularities[ FD_GUI_TIMELINE_GRANULARITY_CNT ];
@@ -193,21 +195,24 @@ extern ulong const fd_gui_timeline_stored_granularity_ns[ FD_GUI_TIMELINE_STORED
 
 static inline ulong
 fd_gui_timeline_granularity_ns( ulong g ) {
-  fd_gui_timeline_granularity_t const * desc = &fd_gui_timeline_granularities[ g ];
-  return fd_gui_timeline_stored_granularity_ns[ desc->stored_idx ]*desc->merge_cnt;
+  return fd_gui_timeline_granularities[ g ].ns;
 }
 
-/* Stored timeline-day bucket layout. */
+/* Stored timeline tiers, in ascending order.  The 25ms tier only exists
+   in the per-tile CPU record (fd_gui_timeline_tile_day_t); the day
+   record (fd_gui_timeline_day_t) holds the 250ms to 12h tiers. */
 #define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
 
-#define FD_GUI_TIMELINE_GRANULARITY_250MS (0)
-#define FD_GUI_TIMELINE_GRANULARITY_2S    (1)
-#define FD_GUI_TIMELINE_GRANULARITY_15S   (2)
-#define FD_GUI_TIMELINE_GRANULARITY_2M    (3)
-#define FD_GUI_TIMELINE_GRANULARITY_15M   (4)
-#define FD_GUI_TIMELINE_GRANULARITY_2H    (5)
-#define FD_GUI_TIMELINE_GRANULARITY_12H   (6)
+#define FD_GUI_TIMELINE_GRANULARITY_25MS  (0)
+#define FD_GUI_TIMELINE_GRANULARITY_250MS (1)
+#define FD_GUI_TIMELINE_GRANULARITY_2S    (2)
+#define FD_GUI_TIMELINE_GRANULARITY_15S   (3)
+#define FD_GUI_TIMELINE_GRANULARITY_2M    (4)
+#define FD_GUI_TIMELINE_GRANULARITY_15M   (5)
+#define FD_GUI_TIMELINE_GRANULARITY_2H    (6)
+#define FD_GUI_TIMELINE_GRANULARITY_12H   (7)
 
+#define FD_GUI_TIMELINE_25MS_CNT  (FD_GUI_TIMELINE_DAY_NS / (              25L*1000L*1000L))
 #define FD_GUI_TIMELINE_250MS_CNT (FD_GUI_TIMELINE_DAY_NS / (             250L*1000L*1000L))
 #define FD_GUI_TIMELINE_2S_CNT    (FD_GUI_TIMELINE_DAY_NS / (         2L*1000L*1000L*1000L))
 #define FD_GUI_TIMELINE_15S_CNT   (FD_GUI_TIMELINE_DAY_NS / (        15L*1000L*1000L*1000L))
@@ -215,6 +220,19 @@ fd_gui_timeline_granularity_ns( ulong g ) {
 #define FD_GUI_TIMELINE_15M_CNT   (FD_GUI_TIMELINE_DAY_NS / (    15L*60L*1000L*1000L*1000L))
 #define FD_GUI_TIMELINE_2H_CNT    (FD_GUI_TIMELINE_DAY_NS / ( 2L*60L*60L*1000L*1000L*1000L))
 #define FD_GUI_TIMELINE_12H_CNT   (FD_GUI_TIMELINE_DAY_NS / (12L*60L*60L*1000L*1000L*1000L))
+
+/* fd_gui_timeline_tier resolves granularity g of the aggregate query
+   key to the longest stored tier the query has whose duration divides
+   the granularity's.  On success, sets *stored to the tier, *merge_cnt
+   to the number of tier buckets merged into one query bucket and
+   returns 0.  Returns -1 if key is unknown, g is below the query's
+   minimum granularity, or no tier divides it. */
+
+int
+fd_gui_timeline_tier( char const * key,
+                      ulong        g,
+                      int *        stored,
+                      ulong *      merge_cnt );
 
 #define FD_GUI_TIMELINE_FIELD_MAP( X )                                                           \
   /* field                              250ms   2s      15s     2m      15m     2h      12h   */ \
@@ -282,6 +300,7 @@ typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
 static inline ulong
 fd_gui_timeline_bucket_cnt( int granularity ) {
   switch( granularity ) {
+    case FD_GUI_TIMELINE_GRANULARITY_25MS:  return FD_GUI_TIMELINE_25MS_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_250MS: return FD_GUI_TIMELINE_250MS_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_2S:    return FD_GUI_TIMELINE_2S_CNT;
     case FD_GUI_TIMELINE_GRANULARITY_15S:   return FD_GUI_TIMELINE_15S_CNT;
@@ -374,6 +393,82 @@ fd_gui_timeline_field_accum( fd_gui_timeline_day_t * day,
                              ulong                   value ) {
   ulong acc = fd_gui_timeline_field_get( day, granularity, field, idx );
   fd_gui_timeline_field_set( day, granularity, field, idx, fd_gui_timeline_combine( acc, value, field ) );
+}
+
+/* Per-tile CPU utilization is sampled every 25ms from the tile regime
+   timers as 0 (idle) to FD_GUI_CPU_UTIL_MAX (busy). */
+#define FD_GUI_CPU_UTIL_SAMPLE_NS     (25000000L)
+#define FD_GUI_CPU_UTIL_MAX           ((uchar)250)
+#define FD_GUI_CPU_UTIL_UNKNOWN       ((uchar)255)
+
+#define FD_GUI_CPU_UTIL_CREATE_MAX    (1UL)
+
+/* Per-tile CPU utilization sum/count tiers (250ms and longer).  Each
+   holds an exact sample sum and count per bucket. */
+#define FD_GUI_TIMELINE_CPU_MAP( X ) \
+  /* tier   sum     cnt    */        \
+  X( 250MS, ushort, uchar  )         \
+  X( 2S,    ushort, uchar  )         \
+  X( 15S,   uint,   ushort )         \
+  X( 2M,    uint,   ushort )         \
+  X( 15M,   uint,   ushort )         \
+  X( 2H,    uint,   uint   )         \
+  X( 12H,   uint,   uint   )
+
+#define FD_GUI_TIMELINE_CPU_DECL( g, s, c ) \
+  s sum_##g[ FD_GUI_TIMELINE_##g##_CNT ];   \
+  c cnt_##g[ FD_GUI_TIMELINE_##g##_CNT ];
+
+struct fd_gui_timeline_tile_day {
+  ulong day_idx;
+  ulong tile_idx;
+  long  insert_time_ns;
+  uchar util_25ms[ FD_GUI_TIMELINE_DAY_NS/FD_GUI_CPU_UTIL_SAMPLE_NS ];
+  FD_GUI_TIMELINE_CPU_MAP( FD_GUI_TIMELINE_CPU_DECL )
+};
+typedef struct fd_gui_timeline_tile_day fd_gui_timeline_tile_day_t;
+
+#undef FD_GUI_TIMELINE_CPU_DECL
+
+/* fd_gui_timeline_cpu_get reads the sample sum and count in bucket idx
+   of CPU sum/count tier granularity. */
+
+static inline void
+fd_gui_timeline_cpu_get( fd_gui_timeline_tile_day_t const * rec,
+                         int                                granularity,
+                         ulong                              idx,
+                         ulong *                            sum,
+                         ulong *                            cnt ) {
+  switch( granularity ) {
+#define FD_GUI_TIMELINE_CPU_GET( g, s, c )                                                       \
+    case FD_GUI_TIMELINE_GRANULARITY_##g:                                                        \
+      if( FD_UNLIKELY( idx>=FD_GUI_TIMELINE_##g##_CNT ) ) FD_LOG_ERR(( "cpu bucket %lu out of range", idx )); \
+      *sum = rec->sum_##g[ idx ];                                                                \
+      *cnt = rec->cnt_##g[ idx ];                                                                \
+      return;
+    FD_GUI_TIMELINE_CPU_MAP( FD_GUI_TIMELINE_CPU_GET )
+#undef FD_GUI_TIMELINE_CPU_GET
+    default: FD_LOG_ERR(( "invalid timeline cpu granularity %d", granularity ));
+  }
+}
+
+/* fd_gui_timeline_cpu_add folds one known sample into every CPU sum/count
+   tier bucket covering day_ns.  Tier types hold a full bucket of
+   samples; a count at its type maximum drops further samples. */
+
+static inline void
+fd_gui_timeline_cpu_add( fd_gui_timeline_tile_day_t * rec,
+                         ulong                        day_ns,
+                         uchar                        util ) {
+#define FD_GUI_TIMELINE_CPU_ADD( g, s, c ) do {                                                  \
+    ulong idx = day_ns/fd_gui_timeline_stored_granularity_ns[ FD_GUI_TIMELINE_GRANULARITY_##g ]; \
+    if( FD_LIKELY( rec->cnt_##g[ idx ]<(c)~(c)0 ) ) {                                            \
+      rec->sum_##g[ idx ] = (s)( rec->sum_##g[ idx ]+util );                                     \
+      rec->cnt_##g[ idx ]++;                                                                     \
+    }                                                                                            \
+  } while(0);
+  FD_GUI_TIMELINE_CPU_MAP( FD_GUI_TIMELINE_CPU_ADD )
+#undef FD_GUI_TIMELINE_CPU_ADD
 }
 
 struct fd_gui_tile_timers {
@@ -1117,6 +1212,7 @@ typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
 union fd_gui_timeline_scratch {
   fd_gui_shred_event_t           events[ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
   fd_gui_timeline_query_bucket_t buckets[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  struct { uint sum; uint cnt; } cpu[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
 };
 typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
 
@@ -1140,6 +1236,15 @@ struct fd_gui {
   long next_sample_40millis;
   long next_sample_25millis;
   long next_sample_10millis;
+
+  /* CPU utilization sampler: per-tile regime timer references.
+     Samples are written to the FD_GUI_HIST_TIMELINE_TILE_DAY records. */
+  struct {
+    ulong total[ FD_TOPO_MAX_TILES ];
+    ulong idle [ FD_TOPO_MAX_TILES ];
+    ulong last_slot; /* absolute 25ms slot of the last sample, ULONG_MAX if none */
+    ulong cur_day;   /* newest day with a tile-day record, ULONG_MAX if unknown */
+  } cpu_util;
 
   ulong leader_begin_slot;
   ulong leader_end_slot;
@@ -1238,11 +1343,35 @@ typedef struct fd_gui fd_gui_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_gui_cpu_util_snap samples per-tile cpu utilization from the regime
+   timers into the tiles' day records. */
+
+void
+fd_gui_cpu_util_snap( fd_gui_t * gui,
+                      long       now );
+
 /* fd_gui_timeline_day_get returns the retained calendar day for day_idx, or NULL if not found. */
 
 fd_gui_timeline_day_t *
 fd_gui_timeline_day_get( fd_gui_t * gui,
                          ulong      day_idx );
+
+/* fd_gui_timeline_tile_day_get returns the retained CPU record of
+   tile_idx for calendar day day_idx, or NULL if not found. */
+
+fd_gui_timeline_tile_day_t *
+fd_gui_timeline_tile_day_get( fd_gui_t * gui,
+                              ulong      day_idx,
+                              ulong      tile_idx );
+
+/* fd_gui_timeline_tile_day_bounds scans the retained per-tile CPU day
+   records.  Returns 1 and sets *lo_day / *hi_day to the oldest / newest
+   day covered by any of them, or returns 0 if there are none. */
+
+int
+fd_gui_timeline_tile_day_bounds( fd_gui_t * gui,
+                                 ulong *    lo_day,
+                                 ulong *    hi_day );
 
 /* fd_gui_handle_replay_txn records replay transaction metadata. */
 

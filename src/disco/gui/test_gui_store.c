@@ -48,10 +48,10 @@ ent16_key_cmp( void const * a, void const * b ) {
 }
 
 static fd_gui_store_desc_t const descs[] = {
-  { .name="ent8",  .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL,  .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp,  .val_sz=sizeof(ent8_val_t),  .val_align=8UL, .max_records=1UL<<20 },
-  { .name="ent16", .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=16UL, .key_hash=ent_key_hash, .key_cmp=ent16_key_cmp, .val_sz=sizeof(ent16_val_t), .val_align=8UL, .max_records=1UL<<20 },
-  { .name="entbig",.kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL,  .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp,  .val_sz=256UL,              .val_align=8UL, .max_records=1UL<<20 },
-  { .name="ts",    .kind=FD_GUI_STORE_KIND_TS,                                                                             .val_sz=sizeof(ts_val_t),   .val_align=8UL, .ts_off=0UL, .granularity=1UL },
+  { .name="ent8",  .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL,  .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp,  .val_sz=sizeof(ent8_val_t),  .val_align=8UL, .max_records=1UL<<20, .base_regions=2UL },
+  { .name="ent16", .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=16UL, .key_hash=ent_key_hash, .key_cmp=ent16_key_cmp, .val_sz=sizeof(ent16_val_t), .val_align=8UL, .max_records=1UL<<20, .base_regions=2UL },
+  { .name="entbig",.kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL,  .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp,  .val_sz=256UL,              .val_align=8UL, .max_records=1UL<<20, .base_regions=2UL },
+  { .name="ts",    .kind=FD_GUI_STORE_KIND_TS,                                                                             .val_sz=sizeof(ts_val_t),   .val_align=8UL, .ts_off=0UL, .granularity=1UL, .base_regions=2UL },
 };
 
 static char *
@@ -135,7 +135,7 @@ static void
 test_entity_open_wipe( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
 
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
   FD_TEST( fd_gui_store_cnt( db )==DB_CNT );
 
   ulong k = 7UL;
@@ -146,7 +146,7 @@ test_entity_open_wipe( void ) {
   db_close( db );
 
   /* reopen: the store is wiped on open (see fd_gui_store_new) */
-  db = db_open( path, 512UL<<20 );
+  db = db_open( path, 1UL<<30 );
   FD_TEST( fd_gui_store_kv_get( db, DB_ENT8, &k )==NULL );
   db_close( db );
 
@@ -157,7 +157,7 @@ test_entity_open_wipe( void ) {
 static void
 test_entity_upsert_get( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* upsert several times; a later upsert of the same key modifies in
      place (last writer wins) */
@@ -183,7 +183,7 @@ test_entity_upsert_get( void ) {
 static void
 test_entity_get_any( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* two-ulong keys (slot, bank_seq); insert (5,2),(5,7),(9,0) */
   FD_TEST( ent16_put( db, 5UL, 2UL, 1000UL )==FD_GUI_STORE_SUCCESS );
@@ -216,7 +216,7 @@ test_entity_get_any( void ) {
 static void
 test_entity_iter( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* Three forks of slot 5 (out of bank_seq order on insert) plus a slot 9. */
   FD_TEST( ent16_put( db, 5UL, 7UL, 2000UL )==FD_GUI_STORE_SUCCESS );
@@ -262,7 +262,7 @@ test_entity_iter( void ) {
 static void
 test_entity_evict( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* (slot, bank_seq) keys for slots 0..9, bank_seq 0 */
   for( ulong i=0UL; i<10UL; i++ ) {
@@ -308,8 +308,9 @@ test_kv_index_footprint( void ) {
     .val_sz      = sizeof(ent8_val_t),
     .val_align   = alignof(ent8_val_t),
     .max_records = 1UL<<20,
+    .base_regions = 2UL,
   };
-  ulong fp = fd_gui_store_footprint( 256UL<<20, 1UL, &kv_desc );
+  ulong fp = fd_gui_store_footprint( 512UL<<20, 1UL, &kv_desc );
   FD_TEST( fp && fp<(40UL<<20) );
 
   FD_LOG_NOTICE(( "test_kv_index_footprint: ok" ));
@@ -326,24 +327,25 @@ test_ts_index_footprint( void ) {
     .val_align   = alignof(ts_val_t),
     .ts_off      = 0UL,
     .granularity = 1UL,
+    .base_regions = 2UL,
   };
-  ulong ts_fp = fd_gui_store_footprint( 256UL<<20, 1UL, &ts_desc );
+  ulong ts_fp = fd_gui_store_footprint( 512UL<<20, 1UL, &ts_desc );
   FD_TEST( ts_fp && ts_fp<(1UL<<20) );
 
   fd_gui_store_desc_t const mixed_descs[] = {
     ts_desc,
-    { .name="kv", .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL, .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp, .val_sz=sizeof(ent8_val_t), .val_align=alignof(ent8_val_t), .max_records=1UL },
+    { .name="kv", .kind=FD_GUI_STORE_KIND_KV, .key_off=0UL, .key_sz=8UL, .key_hash=ent_key_hash, .key_cmp=ent8_key_cmp, .val_sz=sizeof(ent8_val_t), .val_align=alignof(ent8_val_t), .max_records=1UL, .base_regions=2UL },
   };
-  ulong mixed_fp = fd_gui_store_footprint( 256UL<<20, 2UL, mixed_descs );
+  ulong mixed_fp = fd_gui_store_footprint( 512UL<<20, 2UL, mixed_descs );
   FD_TEST( mixed_fp && mixed_fp-ts_fp<(1UL<<20) );
 
   fd_gui_store_desc_t const kv_desc = mixed_descs[ 1 ];
-  ulong kv_fp = fd_gui_store_footprint( 256UL<<20, 1UL, &kv_desc );
+  ulong kv_fp = fd_gui_store_footprint( 512UL<<20, 1UL, &kv_desc );
   FD_TEST( kv_fp && kv_fp<(1UL<<20) );
   char path[ 128 ]; mk_path( path, sizeof(path) );
   void * mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( kv_fp, fd_gui_store_align() ) );
   FD_TEST( mem );
-  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, 256UL<<20, 1UL, TEST_SEED, &kv_desc ) );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, 512UL<<20, 1UL, TEST_SEED, &kv_desc ) );
   FD_TEST( db );
   db_close( db );
   cleanup( path );
@@ -354,7 +356,7 @@ test_ts_index_footprint( void ) {
 static void
 test_ts_append_scan( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* append 3 records to window 1, 2 to window 2, 1 to window 5 */
   ulong seq = 0UL;
@@ -466,7 +468,7 @@ test_ts_append_scan( void ) {
 static void
 test_ts_live_timestamp_bounds( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   long first_ts;
   long last_ts;
@@ -514,7 +516,6 @@ test_ts_live_timestamp_bounds( void ) {
 static void
 test_ts_live_timestamp_bounds_wrap( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = fd_gui_store_min_size( 1UL );
   fd_gui_store_desc_t const desc = {
     .name        = "ts",
     .kind        = FD_GUI_STORE_KIND_TS,
@@ -522,7 +523,9 @@ test_ts_live_timestamp_bounds_wrap( void ) {
     .val_align   = alignof(long),
     .ts_off      = 0UL,
     .granularity = 1UL,
+    .base_regions = 2UL,
   };
+  ulong size = fd_gui_store_min_size( 1UL, &desc );
   ulong fp = fd_gui_store_footprint( size, 1UL, &desc );
   FD_TEST( fp );
   void * mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fp, fd_gui_store_align() ) );
@@ -583,7 +586,7 @@ even_filter( void const * rec, void * ctx ) {
 static void
 test_ts_filter_and_evict( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
 
   /* values 0..9 across windows 0..9 (one each) */
   for( ulong i=0UL; i<10UL; i++ ) {
@@ -631,7 +634,7 @@ test_map_full( void ) {
   /* A base-only store: 256-byte entity inserts eventually overflow the
      writer's three regions, and the upsert must surface the distinct
      FD_GUI_STORE_MAP_FULL code (Layer 1 does NOT evict). */
-  ulong const size = fd_gui_store_min_size( DB_CNT );
+  ulong const size = fd_gui_store_min_size( DB_CNT, descs );
   fd_gui_store_t * db = db_open( path, size );
 
   int saw_map_full = 0;
@@ -650,7 +653,7 @@ test_map_full( void ) {
 static void
 test_space_accounting( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = fd_gui_store_min_size( DB_CNT );
+  ulong size = fd_gui_store_min_size( DB_CNT, descs );
   fd_gui_store_t * db = db_open( path, size );
 
   FD_TEST( fd_gui_store_size( db )==size );
@@ -682,13 +685,13 @@ test_space_accounting( void ) {
 static void
 test_region_grow_reclaim( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = 512UL<<20;
+  ulong size = 1UL<<30;
   fd_gui_store_t * db = db_open( path, size );
 
   ulong open_used = fd_gui_store_used_bytes( db );
 
   /* Insert enough 256-byte records to force at least three region claims. */
-  ulong const N = 400000UL;
+  ulong const N = 800000UL;
   for( ulong i=0UL; i<N; i++ ) {
     FD_TEST( entbig_put( db, i, (uchar)i )==FD_GUI_STORE_SUCCESS );
   }
@@ -743,7 +746,7 @@ static void
 test_kv_prefix_scan( void ) {
   char path[ 128 ];
   mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_t * db = db_open( path, 1UL<<30 );
   fd_gui_store_kv_scan_t it;
   fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
   FD_TEST( !it.append_capacity && !fd_gui_store_kv_scan_next( &it ) );
@@ -830,26 +833,27 @@ test_protected_bases( ulong shared ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
   fd_gui_store_desc_t d[ 3 ] = { descs[ DB_ENT8 ], descs[ DB_ENT8 ], descs[ DB_TS ] };
   for( ulong i=0UL; i<3UL; i++ ) { d[ i ].val_sz = FD_GUI_STORE_REGION_SZ/2UL; d[ i ].max_records = 32UL; }
-  ulong size = fd_gui_store_min_size( 3UL )+shared*FD_GUI_STORE_REGION_SZ;
+  ulong size = fd_gui_store_min_size( 3UL, d )+shared*FD_GUI_STORE_REGION_SZ;
+  ulong base = 2UL*2UL; /* records in one ring's base */
   ulong fp = fd_gui_store_footprint( size, 3UL, d );
   FD_TEST( fp );
   void * mem = aligned_alloc( fd_gui_store_align(), fp );
   FD_TEST( mem );
   cleanup( path );
-  FD_TEST( !fd_gui_store_footprint( fd_gui_store_min_size( 3UL )-1UL, 3UL, d ) );
-  FD_TEST( !fd_gui_store_new( mem, path, fd_gui_store_min_size( 3UL )-1UL, 3UL, TEST_SEED, d ) );
+  FD_TEST( !fd_gui_store_footprint( fd_gui_store_min_size( 3UL, d )-1UL, 3UL, d ) );
+  FD_TEST( !fd_gui_store_new( mem, path, fd_gui_store_min_size( 3UL, d )-1UL, 3UL, TEST_SEED, d ) );
   FD_TEST( access( path, F_OK )==-1 && errno==ENOENT );
   fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, 3UL, TEST_SEED, d ) );
   FD_TEST( db && fd_gui_store_shared_free_region_cnt( db )==shared );
 
   /* An early writer fills shared space; both late KV and TS rings must
-     still receive all three reserved regions. */
-  ulong end = 6UL+2UL*shared;
+     still receive all their reserved regions. */
+  ulong end = base+2UL*shared;
   for( ulong i=0UL; i<end; i++ ) FD_TEST( !base_put( db, 0UL, i ) );
   FD_TEST( base_put( db, 0UL, end )==FD_GUI_STORE_MAP_FULL );
-  FD_TEST( fd_gui_store_free_region_cnt( db )==6UL );
+  FD_TEST( fd_gui_store_free_region_cnt( db )==2UL*2UL );
   for( ulong ring=1UL; ring<3UL; ring++ )
-    for( ulong i=0UL; i<6UL; i++ ) FD_TEST( !base_put( db, ring, i ) );
+    for( ulong i=0UL; i<base; i++ ) FD_TEST( !base_put( db, ring, i ) );
   FD_TEST( !fd_gui_store_free_region_cnt( db ) );
 
   /* Cross-ring pressure can remove only the excess prefix, including
@@ -857,8 +861,8 @@ test_protected_bases( ulong shared ) {
   for( ulong i=0UL; i<2UL*shared; i++ ) {
     FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, 1UL, NULL, NULL )==1UL );
     base_check( db, 0UL, i+1UL, end );
-    base_check( db, 1UL, 0UL, 6UL );
-    base_check( db, 2UL, 0UL, 6UL );
+    base_check( db, 1UL, 0UL, base );
+    base_check( db, 2UL, 0UL, base );
   }
   FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL ) );
 
@@ -879,20 +883,20 @@ test_protected_bases( ulong shared ) {
     FD_TEST( !fd_gui_store_free_region_cnt( db ) );
     FD_TEST( fd_gui_store_reclaim( db, 0UL, 1UL, NULL, NULL )==1UL );
     FD_TEST( fd_gui_store_free_region_cnt( db )==1UL );
-    if( !shared ) FD_TEST( base_put( db, 1UL, 6UL )==FD_GUI_STORE_MAP_FULL );
+    if( !shared ) FD_TEST( base_put( db, 1UL, base )==FD_GUI_STORE_MAP_FULL );
     FD_TEST( !base_put( db, 0UL, end++ ) );
     FD_TEST( !base_put( db, 0UL, end++ ) );
-    base_check( db, 0UL, end-6UL-2UL*shared, end );
-    base_check( db, 1UL, 0UL, 6UL );
-    base_check( db, 2UL, 0UL, 6UL );
+    base_check( db, 0UL, end-base-2UL*shared, end );
+    base_check( db, 1UL, 0UL, base );
+    base_check( db, 2UL, 0UL, base );
   }
   /* TS owner rollover and indexed reads across reused regions. */
-  for( ulong i=6UL; i<46UL; i+=2UL ) {
+  for( ulong i=base; i<base+40UL; i+=2UL ) {
     FD_TEST( base_put( db, 2UL, i )==FD_GUI_STORE_MAP_FULL );
     FD_TEST( fd_gui_store_reclaim( db, 2UL, ULONG_MAX, NULL, NULL )==2UL );
-    FD_TEST( base_put( db, 1UL, 6UL )==FD_GUI_STORE_MAP_FULL );
+    FD_TEST( base_put( db, 1UL, base )==FD_GUI_STORE_MAP_FULL );
     FD_TEST( !base_put( db, 2UL, i ) && !base_put( db, 2UL, i+1UL ) );
-    base_check( db, 2UL, i-4UL, i+2UL );
+    base_check( db, 2UL, i+2UL-base, i+2UL );
     fd_gui_store_ts_iter_t it;
     fd_gui_store_ts_scan_begin( db, &it, 2UL, i/2UL, i/2UL, NULL, NULL );
     FD_TEST( !fd_gui_store_ts_scan_done( &it ) && ((ulong const *)it.rec)[ 1 ]==i+200UL );
@@ -904,19 +908,69 @@ test_protected_bases( ulong shared ) {
     /* A pinned oldest donor must not prevent progress on another
        eligible donor.  Allocation age orders otherwise eligible heads. */
     FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL )==2UL );
-    FD_TEST( !base_put( db, 1UL, 6UL ) && !base_put( db, 1UL, 7UL ) );
-    pinned = end-8UL;
+    FD_TEST( !base_put( db, 1UL, base ) && !base_put( db, 1UL, base+1UL ) );
+    pinned = end-base-2UL;
     FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible, &pinned )==2UL );
-    base_check( db, 0UL, end-8UL, end );
-    base_check( db, 1UL, 2UL, 8UL );
+    base_check( db, 0UL, end-base-2UL, end );
+    base_check( db, 1UL, 2UL, base+2UL );
     FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible, &pinned ) );
     FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL )==2UL );
-    base_check( db, 0UL, end-6UL, end );
+    base_check( db, 0UL, end-base, end );
     FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL ) );
   }
   db_close( db );
   cleanup( path );
   FD_LOG_NOTICE(( "test_protected_bases: shared=%lu; ok", shared ));
+}
+
+/* Rings with different base_regions: each keeps its own reserve, and
+   cross-ring reclaim never takes a ring below its base. */
+static void
+test_per_ring_bases( void ) {
+  char path[ 128 ]; mk_path( path, sizeof(path) );
+  fd_gui_store_desc_t d[ 3 ] = { descs[ DB_ENT8 ], descs[ DB_ENT8 ], descs[ DB_TS ] };
+  for( ulong i=0UL; i<3UL; i++ ) { d[ i ].val_sz = FD_GUI_STORE_REGION_SZ/2UL; d[ i ].max_records = 32UL; }
+  d[ 0 ].base_regions = 1UL;
+  d[ 1 ].base_regions = 4UL;
+  d[ 2 ].base_regions = 2UL;
+  ulong const base0 = 2UL*1UL, base1 = 2UL*4UL, base2 = 2UL*2UL; /* records */
+  ulong min = fd_gui_store_min_size( 3UL, d );
+  FD_TEST( min==fd_gui_store_min_size( 1UL, &(fd_gui_store_desc_t){ .base_regions=7UL } ) );
+  FD_TEST( !fd_gui_store_footprint( min-1UL, 3UL, d ) );
+  ulong size = min+FD_GUI_STORE_REGION_SZ; /* one shared region */
+  void * mem = aligned_alloc( fd_gui_store_align(), fd_gui_store_footprint( size, 3UL, d ) );
+  FD_TEST( mem );
+  cleanup( path );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, 3UL, TEST_SEED, d ) );
+  FD_TEST( db && fd_gui_store_shared_free_region_cnt( db )==1UL );
+
+  /* Ring 0 gets its base plus the shared region, then is full. */
+  ulong end = base0+2UL;
+  for( ulong i=0UL; i<end; i++ ) FD_TEST( !base_put( db, 0UL, i ) );
+  FD_TEST( base_put( db, 0UL, end )==FD_GUI_STORE_MAP_FULL );
+  /* Late rings still receive their whole (different-sized) bases. */
+  for( ulong i=0UL; i<base1; i++ ) FD_TEST( !base_put( db, 1UL, i ) );
+  for( ulong i=0UL; i<base2; i++ ) FD_TEST( !base_put( db, 2UL, i ) );
+  FD_TEST( !fd_gui_store_free_region_cnt( db ) );
+  FD_TEST( base_put( db, 1UL, base1 )==FD_GUI_STORE_MAP_FULL );
+
+  /* Cross-ring reclaim takes only ring 0's excess region, the oldest. */
+  FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL )==2UL );
+  FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL ) );
+  base_check( db, 0UL, 2UL, end );
+  base_check( db, 1UL, 0UL, base1 );
+  base_check( db, 2UL, 0UL, base2 );
+
+  /* Ring 1 (largest base) may grow into the freed shared region. */
+  FD_TEST( !base_put( db, 1UL, base1 ) && !base_put( db, 1UL, base1+1UL ) );
+  base_check( db, 1UL, 0UL, base1+2UL );
+  FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL )==2UL );
+  base_check( db, 1UL, 2UL, base1+2UL );
+  base_check( db, 0UL, 2UL, end );
+
+  db_close( db );
+  cleanup( path );
+  FD_LOG_NOTICE(( "test_per_ring_bases: ok" ));
 }
 
 static void
@@ -925,7 +979,7 @@ test_private_index_budget( void ) {
   fd_gui_store_desc_t d[ 2 ] = { descs[ DB_ENT8 ], descs[ DB_ENT8 ] };
   d[ 0 ].max_records = 3UL;
   d[ 1 ].max_records = 2UL;
-  ulong size = fd_gui_store_min_size( 2UL );
+  ulong size = fd_gui_store_min_size( 2UL, d );
   void * mem = aligned_alloc( fd_gui_store_align(), fd_gui_store_footprint( size, 2UL, d ) );
   FD_TEST( mem );
   fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, 2UL, TEST_SEED, d ) );
@@ -969,6 +1023,7 @@ main( int     argc,
   test_region_grow_reclaim();
   test_protected_bases( 0UL );
   test_protected_bases( 2UL );
+  test_per_ring_bases();
   test_private_index_budget();
 
   FD_LOG_NOTICE(( "pass" ));
