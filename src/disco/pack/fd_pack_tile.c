@@ -1051,6 +1051,9 @@ after_frag( fd_pack_ctx_t *     ctx,
       remove_ib( ctx );
     }
     ctx->leader_slot = leader_slot;
+    ulong slots_left = 3UL - (leader_slot%4UL);
+    long  slot_ns    = (long)( ctx->_became_leader->ticks_per_slot*ctx->_became_leader->tick_duration_ns );
+    fd_pack_set_rotation_end_ns( ctx->pack, ctx->_became_leader->slot_end_ns + (long)slots_left*slot_ns );
     ctx->block_height = ctx->_became_leader->block_height;
 
     ctx->slot_pack_start_ns  = now_ns;

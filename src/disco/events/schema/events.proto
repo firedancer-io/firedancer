@@ -9546,6 +9546,16 @@ message MetricsPack {
   MetricsPackCostNetPerBlock cost_net_per_block = 46;
   // Percent of max_cost_per_block used by each block pack produced
   MetricsPackCostPerBlockPct cost_per_block_pct = 47;
+  // Bundles that arrived while not leader that pack is holding
+  uint64 pre_rotation_bundle_pending = 48;
+  // Bundles that arrived while not leader that pack kept
+  uint64 pre_rotation_bundle_inserted = 49;
+  // Bundles that arrived while not leader that pack dropped because it was full of ones that declare at least as large a tip
+  uint64 pre_rotation_bundle_rejected = 50;
+  // Bundles that arrived while not leader that pack dropped for one that declares a larger tip
+  uint64 pre_rotation_bundle_evicted = 51;
+  // Bundles that arrived while not leader that pack scheduled
+  uint64 pre_rotation_bundle_scheduled = 52;
 }
 
 // Metrics of one execle tile instance, one row per sweep
