@@ -50,12 +50,6 @@ is omitted (see the [NOTICE] file above for a complete list).
 Vendored libraries live under `src/third_party/` (see the README
 there for the vendoring conventions).
 
-### nanopb
-
-https://github.com/nanopb/nanopb (`src/third_party/nanopb`)
-
-Protobuf encoding library. Written in C.
-
 ### picohttpparser
 
 https://github.com/h2o/picohttpparser (`src/third_party/picohttpparser`)

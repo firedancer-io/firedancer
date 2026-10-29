@@ -21,7 +21,7 @@ read_varint( fd_pb_inbuf_t * buf,
 }
 
 static fd_pb_tlv_t *
-fd_pb_read_tlv_slow( fd_pb_inbuf_t * buf,
+fd_pb_tlv_read_slow( fd_pb_inbuf_t * buf,
                      fd_pb_tlv_t *   tlv ) {
   fd_pb_inbuf_t buf2 = *buf;
   ulong tag;
@@ -58,8 +58,8 @@ fd_pb_read_tlv_slow( fd_pb_inbuf_t * buf,
 }
 
 fd_pb_tlv_t *
-fd_pb_read_tlv( fd_pb_inbuf_t * buf,
+fd_pb_tlv_read( fd_pb_inbuf_t * buf,
                 fd_pb_tlv_t *   tlv ) {
   /* FIXME plenty of optimization opportunities here */
-  return fd_pb_read_tlv_slow( buf, tlv );
+  return fd_pb_tlv_read_slow( buf, tlv );
 }

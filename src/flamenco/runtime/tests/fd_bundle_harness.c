@@ -161,7 +161,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
   if( FD_UNLIKELY( _l>output_end ) ) abort();
   fd_memset( effects, 0, sizeof(fd_exec_test_bundle_effects_t) );
 
-  effects->txn_results_count = (pb_size_t)txn_cnt;
+  effects->txn_results_count = (uint)txn_cnt;
   effects->txn_results = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_txn_result_t),
                                                   txn_cnt*sizeof(fd_exec_test_txn_result_t) );
   if( FD_UNLIKELY( _l>output_end ) ) abort();

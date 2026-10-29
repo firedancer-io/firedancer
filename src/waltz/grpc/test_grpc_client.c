@@ -20,15 +20,6 @@ main( int     argc,
 #include <sys/socket.h>
 #include <unistd.h>
 
-typedef struct {
-  uchar unused;
-} test_empty_msg_t;
-
-#define test_Empty_FIELDLIST(X, a)
-#define test_Empty_CALLBACK NULL
-#define test_Empty_DEFAULT  NULL
-PB_BIND( test_Empty, test_empty_msg_t, AUTO )
-
 static fd_grpc_client_t * client;
 
 /* test_grpc_client_mock_conn injects a fake connection state into the
@@ -315,13 +306,10 @@ FD_UNIT_TEST( stream_send_state ) {
   *client->request_tx_op = (fd_h2_tx_op_t){0};
 
   fd_h2_stream_reset( &stream->s, client->conn );
-  test_empty_msg_t msg = {0};
-  FD_TEST( !fd_grpc_client_stream_send_msg ( client, stream, &test_empty_msg_t_msg, &msg ) );
-  FD_TEST( !fd_grpc_client_stream_send_msg1( client, stream, &payload, sizeof(payload) ) );
+  FD_TEST( !fd_grpc_client_stream_send_msg( client, stream, &payload, sizeof(payload) ) );
 
   stream->s.state = FD_H2_STREAM_STATE_CLOSING_TX;
-  FD_TEST( !fd_grpc_client_stream_send_msg ( client, stream, &test_empty_msg_t_msg, &msg ) );
-  FD_TEST( !fd_grpc_client_stream_send_msg1( client, stream, &payload, sizeof(payload) ) );
+  FD_TEST( !fd_grpc_client_stream_send_msg( client, stream, &payload, sizeof(payload) ) );
 
   FD_TEST( fd_h2_rbuf_is_empty( client->frame_tx ) );
   FD_TEST( !client->request_tx_op->chunk_sz );
@@ -333,7 +321,7 @@ FD_UNIT_TEST( stream_close_state ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
 
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start(
       client, "/test", 5UL, 0UL, NULL, 0UL, NULL, 0UL, 1 );
   FD_TEST( stream );
   FD_TEST( stream->s.state==FD_H2_STREAM_STATE_OPEN );
@@ -341,7 +329,7 @@ FD_UNIT_TEST( stream_close_state ) {
   fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
 
   uchar payload = 0U;
-  FD_TEST( fd_grpc_client_stream_send_msg1( client, stream, &payload, sizeof(payload) ) );
+  FD_TEST( fd_grpc_client_stream_send_msg( client, stream, &payload, sizeof(payload) ) );
   FD_TEST( !client->request_stream );
   FD_TEST( !client->request_tx_op->chunk_sz );
   fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
@@ -350,7 +338,7 @@ FD_UNIT_TEST( stream_close_state ) {
   FD_TEST( stream->s.state==FD_H2_STREAM_STATE_CLOSING_TX );
   fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
 
-  FD_TEST( !fd_grpc_client_stream_send_msg1( client, stream, &payload, sizeof(payload) ) );
+  FD_TEST( !fd_grpc_client_stream_send_msg( client, stream, &payload, sizeof(payload) ) );
   FD_TEST( !fd_grpc_client_stream_close( client, stream ) );
 
   fd_h2_stream_rx_data( &stream->s, client->conn, FD_H2_FLAG_END_STREAM );

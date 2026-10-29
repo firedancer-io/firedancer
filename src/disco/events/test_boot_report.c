@@ -82,7 +82,7 @@ check_msg( uchar const *            data,
   uint prev_id = 0U;
   while( fd_pb_inbuf_sz( buf ) ) {
     fd_pb_tlv_t tlv[1];
-    FD_TEST( fd_pb_read_tlv( buf, tlv ) );
+    FD_TEST( fd_pb_tlv_read( buf, tlv ) );
     struct pb_field const * f = NULL;
     for( ulong i=0UL; i<field_cnt; i++ ) if( fields[ i ].id==tlv->field_id ) f = &fields[ i ];
     if( FD_UNLIKELY( !f ) ) FD_LOG_ERR(( "field %u is not in message %s", tlv->field_id, name ));
@@ -264,8 +264,8 @@ main( int     argc,
   fd_pb_inbuf_t buf[1];
   fd_pb_inbuf_init( buf, msg, sz );
   fd_pb_tlv_t tlv[1];
-  for( uint id=1U; id<=4U; id++ ) FD_TEST( fd_pb_read_tlv( buf, tlv ) && tlv->field_id==id && tlv->wire_type==FD_PB_WIRE_TYPE_VARINT );
-  FD_TEST( fd_pb_read_tlv( buf, tlv ) && tlv->field_id==5U && tlv->wire_type==FD_PB_WIRE_TYPE_LEN );
+  for( uint id=1U; id<=4U; id++ ) FD_TEST( fd_pb_tlv_read( buf, tlv ) && tlv->field_id==id && tlv->wire_type==FD_PB_WIRE_TYPE_VARINT );
+  FD_TEST( fd_pb_tlv_read( buf, tlv ) && tlv->field_id==5U && tlv->wire_type==FD_PB_WIRE_TYPE_LEN );
   FD_TEST( tlv->len==fd_pb_inbuf_sz( buf ) );
   check_msg( buf->cur, tlv->len, "Event", report );
   FD_LOG_NOTICE(( "decode cross-check against events.proto passed" ));

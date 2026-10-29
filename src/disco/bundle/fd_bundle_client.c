@@ -4,16 +4,13 @@
 #include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
 #include "fd_bundle_tile.h"
-#include "proto/block_engine.pb.h"
-#include "proto/bundle.pb.h"
-#include "proto/packet.pb.h"
 #include "../waker/fd_waker.h"
 #include "../fd_txn_m.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/ed25519/fd_x25519.h"
-#include "../../third_party/nanopb/pb_decode.h"
+#include "../../ballet/pb/fd_pb_tokenize.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <fcntl.h>
@@ -186,13 +183,12 @@ static void
 fd_bundle_client_request_builder_info( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->grpc_client ) ) ) return;
 
-  block_engine_BlockBuilderFeeInfoRequest req = block_engine_BlockBuilderFeeInfoRequest_init_default;
   static char const path[] = "/block_engine.BlockEngineValidator/GetBlockBuilderFeeInfo";
   fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       ctx->grpc_client,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo,
-      &block_engine_BlockBuilderFeeInfoRequest_msg, &req,
+      (uchar const *)"", 0UL, /* empty request message */
       ctx->auther.access_token, ctx->auther.access_token_sz,
       0 /* is_streaming */
   );
@@ -209,13 +205,12 @@ static void
 fd_bundle_client_subscribe_packets( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->grpc_client ) ) ) return;
 
-  block_engine_SubscribePacketsRequest req = block_engine_SubscribePacketsRequest_init_default;
   static char const path[] = "/block_engine.BlockEngineValidator/SubscribePackets";
   fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       ctx->grpc_client,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets,
-      &block_engine_SubscribePacketsRequest_msg, &req,
+      (uchar const *)"", 0UL, /* empty request message */
       ctx->auther.access_token, ctx->auther.access_token_sz,
       0 /* is_streaming */
   );
@@ -232,13 +227,12 @@ static void
 fd_bundle_client_subscribe_bundles( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->grpc_client ) ) ) return;
 
-  block_engine_SubscribeBundlesRequest req = block_engine_SubscribeBundlesRequest_init_default;
   static char const path[] = "/block_engine.BlockEngineValidator/SubscribeBundles";
   fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       ctx->grpc_client,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles,
-      &block_engine_SubscribeBundlesRequest_msg, &req,
+      (uchar const *)"", 0UL, /* empty request message */
       ctx->auther.access_token, ctx->auther.access_token_sz,
       0 /* is_streaming */
   );
@@ -579,80 +573,133 @@ fd_bundle_tile_publish_txn(
   ctx->metrics.txn_received_cnt++;
 }
 
-/* Called for each transaction in a bundle.  Simply counts up
-   bundle_txn_cnt, but does not publish anything. */
+/* fd_bundle_packet_t holds the fields of a packet.Packet message used
+   by the bundle client. */
 
-static bool
-fd_bundle_client_visit_pb_bundle_txn_preflight(
-    pb_istream_t *     istream,
-    pb_field_t const * field,
-    void **            arg
-) {
-  (void)istream; (void)field;
-  fd_bundle_tile_t * ctx = *arg;
-  ctx->bundle_txn_cnt++;
-  return true;
+struct fd_bundle_packet {
+  uchar const * data;
+  ulong         data_sz;
+  int           has_meta;
+  char          addr[ 256 ]; /* packet.Meta.addr, NUL terminated */
+};
+
+typedef struct fd_bundle_packet fd_bundle_packet_t;
+
+/* fd_bundle_client_decode_packet decodes a packet.Packet message.
+   Returns packet on success and NULL on decode failure. */
+
+static fd_bundle_packet_t *
+fd_bundle_client_decode_packet( fd_pb_inbuf_t        in,
+                                fd_bundle_packet_t * packet ) {
+  packet->data     = NULL;
+  packet->data_sz  = 0UL;
+  packet->has_meta = 0;
+  packet->addr[0]  = '\0';
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) return NULL;
+    switch( tlv->field_id ) {
+    case 1: /* data */
+      packet->data = fd_pb_tlv_bytes( &in, tlv );
+      if( FD_UNLIKELY( !packet->data ) ) return NULL;
+      packet->data_sz = tlv->len;
+      break;
+    case 2: { /* meta */
+      fd_pb_inbuf_t meta[1];
+      if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, meta ) ) ) return NULL;
+      packet->has_meta = 1;
+      while( fd_pb_inbuf_sz( meta ) ) {
+        fd_pb_tlv_t meta_tlv[1];
+        if( FD_UNLIKELY( !fd_pb_tlv_read( meta, meta_tlv ) ) ) return NULL;
+        if( meta_tlv->field_id==2U ) { /* addr */
+          if( FD_UNLIKELY( !fd_pb_tlv_cstr( meta, meta_tlv, packet->addr, sizeof(packet->addr) ) ) ) return NULL;
+        }
+        if( FD_UNLIKELY( !fd_pb_tlv_skip( meta, meta_tlv ) ) ) return NULL;
+      }
+      break;
+    }
+    default:
+      break;
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) return NULL;
+  }
+  return packet;
 }
 
-/* Called for each transaction in a bundle.  Publishes each transaction
-   to the tango message bus. */
+/* fd_bundle_client_decode_header_ts decodes the timestamp of a
+   shared.Header message.  Returns the timestamp in nanoseconds since
+   the Unix epoch on success (0 if absent).  Returns -1 on decode
+   failure. */
 
-static bool
-fd_bundle_client_visit_pb_bundle_txn(
-    pb_istream_t *     istream,
-    pb_field_t const * field,
-    void **            arg
-) {
-  (void)field;
-  fd_bundle_tile_t * ctx = *arg;
-
-  packet_Packet packet = packet_Packet_init_default;
-  if( FD_UNLIKELY( !pb_decode( istream, &packet_Packet_msg, &packet ) ) ) {
-    ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "Protobuf decode of (packet.Packet) failed" ));
-    return false;
+static long
+fd_bundle_client_decode_header_ts( fd_pb_inbuf_t in ) {
+  ulong seconds = 0UL;
+  ulong nanos   = 0UL;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) return -1L;
+    if( tlv->field_id==1U ) { /* ts */
+      fd_pb_inbuf_t ts[1];
+      if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, ts ) ) ) return -1L;
+      while( fd_pb_inbuf_sz( ts ) ) {
+        fd_pb_tlv_t ts_tlv[1];
+        if( FD_UNLIKELY( !fd_pb_tlv_read( ts, ts_tlv ) ) ) return -1L;
+        switch( ts_tlv->field_id ) {
+        case 1: /* seconds */
+          if( FD_UNLIKELY( ts_tlv->wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) return -1L;
+          seconds = ts_tlv->varint;
+          break;
+        case 2: /* nanos */
+          if( FD_UNLIKELY( ts_tlv->wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) return -1L;
+          nanos = (ulong)(uint)ts_tlv->varint;
+          break;
+        default:
+          break;
+        }
+        if( FD_UNLIKELY( !fd_pb_tlv_skip( ts, ts_tlv ) ) ) return -1L;
+      }
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) return -1L;
   }
-
-  if( FD_UNLIKELY( packet.data.size == 0 ) ) {
-    FD_LOG_INFO(( "Bundle server delivered an empty packet, ignoring" ));
-    return true;
-  }
-
-  if( FD_UNLIKELY( packet.data.size > FD_TXN_MTU ) ) {
-    FD_LOG_WARNING(( "Bundle server delivered an oversize transaction, ignoring" ));
-    return true;
-  }
-
-  uint _ip4; uint ip4 = fd_uint_if( packet.has_meta, fd_cstr_to_ip4_addr( packet.meta.addr, &_ip4 ) ? _ip4 : ctx->server_ip4_addr, ctx->server_ip4_addr );
-  fd_bundle_tile_publish_bundle_txn(
-      ctx,
-      packet.data.bytes, packet.data.size,
-      ctx->bundle_txn_cnt,
-      ip4
-  );
-
-  return true;
+  return (long)( seconds*(ulong)1e9 + nanos );
 }
 
 static void
-fd_bundle_client_sample_rx_delay(
-    fd_bundle_tile_t *                ctx,
-    google_protobuf_Timestamp const * ts
-) {
-  ulong tsorig = (ulong)ts->seconds*(ulong)1e9 + (ulong)ts->nanos;
-  fd_histf_sample( ctx->metrics.msg_rx_delay, fd_ulong_sat_sub( (ulong)ctx->cached_ts, tsorig ) );
+fd_bundle_client_sample_rx_delay( fd_bundle_tile_t * ctx,
+                                  long               ts ) {
+  fd_histf_sample( ctx->metrics.msg_rx_delay, fd_ulong_sat_sub( (ulong)ctx->cached_ts, (ulong)ts ) );
 }
 
-/* Called for each BundleUuid in a SubscribeBundlesResponse. */
+/* Publishes a transaction of a bundle to the tango message bus. */
 
-static bool
-fd_bundle_client_visit_pb_bundle_uuid(
-    pb_istream_t *     istream,
-    pb_field_t const * field,
-    void **            arg
-) {
-  (void)field;
-  fd_bundle_tile_t * ctx = *arg;
+static void
+fd_bundle_client_handle_bundle_txn( fd_bundle_tile_t *         ctx,
+                                    fd_bundle_packet_t const * packet ) {
+  if( FD_UNLIKELY( packet->data_sz == 0 ) ) {
+    FD_LOG_INFO(( "Bundle server delivered an empty packet, ignoring" ));
+    return;
+  }
+
+  if( FD_UNLIKELY( packet->data_sz > FD_TXN_MTU ) ) {
+    FD_LOG_WARNING(( "Bundle server delivered an oversize transaction, ignoring" ));
+    return;
+  }
+
+  uint _ip4; uint ip4 = fd_uint_if( packet->has_meta, fd_cstr_to_ip4_addr( packet->addr, &_ip4 ) ? _ip4 : ctx->server_ip4_addr, ctx->server_ip4_addr );
+  fd_bundle_tile_publish_bundle_txn(
+      ctx,
+      packet->data, packet->data_sz,
+      ctx->bundle_txn_cnt,
+      ip4
+  );
+}
+
+/* Handles a bundle.Bundle message.  Returns 1 on success and 0 on
+   decode failure. */
+
+static int
+fd_bundle_client_handle_bundle( fd_bundle_tile_t * ctx,
+                                fd_pb_inbuf_t      bundle ) {
 
   /* Reset bundle state */
 
@@ -663,50 +710,67 @@ fd_bundle_client_visit_pb_bundle_uuid(
      the Protobuf wire encoding, we don't know the number of txns that
      will come until we've parsed everything.
 
-     First pass: Count number of bundles. */
+     First pass: Validate and count number of transactions. */
 
-  pb_istream_t peek = *istream;
-  bundle_BundleUuid bundle = bundle_BundleUuid_init_default;
-  bundle.bundle.packets = (pb_callback_t) {
-    .funcs.decode = fd_bundle_client_visit_pb_bundle_txn_preflight,
-    .arg          = ctx
-  };
-  if( FD_UNLIKELY( !pb_decode( &peek, &bundle_BundleUuid_msg, &bundle ) ) ) {
-    ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "Protobuf decode of (bundle.BundleUuid) failed: %s", peek.errmsg ));
-    return false;
+  long ts = 0L;
+  fd_pb_inbuf_t in = bundle;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) return 0;
+    switch( tlv->field_id ) {
+    case 2: { /* header */
+      fd_pb_inbuf_t header[1];
+      if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, header ) ) ) return 0;
+      ts = fd_bundle_client_decode_header_ts( *header );
+      if( FD_UNLIKELY( ts<0L ) ) return 0;
+      break;
+    }
+    case 3: { /* packets */
+      fd_pb_inbuf_t sub[1];
+      fd_bundle_packet_t packet[1];
+      if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, sub ) ) ) return 0;
+      if( FD_UNLIKELY( !fd_bundle_client_decode_packet( *sub, packet ) ) ) return 0;
+      ctx->bundle_txn_cnt++;
+      break;
+    }
+    default:
+      break;
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) return 0;
   }
 
-  /* At this opint, ctx->bundle_txn_cnt is correctly set.  Too many txns
+  /* At this point, ctx->bundle_txn_cnt is correctly set.  Too many txns
      is treated as a NOP.
 
      Second pass: Actually publish bundle packets */
 
-  if( FD_UNLIKELY( ctx->bundle_txn_cnt>FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ) ) return true;
+  if( FD_UNLIKELY( ctx->bundle_txn_cnt>FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ) ) return 1;
 
   if( FD_UNLIKELY( pending_txn_avail( ctx->pending_txns )<ctx->bundle_txn_cnt ) ) {
     ctx->metrics.backpressure_drop_cnt += ctx->bundle_txn_cnt;
-    return true;
+    return 1;
   }
 
   ctx->bundle_seq++;
-  bundle = (bundle_BundleUuid)bundle_BundleUuid_init_default;
-  bundle.bundle.packets = (pb_callback_t) {
-    .funcs.decode = fd_bundle_client_visit_pb_bundle_txn,
-    .arg          = ctx
-  };
-
   ctx->metrics.bundle_received_cnt++;
 
-  if( FD_UNLIKELY( !pb_decode( istream, &bundle_BundleUuid_msg, &bundle ) ) ) {
-    ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "Protobuf decode of (bundle.BundleUuid) failed (internal error): %s", istream->errmsg ));
-    return false;
+  in = bundle;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    FD_TEST( fd_pb_tlv_read( &in, tlv ) );
+    if( tlv->field_id==3U ) { /* packets */
+      fd_pb_inbuf_t sub[1];
+      fd_bundle_packet_t packet[1];
+      FD_TEST( fd_pb_tlv_submsg( &in, tlv, sub ) );
+      FD_TEST( fd_bundle_client_decode_packet( *sub, packet ) );
+      fd_bundle_client_handle_bundle_txn( ctx, packet );
+    }
+    FD_TEST( fd_pb_tlv_skip( &in, tlv ) );
   }
 
-  fd_bundle_client_sample_rx_delay( ctx, &bundle.bundle.header.ts );
+  fd_bundle_client_sample_rx_delay( ctx, ts );
 
-  return true;
+  return 1;
 }
 
 /* Handle a SubscribeBundlesResponse from a SubscribeBundles gRPC call. */
@@ -714,60 +778,58 @@ fd_bundle_client_visit_pb_bundle_uuid(
 static void
 fd_bundle_client_handle_bundle_batch(
     fd_bundle_tile_t * ctx,
-    pb_istream_t *     istream
+    fd_pb_inbuf_t      in
 ) {
   if( FD_UNLIKELY( !ctx->builder_info_avail ) ) {
     ctx->metrics.missing_builder_info_fail_cnt++; /* unreachable */
     return;
   }
 
-  block_engine_SubscribeBundlesResponse res = block_engine_SubscribeBundlesResponse_init_default;
-  res.bundles = (pb_callback_t) {
-    .funcs.decode = fd_bundle_client_visit_pb_bundle_uuid,
-    .arg          = ctx
-  };
-  if( FD_UNLIKELY( !pb_decode( istream, &block_engine_SubscribeBundlesResponse_msg, &res ) ) ) {
-    ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "Protobuf decode of (block_engine.SubscribeBundlesResponse) failed: %s", istream->errmsg ));
-    return;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) goto fail;
+    if( tlv->field_id==1U ) { /* bundles (BundleUuid) */
+      fd_pb_inbuf_t uuid[1];
+      if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, uuid ) ) ) goto fail;
+      fd_pb_inbuf_t bundle[1] = {{0}};
+      while( fd_pb_inbuf_sz( uuid ) ) {
+        fd_pb_tlv_t uuid_tlv[1];
+        if( FD_UNLIKELY( !fd_pb_tlv_read( uuid, uuid_tlv ) ) ) goto fail;
+        if( uuid_tlv->field_id==1U ) { /* bundle */
+          if( FD_UNLIKELY( !fd_pb_tlv_submsg( uuid, uuid_tlv, bundle ) ) ) goto fail;
+        }
+        if( FD_UNLIKELY( !fd_pb_tlv_skip( uuid, uuid_tlv ) ) ) goto fail;
+      }
+      if( FD_UNLIKELY( !fd_bundle_client_handle_bundle( ctx, *bundle ) ) ) goto fail;
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) goto fail;
   }
+  return;
+
+fail:
+  ctx->metrics.decode_fail_cnt++;
+  FD_LOG_WARNING(( "Protobuf decode of (block_engine.SubscribeBundlesResponse) failed" ));
 }
 
 /* Called for each 'Packet' (a regular transaction) of a
    SubscribePacketsResponse. */
 
-static bool
-fd_bundle_client_visit_pb_packet(
-    pb_istream_t *     istream,
-    pb_field_t const * field,
-    void **            arg
-) {
-  (void)field;
-  fd_bundle_tile_t * ctx = *arg;
-
-  packet_Packet packet = packet_Packet_init_default;
-  if( FD_UNLIKELY( !pb_decode( istream, &packet_Packet_msg, &packet ) ) ) {
-    ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "Protobuf decode of (packet.Packet) failed" ));
-    return false;
-  }
-
-  if( FD_UNLIKELY( packet.data.size == 0 ) ) {
+static void
+fd_bundle_client_handle_packet( fd_bundle_tile_t *         ctx,
+                                fd_bundle_packet_t const * packet ) {
+  if( FD_UNLIKELY( packet->data_sz == 0 ) ) {
     FD_LOG_WARNING(( "Bundle server delivered an empty packet, ignoring" ));
-    return true;
+    return;
   }
 
-  if( FD_UNLIKELY( packet.data.size > FD_TXN_MTU ) ) {
+  if( FD_UNLIKELY( packet->data_sz > FD_TXN_MTU ) ) {
     FD_LOG_WARNING(( "Bundle server delivered an oversize transaction, ignoring" ));
-    return true;
+    return;
   }
 
-
-  uint _ip4; uint ip4 = fd_uint_if( packet.has_meta, fd_cstr_to_ip4_addr( packet.meta.addr, &_ip4 ) ? _ip4 : 0U, 0U );
-  fd_bundle_tile_publish_txn( ctx, packet.data.bytes, packet.data.size, ip4 );
+  uint _ip4; uint ip4 = fd_uint_if( packet->has_meta, fd_cstr_to_ip4_addr( packet->addr, &_ip4 ) ? _ip4 : 0U, 0U );
+  fd_bundle_tile_publish_txn( ctx, packet->data, packet->data_sz, ip4 );
   ctx->metrics.packet_received_cnt++;
-
-  return true;
 }
 
 /* Handle a SubscribePacketsResponse from a SubscribePackets gRPC call. */
@@ -775,20 +837,49 @@ fd_bundle_client_visit_pb_packet(
 static void
 fd_bundle_client_handle_packet_batch(
     fd_bundle_tile_t * ctx,
-    pb_istream_t *     istream
+    fd_pb_inbuf_t      in
 ) {
-  block_engine_SubscribePacketsResponse res = block_engine_SubscribePacketsResponse_init_default;
-  res.batch.packets = (pb_callback_t) {
-    .funcs.decode = fd_bundle_client_visit_pb_packet,
-    .arg          = ctx
-  };
-  if( FD_UNLIKELY( !pb_decode( istream, &block_engine_SubscribePacketsResponse_msg, &res ) ) ) {
-    ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "Protobuf decode of (block_engine.SubscribePacketsResponse) failed" ));
-    return;
+  long ts = 0L;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) goto fail;
+    switch( tlv->field_id ) {
+    case 1: { /* header */
+      fd_pb_inbuf_t header[1];
+      if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, header ) ) ) goto fail;
+      ts = fd_bundle_client_decode_header_ts( *header );
+      if( FD_UNLIKELY( ts<0L ) ) goto fail;
+      break;
+    }
+    case 2: { /* batch (PacketBatch) */
+      fd_pb_inbuf_t batch[1];
+      if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, batch ) ) ) goto fail;
+      while( fd_pb_inbuf_sz( batch ) ) {
+        fd_pb_tlv_t batch_tlv[1];
+        if( FD_UNLIKELY( !fd_pb_tlv_read( batch, batch_tlv ) ) ) goto fail;
+        if( batch_tlv->field_id==1U ) { /* packets */
+          fd_pb_inbuf_t sub[1];
+          fd_bundle_packet_t packet[1];
+          if( FD_UNLIKELY( !fd_pb_tlv_submsg( batch, batch_tlv, sub ) ) ) goto fail;
+          if( FD_UNLIKELY( !fd_bundle_client_decode_packet( *sub, packet ) ) ) goto fail;
+          fd_bundle_client_handle_packet( ctx, packet );
+        }
+        if( FD_UNLIKELY( !fd_pb_tlv_skip( batch, batch_tlv ) ) ) goto fail;
+      }
+      break;
+    }
+    default:
+      break;
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) goto fail;
   }
 
-  fd_bundle_client_sample_rx_delay( ctx, &res.header.ts );
+  fd_bundle_client_sample_rx_delay( ctx, ts );
+  return;
+
+fail:
+  ctx->metrics.decode_fail_cnt++;
+  FD_LOG_WARNING(( "Protobuf decode of (block_engine.SubscribePacketsResponse) failed" ));
 }
 
 /* Handle a BlockBuilderFeeInfoResponse from a GetBlockBuilderFeeInfo
@@ -797,33 +888,50 @@ fd_bundle_client_handle_packet_batch(
 static void
 fd_bundle_client_handle_builder_fee_info(
     fd_bundle_tile_t * ctx,
-    pb_istream_t *     istream
+    fd_pb_inbuf_t      in
 ) {
-  block_engine_BlockBuilderFeeInfoResponse res = block_engine_BlockBuilderFeeInfoResponse_init_default;
-  if( FD_UNLIKELY( !pb_decode( istream, &block_engine_BlockBuilderFeeInfoResponse_msg, &res ) ) ) {
-    ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "Protobuf decode of (block_engine.BlockBuilderFeeInfoResponse) failed" ));
-    return;
+  char  pubkey[ FD_BASE58_ENCODED_32_SZ ] = {0};
+  ulong commission = 0UL;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) goto decode_fail;
+    switch( tlv->field_id ) {
+    case 1: /* pubkey */
+      if( FD_UNLIKELY( !fd_pb_tlv_cstr( &in, tlv, pubkey, sizeof(pubkey) ) ) ) goto decode_fail;
+      break;
+    case 2: /* commission */
+      if( FD_UNLIKELY( tlv->wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) goto decode_fail;
+      commission = tlv->varint;
+      break;
+    default:
+      break;
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) goto decode_fail;
   }
-  if( FD_UNLIKELY( res.commission > 100 ) ) {
+  if( FD_UNLIKELY( commission > 100 ) ) {
     ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "BlockBuilderFeeInfoResponse commission out of range (0-100): %lu", res.commission ));
+    FD_LOG_WARNING(( "BlockBuilderFeeInfoResponse commission out of range (0-100): %lu", commission ));
     return;
   }
 
   fd_pubkey_t decoded_builder_pubkey;
-  if( FD_UNLIKELY( !fd_base58_decode_32( res.pubkey, decoded_builder_pubkey.uc ) ||
+  if( FD_UNLIKELY( !fd_base58_decode_32( pubkey, decoded_builder_pubkey.uc ) ||
                    fd_pubkey_check_zero( &decoded_builder_pubkey ) ) ) {
-    FD_LOG_HEXDUMP_WARNING(( "Invalid pubkey in BlockBuilderFeeInfoResponse", res.pubkey, strnlen( res.pubkey, sizeof(res.pubkey) ) ));
+    FD_LOG_HEXDUMP_WARNING(( "Invalid pubkey in BlockBuilderFeeInfoResponse", pubkey, strnlen( pubkey, sizeof(pubkey) ) ));
     return;
   }
 
-  ctx->builder_commission = (uchar)res.commission; /* Apply update atomically */
+  ctx->builder_commission = (uchar)commission; /* Apply update atomically */
   fd_memcpy( ctx->builder_pubkey, decoded_builder_pubkey.uc, sizeof(ctx->builder_pubkey) );
 
   long validity_duration_ns = (long)( 60e9 * 5. ); /* 5 minutes */
   ctx->builder_info_avail = 1;
   ctx->builder_info_valid_until = fd_bundle_now( ctx ) + validity_duration_ns;
+  return;
+
+decode_fail:
+  ctx->metrics.decode_fail_cnt++;
+  FD_LOG_WARNING(( "Protobuf decode of (block_engine.BlockBuilderFeeInfoResponse) failed" ));
 }
 
 static void
@@ -861,7 +969,7 @@ fd_bundle_client_grpc_rx_msg(
 ) {
   fd_bundle_tile_t * ctx = app_ctx;
   ctx->metrics.proto_received_bytes += protobuf_sz;
-  pb_istream_t istream = pb_istream_from_buffer( protobuf, protobuf_sz );
+  fd_pb_inbuf_t in[1]; fd_pb_inbuf_init( in, protobuf, protobuf_sz );
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
     if( FD_UNLIKELY( !fd_bundle_auther_handle_challenge_resp( &ctx->auther, protobuf, protobuf_sz ) ) ) {
@@ -876,13 +984,13 @@ fd_bundle_client_grpc_rx_msg(
     }
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
-    fd_bundle_client_handle_bundle_batch( ctx, &istream );
+    fd_bundle_client_handle_bundle_batch( ctx, *in );
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
-    fd_bundle_client_handle_packet_batch( ctx, &istream );
+    fd_bundle_client_handle_packet_batch( ctx, *in );
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
-    fd_bundle_client_handle_builder_fee_info( ctx, &istream );
+    fd_bundle_client_handle_builder_fee_info( ctx, *in );
     break;
   default:
     FD_LOG_ERR(( "Received unexpected gRPC message (request_ctx=%lu)", request_ctx ));

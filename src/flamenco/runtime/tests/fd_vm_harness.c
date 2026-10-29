@@ -35,7 +35,7 @@ static ulong
 fd_solfuzz_vm_load_from_input_regions( fd_vm_input_region_t const *        input,
                                        uint                                input_count,
                                        fd_exec_test_input_data_region_t ** output,
-                                       pb_size_t *                         output_count,
+                                       uint *                         output_count,
                                        void *                              output_buf,
                                        ulong                               output_bufsz ) {
   /* Each region emits a fixed-size record holding a hash of its contents,
@@ -107,7 +107,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
     fd_memcpy( ctx->txn_out->details.return_data.data, input->vm_ctx.return_data.data->bytes, ctx->txn_out->details.return_data.len );
   }
 
-  *effects = (fd_exec_test_syscall_effects_t) FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO;
+  *effects = (fd_exec_test_syscall_effects_t){0};
 
   /* Set up the VM instance */
   fd_spad_t * spad = runner->spad;
@@ -355,7 +355,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_vm_serialization_effects_t),
                                 sizeof (fd_exec_test_vm_serialization_effects_t) );
   FD_TEST( _l <= output_end );
-  *effects = (fd_exec_test_vm_serialization_effects_t) FD_EXEC_TEST_VM_SERIALIZATION_EFFECTS_INIT_ZERO;
+  *effects = (fd_exec_test_vm_serialization_effects_t){0};
 
   /* Determine feature flags and is_deprecated */
   int direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
@@ -405,7 +405,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   effects->serialized_memory_hash = fd_hash( 0UL, serialized_buf, input_sz );
 
   /* Populate vm_input_memory_regions */
-  effects->vm_input_memory_regions_count = (pb_size_t)input_mem_regions_cnt;
+  effects->vm_input_memory_regions_count = (uint)input_mem_regions_cnt;
   effects->vm_input_memory_regions =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_vm_input_memory_region_t),
                                 input_mem_regions_cnt * sizeof(fd_exec_test_vm_input_memory_region_t) );
@@ -421,7 +421,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
 
   /* Populate serialized_account_metadata */
   ulong num_ix_accounts = ctx->instr->acct_cnt;
-  effects->serialized_account_metadata_count = (pb_size_t)num_ix_accounts;
+  effects->serialized_account_metadata_count = (uint)num_ix_accounts;
   effects->serialized_account_metadata =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_vm_serialized_account_metadata_t),
                                 num_ix_accounts * sizeof(fd_exec_test_vm_serialized_account_metadata_t) );

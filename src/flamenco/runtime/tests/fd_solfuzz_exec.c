@@ -22,7 +22,7 @@
 static int
 sol_compat_cmp_binary_strict( void const * effects,
                               void const * expected,
-                              pb_msgdesc_t const * encode_type,
+                              fd_pb_msgdesc_t const * encode_type,
                               fd_spad_t * spad ) {
 #define MAX_SZ 32*1024*1024
 FD_SPAD_FRAME_BEGIN( spad ) {
@@ -101,9 +101,9 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
 
 static int
 _diff_accounts( fd_exec_test_acct_state_t * expected,
-                pb_size_t                   expected_count,
+                uint                   expected_count,
                 fd_exec_test_acct_state_t * actual,
-                pb_size_t                   actual_count ) {
+                uint                   actual_count ) {
   // Verify that the number of accounts are the same
   if( expected_count != actual_count ) {
     FD_LOG_WARNING(( "Account states count mismatch: expected=%u actual=%u", expected_count, actual_count ));
@@ -237,7 +237,7 @@ fd_solfuzz_pb_instr_fixture( fd_solfuzz_runner_t * runner,
   ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg, runner->spad );
 
   // Cleanup
-  pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -265,7 +265,7 @@ fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
   fd_spad_pop( runner->spad );
 
   // Cleanup
-  pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -288,7 +288,7 @@ fd_solfuzz_pb_bundle_fixture( fd_solfuzz_runner_t * runner,
   fd_spad_pop( runner->spad );
 
   // Cleanup
-  pb_release( &fd_exec_test_bundle_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_bundle_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -311,7 +311,7 @@ fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
   fd_spad_pop( runner->spad );
 
   // Cleanup
-  pb_release( &fd_exec_test_block_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_block_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -333,7 +333,7 @@ fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
   fd_spad_pop( runner->spad );
 
   // Cleanup
-  pb_release( &fd_exec_test_syscall_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_syscall_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -355,7 +355,7 @@ fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
   fd_spad_pop( runner->spad );
 
   // Cleanup
-  pb_release( &fd_exec_test_elf_loader_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_elf_loader_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -375,7 +375,7 @@ fd_solfuzz_pb_shred_fixture( fd_solfuzz_runner_t * runner,
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_shred_parse_effects_t_msg, runner->spad );
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_shred_parse_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_shred_parse_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -396,7 +396,7 @@ fd_solfuzz_pb_vm_serialize_fixture( fd_solfuzz_runner_t * runner,
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_vm_serialization_effects_t_msg, runner->spad );
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_vm_serialization_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_vm_serialization_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -417,7 +417,7 @@ fd_solfuzz_pb_cost_fixture( fd_solfuzz_runner_t * runner,
   int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_cost_result_t_msg, runner->spad );
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_cost_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_cost_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -459,6 +459,6 @@ fd_solfuzz_pb_gossip_fixture( fd_solfuzz_runner_t * runner,
   fd_spad_pop( runner->spad );
 
   // Cleanup
-  pb_release( &fd_exec_test_gossip_fixture_t_msg, fixture );
+  fd_pb_release( &fd_exec_test_gossip_fixture_t_msg, fixture );
   return ok;
 }

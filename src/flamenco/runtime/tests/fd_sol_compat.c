@@ -155,7 +155,7 @@ sol_compat_instr_execute_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_instr_context_t_msg, input );
+  fd_pb_release( &fd_exec_test_instr_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
@@ -178,7 +178,7 @@ sol_compat_txn_execute_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_txn_context_t_msg, input );
+  fd_pb_release( &fd_exec_test_txn_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
@@ -201,7 +201,7 @@ sol_compat_bundle_execute_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_bundle_context_t_msg, input );
+  fd_pb_release( &fd_exec_test_bundle_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
@@ -211,7 +211,7 @@ sol_compat_txn_cost_v1( uchar *       out,
                         ulong *       out_sz,
                         uchar const * in,
                         ulong         in_sz ) {
-  fd_exec_test_cost_context_t input[1] = { FD_EXEC_TEST_COST_CONTEXT_INIT_ZERO };
+  fd_exec_test_cost_context_t input[1] = {0};
   void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_cost_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
@@ -224,7 +224,7 @@ sol_compat_txn_cost_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_cost_context_t_msg, input );
+  fd_pb_release( &fd_exec_test_cost_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
@@ -247,7 +247,7 @@ sol_compat_block_execute_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_block_context_t_msg, input );
+  fd_pb_release( &fd_exec_test_block_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
@@ -270,7 +270,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_syscall_context_t_msg, input );
+  fd_pb_release( &fd_exec_test_syscall_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
@@ -305,7 +305,7 @@ sol_compat_elf_loader_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
+  fd_pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
@@ -328,7 +328,7 @@ sol_compat_vm_serialize_execute_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_instr_context_t_msg, input );
+  fd_pb_release( &fd_exec_test_instr_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
@@ -351,7 +351,7 @@ sol_compat_shred_parse_v1( uchar *       out,
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_shred_parse_context_t_msg, input );
+  fd_pb_release( &fd_exec_test_shred_parse_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }

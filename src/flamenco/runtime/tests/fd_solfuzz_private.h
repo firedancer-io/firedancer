@@ -6,8 +6,6 @@
 
 #include "fd_solfuzz.h"
 #include "../../features/fd_features.h"
-#include "../../../third_party/nanopb/pb_encode.h"
-#include "../../../third_party/nanopb/pb_decode.h"
 #include "generated/context.pb.h"
 
 FD_PROTOTYPES_BEGIN
@@ -20,7 +18,7 @@ fd_solfuzz_hash( void const * data,
 
 /* Returns the account data carried by an input account state, or NULL if
    the account state carries a hash of its data instead. */
-static inline pb_bytes_array_t const *
+static inline fd_pb_bytes_array_t const *
 fd_solfuzz_acct_data( fd_exec_test_acct_state_t const * acct ) {
   if( acct->which_data_repr!=FD_EXEC_TEST_ACCT_STATE_DATA_TAG ) return NULL;
   return acct->data_repr.data;
@@ -82,7 +80,7 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
                                                 ulong                       cu_avail,
                                                 int                         has_err,
                                                 fd_exec_test_acct_state_t * accounts,
-                                                pb_size_t                   accounts_cnt );
+                                                uint                   accounts_cnt );
 
 /* Create feature accounts for all active features in the given feature
    set, with an activation slot of 0.  Skip any feature whose pubkey
@@ -93,7 +91,7 @@ fd_solfuzz_pb_create_feature_accounts( fd_accdb_t *                       accdb,
                                        fd_accdb_fork_id_t                 fork_id,
                                        fd_exec_test_feature_set_t const * feature_set,
                                        fd_exec_test_acct_state_t const *  acct_states,
-                                       pb_size_t                          acct_states_count );
+                                       uint                          acct_states_count );
 
 typedef ulong( exec_test_run_pb_fn_t )( fd_solfuzz_runner_t *,
                                         void const *,
@@ -119,53 +117,19 @@ fd_solfuzz_pb_execute_wrapper( fd_solfuzz_runner_t *   runner,
 /* Utils */
 
 static FD_FN_UNUSED void *
-sol_compat_decode_lenient( void *               decoded,
-                           uchar const *        in,
-                           ulong                in_sz,
-                           pb_msgdesc_t const * decode_type ) {
-  pb_istream_t istream = pb_istream_from_buffer( in, in_sz );
-  int decode_ok = pb_decode_ex( &istream, decode_type, decoded, PB_DECODE_NOINIT );
-  if( !decode_ok ) {
-    pb_release( decode_type, decoded );
-    return NULL;
-  }
-  return decoded;
-}
-
-static FD_FN_UNUSED void *
-sol_compat_decode( void *               decoded,
-                   uchar const *        in,
-                   ulong                in_sz,
-                   pb_msgdesc_t const * decode_type ) {
-  pb_istream_t istream = pb_istream_from_buffer( in, in_sz );
-  int decode_ok = pb_decode_ex( &istream, decode_type, decoded, PB_DECODE_NOINIT );
-  if( !decode_ok ) {
-    pb_release( decode_type, decoded );
-    return NULL;
-  }
-  ulong size;
-  if( FD_UNLIKELY( !pb_get_encoded_size( &size, decode_type, decoded ) ) ) {
-    pb_release( decode_type, decoded );
-    return NULL;
-  }
-  if( FD_UNLIKELY( size != in_sz ) ) {
-    pb_release( decode_type, decoded );
-    return NULL;
-  }
-  return decoded;
+sol_compat_decode_lenient( void *                  decoded,
+                           uchar const *           in,
+                           ulong                   in_sz,
+                           fd_pb_msgdesc_t const * decode_type ) {
+  return fd_pb_decode( decode_type, decoded, in, in_sz );
 }
 
 static FD_FN_UNUSED void const *
-sol_compat_encode( uchar *              out,
-                   ulong *              out_sz,
-                   void const *         to_encode,
-                   pb_msgdesc_t const * encode_type ) {
-  pb_ostream_t ostream = pb_ostream_from_buffer( out, *out_sz );
-  int encode_ok = pb_encode( &ostream, encode_type, to_encode );
-  if( !encode_ok ) {
-    return NULL;
-  }
-  *out_sz = ostream.bytes_written;
+sol_compat_encode( uchar *                 out,
+                   ulong *                 out_sz,
+                   void const *            to_encode,
+                   fd_pb_msgdesc_t const * encode_type ) {
+  if( FD_UNLIKELY( !fd_pb_encode( encode_type, to_encode, out, out_sz ) ) ) return NULL;
   return to_encode;
 }
 

@@ -159,7 +159,7 @@ static ulong
 fd_solfuzz_pb_txn_serialize_v1( uchar *                                      txn_raw_begin,
                                 fd_exec_test_sanitized_transaction_t const * tx ) {
   uchar * txn_raw_cur_ptr = txn_raw_begin;
-  fd_exec_test_transaction_config_t const empty_cfg = FD_EXEC_TEST_TRANSACTION_CONFIG_INIT_ZERO;
+  fd_exec_test_transaction_config_t const empty_cfg = {0};
   fd_exec_test_transaction_config_t const * cfg = tx->message.has_v1_config ? &tx->message.v1_config : &empty_cfg;
 
   /* Version byte: high bit set, version 1 */
@@ -318,7 +318,7 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
     }
 
     // Compact array of 8-bit data
-    pb_bytes_array_t * data = tx->message.instructions[i].data;
+    fd_pb_bytes_array_t * data = tx->message.instructions[i].data;
     ushort data_len;
     if( data ) {
       data_len = (ushort) data->size;
