@@ -154,6 +154,8 @@ fd_fib4_netlink_translate( struct nlmsghdr const * msg_hdr,
     }
   }
 
+  if( FD_UNLIKELY( hop->flags & FD_FIB4_FLAG_RTA_PARSE_ERR ) ) return 0;
+
   if( FD_UNLIKELY( prefix<0 ) ) prefix = 0; /* default route omits RTA_DST */
   *route = (fd_iproute_msg_t) {
     .hop       = *hop,
