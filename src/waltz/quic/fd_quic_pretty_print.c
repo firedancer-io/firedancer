@@ -402,6 +402,9 @@ fd_quic_pretty_print_quic_hdr_initial( char **        out_buf,
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( buf[0] ) + 1u;
   ulong payload_off   = pn_offset + pkt_number_sz;
 
+  if( FD_UNLIKELY( body_sz<pkt_number_sz+FD_QUIC_CRYPTO_TAG_SZ ||
+                   pn_offset>buf_sz || body_sz>buf_sz-pn_offset ) ) return FD_QUIC_PARSE_FAIL;
+
   /* now we have decrypted packet number */
   ulong pkt_number = fd_quic_pktnum_decode( buf+pn_offset, pkt_number_sz );
 
@@ -445,6 +448,9 @@ fd_quic_pretty_print_quic_hdr_handshake( char **        out_buf,
   ulong pn_offset     = handshake->pkt_num_pnoff;
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( buf[0] ) + 1u;
   ulong payload_off   = pn_offset + pkt_number_sz;
+
+  if( FD_UNLIKELY( body_sz<pkt_number_sz+FD_QUIC_CRYPTO_TAG_SZ ||
+                   pn_offset>buf_sz || body_sz>buf_sz-pn_offset ) ) return FD_QUIC_PARSE_FAIL;
 
   /* now we have decrypted packet number */
   ulong pkt_number = fd_quic_pktnum_decode( buf+pn_offset, pkt_number_sz );
