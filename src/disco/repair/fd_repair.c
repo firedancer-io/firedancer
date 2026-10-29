@@ -9,7 +9,7 @@ blk_treap_insert( fd_repair_t *     rotor,
                   fd_repair_blk_t * blk ) {
   fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( rotor, blk->slot );
   ulong                         idx  = fd_repair_blk_pool_idx( rotor->blk_pool, blk );
-  if( FD_UNLIKELY( blk->in_blk_treap ) ) return;
+  if( FD_UNLIKELY( blk->in_blk_treap || blk->dead ) ) return;
   if( FD_UNLIKELY( meta->final!=idx && meta->notar!=idx && meta->eager==idx && !blk->eager ) ) return;
   fd_repair_treap_ele_insert( meta->final==idx ? rotor->final_treap : meta->notar==idx ? rotor->notar_treap : rotor->eager_treap, blk, rotor->blk_pool );
   blk->in_blk_treap = 1;
@@ -53,6 +53,7 @@ blk_insert( fd_repair_t *     rotor,
   blk->meta_req      = 0;
   blk->highest_req   = 0;
   blk->orphan_req    = 0;
+  blk->dead          = 0;
   memset( &blk->telemetry, 0, sizeof(blk->telemetry) );
   blk->telemetry.last_cmpl_fec_idx = UINT_MAX;
   blk->rcvd_fec_ts   = 0L;
@@ -100,6 +101,7 @@ static void
 consume( fd_repair_t *     rotor,
          fd_repair_blk_t * blk ) {
   fd_repair_slot_meta_t const * meta = fd_repair_slot_meta( rotor, blk->slot );
+  if( FD_UNLIKELY( blk->dead ) ) return; /* replay rejected it or an ancestor */
   if( FD_UNLIKELY( meta->invalidated && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) return;
   if( FD_UNLIKELY( blk->parent==fd_repair_blk_pool_idx_null( rotor->blk_pool ) ) ) return; /* orphaned, even if partly consumed */
   if( FD_UNLIKELY( !blk->cons_fec_cnt ) ) {
@@ -151,7 +153,31 @@ cascade( fd_repair_t *     rotor,
   while( FD_LIKELY( idx!=null ) ) {
     fd_repair_blk_t * blk = fd_repair_blk_pool_ele( pool, idx );
     consume( rotor, blk );
-    if( FD_LIKELY( blk->cmpl_fec_cnt && blk->cons_fec_cnt==blk->cmpl_fec_cnt && blk->child!=null ) ) { idx = blk->child; continue; }
+    if( FD_LIKELY( !blk->dead && blk->cmpl_fec_cnt && blk->cons_fec_cnt==blk->cmpl_fec_cnt && blk->child!=null ) ) { idx = blk->child; continue; }
+    while( FD_LIKELY( idx!=tidx && fd_repair_blk_pool_ele( pool, idx )->sibling==null ) ) idx = fd_repair_blk_pool_ele( pool, idx )->parent;
+    if( FD_UNLIKELY( idx==tidx ) ) break;
+    idx = fd_repair_blk_pool_ele( pool, idx )->sibling;
+  }
+}
+
+/* mark_dead marks top and every blk under it dead, in the same
+   stackless preorder as cascade, and takes them out of the blk_treaps.
+   Every place that links a blk under a dead parent marks it too, so a
+   dead blk's subtree is always dead. */
+
+static void
+mark_dead( fd_repair_t *     rotor,
+           fd_repair_blk_t * top ) {
+  if( FD_UNLIKELY( top->dead ) ) return; /* its subtree already is */
+  fd_repair_blk_t * pool = rotor->blk_pool;
+  ulong             null = fd_repair_blk_pool_idx_null( pool );
+  ulong             tidx = fd_repair_blk_pool_idx( pool, top );
+  ulong             idx  = tidx;
+  for(;;) {
+    fd_repair_blk_t * blk = fd_repair_blk_pool_ele( pool, idx );
+    blk_treap_remove( rotor, blk );
+    blk->dead = 1;
+    if( FD_LIKELY( blk->child!=null ) ) { idx = blk->child; continue; }
     while( FD_LIKELY( idx!=tidx && fd_repair_blk_pool_ele( pool, idx )->sibling==null ) ) idx = fd_repair_blk_pool_ele( pool, idx )->parent;
     if( FD_UNLIKELY( idx==tidx ) ) break;
     idx = fd_repair_blk_pool_ele( pool, idx )->sibling;
@@ -224,6 +250,7 @@ connect_ancestors(  fd_repair_t *     rotor,
       blk->sibling  = parent->child;
       parent->child = fd_repair_blk_pool_idx( pool, blk );
       top           = blk;
+      if( FD_UNLIKELY( parent->dead ) ) mark_dead( rotor, blk );
     }
     if( FD_UNLIKELY( final && pmeta->final==null ) ) promote( rotor, parent, &pmeta->final );
     blk = parent;
@@ -253,6 +280,7 @@ link_parent( fd_repair_t *     rotor,
   blk->parent   = fd_repair_blk_pool_idx( pool, parent );
   blk->sibling  = parent->child;
   parent->child = fd_repair_blk_pool_idx( pool, blk );
+  if( FD_UNLIKELY( parent->dead ) ) mark_dead( rotor, blk );
   return parent;
 }
 
@@ -278,6 +306,7 @@ link_children( fd_repair_t *     rotor,
     blk->sibling  = parent->child;
     parent->child = fd_repair_blk_pool_idx( pool, blk );
     if( FD_UNLIKELY( fd_repair_slot_meta( rotor, blk->slot )->final==fd_repair_blk_pool_idx( pool, blk ) && pmeta->final==null ) ) promote( rotor, parent, &pmeta->final );
+    if( FD_UNLIKELY( parent->dead ) ) mark_dead( rotor, blk );
   }
 }
 
@@ -384,6 +413,8 @@ dedup( fd_repair_t *     rotor,
     eager->sibling                                       = fd_repair_blk_pool_ele( pool, notar->parent )->child;
     fd_repair_blk_pool_ele( pool, notar->parent )->child = idx;
   }
+  int dead_parent = eager->parent!=null && fd_repair_blk_pool_ele( pool, eager->parent )->dead;
+  if( FD_UNLIKELY( notar->dead || dead_parent ) ) mark_dead( rotor, eager ); /* the same block, or under a dead one */
   blk_treap_remove( rotor, notar );
   if( FD_UNLIKELY( meta->final==fd_repair_blk_pool_idx( pool, notar ) ) ) { meta->final = null; promote( rotor, eager, &meta->final ); }
   if( FD_UNLIKELY( meta->notar==fd_repair_blk_pool_idx( pool, notar ) ) ) { meta->notar = null; promote( rotor, eager, &meta->notar ); }
@@ -557,7 +588,7 @@ fd_repair_blk_dead( fd_repair_t *     rotor,
   while( dead && memcmp( &dead->dmr, blk_mr, sizeof(fd_mr32_t) ) ) dead = (fd_repair_blk_t *)fd_repair_blk_map_ele_next_const( dead, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !dead ) ) return;
 
-  blk_treap_remove( rotor, dead ); /* replay rejected it, no point repairing the rest */
+  mark_dead( rotor, dead ); /* never delivered or repaired again, nor anything under it */
   fd_repair_slot_meta_t * meta = fd_repair_slot_meta( rotor, slot );
   if( FD_LIKELY( meta->eager!=fd_repair_blk_pool_idx( rotor->blk_pool, dead ) || meta->invalidated ) ) return;
 
