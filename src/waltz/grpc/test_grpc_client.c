@@ -21,15 +21,6 @@ main( int     argc,
 #include <sys/socket.h>
 #include <unistd.h>
 
-typedef struct {
-  uchar unused;
-} test_empty_msg_t;
-
-#define test_Empty_FIELDLIST(X, a)
-#define test_Empty_CALLBACK NULL
-#define test_Empty_DEFAULT  NULL
-PB_BIND( test_Empty, test_empty_msg_t, AUTO )
-
 static fd_grpc_client_t * client;
 
 /* test_grpc_client_mock_conn injects a fake connection state into the
@@ -330,13 +321,10 @@ FD_UNIT_TEST( stream_send_state ) {
   *client->request_tx_op = (fd_h2_tx_op_t){0};
 
   fd_h2_stream_reset( &stream->s, client->conn );
-  test_empty_msg_t msg = {0};
-  FD_TEST( !fd_grpc_client_stream_send_msg ( client, stream, &test_empty_msg_t_msg, &msg ) );
-  FD_TEST( !fd_grpc_client_stream_send_msg1( client, stream, &payload, sizeof(payload) ) );
+  FD_TEST( !fd_grpc_client_stream_send_msg( client, stream, &payload, sizeof(payload) ) );
 
   stream->s.state = FD_H2_STREAM_STATE_CLOSING_TX;
-  FD_TEST( !fd_grpc_client_stream_send_msg ( client, stream, &test_empty_msg_t_msg, &msg ) );
-  FD_TEST( !fd_grpc_client_stream_send_msg1( client, stream, &payload, sizeof(payload) ) );
+  FD_TEST( !fd_grpc_client_stream_send_msg( client, stream, &payload, sizeof(payload) ) );
 
   FD_TEST( fd_h2_rbuf_is_empty( client->frame_tx ) );
   FD_TEST( !client->request_tx_op->chunk_sz );
@@ -347,31 +335,26 @@ FD_UNIT_TEST( stream_send_state ) {
 FD_UNIT_TEST( request_scheme ) {
   for( int https=0; https<=1; https++ ) {
     fd_grpc_client_set_https( client, https );
-    for( int encoded=0; encoded<=1; encoded++ ) {
-      fd_grpc_client_reset( client );
-      test_grpc_client_mock_conn( client );
-      test_empty_msg_t msg = {0};
-      fd_grpc_h2_stream_t * stream;
-      if( encoded ) stream = fd_grpc_client_request_start1( client, "/test", 5UL, 0UL, NULL, 0UL, NULL, 0UL, 1 );
-      else          stream = fd_grpc_client_request_start ( client, "/test", 5UL, 0UL, &test_empty_msg_t_msg, &msg, NULL, 0UL, 1 );
-      FD_TEST( stream );
+    fd_grpc_client_reset( client );
+    test_grpc_client_mock_conn( client );
+    fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start( client, "/test", 5UL, 0UL, NULL, 0UL, NULL, 0UL, 1 );
+    FD_TEST( stream );
 
-      uchar buf[ 4096 ];
-      ulong sz = fd_h2_rbuf_used_sz( client->frame_tx );
-      FD_TEST( sz<=sizeof(buf) && sz>sizeof(fd_h2_frame_hdr_t) );
-      fd_h2_rbuf_pop_copy( client->frame_tx, buf, sz );
-      ulong hdr_sz = ((ulong)buf[0]<<16) | ((ulong)buf[1]<<8) | (ulong)buf[2];
-      FD_TEST( buf[3]==FD_H2_FRAME_TYPE_HEADERS && hdr_sz<=sz-sizeof(fd_h2_frame_hdr_t) );
-      fd_hpack_rd_t rd[1];
-      fd_hpack_rd_init( rd, buf+sizeof(fd_h2_frame_hdr_t), hdr_sz );
-      fd_h2_hdr_t hdr[1];
-      uchar * scratch = NULL;
-      FD_TEST( !fd_hpack_rd_next( rd, hdr, &scratch, 0UL ) ); /* :method */
-      FD_TEST( !fd_hpack_rd_next( rd, hdr, &scratch, 0UL ) );
-      FD_TEST( hdr->name_len==7UL && fd_memeq( hdr->name, ":scheme", 7UL ) );
-      FD_TEST( hdr->value_len==(https ? 5UL : 4UL) );
-      FD_TEST( fd_memeq( hdr->value, https ? "https" : "http", hdr->value_len ) );
-    }
+    uchar buf[ 4096 ];
+    ulong sz = fd_h2_rbuf_used_sz( client->frame_tx );
+    FD_TEST( sz<=sizeof(buf) && sz>sizeof(fd_h2_frame_hdr_t) );
+    fd_h2_rbuf_pop_copy( client->frame_tx, buf, sz );
+    ulong hdr_sz = ((ulong)buf[0]<<16) | ((ulong)buf[1]<<8) | (ulong)buf[2];
+    FD_TEST( buf[3]==FD_H2_FRAME_TYPE_HEADERS && hdr_sz<=sz-sizeof(fd_h2_frame_hdr_t) );
+    fd_hpack_rd_t rd[1];
+    fd_hpack_rd_init( rd, buf+sizeof(fd_h2_frame_hdr_t), hdr_sz );
+    fd_h2_hdr_t hdr[1];
+    uchar * scratch = NULL;
+    FD_TEST( !fd_hpack_rd_next( rd, hdr, &scratch, 0UL ) ); /* :method */
+    FD_TEST( !fd_hpack_rd_next( rd, hdr, &scratch, 0UL ) );
+    FD_TEST( hdr->name_len==7UL && fd_memeq( hdr->name, ":scheme", 7UL ) );
+    FD_TEST( hdr->value_len==(https ? 5UL : 4UL) );
+    FD_TEST( fd_memeq( hdr->value, https ? "https" : "http", hdr->value_len ) );
   }
 }
 
@@ -379,7 +362,7 @@ FD_UNIT_TEST( stream_close_state ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
 
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start(
       client, "/test", 5UL, 0UL, NULL, 0UL, NULL, 0UL, 1 );
   FD_TEST( stream );
   FD_TEST( stream->s.state==FD_H2_STREAM_STATE_OPEN );
@@ -387,7 +370,7 @@ FD_UNIT_TEST( stream_close_state ) {
   fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
 
   uchar payload = 0U;
-  FD_TEST( fd_grpc_client_stream_send_msg1( client, stream, &payload, sizeof(payload) ) );
+  FD_TEST( fd_grpc_client_stream_send_msg( client, stream, &payload, sizeof(payload) ) );
   FD_TEST( !client->request_stream );
   FD_TEST( !client->request_tx_op->chunk_sz );
   fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
@@ -396,7 +379,7 @@ FD_UNIT_TEST( stream_close_state ) {
   FD_TEST( stream->s.state==FD_H2_STREAM_STATE_CLOSING_TX );
   fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
 
-  FD_TEST( !fd_grpc_client_stream_send_msg1( client, stream, &payload, sizeof(payload) ) );
+  FD_TEST( !fd_grpc_client_stream_send_msg( client, stream, &payload, sizeof(payload) ) );
   FD_TEST( !fd_grpc_client_stream_close( client, stream ) );
 
   fd_h2_stream_rx_data( &stream->s, client->conn, FD_H2_FLAG_END_STREAM );
