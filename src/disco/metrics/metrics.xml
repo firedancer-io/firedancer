@@ -835,6 +835,11 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="TxncacheInsertDurationNanos" min="10" max="100000000" source="ticks">
         <summary>Duration of one transaction cache insert</summary>
     </histogram>
+    <counter name="AccdbIndexResidualWaited" summary="Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory" />
+    <counter name="AccdbIndexResidualWaitDurationNanos" source="ticks" summary="Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory" />
+    <counter name="AccdbIndexPrefetched" summary="Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use" />
+    <counter name="AccdbIndexPrefetchDropped" summary="Prefetch requests dropped because the queue to the accdb tile was full" />
+    <counter name="AccdbIndexPoolWaited" summary="Releases that waited for free account index slots" />
 </tile>
 
 <enum name="ShredProcessResult">
@@ -908,6 +913,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="WritebackWritten" summary="Write syscalls that wrote evicted cache lines back to the account database file" />
     <counter name="CompactionWritten" summary="Writes that relocated a batch of records during compaction" />
     <counter name="AccountVersionRemoved" summary="Account versions removed from the account database index" />
+    <counter name="IndexDemoted" summary="Rooted account versions moved to the on-disk account index" />
+    <counter name="IndexPromoted" summary="Account index entries brought from the on-disk index into memory" />
+    <counter name="IndexNegativeRecorded" summary="Lookups recorded in memory as absent from the on-disk account index" />
+    <counter name="IndexWarmed" summary="Account data loaded into the cache by the accdb tile ahead of use" />
 
     <gauge name="CacheClassUsed" enum="AccdbCacheClass" summary="Cache lines in use, by size class" />
     <gauge name="CacheClassCapacity" enum="AccdbCacheClass" summary="Cache line capacity, by size class" />
@@ -1145,6 +1154,11 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="AccdbDiskWrittenBytes" summary="Bytes written to the account database file" />
     <counter name="AccdbDiskWritten" summary="Writes to the account database file" />
     <counter name="AccdbCopiedBytes" summary="Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded" />
+    <counter name="AccdbIndexResidualWaited" summary="Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory" />
+    <counter name="AccdbIndexResidualWaitDurationNanos" source="ticks" summary="Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory" />
+    <counter name="AccdbIndexPrefetched" summary="Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use" />
+    <counter name="AccdbIndexPrefetchDropped" summary="Prefetch requests dropped because the queue to the accdb tile was full" />
+    <counter name="AccdbIndexPoolWaited" summary="Releases that waited for free account index slots" />
 
     <bool name="IsRuntimeLoaded" summary="Whether the runtime has loaded a bank and can replay" />
 </tile>
@@ -1900,6 +1914,11 @@ deliberate exception with lint-allow="<rule id>")
     <histogram name="TxncacheInsertDurationNanos" min="10" max="100000000" source="ticks">
         <summary>Duration of one transaction cache insert</summary>
     </histogram>
+    <counter name="AccdbIndexResidualWaited" summary="Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory" />
+    <counter name="AccdbIndexResidualWaitDurationNanos" source="ticks" summary="Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory" />
+    <counter name="AccdbIndexPrefetched" summary="Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use" />
+    <counter name="AccdbIndexPrefetchDropped" summary="Prefetch requests dropped because the queue to the accdb tile was full" />
+    <counter name="AccdbIndexPoolWaited" summary="Releases that waited for free account index slots" />
 </tile>
 
 <tile name="benchs" telemetry="false">
