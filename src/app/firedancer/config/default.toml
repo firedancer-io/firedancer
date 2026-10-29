@@ -788,8 +788,9 @@ telemetry = true
     # The execution system bounds all internal limits and structures in
     # terms of this "max live slots" parameter, and it is set large
     # enough to make the chain impractical to attack.  For example, a
-    # value of 2048 means the validator can go without rooting for
-    # around fifteen minutes without needing to start evicting data.
+    # value of 32768 means the validator can go without rooting for
+    # around three and a half hours without needing to start evicting
+    # data.
     #
     # On hitting this limit, the validator will begin evicting less
     # important slots from memory, meaning their state will be lost and
@@ -798,7 +799,7 @@ telemetry = true
     #
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage or test edge cases.
-    max_live_slots = 2048
+    max_live_slots = 32768
 
     # The maximum number of stake delegations held in memory.  Stake
     # delegations beyond this limit spill to disk, which is slower.
