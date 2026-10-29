@@ -22,7 +22,7 @@
 static int
 sol_compat_cmp_binary_strict( void const * effects,
                               void const * expected,
-                              pb_msgdesc_t const * encode_type,
+                              fd_pb_msgdesc_t const * encode_type,
                               fd_spad_t * spad ) {
 #define MAX_SZ 32*1024*1024
 FD_SPAD_FRAME_BEGIN( spad ) {
@@ -35,14 +35,14 @@ FD_SPAD_FRAME_BEGIN( spad ) {
      the allocated spad memory amount in fd_exec_sol_compat.c. */
   ulong out_sz = MAX_SZ;
   uchar * out = fd_spad_alloc( spad, 1UL, out_sz );
-  if( !sol_compat_encode( out, &out_sz, effects, encode_type ) ) {
+  if( !fd_pb_encode( encode_type, effects, out, &out_sz ) ) {
     FD_LOG_WARNING(( "Error encoding effects" ));
     return 0;
   }
 
   ulong exp_sz = MAX_SZ;
   uchar * exp = fd_spad_alloc( spad, 1UL, exp_sz );
-  if( !sol_compat_encode( exp, &exp_sz, expected, encode_type ) ) {
+  if( !fd_pb_encode( encode_type, expected, exp, &exp_sz ) ) {
     FD_LOG_WARNING(( "Error encoding expected" ));
     return 0;
   }
@@ -101,9 +101,9 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
 
 static int
 _diff_accounts( fd_exec_test_acct_state_t * expected,
-                pb_size_t                   expected_count,
+                uint                   expected_count,
                 fd_exec_test_acct_state_t * actual,
-                pb_size_t                   actual_count ) {
+                uint                   actual_count ) {
   // Verify that the number of accounts are the same
   if( expected_count != actual_count ) {
     FD_LOG_WARNING(( "Account states count mismatch: expected=%u actual=%u", expected_count, actual_count ));
@@ -220,11 +220,11 @@ int
 fd_solfuzz_pb_instr_fixture( fd_solfuzz_runner_t * runner,
                              uchar const *         in,
                              ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_instr_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
-  if( !res ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_instr_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid instr fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
@@ -234,10 +234,8 @@ fd_solfuzz_pb_instr_fixture( fd_solfuzz_runner_t * runner,
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_instr_run );
 
   // Compare effects
-  ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_t_msg, runner->spad );
-
-  // Cleanup
-  pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
+  ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_instr_effects_desc, runner->spad );
+  fd_spad_pop( runner->spad );
   return ok;
 }
 
@@ -245,15 +243,14 @@ int
 fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
                            uchar const *         in,
                            ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_txn_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
-  if( !res ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_txn_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid txn fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
-  fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_txn_run );
@@ -264,8 +261,6 @@ fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
   }
   fd_spad_pop( runner->spad );
 
-  // Cleanup
-  pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -273,22 +268,19 @@ int
 fd_solfuzz_pb_bundle_fixture( fd_solfuzz_runner_t * runner,
                               uchar const *         in,
                               ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_bundle_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_bundle_fixture_t_msg );
-  if( !res ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_bundle_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid bundle fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
-  fd_spad_push( runner->spad );
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_bundle_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_bundle_effects_t_msg, runner->spad );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_bundle_effects_desc, runner->spad );
   fd_spad_pop( runner->spad );
 
-  // Cleanup
-  pb_release( &fd_exec_test_bundle_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -296,22 +288,19 @@ int
 fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
                              uchar const *         in,
                              ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_block_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_block_fixture_t_msg );
-  if( !res ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_block_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid block fixture" ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
-  fd_spad_push( runner->spad );
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_block_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_block_effects_t_msg, runner->spad );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_block_effects_desc, runner->spad );
   fd_spad_pop( runner->spad );
 
-  // Cleanup
-  pb_release( &fd_exec_test_block_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -319,21 +308,19 @@ int
 fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
                                uchar const *         in,
                                ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_syscall_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_syscall_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid syscall fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
-  fd_spad_push( runner->spad );
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_syscall_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_desc, runner->spad );
   fd_spad_pop( runner->spad );
 
-  // Cleanup
-  pb_release( &fd_exec_test_syscall_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -341,21 +328,19 @@ int
 fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
                                   uchar const *         in,
                                   ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_elf_loader_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_elf_loader_fixture_t_msg ) ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_elf_loader_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid elf loader fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
-  fd_spad_push( runner->spad );
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_elf_loader_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_t_msg, runner->spad );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_desc, runner->spad );
   fd_spad_pop( runner->spad );
 
-  // Cleanup
-  pb_release( &fd_exec_test_elf_loader_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -363,19 +348,19 @@ int
 fd_solfuzz_pb_shred_fixture( fd_solfuzz_runner_t * runner,
                              uchar const *         in,
                              ulong                 in_sz ) {
+  fd_spad_push( runner->spad );
   fd_exec_test_shred_parse_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_shred_parse_fixture_t_msg ) ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_shred_parse_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid shred fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
-  fd_spad_push( runner->spad );
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_shred_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_shred_parse_effects_t_msg, runner->spad );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_shred_parse_effects_desc, runner->spad );
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_shred_parse_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -383,20 +368,19 @@ int
 fd_solfuzz_pb_vm_serialize_fixture( fd_solfuzz_runner_t * runner,
                                     uchar const *         in,
                                     ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_vm_serialization_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_vm_serialization_fixture_t_msg ) ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_vm_serialization_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid vm serialization fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
-  fd_spad_push( runner->spad );
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_vm_serialize_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_vm_serialization_effects_t_msg, runner->spad );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_vm_serialization_effects_desc, runner->spad );
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_vm_serialization_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -404,20 +388,19 @@ int
 fd_solfuzz_pb_cost_fixture( fd_solfuzz_runner_t * runner,
                             uchar const *         in,
                             ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_cost_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_cost_fixture_t_msg ) ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_cost_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid cost fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
-  fd_spad_push( runner->spad );
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_cost_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_cost_result_t_msg, runner->spad );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_cost_result_desc, runner->spad );
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_cost_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -425,15 +408,15 @@ int
 fd_solfuzz_pb_gossip_fixture( fd_solfuzz_runner_t * runner,
                               uchar const *         in,
                               ulong                 in_sz ) {
-  // Decode fixture
+  fd_spad_push( runner->spad );
   fd_exec_test_gossip_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_gossip_fixture_t_msg ) ) {
+  if( FD_UNLIKELY( !fd_pb_decode( &fd_exec_test_gossip_fixture_desc, &fixture, in, in_sz, runner->spad ) ) ) {
     FD_LOG_WARNING(( "Invalid gossip fixture." ));
+    fd_spad_pop( runner->spad );
     return 0;
   }
 
   int ok = 0;
-  fd_spad_push( runner->spad );
 
   uchar const * input    = fixture->input ? fixture->input->bytes : NULL;
   ulong         input_sz = fixture->input ? fixture->input->size  : 0UL;
@@ -445,7 +428,7 @@ fd_solfuzz_pb_gossip_fixture( fd_solfuzz_runner_t * runner,
   } else {
     ulong   exp_sz = 32UL*1024UL*1024UL;
     uchar * exp    = fd_spad_alloc( runner->spad, 1UL, exp_sz );
-    if( !sol_compat_encode( exp, &exp_sz, &fixture->output, &fd_exec_test_gossip_effects_t_msg ) ) {
+    if( !fd_pb_encode( &fd_exec_test_gossip_effects_desc, &fixture->output, exp, &exp_sz ) ) {
       FD_LOG_WARNING(( "Error encoding expected" ));
     } else if( out_sz!=exp_sz ) {
       FD_LOG_WARNING(( "Binary cmp failed: different size. out_sz=%lu exp_sz=%lu", out_sz, exp_sz ));
@@ -458,7 +441,5 @@ fd_solfuzz_pb_gossip_fixture( fd_solfuzz_runner_t * runner,
 
   fd_spad_pop( runner->spad );
 
-  // Cleanup
-  pb_release( &fd_exec_test_gossip_fixture_t_msg, fixture );
   return ok;
 }
