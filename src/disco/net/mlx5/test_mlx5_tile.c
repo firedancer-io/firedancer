@@ -1383,6 +1383,13 @@ main( int     argc,
   fd_memset( tx_packet, 0, FD_ETH_PAYLOAD_MAX+1UL );
   FD_EXPECT_LOG_ERR( during_frag( tile, 0UL, tx_seq, tx_sig, tx_chunk, FD_ETH_PAYLOAD_MAX+1UL, 1UL ) );
 
+  /* TX frag larger than its link's mtu */
+  FD_TEST( tile->net.in_dcache_ctx[ 0 ].mtu==FD_NET_MTU );
+  tile->net.in_dcache_ctx[ 0 ].mtu = sizeof(tx_pkt_templ)-1UL;
+  fd_memcpy( tx_packet, &tx_pkt_templ, sizeof(tx_pkt_templ) );
+  FD_EXPECT_LOG_ERR( during_frag( tile, 0UL, tx_seq, tx_sig, tx_chunk, sizeof(tx_pkt_templ), 1UL ) );
+  tile->net.in_dcache_ctx[ 0 ].mtu = FD_NET_MTU;
+
   FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]==tx_invalid_before+3UL );
   FD_TEST( !test_tx_wq_cnt( mock, tile ) );
 
