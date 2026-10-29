@@ -73,14 +73,14 @@ test_shmem_new_cfg2( ulong cache_fp,
   g_fd = memfd_create( "accdb_racesan", 0 );
   if( FD_UNLIKELY( g_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS, T_WRITES_PER_SLOT, T_PARTITION_CNT, cache_fp, cache_min_reserved, T_JOINER_CNT, 0UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS, T_WRITES_PER_SLOT, T_PARTITION_CNT, cache_fp, cache_min_reserved, T_JOINER_CNT, 0UL, 0UL );
   FD_TEST( shmem_fp );
   g_shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( g_shmem_mem );
   g_shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( g_shmem_mem, T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS,
                           T_WRITES_PER_SLOT, T_PARTITION_CNT,
-                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, T_JOINER_CNT, 0UL ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, T_JOINER_CNT, 0UL, 0UL ) );
   FD_TEST( g_shmem );
   return g_shmem;
 }
@@ -154,7 +154,7 @@ join_new( void ) {
   FD_TEST( accdb_fp );
   void * mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, -1, 0UL, NULL, NULL, 0UL, 1 ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, -1, 0UL, NULL, NULL, 0UL, 1, -1 ) );
   FD_TEST( accdb );
   fd_accdb_set_preevict_interval( accdb, 0L ); /* background steps pre-evict every call */
   return accdb;
