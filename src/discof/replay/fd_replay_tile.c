@@ -3639,8 +3639,8 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
   int view_err = store_fec ? fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, data_view ) : -1;
   fd_rwlock_unread( &ctx->store->fec_lock );
 
-  /* A missing store entry is expected: rotor (the store publisher)
-     removes FEC sets on publish, so a FEC delivered for a slice that has
+  /* A missing store entry is expected: replay removes FEC sets when
+     publishing the root, so a FEC delivered for a slice that has
      since been pruned/rooted is no longer in the store.  The lookup and
      payload pin are one lifetime transaction under fec_lock: remove may
      unlink the key only after the view has pinned the pool element. */
@@ -4834,11 +4834,8 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    skip the input poll. */
 #define STEM_BURST (5UL)
 
-/* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
-   depth (i.e. cr_max) but excludes replay_epoch and replay_slot, which
-   are so infrequent credit availability is a non-issue, and the
-   per-tile replay_execrp links, whose credits execrp returns per
-   frag.  */
+/* Housekeeping interval in ticks, tuned independently of output-link
+   depths. */
 #define STEM_LAZY ((long)36865)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t

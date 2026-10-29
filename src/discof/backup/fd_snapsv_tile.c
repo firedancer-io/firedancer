@@ -588,8 +588,9 @@ static void
 iobuf_alloc( fd_snapsv_t * ctx,
              uint *        slot ) {
   if( FD_LIKELY( *slot!=UINT_MAX ) ) return;
-  /* Every conn holds at most one buffer and the pool has two per conn,
-     so a conn that needs one always finds one. */
+  /* Every conn holds at most two buffers (iobuf and rdbuf).  This
+     slot is empty, so this conn holds at most one; a pool sized for
+     two buffers per conn therefore has a free buffer for this slot. */
   FD_CHECK_CRIT( ctx->iobuf_free_cnt, "iobuf pool exhausted" );
   *slot = ctx->iobuf_free[ --ctx->iobuf_free_cnt ];
 }
@@ -2038,9 +2039,8 @@ after_credit( fd_snapsv_t *       ctx,
   if( waiting ) *charge_busy = 0; /* do not count sleep time as busy */
 }
 
-/* snap_open opens the given snapshot by pool index.  Silently ignores
-   ENOENT (rare race condition where the snapshot is immediately
-   deleted after being created.) */
+/* snap_open registers metadata from snapmk for the given pre-opened
+   snapshot pool file. */
 
 static void
 snap_open( fd_snapsv_t * ctx,

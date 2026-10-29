@@ -4,7 +4,8 @@
    sole issuer of FUTEX_WAKE in the system (a tile parked in epoll on
    its own fds is woken through its eventfd instead).  It also services
    parked tiles' deadlines and runs the verifying sweep (seq_mirror vs
-   seq_snap) that bounds any lost doorbell to ~one nap. */
+   seq_snap).  Lost-doorbell latency includes producer mirror updates
+   (STEM_LAZY for stem producers), bounded by the park cap. */
 
 #include "fd_sleep.h"
 

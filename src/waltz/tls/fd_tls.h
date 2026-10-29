@@ -18,8 +18,8 @@
    ### Peer Authentication
 
    Peers are authenticated with X.509 certificates containing Ed25519
-   public keys.  Client cert authentication is optional for
-   fd_tls_client_t and mandatory for fd_tls_server_t.
+   public keys.  Client cert authentication is optional; servers
+   require it when req_client_cert is set.
 
    Outside of QUIC mode, the client additionally accepts servers with
    ECDSA P-256 and RSA (2048 to 4096 bit) leaf keys, signing the
@@ -98,11 +98,10 @@ typedef void
    TLS message to the peer.  msg points to a buffer containing msg_sz
    message bytes.  The smallest message size is 4 bytes (the size of a
    message header).  encryption_level indicates which key to use.
-   flush==0 when another message for the same conn will follow
-   immediately on return.  flush==1 hints that no more sendmsg callbacks
-   are issued until the next call to fd_tls_server_handshake.  It is
-   safe to "flush" (i.e. transmit data out through the NIC) even when
-   flush==0.  Returns 1 on success and 0 on failure. */
+   flush==1 requests transmission of buffered data; more callbacks may
+   follow in the same handshake call.  It is safe to "flush" (i.e.
+   transmit data out through the NIC) even when flush==0.  Returns 1
+   on success and 0 on failure. */
 
 typedef int
 (* fd_tls_sendmsg_fn_t)( void const * handshake,

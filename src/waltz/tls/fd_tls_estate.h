@@ -84,7 +84,8 @@ FD_PROTOTYPES_END
 
 /* fd_tls_estate_srv contains compressed TLS server handshake state
    while waiting for the client to send a message.  estate is optimized
-   for small memory use for incoming conns (128 byte per handshake).
+   for small memory use for incoming conns (sizeof(fd_tls_estate_srv_t)
+   bytes per handshake).
 
    *** Security ********************************************************
 
@@ -101,8 +102,9 @@ FD_PROTOTYPES_END
    More concerning -- Global heap pressure will cause latent allocation
    failures in unrelated code, which might escalate to OOM kills.
 
-   fd_tls_estate would only require 0.38 GB of memory for the same spam
-   rate.  The memory of estate_srv objects is provided by the transport
+   For estate_srv, the corresponding memory is three million times
+   sizeof(fd_tls_estate_srv_t), plus transport overhead.  The memory of
+   estate_srv objects is provided by the transport
    layer (e.g. QUIC or TLS record layer).  Each estate_srv object has
    static footprint.  This allows dense packing in custom memory arenas.
 
@@ -117,13 +119,15 @@ FD_PROTOTYPES_END
    TLS handshake state machine.  It is first instantiated when the
    client sent its ClientHello, the first message of a TLS handshake.
 
-   Currently, only one external state exists:
+   After processing ClientHello and sending through server Finished,
+   the server waits in one of these states:
 
-     FD_TLS_HS_WAIT_FINISHED:  Processed ClientHello.
+     FD_TLS_HS_WAIT_CERT:      Receive the requested client certificate.
+     FD_TLS_HS_WAIT_CV:        Verify the client's CertificateVerify.
+     FD_TLS_HS_WAIT_FINISHED:  Verify client Finished.
 
-       At this point, the server has responded with all messages up to
-       server Finished and is waiting for the client to respond with
-       client Finished (and optionally, a certificate).
+   Without client authentication, the server goes directly to
+   WAIT_FINISHED.
 
    State data contains:
 
@@ -132,7 +136,10 @@ FD_PROTOTYPES_END
      with).
 
    - The client handshake secret, which is used to derive the "client
-     Finished" verify data. */
+     Finished" verify data.
+
+   - The client authentication flags and Ed25519 public key extracted
+     from the client certificate when client authentication is enabled. */
 
 struct fd_tls_estate_srv {
   /* TLS base (hs) handles are deliberately placed at the start.

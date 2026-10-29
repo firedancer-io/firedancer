@@ -32,8 +32,7 @@ struct fd_crds_contact_info_entry {
   } fresh_dlist;
 
   /* Similar to fresh_dlist, but with a 15s timeout instead.
-     Additionally, fresh_dlist explicitly excludes our own contact info
-     while fresh_15s_dlist includes it. */
+     Both lists include our own contact info when it is indexed. */
   struct {
     ulong prev;
     ulong next;

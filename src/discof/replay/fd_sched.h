@@ -456,8 +456,9 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
    when a block is aborted because we decided that it would be a
    dead/invalid block, and so there's no point in spending resources
    executing it.  The scheduler will no longer return transactions from
-   abandoned blocks for execution.  This should only be invoked on an
-   actively replayed block, and should only be invoked once on it.
+   abandoned blocks for execution.  May be called on completed blocks
+   still tracked by the scheduler.  Repeated calls retain the original
+   abandonment cause.
 
    For the purposes of bank lifetime management, sched is a subsidiary
    of banks.  So while sched sets things in motion for a bad block to be

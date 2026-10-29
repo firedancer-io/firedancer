@@ -47,13 +47,14 @@ fd_fib4_netlink_dump_table( fd_netlink_t *             netlink,
    object.  Logs to debug level for diagnostics and warning level in case
    of error.
 
-   Returns FD_FIB4_NETLINK_SUCCESS on success and leaves netlink ready
+   Returns FD_FIB_NETLINK_SUCCESS on success and leaves netlink ready
    for the next request.  fib is not guaranteed to mirror the route
    table precisely even on success.  (May turn routes with unsupported
    type or attribute into blackhole routes.)
 
-   On failure, leaves a route table that blackholes all packets.
-   Return values FD_FIB4_NETLINK_ERR_{...} in case of error as follows:
+   On failure, clears fib to its default THROW route, permitting a
+   caller to fall through to another table via fd_fib4_hop_or.
+   Return values FD_FIB_NETLINK_ERR_{...} in case of error as follows:
 
      OOPS:  Internal error (bug) occurred.
      IO:    Unrecoverable send/recv error or failed to parse MULTIPART msg.

@@ -146,7 +146,7 @@ fd_net_flusher_inc( fd_net_flusher_t * flusher,
 
 /* fd_net_flusher_check returns 1 if a sendto() wakeup should be issued
    immediately.  now is a recent fd_tickcount() value.
-   If tx_ring_empty==0 then the kernel is caught up with the net tile
+   If tx_ring_empty!=0 then the kernel is caught up with the net tile
    on the XDP TX ring.  (Otherwise, the kernel is behind the net tile) */
 
 static inline int

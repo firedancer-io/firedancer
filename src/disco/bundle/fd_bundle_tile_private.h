@@ -244,12 +244,13 @@ int
 fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
                                  long               now );
 
-/* fd_bundle_client_next_deadline returns when
-   fd_bundle_client_step next needs to run absent any fd event: the
-   earliest pending timeout (keepalive, gRPC deadlines, builder info
-   expiry, reconnect backoff).  Returns now if TLS bytes are buffered
-   inside OpenSSL (no fd event will announce them), LONG_MAX while
-   connecting (completion is an EPOLLOUT event). */
+/* fd_bundle_client_next_deadline returns when fd_bundle_client_step
+   next needs to run absent any fd event.  While TCP is connecting,
+   returns the connection setup deadline; while disconnected, returns
+   the reconnect time (at least now).  Once connected, considers gRPC
+   deadlines, keepalive, builder info expiry and connection setup.
+   Returns now if decrypted bytes are buffered in the native TLS/gRPC
+   client and TLS TX is not blocked; blocked TX waits for EPOLLOUT. */
 
 long
 fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
@@ -316,21 +317,13 @@ fd_bundle_client_grpc_rx_timeout(
     int    deadline_kind /* FD_GRPC_DEADLINE_{HEADER|RX_END} */
 );
 
-/* fd_bundle_client_status provides a "check engine light".
+/* fd_bundle_client_status provides a "check engine light" using
+   FD_BUNDLE_STATE_{DISCONNECTED,CONNECTING,CONNECTED}.
 
-   Returns 0 if the client has recently failed and is currently backing
-   off from a reconnect attempt.
-
-   Returns 1 if the client is currently reconnecting.
-
-   Returns 2 if all of the following conditions are met:
-   - TCP socket is alive
-   - SSL session is not in an error state
-   - HTTP/2 connection is established (SETTINGS exchange done)
-   - gRPC bundle and packet subscriptions are live
-   - HTTP/2 PING exchange was done recently
-
-   Return codes are compatible with FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_{...}. */
+   DISCONNECTED means TCP or HTTP/2 is unavailable/dead, GOAWAY is being
+   sent, or keepalive has timed out.  CONNECTING means HTTP/2 setup,
+   authentication, builder info or either subscription is not ready.
+   CONNECTED means these checks pass and the gRPC client is connected. */
 
 int
 fd_bundle_client_status( fd_bundle_tile_t const * ctx );
@@ -347,8 +340,9 @@ fd_bundle_request_ctx_cstr( ulong request_ctx );
 void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx );
 
-/* fd_bundle_client_ping_tx enqueues a PING frame for sending.  Returns
-   1 on success and 0 on failure (occurs when frame_tx buf is full). */
+/* fd_bundle_client_send_ping enqueues an HTTP/2 PING and starts the
+   keepalive deadline.  Does nothing if the connection is unavailable,
+   busy, or lacks TX ring space. */
 
 void
 fd_bundle_client_send_ping( fd_bundle_tile_t * ctx );

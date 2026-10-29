@@ -104,7 +104,7 @@ fd_secp256k1_fp_sqrt( fd_secp256k1_fp_t *       restrict r,
 
 /* Point */
 
-/* Sets a group element to the identity element in Jacobian coordinates */
+/* Sets a group element to the identity element in homogeneous projective coordinates */
 static inline void
 fd_secp256k1_point_set_identity( fd_secp256k1_point_t *r ) {
   fd_secp256k1_fp_set( r->x, fd_secp256k1_const_zero );
@@ -112,7 +112,7 @@ fd_secp256k1_point_set_identity( fd_secp256k1_point_t *r ) {
   fd_secp256k1_fp_set( r->z, fd_secp256k1_const_zero );
 }
 
-/* Sets a group element to the base element in Jacobian coordinates */
+/* Sets a group element to the base element in homogeneous projective coordinates */
 static inline void
 fd_secp256k1_point_set_base( fd_secp256k1_point_t *r ) {
   fd_secp256k1_fp_set( r->x, fd_secp256k1_const_base_x_mont );

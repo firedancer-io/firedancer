@@ -281,8 +281,9 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
    per usual (i.e. a block may have exactly max_microblocks_per_block
    microblocks, but not more).  pack must be a valid local join.
 
-   These limits must be no larger than the limits provided in
-   fd_pack_new.
+   Limits used to size pack's storage must be no larger than those
+   provided to fd_pack_new.  max_data_bytes_per_block does not size
+   storage and may exceed its initial value.
 
    The typical place to call this is immediately after
    fd_pack_end_block; if this is called after some microblocks have been

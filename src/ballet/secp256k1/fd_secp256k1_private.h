@@ -11,7 +11,7 @@ typedef fd_uint256_t fd_secp256k1_scalar_t;
 /* Base Field */
 typedef fd_uint256_t fd_secp256k1_fp_t;
 
-/* Secp256k1 point in Jacobian coordinates */
+/* Secp256k1 point in homogeneous projective coordinates: x=X/Z, y=Y/Z. */
 struct fd_secp256k1_point {
   fd_secp256k1_fp_t x[1];
   fd_secp256k1_fp_t y[1];

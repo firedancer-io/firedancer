@@ -115,7 +115,7 @@
    local address space.  All pointers fall into kernel-managed XSK
    descriptor buffer at [mem;mem+mem_sz) that are valid during the
    lifetime of an fd_xsk_t join.  The ring producer and consumer are
-   synchronized via incrementing sequence numbers that wrap at 2^64. */
+   synchronized via incrementing 32-bit sequence numbers that wrap at 2^32. */
 
 struct __attribute__((aligned(64UL))) fd_xdp_ring {
   /* This point is 64-byte aligned */

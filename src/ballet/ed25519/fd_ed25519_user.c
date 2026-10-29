@@ -299,21 +299,11 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
 
   /* Check public key and point r:
      1. both public key and point r decompress successfully (RFC)
-     2. both public key and point r are small order (verify_strict)
+     2. neither public key nor point r is small order (verify_strict)
 
-     There's another check that we currently do NOT enforce:
-     whether public key and point r are canonical.
-     Dalek 2.x (currently used by Agave) does NOT do any check.
-     Dalek 4.x checks that the point r is canonical, but accepts
-     a non canonical public key.
+     We do not enforce canonical encodings of the public key or r.
 
-     Note: I couldn't find any test with non canonical points
-     (all tests are non canonical + low order, that are excluded by
-     the verify_strict rule). The reason is that to write such a
-     test one needs to know the discrete log of a non canonical point.
-
-     The following code checks that r is canonical (we can add it
-     in when Agave switches to dalek 4.x).
+     The following code would additionally check that r is canonical.
 
         uchar compressed[ 32 ];
         fd_ed25519_affine_tobytes( compressed, R );

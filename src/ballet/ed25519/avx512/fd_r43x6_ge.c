@@ -144,7 +144,7 @@ fd_r43x6_ge_decode( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
 
   FD_R43X6_QUAD_PACK( *_P,
     x,                      /* in u44 */
-    y,                      /* Reduced */
+    y,                      /* Nearly reduced; non-canonical y is accepted */
     one,                    /* Reduced */
     fd_r43x6_mul( x, y ) ); /* in u44 */
   FD_R43X6_QUAD_FOLD_UNSIGNED( *_P, *_P );
@@ -278,7 +278,7 @@ fd_r43x6_ge_decode_fini( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
 
   FD_R43X6_QUAD_PACK( *_P,
     x,                      /* in u44 */
-    y,                      /* Reduced */
+    y,                      /* Nearly reduced; non-canonical y is accepted */
     one,                    /* Reduced */
     fd_r43x6_mul( x, y ) ); /* in u44 */
   FD_R43X6_QUAD_FOLD_UNSIGNED( *_P, *_P );

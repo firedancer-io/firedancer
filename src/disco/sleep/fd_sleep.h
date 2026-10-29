@@ -15,8 +15,10 @@
 
      mwaitx    naps in hardware on the doorbell line (umwait/mwaitx),
                turns rung bits into FUTEX_WAKEs, and runs the verifying
-               sweep (seq_mirror vs seq_snap) that bounds a lost
-               doorbell to one nap.  The only FUTEX_WAKE issuer.
+               sweep (seq_mirror vs seq_snap).  Lost-doorbell latency
+               includes producer mirror updates (STEM_LAZY for stem
+               producers), bounded by the park cap.  The only
+               FUTEX_WAKE issuer.
 
    word 0 = parked, nonzero = running (the value says why).  The
    doorbell is a hint: truth is level triggered (seqs, deadline) and
