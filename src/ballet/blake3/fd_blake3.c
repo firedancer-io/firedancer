@@ -764,13 +764,7 @@ fd_blake3_fini_xof_expand( fd_blake3_t * sha,
     void * batch_cv   [ 8 ] __attribute__((aligned(32))); for( ulong j=0; j<8; j++ ) batch_cv   [ j ] = root_cv_pre;
     fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
 #elif FD_HAS_SVE2
-    ulong  batch_data [ 4 ]; for( ulong j=0; j<4; j++ ) batch_data [ j ] = (ulong)root_msg;
-    uint   batch_sz   [ 4 ]; for( ulong j=0; j<4; j++ ) batch_sz   [ j ] = last_block_sz;
-    ulong  batch_ctr  [ 4 ]; for( ulong j=0; j<4; j++ ) batch_ctr  [ j ] = ctr0+i+j;
-    uint   batch_flags[ 4 ]; for( ulong j=0; j<4; j++ ) batch_flags[ j ] = last_block_flags;
-    void * batch_hash [ 4 ]; for( ulong j=0; j<4; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
-    void * batch_cv   [ 4 ]; for( ulong j=0; j<4; j++ ) batch_cv   [ j ] = root_cv_pre;
-    fd_blake3_sve2_compress4( 4UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, 64U, batch_cv );
+    fd_blake3_sve2_xof4( root_msg, root_cv_pre, ctr0+i, last_block_sz, last_block_flags, (uchar *)hash + i*64UL );
 #elif FD_HAS_SSE
     fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
 #else

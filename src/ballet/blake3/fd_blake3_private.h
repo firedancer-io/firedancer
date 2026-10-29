@@ -120,6 +120,19 @@ fd_blake3_sve2_compress4_fast( uchar const * restrict batch_data,
                                ulong                  counter,
                                uchar                  flags );
 
+/* fd_blake3_sve2_xof4 is the 4 lane analog of fd_blake3_avx512_xof16:
+   expands 4 consecutive 64 byte XOF output blocks (counters
+   ctr0..ctr0+3) of root block root_msg (block_sz bytes, zero padded)
+   with input chaining value root_cv. */
+
+void
+fd_blake3_sve2_xof4( uchar const * restrict root_msg,  /* len==block_sz */
+                     uchar const * restrict root_cv,   /* len==32 */
+                     ulong                  ctr0,
+                     uint                   block_sz,
+                     uint                   flags,
+                     uchar       * restrict out );     /* len==4*64 */
+
 #endif /* FD_HAS_SVE2 */
 
 #if FD_HAS_AVX
