@@ -288,6 +288,33 @@ fd_accdb_idx_delete( fd_accdb_idx_region_t const * r,
   return 0;
 }
 
+/* fd_accdb_idx_resync (writer only): repoint pubkey's slot from
+   off_plus1 src to dst.  Returns 0 if the slot no longer names src. */
+
+static inline int
+fd_accdb_idx_resync( fd_accdb_idx_region_t const * r,
+                     ulong                         seed,
+                     uchar const                   pubkey[ 32 ],
+                     ushort                        fork_id,
+                     ulong                         src_plus1,
+                     ulong                         dst_plus1 ) {
+  fd_accdb_idx_page_t buf[1];
+  ulong page = fd_accdb_idx_home( r, pubkey, fork_id, seed );
+  for( ulong probe=0UL; probe<FD_ACCDB_IDX_PROBE_MAX; probe++ ) {
+    fd_accdb_idx_page_read_raw( r, page, buf );
+    fd_accdb_idx_slot_t * s = fd_accdb_idx_page_find( r, buf, pubkey, fork_id );
+    if( s ) {
+      if( s->off_plus1!=src_plus1 ) return 0;
+      s->off_plus1 = dst_plus1;
+      fd_accdb_idx_page_write( r, page, buf );
+      return 1;
+    }
+    if( FD_LIKELY( !(buf->flags & FD_ACCDB_IDX_OVERFLOWED) ) ) return 0;
+    page = page+1UL==r->npage ? 0UL : page+1UL;
+  }
+  return 0;
+}
+
 /* Cuckoo filter.  cf_seq: even = no kick in flight.  stash entries are
    (bucket<<16)|fp, 0 = empty.  disabled: every probe answers maybe. */
 

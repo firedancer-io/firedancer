@@ -2468,6 +2468,7 @@ background_compact( fd_accdb_t * accdb,
                                           compact_base+compact->compaction_offset, FD_ACCDB_BOUNCE_SZ ));
 
   fd_accdb_accmeta_t * live_accmeta[ IOV_MAX ];
+  uchar                live_kind   [ IOV_MAX ]; /* 0 acc_map, 1 hot, 2 bucket only */
   ulong                live_packed [ IOV_MAX ];
   ulong                live_src    [ IOV_MAX ];
   ulong                live_sz     [ IOV_MAX ];
@@ -2476,6 +2477,7 @@ background_compact( fd_accdb_t * accdb,
 
   ulong live_cnt = 0UL;
   ulong live_bytes = 0UL;
+  ulong idx_io = 0UL;
   for( ulong off=0UL; off<span; ) {
     fd_accdb_disk_meta_t const * meta = (fd_accdb_disk_meta_t const *)(accdb->bounce+off);
 
@@ -2495,8 +2497,42 @@ background_compact( fd_accdb_t * accdb,
     }
 
     ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)meta->size;
-    if( FD_UNLIKELY( !accmeta ) ) compact->compaction_dead_records++; /* index entry gone, extent is garbage */
+    uchar kind      = 0;
+    if( FD_UNLIKELY( !accmeta && idx_enabled( accdb ) ) ) {
+      /* Live iff some tier names this exact offset (§5.6). */
+      ulong rec_off = compact_base+compact->compaction_offset+off;
+      int   hot_key = 0;
+      uint  h = accdb->hot_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ];
+      while( h!=UINT_MAX ) {
+        fd_accdb_accmeta_t * hm = &accdb->acc_pool[ h ];
+        if( !memcmp( hm->key.pubkey, meta->pubkey, 32UL ) ) {
+          hot_key = 1; /* the bucket slot mirrors it (I8) */
+          if( (hm->offset_fork & FD_ACCDB_OFF_MASK)==rec_off ) {
+            accmeta       = hm;
+            source_packed = hm->offset_fork;
+            kind          = 1;
+          }
+          break;
+        }
+        h = hm->map.next;
+      }
+      if( !accmeta && !hot_key && fd_accdb_cf_probe( accdb->cf, meta->pubkey ) ) {
+        /* bounded preads per call, and never ahead of a cmd */
+        if( idx_io && ( idx_io>=FD_ACCDB_COMPACT_IDX_IO || FD_VOLATILE_CONST( accdb->shmem->cmd_op )!=FD_ACCDB_CMD_IDLE ) ) {
+          span = off;
+          break;
+        }
+        idx_io++;
+        fd_accdb_idx_slot_t slot;
+        if( fd_accdb_idx_lookup( accdb->bkt, accdb->shmem->seed, meta->pubkey, 0, &slot ) && slot.off_plus1==rec_off+1UL ) {
+          kind          = 2;
+          source_packed = rec_off;
+        }
+      }
+    }
+    if( FD_UNLIKELY( !accmeta && kind!=2 ) ) compact->compaction_dead_records++; /* index entry gone, extent is garbage */
     else {
+      live_kind   [ live_cnt ] = kind;
       live_accmeta[ live_cnt ] = accmeta;
       live_packed [ live_cnt ] = source_packed;
       live_src    [ live_cnt ] = off;
@@ -2564,8 +2600,15 @@ background_compact( fd_accdb_t * accdb,
       fd_accdb_dbg_reloc_cnt++;
 #endif
       fd_racesan_hook( "accdb_compact:pre_offset_cas" );
-      if( FD_UNLIKELY( FD_ATOMIC_CAS( &live_accmeta[ i ]->offset_fork, live_packed[ i ], new_packed )!=live_packed[ i ] ) ) {
+      fd_accdb_disk_meta_t const * rmeta = (fd_accdb_disk_meta_t const *)( accdb->bounce+live_src[ i ] );
+      if( FD_UNLIKELY( live_kind[ i ]==2 ) ) {
+        if( FD_UNLIKELY( !fd_accdb_idx_resync( accdb->bkt, accdb->shmem->seed, rmeta->pubkey, 0, live_packed[ i ]+1UL, live_dst[ i ]+1UL ) ) )
+          fd_accdb_shmem_bytes_freed( accdb->shmem, live_dst[ i ], live_sz[ i ] );
+      } else if( FD_UNLIKELY( FD_ATOMIC_CAS( &live_accmeta[ i ]->offset_fork, live_packed[ i ], new_packed )!=live_packed[ i ] ) ) {
         fd_accdb_shmem_bytes_freed( accdb->shmem, live_dst[ i ], live_sz[ i ] );
+      } else if( live_kind[ i ]==1 ) {
+        /* hot copies always mirror the bucket slot (I8) */
+        fd_accdb_idx_resync( accdb->bkt, accdb->shmem->seed, rmeta->pubkey, 0, (live_packed[ i ]&FD_ACCDB_OFF_MASK)+1UL, live_dst[ i ]+1UL );
       }
     }
   }
