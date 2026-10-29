@@ -55,6 +55,14 @@ typedef struct fd_pb_tlv fd_pb_tlv_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_pb_read_varint reads a base-128 varint of up to 10 bytes.  On
+   success, stores the value to *out, advances buf, and returns buf.  On
+   failure (EOF, overflow), returns NULL without advancing buf. */
+
+fd_pb_inbuf_t *
+fd_pb_read_varint( fd_pb_inbuf_t * buf,
+                   ulong *         out );
+
 /* fd_pb_tlv_read reads a Protobuf TLV.  This includes a wire type, a
    field ID, and data.  Data is either a scalar value field, or a length
    prefix.  Populates *tlv, advances buf, and returns tlv on success.

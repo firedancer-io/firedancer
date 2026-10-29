@@ -1,9 +1,9 @@
 #include "fd_pb_tokenize.h"
 #include "fd_pb_wire.h"
 
-static fd_pb_inbuf_t *
-read_varint( fd_pb_inbuf_t * buf,
-             ulong *         out ) {
+fd_pb_inbuf_t *
+fd_pb_read_varint( fd_pb_inbuf_t * buf,
+                   ulong *         out ) {
   ulong sz    = (ulong)( buf->end - buf->cur );
   ulong var   = 0UL;
   int   shift = 0;
@@ -25,7 +25,7 @@ fd_pb_tlv_read_slow( fd_pb_inbuf_t * buf,
                      fd_pb_tlv_t *   tlv ) {
   fd_pb_inbuf_t buf2 = *buf;
   ulong tag;
-  if( FD_UNLIKELY( !read_varint( &buf2, &tag ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_pb_read_varint( &buf2, &tag ) ) ) return NULL;
   if( FD_UNLIKELY( tag>UINT_MAX ) ) return NULL;
   uint  wire_type = fd_pb_tag_wire_type( (uint)tag );
   uint  field_id  = fd_pb_tag_field_id ( (uint)tag );
@@ -34,7 +34,7 @@ fd_pb_tlv_read_slow( fd_pb_inbuf_t * buf,
   switch( wire_type ) {
   case FD_PB_WIRE_TYPE_VARINT:
   case FD_PB_WIRE_TYPE_LEN:
-    if( FD_UNLIKELY( !read_varint( &buf2, &val ) ) ) return NULL;
+    if( FD_UNLIKELY( !fd_pb_read_varint( &buf2, &val ) ) ) return NULL;
     break;
   case FD_PB_WIRE_TYPE_I64:
     if( FD_UNLIKELY( (ulong)( buf2.end - buf2.cur )<8UL ) ) return NULL;
