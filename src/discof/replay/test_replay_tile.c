@@ -285,6 +285,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
 #define fd_accdb_flush_metrics(a)            do { if( a ) (fd_accdb_flush_metrics)(a); } while(0)
+#define fd_accdb_fork_freeze(a,f)            do { if( a ) (fd_accdb_fork_freeze)(a,f); } while(0)
+#define fd_accdb_fork_thaw(a,f)              do { if( a ) (fd_accdb_fork_thaw)(a,f); } while(0)
 #define fd_txncache_metrics_snap(t,o)        do { if( t ) (fd_txncache_metrics_snap)(t,o); else memset( (o), 0, sizeof(*(o)) ); } while(0)
 #define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
@@ -634,7 +636,8 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   fd_bank_t * bank = fd_banks_root( ctx->banks );
   FD_TEST( bank );
   FD_TEST( bank->cost_tracker_fork_id==USHORT_MAX );
-  bank->refcnt = 1UL;
+  bank->refcnt        = 1UL;
+  bank->exec_task_cnt = 1UL;
 
   /* Dispatch pins the bank's cost tracker until the task is done. */
   fd_cost_tracker_store_t * cost_tracker_store = fd_bank_cost_tracker( bank );
@@ -705,6 +708,7 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
                              sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
 
   FD_TEST( bank->refcnt==0UL );
+  FD_TEST( bank->exec_task_cnt==0UL );
   FD_TEST( mock_sched_task_done_cnt==1UL );
   FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_EXEC );
   FD_TEST( mock_sched_task_done_txn_idx==mock_sched_txn_idx );
@@ -848,7 +852,7 @@ test_txn_completion_bat( fd_wksp_t * wksp ) {
 
   /* 3 completions: nothing published yet, 3 records pending, deadline armed */
   for( ulong i=0UL; i<3UL; i++ ) {
-    bank->refcnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+    bank->refcnt++; bank->exec_task_cnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id ); /* as dispatch_task */
     mock_sched_txn_info.flags = FD_SCHED_TXN_SIGVERIFY_DONE;
     mock_sched_txn_info.index_in_slot = 5UL+i;
     FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
@@ -893,7 +897,7 @@ test_txn_completion_bat( fd_wksp_t * wksp ) {
   /* A full batch publishes itself */
   ulong seq_full = test_stem_seqs[ bat_idx ];
   for( ulong i=0UL; i<FD_REPLAY_BAT_REC_MAX; i++ ) {
-    bank->refcnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+    bank->refcnt++; bank->exec_task_cnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id ); /* as dispatch_task */
     mock_sched_txn_info.flags = FD_SCHED_TXN_SIGVERIFY_DONE;
     FD_TEST( test_stem_seqs[ bat_idx ]==seq_full );
     FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
@@ -903,7 +907,7 @@ test_txn_completion_bat( fd_wksp_t * wksp ) {
   FD_TEST( (bat_mcache + fd_mcache_line_idx( seq_full, depth ))->sz==FD_REPLAY_BAT_REC_MAX*fd_replay_bat_rec_sz( 321UL, txn_sz ) );
 
   /* The deadline flushes from after_credit */
-  bank->refcnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+  bank->refcnt++; bank->exec_task_cnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
   mock_sched_txn_info.flags = FD_SCHED_TXN_SIGVERIFY_DONE;
   FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( ctx->bat_cnt==1UL );
@@ -919,7 +923,7 @@ test_txn_completion_bat( fd_wksp_t * wksp ) {
 
   /* Leader: every record is flushed immediately */
   ctx->is_leader = 1;
-  bank->refcnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+  bank->refcnt++; bank->exec_task_cnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
   mock_sched_txn_info.flags = FD_SCHED_TXN_SIGVERIFY_DONE;
   FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( ctx->bat_cnt==0UL && test_stem_seqs[ bat_idx ]==seq_full+3UL );

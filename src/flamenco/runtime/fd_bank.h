@@ -289,6 +289,7 @@ struct fd_bank {
   long block_completed_nanos;
 
   ulong footer_task_cnt;
+  ulong exec_task_cnt; /* txn exec tasks out on exec tiles (accdb park) */
   ulong execution_fees_pre_settle; /* for publish once those are done */
   ulong priority_fees_pre_settle;
 
