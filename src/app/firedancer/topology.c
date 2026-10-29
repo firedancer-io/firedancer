@@ -36,7 +36,6 @@
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
-#include "../../flamenco/runtime/fd_txncache.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -209,12 +208,6 @@ setup_topo_txncache( fd_topo_t *  topo,
                      ulong        max_live_slots,
                      ulong        max_txn_per_slot,
                      ulong        cache_footprint ) {
-  ulong scratch_min_sz = fd_txncache_snapin_scratch_min_sz( max_txn_per_slot );
-  if( FD_UNLIKELY( cache_footprint<scratch_min_sz ) ) {
-    FD_LOG_ERR(( "Invalid [runtime]: transaction_cache_size_mib is %lu, but it must be at least %lu to stage the status cache when loading a snapshot.",
-                 cache_footprint>>20, (scratch_min_sz+(1UL<<20)-1UL)>>20 ));
-  }
-
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
 
