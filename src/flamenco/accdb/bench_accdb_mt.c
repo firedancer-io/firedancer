@@ -308,13 +308,13 @@ main( int     argc,
   ulong max_accounts = 2UL*g_accounts;
   ulong writes       = g_accounts+4096UL;
   ulong shmem_fp     = fd_accdb_shmem_footprint( max_accounts, BENCH_MAX_LIVE_SLOTS, writes, BENCH_PARTITION_CNT,
-                                                 cache_fp, BENCH_MIN_RESERVED, joiner_cnt, 0UL );
+                                                 cache_fp, BENCH_MIN_RESERVED, joiner_cnt, 0UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = mmap( NULL, shmem_fp, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0 );
   FD_TEST( shmem_mem!=MAP_FAILED );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, BENCH_MAX_LIVE_SLOTS, writes, BENCH_PARTITION_CNT,
-                          BENCH_PARTITION_SZ, cache_fp, BENCH_MIN_RESERVED, 0, 42UL, joiner_cnt, 0UL ) );
+                          BENCH_PARTITION_SZ, cache_fp, BENCH_MIN_RESERVED, 0, 42UL, joiner_cnt, 0UL, 0UL ) );
   FD_TEST( shmem );
 
   /* The background join spills the deferred-free buffer here. */
@@ -327,7 +327,7 @@ main( int     argc,
     int    compaction = i==max_threads;
     void * mem        = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( BENCH_MAX_LIVE_SLOTS, compaction ) );
     FD_TEST( mem );
-    joins[ i ] = fd_accdb_join( fd_accdb_new( mem, shmem, fd, compaction ? scratch_fd : -1, 0UL, NULL, NULL, 0UL, compaction ) );
+    joins[ i ] = fd_accdb_join( fd_accdb_new( mem, shmem, fd, compaction ? scratch_fd : -1, 0UL, NULL, NULL, 0UL, compaction, -1 ) );
     FD_TEST( joins[ i ] );
   }
   fd_accdb_t * bg = joins[ max_threads ];

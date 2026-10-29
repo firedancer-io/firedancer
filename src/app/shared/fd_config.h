@@ -17,6 +17,7 @@ struct fd_configf {
   struct {
     ulong max_accounts;
     ulong cache_size_gib;
+    ulong index_ram_entries;
   } accounts;
 
   struct {

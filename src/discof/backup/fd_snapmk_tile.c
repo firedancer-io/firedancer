@@ -434,7 +434,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb_tile_id = fd_topo_find_tile( topo, "accdb", 0UL );
   ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.accdb_epoch_obj_id ) );
   FD_TEST( epoch_fseq );
-  ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
+  ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO, -1 );
   FD_TEST( ctx->accdb );
   fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq );
   {
