@@ -650,9 +650,8 @@ replay_block_start( fd_replay_tile_t * ctx,
   FD_TEST( leader );
   bank->f.slot               = slot;
   bank->leader               = *leader;
-  bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
-  bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
-  bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  bank->txncache_fork_id     = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
+  bank->accdb_fork_id        = fd_accdb_attach_child   ( ctx->accdb,    parent_bank->accdb_fork_id    );
   bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   ulong new_epoch  = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, slot, NULL );
@@ -833,7 +832,6 @@ block_completed_event_fill_bank( fd_replay_tile_t *           ctx,
   ev->bank_idx = bank->idx;
   if( FD_LIKELY( prepared ) ) {
     ev->txncache_fork_id            = bank->txncache_fork_id.val;
-    ev->progcache_fork_id           = bank->progcache_fork_id;
     ev->accdb_fork_id               = bank->accdb_fork_id.val;
     ev->vote_stakes_fork_id         = bank->vote_stakes_fork_id;
     ev->stake_rewards_fork_id       = bank->stake_rewards_fork_id;
@@ -1468,7 +1466,6 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   memset( &block_id_ele->dmr,        0, sizeof(fd_hash_t) );
 
   ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
-  ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
   ctx->leader_bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
   ctx->leader_bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
@@ -2188,7 +2185,6 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   bank->leader = *leader;
 
   fd_progcache_reset( ctx->progcache );
-  bank->progcache_fork_id = fd_progcache_fork_id_initial();
 
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
@@ -2361,8 +2357,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
   FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
 
-  bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache, (fd_txncache_fork_id_t){USHORT_MAX} );
-  bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, fd_progcache_fork_id_initial()     );
+  bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, (fd_txncache_fork_id_t){USHORT_MAX} );
 
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   fd_txncache_finalize_fork( ctx->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
@@ -3245,7 +3240,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   ulong advanceable_root_slot = bank->f.slot;
   int   root_epoch_changed    = bank->f.epoch!=published_root_bank->f.epoch;
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
-  fd_progcache_advance_root( ctx->progcache, bank->progcache_fork_id );
+  fd_progcache_advance_root( ctx->progcache, ctx->accdb, bank->accdb_fork_id );
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
@@ -3324,7 +3319,7 @@ try_prune_bank( fd_replay_tile_t * ctx ) {
   switch( pruned ) {
     case 2: { /* pruning bank + cancellation is needed */
       fd_txncache_cancel_fork( ctx->txncache,  cancel_info->txncache_fork_id );
-      fd_progcache_cancel_fork( ctx->progcache, cancel_info->progcache_fork_id );
+      fd_progcache_cancel_fork( ctx->progcache, ctx->accdb, cancel_info->accdb_fork_id );
       fd_accdb_purge( ctx->accdb, cancel_info->accdb_fork_id );
       __attribute__((fallthrough));
     }

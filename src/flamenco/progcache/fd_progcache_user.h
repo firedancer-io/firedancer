@@ -12,10 +12,12 @@
 
    ### Fork management
 
-   The program cache is fork-aware (using transactions).  Txn-level
-   operations (attach/publish/cancel) take the fork graph's exclusive
-   lock; a read on the cached lineage never touches it, while switching
-   fork, publishing and the eviction sweep take it shared.
+   The program cache is fork-aware, using the account database's forks.
+   A lookup on an accdb fork sees records inserted on that fork, on its
+   unrooted ancestors, and rooted records (fd_accdb_fork_visible).
+   Rooting and cancellation (see fd_progcache_admin.h) take the fork
+   table's exclusive lock; a lookup never touches it, while inserts and
+   the eviction sweep take it shared.
 
    ### Cache entry
 
@@ -52,7 +54,6 @@
 
 #include "fd_progcache.h"
 #include "fd_prog_load.h"
-#include "fd_progcache_lineage.h"
 #include "../runtime/fd_runtime_const.h"
 
 struct fd_progcache_metrics {
@@ -84,7 +85,6 @@ struct fd_progcache_metrics {
 
 struct fd_progcache {
   fd_progcache_join_t join[1];
-  fd_progcache_lineage_t lineage[1];
 
   fd_progcache_metrics_t * metrics;
 
@@ -152,11 +152,16 @@ fd_progcache_leave( fd_progcache_t *        cache,
    deployed program was found in the account database, and the program
    either loaded successfully, or failed ELF/bytecode verification.
    It is the caller's responsibility to release the returned record with
-   fd_progcache_rec_close. */
+   fd_progcache_rec_close.
+
+   fork_id is the accdb fork the caller is executing on (accdb is any
+   full join of that database).  A fill on an unrooted fork is owned by
+   that fork until it is rooted or cancelled. */
 
 fd_progcache_rec_t * /* read locked */
 fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_progcache_fork_id_t     fork_id,
+                   fd_accdb_t const *         accdb,
+                   fd_accdb_fork_id_t         fork_id,
                    fd_pubkey_t const *        prog_addr,
                    fd_prog_load_env_t const * env,
                    fd_acc_t const *           progdata_ro );

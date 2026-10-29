@@ -508,8 +508,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   bank->f.slot = params->root_slot;
 
-  bank->progcache_fork_id = fd_progcache_fork_id_initial();
-  bank->txncache_fork_id  = fd_txncache_attach_child( mini->txncache, (fd_txncache_fork_id_t){ USHORT_MAX } );
+  bank->txncache_fork_id = fd_txncache_attach_child( mini->txncache, (fd_txncache_fork_id_t){ USHORT_MAX } );
 
   /* Create the root fork in accdb */
   fd_accdb_fork_id_t root_fork_id = fd_accdb_attach_child( accdb, SENTINEL );
@@ -724,9 +723,8 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   ulong bank_idx = bank->idx;
   bank->f.slot = child_slot;
 
-  bank->progcache_fork_id    = fd_progcache_attach_child( mini->progcache->join, parent_bank->progcache_fork_id );
-  bank->txncache_fork_id     = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id  );
-  bank->accdb_fork_id        = fd_accdb_attach_child    ( accdb,                 parent_bank->accdb_fork_id     );
+  bank->txncache_fork_id     = fd_txncache_attach_child( mini->txncache, parent_bank->txncache_fork_id );
+  bank->accdb_fork_id        = fd_accdb_attach_child   ( accdb,          parent_bank->accdb_fork_id    );
   bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   int is_epoch_boundary = 0;
@@ -791,7 +789,7 @@ fd_svm_mini_cancel_fork( fd_svm_mini_t * mini,
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
 
-  fd_progcache_cancel_fork( mini->progcache->join, bank->progcache_fork_id );
+  fd_progcache_cancel_fork( mini->progcache->join, mini->runtime->accdb, bank->accdb_fork_id );
   fd_svm_mini_txncache_cancel_subtree( mini, bank );
 
   fd_accdb_purge( mini->runtime->accdb, bank->accdb_fork_id );
@@ -805,7 +803,7 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
 
-  fd_progcache_advance_root( mini->progcache->join, bank->progcache_fork_id );
+  fd_progcache_advance_root( mini->progcache->join, mini->runtime->accdb, bank->accdb_fork_id );
   fd_txncache_advance_root ( mini->txncache,        bank->txncache_fork_id  );
   fd_accdb_advance_root( mini->runtime->accdb, bank->accdb_fork_id );
   drain_background( mini->runtime->accdb );

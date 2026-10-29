@@ -349,6 +349,7 @@ fd_accdb_shmem_new( void * shmem,
 
   accdb->seed = seed;
   accdb->root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  accdb->root_generation = 0U;
   accdb->generation = 0U;
 
   accdb->partition_lock   = 0;

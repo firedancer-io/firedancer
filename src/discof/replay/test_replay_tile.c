@@ -170,7 +170,6 @@ mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
 static ulong mock_next_leader_slot = ULONG_MAX;
 static ulong mock_next_leader_slot_calls;
 static ulong mock_txncache_fork_id_next;
-static ulong mock_progcache_fork_id_next;
 static ushort mock_accdb_fork_id_next;
 static fd_accdb_metrics_t mock_accdb_metrics; /* metrics_write without an accdb */
 static int   mock_epoch_boundary_enabled;
@@ -202,12 +201,6 @@ fd_txncache_fork_id_t
 mock_txncache_attach_child_fn( fd_txncache_t *       tc FD_PARAM_UNUSED,
                                fd_txncache_fork_id_t parent_fork_id FD_PARAM_UNUSED ) {
   return (fd_txncache_fork_id_t){ .val=(ushort)++mock_txncache_fork_id_next };
-}
-
-fd_progcache_fork_id_t
-mock_progcache_attach_child_fn( fd_progcache_join_t *  cache FD_PARAM_UNUSED,
-                                fd_progcache_fork_id_t parent_fork_id FD_PARAM_UNUSED ) {
-  return ++mock_progcache_fork_id_next;
 }
 
 fd_accdb_fork_id_t
@@ -246,11 +239,10 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
   ( mock_leader_for_slot_override ? mock_multi_epoch_leaders_leader_for_slot_fn( (m), (s) ) \
                                   : (fd_multi_epoch_leaders_get_leader_for_slot)( (m), (s) ) )
 #define fd_txncache_attach_child             mock_txncache_attach_child_fn
-#define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
 #define fd_accdb_cmd_pending(a)              ( (a) ? (fd_accdb_cmd_pending)(a) : 0 )
 #define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
-#define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
+#define fd_progcache_cancel_fork(c,a,f)      ((void)(c),(void)(a),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
 #define fd_accdb_flush_metrics(a)            do { if( a ) (fd_accdb_flush_metrics)(a); } while(0)
 #define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
@@ -523,7 +515,6 @@ setup_ctx( fd_replay_tile_t * ctx,
   mock_next_leader_slot       = ULONG_MAX;
   memset( &mock_slot_leader, 0, sizeof(fd_pubkey_t) );
   mock_txncache_fork_id_next  = 0UL;
-  mock_progcache_fork_id_next = 0UL;
   mock_accdb_fork_id_next     = 0U;
   mock_sched_abandon_cnt      = 0UL;
   mock_sched_abandon_idx      = ULONG_MAX;

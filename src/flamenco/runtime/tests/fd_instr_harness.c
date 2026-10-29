@@ -18,7 +18,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary fork for account loading */
 
-  runner->bank->progcache_fork_id    = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
   runner->bank->accdb_fork_id        = fd_accdb_attach_child( runner->accdb, runner->root_fork_id );
   runner->bank->parent_accdb_fork_id = runner->bank->accdb_fork_id;
 
@@ -294,8 +293,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, clock_ );
   FD_TEST( clock );
   runner->bank->f.slot = clock->slot;
-
-  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, runner->bank->progcache_fork_id );
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );

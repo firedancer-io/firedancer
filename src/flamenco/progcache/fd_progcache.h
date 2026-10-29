@@ -8,10 +8,18 @@
    record's value storage is the arena slot at its own index.  Acquiring a
    record from a class's free list is acquiring its value slot.
 
+   Fork tracking is delegated to the account database.  A record is
+   keyed by the accdb fork (id and generation) that inserted it, and
+   lookups test visibility with fd_accdb_fork_visible.  progcache keeps
+   only a fork table, indexed by accdb fork id, holding each fork's
+   lock and record list so records can be detached on rooting and
+   removed on cancellation.
+
    Lock ordering: spill.lock (outermost, held across a spilled frame's
-   execution), global txn lock, txn lock, recm chain_lock, rec.lock.  An
-   in-flight record's read lock is outside the ordering.  None of these locks
-   prefer writers, so a writer can in principle be starved by readers. */
+   execution), txn.rwlock (fork table), fork entry lock, recm chain_lock,
+   rec.lock.  An in-flight record's read lock is outside the ordering.
+   None of these locks prefer writers, so a writer can in principle be
+   starved by readers. */
 
 #include "fd_progcache_rec.h" /* includes fd_progcache_base.h */
 #include "fd_progcache_cache.h"
@@ -48,16 +56,11 @@ struct fd_progcache_shmem {
     ulong ele_gaddr;
   } rec;
 
+  /* Fork table, one entry per accdb fork id */
   struct __attribute__((aligned(64))) {
     fd_rwlock_t rwlock;
     ulong       max;
-    ulong       map_gaddr;
-    ulong       pool_gaddr;
     ulong       ele_gaddr;
-    uint        child_head_idx;
-    uint        child_tail_idx;
-    fd_progcache_fork_id_t root;
-    fd_progcache_fork_id_t seq;
   } txn;
 
   struct {
@@ -129,40 +132,30 @@ fd_progcache_rec_class( fd_progcache_shmem_t const * pc,
   return c;
 }
 
-/* Declare a tree / hash map hybrid of fork graph nodes (externally
-   synchronized) */
+/* fd_progcache_txn_t is a fork table entry: the records inserted on
+   one accdb fork.  The entry at index i belongs to accdb fork id i
+   while state is LIVE; gen is that fork's accdb generation.  An entry
+   goes LIVE on the first insert on its fork (inserters claim it
+   lazily, no attach call) and RETIRED when the fork is rooted or
+   cancelled.  A retired entry keeps its gen so an insert on a fork
+   that was already retired is caught; a later fork reusing the accdb
+   fork id has a different generation and reclaims the entry.
+
+   state, gen and the record list are written under lock (write) with
+   txn.rwlock held, and read under either. */
+
+#define FD_PROGCACHE_TXN_FREE    ((uchar)0)
+#define FD_PROGCACHE_TXN_LIVE    ((uchar)1)
+#define FD_PROGCACHE_TXN_RETIRED ((uchar)2)
 
 struct __attribute__((aligned(64))) fd_progcache_txn {
-  fd_progcache_fork_id_t xid;
-  uint                   map_next;
-  fd_rwlock_t            lock;
-  ushort                 tag : 2;
+  fd_rwlock_t lock;
+  uchar       state;
+  uint        gen;
 
-  uint   parent_idx;
-  uint   child_head_idx;
-  uint   child_tail_idx;
-  uint   sibling_prev_idx;
-  uint   sibling_next_idx;
-
-  uint   rec_head_idx;
-  uint   rec_tail_idx;
+  uint        rec_head_idx;
+  uint        rec_tail_idx;
 };
-
-#define POOL_NAME       fd_prog_txnp
-#define POOL_T          fd_progcache_txn_t
-#define POOL_IDX_T      uint
-#define POOL_NEXT       map_next
-#define POOL_IMPL_STYLE 1
-#include "../../util/tmpl/fd_pool.c"
-
-#define  MAP_NAME              fd_prog_txnm
-#define  MAP_ELE_T             fd_progcache_txn_t
-#define  MAP_KEY               xid
-#define  MAP_IDX_T             uint
-#define  MAP_NEXT              map_next
-#define  MAP_MAGIC             (0xf173da2ce77ecdb9UL)
-#define  MAP_IMPL_STYLE        1
-#include "../../util/tmpl/fd_map_chain.c"
 
 /* Declare fd_progcache_join_t now that we have all dependencies */
 
@@ -177,8 +170,8 @@ struct fd_progcache_join {
   } rec;
 
   struct {
-    fd_prog_txnm_t *     map;
-    fd_progcache_txn_t * pool;
+    fd_progcache_txn_t * ele;
+    ulong                max;
   } txn;
 
   void * data_base;
@@ -209,14 +202,15 @@ fd_progcache_shmem_align( void );
 
 /* fd_progcache_shmem_min_sz returns the smallest progcache_sz that provisions
    txn_max, rounded up to the next MiB boundary: every class at
-   fd_progcache_cache_class_min. */
+   fd_progcache_cache_class_min.  txn_max is the size of the fork table and
+   must be at least the accdb's max_live_slots (accdb fork ids index it). */
 
 ulong
 fd_progcache_shmem_min_sz( ulong txn_max );
 
 /* fd_progcache_shmem_{footprint,new} size and construct a program cache.
-   txn_max bounds concurrent fork-graph nodes and progcache_sz is the shared memory
-   budget, which covers everything: this shmem, the fork graph, the record array
+   txn_max is the fork table size and progcache_sz is the shared memory
+   budget, which covers everything: this shmem, the fork table, the record array
    and the per-class value arenas.  footprint returns progcache_sz, or 0 if that
    budget is below fd_progcache_shmem_min_sz.
    shmem_new derives the split internally, provisioning every byte it can into
@@ -246,11 +240,6 @@ fd_progcache_shmem_delete( fd_progcache_shmem_t * shmem );
 
 void *
 fd_progcache_shmem_delete_fast( fd_progcache_shmem_t * shmem );
-
-FD_FN_CONST static inline fd_progcache_fork_id_t
-fd_progcache_fork_id_initial( void ) {
-  return 0UL;
-}
 
 FD_PROTOTYPES_END
 

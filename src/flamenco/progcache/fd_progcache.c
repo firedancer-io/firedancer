@@ -13,22 +13,6 @@
 #define MAP_IMPL_STYLE        2
 #include "../../util/tmpl/fd_map_chain_para.c"
 
-#define POOL_NAME       fd_prog_txnp
-#define POOL_T          fd_progcache_txn_t
-#define POOL_IDX_T      uint
-#define POOL_NEXT       map_next
-#define POOL_IMPL_STYLE 2
-#include "../../util/tmpl/fd_pool.c"
-
-#define  MAP_NAME              fd_prog_txnm
-#define  MAP_ELE_T             fd_progcache_txn_t
-#define  MAP_KEY               xid
-#define  MAP_IDX_T             uint
-#define  MAP_NEXT              map_next
-#define  MAP_MAGIC             (0xf173da2ce77ecdb9UL)
-#define  MAP_IMPL_STYLE        2
-#include "../../util/tmpl/fd_map_chain.c"
-
 /* Metadata one record costs: the record and its map chain. */
 
 #define FD_PROGCACHE_REC_META_SZ ( sizeof(fd_progcache_rec_t)                 + \
@@ -61,10 +45,7 @@ fd_progcache_layout_footprint( ulong txn_max,
   ulong l = FD_LAYOUT_INIT;
 
   l = FD_LAYOUT_APPEND( l, alignof(fd_progcache_shmem_t), sizeof(fd_progcache_shmem_t) );
-
-  ulong txn_chain_cnt = fd_prog_txnm_chain_cnt_est( txn_max );
-  l = FD_LAYOUT_APPEND( l, fd_prog_txnm_align(), fd_prog_txnm_footprint( txn_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_prog_txnp_align(), fd_prog_txnp_footprint( txn_max ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_progcache_txn_t),   sizeof(fd_progcache_txn_t)*txn_max );
 
   ulong rec_chain_cnt = fd_prog_recm_chain_cnt_est( rec_max );
   l = FD_LAYOUT_APPEND( l, fd_prog_recm_align(), fd_prog_recm_footprint( rec_chain_cnt ) );
@@ -118,22 +99,17 @@ fd_progcache_setup_slots( ulong   txn_max,
 
 FD_FN_CONST ulong
 fd_progcache_shmem_align( void ) {
-  return fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max(
+  return fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max(
       alignof(fd_progcache_shmem_t),
-      fd_prog_txnm_align() ),
-      fd_prog_txnp_align() ),
       alignof(fd_progcache_txn_t) ),
       fd_prog_recm_align() ),
       alignof(fd_progcache_rec_t) ),
       fd_progcache_val_align() );
 }
 
-/* Fork depth cannot exceed txn_max, so bounding txn_max by the lineage array's
-   depth is what keeps fd_progcache_load_fork from overrunning it. */
-
 ulong
 fd_progcache_shmem_min_sz( ulong txn_max ) {
-  if( FD_UNLIKELY( !txn_max || txn_max>FD_PROGCACHE_DEPTH_MAX ) ) return 0UL;
+  if( FD_UNLIKELY( !txn_max || txn_max>FD_PROGCACHE_FORK_MAX ) ) return 0UL;
 
   ulong min_sz = fd_progcache_layout_footprint( txn_max, 0UL, 0UL ) + fd_progcache_val_align();
   for( ulong c=0UL; c<FD_PROGCACHE_CACHE_CLASS_CNT; c++ ) {
@@ -147,7 +123,7 @@ fd_progcache_shmem_min_sz( ulong txn_max ) {
 ulong
 fd_progcache_shmem_footprint( ulong txn_max,
                               ulong progcache_sz ) {
-  if( FD_UNLIKELY( !txn_max || txn_max>FD_PROGCACHE_DEPTH_MAX ) ) return 0UL;
+  if( FD_UNLIKELY( !txn_max || txn_max>FD_PROGCACHE_FORK_MAX ) ) return 0UL;
 
   /* explicitly validate that progcache_sz is enough */
   ulong slot_cnt[ FD_PROGCACHE_CACHE_CLASS_CNT ];
@@ -185,7 +161,7 @@ fd_progcache_shmem_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !txn_max || txn_max>FD_PROGCACHE_DEPTH_MAX ) ) {
+  if( FD_UNLIKELY( !txn_max || txn_max>FD_PROGCACHE_FORK_MAX ) ) {
     FD_LOG_WARNING(( "invalid txn_max" ));
     return NULL;
   }
@@ -200,9 +176,7 @@ fd_progcache_shmem_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, pc+1 );
 
-  ulong txn_chain_cnt = fd_prog_txnm_chain_cnt_est( txn_max );
-  void * txn_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_txnm_align(), fd_prog_txnm_footprint( txn_chain_cnt ) );
-  void * txn_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_txnp_align(), fd_prog_txnp_footprint( txn_max ) );
+  fd_progcache_txn_t * txn_ele = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_progcache_txn_t), sizeof(fd_progcache_txn_t)*txn_max );
 
   ulong rec_chain_cnt = fd_prog_recm_chain_cnt_est( rec_max );
   void *               rec_map = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_recm_align(), fd_prog_recm_footprint( rec_chain_cnt ) );
@@ -220,23 +194,18 @@ fd_progcache_shmem_new( void * shmem,
   pc->wksp_tag = wksp_tag;
   pc->seed     = seed;
 
-  /* Fork graph */
+  /* Fork table */
 
-  pc->txn.map_gaddr = fd_wksp_gaddr_fast( wksp, fd_prog_txnm_new( txn_map, txn_chain_cnt, seed ) );
-  void * txn_pool2 = fd_prog_txnp_new( txn_pool, txn_max );
-  pc->txn.pool_gaddr = fd_wksp_gaddr_fast( wksp, txn_pool2 );
-  fd_progcache_txn_t * txn_ele = fd_prog_txnp_join( txn_pool2 );
   pc->txn.ele_gaddr = fd_wksp_gaddr_fast( wksp, txn_ele );
-  pc->txn.max = txn_max;
-  pc->txn.child_head_idx = UINT_MAX;
-  pc->txn.child_tail_idx = UINT_MAX;
-  pc->txn.root = fd_progcache_fork_id_initial();
-  pc->txn.seq  = fd_progcache_fork_id_initial();
+  pc->txn.max       = txn_max;
   fd_rwlock_new( &pc->txn.rwlock );
   for( ulong i=0UL; i<txn_max; i++ ) {
+    memset( &txn_ele[ i ], 0, sizeof(fd_progcache_txn_t) );
     fd_rwlock_new( &txn_ele[ i ].lock );
+    txn_ele[ i ].state        = FD_PROGCACHE_TXN_FREE;
+    txn_ele[ i ].rec_head_idx = UINT_MAX;
+    txn_ele[ i ].rec_tail_idx = UINT_MAX;
   }
-  fd_prog_txnp_leave( txn_ele );
 
   /* Record map + array.  Records double as value slots: free records are
      kept write-locked (a stale speculative reader can never lock one) on
@@ -319,16 +288,8 @@ fd_progcache_shmem_join( fd_progcache_join_t *  ljoin,
   ljoin->shmem     = shmem;
   ljoin->data_base = wksp; /* all value/bookkeeping gaddrs are wksp-relative */
 
-  ljoin->txn.map = fd_prog_txnm_join( fd_wksp_laddr( wksp, shmem->txn.map_gaddr ) );
-  if( FD_UNLIKELY( !ljoin->txn.map ) ) {
-    FD_LOG_WARNING(( "fd_prog_txnm_join failed" ));
-    return NULL;
-  }
-  ljoin->txn.pool = fd_prog_txnp_join( fd_wksp_laddr( wksp, shmem->txn.pool_gaddr ) );
-  if( FD_UNLIKELY( !ljoin->txn.pool ) ) {
-    FD_LOG_WARNING(( "fd_prog_txnp_join failed" ));
-    return NULL;
-  }
+  ljoin->txn.ele = fd_wksp_laddr( wksp, shmem->txn.ele_gaddr );
+  ljoin->txn.max = shmem->txn.max;
   if( FD_UNLIKELY( !fd_prog_recm_join( ljoin->rec.map, fd_wksp_laddr( wksp, shmem->rec.map_gaddr ), fd_wksp_laddr( wksp, shmem->rec.ele_gaddr ), shmem->rec.max ) ) ) {
     FD_LOG_WARNING(( "fd_prog_recm_join failed" ));
     return NULL;

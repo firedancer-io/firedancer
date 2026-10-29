@@ -240,6 +240,57 @@ void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id );
 
+/* Fork lineage queries.  These let a fork-aware cache outside accdb
+   (the program cache) key its entries by accdb fork instead of keeping
+   a fork graph of its own.
+
+   A write is identified by the fork_id and generation of the fork it
+   was made on.  fork_id is recycled once a fork is rooted or purged,
+   generation never is.
+
+   fd_accdb_fork_generation returns the generation of the live fork
+   fork_id.
+
+   fd_accdb_root_generation returns the generation of the current root.
+   A write with generation at most this is rooted.  The root advances
+   asynchronously (on the accdb tile), so the value only grows.
+
+   fd_accdb_fork_descends returns 1 if ancestor_id is a strict unrooted
+   ancestor of the live fork fork_id, 0 otherwise.  The root is not
+   considered an ancestor (rooting clears a fork's ancestor set).
+
+   fd_accdb_fork_visible returns 1 if a write made on fork
+   (writer_id, writer_gen) is visible from the live fork fork_id, i.e.
+   the writer is rooted, is fork_id itself, or is an unrooted ancestor
+   of fork_id.  A writer whose fork_id slot was since recycled is never
+   visible unless it was rooted.  This is the same test fd_accdb_acquire
+   applies to account versions.
+
+   All of these are read-only and may be called from any full joiner.
+   They take no epoch: fork slots are a fixed array, the generation
+   check makes a recycled slot harmless, and a writer rooted
+   concurrently is caught by the root generation, which is published
+   before its slot is retired.  fork_id must stay live for the duration
+   of the call, which holds if the caller is executing on it. */
+
+uint
+fd_accdb_fork_generation( fd_accdb_t const * accdb,
+                          fd_accdb_fork_id_t fork_id );
+
+uint
+fd_accdb_root_generation( fd_accdb_t const * accdb );
+
+int
+fd_accdb_fork_descends( fd_accdb_t const * accdb,
+                        fd_accdb_fork_id_t fork_id,
+                        fd_accdb_fork_id_t ancestor_id );
+
+int
+fd_accdb_fork_visible( fd_accdb_t const * accdb,
+                       fd_accdb_fork_id_t fork_id,
+                       fd_accdb_fork_id_t writer_id,
+                       uint               writer_gen );
+
 /* fd_accdb_cmd_pending returns 1 if the accdb tile has not finished
    the last submitted background command (e.g. advance_root), so the
    next advance_root or purge would block, 0 otherwise. */

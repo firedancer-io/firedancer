@@ -956,7 +956,6 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
     cancel->bank_idx = bank->idx;
     if( FD_LIKELY( started_replaying ) ) {
       cancel->txncache_fork_id  = bank->txncache_fork_id;
-      cancel->progcache_fork_id = bank->progcache_fork_id;
       cancel->accdb_fork_id     = bank->accdb_fork_id;
       cancel->slot              = bank->f.slot;
       cancel->bank_seq          = bank->bank_seq;

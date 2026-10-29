@@ -1,3 +1,5 @@
+#define _GNU_SOURCE /* memfd_create */
+
 #include "fd_progcache_admin.h"
 #include "fd_progcache_user.h"
 #include "fd_progcache_reclaim.h"
@@ -38,7 +40,7 @@ struct fiber {
 
     struct {
       fd_progcache_t *       cache;
-      fd_progcache_fork_id_t fork_id;
+      fd_accdb_fork_id_t     fork_id;
       fd_pubkey_t            prog_addr;
       fd_prog_load_env_t     load_env;
       fd_acc_t const *        prog_ro;
@@ -48,7 +50,7 @@ struct fiber {
 
     struct {
       fd_progcache_t *       cache;
-      fd_progcache_fork_id_t fork_id;
+      fd_accdb_fork_id_t     fork_id;
       fd_pubkey_t            prog_addr;
       ulong                  feature_slot;
       ulong                  deploy_slot;
@@ -60,13 +62,13 @@ struct fiber {
     } evict;
 
     struct {
-      fd_progcache_join_t *  cache;
-      fd_progcache_fork_id_t fork_id;
+      fd_progcache_join_t * cache;
+      fd_accdb_fork_id_t    fork_id;
     } advance_root;
 
     struct {
-      fd_progcache_join_t *  cache;
-      fd_progcache_fork_id_t fork_id;
+      fd_progcache_join_t * cache;
+      fd_accdb_fork_id_t    fork_id;
     } cancel;
 
     struct {
@@ -91,7 +93,7 @@ fiber_delete( fiber_t * fiber ) {
 static void
 fiber_pull_exec( void * _ctx ) {
   fiber_t * f = _ctx;
-  fd_progcache_rec_t * res = fd_progcache_pull(
+  fd_progcache_rec_t * res = test_progcache_pull(
       f->pull.cache, f->pull.fork_id, &f->pull.prog_addr, &f->pull.load_env, f->pull.prog_ro );
   FD_TEST( res ); /* the program is deployed, so pull must produce it */
   f->pull.res            = res;
@@ -102,7 +104,7 @@ fiber_pull_exec( void * _ctx ) {
 static fd_racesan_async_t *
 fiber_pull( fiber_t *                  fiber,
             void *                     shmem,
-            fd_progcache_fork_id_t     fork_id,
+            fd_accdb_fork_id_t         fork_id,
             void const *               prog_addr,
             fd_prog_load_env_t const * load_env,
             fd_acc_t const *            prog_ro ) {
@@ -132,10 +134,10 @@ fiber_peek_exec( void * _ctx ) {
 }
 
 static fd_racesan_async_t *
-fiber_peek( fiber_t *              fiber,
-            void *                 shmem,
-            fd_progcache_fork_id_t fork_id,
-            void const *           prog_addr ) {
+fiber_peek( fiber_t *          fiber,
+            void *             shmem,
+            fd_accdb_fork_id_t fork_id,
+            void const *       prog_addr ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->peek.cache        = fiber->cache;
   fiber->peek.fork_id      = fork_id;
@@ -167,13 +169,13 @@ fiber_evict( fiber_t * fiber,
 static void
 fiber_advance_root_exec( void * _ctx ) {
   fiber_t * f = _ctx;
-  fd_progcache_advance_root( f->advance_root.cache, f->advance_root.fork_id );
+  test_fork_advance_root( f->advance_root.cache, f->advance_root.fork_id );
 }
 
 static fd_racesan_async_t *
-fiber_advance_root( fiber_t *              fiber,
-                    void *                 shmem,
-                    fd_progcache_fork_id_t fork_id ) {
+fiber_advance_root( fiber_t *          fiber,
+                    void *             shmem,
+                    fd_accdb_fork_id_t fork_id ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->advance_root.cache   = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->advance_root.fork_id = fork_id;
@@ -184,13 +186,13 @@ fiber_advance_root( fiber_t *              fiber,
 static void
 fiber_cancel_exec( void * _ctx ) {
   fiber_t * f = _ctx;
-  fd_progcache_cancel_fork( f->cancel.cache, f->cancel.fork_id );
+  test_fork_cancel( f->cancel.cache, f->cancel.fork_id );
 }
 
 static fd_racesan_async_t *
-fiber_cancel( fiber_t *              fiber,
-              void *                 shmem,
-              fd_progcache_fork_id_t fork_id ) {
+fiber_cancel( fiber_t *          fiber,
+              void *             shmem,
+              fd_accdb_fork_id_t fork_id ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->cancel.cache   = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->cancel.fork_id = fork_id;
@@ -232,7 +234,8 @@ metrics_check_no_oom( void ) {
 static fd_progcache_shmem_t *
 test_progcache_shmem_new( void ) {
   fd_wksp_reset( wksp, 1UL );
-  ulong txn_max  = 16UL;
+  test_fork_reset();
+  ulong txn_max  = TEST_ACCDB_MAX_LIVE_SLOTS;
   ulong wksp_tag =  1UL;
 
   fd_progcache_shmem_t * shmem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, 512UL<<20 ), wksp_tag );
@@ -248,19 +251,14 @@ test_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
 static void
 test_progcache_reset( fd_progcache_join_t * join ) {
   fd_progcache_reset( join );
+  test_fork_reset();
 }
 
 static fd_progcache_rec_t const *
-query_rec_exact( fd_progcache_join_t *  join,
-                 fd_progcache_fork_id_t fork_id,
-                 fd_pubkey_t const *    key ) {
-  fd_progcache_rec_key_t pair = { .xid = fork_id, .prog = *key };
-  fd_prog_recm_query_t query[1];
-  int query_err = fd_prog_recm_query_try( join->rec.map, &pair, NULL, query, 0 );
-  if( query_err==FD_MAP_ERR_KEY ) return NULL;
-  if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) )
-    FD_LOG_CRIT(( "fd_prog_recm_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
-  return fd_prog_recm_query_ele_const( query );
+query_rec_exact( fd_progcache_join_t * join,
+                 fd_accdb_fork_id_t    fork_id,
+                 fd_pubkey_t const *   key ) {
+  return test_rec_lookup( join, fork_id, key );
 }
 
 /* TESTS **************************************************************/
@@ -282,7 +280,7 @@ FD_UNIT_TEST( pull_pull ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
@@ -329,7 +327,7 @@ FD_UNIT_TEST( pull_peek ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
@@ -373,14 +371,14 @@ FD_UNIT_TEST( pull_root ) {
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   /* Run the pull up to the point where it owns the load and the record is in the
      map under the sentinel. */
   fd_racesan_async_t * a = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
   FD_TEST( fd_racesan_async_step_until( a, "prog_insert:post_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  fd_progcache_advance_root( admin, xid );
+  test_fork_advance_root( admin, xid );
 
   /* Bounded: a publisher that bailed leaves its own retry loop spinning on the
      record it stranded, so an unbounded resume would hang instead of report. */
@@ -398,10 +396,10 @@ FD_UNIT_TEST( pull_root ) {
 
   /* And it must be usable: a rooted LOADING record still resolves. */
   {
-    fd_progcache_fork_id_t child = fd_progcache_attach_child( admin, xid );
+    fd_accdb_fork_id_t child = test_fork_attach( xid );
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    fd_progcache_rec_t * rec = fd_progcache_pull( tmp, child, &key, &load_env, acc.entry );
+    fd_progcache_rec_t * rec = test_progcache_pull( tmp, child, &key, &load_env, acc.entry );
     FD_TEST( rec );
     fd_progcache_rec_close( tmp, rec );
     fd_progcache_leave( tmp, NULL );
@@ -427,12 +425,12 @@ FD_UNIT_TEST( pull_cancel ) {
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   fd_racesan_async_t * a = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
   FD_TEST( fd_racesan_async_step_until( a, "prog_insert:post_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  fd_progcache_cancel_fork( admin, xid );
+  test_fork_cancel( admin, xid );
 
   int exited = 0;
   for( ulong step=0UL; step<STEP_MAX; step++ ) {
@@ -448,11 +446,11 @@ FD_UNIT_TEST( pull_cancel ) {
   /* Nothing was cached: the fork is gone, so a fresh fork reloads rather than
      inheriting a record from the cancelled one. */
   {
-    fd_progcache_fork_id_t xid2 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid2 = test_fork_attach( test_fork_root_id() );
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
     metrics_reset();
-    fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
+    fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
     FD_TEST( rec );
     FD_TEST( fd_progcache_metrics_default.fill_cnt==1UL ); /* a fill, not a stale hit */
     fd_progcache_rec_close( tmp, rec );
@@ -477,7 +475,7 @@ FD_UNIT_TEST( lost_race_failed_load ) {
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, invalid_program_data, invalid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   /* Both miss in query and hold their own record, neither published yet. */
   metrics_reset();
@@ -534,7 +532,7 @@ FD_UNIT_TEST( peek_failed_load ) {
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, invalid_program_data, invalid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   /* A owns the load, with the record published under the sentinel. */
   fd_racesan_async_t * a = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
@@ -592,24 +590,24 @@ FD_UNIT_TEST( cancel_peek ) {
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
     /* Pre-populate the cache at root through a real txn */
-    fd_progcache_fork_id_t xid_pre;
+    fd_accdb_fork_id_t xid_pre;
     {
-      xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+      xid_pre = test_fork_attach( test_fork_root_id() );
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid_pre, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
-      fd_progcache_advance_root( admin, xid_pre );
+      test_fork_advance_root( admin, xid_pre );
     }
 
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, xid_pre );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( xid_pre );
 
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
     fd_racesan_weave_add( w, fiber_cancel( &g_fiber[ 0 ], shmem, xid1 ) );
-    fd_racesan_weave_add( w, fiber_peek(   &g_fiber[ 1 ], shmem, fd_progcache_fork_id_initial(), &key ) );
+    fd_racesan_weave_add( w, fiber_peek(   &g_fiber[ 1 ], shmem, test_fork_root_id(), &key ) );
 
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
@@ -644,12 +642,12 @@ FD_UNIT_TEST( cancel_evict ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       /* Drop the second chance so the sweep targets this record immediately. */
@@ -694,13 +692,13 @@ FD_UNIT_TEST( publish_evict ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
     /* Pre-populate the cache */
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -743,13 +741,13 @@ FD_UNIT_TEST( peek_root ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
     /* Pre-populate the cache */
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -792,13 +790,13 @@ FD_UNIT_TEST( peek_cancel ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
     /* Pre-populate the cache */
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -842,22 +840,22 @@ FD_UNIT_TEST( peek_peek ) {
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
     /* Pre-populate the cache at root through a real txn */
-    fd_progcache_fork_id_t xid_pre;
+    fd_accdb_fork_id_t xid_pre;
     {
-      xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+      xid_pre = test_fork_attach( test_fork_root_id() );
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid_pre, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
-      fd_progcache_advance_root( admin, xid_pre );
+      test_fork_advance_root( admin, xid_pre );
     }
 
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
-    fd_racesan_weave_add( w, fiber_peek( &g_fiber[ 0 ], shmem, fd_progcache_fork_id_initial(), &key ) );
-    fd_racesan_weave_add( w, fiber_peek( &g_fiber[ 1 ], shmem, fd_progcache_fork_id_initial(), &key ) );
+    fd_racesan_weave_add( w, fiber_peek( &g_fiber[ 0 ], shmem, test_fork_root_id(), &key ) );
+    fd_racesan_weave_add( w, fiber_peek( &g_fiber[ 1 ], shmem, test_fork_root_id(), &key ) );
 
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
@@ -892,16 +890,16 @@ FD_UNIT_TEST( peek_root_sibling ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
-    fd_progcache_fork_id_t xid2 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
+    fd_accdb_fork_id_t xid2 = test_fork_attach( test_fork_root_id() );
 
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
       fd_progcache_rec_t * rec;
-      rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+      rec = test_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
-      rec = fd_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
+      rec = test_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
     }
@@ -943,16 +941,16 @@ FD_UNIT_TEST( peek_peek_root ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
-    fd_progcache_fork_id_t xid2 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
+    fd_accdb_fork_id_t xid2 = test_fork_attach( test_fork_root_id() );
 
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
       fd_progcache_rec_t * rec;
-      rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+      rec = test_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
-      rec = fd_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
+      rec = test_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
     }
@@ -995,12 +993,12 @@ FD_UNIT_TEST( inject_at_hook ) {
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
-  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+    fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
     FD_TEST( rec );
     fd_progcache_rec_close( tmp, rec );
     fd_progcache_leave( tmp, NULL );
@@ -1037,12 +1035,12 @@ FD_UNIT_TEST( publish_reclaim_evicted ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -1087,16 +1085,16 @@ FD_UNIT_TEST( root_evict_two ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
-    fd_progcache_fork_id_t xid2 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
+    fd_accdb_fork_id_t xid2 = test_fork_attach( test_fork_root_id() );
 
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
       fd_progcache_rec_t * rec;
-      rec = fd_progcache_pull( tmp, xid1, &ka, &load_env, acc_a.entry );
+      rec = test_progcache_pull( tmp, xid1, &ka, &load_env, acc_a.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
-      rec = fd_progcache_pull( tmp, xid2, &kb, &load_env, acc_b.entry );
+      rec = test_progcache_pull( tmp, xid2, &kb, &load_env, acc_b.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
     }
@@ -1143,25 +1141,25 @@ FD_UNIT_TEST( publish_evict_stale ) {
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
 
     /* Pre-populate the same program at root through a real txn */
-    fd_progcache_fork_id_t xid_pre;
+    fd_accdb_fork_id_t xid_pre;
     {
-      xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+      xid_pre = test_fork_attach( test_fork_root_id() );
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env_root, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid_pre, &key, &load_env_root, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
-      fd_progcache_advance_root( admin, xid_pre );
+      test_fork_advance_root( admin, xid_pre );
     }
 
     /* Create child fork and populate the same key under xid1's txn
        Peek won't hit the root record because slot 2 != slot 0. */
-    fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, xid_pre );
+    fd_accdb_fork_id_t xid1 = test_fork_attach( xid_pre );
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env_child, acc.entry );
+      fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid1, &key, &load_env_child, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -1206,14 +1204,14 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
-  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
   /* Populate key1 */
   fd_progcache_rec_t * rec_old;
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    rec_old = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    rec_old = test_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
     FD_TEST( rec_old );
     fd_progcache_rec_close( tmp, rec_old );
     fd_progcache_leave( tmp, NULL );
@@ -1222,8 +1220,8 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
 
   /* Detach the record so the claim goes through the rooted arm; a rooted record
      stays visible to the fresh child used for the pulls below. */
-  fd_progcache_advance_root( admin, xid1 );
-  xid1 = fd_progcache_attach_child( admin, xid1 );
+  test_fork_advance_root( admin, xid1 );
+  xid1 = test_fork_attach( xid1 );
 
   /* Clear the visited flag so the CLOCK hand picks this record */
   __atomic_fetch_and( &admin->rec.ele[ rec_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
@@ -1248,7 +1246,7 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    rec_new = fd_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
+    rec_new = test_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
     FD_TEST( rec_new );
     fd_progcache_rec_close( tmp, rec_new );
     fd_progcache_leave( tmp, NULL );
@@ -1269,7 +1267,7 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
   FD_TEST( __atomic_load_n( &admin->rec.ele[ rec_idx ].state, __ATOMIC_RELAXED ) & FD_PROGCACHE_REC_LIVE );
   FD_TEST( !fd_progcache_verify( admin ) );
 
-  fd_progcache_cancel_fork( admin, xid1 );
+  test_fork_cancel( admin, xid1 );
   FD_TEST( !fd_progcache_verify( admin ) );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
@@ -1287,7 +1285,7 @@ FD_UNIT_TEST( publish_verify_live ) {
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   /* Pause the pull with the record inserted and the chain still held. */
   fd_racesan_async_t * p = fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry );
@@ -1303,7 +1301,7 @@ FD_UNIT_TEST( publish_verify_live ) {
   fiber_delete( &g_fiber[ 0 ] );
 
   FD_TEST( !fd_progcache_verify( admin ) );
-  fd_progcache_cancel_fork( admin, xid );
+  test_fork_cancel( admin, xid );
   FD_TEST( !fd_progcache_verify( admin ) );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
@@ -1322,13 +1320,13 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
-  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
   fd_progcache_rec_t * rec_old;
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    rec_old = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    rec_old = test_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
     FD_TEST( rec_old );
     fd_progcache_rec_close( tmp, rec_old );
     fd_progcache_leave( tmp, NULL );
@@ -1336,8 +1334,8 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
 
   /* Only a detached (rooted) zombie is collectable, and a rooted record stays
      visible to the fresh child used for the pulls below. */
-  fd_progcache_advance_root( admin, xid1 );
-  xid1 = fd_progcache_attach_child( admin, xid1 );
+  test_fork_advance_root( admin, xid1 );
+  xid1 = test_fork_attach( xid1 );
 
   fd_racesan_async_t * d = fiber_delete_rec( &g_fiber[ 0 ], shmem, rec_old );
   FD_TEST( fd_racesan_async_step_until( d, "prog_delete_rec:post_txn_add", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
@@ -1350,7 +1348,7 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    rec_new = fd_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
+    rec_new = test_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
     FD_TEST( rec_new );
     fd_progcache_rec_close( tmp, rec_new );
     fd_progcache_leave( tmp, NULL );
@@ -1374,7 +1372,7 @@ FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
   FD_TEST( query_rec_exact( admin, xid1, &key2 )==rec_new );
   FD_TEST( !fd_progcache_verify( admin ) );
 
-  fd_progcache_cancel_fork( admin, xid1 );
+  test_fork_cancel( admin, xid1 );
   FD_TEST( !fd_progcache_verify( admin ) );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
@@ -1396,17 +1394,17 @@ FD_UNIT_TEST( publish_evict_reuse_walk ) {
   test_account_init( &acc2, &key2, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t  xid1 = test_fork_attach( test_fork_root_id() );
 
   fd_progcache_rec_t * rec1;
   fd_progcache_rec_t * rec2;
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    rec1 = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    rec1 = test_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
     FD_TEST( rec1 );
     fd_progcache_rec_close( tmp, rec1 );
-    rec2 = fd_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
+    rec2 = test_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
     FD_TEST( rec2 );
     fd_progcache_rec_close( tmp, rec2 );
     fd_progcache_leave( tmp, NULL );
@@ -1462,17 +1460,17 @@ FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
-  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid1 = test_fork_attach( test_fork_root_id() );
 
   fd_progcache_rec_t * rec1;
   fd_progcache_rec_t * rec2;
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    rec1 = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    rec1 = test_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
     FD_TEST( rec1 );
     fd_progcache_rec_close( tmp, rec1 );
-    rec2 = fd_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
+    rec2 = test_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
     FD_TEST( rec2 );
     fd_progcache_rec_close( tmp, rec2 );
     fd_progcache_leave( tmp, NULL );
@@ -1531,18 +1529,18 @@ FD_UNIT_TEST( peek_evict ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t   xid = test_fork_attach( test_fork_root_id() );
     fd_progcache_rec_t * rec;
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 2 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      rec = fd_progcache_pull( tmp, xid, &key, &load_env, acc.entry );
+      rec = test_progcache_pull( tmp, xid, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
     }
-    fd_progcache_advance_root( admin, xid );
-    xid = fd_progcache_attach_child( admin, xid );
+    test_fork_advance_root( admin, xid );
+    xid = test_fork_attach( xid );
     ulong rec_idx = (ulong)( rec - admin->rec.ele );
     __atomic_fetch_and( &admin->rec.ele[ rec_idx ].state, (uchar)~FD_PROGCACHE_REC_VISITED, __ATOMIC_RELAXED );
     ulong cls = fd_progcache_rec_class( shmem, rec_idx );
@@ -1563,7 +1561,7 @@ FD_UNIT_TEST( peek_evict ) {
     fiber_delete( &g_fiber[ 0 ] );
     fiber_delete( &g_fiber[ 1 ] );
     FD_TEST( !fd_progcache_verify( admin ) );
-    fd_progcache_cancel_fork( admin, xid );
+    test_fork_cancel( admin, xid );
     test_progcache_reset( admin );
   }
 
@@ -1585,18 +1583,18 @@ FD_UNIT_TEST( delete_rec_vs_zombie_claim ) {
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   fd_progcache_rec_t * rec;
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    rec = fd_progcache_pull( tmp, xid, &key, &load_env, acc.entry );
+    rec = test_progcache_pull( tmp, xid, &key, &load_env, acc.entry );
     FD_TEST( rec );
     fd_progcache_rec_close( tmp, rec );
     fd_progcache_leave( tmp, NULL );
   }
-  fd_progcache_advance_root( admin, xid ); /* detached: its zombie is claimable */
+  test_fork_advance_root( admin, xid ); /* detached: its zombie is claimable */
   ulong rec_idx = (ulong)( rec - admin->rec.ele );
   long  rodata0 = (long)rec->rodata_sz;
   FD_TEST( rodata0>0L );
@@ -1654,13 +1652,13 @@ run_to_exit( fd_racesan_async_t * a ) {
 
 static fd_progcache_rec_t *
 pull_one( void *                     shmem,
-          fd_progcache_fork_id_t     xid,
+          fd_accdb_fork_id_t     xid,
           fd_pubkey_t const *        key,
           fd_prog_load_env_t const * load_env,
           fd_acc_t const *            acc ) {
   fd_progcache_t tmp[1];
   FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 3 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-  fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid, key, load_env, acc );
+  fd_progcache_rec_t * rec = test_progcache_pull( tmp, xid, key, load_env, acc );
   FD_TEST( rec );
   fd_progcache_rec_close( tmp, rec );
   fd_progcache_leave( tmp, NULL );
@@ -1679,12 +1677,12 @@ FD_UNIT_TEST( evict_unrooted_splice ) {
     test_account_init( &acc[i], &key[i], &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   fd_progcache_rec_t * rec[3];
   for( ulong i=0UL; i<3UL; i++ ) rec[i] = pull_one( shmem, xid, &key[i], &load_env, acc[i].entry );
   uint idx[3]; for( ulong i=0UL; i<3UL; i++ ) idx[i] = (uint)( rec[i] - admin->rec.ele );
-  fd_progcache_txn_t * txn = &admin->txn.pool[ atomic_load_explicit( &rec[0]->txn_idx, memory_order_relaxed ) ];
+  fd_progcache_txn_t * txn = &admin->txn.ele[ atomic_load_explicit( &rec[0]->txn_idx, memory_order_relaxed ) ];
   FD_TEST( txn->rec_head_idx==idx[0] && txn->rec_tail_idx==idx[2] );
   FD_TEST( rec[0]->next_idx==idx[1] && rec[1]->next_idx==idx[2] );
 
@@ -1721,7 +1719,7 @@ FD_UNIT_TEST( evict_unrooted_splice ) {
   FD_TEST( txn->rec_head_idx==UINT_MAX && txn->rec_tail_idx==UINT_MAX );
   FD_TEST( !fd_progcache_verify( admin ) );
 
-  fd_progcache_cancel_fork( admin, xid );
+  test_fork_cancel( admin, xid );
   FD_TEST( !fd_progcache_verify( admin ) );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
@@ -1739,7 +1737,7 @@ FD_UNIT_TEST( evict_unrooted_vs_cancel ) {
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   fd_progcache_rec_t * rec = pull_one( shmem, xid, &key, &load_env, acc.entry );
   ulong rec_idx   = (ulong)( rec - admin->rec.ele );
@@ -1750,23 +1748,23 @@ FD_UNIT_TEST( evict_unrooted_vs_cancel ) {
   fd_racesan_async_t * e = fiber_evict( &g_fiber[ 0 ], shmem, valid_program_data_sz );
   FD_TEST( fd_racesan_async_step_until( e, "prog_clock_evict:pre_fork_lock", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  fd_progcache_cancel_fork( admin, xid );
+  test_fork_cancel( admin, xid );
   FD_TEST( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==UINT_MAX );
-  FD_TEST( !admin->txn.pool[ owner_idx ].lock.value );
+  FD_TEST( !admin->txn.ele[ owner_idx ].lock.value );
 
   run_to_exit( e );
   fiber_delete( &g_fiber[ 0 ] );
 
-  FD_TEST( !admin->txn.pool[ owner_idx ].lock.value );
+  FD_TEST( !admin->txn.ele[ owner_idx ].lock.value );
   FD_TEST( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==UINT_MAX );
   FD_TEST( !fd_progcache_verify( admin ) );
 
-  fd_progcache_fork_id_t xid2 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t   xid2 = test_fork_attach( test_fork_root_id() );
   fd_progcache_rec_t * rec2 = pull_one( shmem, xid2, &key, &load_env, acc.entry );
   FD_TEST( rec2 );
   FD_TEST( !fd_progcache_verify( admin ) );
 
-  fd_progcache_cancel_fork( admin, xid2 );
+  test_fork_cancel( admin, xid2 );
   FD_TEST( !fd_progcache_verify( admin ) );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
@@ -1784,7 +1782,7 @@ FD_UNIT_TEST( evict_unrooted_vs_root ) {
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   fd_progcache_rec_t * rec = pull_one( shmem, xid, &key, &load_env, acc.entry );
   ulong rec_idx = (ulong)( rec - admin->rec.ele );
@@ -1794,7 +1792,7 @@ FD_UNIT_TEST( evict_unrooted_vs_root ) {
   fd_racesan_async_t * e = fiber_evict( &g_fiber[ 0 ], shmem, valid_program_data_sz );
   FD_TEST( fd_racesan_async_step_until( e, "prog_clock_evict:pre_fork_lock", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  fd_progcache_advance_root( admin, xid );
+  test_fork_advance_root( admin, xid );
   FD_TEST( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==UINT_MAX );
   FD_TEST( query_rec_exact( admin, xid, &key )==rec ); /* rooted: still mapped */
 
@@ -1824,7 +1822,7 @@ FD_UNIT_TEST( evict_unrooted_vs_push_lock ) {
   test_account_init( &acc2, &key2, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
 
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
-  fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+  fd_accdb_fork_id_t xid = test_fork_attach( test_fork_root_id() );
 
   fd_progcache_rec_t * rec1 = pull_one( shmem, xid, &key1, &load_env, acc1.entry );
   ulong rec1_idx = (ulong)( rec1 - admin->rec.ele );
@@ -1832,7 +1830,7 @@ FD_UNIT_TEST( evict_unrooted_vs_push_lock ) {
   /* Publisher of key2 holds txn.rwlock(read) + txn->lock(write) + the chain. */
   fd_racesan_async_t * p = fiber_pull( &g_fiber[ 1 ], shmem, xid, &key2, &load_env, acc2.entry );
   FD_TEST( fd_racesan_async_step_until( p, "prog_push:post_chain_lock", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
-  FD_TEST( admin->txn.pool[ atomic_load_explicit( &rec1->txn_idx, memory_order_relaxed ) ].lock.value==FD_RWLOCK_WRITE_LOCK );
+  FD_TEST( admin->txn.ele[ atomic_load_explicit( &rec1->txn_idx, memory_order_relaxed ) ].lock.value==FD_RWLOCK_WRITE_LOCK );
 
   aim_hand_at( shmem, admin, rec1_idx );
   metrics_reset();
@@ -1847,7 +1845,7 @@ FD_UNIT_TEST( evict_unrooted_vs_push_lock ) {
   FD_TEST( query_rec_exact( admin, xid, &key2 ) );
   FD_TEST( !fd_progcache_verify( admin ) );
 
-  fd_progcache_cancel_fork( admin, xid );
+  test_fork_cancel( admin, xid );
   FD_TEST( !fd_progcache_verify( admin ) );
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
@@ -1866,7 +1864,7 @@ FD_UNIT_TEST( evict_unrooted_vs_evict ) {
   fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
-    fd_progcache_fork_id_t xid = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+    fd_accdb_fork_id_t   xid = test_fork_attach( test_fork_root_id() );
     fd_progcache_rec_t * rec = pull_one( shmem, xid, &key, &load_env, acc.entry );
     aim_hand_at( shmem, admin, (ulong)( rec - admin->rec.ele ) );
 
@@ -1885,7 +1883,7 @@ FD_UNIT_TEST( evict_unrooted_vs_evict ) {
     fiber_delete( &g_fiber[ 0 ] );
     fiber_delete( &g_fiber[ 1 ] );
     FD_TEST( !fd_progcache_verify( admin ) );
-    fd_progcache_cancel_fork( admin, xid );
+    test_fork_cancel( admin, xid );
     FD_TEST( !fd_progcache_verify( admin ) );
     test_progcache_reset( admin );
   }

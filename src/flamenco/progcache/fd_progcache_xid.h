@@ -3,8 +3,6 @@
 
 #include "../fd_flamenco_base.h"
 
-#define FD_PROGCACHE_TXN_IDX_NULL ((ulong)UINT_MAX)
-
 /* fd_progcache_rec_key_hash provides a family of hashes that hash the key
    pointed to by k to a uniform quasi-random 64-bit integer.  seed
    selects the particular hash function to use and can be an arbitrary

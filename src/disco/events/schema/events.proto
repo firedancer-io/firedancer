@@ -7990,7 +7990,7 @@ message BlockCompleted {
   uint64 bank_idx = 2;
   // Transaction cache fork handle held by the bank. See bank_idx for scope.
   uint32 txncache_fork_id = 3;
-  // Program cache fork handle held by the bank. See bank_idx for scope.
+  // Deprecated program cache fork handle. Always 0.
   uint64 progcache_fork_id = 4;
   // Account database fork handle held by the bank. See bank_idx for scope.
   uint32 accdb_fork_id = 5;

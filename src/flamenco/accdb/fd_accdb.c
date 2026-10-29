@@ -407,8 +407,9 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   }
 
   /* Reset shmem scalar fields. */
-  shmem->root_fork_id   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-  shmem->generation     = 0U;
+  shmem->root_fork_id    = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  shmem->root_generation = 0U;
+  shmem->generation      = 0U;
   shmem->partition_lock = 0;
   shmem->partition_max  = 0UL;
   shmem->partition_fallocated = 0UL;
@@ -857,7 +858,8 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
     fork->shmem->sibling_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
     descends_set_null( fork->descends );
-    accdb->shmem->root_fork_id = fork_id;
+    accdb->shmem->root_fork_id    = fork_id;
+    accdb->shmem->root_generation = accdb->shmem->generation;
   } else {
     fd_accdb_fork_t * parent = &accdb->fork_pool[ parent_fork_id.val ];
     fork->shmem->parent_id  = parent_fork_id;
@@ -1649,6 +1651,7 @@ background_advance_root( fd_accdb_t *       accdb,
      new fork. */
   fd_racesan_hook( "accdb_advance:pre_publish_root" );
   accdb->shmem->root_fork_id = fork_id;
+  FD_VOLATILE( accdb->shmem->root_generation ) = fork->shmem->generation;
   FD_COMPILER_MFENCE();
   fd_racesan_hook( "accdb_advance:post_publish_root" );
 
@@ -1665,6 +1668,48 @@ background_advance_root( fd_accdb_t *       accdb,
     accdb->deferred_fork_tail  = fork_tail;
     accdb->deferred_fork_epoch = tag;
   }
+}
+
+uint
+fd_accdb_fork_generation( fd_accdb_t const * accdb,
+                          fd_accdb_fork_id_t fork_id ) {
+  return FD_VOLATILE_CONST( accdb->fork_pool[ fork_id.val ].shmem->generation );
+}
+
+uint
+fd_accdb_root_generation( fd_accdb_t const * accdb ) {
+  return FD_VOLATILE_CONST( accdb->shmem->root_generation );
+}
+
+int
+fd_accdb_fork_descends( fd_accdb_t const * accdb,
+                        fd_accdb_fork_id_t fork_id,
+                        fd_accdb_fork_id_t ancestor_id ) {
+  return descends_set_test( accdb->fork_pool[ fork_id.val ].descends, ancestor_id.val );
+}
+
+int
+fd_accdb_fork_visible( fd_accdb_t const * accdb,
+                       fd_accdb_fork_id_t fork_id,
+                       fd_accdb_fork_id_t writer_id,
+                       uint               writer_gen ) {
+  if( FD_LIKELY( writer_gen<=fd_accdb_root_generation( accdb ) ) ) return 1;
+  /* The caller may be reading writer_id speculatively (e.g. from a hash
+     chain it validates afterwards), so it is not trusted to be in
+     bounds.  The generation check rejects a writer whose slot has been
+     recycled, which keeps a stale descends_set bit from making it
+     visible. */
+  if( FD_UNLIKELY( (ulong)writer_id.val>=accdb->shmem->max_live_slots ) ) return 0;
+  if( FD_LIKELY( fd_accdb_fork_generation( accdb, writer_id )==writer_gen ) ) {
+    if( writer_id.val==fork_id.val ) return 1;
+    if( descends_set_test( accdb->fork_pool[ fork_id.val ].descends, writer_id.val ) ) return 1;
+  }
+  /* The caller holds no epoch, so the writer's slot may have been
+     retired (and its bit cleared) after the first root check.  A rooted
+     writer's generation is published as the root before its slot is
+     retired, so a second look catches it. */
+  FD_COMPILER_MFENCE();
+  return writer_gen<=fd_accdb_root_generation( accdb );
 }
 
 int

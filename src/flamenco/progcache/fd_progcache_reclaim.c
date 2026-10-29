@@ -41,13 +41,13 @@ delete_rec_inner( fd_progcache_join_t *          cache,
     fd_racesan_hook( "prog_delete_rec:post_claim" );
     if( ok ) {
       /* The write lock freezes the record, so these reads decide: a rooted claim
-         needs it detached, an owner claim needs it still owner's (xid rejects a
-         recycled txn slot). */
+         needs it detached, an owner claim needs it still owner's (gen rejects a
+         fork table entry reclaimed by a later fork). */
       uchar st   = __atomic_load_n( &rec->state, __ATOMIC_RELAXED );
-      uint  want = owner ? (uint)( owner - cache->txn.pool ) : UINT_MAX;
+      uint  want = owner ? (uint)( owner - cache->txn.ele ) : UINT_MAX;
       ok = !!( st & FD_PROGCACHE_REC_LIVE ) & !( st & FD_PROGCACHE_REC_VISITED )
          & ( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==want );
-      if( owner ) ok &= ( owner->xid==rec->pair.xid );
+      if( owner ) ok &= ( owner->gen==rec->pair.gen );
       if( FD_UNLIKELY( !ok ) ) fd_rwlock_unwrite( &rec->lock );
     }
   }

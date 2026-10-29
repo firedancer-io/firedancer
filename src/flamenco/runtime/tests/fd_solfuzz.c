@@ -219,8 +219,10 @@ fd_solfuzz_runner_leak_check( fd_solfuzz_runner_t * runner ) {
     FD_LOG_CRIT(( "leaked spad frame" ));
   }
 
-  if( FD_UNLIKELY( runner->progcache->join->shmem->txn.child_head_idx != UINT_MAX ) ) {
-    FD_LOG_CRIT(( "leaked a txn in progcache" ));
+  for( ulong i=0UL; i<runner->progcache->join->txn.max; i++ ) {
+    if( FD_UNLIKELY( runner->progcache->join->txn.ele[ i ].state==FD_PROGCACHE_TXN_LIVE ) ) {
+      FD_LOG_CRIT(( "leaked a fork in progcache" ));
+    }
   }
 
   ulong tags[1] = { runner->wksp_tag };

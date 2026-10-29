@@ -12,8 +12,6 @@ $(call add-objs,fd_progcache_admin,fd_flamenco)
 $(call add-hdrs,fd_progcache_user.h)
 $(call add-objs,fd_progcache_user,fd_flamenco)
 
-$(call add-hdrs,fd_progcache_lineage.h)
-
 $(call add-hdrs,fd_progcache_cache.h)
 
 $(call add-objs,fd_progcache_clock,fd_flamenco)

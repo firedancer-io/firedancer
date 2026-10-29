@@ -3,7 +3,6 @@
 
 #include "../../util/fd_util_base.h"
 #include "fd_progcache_base.h"
-#include "fd_progcache_xid.h"
 #include "fd_progcache_rec.h"
 
 FD_PROTOTYPES_BEGIN
@@ -16,7 +15,7 @@ FD_PROTOTYPES_BEGIN
    sweep hands its slot over (or fd_prog_reclaim_work frees it).
 
    The key is re-read from rec, so the caller must either own the record on a
-   fork's record list (under its txn lock), or hold txn.rwlock: the latter does
+   fork's record list (under its fork lock), or hold txn.rwlock: the latter does
    not prevent a sweep from recycling the slot, but it does block
    fd_progcache_push from republishing it, so a recycled slot's delete is a -1
    no-op.  A caller that decided on a key without either guarantee must use

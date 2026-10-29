@@ -65,64 +65,9 @@ fd_progcache_leave( fd_progcache_t *        cache,
   return cache;
 }
 
-/* fd_progcache_load_fork pivots the progcache object to the selected fork
-   (identified by tip XID): populates cache->lineage with the fork's XIDs,
-   newest to oldest.  Cache lookups only respect records on that lineage.
-
-   load_fork_slow and fd_progcache_query below are internal but not static:
-   the test suite composes them into a lookup that does not fill (see
-   test_progcache_common.c).  They are absent from fd_progcache_user.h. */
-
-void
-fd_progcache_load_fork_slow( fd_progcache_t *       cache,
-                             fd_progcache_fork_id_t fork_id ) {
-  fd_progcache_lineage_t *    lineage = cache->lineage;
-  fd_progcache_join_t const * ljoin   = cache->join;
-  fd_rwlock_read( &ljoin->shmem->txn.rwlock );
-  lineage->fork_depth  = 0UL;
-  lineage->tip_txn_idx = ULONG_MAX;
-  lineage->root = __atomic_load_n( &ljoin->shmem->txn.root, memory_order_acquire );
-
-  ulong txn_max = fd_prog_txnp_max( ljoin->txn.pool );
-  ulong i;
-  for( i=0UL;; i++ ) {
-    if( FD_UNLIKELY( i>=FD_PROGCACHE_DEPTH_MAX ) ) {
-      FD_LOG_CRIT(( "fd_progcache_load_fork: fork depth exceeded max of %lu", (ulong)FD_PROGCACHE_DEPTH_MAX ));
-    }
-    uint next_idx = (uint)fd_prog_txnm_idx_query_const( ljoin->txn.map, &fork_id, UINT_MAX, ljoin->txn.pool );
-    if( FD_UNLIKELY( next_idx==UINT_MAX ) ) break;
-    if( FD_UNLIKELY( (ulong)next_idx >= txn_max ) )
-      FD_LOG_CRIT(( "progcache: corruption detected (load_fork txn_idx=%u txn_max=%lu)", next_idx, txn_max ));
-    fd_progcache_txn_t * candidate = &ljoin->txn.pool[ next_idx ];
-
-    uint parent_idx = candidate->parent_idx;
-    FD_TEST( parent_idx!=next_idx );
-    lineage->fork[ i ] = fork_id;
-    if( FD_LIKELY( !i ) ) lineage->tip_txn_idx = next_idx;
-    if( parent_idx==UINT_MAX ) {
-      i++;
-      break;
-    }
-    if( FD_UNLIKELY( (ulong)parent_idx >= txn_max ) )
-      FD_LOG_CRIT(( "progcache: corruption detected (load_fork parent_idx=%u txn_max=%lu)", parent_idx, txn_max ));
-    fork_id = ljoin->txn.pool[ parent_idx ].xid;
-  }
-
-  lineage->fork_depth = i;
-
-  fd_rwlock_unread( &ljoin->shmem->txn.rwlock );
-
-  lineage->root = __atomic_load_n( &ljoin->shmem->txn.root, memory_order_acquire );
-}
-
-static inline void
-fd_progcache_load_fork( fd_progcache_t *       cache,
-                        fd_progcache_fork_id_t fork_id ) {
-  /* Skip if already on the correct fork */
-  fd_progcache_lineage_t * lineage = cache->lineage;
-  if( FD_LIKELY( (!!lineage->fork_depth) & (lineage->fork[ 0 ]==fork_id ) ) ) return;
-  fd_progcache_load_fork_slow( cache, fork_id ); /* switch fork */
-}
+/* fd_progcache_query and fd_progcache_search_chain below are internal but
+   not static: the test suite composes them into a lookup that does not fill
+   (see test_progcache_common.c).  They are absent from fd_progcache_user.h. */
 
 /* fd_prog_wait_if_loading waits out a peer's in-flight load of rec, so the caller
    only ever sees a record whose program is in.  Returns rec. */
@@ -141,10 +86,12 @@ fd_prog_wait_if_loading( fd_progcache_t *     cache,
 }
 
 /* fd_progcache_search_chain walks one chain for an exact (key, feature_slot,
-   deploy_slot) match whose fork is on the current lineage. */
+   deploy_slot) match inserted on a fork visible from fork_id. */
 
 static int
 fd_progcache_search_chain( fd_progcache_t const * cache,
+                           fd_accdb_t const *     accdb,
+                           fd_accdb_fork_id_t     fork_id,
                            ulong                  chain_idx,
                            fd_pubkey_t const *    key,
                            ulong                  feature_slot,
@@ -153,7 +100,6 @@ fd_progcache_search_chain( fd_progcache_t const * cache,
   *out_rec = NULL;
 
   fd_progcache_join_t const *                ljoin     = cache->join;
-  fd_progcache_lineage_t const *             lineage   = cache->lineage;
   fd_prog_recm_shmem_t *                     shmap     = ljoin->rec.map->map;
   fd_prog_recm_shmem_private_chain_t const * chain_tbl = fd_prog_recm_shmem_private_chain_const( shmap, 0UL );
   fd_prog_recm_shmem_private_chain_t const * chain     = chain_tbl + chain_idx;
@@ -183,8 +129,9 @@ fd_progcache_search_chain( fd_progcache_t const * cache,
       continue;
     }
 
-    fd_progcache_fork_id_t rec_fork_id = __atomic_load_n( &rec->pair.xid, memory_order_relaxed );
-    if( FD_UNLIKELY( !fd_progcache_lineage_has_xid( lineage, rec_fork_id ) ) ) continue;
+    uint               rec_gen     = __atomic_load_n( &rec->pair.gen,     memory_order_relaxed );
+    fd_accdb_fork_id_t rec_fork_id = { .val = __atomic_load_n( &rec->pair.fork_id, memory_order_relaxed ) };
+    if( FD_UNLIKELY( !fd_accdb_fork_visible( accdb, fork_id, rec_fork_id, rec_gen ) ) ) continue;
 
     if( FD_UNLIKELY( rec->map_next==ele_idx ) ) return FD_MAP_ERR_AGAIN;
     if( FD_UNLIKELY( rec->map_next!=UINT_MAX && rec->map_next>=rec_max ) ) return FD_MAP_ERR_AGAIN;
@@ -209,6 +156,8 @@ fd_progcache_search_chain( fd_progcache_t const * cache,
 
 fd_progcache_rec_t * /* read locked */
 fd_progcache_query( fd_progcache_t *    cache,
+                    fd_accdb_t const *  accdb,
+                    fd_accdb_fork_id_t  fork_id,
                     fd_pubkey_t const * key,
                     ulong               feature_slot,
                     ulong               deploy_slot ) {
@@ -220,7 +169,7 @@ fd_progcache_query( fd_progcache_t *    cache,
   /* Traverse chain for candidate */
   fd_progcache_rec_t * rec = NULL;
   for(;;) {
-    int err = fd_progcache_search_chain( cache, chain_idx, key, feature_slot, deploy_slot, &rec );
+    int err = fd_progcache_search_chain( cache, accdb, fork_id, chain_idx, key, feature_slot, deploy_slot, &rec );
     if( FD_LIKELY( err==FD_MAP_SUCCESS ) ) break;
     fd_racesan_hook( "prog_query:retry" );
     FD_SPIN_PAUSE();
@@ -256,26 +205,30 @@ fd_progcache_rec_push_tail( fd_progcache_rec_t * rec_pool,
   *rec_tail_idx = rec_idx;
 }
 
-/* Publishes rec (complete, read-locked) under the txn.  Returns the record now
-   serving this key: rec, or the winner's read-locked record if another tile won
-   the race, or NULL if a mapped record has this key with different
-   feature/deploy slots. */
+/* Publishes rec (complete, read-locked) as inserted on accdb fork (fork_id,
+   gen).  txn is that fork's table entry, or NULL if the fork is already
+   rooted, in which case the record is published detached (rooted).  Returns
+   the record now serving this key: rec, or the winner's read-locked record if
+   another tile won the race, or NULL if a mapped record has this key with
+   different feature/deploy slots. */
 
 __attribute__((warn_unused_result))
 static fd_progcache_rec_t *
 fd_progcache_push( fd_progcache_join_t * cache,
-                   fd_progcache_txn_t *  txn, /* write locked */
+                   fd_progcache_txn_t *  txn, /* write locked, or NULL */
+                   fd_accdb_fork_id_t    fork_id,
+                   uint                  gen,
                    fd_progcache_rec_t *  rec,
                    void const *          prog_addr ) {
   FD_TEST( fd_prog_state_is_loading( rec ) );
 
-  /* Determine record's xid-key pair */
+  /* Determine record's fork-key pair */
 
   rec->prev_idx = UINT_MAX;
   rec->next_idx = UINT_MAX;
   memcpy( &rec->pair.prog, prog_addr, 32UL );
-  if( FD_UNLIKELY( !txn ) ) FD_LOG_CRIT(( "NULL txn" ));
-  __atomic_store_n( &rec->pair.xid, txn->xid, memory_order_relaxed );
+  __atomic_store_n( &rec->pair.gen,     gen,         memory_order_relaxed );
+  __atomic_store_n( &rec->pair.fork_id, fork_id.val, memory_order_relaxed );
 
   /* Lock rec_map chain, entering critical section */
 
@@ -312,20 +265,21 @@ fd_progcache_push( fd_progcache_join_t * cache,
 
   /* Insert new record */
 
-  /* Link record into the transaction's record list.  Ownership is established
+  /* Link record into the fork's record list.  Ownership is established
      before the record becomes findable, so a mapped record has an owner unless
-     rooting deliberately detached it. */
+     it is rooted. */
 
-  fd_progcache_rec_push_tail( cache->rec.ele,
-      rec,
-      &txn->rec_head_idx,
-      &txn->rec_tail_idx,
-      rec_max );
-  uint txn_idx_computed = (uint)( txn - cache->txn.pool );
-  ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
-  if( FD_UNLIKELY( (ulong)txn_idx_computed >= txn_max ) )
-    FD_LOG_CRIT(( "progcache: corruption detected (push txn_idx=%u txn_max=%lu)", txn_idx_computed, txn_max ));
-  atomic_store_explicit( &rec->txn_idx, txn_idx_computed, memory_order_release );
+  if( FD_LIKELY( txn ) ) {
+    fd_progcache_rec_push_tail( cache->rec.ele,
+        rec,
+        &txn->rec_head_idx,
+        &txn->rec_tail_idx,
+        rec_max );
+    uint txn_idx_computed = (uint)( txn - cache->txn.ele );
+    if( FD_UNLIKELY( (ulong)txn_idx_computed >= cache->txn.max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (push txn_idx=%u txn_max=%lu)", txn_idx_computed, cache->txn.max ));
+    atomic_store_explicit( &rec->txn_idx, txn_idx_computed, memory_order_release );
+  }
 
   int insert_err = fd_prog_recm_txn_insert( cache->rec.map, rec );
   if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) {
@@ -435,8 +389,43 @@ fd_progcache_spill_acquire( fd_progcache_t *        cache,
   return rec;
 }
 
+/* fd_progcache_fork_claim returns the fork table entry of accdb fork
+   (fork_id, gen), write locked, claiming it on the fork's first insert.
+   Returns NULL if the fork is rooted (gen<=root_gen): its records are
+   published detached.  Requires txn.rwlock (read), which keeps the entry from
+   being retired under us. */
+
+static fd_progcache_txn_t *
+fd_progcache_fork_claim( fd_progcache_join_t * join,
+                         fd_accdb_fork_id_t    fork_id,
+                         uint                  gen,
+                         uint                  root_gen ) {
+  if( FD_UNLIKELY( gen<=root_gen ) ) return NULL;
+  if( FD_UNLIKELY( (ulong)fork_id.val>=join->txn.max ) )
+    FD_LOG_CRIT(( "progcache insert on fork_id %u, fork table holds %lu", (uint)fork_id.val, join->txn.max ));
+  fd_progcache_txn_t * txn = &join->txn.ele[ fork_id.val ];
+  fd_rwlock_write( &txn->lock );
+  if( FD_LIKELY( txn->state==FD_PROGCACHE_TXN_LIVE && txn->gen==gen ) ) return txn;
+  if( FD_UNLIKELY( txn->state==FD_PROGCACHE_TXN_LIVE ) ) {
+    /* A previous fork with this id must have been retired before accdb
+       recycled the id for this fork. */
+    FD_LOG_CRIT(( "progcache insert on fork_id %u generation %u, but generation %u was never retired",
+                  (uint)fork_id.val, gen, txn->gen ));
+  }
+  if( FD_UNLIKELY( txn->state==FD_PROGCACHE_TXN_RETIRED && txn->gen==gen ) ) {
+    FD_LOG_CRIT(( "progcache insert on a rooted/canceled fork (fork_id=%u generation=%u)", (uint)fork_id.val, gen ));
+  }
+  txn->state        = FD_PROGCACHE_TXN_LIVE;
+  txn->gen          = gen;
+  txn->rec_head_idx = UINT_MAX;
+  txn->rec_tail_idx = UINT_MAX;
+  return txn;
+}
+
 static fd_progcache_rec_t * /* read locked */
 fd_progcache_insert( fd_progcache_t *        cache,
+                     fd_accdb_t const *      accdb,
+                     fd_accdb_fork_id_t      fork_id,
                      insert_params_t const * params ) {
   fd_progcache_join_t *  ljoin = cache->join;
   fd_progcache_shmem_t * shmem = ljoin->shmem;
@@ -485,26 +474,19 @@ fd_progcache_insert( fd_progcache_t *        cache,
 
     fd_racesan_hook( "prog_insert:pre_push" );
     fd_rwlock_read( &shmem->txn.rwlock );
-    ulong txn_idx = cache->lineage->tip_txn_idx;
-    if( FD_UNLIKELY( txn_idx==ULONG_MAX ) ) FD_LOG_CRIT(( "progcache insert requires a non-root transaction" ));
-    /* tip_txn_idx may be stale, so revalidate it against the map under the read
-       lock.  A mismatch means execution was dispatched on a dead fork. */
-    uint live_idx = (uint)fd_prog_txnm_idx_query_const( ljoin->txn.map, &cache->lineage->fork[ 0 ], UINT_MAX, ljoin->txn.pool );
-    if( FD_UNLIKELY( (ulong)live_idx!=txn_idx ) )
-      FD_LOG_CRIT(( "progcache insert on a published/canceled fork (fork_id=%lu txn_idx=%lu live_idx=%u)",
-                    (ulong)cache->lineage->fork[ 0 ], txn_idx, live_idx ));
-    fd_progcache_txn_t * txn = &ljoin->txn.pool[ txn_idx ];
-    fd_rwlock_write( &txn->lock );
-    fd_progcache_rec_t * mapped = fd_progcache_push( ljoin, txn, rec, &params->prog_addr );
-    fd_rwlock_unwrite( &txn->lock );
+    uint gen      = fd_accdb_fork_generation( accdb, fork_id );
+    uint root_gen = fd_accdb_root_generation( accdb );
+    fd_progcache_txn_t * txn = fd_progcache_fork_claim( ljoin, fork_id, gen, root_gen );
+    fd_progcache_rec_t * mapped = fd_progcache_push( ljoin, txn, fork_id, gen, rec, &params->prog_addr );
+    if( FD_LIKELY( txn ) ) fd_rwlock_unwrite( &txn->lock );
     fd_rwlock_unread( &shmem->txn.rwlock );
 
     /* fd_progcache_push returns rec, the winner of a same-revision race, or
        NULL for another revision of this key, which delayed visibility excludes. */
     if( FD_UNLIKELY( !mapped ) ) {
       FD_BASE58_ENCODE_32_BYTES( params->prog_addr.uc, prog_b58 );
-      FD_LOG_CRIT(( "progcache insert found another revision of this program mapped (prog=%s fork_id=%lu feature_slot=%lu deploy_slot=%lu)",
-                    prog_b58, (ulong)cache->lineage->fork[ 0 ], params->feature_slot, params->deploy_slot ));
+      FD_LOG_CRIT(( "progcache insert found another revision of this program mapped (prog=%s fork_id=%u feature_slot=%lu deploy_slot=%lu)",
+                    prog_b58, (uint)fork_id.val, params->feature_slot, params->deploy_slot ));
 
     } else if( FD_UNLIKELY( mapped!=rec ) ) {
       /* Another thread published this revision first and may still be loading.
@@ -556,20 +538,20 @@ fd_progcache_insert( fd_progcache_t *        cache,
 
 fd_progcache_rec_t * /* read locked */
 fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_progcache_fork_id_t     fork_id,
+                   fd_accdb_t const *         accdb,
+                   fd_accdb_fork_id_t         fork_id,
                    fd_pubkey_t const *        prog_addr,
                    fd_prog_load_env_t const * env,
                    fd_acc_t const *           prog_ro ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   long dt = -fd_tickcount();
-  fd_progcache_load_fork( cache, fork_id );
   cache->metrics->lookup_cnt++;
 
   fd_prog_info_t info[1];
   if( FD_UNLIKELY( !fd_prog_info( info, prog_ro ) ) ) return NULL;
 
   fd_progcache_rec_t * found_rec =
-      fd_progcache_query( cache, prog_addr, env->feature_slot, info->deploy_slot );
+      fd_progcache_query( cache, accdb, fork_id, prog_addr, env->feature_slot, info->deploy_slot );
   if( FD_LIKELY( found_rec ) ) {
     cache->metrics->hit_cnt++;
     /* Mark the record as recently accessed for CLOCK replacement */
@@ -578,7 +560,7 @@ fd_progcache_pull( fd_progcache_t *           cache,
   } else {
     cache->metrics->miss_cnt++;
     insert_params_t insert[1];
-    found_rec = fd_progcache_insert( cache, insert_params( insert, prog_addr, env, prog_ro, info ) );
+    found_rec = fd_progcache_insert( cache, accdb, fork_id, insert_params( insert, prog_addr, env, prog_ro, info ) );
   }
 
   dt += fd_tickcount();

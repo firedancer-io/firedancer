@@ -159,8 +159,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_banks_clear_bank( banks, bank );
 
-  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
-
   /* Attach a fork off the runner's root for context loading */
   fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, runner->root_fork_id );
   bank->accdb_fork_id        = fork_id;
@@ -173,10 +171,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Slot */
   ulong slot = block_bank->slot;
   bank->f.slot = slot;
-
-  /* Register a non-root progcache transaction at the bank's xid so the
-     BPF loader can insert program cache entries during execution. */
-  bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, bank->progcache_fork_id );
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( bank, block_bank->blockhash_queue, block_bank->blockhash_queue_count );

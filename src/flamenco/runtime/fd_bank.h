@@ -257,7 +257,6 @@ struct fd_bank {
   fd_pubkey_t leader; /* slot leader of this block */
 
   fd_txncache_fork_id_t  txncache_fork_id __attribute__((aligned(64UL)));
-  fd_progcache_fork_id_t progcache_fork_id;
   fd_accdb_fork_id_t     accdb_fork_id;
   fd_accdb_fork_id_t     parent_accdb_fork_id;
   ushort                 vote_stakes_fork_id;
@@ -346,7 +345,6 @@ FD_STATIC_ASSERT( offsetof(fd_bank_t, f)-offsetof(fd_bank_t, lthash_lock)>=64UL,
 
 struct fd_banks_prune_cancel_info {
   fd_txncache_fork_id_t  txncache_fork_id;
-  fd_progcache_fork_id_t progcache_fork_id;
   fd_accdb_fork_id_t     accdb_fork_id;
   ulong                  slot;
   ulong                  bank_seq;

@@ -406,6 +406,12 @@ struct fd_accdb_shmem_private {
 
   fd_accdb_fork_id_t root_fork_id;
 
+  /* root_generation is the generation of root_fork_id, published with
+     it.  Unlike root_fork_id it can be read without holding an epoch
+     (it is monotonic and needs no dereference of a recyclable fork
+     slot), which is what fd_accdb_root_generation relies on. */
+  uint root_generation;
+
   ulong seed;
 
   /* generation is a monotonically increasing counter assigned to each

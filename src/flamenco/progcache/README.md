@@ -69,22 +69,34 @@ confusion.
 
 ### Fork graph
 
-The program cache maintains its own fork graph and supports the standard
-set of operations:
-- attach_child: create a fork
-- cancel: remove a fork and all its nodes/children
-- advance_root: promote a fork graph node to root and cancel its siblings
+The program cache has no fork graph of its own.  It uses the account
+database's forks: a fork id is an accdb fork id (`fd_accdb_fork_id_t`)
+and each record is keyed by the accdb fork that inserted it, plus that
+fork's generation.  accdb recycles fork ids, but never generations.
 
-The program cache uses a variation of the accounts database structure
-design.  The fork graph is expressed as an n-ary tree:
-- each node maintains a doubly-linked list of siblings
-- each node maintains a doubly-linked list of cache records it owns
+A lookup on fork F sees a record inserted on fork W when
+`fd_accdb_fork_visible` says so: W is rooted (its generation is at most
+the root's), W is F, or W is an unrooted ancestor of F (W's bit is set
+in F's ancestor bitset and W's slot still holds W's generation).  This
+is the same test accdb applies to account versions.  It takes no lock
+and no epoch.
 
-Fork graph nodes are allocated from a fixed-size pool.  A hash map
-indexes all forks.
+progcache still has to retire a fork's records when the fork is rooted
+(detach them) or cancelled (remove them).  For that it keeps a fork
+table indexed by accdb fork id.  Each entry holds a lock, the fork's
+generation and the list of records the fork inserted.  An entry is
+claimed lazily on the fork's first insert, so creating a fork needs no
+progcache call.
 
-Fork creation and deletion are protected by a global rwlock (acceptable
-because these operations are infrequent, O(100ms)).
+Replay reports rooting and cancellation with `fd_progcache_advance_root`
+and `fd_progcache_cancel_fork`, each right before the matching accdb
+call.  Both scan the fork table and classify entries with accdb's
+ancestor bitsets.  The ordering matters: accdb recycles a fork id only
+after its own advance_root/purge, so progcache never sees a recycled id
+while the old fork's records are still attached to it.
+
+Fork table updates are protected by a global rwlock (acceptable because
+these operations are infrequent, O(100ms)).
 
 ### "Rooting"
 
@@ -99,15 +111,16 @@ cancels any fork graph paths that do not contain the rooted block,
 potentially shadowing records that must then be reclaimed.
 
 More precisely, there are three separate root slot numbers that advance
-asynchronously: consensus, then system, then progcache.
+asynchronously: consensus, then system, then accdb.
 
 - consensus root: advances when the consensus layer finalizes a fork
 - system root: advances when all tiles have logically acknowledged the
   new root slot.  Logical ACK occurs when a tile understands that no
   more operations on conflicting forks are possible.  This is almost
   always instantaneous, except when a long fork is invalidated.
-- progcache root: advances when the fork graph update (publish and
-  sibling cancellation) completes
+- accdb root: advances when the accdb tile publishes the new root
+  generation.  Until then a record of the newly rooted fork stays
+  visible through the ancestor bitsets.
 
 ### Revisions
 
@@ -177,7 +190,7 @@ Eviction runs concurrently with rooting and fork cancellation.
 By default (`FD_PROGCACHE_EVICT_UNROOTED=1`) a record still attached to a
 live fork is a victim too: the sweep freezes its fork, splices it out of the
 fork's record list and claims it under that lock.  Built with
-`FD_PROGCACHE_EVICT_UNROOTED=0`, only records detached from the fork graph
+`FD_PROGCACHE_EVICT_UNROOTED=0`, only records detached from their fork
 (rooted) are taken.
 A record with active readers is never taken: the sweep steps over it.
 A zombie encountered by the sweep is handed over directly as its content is

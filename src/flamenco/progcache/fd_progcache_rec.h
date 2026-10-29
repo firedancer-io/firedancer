@@ -8,9 +8,16 @@
 
 #include <stdatomic.h>
 
+/* fd_progcache_rec_key_t identifies a record by the accdb fork that
+   inserted it and the program address.  gen is the accdb generation of
+   that fork, which is unique.  fork_id is the accdb fork id, only
+   meaningful while that fork is live (accdb recycles fork ids), and
+   not part of the key's identity. */
+
 struct fd_progcache_rec_key {
-  fd_progcache_fork_id_t xid;
-  fd_pubkey_t            prog;
+  uint        gen;
+  ushort      fork_id;
+  fd_pubkey_t prog;
 };
 
 typedef struct fd_progcache_rec_key fd_progcache_rec_key_t;
@@ -18,7 +25,7 @@ typedef struct fd_progcache_rec_key fd_progcache_rec_key_t;
 static inline int
 fd_progcache_rec_key_eq( fd_progcache_rec_key_t const * k0,
                          fd_progcache_rec_key_t const * k1 ) {
-  return ( (k0->xid == k1->xid) & fd_pubkey_eq( &k0->prog, &k1->prog ) );
+  return ( (k0->gen == k1->gen) & fd_pubkey_eq( &k0->prog, &k1->prog ) );
 }
 
 /* fd_progcache_rec_t is a program cache entry.  Entries are either
@@ -32,7 +39,7 @@ fd_progcache_rec_key_eq( fd_progcache_rec_key_t const * k0,
    one cache line.  The rest is only read once the record is in hand. */
 
 struct __attribute__((aligned(64))) fd_progcache_rec {
-  fd_progcache_rec_key_t pair;  /* Transaction id and record key pair */
+  fd_progcache_rec_key_t pair;  /* Fork and program address */
 
   ulong feature_slot;
   ulong deploy_slot;
@@ -45,9 +52,9 @@ struct __attribute__((aligned(64))) fd_progcache_rec {
      below would race with the plain writes to those fields. */
   uchar       state;
 
-  atomic_uint txn_idx;
-  uint        next_idx;  /* Record map index of next record in its transaction */
-  uint        prev_idx;  /* Record map index of previous record in its transaction */
+  atomic_uint txn_idx;   /* Owning fork table entry (accdb fork id), UINT_MAX once rooted or removed */
+  uint        next_idx;  /* Record map index of next record of its fork */
+  uint        prev_idx;  /* Record map index of previous record of its fork */
   uint        data_max;  /* size of allocation */
 
   ulong data_gaddr;  /* wksp-base relative pointer to data */
