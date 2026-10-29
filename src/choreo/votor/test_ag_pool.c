@@ -327,7 +327,7 @@ notar_cert( ag_pool_t *           pool,
   ag_vote_notar_t nv[ NV ];
   for( ulong v=0UL; v<signers; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, hash, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t c = cert_build_notar( nv, signers, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
   drain_events( pool );
 }
 
@@ -352,7 +352,7 @@ fast_finalize( ag_pool_t *           pool,
   ag_vote_notar_t nv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, hash, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
   drain_events( pool );
 }
 
@@ -572,7 +572,7 @@ test_reward_wire_cert_base( void ) {
   ulong buf_sz = ag_cert_ser( &cert, buf );
   ulong bit_cnt;
   FD_TEST( ag_cert_de( &cert, &bit_cnt, buf, buf_sz )==AG_CERT_DE_SUCCESS );
-  FD_TEST( ag_pool_add_cert( pool, &cert, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &cert, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
   drain_events( pool );
   add_skip_votes( pool, slot, 0UL,  3UL  );
   add_skip_votes( pool, slot, 9UL,  11UL );
@@ -618,7 +618,7 @@ test_reward_wire_cert_base( void ) {
   cert   = cert_build_notar( nv, 7UL, g_epoch_info );
   buf_sz = ag_cert_ser( &cert, buf );
   FD_TEST( ag_cert_de( &cert, &bit_cnt, buf, buf_sz )==AG_CERT_DE_SUCCESS );
-  FD_TEST( ag_pool_add_cert( pool, &cert, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &cert, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
   drain_events( pool );
   state = ag_pool_slot_state( pool, slot+1UL );
   FD_TEST( state && notar_cnt( state, ag_pool_slot_states( pool ) )==0UL && state->certs.notar.slot==slot+1UL );
@@ -698,7 +698,7 @@ test_implicit_finalization_events( void ) {
   ag_vote_notar_t nv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, b7.slot, b7.hash, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
 
   ulong finalized = 0UL;
   ulong skipped   = 0UL;
@@ -723,7 +723,7 @@ test_fast_final_cert_requests_repair( void ) {
   ag_vote_notar_t nv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, 1UL, hash, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
 
   ag_block_id_t repair;
   FD_TEST( ag_pool_poll_repair_event( pool, &repair ) );
@@ -815,7 +815,7 @@ test_branch_certified_late_cert( void ) {
   ag_vote_notar_t nv[7];
   for( ulong v=0UL; v<7UL; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot1, hash1, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t c = cert_build_notar( nv, 7UL, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
 
   ag_block_id_t parent = ag_block_id( slot1, hash1 );
   FD_TEST( is_parent_ready( pool, next, &parent ) );
@@ -1079,16 +1079,16 @@ test_duplicate_certs( void ) {
   ag_vote_notar_t nv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, first_slot, hash, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t notar = cert_build_notar( nv, NV, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &notar, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &notar, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
 
   ulong second_slot = 2UL;
   ag_vote_skip_t sv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) sv[v] = ag_vote_construct_skip( sec_sign_fn, &g_sk[v], test_bls_public_key, second_slot, (ushort)v, TEST_SHRED_VERSION ).skip;
   ag_cert_t skip = cert_build_skip( sv, NV, NULL, 0UL, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &skip, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &skip, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
 
-  FD_TEST( ag_pool_add_cert( pool, &notar, 0, bad )==AG_POOL_ERR_DUPLICATE );
-  FD_TEST( ag_pool_add_cert( pool, &skip, 0, bad )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( ag_pool_add_cert( pool, &notar, 0, USHORT_MAX, bad )==AG_POOL_ERR_DUPLICATE );
+  FD_TEST( ag_pool_add_cert( pool, &skip, 0, USHORT_MAX, bad )==AG_POOL_ERR_DUPLICATE );
 
   teardown_pool( pool );
 }
@@ -1106,9 +1106,9 @@ test_add_verified_cert( void ) {
   ag_cert_t notar = cert_build_notar( nv, NV, g_epoch_info );
   notar.notar.block_hash[ 0 ] ^= 1;
 
-  FD_TEST( ag_pool_add_cert( pool, &notar, 0, bad )==AG_POOL_ERR_CERT_VERIFY );
-  FD_TEST( ag_pool_add_cert( pool, &notar, 1, bad )==AG_POOL_SUCCESS         );
-  FD_TEST( ag_pool_add_cert( pool, &notar, 1, bad )==AG_POOL_ERR_DUPLICATE   );
+  FD_TEST( ag_pool_add_cert( pool, &notar, 0, USHORT_MAX, bad )==AG_POOL_ERR_CERT_VERIFY );
+  FD_TEST( ag_pool_add_cert( pool, &notar, 1, USHORT_MAX, bad )==AG_POOL_SUCCESS         );
+  FD_TEST( ag_pool_add_cert( pool, &notar, 1, USHORT_MAX, bad )==AG_POOL_ERR_DUPLICATE   );
 
   teardown_pool( pool );
 }
@@ -1158,7 +1158,7 @@ test_out_of_bounds_certs( void ) {
     ag_vote_notar_t nv[ NV ];
     for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, s, gh, (ushort)v, TEST_SHRED_VERSION ).notar;
     ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
-    FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
     drain_events( pool );
   }
   FD_TEST( pool_first_unpruned_slot( pool )==slot );
@@ -1167,14 +1167,14 @@ test_out_of_bounds_certs( void ) {
     ag_vote_skip_t sv[ NV ];
     for( ulong v=0UL; v<NV; v++ ) sv[v] = ag_vote_construct_skip( sec_sign_fn, &g_sk[v], test_bls_public_key, s, (ushort)v, TEST_SHRED_VERSION ).skip;
     ag_cert_t c = cert_build_skip( sv, NV, NULL, 0UL, g_epoch_info );
-    FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_ERR_SLOT_TOO_OLD );
+    FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_ERR_SLOT_TOO_OLD );
   }
 
   ulong future = 3UL*TEST_SLOT_MAX;
   ag_vote_skip_t sv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) sv[v] = ag_vote_construct_skip( sec_sign_fn, &g_sk[v], test_bls_public_key, future, (ushort)v, TEST_SHRED_VERSION ).skip;
   ag_cert_t c = cert_build_skip( sv, NV, NULL, 0UL, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_ERR_SLOT_TOO_NEW );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_ERR_SLOT_TOO_NEW );
 
   teardown_pool( pool );
 }
@@ -1534,7 +1534,7 @@ test_s2n_waiting_every_child( void ) {
   ag_vote_notar_t nv[ NV ];
   for( ulong v=0UL; v<7UL; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot1, hash1, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t c = cert_build_notar( nv, 7UL, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
 
   int   got_2 = 0;
   int   got_5 = 0;
@@ -1576,7 +1576,7 @@ test_s2n_waiting_fast_final_parent( void ) {
   ag_vote_notar_t nv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot1, hash1, (ushort)v, TEST_SHRED_VERSION ).notar;
   ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
 
   FD_TEST( drained_safe_to_notar( pool, slot2, hash2 ) );
   FD_TEST( !s2n_waiting_cnt( pool ) );
@@ -2200,15 +2200,15 @@ test_bls_verify_cnt( void ) {
   for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, 1UL, h, (ushort)v, TEST_SHRED_VERSION ).notar;
 
   ag_cert_t c = cert_build_notar( nv, 1UL, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_ERR_CERT_VERIFY );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_ERR_CERT_VERIFY );
   FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==0UL );
 
   c = cert_build_notar( nv, NV, g_epoch_info );
   ag_cert_t forged = c; forged.notar.slot = 2UL;
-  FD_TEST( ag_pool_add_cert( pool, &forged, 0, bad )==AG_POOL_ERR_CERT_VERIFY );
+  FD_TEST( ag_pool_add_cert( pool, &forged, 0, USHORT_MAX, bad )==AG_POOL_ERR_CERT_VERIFY );
   FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==1UL );
 
-  FD_TEST( ag_pool_add_cert( pool, &c, 0, bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_cert( pool, &c, 0, USHORT_MAX, bad )==AG_POOL_SUCCESS );
   FD_TEST( ag_pool_metrics( pool ).bls_verify_cnt==2UL );
 
   teardown_pool( pool );

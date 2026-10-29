@@ -628,6 +628,7 @@ ag_slot_state_null( ag_slot_state_t *  self,
   self->certs.skip.slot          = ULONG_MAX;
   self->certs.fast_finalize.slot = ULONG_MAX;
   self->certs.finalize.slot      = ULONG_MAX;
+  self->certs.reward_cand_cnt    = 0UL;
 
   self->parents_cnt               = 0UL;
   self->pending_safe_to_notar.cnt = 0UL;
@@ -893,32 +894,291 @@ ag_slot_state_should_ignore_vote( ag_slot_state_t const *  self,
   return 0;
 }
 
-fd_bls_agg_t *
-ag_slot_state_notar_reward_agg( ag_slot_state_t const *  self,
-                                ag_slot_states_t const * states,
-                                fd_bls_agg_t *           out ) {
-  ag_epoch_info_t const * epoch_info = fd_ptr_if( self->slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( self->slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
-  ag_block_id_t           key        = ag_block_id( self->slot, self->votes.top_notar_hash );
-  ulong                   top        = ag_vote_stake_map_idx_query_const( states->notar_hash_stake_map, &key, ULONG_MAX, states->notar_hash_stake_pool );
-  if( FD_UNLIKELY( top==ULONG_MAX ) ) return NULL;
+/* Candidates are scored and evicted by usefulness: a verified one is
+   never evicted for an unverified one. */
 
-  fd_bls_set_t set[ fd_bls_set_word_cnt ];
-  fd_bls_set_null( set );
-  for( ulong rank = fd_bls_set_const_iter_init( self->votes.notar_set );
-                   !fd_bls_set_const_iter_done( rank );
-             rank = fd_bls_set_const_iter_next( self->votes.notar_set, rank ) ) {
-    if( FD_LIKELY( self->votes.notar_hash_stake_idx[ rank ]==top ) ) fd_bls_set_insert( set, rank );
+static ulong
+reward_cand_evict_idx( ag_slot_certs_t const * c ) {
+  ulong worst = 0UL;
+  for( ulong i=1UL; i<c->reward_cand_cnt; i++ ) {
+    ag_reward_cand_t const * a = &c->reward_cand[ i ];
+    ag_reward_cand_t const * w = &c->reward_cand[ worst ];
+    int ra = a->bad ? 0 : !a->ok ? 1 : 2;
+    int rw = w->bad ? 0 : !w->ok ? 1 : 2;
+    if( ra<rw || ( ra==rw && a->signer_cnt<w->signer_cnt ) ) worst = i;
   }
+  return worst;
+}
+
+int
+ag_slot_state_add_reward_cand( ag_slot_state_t * self,
+                               ag_cert_t const * cert,
+                               int               verified,
+                               ushort            relayer ) {
+  ag_slot_certs_t *    c    = &self->certs;
+  int                  skip = cert->kind==AG_CERT_KIND_SKIP;
+  if( FD_UNLIKELY( skip && !fd_bls_set_is_null( cert->skip.agg_skip_fallback.set ) ) ) return 0; /* fallback signatures are inseparable */
+  fd_bls_agg_t const * agg  = skip ? &cert->skip.agg_skip : cert->kind==AG_CERT_KIND_NOTAR ? &cert->notar.agg : &cert->fast_final.agg;
+  uchar const *        bh   = skip ? NULL : cert->kind==AG_CERT_KIND_NOTAR ? cert->notar.block_hash : cert->fast_final.block_hash;
+
+  /* Only certs for the block a verified notar or fast finalize cert names
+     can join a notar reward cert. */
+  if( !skip ) {
+    uchar const * want = c->notar.slot!=ULONG_MAX ? c->notar.block_hash : c->fast_finalize.slot!=ULONG_MAX ? c->fast_finalize.block_hash : NULL;
+    if( FD_UNLIKELY( !want || memcmp( bh, want, sizeof(ag_block_hash_t) ) ) ) return 0;
+  }
+
+  /* Names no one beyond the usable verified certs and held votes */
+  fd_bls_set_t seen[ fd_bls_set_word_cnt ];
+  if( skip ) {
+    fd_bls_set_copy( seen, self->votes.skip_agg.set );
+    if( c->skip.slot!=ULONG_MAX && fd_bls_set_is_null( c->skip.agg_skip_fallback.set ) ) fd_bls_set_union( seen, seen, c->skip.agg_skip.set );
+  } else {
+    fd_bls_set_copy( seen, self->votes.notar_set );
+    if( c->notar.slot!=ULONG_MAX         ) fd_bls_set_union( seen, seen, c->notar.agg.set         );
+    if( c->fast_finalize.slot!=ULONG_MAX ) fd_bls_set_union( seen, seen, c->fast_finalize.agg.set );
+  }
+  if( FD_LIKELY( fd_bls_set_subset( agg->set, seen ) ) ) return 0;
+  for( ulong i=0UL; i<c->reward_cand_cnt; i++ ) {
+    ag_reward_cand_t const * rc = &c->reward_cand[ i ];
+    if( FD_UNLIKELY( rc->kind==cert->kind && fd_bls_set_eq( rc->set, agg->set ) && !memcmp( &rc->sig, &agg->sig, sizeof(blst_p2) ) ) ) return 0;
+  }
+
+  fd_bls_set_t novel[ fd_bls_set_word_cnt ];
+  fd_bls_set_subtract( novel, agg->set, seen );
+  ulong signer_cnt = fd_bls_set_cnt( novel );
+  if( FD_UNLIKELY( c->reward_cand_cnt==AG_REWARD_CAND_MAX ) ) {
+    ulong                    i = reward_cand_evict_idx( c );
+    ag_reward_cand_t const * w = &c->reward_cand[ i ];
+    if( FD_UNLIKELY( ( w->ok && !verified ) || ( !w->bad && w->ok==verified && w->signer_cnt>=signer_cnt ) ) ) return 0;
+    c->reward_cand[ i ] = c->reward_cand[ --c->reward_cand_cnt ];
+  }
+  ag_reward_cand_t * rc = &c->reward_cand[ c->reward_cand_cnt++ ];
+  rc->kind          = cert->kind;
+  rc->shred_version = ag_cert_shred_version( cert );
+  rc->relayer       = relayer;
+  rc->signer_cnt    = signer_cnt;
+  fd_bls_set_copy( rc->set, agg->set );
+  rc->sig           = agg->sig;
+  rc->bad           = 0;
+  rc->ok            = !!verified;
+  return 1;
+}
+
+/* Folds agg into base: the signers' union, whose signature is the sum
+   less the sigs of the ranks both name, which must be held verified
+   votes.  Returns 0, base untouched, when they are not. */
+
+static int
+fold( fd_bls_agg_t *           base,
+      fd_bls_set_t const *     agg_set,
+      blst_p2 const *          agg_sig,
+      fd_bls_set_t const *     held,
+      ag_slot_state_t const *  self,
+      ag_slot_states_t const * states,
+      uint                     kind,
+      uchar const *            hash ) {
+  fd_bls_set_t both[ fd_bls_set_word_cnt ];
+  fd_bls_set_intersect( both, base->set, agg_set );
+  if( FD_UNLIKELY( !fd_bls_set_subset( both, held ) ) ) return 0;
+  if( FD_UNLIKELY( fd_bls_set_subset( agg_set, base->set ) ) ) return 0;
+  blst_p2_add_or_double( &base->sig, &base->sig, agg_sig );
+  if( FD_LIKELY( !fd_bls_set_is_null( both ) ) ) {
+    fd_bls_sig_t sigs[ AG_VAT_MAX ];
+    blst_p2      shared[1];
+    fd_bls_sig_t const * ptr[ FD_BLS_SET_MAX ];
+    ulong                cnt = 0UL;
+    ag_slot_state_sigs( self, states, kind, hash, both, sigs );
+    for( ulong rank = fd_bls_set_const_iter_init( both );
+                     !fd_bls_set_const_iter_done( rank );
+               rank = fd_bls_set_const_iter_next( both, rank ) ) ptr[ cnt++ ] = sigs+rank;
+    blst_p2s_add( shared, ptr, cnt );
+    blst_p2_cneg( shared, 1 );
+    blst_p2_add_or_double( &base->sig, &base->sig, shared );
+  }
+  fd_bls_set_union( base->set, base->set, agg_set );
+  return 1;
+}
+
+/* Greedily folds the most useful candidates into out_base, then builds
+   out from the held votes outside it.  A candidate is scored by the
+   signers it adds beyond the base and the held votes, so one adding
+   nothing is never verified.  Unverified candidates are verified once,
+   at most AG_REWARD_CAND_VERIFY_MAX a call; a failure bans the relayer,
+   returned in bad_relayer. */
+
+static fd_bls_agg_t *
+reward_agg( ag_slot_state_t *        self,
+            ag_slot_states_t *       states,
+            uint                     vote_kind,
+            uchar const *            hash,
+            fd_bls_set_t *           set,
+            fd_bls_agg_t const **    cand,
+            ag_reward_cand_t **      kept,
+            ulong                    cand_cnt,
+            fd_bls_agg_t *           out,
+            fd_bls_agg_t *           out_base,
+            fd_bls_set_t *           bad,
+            fd_bls_set_t *           bad_relayer ) {
+  ag_epoch_info_t const * epoch_info = fd_ptr_if( self->slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( self->slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
+  int   held_verified = 0;
+  ulong verify_left   = AG_REWARD_CAND_VERIFY_MAX;
+
+  fd_bls_agg_null( out_base );
+  for( ulong left=cand_cnt; left; left-- ) {
+    ulong best = ULONG_MAX, best_new = 0UL;
+    for( ulong i=0UL; i<cand_cnt; i++ ) {
+      if( !cand[ i ] ) continue;
+      if( kept[ i ] && !kept[ i ]->ok && !verify_left ) continue;
+      fd_bls_set_t t[ fd_bls_set_word_cnt ];
+      fd_bls_set_intersect( t, cand[ i ]->set, out_base->set );
+      if( !fd_bls_set_subset( t, set ) ) continue; /* shares a vote we do not hold, cannot join */
+      fd_bls_set_union( t, out_base->set, set );
+      fd_bls_set_subtract( t, cand[ i ]->set, t );
+      ulong n = fd_bls_set_cnt( t );
+      if( n>best_new ) { best = i; best_new = n; }
+    }
+    if( best==ULONG_MAX ) break;
+    fd_bls_agg_t const * agg = cand[ best ];
+    ag_reward_cand_t *   rc  = kept[ best ];
+    cand[ best ] = NULL;
+    if( rc && !rc->ok ) {
+      verify_left--;
+      ag_cert_t cert = { .kind = rc->kind };
+      switch( rc->kind ) {
+      case AG_CERT_KIND_NOTAR:      cert.notar      = (ag_cert_notar_t     ){ .slot = self->slot, .agg = *agg, .shred_version = rc->shred_version }; memcpy( cert.notar.block_hash,      hash, sizeof(ag_block_hash_t) ); break;
+      case AG_CERT_KIND_FAST_FINAL: cert.fast_final = (ag_cert_fast_final_t){ .slot = self->slot, .agg = *agg, .shred_version = rc->shred_version }; memcpy( cert.fast_final.block_hash, hash, sizeof(ag_block_hash_t) ); break;
+      default:                      cert.skip       = (ag_cert_skip_t      ){ .slot = self->slot, .agg_skip = *agg, .shred_version = rc->shred_version }; fd_bls_agg_null( &cert.skip.agg_skip_fallback ); break;
+      }
+      int err = ag_cert_verify( &cert, epoch_info );
+      states->bls_verify_cnt += (ulong)( err!=AG_CERT_VERIFY_ERR_THRESHOLD );
+      if( FD_UNLIKELY( err ) ) { /* a relayer's forgery or partial cert, not its signers' */
+        rc->bad = 1;
+        if( rc->relayer!=USHORT_MAX ) fd_bls_set_insert( bad_relayer, rc->relayer );
+        continue;
+      }
+      rc->ok = 1;
+    }
+
+    /* The overlap is subtracted using our held sigs, which may be bad:
+       verify the held votes once, evicting bad ones from the slot, and
+       fold only if the overlap is still held */
+    fd_bls_set_t both[ fd_bls_set_word_cnt ];
+    fd_bls_set_intersect( both, agg->set, out_base->set );
+    if( FD_UNLIKELY( !fd_bls_set_is_null( both ) && fd_bls_set_subset( both, set ) && !held_verified ) ) {
+      fd_bls_agg_t held[1];
+      fd_bls_set_t b   [ fd_bls_set_word_cnt ];
+      verify_subtract_votes( self, states, vote_kind, hash, vote_kind==AG_VOTE_KIND_SKIP ? &self->votes.skip_agg : held, b );
+      fd_bls_set_union( bad, bad, b );
+      fd_bls_set_subtract( set, set, b );
+      held_verified = 1;
+    }
+    fold( out_base, agg->set, &agg->sig, set, self, states, vote_kind, hash );
+  }
+  if( FD_UNLIKELY( !fd_bls_set_is_null( out_base->set ) ) ) {
+    fd_bls_set_subtract( set, set, out_base->set );
+    fd_bls_pub_sum( &out_base->pub, epoch_info->pubkeys, epoch_info->validator_cnt, out_base->set, NULL );
+  }
+
   fd_bls_sig_t sigs[ AG_VAT_MAX ];
-  ag_slot_state_sigs( self, states, AG_VOTE_KIND_NOTAR, key.hash, set, sigs );
+  ag_slot_state_sigs( self, states, vote_kind, hash, set, sigs );
   fd_bls_agg_null( out );
   fd_bls_agg_construct( out, epoch_info->pubkeys, sigs, set );
   return out;
 }
 
-FD_FN_PURE fd_bls_agg_t const *
-ag_slot_state_skip_reward_agg( ag_slot_state_t const * self ) {
-  return fd_bls_set_is_null( self->votes.skip_agg.set ) ? NULL : &self->votes.skip_agg;
+fd_bls_agg_t *
+ag_slot_state_notar_reward_agg( ag_slot_state_t *  self,
+                                ag_slot_states_t * states,
+                                fd_bls_agg_t *     out,
+                                fd_bls_agg_t *     out_base,
+                                uchar *            out_hash,
+                                fd_bls_set_t *     bad,
+                                fd_bls_set_t *     bad_relayer ) {
+  fd_bls_set_null( bad );
+  fd_bls_set_null( bad_relayer );
+  ag_slot_certs_t * c = &self->certs;
+
+  /* The block: the top held notar hash, or a verified cert's when its
+     signers outweigh the held votes or none are held */
+  ag_epoch_info_t const *      epoch_info = fd_ptr_if( self->slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( self->slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
+  ag_block_id_t                key        = ag_block_id( self->slot, self->votes.top_notar_hash );
+  ulong                        top        = ag_vote_stake_map_idx_query_const( states->notar_hash_stake_map, &key, ULONG_MAX, states->notar_hash_stake_pool );
+  ag_cert_notar_t const *      cn         = c->notar.slot==self->slot         ? &c->notar         : NULL;
+  ag_cert_fast_final_t const * cf         = c->fast_finalize.slot==self->slot ? &c->fast_finalize : NULL;
+  uchar const *                cert_hash  = cn ? cn->block_hash : cf ? cf->block_hash : NULL;
+  ulong                        cert_stake = 0UL;
+  fd_bls_set_t const *         cert_set   = cn ? cn->agg.set : cf ? cf->agg.set : NULL;
+  if( cert_set ) {
+    for( ulong rank = fd_bls_set_const_iter_init( cert_set );
+                     !fd_bls_set_const_iter_done( rank );
+               rank = fd_bls_set_const_iter_next( cert_set, rank ) ) cert_stake += ag_epoch_info_validator( epoch_info, rank )->stake;
+  }
+  if( cert_hash && ( top==ULONG_MAX || cert_stake>self->votes.top_notar_stake ) ) {
+    key = ag_block_id( self->slot, cert_hash );
+    top = ag_vote_stake_map_idx_query_const( states->notar_hash_stake_map, &key, ULONG_MAX, states->notar_hash_stake_pool );
+  } else if( top==ULONG_MAX ) {
+    return NULL;
+  }
+  memcpy( out_hash, key.hash, sizeof(ag_block_hash_t) );
+
+  fd_bls_set_t set[ fd_bls_set_word_cnt ];
+  fd_bls_set_null( set );
+  if( top!=ULONG_MAX ) {
+    for( ulong rank = fd_bls_set_const_iter_init( self->votes.notar_set );
+                     !fd_bls_set_const_iter_done( rank );
+               rank = fd_bls_set_const_iter_next( self->votes.notar_set, rank ) ) {
+      if( FD_LIKELY( self->votes.notar_hash_stake_idx[ rank ]==top ) ) fd_bls_set_insert( set, rank );
+    }
+  }
+
+  fd_bls_agg_t         cand_agg[ AG_REWARD_CAND_MAX ];
+  fd_bls_agg_t const * cand[ 2UL+AG_REWARD_CAND_MAX ];
+  ag_reward_cand_t *   kept[ 2UL+AG_REWARD_CAND_MAX ]; /* NULL for a verified cert */
+  ulong                cand_cnt = 0UL;
+  if( cn && !memcmp( cn->block_hash, key.hash, sizeof(ag_block_hash_t) ) ) { kept[ cand_cnt ] = NULL; cand[ cand_cnt++ ] = &cn->agg; }
+  if( cf && !memcmp( cf->block_hash, key.hash, sizeof(ag_block_hash_t) ) ) { kept[ cand_cnt ] = NULL; cand[ cand_cnt++ ] = &cf->agg; }
+  if( cert_hash && !memcmp( cert_hash, key.hash, sizeof(ag_block_hash_t) ) ) {
+    for( ulong i=0UL; i<c->reward_cand_cnt; i++ ) {
+      ag_reward_cand_t * rc = &c->reward_cand[ i ];
+      if( rc->bad || rc->kind==AG_CERT_KIND_SKIP ) continue;
+      fd_bls_agg_t * a = fd_bls_agg_null( &cand_agg[ i ] );
+      fd_bls_set_copy( a->set, rc->set ); a->sig = rc->sig;
+      kept[ cand_cnt ] = rc; cand[ cand_cnt++ ] = a;
+    }
+  }
+  return reward_agg( self, states, AG_VOTE_KIND_NOTAR, key.hash, set, cand, kept, cand_cnt, out, out_base, bad, bad_relayer );
+}
+
+fd_bls_agg_t *
+ag_slot_state_skip_reward_agg( ag_slot_state_t *  self,
+                               ag_slot_states_t * states,
+                               fd_bls_agg_t *     out,
+                               fd_bls_agg_t *     out_base,
+                               fd_bls_set_t *     bad,
+                               fd_bls_set_t *     bad_relayer ) {
+  fd_bls_set_null( bad );
+  fd_bls_set_null( bad_relayer );
+  ag_slot_certs_t * c = &self->certs;
+  fd_bls_set_t      set[ fd_bls_set_word_cnt ];
+  fd_bls_set_copy( set, self->votes.skip_agg.set );
+
+  /* A cert with skip fallback signers is not used: inseparable */
+
+  fd_bls_agg_t         cand_agg[ AG_REWARD_CAND_MAX ];
+  fd_bls_agg_t const * cand[ 1UL+AG_REWARD_CAND_MAX ];
+  ag_reward_cand_t *   kept[ 1UL+AG_REWARD_CAND_MAX ];
+  ulong                cand_cnt = 0UL;
+  if( c->skip.slot==self->slot && fd_bls_set_is_null( c->skip.agg_skip_fallback.set ) ) { kept[ cand_cnt ] = NULL; cand[ cand_cnt++ ] = &c->skip.agg_skip; }
+  for( ulong i=0UL; i<c->reward_cand_cnt; i++ ) {
+    ag_reward_cand_t * rc = &c->reward_cand[ i ];
+    if( rc->bad || rc->kind!=AG_CERT_KIND_SKIP ) continue;
+    fd_bls_agg_t * a = fd_bls_agg_null( &cand_agg[ i ] );
+    fd_bls_set_copy( a->set, rc->set ); a->sig = rc->sig;
+    kept[ cand_cnt ] = rc; cand[ cand_cnt++ ] = a;
+  }
+  if( FD_UNLIKELY( !cand_cnt && fd_bls_set_is_null( set ) ) ) return NULL;
+  return reward_agg( self, states, AG_VOTE_KIND_SKIP, NULL, set, cand, kept, cand_cnt, out, out_base, bad, bad_relayer );
 }
 
 fd_bls_sig_t *
