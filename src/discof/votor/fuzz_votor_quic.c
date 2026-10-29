@@ -365,7 +365,7 @@ fuzz_ctx_reset( uint sender_sel ) {
     peer->curr_rank      = (ushort)rank;
     peer->next_rank      = (ushort)rank;
     peer->tx_conn        = NULL;
-    peer->rx_conn        = NULL;
+    memset( peer->rx_conn, 0, sizeof(peer->rx_conn) );
     peer->ban_ts         = 0L;
     peer->conn_ts        = 0L;
     peer->conn_backoff   = 0L;
