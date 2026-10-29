@@ -432,8 +432,10 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 
   if( FD_UNLIKELY( !(seen & (1UL<<FD_TLS_EXT_SUPPORTED_VERSIONS)) ) )
     return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
-  if( FD_UNLIKELY( !out->key_share.has_x25519 ) )
+  if( FD_UNLIKELY( !(seen & (1UL<<FD_TLS_EXT_KEY_SHARE)) ) )
     return -(long)FD_TLS_ALERT_MISSING_EXTENSION;
+  if( FD_UNLIKELY( !out->key_share.has_x25519 ) )
+    return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
 
   return (long)( wire_laddr - (ulong)wire );
 }
