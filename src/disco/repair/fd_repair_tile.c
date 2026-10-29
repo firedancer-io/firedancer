@@ -118,6 +118,9 @@ struct sign {
   ushort dport;   /* net order */
 };
 typedef struct sign sign_t;
+FD_STATIC_ASSERT( FD_REPAIR_PONG_SER_SZ<=FD_REPAIR_SER_MAX,                                       repair_net_mtu );
+FD_STATIC_ASSERT( sizeof(fd_ip4_udp_hdrs_t)+sizeof(((sign_t *)0)->buf)==FD_REPAIR_NET_MTU,          repair_net_mtu );
+FD_STATIC_ASSERT( FD_REPAIR_NET_MTU<=FD_NET_MTU,                                                  repair_net_mtu );
 
 #define POOL_NAME sign_pool
 #define POOL_T    sign_t

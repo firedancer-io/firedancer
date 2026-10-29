@@ -3,6 +3,12 @@
 
 #include "../../disco/tiles.h"
 #include "../../disco/shred/fd_shred_tile.h"
+#include "fd_repair_serde.h"
+
+/* Largest repair_net (sign_t buf) and rserve_net (send_packet payload)
+   frames. */
+#define FD_REPAIR_NET_MTU ( sizeof(fd_ip4_udp_hdrs_t)+FD_REPAIR_SER_MAX )
+#define FD_RSERVE_NET_MTU ( sizeof(fd_ip4_udp_hdrs_t)+FD_SHRED_MAX_SZ+sizeof(uint) )
 
 #define REPAIR_SIG_FEC (0UL)
 #define REPAIR_SIG_BLK (1UL)
