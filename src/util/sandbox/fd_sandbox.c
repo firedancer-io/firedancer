@@ -101,7 +101,7 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
      within the namespace will return EACCES. */
 
   do {
-    uchar child_stack[ 2097152 ]; /* 2 MiB */
+    uchar child_stack[ 524288 ] __attribute__((aligned(16))); /* 4x the child's depth; this frame sits on tile stacks */
     ulong arg = ((ulong)desired_uid << 0UL) | (((ulong)desired_gid) << 32UL);
     int child_pid = clone( check_unshare_eacces_main, child_stack+sizeof(child_stack), 0, (void*)arg );
     if( -1==child_pid ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

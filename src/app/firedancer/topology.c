@@ -1579,9 +1579,29 @@ wfs_decode_bank_hash( fd_config_t const * config,
   }
 }
 
+/* Stack sizes from the GCC -O3 static call graph plus indirect
+   callbacks, VLAs and the signal handler (>=2.4x headroom).  exec*
+   nest the VM through CPI so keep the default, as do unlisted tiles
+   and builds the analysis does not cover. */
+static ulong
+fd_topo_tile_stack_sz( char const * name ) {
+#if defined(FD_HAS_OPTIMIZATION) && defined(FD_USING_GCC) && !FD_HAS_ASAN && !FD_HAS_MSAN && !FD_HAS_UBSAN
+  static char const * const deep[] = { "replay", "votor", "genesi", "gui", "snapct", "snapld", "snapin" };
+  static char const * const shallow[] = { "netlnk", "mlx5", "metric", "diag", "snapdc", "ipecho", "gossvf", "gossip", "repair",
+                                          "shred", "rserve", "accdb", "quic", "verify", "dedup", "resolv", "pack",
+                                          "motor", "sign", "rpc", "admin", "event", "sock", "waker" };
+  for( ulong i=0UL; i<sizeof(deep)/sizeof(deep[0]); i++ )       if( !strcmp( name, deep[ i ]    ) ) return 4UL<<20;
+  for( ulong i=0UL; i<sizeof(shallow)/sizeof(shallow[0]); i++ ) if( !strcmp( name, shallow[ i ] ) ) return 2UL<<20;
+#else
+  (void)name;
+#endif
+  return FD_TILE_PRIVATE_STACK_SZ;
+}
+
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
+  tile->stack_sz = fd_topo_tile_stack_sz( tile->name );
   /* With [failover.boot_to_standby] every tile boots under the junk key
      generated at boot, and [paths.identity_key] is only the identity
      failover hands off.  The sign and failov tiles get that path too,
@@ -1785,6 +1805,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.slot_max = config->firedancer.runtime.max_live_slots;
+    /* link_ancestors <-> fd_repair_blk_notarized recurse <=blk_max deep (fd_repair_footprint), 160 B per level */
+    tile->stack_sz = fd_ulong_max( tile->stack_sz, fd_ulong_align_up( (1UL<<20) + 2UL*160UL*(( 5UL*tile->repair.slot_max+1UL )/2UL), FD_SHMEM_HUGE_PAGE_SZ ) );
     tile->repair.fec_max  = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "obj.%lu.fec_max", fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX ) ); /* as many FEC sets as Store */
     tile->repair.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->repair.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;

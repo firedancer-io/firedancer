@@ -142,9 +142,9 @@ mem_cmd_fn( args_t *   args,
       }
     }
 
-    /* Tile stacks: each tile maps FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ
-       huge pages for its stack (see fd_topo_tile_extra_huge_pages). */
-    ulong stack_huge_pages = topo->tile_cnt * (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ);
+    /* Tile stacks: each tile maps stack_sz/FD_SHMEM_HUGE_PAGE_SZ huge
+       pages for its stack (see fd_topo_tile_extra_huge_pages). */
+    ulong stack_huge_pages = fd_topo_stack_sz( topo )/FD_SHMEM_HUGE_PAGE_SZ;
     if( stack_huge_pages ) {
       entries[ cnt ].footprint = stack_huge_pages * FD_SHMEM_HUGE_PAGE_SZ;
       fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( entries[ cnt ].wksp ), "", 0 ) );
