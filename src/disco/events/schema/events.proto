@@ -2854,6 +2854,82 @@ message MetricsPackRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration of one transaction cache insert
+message MetricsExecleTxncacheInsertDurationNanos {
+  // [0, 10) nanos
+  uint64 b0 = 1;
+  // [10, 32) nanos
+  uint64 b1 = 2;
+  // [32, 101) nanos
+  uint64 b2 = 3;
+  // [101, 319) nanos
+  uint64 b3 = 4;
+  // [319, 1008) nanos
+  uint64 b4 = 5;
+  // [1008, 3185) nanos
+  uint64 b5 = 6;
+  // [3185, 10064) nanos
+  uint64 b6 = 7;
+  // [10064, 31800) nanos
+  uint64 b7 = 8;
+  // [31800, 100480) nanos
+  uint64 b8 = 9;
+  // [100480, 317492) nanos
+  uint64 b9 = 10;
+  // [317492, 1003197) nanos
+  uint64 b10 = 11;
+  // [1003197, 3169857) nanos
+  uint64 b11 = 12;
+  // [3169857, 10015972) nanos
+  uint64 b12 = 13;
+  // [10015972, 31648020) nanos
+  uint64 b13 = 14;
+  // [31648020, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Duration of one transaction cache query
+message MetricsExecleTxncacheQueryDurationNanos {
+  // [0, 10) nanos
+  uint64 b0 = 1;
+  // [10, 32) nanos
+  uint64 b1 = 2;
+  // [32, 101) nanos
+  uint64 b2 = 3;
+  // [101, 319) nanos
+  uint64 b3 = 4;
+  // [319, 1008) nanos
+  uint64 b4 = 5;
+  // [1008, 3185) nanos
+  uint64 b5 = 6;
+  // [3185, 10064) nanos
+  uint64 b6 = 7;
+  // [10064, 31800) nanos
+  uint64 b7 = 8;
+  // [31800, 100480) nanos
+  uint64 b8 = 9;
+  // [100480, 317492) nanos
+  uint64 b9 = 10;
+  // [317492, 1003197) nanos
+  uint64 b10 = 11;
+  // [1003197, 3169857) nanos
+  uint64 b11 = 12;
+  // [3169857, 10015972) nanos
+  uint64 b12 = 13;
+  // [10015972, 31648020) nanos
+  uint64 b13 = 14;
+  // [31648020, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsExecleAccdbAccountCacheMissed {
   // 0-128 B
@@ -6028,6 +6104,82 @@ message MetricsIpechoRegimeDurationNanos {
   uint64 caught_up_sleeping = 9;
   // Backpressure + Sleeping
   uint64 backpressure_sleeping = 10;
+}
+
+// Duration of one transaction cache insert
+message MetricsExecrpTxncacheInsertDurationNanos {
+  // [0, 10) nanos
+  uint64 b0 = 1;
+  // [10, 32) nanos
+  uint64 b1 = 2;
+  // [32, 101) nanos
+  uint64 b2 = 3;
+  // [101, 319) nanos
+  uint64 b3 = 4;
+  // [319, 1008) nanos
+  uint64 b4 = 5;
+  // [1008, 3185) nanos
+  uint64 b5 = 6;
+  // [3185, 10064) nanos
+  uint64 b6 = 7;
+  // [10064, 31800) nanos
+  uint64 b7 = 8;
+  // [31800, 100480) nanos
+  uint64 b8 = 9;
+  // [100480, 317492) nanos
+  uint64 b9 = 10;
+  // [317492, 1003197) nanos
+  uint64 b10 = 11;
+  // [1003197, 3169857) nanos
+  uint64 b11 = 12;
+  // [3169857, 10015972) nanos
+  uint64 b12 = 13;
+  // [10015972, 31648020) nanos
+  uint64 b13 = 14;
+  // [31648020, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Duration of one transaction cache query
+message MetricsExecrpTxncacheQueryDurationNanos {
+  // [0, 10) nanos
+  uint64 b0 = 1;
+  // [10, 32) nanos
+  uint64 b1 = 2;
+  // [32, 101) nanos
+  uint64 b2 = 3;
+  // [101, 319) nanos
+  uint64 b3 = 4;
+  // [319, 1008) nanos
+  uint64 b4 = 5;
+  // [1008, 3185) nanos
+  uint64 b5 = 6;
+  // [3185, 10064) nanos
+  uint64 b6 = 7;
+  // [10064, 31800) nanos
+  uint64 b7 = 8;
+  // [31800, 100480) nanos
+  uint64 b8 = 9;
+  // [100480, 317492) nanos
+  uint64 b9 = 10;
+  // [317492, 1003197) nanos
+  uint64 b10 = 11;
+  // [1003197, 3169857) nanos
+  uint64 b11 = 12;
+  // [3169857, 10015972) nanos
+  uint64 b12 = 13;
+  // [10015972, 31648020) nanos
+  uint64 b13 = 14;
+  // [31648020, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
 }
 
 // Accounts not found in the account database cache and read from disk, by cache size class
@@ -9674,6 +9826,16 @@ message MetricsExecle {
   uint64 accdb_copied_bytes = 61;
   // Cache invalidations due to transaction execution from a different block
   uint64 bank_switched = 62;
+  // Transaction cache queries by this tile that found a page not in memory
+  uint64 txncache_query_miss = 63;
+  // Transaction cache inserts by this tile that found a page not in memory
+  uint64 txncache_insert_miss = 64;
+  // Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it
+  uint64 txncache_operation_stalled = 65;
+  // Duration of one transaction cache query
+  MetricsExecleTxncacheQueryDurationNanos txncache_query_duration_nanos = 66;
+  // Duration of one transaction cache insert
+  MetricsExecleTxncacheInsertDurationNanos txncache_insert_duration_nanos = 67;
 }
 
 // Metrics of one shred tile instance, one row per sweep
@@ -10112,6 +10274,28 @@ message MetricsReplay {
   uint64 leader_window_already_produced = 118;
   // Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)
   uint64 leader_window_superseded = 119;
+  // Transaction cache lookups under the read lock that found their page not resident
+  uint64 txncache_page_miss = 120;
+  // Dirty transaction cache pages written to the spill file on eviction
+  uint64 txncache_page_spilled = 121;
+  // Transaction cache pages read back from the spill file
+  uint64 txncache_page_spill_read = 122;
+  // Transaction cache frames evicted to load another page
+  uint64 txncache_frame_evicted = 123;
+  // Time in transaction cache spill file reads and writes
+  uint64 txncache_spill_duration_nanos = 124;
+  // Transaction cache logical pages in use, resident or spilled
+  uint64 txncache_page_used = 125;
+  // Maximum transaction cache logical pages
+  uint64 txncache_page_capacity = 126;
+  // Transaction cache in-memory frames holding a page
+  uint64 txncache_frame_used = 127;
+  // Transaction cache in-memory frames, from runtime.transaction_cache_size_mib
+  uint64 txncache_frame_capacity = 128;
+  // Time all tiles spent waiting to take the transaction cache shared lock
+  uint64 txncache_lock_read_wait_duration_nanos = 129;
+  // Time all tiles spent waiting to take the transaction cache exclusive lock
+  uint64 txncache_lock_write_wait_duration_nanos = 130;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
@@ -11572,6 +11756,16 @@ message MetricsExecrp {
   uint64 accdb_copied_bytes = 63;
   // Cache invalidations due to transaction execution from a different block
   uint64 bank_switched = 64;
+  // Transaction cache queries by this tile that found a page not in memory
+  uint64 txncache_query_miss = 65;
+  // Transaction cache inserts by this tile that found a page not in memory
+  uint64 txncache_insert_miss = 66;
+  // Transaction cache queries and inserts by this tile that fell back to the exclusive lock, stalling every tile; pages they load are read while holding it
+  uint64 txncache_operation_stalled = 67;
+  // Duration of one transaction cache query
+  MetricsExecrpTxncacheQueryDurationNanos txncache_query_duration_nanos = 68;
+  // Duration of one transaction cache insert
+  MetricsExecrpTxncacheInsertDurationNanos txncache_insert_duration_nanos = 69;
 }
 
 // Metrics of one votor tile instance, one row per sweep

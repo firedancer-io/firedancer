@@ -82,7 +82,9 @@ fd_txncache_shmem_align( void ) {
 
 ulong
 fd_txncache_shmem_footprint( ulong max_live_slots,
-                             ulong max_txn_per_slot ) {
+                             ulong max_txn_per_slot,
+                             ulong cache_footprint ) {
+  if( FD_UNLIKELY( !cache_footprint ) ) return 0UL;
   if( FD_UNLIKELY( max_live_slots<1UL ) ) return 0UL;
   if( FD_UNLIKELY( max_txn_per_slot<1UL ) ) return 0UL;
 
@@ -90,29 +92,30 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*max_active_slots );
   ulong bucket_cnt = fd_txncache_bucket_cnt( max_txn_per_slot );
 
-  ulong _max_txnpages               = fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot );
-  ulong _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot );
-  if( FD_UNLIKELY( _max_txnpages>FD_TXNCACHE_MAX_TXNPAGES ) )
+  ulong _txnpages_max = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot );
+  if( FD_UNLIKELY( _txnpages_max>FD_TXNCACHE_MAX_TXNPAGES ) )
     FD_LOG_ERR(( "txncache needs %lu txnpages but at most %lu are addressable (max_live_slots=%lu max_txn_per_slot=%lu)",
-                 _max_txnpages, FD_TXNCACHE_MAX_TXNPAGES, max_live_slots, max_txn_per_slot ));
-  ulong _txnpage_idx_sz = fd_txncache_txnpage_idx_sz( _max_txnpages );
+                 _txnpages_max, FD_TXNCACHE_MAX_TXNPAGES, max_live_slots, max_txn_per_slot ));
+  ulong frames_max = fd_ulong_min( 1UL+(cache_footprint-1UL)/sizeof(fd_txncache_txnpage_t), _txnpages_max );
 
   ulong _descends_footprint = descends_set_footprint( max_active_slots );
   if( FD_UNLIKELY( !_descends_footprint ) ) return 0UL;
 
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,        sizeof(fd_txncache_shmem_t)                                   );
-  l = FD_LAYOUT_APPEND( l, blockhash_map_align(),          blockhash_map_footprint( blockhash_map_chains )               );
-  l = FD_LAYOUT_APPEND( l, blockcache_pool_align(),        blockcache_pool_footprint( max_active_slots )                 );
-  l = FD_LAYOUT_APPEND( l, _txnpage_idx_sz,                max_active_slots*_max_txnpages_per_blockhash*_txnpage_idx_sz ); /* blockcache->pages */
-  l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_active_slots*bucket_cnt*sizeof(uint)                      ); /* blockcache->heads */
-  l = FD_LAYOUT_APPEND( l, descends_set_align(),           max_active_slots*_descends_footprint                          ); /* blockcache->descends */
-  l = FD_LAYOUT_APPEND( l, _txnpage_idx_sz,                _max_txnpages*_txnpage_idx_sz                                 ); /* txnpages_free */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), _max_txnpages*sizeof(fd_txncache_txnpage_t)                   ); /* txnpages */
-  l = FD_LAYOUT_APPEND( l, _txnpage_idx_sz,                _max_txnpages_per_blockhash*_txnpage_idx_sz                   ); /* scratchpad txnpage pointer array for purge stale */
-  l = FD_LAYOUT_APPEND( l, alignof(uint),                  bucket_cnt*sizeof(uint)                                       ); /* scratchpad heads for purge stale */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), sizeof(fd_txncache_txnpage_t)                                 ); /* scratchpad txnpage for purge stale */
+  l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,          sizeof(fd_txncache_shmem_t)                                  );
+  l = FD_LAYOUT_APPEND( l, blockhash_map_align(),            blockhash_map_footprint( blockhash_map_chains )              );
+  l = FD_LAYOUT_APPEND( l, blockcache_pool_align(),          blockcache_pool_footprint( max_active_slots )                );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                    max_active_slots*bucket_cnt*sizeof(uint)                     ); /* blockcache->heads */
+  l = FD_LAYOUT_APPEND( l, descends_set_align(),             max_active_slots*_descends_footprint                         ); /* blockcache->descends */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                    _txnpages_max*sizeof(uint)                                   ); /* txnpages_free */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_page_meta_t), _txnpages_max*sizeof(fd_txncache_page_meta_t)                ); /* page_meta */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                    frames_max*sizeof(uint)                                      ); /* frame_page */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                    frames_max*sizeof(uint)                                      ); /* frames_free */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t),   frames_max*sizeof(fd_txncache_txnpage_t)                     ); /* txnpages */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                    bucket_cnt*sizeof(uint)                                      ); /* scratchpad heads for purge stale */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t),   sizeof(fd_txncache_txnpage_t)                                ); /* scratchpad txnpage for purge stale */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t),   sizeof(fd_txncache_txnpage_t)                                ); /* compaction input */
   return FD_LAYOUT_FINI( l, FD_TXNCACHE_SHMEM_ALIGN );
 }
 
@@ -120,6 +123,7 @@ void *
 fd_txncache_shmem_new( void * shmem,
                        ulong  max_live_slots,
                        ulong  max_txn_per_slot,
+                       ulong  cache_footprint,
                        ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -131,6 +135,7 @@ fd_txncache_shmem_new( void * shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( !cache_footprint ) ) return NULL;
   if( FD_UNLIKELY( !max_live_slots ) ) return NULL;
   if( FD_UNLIKELY( !max_txn_per_slot ) ) return NULL;
 
@@ -138,28 +143,32 @@ fd_txncache_shmem_new( void * shmem,
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*max_active_slots );
   ulong bucket_cnt = fd_txncache_bucket_cnt( max_txn_per_slot );
 
-  ulong _max_txnpages               = fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot );
-  ulong _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot );
-  if( FD_UNLIKELY( _max_txnpages>FD_TXNCACHE_MAX_TXNPAGES ) )
+  ulong _txnpages_max               = fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot );
+  ulong _txnpages_per_blockhash_max = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot );
+  if( FD_UNLIKELY( _txnpages_max>FD_TXNCACHE_MAX_TXNPAGES ) )
     FD_LOG_ERR(( "txncache needs %lu txnpages but at most %lu are addressable (max_live_slots=%lu max_txn_per_slot=%lu)",
-                 _max_txnpages, FD_TXNCACHE_MAX_TXNPAGES, max_live_slots, max_txn_per_slot ));
-  ulong _txnpage_idx_sz = fd_txncache_txnpage_idx_sz( _max_txnpages );
+                 _txnpages_max, FD_TXNCACHE_MAX_TXNPAGES, max_live_slots, max_txn_per_slot ));
+  ulong frames_max = fd_ulong_min( 1UL+(cache_footprint-1UL)/sizeof(fd_txncache_txnpage_t), _txnpages_max );
 
   ulong _descends_footprint = descends_set_footprint( max_active_slots );
   if( FD_UNLIKELY( !_descends_footprint ) ) return NULL;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_txncache_shmem_t * tc    = FD_SCRATCH_ALLOC_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,         sizeof(fd_txncache_shmem_t)                                   );
-  void * _blockhash_map       = FD_SCRATCH_ALLOC_APPEND( l, blockhash_map_align(),           blockhash_map_footprint( blockhash_map_chains )               );
-  void * _blockcache_pool     = FD_SCRATCH_ALLOC_APPEND( l, blockcache_pool_align(),         blockcache_pool_footprint( max_active_slots )                 );
-                                FD_SCRATCH_ALLOC_APPEND( l, _txnpage_idx_sz,                 max_active_slots*_max_txnpages_per_blockhash*_txnpage_idx_sz );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*bucket_cnt*sizeof(uint)                      );
-  void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                          );
-  void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, _txnpage_idx_sz,                 _max_txnpages*_txnpage_idx_sz                                 );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)                   );
-                                FD_SCRATCH_ALLOC_APPEND( l, _txnpage_idx_sz,                 _max_txnpages_per_blockhash*_txnpage_idx_sz                   );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   bucket_cnt*sizeof(uint)                                       );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  sizeof(fd_txncache_txnpage_t)                                 );
+  fd_txncache_shmem_t * tc    = FD_SCRATCH_ALLOC_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,          sizeof(fd_txncache_shmem_t)                                  );
+  void * _blockhash_map       = FD_SCRATCH_ALLOC_APPEND( l, blockhash_map_align(),            blockhash_map_footprint( blockhash_map_chains )              );
+  void * _blockcache_pool     = FD_SCRATCH_ALLOC_APPEND( l, blockcache_pool_align(),          blockcache_pool_footprint( max_active_slots )                );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    max_active_slots*bucket_cnt*sizeof(uint)                     );
+  void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),             max_active_slots*_descends_footprint                         );
+  uint * txnpages_free        = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    _txnpages_max*sizeof(uint)                                   );
+  void * _page_meta           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_page_meta_t), _txnpages_max*sizeof(fd_txncache_page_meta_t)                );
+  uint * frame_page           = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    frames_max*sizeof(uint)                                      );
+  uint * frames_free          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    frames_max*sizeof(uint)                                      );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),   frames_max*sizeof(fd_txncache_txnpage_t)                     );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    bucket_cnt*sizeof(uint)                                      );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),   sizeof(fd_txncache_txnpage_t)                                );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),   sizeof(fd_txncache_txnpage_t)                                );
+  tc->frames_max = frames_max;
+  fd_txncache_page_meta_t * page_meta = _page_meta;
 
   fd_txncache_blockcache_shmem_t * blockcache_pool = blockcache_pool_join( blockcache_pool_new( _blockcache_pool, max_active_slots ) );
   FD_TEST( blockcache_pool );
@@ -173,23 +182,44 @@ fd_txncache_shmem_new( void * shmem,
     FD_TEST( descends_set );
   }
 
-  tc->root_cnt     = 0UL;
-  tc->mutation_gen = 0UL;
-  tc->root_gen     = 0UL;
+  tc->root_cnt = 0UL;
   FD_TEST( root_slist_join( root_slist_new( tc->root_ll ) ) );
 
   tc->lock->value = 0;
+  fd_rwlock_new( tc->alloc_lock );
 
   tc->txn_per_slot_max           = max_txn_per_slot;
   tc->active_slots_max           = max_active_slots;
   tc->bucket_cnt                 = bucket_cnt;
-  tc->txnpages_per_blockhash_max = _max_txnpages_per_blockhash;
-  tc->max_txnpages               = _max_txnpages;
-  tc->txnpage_idx_sz             = _txnpage_idx_sz;
+  tc->txnpages_per_blockhash_max = _txnpages_per_blockhash_max;
+  tc->txnpages_max               = _txnpages_max;
 
   tc->blockcache_generation = 0U;
-  tc->txnpages_free_cnt = _max_txnpages;
-  for( ulong i=0UL; i<_max_txnpages; i++ ) fd_txncache_txnpage_idx_st( _txnpage_idx_sz, _txnpages_free, i, i );
+  tc->txnpages_free_cnt     = _txnpages_max;
+  tc->frames_free_cnt       = frames_max;
+  tc->evict_next            = 0UL;
+  tc->release_seq           = 0UL;
+
+  tc->page_miss_cnt         = 0UL;
+  tc->page_spilled_cnt      = 0UL;
+  tc->page_spill_read_cnt   = 0UL;
+  tc->frame_evicted_cnt     = 0UL;
+  tc->spill_ticks           = 0UL;
+  tc->lock_read_wait_ticks  = 0UL;
+  tc->lock_write_wait_ticks = 0UL;
+  for( ulong i=0UL; i<_txnpages_max; i++ ) {
+    txnpages_free[ i ] = (uint)i;
+    page_meta[ i ].frame      = UINT_MAX;
+    page_meta[ i ].dirty      = 0U;
+    page_meta[ i ].disk_valid = 0;
+    page_meta[ i ].next       = UINT_MAX;
+    page_meta[ i ].ref        = 0U;
+    page_meta[ i ].io         = 0U;
+  }
+  for( ulong i=0UL; i<frames_max; i++ ) {
+    frame_page[ i ]  = UINT_MAX;
+    frames_free[ i ] = (uint)i;
+  }
 
   tc->seed = seed;
 

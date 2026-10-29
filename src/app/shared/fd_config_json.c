@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24458384UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24462488UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -118,6 +118,7 @@ static char const * const jw_redacted_keys[] = {
   "paths.epoch_credits",
   "paths.cost_tracker",
   "paths.vote_stakes",
+  "paths.txncache",
   "paths.shredb",
   "paths.guidb",
   "paths.vote_history",
@@ -327,6 +328,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_path( &w, "epoch_credits",           config->paths.epoch_credits );
     jw_path( &w, "cost_tracker",            config->paths.cost_tracker );
     jw_path( &w, "vote_stakes",             config->paths.vote_stakes );
+    jw_path( &w, "txncache",                config->paths.txncache );
     jw_path( &w, "shredb",                  config->paths.shredb );
     jw_path( &w, "guidb",                   config->paths.guidb );
     jw_path( &w, "vote_history",            config->paths.vote_history );
@@ -385,6 +387,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "stake_delegation_cache_cnt", f->runtime.stake_delegation_cache_cnt );
     jw_ulong( &w, "program_cache_size_mib", f->runtime.program_cache_size_mib );
     jw_ulong( &w, "bank_cache_cnt", f->runtime.bank_cache_cnt );
+    jw_ulong( &w, "transaction_cache_size_mib", f->runtime.transaction_cache_size_mib );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "snapshots" );

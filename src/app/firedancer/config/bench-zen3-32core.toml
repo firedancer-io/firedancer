@@ -16,6 +16,9 @@
   shred_tile_count = 1
   sign_tile_count = 2
 
+[runtime]
+  transaction_cache_size_mib = 3072
+
 [development.genesis]
   fund_initial_accounts = 32768
 

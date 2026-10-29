@@ -19,6 +19,7 @@ telemetry = false
         enabled = false
 [runtime]
     max_live_slots = 256
+    transaction_cache_size_mib = 3072
 [accounts]
     max_accounts = 4000000
     cache_size_gib = 3
