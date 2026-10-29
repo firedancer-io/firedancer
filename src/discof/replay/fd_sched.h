@@ -152,6 +152,7 @@ struct fd_sched_txn_info {
    ulong exec_tile_idx;
    ulong sigverify_exec_tile_idx;
    uint  compute_units_consumed; /* possibly zero if is_committable is zero */
+   uint  compute_units_requested;
    ulong max_compute_units;
    ulong transaction_fee;
    ulong priority_fee;

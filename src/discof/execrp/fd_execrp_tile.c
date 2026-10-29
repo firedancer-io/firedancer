@@ -222,10 +222,16 @@ static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
                            fd_stem_context_t * stem,
                            long                now ) {
-  uint compute_units_consumed = 0U;
+  uint compute_units_consumed  = 0U;
+  uint compute_units_requested = 0U;
   if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-    fd_usage_cost_details_t const * cost = &ctx->txn_out.details.txn_cost.transaction;
-    compute_units_consumed = cost->signature_cost + cost->write_lock_cost + cost->data_bytes_cost + cost->programs_execution_cost + cost->loaded_accounts_data_size_cost;
+    fd_usage_cost_details_t const *     cost  = &ctx->txn_out.details.txn_cost.transaction;
+    fd_compute_budget_details_t const * cb    = &ctx->txn_out.details.compute_budget;
+    uint                                fixed = cost->signature_cost + cost->write_lock_cost + cost->data_bytes_cost;
+    compute_units_consumed  = fixed + cost->programs_execution_cost + cost->loaded_accounts_data_size_cost;
+    /* same cost terms at the requested limits */
+    compute_units_requested = fixed + (uint)cb->compute_unit_limit +
+        (uint)( FD_VM_HEAP_COST*( (cb->loaded_accounts_data_size_limit+FD_ACCOUNT_DATA_COST_PAGE_SIZE-1UL)/FD_ACCOUNT_DATA_COST_PAGE_SIZE ) );
   }
 
   fd_execrp_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
@@ -243,6 +249,7 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->tick_commit_end        = fd_long_if( ctx->txn_out.details.commit_start_ticks==LONG_MAX, LONG_MAX, now );
 
   msg->txn_exec->compute_units_consumed = compute_units_consumed;
+  msg->txn_exec->compute_units_requested = compute_units_requested;
   msg->txn_exec->transaction_fee        = ctx->txn_out.details.execution_fee;
   msg->txn_exec->priority_fee           = ctx->txn_out.details.priority_fee;
   msg->txn_exec->tips                   = ctx->txn_out.details.tips;
