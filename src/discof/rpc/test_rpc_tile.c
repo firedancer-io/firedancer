@@ -665,17 +665,23 @@ main( int     argc,
 
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"slotSubscribe\"}",
-      "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":3}"
+      "{\"jsonrpc\":\"2.0\",\"result\":1,\"id\":3}"
   );
+  /* the expired subscription id no longer matches */
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"slotUnsubscribe\",\"params\":[0]}",
-      "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":4}"
+      "{\"jsonrpc\":\"2.0\",\"result\":false,\"id\":4}"
+  );
+  FD_TEST( ctx->ws_subscribers_slot_cnt==1UL );
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"slotUnsubscribe\",\"params\":[1]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":5}"
   );
   FD_TEST( ctx->ws_subscribers_slot_cnt==0UL );
 
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"voteSubscribe\"}",
-      "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":1}"
+      "{\"jsonrpc\":\"2.0\",\"result\":2,\"id\":1}"
   );
   FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
   FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
@@ -684,13 +690,44 @@ main( int     argc,
   FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_VOTE )==1UL );
   expect_ws_rpc_response( ctx, 0UL,
       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"voteSubscribe\"}",
-      "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":2}"
+      "{\"jsonrpc\":\"2.0\",\"result\":2,\"id\":2}"
   );
   FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
   FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
+  /* slot and vote subscriptions on one connection get distinct ids */
   expect_ws_rpc_response( ctx, 0UL,
-      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"voteUnsubscribe\",\"params\":[0]}",
-      "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":1}"
+      "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"slotSubscribe\"}",
+      "{\"jsonrpc\":\"2.0\",\"result\":3,\"id\":3}"
+  );
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"voteUnsubscribe\",\"params\":[3]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":false,\"id\":4}"
+  );
+  FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
+  {
+    fd_replay_slot_completed_t slot_completed = {
+      .slot        = 124UL,
+      .root_slot   = 120UL,
+      .parent_slot = 123UL,
+    };
+
+    struct fd_http_server_ws_connection * conn = &ctx->http->ws_conns[ 0 ];
+    fd_rpc_publish_slot_event( ctx, &slot_completed );
+
+    ulong frame_idx = (conn->send_frame_idx+conn->send_frame_cnt-1UL) % ctx->http->max_ws_send_frame_cnt;
+    fd_http_server_ws_frame_t const * frame = &conn->send_frames[ frame_idx ];
+    char const expected[] = "{\"jsonrpc\":\"2.0\",\"method\":\"slotNotification\",\"params\":{\"subscription\":3,\"result\":{\"parent\":123,\"root\":120,\"slot\":124}}}\n";
+    char const * got = (char const *)( ctx->http->oring + (frame->off % ctx->http->oring_sz) );
+    FD_TEST( frame->len==strlen( expected ) && !memcmp( got, expected, frame->len ) );
+  }
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"slotUnsubscribe\",\"params\":[3]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":5}"
+  );
+  FD_TEST( ctx->ws_subscribers_slot_cnt==0UL );
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"voteUnsubscribe\",\"params\":[2]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":6}"
   );
   FD_TEST( ctx->ws_subscribers_vote_cnt==0UL );
   fd_http_server_ws_close( ctx->http, 0UL, FD_HTTP_SERVER_CONNECTION_CLOSE_OK );
