@@ -139,13 +139,6 @@ FD_PROTOTYPES_BEGIN
     can only be copied from a parent bank (fd_banks_clone_from_parent)
     if the parent bank has been frozen.  The program will crash if this
     invariant is violated.
-  - Prunable: This bank has been marked for pruning away due to memory
-    pressure on the banks.  Additional references on the bank should not
-    be accumulated after the bank has been marked prunable and once
-    references reach zero, it is safe to evict the bank and free any
-    related resources.  At most one bank may be prunable.  It must be a
-    non-root, non-leader leaf in the initialized, replayable, or frozen
-    state.
 
   The usage pattern is as follows:
 
@@ -219,15 +212,12 @@ FD_PROTOTYPES_BEGIN
    frozen state.  A dead bank can only transition to INACTIVE.
 
       INACTIVE -> INIT -> REPLAYABLE -> FROZEN -> INACTIVE
-                   |  \       |  \  \        |
-                   |   v      |   v  v       v
-                   |  DEAD    |  DEAD PRUNABLE
-                   |    \     |   /      |
-                   v     v    v  v       v
-              PRUNABLE   INACTIVE   INACTIVE
-                   |  \
-                   v   v
-                 DEAD  INACTIVE
+                   |  \       |  \
+                   |   v      |   v
+                   |  DEAD    |  DEAD
+                   |    \     |   /
+                   v     v    v  v
+              INACTIVE   INACTIVE
 
     A bank can also transition directly from INIT or REPLAYABLE to
     INACTIVE when root advancement prunes an unrooted, unreferenced
@@ -238,7 +228,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_BANK_STATE_REPLAYABLE (2UL)
 #define FD_BANK_STATE_FROZEN     (3UL)
 #define FD_BANK_STATE_DEAD       (4UL)
-#define FD_BANK_STATE_PRUNABLE   (5UL)
 
 
 struct fd_bank {
@@ -374,8 +363,6 @@ struct fd_banks {
   ulong max_vote_accounts;           /* Maximum number of vote accounts */
   ulong root_idx;                    /* root idx */
   ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
-  ulong evict_rr_idx;                /* internal index for round-robin banks eviction */
-  ulong prunable_idx;                /* index of pending prunable bank, ULONG_MAX if none */
 
   ulong curr_fork_width;
 
@@ -631,7 +618,7 @@ fd_banks_mark_bank_dead( fd_banks_t * banks,
                          ulong *      opt_idxs_cnt );
 
 /* fd_banks_prune_one_bank will try to prune one bank that was
-   marked as dead or prunable.  It will not prune a bank that has a
+   marked as dead.  It will not prune a bank that has a
    non-zero reference count.  Returns 0 if nothing was pruned, 1 if a
    bank was pruned but no accdb/txncache cancellation is needed, or 2 if
    a bank was pruned and cancellation is needed.  Whenever a bank is
@@ -658,7 +645,7 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank );
    After a call to fd_banks_clone_from_parent, the bank will be
    replayable.  This assumes that there is a parent bank which exists
    and that there are available bank indices in the bank pool.  It also
-   assumes that the parent bank is not dead, inactive, or prunable. */
+   assumes that the parent bank is not dead or inactive. */
 
 fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
@@ -666,28 +653,6 @@ fd_banks_new_bank( fd_banks_t * banks,
                    long         now,
                    uchar        is_leader );
 
-
-/* fd_banks_get_evictable_bank selects one evictable leaf according to
-   the current fd_banks eviction policy, marks it prunable, records it
-   as pending, and returns its bank index.  Eviction collects all
-   eligible leaves in DFS order (left-child, then siblings) and picks
-   banks->evict_rr_idx % leaf_count, then increments evict_rr_idx.
-   Only a single leaf may be prunable at a time (prunable_idx).
-   The eviction is selected in a round-robin manner to avoid a livelock
-   where we repeatedly evict and replay the same bank, halting progress.
-   The root, leader banks (or banks we were previously leaders for),
-   dead banks, inactive banks, already prunable banks, and
-   protected_bank are not evictable.  Pass NULL for protected_bank if no
-   additional bank needs protection.  Returns ULONG_MAX if there is no
-   evictable bank, or if a prunable bank is already pending pruning.
-   TODO: It is possible that we can still wedge under very adverse
-   conditions even with the round-robin eviction policy.  The starting
-   evict_idx is different for each validator, ensuring that some nodes
-   will still be able to make forward progress. */
-
-ulong
-fd_banks_get_evictable_bank( fd_banks_t *      banks,
-                             fd_bank_t const * protected_bank );
 
 /* fd_banks_can_start_bank returns 1 if banks has capacity to start
    preparing another child bank. */

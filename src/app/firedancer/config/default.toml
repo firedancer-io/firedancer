@@ -789,13 +789,10 @@ telemetry = true
     # terms of this "max live slots" parameter, and it is set large
     # enough to make the chain impractical to attack.  For example, a
     # value of 32768 means the validator can go without rooting for
-    # around three and a half hours without needing to start evicting
-    # data.
+    # around three and a half hours.
     #
-    # On hitting this limit, the validator will begin evicting less
-    # important slots from memory, meaning their state will be lost and
-    # may need to be re-requested and re-replayed again in future as
-    # needed.
+    # On hitting this limit, the validator stops replaying new slots
+    # until the root advances.
     #
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage or test edge cases.

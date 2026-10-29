@@ -350,8 +350,6 @@ fd_banks_new( void * shmem,
   banks_data->max_stake_accounts = max_stake_accounts;
   banks_data->max_vote_accounts  = max_vote_accounts;
   banks_data->root_idx           = ULONG_MAX;
-  banks_data->evict_rr_idx       = seed;
-  banks_data->prunable_idx       = ULONG_MAX;
   banks_data->curr_fork_width    = 0UL;
   banks_data->bank_seq           = 1UL;
 
@@ -489,7 +487,6 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   banks->root_idx = bank->idx;
   banks->curr_fork_width = 1UL;
-  banks->prunable_idx    = null_idx;
 
   FD_LOG_DEBUG(( "init bank (idx=%lu, stake_rewards_idx=%u, stake_delegations_idx=%u)",
                  bank->idx,
@@ -508,7 +505,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   FD_CHECK_CRIT( child_bank->state==FD_BANK_STATE_INIT, "invariant violation: bank is not initialized" );
 
   fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, child_bank->parent_idx );
-  FD_CHECK_CRIT( parent_bank->state==FD_BANK_STATE_FROZEN || parent_bank->state==FD_BANK_STATE_PRUNABLE, "invariant violation: parent bank is not frozen or prunable" );
+  FD_CHECK_CRIT( parent_bank->state==FD_BANK_STATE_FROZEN, "invariant violation: parent bank is not frozen" );
 
   child_bank->cost_tracker_fork_id = fd_cost_tracker_store_new_fork( fd_banks_get_cost_tracker( banks ), USHORT_MAX );
 
@@ -680,10 +677,6 @@ fd_banks_advance_root( fd_banks_t *               banks,
 
     fd_banks_vote_stakes_evict_bank_fork( banks, head );
 
-    if( FD_UNLIKELY( head->state==FD_BANK_STATE_PRUNABLE ) ) {
-      FD_TEST( banks->prunable_idx==head->idx );
-      banks->prunable_idx = fd_banks_pool_idx_null( bank_pool );
-    }
     if( FD_UNLIKELY( head->state==FD_BANK_STATE_DEAD ) ) fd_banks_dead_ele_remove( fd_banks_get_dead_banks( banks ), head, bank_pool );
     head->state = FD_BANK_STATE_INACTIVE;
     fd_banks_pool_ele_release( bank_pool, head );
@@ -820,14 +813,12 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->vote_stakes_fork_id         = USHORT_MAX;
   child_bank->parent_accdb_fork_id.val    = USHORT_MAX;
 
-  /* Then make sure that the parent bank is valid.  PRUNABLE parents are
-     rejected so eviction victims remain leaves until pruned. */
+  /* Then make sure that the parent bank is valid. */
 
   fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, parent_bank_idx );
   FD_CHECK_CRIT( parent_bank->state!=FD_BANK_STATE_INACTIVE &&
-                 parent_bank->state!=FD_BANK_STATE_DEAD &&
-                 parent_bank->state!=FD_BANK_STATE_PRUNABLE,
-                 "invariant violation: parent bank is dead, inactive, or prunable" );
+                 parent_bank->state!=FD_BANK_STATE_DEAD,
+                 "invariant violation: parent bank is dead or inactive" );
 
   /* Link node->parent */
   child_bank->parent_idx = parent_bank_idx;
@@ -869,10 +860,6 @@ fd_banks_subtree_mark_dead( fd_banks_t * banks,
   int newly_dead = bank->state!=FD_BANK_STATE_DEAD;
 
   ulong idxs_cnt = 0UL;
-  if( FD_UNLIKELY( bank->state==FD_BANK_STATE_PRUNABLE ) ) {
-    FD_TEST( banks->prunable_idx==bank->idx );
-    banks->prunable_idx = fd_banks_pool_idx_null( bank_pool );
-  }
   bank->state = FD_BANK_STATE_DEAD;
   fd_banks_dead_t * dead_banks = fd_banks_get_dead_banks( banks );
   if( FD_UNLIKELY( !newly_dead ) ) fd_banks_dead_ele_remove( dead_banks, bank, bank_pool );
@@ -961,10 +948,6 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
     }
   }
 
-  if( FD_UNLIKELY( bank->state==FD_BANK_STATE_PRUNABLE ) ) {
-    FD_TEST( banks->prunable_idx==bank->idx );
-    banks->prunable_idx = null_idx;
-  }
   bank->state = FD_BANK_STATE_INACTIVE;
 
   fd_banks_pool_ele_release( bank_pool, bank );
@@ -976,25 +959,14 @@ fd_banks_prune_one_bank( fd_banks_t *                   banks,
                          fd_banks_prune_cancel_info_t * cancel ) {
   fd_banks_dead_t * dead_banks = fd_banks_get_dead_banks( banks );
   fd_bank_t *       bank_pool  = fd_banks_get_bank_pool( banks );
-  ulong             null_idx   = fd_banks_pool_idx_null( bank_pool );
-  if( !fd_banks_dead_is_empty( dead_banks, bank_pool ) ) {
-    fd_bank_t * bank = fd_banks_dead_ele_peek_head( dead_banks, bank_pool );
-    FD_TEST( bank->state==FD_BANK_STATE_DEAD );
-    if( bank->refcnt==0UL ) {
-      FD_LOG_DEBUG(( "pruning dead bank (idx=%lu)", bank->idx ));
+  if( fd_banks_dead_is_empty( dead_banks, bank_pool ) ) return 0;
 
-      fd_banks_dead_ele_pop_head( dead_banks, bank_pool );
-      return fd_banks_prune_one_leaf( banks, bank_pool, bank, cancel );
-    }
-  }
+  fd_bank_t * bank = fd_banks_dead_ele_peek_head( dead_banks, bank_pool );
+  FD_TEST( bank->state==FD_BANK_STATE_DEAD );
+  if( bank->refcnt!=0UL ) return 0;
 
-  if( FD_LIKELY( banks->prunable_idx==null_idx ) ) return 0;
-
-  fd_bank_t * bank = fd_banks_pool_ele( bank_pool, banks->prunable_idx );
-  FD_TEST( bank->state==FD_BANK_STATE_PRUNABLE );
-  if( FD_UNLIKELY( bank->refcnt!=0UL ) ) return 0;
-
-  FD_LOG_DEBUG(( "pruning evictable bank (idx=%lu)", bank->idx ));
+  FD_LOG_DEBUG(( "pruning dead bank (idx=%lu)", bank->idx ));
+  fd_banks_dead_ele_pop_head( dead_banks, bank_pool );
   return fd_banks_prune_one_leaf( banks, bank_pool, bank, cancel );
 }
 
@@ -1008,75 +980,6 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
   FD_CHECK_CRIT( bank->cost_tracker_fork_id!=USHORT_MAX, "invariant violation: cost tracker fork id is null" );
   fd_cost_tracker_store_release( fd_banks_get_cost_tracker( banks ), bank->cost_tracker_fork_id );
   bank->cost_tracker_fork_id = USHORT_MAX;
-}
-
-static fd_bank_t *
-fd_banks_get_evictable_private( fd_banks_t *      banks,
-                                fd_bank_t *       bank_pool,
-                                ulong             bank_idx,
-                                fd_bank_t const * protected_bank,
-                                ulong *           evictable_cnt,
-                                ulong *           target ) {
-  /* Return any leaf node that is eligible for eviction.  We consider
-     a bank to be eligibile iff:
-     - it is a leaf
-     - it's not the root,
-     - it's not the leader
-     - the state is INIT, REPLAYABLE, or FROZEN */
-
-  ulong null_idx = fd_banks_pool_idx_null( bank_pool );
-  if( bank_idx==null_idx ) return NULL;
-
-  fd_bank_t * bank = fd_banks_pool_ele( bank_pool, bank_idx );
-
-  ulong child_idx = bank->child_idx;
-  while( child_idx!=null_idx ) {
-    fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, child_idx, protected_bank, evictable_cnt, target );
-    if( FD_LIKELY( evictable ) ) return evictable;
-    fd_bank_t * child = fd_banks_pool_ele( bank_pool, child_idx );
-    child_idx = child->sibling_idx;
-  }
-
-  if( bank->child_idx!=null_idx ) return NULL;
-  if( bank->idx==banks->root_idx ) return NULL;
-  if( bank==protected_bank ) return NULL;
-  if( bank->is_leader ) return NULL;
-  if( bank->state==FD_BANK_STATE_INACTIVE || bank->state==FD_BANK_STATE_DEAD || bank->state==FD_BANK_STATE_PRUNABLE ) return NULL;
-
-  if( FD_LIKELY( evictable_cnt ) ) {
-    (*evictable_cnt)++;
-    return NULL;
-  }
-
-  if( FD_LIKELY( (*target)-- ) ) return NULL;
-  return bank;
-}
-
-ulong
-fd_banks_get_evictable_bank( fd_banks_t *      banks,
-                             fd_bank_t const * protected_bank ) {
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-  ulong       null_idx  = fd_banks_pool_idx_null( bank_pool );
-
-  if( FD_UNLIKELY( banks->prunable_idx!=null_idx ) ) return ULONG_MAX;
-
-  fd_bank_t * root = fd_banks_root( banks );
-  if( FD_UNLIKELY( root->child_idx==null_idx ) ) return ULONG_MAX;
-
-  ulong evictable_cnt = 0UL;
-  fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, &evictable_cnt, NULL );
-  if( FD_UNLIKELY( !evictable_cnt ) ) return ULONG_MAX;
-
-  ulong target = banks->evict_rr_idx++ % evictable_cnt;
-  fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, NULL, &target );
-  if( FD_UNLIKELY( !evictable ) ) FD_LOG_CRIT(( "invariant violation: evictable bank not found" ));
-
-  /* Eviction only selects leaves, and prunable_idx is a single pending
-     victim.  Non-leaf prunables would break both invariants. */
-  FD_TEST( evictable->child_idx==null_idx );
-  evictable->state = FD_BANK_STATE_PRUNABLE;
-  banks->prunable_idx = evictable->idx;
-  return evictable->idx;
 }
 
 void
@@ -1118,8 +1021,6 @@ fd_banks_clear( fd_banks_t * banks ) {
   fd_banks_pool_reset( bank_pool );
   fd_cost_tracker_store_reset( fd_banks_get_cost_tracker( banks ) );
   fd_banks_dead_remove_all( fd_banks_get_dead_banks( banks ), bank_pool );
-  banks->evict_rr_idx = 0UL;
-  banks->prunable_idx = fd_banks_pool_idx_null( bank_pool );
 
   fd_stake_delegations_reset( fd_banks_get_stake_delegations( banks ) );
   fd_vote_stakes_reset( fd_banks_get_vote_stakes( banks ) );
