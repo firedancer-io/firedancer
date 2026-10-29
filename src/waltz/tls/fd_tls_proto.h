@@ -130,6 +130,11 @@ struct fd_tls_client_hello {
 
   fd_tls_ext_opaque_t session_id;
 
+  /* Presence is independent of whether a supported algorithm was found. */
+  uchar has_supported_groups     : 1;
+  uchar has_signature_algorithms : 1;
+  uchar has_key_share            : 1;
+
   fd_tls_ext_supported_versions_t   supported_versions;
   fd_tls_ext_server_name_t          server_name;
   fd_tls_ext_supported_groups_t     supported_groups;

@@ -28,6 +28,9 @@ test_client_hello_decode( void ) {
       0xb5, 0x17, 0xc7, 0x84, 0xdc, 0xf1, 0x03, 0x1b, 0x4a, 0x95, 0xab, 0x98, 0x89, 0x07, 0x0f, 0x13,
       0x93, 0x69, 0xeb, 0xb7, 0x27, 0x53, 0x5b, 0xa4, 0x22, 0xfe, 0xbc, 0x21, 0x4d, 0xc1, 0xc0, 0xe7
     },
+    .has_supported_groups     = 1,
+    .has_signature_algorithms = 1,
+    .has_key_share            = 1,
     .cipher_suites = { .aes_128_gcm_sha256 = 1 },
     .supported_versions = { .tls13 = 1 },
     .server_name = {
@@ -376,6 +379,70 @@ test_tls_pair( fd_rng_t * rng ) {
   test_server_hs = NULL;
   fd_tls_estate_srv_delete( srv_hs );
   fd_tls_estate_cli_delete( cli_hs );
+  fd_tls_delete( fd_tls_leave( server ) );
+  fd_tls_delete( fd_tls_leave( client ) );
+}
+
+static void
+test_tls_client_hello_required_extensions( fd_rng_t * rng ) {
+  fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  prepare_tls_pair( rng, client, server );
+  fd_tls_client_hello_t ch = { .signature_algorithms = { .ed25519=1 } };
+  fd_memcpy( ch.key_share.x25519, client->kex_public_key, 32UL );
+  ushort const types[] = { FD_TLS_EXT_SUPPORTED_GROUPS, FD_TLS_EXT_SIGNATURE_ALGORITHMS, FD_TLS_EXT_KEY_SHARE };
+
+  for( ulong i=0UL; i<3UL; i++ ) for( int absent=0; absent<2; absent++ ) {
+    uchar wire[512];
+    long body_sz = fd_tls_encode_client_hello( &ch, wire+4, sizeof(wire)-4UL );
+    FD_TEST( body_sz>0L );
+    ulong sz = 4UL+(ulong)body_sz;
+    ulong const ext_off = 4UL+41UL; /* No legacy session ID */
+    ulong off = ext_off+2UL;
+    while( off<sz && fd_ushort_bswap( FD_LOAD( ushort, wire+off ) )!=types[i] )
+      off += 4UL+fd_ushort_bswap( FD_LOAD( ushort, wire+off+2UL ) );
+    FD_TEST( off<sz );
+    if( absent ) {
+      /* Replace the extension with an ignored unknown type. */
+      FD_STORE( ushort, wire+off, fd_ushort_bswap( (ushort)0xfafa ) );
+    } else if( types[i]==FD_TLS_EXT_KEY_SHARE ) {
+      /* A present, empty key_share must still elicit HelloRetryRequest. */
+      FD_STORE( ushort, wire+off+2UL, fd_ushort_bswap( (ushort)2 ) );
+      FD_STORE( ushort, wire+off+4UL, 0 );
+      memmove( wire+off+6UL, wire+off+42UL, sz-off-42UL );
+      sz -= 36UL;
+      FD_STORE( ushort, wire+ext_off, fd_ushort_bswap( (ushort)(sz-ext_off-2UL) ) );
+    } else {
+      /* A present list without our algorithm is a negotiation failure. */
+      FD_STORE( ushort, wire+off+6UL, fd_ushort_bswap( (ushort)0xffff ) );
+    }
+    fd_tls_client_hello_t decoded = {0};
+    FD_TEST( fd_tls_decode_client_hello( &decoded, wire+4, sz-4UL )==(long)(sz-4UL) );
+    FD_TEST( decoded.has_supported_groups==( !absent || i!=0UL ) );
+    FD_TEST( decoded.has_signature_algorithms==( !absent || i!=1UL ) );
+    FD_TEST( decoded.has_key_share==( !absent || i!=2UL ) );
+    fd_tls_msg_hdr_t hdr = { .type=FD_TLS_MSG_CLIENT_HELLO, .sz=fd_uint_to_tls_u24( (uint)(sz-4UL) ) };
+    FD_TEST( fd_tls_encode_msg_hdr( &hdr, wire, 4UL )==4L );
+    fd_tls_estate_srv_t hs[1]; FD_TEST( fd_tls_estate_srv_new( hs ) );
+    test_server_hs = hs;
+    test_record_reset( &test_server_out );
+    long res = fd_tls_server_handshake( server, hs, wire, sz, FD_TLS_LEVEL_INITIAL );
+    if( absent ) {
+      FD_TEST( res==-FD_TLS_ALERT_MISSING_EXTENSION );
+      FD_TEST( !test_record_recv( &test_server_out ) );
+    } else if( types[i]==FD_TLS_EXT_KEY_SHARE ) {
+      FD_TEST( res==(long)sz && hs->hello_retry );
+      test_record_t * rec = test_record_recv( &test_server_out );
+      FD_TEST( rec && rec->buf[0]==FD_TLS_MSG_SERVER_HELLO );
+    } else {
+      FD_TEST( res==-FD_TLS_ALERT_HANDSHAKE_FAILURE );
+      FD_TEST( !test_record_recv( &test_server_out ) );
+    }
+    if( absent || i!=2UL ) FD_TEST( hs->base.reason==(i==1UL ? FD_TLS_REASON_CH_NEG_SIG : FD_TLS_REASON_CH_NEG_KX) );
+    fd_tls_estate_srv_delete( hs );
+  }
+  test_server_hs = NULL;
+  test_record_reset( &test_server_out );
   fd_tls_delete( fd_tls_leave( server ) );
   fd_tls_delete( fd_tls_leave( client ) );
 }
@@ -1442,6 +1509,7 @@ main( int     argc,
   test_tls_extension_rules();
   test_tls_vectors();
   test_tls_pair( rng );
+  test_tls_client_hello_required_extensions( rng );
   test_tls_client_wrong_ciphersuite( rng );
   test_tls_server_wrong_ciphersuite( rng );
   test_tls_server_session_id_mismatch( rng, 0 );

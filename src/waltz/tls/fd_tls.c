@@ -480,6 +480,12 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   if( FD_UNLIKELY( !ch.supported_versions.tls13 ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_PROTOCOL_VERSION, FD_TLS_REASON_CH_NEG_VER );
+  /* RFC 8446 Section 9.2: these extensions are mandatory for our
+     certificate-based key exchange.  An empty key_share permits HRR. */
+  if( FD_UNLIKELY( !ch.has_supported_groups || !ch.has_key_share ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_CH_NEG_KX );
+  if( FD_UNLIKELY( !ch.has_signature_algorithms ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_CH_NEG_SIG );
   if( FD_UNLIKELY( !ch.supported_groups.x25519 ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CH_NEG_KX );
   if( FD_UNLIKELY( !ch.signature_algorithms.ed25519 ) )
