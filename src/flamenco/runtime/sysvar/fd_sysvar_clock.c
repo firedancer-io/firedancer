@@ -3,23 +3,6 @@
 #include "../fd_system_ids.h"
 #include "../sysvar/fd_sysvar.h"
 
-/* Syvar Clock Possible Values:
-  slot:
-  [0, ULONG_MAX]
-
-  epoch:
-  [0, slot/432000UL]
-
-  epoch_start_timestamp:
-  [0, ULONG_MAX]
-
-  leader_schedule_epoch:
-  This is the value of the epoch used for the leader schedule.  It is
-  computed based on the values of the epoch schedule (first_normal_slot,
-  leader_schedule_slot_offset, slots_per_epoch).  It is always equal to
-  ((slot - first_normal_slot) + leader_schedule_slot_offset) / schedule->slots_per_epoch
-*/
-
 /* Do all intermediate calculations at nanosecond precision, to mirror
    Solana's behavior. */
 #define NS_IN_S ((long)1e9)
