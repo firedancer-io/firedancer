@@ -836,11 +836,11 @@ test_votor_wfs_keyswitch_during_wait( void ) {
   FD_TEST( fd_pubkey_eq( &ctx.id_key, &new_id ) );
 
   /* Signing resumes without waiting for the supermajority. */
-  FD_TEST( ctx.halt_signing );
+  FD_TEST( ctx.keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
   during_housekeeping( &ctx );
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
-  FD_TEST( !ctx.halt_signing );
+  FD_TEST( ctx.keyswitch_state==FD_KEYSWITCH_STATE_UNLOCKED );
 
   /* The queued event is still there, and drains once the wait ends. */
   FD_TEST( ag_pool_metrics( ctx.pool ).pool_events_cnt==1UL );
@@ -1151,7 +1151,7 @@ test_id_keyswitch( void ) {
   ctx.in_kind[ 1 ] = IN_KIND_REPLAY;
   FD_TEST( !before_frag( &ctx, 1UL, 6UL, REPLAY_SIG_SLOT_COMPLETED ) );
   during_housekeeping( &ctx );
-  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && !ctx.halt_signing );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && ctx.keyswitch_state==FD_KEYSWITCH_STATE_UNLOCKED );
   FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
   FD_TEST( before_frag( &ctx, 1UL, 7UL, REPLAY_SIG_ROOT_ADVANCED ) );
 
@@ -1238,7 +1238,7 @@ test_id_keyswitch( void ) {
   FD_TEST( !fstatat( ctx.vote_history_fd_dir, new_swp, &st, 0 ) && st.st_size==4L );
   FD_TEST( !fstatat( ctx.vote_history_fd_dir, new_bak, &st, 0 ) && st.st_size==4L );
   FD_TEST( !faccessat( ctx.vote_history_fd_dir, old_swp, F_OK, 0 ) );
-  FD_TEST( fd_pubkey_eq( &ctx.id_key_bak, &old_id ) && ctx.vote_history_pending && ctx.highest_vote_or_lead_slot>=3UL );
+  FD_TEST( fd_pubkey_eq( &ctx.id_key_bak, &old_id ) && ctx.keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED && ctx.highest_vote_or_lead_slot>=3UL );
   char const * files[] = { old_bak, old_swp, new_swp, new_bak };
   for( ulong i=0UL; i<4UL; i++ ) FD_TEST( !unlinkat( ctx.vote_history_fd_dir, files[ i ], 0 ) );
   FD_TEST( !close( ctx.vote_history_fd_swp ) && !close( ctx.vote_history_fd ) && !close( ctx.vote_history_fd_bak ) );

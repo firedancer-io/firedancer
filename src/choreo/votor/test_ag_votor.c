@@ -562,11 +562,11 @@ test_set_bls_pubkey( void ) {
   teardown_votor( votor );
 }
 
-/* A notar vote made without a key still counts as cast: setting the key
-   later never sends it, and the next block builds on it. */
+/* Without a key votor holds the block back: setting the key votes it,
+   and the next block builds on that vote. */
 
 static void
-test_missing_bls_selector_records_notar( void ) {
+test_missing_bls_selector_defers_notar( void ) {
   ag_votor_t * votor = setup_votor( 0L );
   ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 2UL, NULL );
 
@@ -579,22 +579,28 @@ test_missing_bls_selector_records_notar( void ) {
   ag_votor_process_replay( votor, 2UL, &block );
   FD_TEST_NO_MSG( votor );
 
+  FD_TEST( !has_voted( votor, 2UL ) );
+
   ag_votor_set_bls_key( votor, 2UL, g_bls_selector[1] );
+  vote = recv( votor );
+  FD_TEST( vote.kind==AG_VOTE_KIND_NOTAR && ag_vote_slot( &vote )==2UL && ag_vote_rank( &vote )==1UL );
+  FD_TEST( !memcmp( vote.notar.block_hash, block.hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
   FD_TEST_NO_MSG( votor );
 
   parent = ag_block_id( 2UL, block.hash );
   vote   = send_block_and_expect_notar( votor, 3UL, &parent );
   FD_TEST( ag_vote_rank( &vote )==1UL );
-  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
   FD_TEST_NO_MSG( votor );
 
   teardown_votor( votor );
 }
 
-/* A final vote made without a key still retires the slot. */
+/* Without a key the slot is never voted, so a notar cert does not
+   retire it. */
 
 static void
-test_missing_bls_selector_records_final( void ) {
+test_missing_bls_selector_records_no_final( void ) {
   ag_votor_t * votor = setup_votor( 0L );
   ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 2UL, NULL );
 
@@ -610,7 +616,7 @@ test_missing_bls_selector_records_final( void ) {
   ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_notar( &notar.notar, 1UL, g_epoch_info ) };
   ag_votor_handle_pool_event( votor, &event, 0L );
   FD_TEST_NO_MSG( votor );
-  FD_TEST( is_retired( votor, 2UL ) );
+  FD_TEST( !is_retired( votor, 2UL ) );
 
   teardown_votor( votor );
 }
@@ -635,8 +641,11 @@ test_set_rank( void ) {
   teardown_votor( votor );
 }
 
+/* Without a key a safe-to event is ignored, the window is not marked
+   voted or bad. */
+
 static void
-test_missing_bls_selector_still_skips_other_epoch( void ) {
+test_missing_bls_selector_ignores_safe_to( void ) {
   for( int notar=0; notar<2; notar++ ) {
     ag_votor_t * votor = setup_votor( 0L );
     ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 2UL, NULL );
@@ -647,17 +656,10 @@ test_missing_bls_selector_still_skips_other_epoch( void ) {
       event.safe_to_notar = random_block_id( 2UL );
     }
     ag_votor_handle_pool_event( votor, &event, 0L );
-
-    ag_vote_t vote;
-    uchar     reason;
-    FD_TEST( ag_votor_poll_vote( votor, &vote, &reason ) );
-    FD_TEST( vote.kind==AG_VOTE_KIND_SKIP );
-    FD_TEST( ag_vote_slot( &vote )==1UL );
-    FD_TEST( reason==( notar ? AG_VOTOR_REASON_SAFE_TO_NOTAR : AG_VOTOR_REASON_SAFE_TO_SKIP ) );
     FD_TEST_NO_MSG( votor );
     ulong slot = 2UL;
     slot_state_ele_t const * state = slot_state_map_ele_query_const( votor->slot_states->map, &slot, NULL, votor->slot_states->pool );
-    FD_TEST( state && state->voted && state->bad_window );
+    FD_TEST( !has_voted( votor, 1UL ) && !has_voted( votor, 2UL ) && !( state && state->bad_window ) );
 
     teardown_votor( votor );
   }
@@ -883,12 +885,12 @@ main( int     argc,
   test_bls_selector_rotates_with_epoch();
   test_missing_bls_selector_disables_voting();
   test_set_bls_pubkey();
-  test_missing_bls_selector_records_notar();
-  test_missing_bls_selector_records_final();
+  test_missing_bls_selector_defers_notar();
+  test_missing_bls_selector_records_no_final();
   test_set_rank();
   test_window_start_at_first_unpruned();
   test_boot_mid_window_notar_child();
-  test_missing_bls_selector_still_skips_other_epoch();
+  test_missing_bls_selector_ignores_safe_to();
   test_prunes_to_finalized_window();
   test_catchup_final_suppresses_stale();
   test_timeout_below_final();

@@ -256,10 +256,10 @@ struct fd_votor_tile {
   /* Signing */
 
   fd_pubkey_t          id_key;
-  fd_pubkey_t          id_key_bak;    /* the identity whose .bak is the vote history spare */
+  fd_pubkey_t          id_key_bak;      /* the identity whose .bak is the vote history spare */
   fd_keyswitch_t *     id_keyswitch;
-  int                  halt_signing;  /* switching identity, see during_housekeeping */
-  ulong                replay_in_seq; /* seq after the last replay_slot frag consumed */
+  ulong                keyswitch_state; /* FD_KEYSWITCH_STATE_{...} */
+  ulong                replay_in_seq;   /* seq after the last replay_slot frag consumed */
   auth_vtr_t *         auth_vtr;
   ulong                auth_vtr_path_cnt;
   fd_keyswitch_t *     auth_vtr_keyswitch;
@@ -269,7 +269,6 @@ struct fd_votor_tile {
 
   ulong       vote_history_slot;     /* first slot votor may vote in, from the vote history file, 0 if none */
   int         vote_history_bak_full; /* the spare holds id_key_bak's vote history */
-  int         vote_history_pending;  /* the next write names the new identity's file, which a switch leaves unnamed */
   int         vote_history_fd;
   int         vote_history_fd_swp;   /* swap file, atomic rename */
   int         vote_history_fd_bak;   /* spare, the new identity's at a switch */
@@ -658,7 +657,7 @@ quic_client_connect( fd_votor_tile_t *      ctx,
                      peer_t *               peer,
                      contact_info_t const * ci,
                      long                   now ) {
-  if( FD_UNLIKELY( ctx->halt_signing ) ) return; /* halted for an identity switch, and the TLS handshake must sign */
+  if( FD_UNLIKELY( ctx->keyswitch_state ) ) return; /* halted for an identity switch, and the TLS handshake must sign */
   peer_t const * self = peers_query( ctx->peers, ctx->id_key, NULL );
   if( FD_UNLIKELY( !self || peer==self ) ) return;
   if( FD_UNLIKELY( self->curr_rank==USHORT_MAX ) ) { /* not voting yet: only connect ahead, within QUIC_CLIENT_CONN_AHEAD_NS of our first ranked epoch */
@@ -1176,7 +1175,7 @@ sign_vote( void *         signer_ctx,
            uchar const *  payload,
            ulong          payload_sz ) {
   fd_votor_tile_t * ctx = signer_ctx;
-  if( FD_UNLIKELY( ctx->halt_signing ) ) {
+  if( FD_UNLIKELY( ctx->keyswitch_state ) ) {
     memset( sig, 0, sizeof(fd_bls_sig_t) );
     return;
   }
@@ -1220,7 +1219,7 @@ write_vote_history( fd_votor_tile_t * ctx ) {
     if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", swp, errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_UNLIKELY( ctx->vote_history_pending ) ) {
+  if( FD_UNLIKELY( ctx->keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->id_key_bak.uc, bak_b58 );
     char bak_swp[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( bak_swp, PATH_MAX, NULL, "vote_history-%s.bin.swp", bak_b58 ) );
@@ -1230,7 +1229,6 @@ write_vote_history( fd_votor_tile_t * ctx ) {
       FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", swp, bin, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, bak_swp, ctx->vote_history_fd_dir, swp, 0 ) ) )
       FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", bak_swp, swp, errno, fd_io_strerror( errno ) ));
-    ctx->vote_history_pending = 0;
   } else if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->vote_history_fd_dir, swp, ctx->vote_history_fd_dir, bin, RENAME_EXCHANGE ) ) ) {
     FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", swp, bin, errno, fd_io_strerror( errno ) ));
   }
@@ -1614,7 +1612,7 @@ handle_replay( fd_votor_tile_t *           ctx,
      leader, built them from ours), so skip re-verifying them. */
   ag_cert_t *  cert = &ctx->scratch.cert;
   fd_bls_sig_t sig_aff[1];
-  if( footer->has_fast_final_cert ) {
+  if( FD_LIKELY( footer->has_fast_final_cert ) ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FAST_FINAL, .fast_final = { .slot = footer->fast_final_cert.slot, .shred_version = ctx->shred_version } };
     memcpy( cert->fast_final.block_hash, footer->fast_final_cert.block_id.uc, sizeof(ag_block_hash_t) );
     fd_bls_set_copy( cert->fast_final.agg.set, footer->fast_final_cert.signer_set );
@@ -1622,7 +1620,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     blst_p2_from_affine( &cert->fast_final.agg.sig, sig_aff );
     ag_pool_add_cert( ctx->pool, cert, 1, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->fast_final.slot );
-  } else if( footer->has_final_cert ) {
+  } else if( FD_LIKELY( footer->has_final_cert ) ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = { .slot = footer->final_cert.slot, .shred_version = ctx->shred_version } };
     fd_bls_set_copy( cert->final.agg.set, footer->final_cert.signer_set );
     blst_p2_uncompress( sig_aff, footer->final_cert.sig );
@@ -1743,7 +1741,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
 
     /* Halt signing at first. */
 
-    ctx->halt_signing = 1;
+    ctx->keyswitch_state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
 
     /* If votes and pool events drained close quic conns and update
        leader tracking.  The pool queue drains only under ctx->init,
@@ -1766,7 +1764,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
          at unhalt, so a restart before then finds no file and refuses to
          boot rather than reading an empty one as never voted. */
 
-      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 && memcmp( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) {
         FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc,           id_key_b58 );
         FD_BASE58_ENCODE_32_BYTES( ctx->id_keyswitch->bytes, switch_b58 );
         FD_BASE58_ENCODE_32_BYTES( ctx->id_key_bak.uc,       spare_b58  );
@@ -1802,7 +1800,6 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
         ctx->vote_history_fd_swp   = fd;
         ctx->id_key_bak            = ctx->id_key;
         ctx->vote_history_bak_full = 1;
-        ctx->vote_history_pending  = 1;
       }
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
       ctx->vote_history_slot         = fd_ulong_max( FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL ), ag_first_slot_in_window( ctx->highest_vote_or_lead_slot )+AG_SLOTS_PER_WINDOW );
@@ -1839,6 +1836,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
 
       ulong next_window = ag_first_slot_in_window( ctx->highest_parent_ready_slot )+AG_SLOTS_PER_WINDOW;
       ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, next_window ), ctx->vote_history_slot ), &ctx->id_key );
+      ctx->keyswitch_state  = FD_KEYSWITCH_STATE_COMPLETED;
       fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     }
   }
@@ -1847,11 +1845,11 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
      Votor signs nothing in slots it already voted in. */
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-    FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
+    FD_CHECK_CRIT( ctx->keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED, "state machine corruption" );
     load_keys( ctx, ctx->auth_vtr_path_cnt );
-    ctx->halt_signing = 0;
     ctx->vote_history_slot = fd_ulong_max( ctx->vote_history_slot, ag_first_slot_in_window( ctx->highest_vote_or_lead_slot )+AG_SLOTS_PER_WINDOW );
     if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx ); /* the sign tile has the new key, so its floor is on disk before it votes */
+    ctx->keyswitch_state = FD_KEYSWITCH_STATE_UNLOCKED;
     update_own_rank( ctx );
     update_own_bls_key( ctx );
     ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool ); /* its next vote was copied as the old identity */
@@ -2072,7 +2070,7 @@ after_credit( fd_votor_tile_t *   ctx,
   }
   ag_block_id_t parent = { .slot = ULONG_MAX }; /* never will be leader, schedule exhausted, or the pool has not granted parent ready yet */
   if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
-  if( FD_UNLIKELY( parent.slot!=ULONG_MAX && !ctx->halt_signing ) ) {
+  if( FD_UNLIKELY( parent.slot!=ULONG_MAX && !ctx->keyswitch_state ) ) {
     ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW-1UL );
     if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx ); /* a restart does not lead the window again */
     fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
@@ -2359,7 +2357,7 @@ before_frag( fd_votor_tile_t * ctx,
   case IN_KIND_IPECHO:
     return 0;
   case IN_KIND_NET:
-    if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->halt_signing ) ) return 1; /* halted, no TLS handshake may sign */
+    if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->keyswitch_state ) ) return 1; /* halted, no TLS handshake may sign */
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
     if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD ) ) {
@@ -2488,7 +2486,6 @@ privileged_init( fd_topo_t const *      topo,
   ctx->vote_history_fd_bak       = -1;
   ctx->id_key_bak                = ctx->id_key;
   ctx->vote_history_bak_full     = 0;
-  ctx->vote_history_pending      = 0;
   ctx->vote_history_slot         = 0UL;
   ctx->highest_vote_or_lead_slot = 0UL;
   if( FD_LIKELY( tile->votor.vote_history_path[ 0 ] ) ) {
@@ -2723,7 +2720,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->auth_vtr_keyswitch );
   ctx->id_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->id_keyswitch );
-  ctx->halt_signing      = 0;
+  ctx->keyswitch_state   = FD_KEYSWITCH_STATE_UNLOCKED;
   ctx->replay_in_seq     = 0UL;
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
