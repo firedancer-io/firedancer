@@ -32,7 +32,12 @@
 
 #define QUIC_DGRAM_BURST (9UL)
 
-#define FD_VOTOR_OUT_BURST (1UL+AG_SLOTS_PER_WINDOW+1UL+QUIC_DGRAM_BURST+1UL) /* 1 leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum + 1 repair, or a catchup repair per datagram, + 1 parent ready */
+/* FD_VOTOR_OUT_BURST bounds votor_out frags per stem iteration: 1
+   leader + 4 reward + 1 republished reward, then 2 certed or 1 quorum +
+   1 repair, or a catchup repair per datagram of a deferred and a fresh
+   net packet, + 1 parent ready. */
+
+#define FD_VOTOR_OUT_BURST (1UL+AG_SLOTS_PER_WINDOW+1UL+2UL*QUIC_DGRAM_BURST+1UL)
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is

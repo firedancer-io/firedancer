@@ -67,6 +67,8 @@
 #define QUIC_SERVER_CONN_PER_PEER_MAX (2UL)                                        /* allow up to 2 per peer, in case of failures (zombies, network partition, etc.) */
 #define QUIC_SERVER_CONN_MAX          (AG_VAT_MAX * QUIC_SERVER_CONN_PER_PEER_MAX) /* at most AG_VAT_MAX connections */
 
+#define QUIC_SERVER_DEFER_MAX (2048UL) /* depth of deferral queue for handshake packets */
+
 #define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
 #define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
 #define REWARD_VOTE_RTT_MAX_NS (200000000L)                               /* retry a reward vote no later than 200ms */
@@ -118,6 +120,21 @@ typedef struct contact_info contact_info_t;
 #define MAP_KEY_EQUAL_IS_SLOW   1
 #define MAP_KEY_HASH(key,seed)  ((uint)fd_hash32( (key).uc, (seed) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
+
+/* hs_defer buffers server port datagrams starting with a QUIC long
+   header (Initial, Handshake), so 1-RTT packets carrying votes and
+   certs have higher QoS. */
+
+struct hs_defer {
+  ushort sz;
+  uchar  buf[ FD_NET_MTU ];
+};
+typedef struct hs_defer hs_defer_t;
+
+#define DEQUE_NAME hs_defer
+#define DEQUE_T    hs_defer_t
+#define DEQUE_MAX  QUIC_SERVER_DEFER_MAX
+#include "../../util/tmpl/fd_deque.c"
 
 #define PEERS_LG_SLOT_CNT (13) /* 2*AG_VAT_MAX, fill ratio 0.5 */
 FD_STATIC_ASSERT( (1UL<<PEERS_LG_SLOT_CNT)>=4UL*AG_VAT_MAX, peers );
@@ -389,7 +406,15 @@ struct fd_votor_tile {
     ulong vote_history_write;
     ulong leader_window_superseded;
     ulong cert_tx_unstaked;
+    ulong hs_defer_drop;
   } metrics;
+
+  /* Handshake QoS */
+
+  ulong              in_cnt;       /* polled ins */
+  ulong              net_idle_cnt; /* after_credit calls since the last net frag, every polled in was checked once it exceeds in_cnt */
+  hs_defer_t *       hs_defer;
+  hs_defer_private_t hs_defer_mem[1];
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
 
@@ -1992,6 +2017,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_SET        ( VOTOR, SERVER_FRAME_PARSE_FAILED,           ctx->quic_server->metrics.frame_rx_err_cnt        );
   FD_MHIST_COPY      ( VOTOR, SERVER_SERVICE_DURATION_NANOS,       ctx->quic_server->metrics.service_duration        );
   FD_MHIST_COPY      ( VOTOR, SERVER_PKT_RX_DURATION_NANOS,        ctx->quic_server->metrics.receive_duration        );
+  FD_MCNT_SET        ( VOTOR, SERVER_HANDSHAKE_PKT_DROPPED,        ctx->metrics.hs_defer_drop                        );
 }
 
 /* cert_tx_skip returns 1 if a cert or standstill vote for slot should
@@ -2008,6 +2034,13 @@ cert_tx_skip( fd_votor_tile_t * ctx,
     return 1;
   }
   return 0;
+}
+
+static inline void
+net_tx_flush( fd_votor_tile_t *   ctx,
+              fd_stem_context_t * stem ) {
+  for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
+  ctx->net_tx_cnt = 0UL;
 }
 
 /* after_credit is the tile's event loop.  Each step handles at most
@@ -2051,8 +2084,24 @@ after_credit( fd_votor_tile_t *   ctx,
   /* Service both QUIC client and server. */
 
   *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
-  for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
-  ctx->net_tx_cnt = 0UL;
+  net_tx_flush( ctx, stem );
+
+  /* Process a deferred long header datagram */
+
+  ctx->net_idle_cnt++;
+  if( FD_UNLIKELY( !hs_defer_empty( ctx->hs_defer ) ) ) {
+    if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->keyswitch_state ) ) {
+      ctx->metrics.hs_defer_drop += hs_defer_cnt( ctx->hs_defer );
+      hs_defer_remove_all( ctx->hs_defer );
+    } else if( FD_LIKELY( ctx->net_idle_cnt>ctx->in_cnt ) ) {
+      hs_defer_t * d = hs_defer_peek_head( ctx->hs_defer );
+      ctx->stem = stem;
+      fd_quic_process_packet( ctx->quic_server, d->buf, d->sz, now );
+      hs_defer_remove_head( ctx->hs_defer );
+      net_tx_flush( ctx, stem );
+      *charge_busy = 1;
+    }
+  }
 
   /* Not initialized. */
 
@@ -2357,6 +2406,7 @@ before_frag( fd_votor_tile_t * ctx,
   case IN_KIND_IPECHO:
     return 0;
   case IN_KIND_NET:
+    ctx->net_idle_cnt = 0UL;
     if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->keyswitch_state ) ) return 1; /* halted, no TLS handshake may sign */
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
@@ -2451,10 +2501,22 @@ after_frag( fd_votor_tile_t *   ctx,
     ushort               dport = fd_ushort_bswap( udp->net_dport );
     if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
     fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
+    int long_hdr = sz>sizeof(fd_eth_hdr_t)+iplen+sizeof(fd_udp_hdr_t) && ( ((uchar const *)( udp+1 ))[ 0 ]&0x80 );
+    if( FD_UNLIKELY( quic==ctx->quic_server && long_hdr ) ) {
+      /* Defer Initial/Handshake packets and only process them when we
+         have free CPU time */
+      if( FD_UNLIKELY( hs_defer_full( ctx->hs_defer ) ) ) {
+        hs_defer_remove_head( ctx->hs_defer ); /* drop oldest */
+        ctx->metrics.hs_defer_drop++;
+      }
+      hs_defer_t * d = hs_defer_push_tail_nocopy( ctx->hs_defer );
+      d->sz = (ushort)( sz-sizeof(fd_eth_hdr_t) );
+      fd_memcpy( d->buf, ctx->net_buf+sizeof(fd_eth_hdr_t), d->sz );
+      break;
+    }
     ctx->stem = stem;
     fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_clock_tile_now( ctx->clock ) );
-    for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
-    ctx->net_tx_cnt = 0UL;
+    net_tx_flush( ctx, stem );
     break;
   }
   case IN_KIND_REPLAY:
@@ -2632,6 +2694,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
   FD_TEST( ctx->mleaders );
 
+  ctx->hs_defer = hs_defer_join( hs_defer_new( ctx->hs_defer_mem ) );
+  FD_TEST( ctx->hs_defer );
+
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
   for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) ctx->reward_certs[ i ] = (reward_cert_t){ .slot = ULONG_MAX };
 
@@ -2656,6 +2721,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ag_pool_standstill_iter_init( ctx->standstill_iter, ctx->pool );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
+  ctx->in_cnt       = 0UL;
+  ctx->net_idle_cnt = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) ctx->in_cnt += (ulong)!!tile->in_link_poll[ i ];
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
@@ -2819,6 +2887,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static inline int
+prevent_park( fd_votor_tile_t * ctx ) {
+  return !hs_defer_empty( ctx->hs_defer );
+}
+
 #define STEM_BURST FD_VOTOR_OUT_BURST /* votor_out only; EXCLUDES VOTOR_NET (has no reliable consumers) */
 #define STEM_LAZY  (128L*3000L)
 
@@ -2831,6 +2904,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_PREVENT_PARK        prevent_park
 
 #include "../../disco/stem/fd_stem.c"
 
