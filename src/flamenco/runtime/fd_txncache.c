@@ -177,9 +177,9 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
     ulong txnpage_idx = fd_txncache_txnpage_idx_ld( idx_sz, tc->txnpages_free, txnpages_free_cnt-1UL );
     fd_txncache_txnpage_t * txnpage = &tc->txnpages[ txnpage_idx ];
     txnpage->free = FD_TXNCACHE_TXNS_PER_PAGE;
-    FD_COMPILER_MFENCE();
+    FD_HW_MFENCE_ST();
     fd_txncache_txnpage_idx_st( idx_sz, blockcache->pages, page_cnt, txnpage_idx );
-    FD_COMPILER_MFENCE();
+    FD_HW_MFENCE_ST();
     blockcache->shmem->pages_cnt = page_cnt+1UL;
     return txnpage;
   } else {
