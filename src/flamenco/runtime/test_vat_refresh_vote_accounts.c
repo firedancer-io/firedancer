@@ -341,8 +341,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   ulong const accdb_writes_per_slot = 256UL;
   ulong const accdb_partition_cnt  = 8UL;
   ulong const accdb_partition_sz   = 1UL<<26UL; /* 64 MiB */
-  ulong const accdb_cache_footprint   = 4UL<<30UL; /* 4 GiB (cache minimum) */
-  ulong const accdb_cache_min_reserved = fd_accdb_cache_min_reserved( 0 );
+  ulong const accdb_cache_footprint   = 256UL<<20UL; /* 256 MiB, no evictions */
+  ulong const accdb_cache_min_reserved = 16UL;        /* fd_accdb_cache_min_reserved( 0 ) needs a >2 GiB cache */
   ulong const accdb_joiner_cnt     = 1UL;
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( accdb_max_accounts, accdb_max_live_slots,
@@ -869,7 +869,7 @@ main( int argc, char ** argv ) {
   if( cpu_idx > fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 6UL );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
   ulong        page_sz  = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));

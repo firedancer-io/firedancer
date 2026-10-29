@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Regenerate the TEST_GIGANTIC_PAGES table embedded in run_unit_tests.sh.
 #
-# run_unit_tests.sh always invokes tests with `--page-sz gigantic`, so
-# every test's anonymous workspace is backed by 1 GiB gigantic pages
+# run_unit_tests.sh passes `--page-sz gigantic` by default (it converts
+# this table for other page sizes), so workspaces use 1 GiB pages
 # regardless of the test's own --page-sz default.  The number of gigantic
 # pages a test needs is therefore ceil(footprint / 1 GiB), where the
 # footprint is the test's own default workspace size:
